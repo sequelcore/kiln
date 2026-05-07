@@ -23,6 +23,29 @@ operator events to display-safe presentation:
 GUI and TUI may render those projections differently, but they should consume
 this shared presenter instead of duplicating event-specific display logic.
 
+### Presentation Intent
+
+`src/presentation-intent.ts` defines the closed semantic display contract for
+model/tool-proposed rich output. A tool may include `metadata.presentationIntent`
+or an equivalent structured envelope field, but the shared presenter validates it
+before any operator surface sees it as `toolPresentation.presentationIntent`.
+
+Allowed intent kinds are intentionally small:
+
+- `summary`
+- `comparison_table`
+- `risk_matrix`
+- `timeline`
+- `resource_bundle`
+- `diagnostic_report`
+
+Invalid or unsupported intents are ignored and the tool falls back to normal
+typed output projection. Presentation intent never grants authority, never
+selects arbitrary UI components, and never accepts HTML/CSS/JS/JSX/SVG payloads.
+GUI, TUI, CLI, SDK/widget, and future surfaces receive the same validated data
+and degrade to `formatPresentationIntentAsText()` when a native rich renderer is
+not available.
+
 ## Operator Empty State Copy
 
 The shared operator empty-state phrase catalog lives in

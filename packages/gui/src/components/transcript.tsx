@@ -5,6 +5,7 @@ import {
   type ConversationProjectionInput,
   formatOperatorEventValue,
   operatorEmptyStatePhraseAt,
+  type PresentationIntent,
 } from "@kilnai/gateway-contracts";
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Terminal } from "lucide-react";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
@@ -131,6 +132,128 @@ function ToolPreviewText(props: { readonly text: string; readonly outputKind: st
   );
 }
 
+function PresentationIntentDetails(props: { readonly intent: PresentationIntent }) {
+  if (props.intent.kind === "summary") {
+    return (
+      <div className="mt-2 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+        {props.intent.fields ? <MetaList items={props.intent.fields.map((field) => ({
+          label: field.label,
+          value: formatOperatorEventValue(field.value) ?? "",
+        }))} /> : null}
+        {props.intent.bullets ? (
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-5 text-foreground">
+            {props.intent.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+          </ul>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (props.intent.kind === "comparison_table") {
+    const intent = props.intent;
+    return (
+      <div className="mt-2 overflow-x-auto rounded-lg border border-border/70 bg-background/55">
+        <table className="min-w-full table-fixed border-collapse text-left text-xs">
+          <thead className="bg-muted/40 text-[10px] font-semibold uppercase text-muted-foreground">
+            <tr>
+              {intent.columns.map((column) => (
+                <th key={column.key} scope="col" className="px-2.5 py-2 align-bottom">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {intent.rows.map((row, index) => (
+              <tr key={index} className="border-t border-border/60">
+                {intent.columns.map((column) => (
+                  <td key={column.key} className="break-words px-2.5 py-2 align-top text-foreground">
+                    {formatOperatorEventValue(row[column.key]) ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (props.intent.kind === "risk_matrix") {
+    return (
+      <div className="mt-2 flex flex-col gap-2">
+        {props.intent.risks.map((risk) => (
+          <section key={risk.id ?? risk.risk} className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <Badge variant={risk.severity === "critical" || risk.severity === "high" ? "destructive" : "outline"} className="shrink-0">
+                {risk.severity}
+              </Badge>
+              <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-foreground">{risk.risk}</p>
+            </div>
+            {risk.evidence ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{risk.evidence}</p> : null}
+            {risk.recommendation ? <p className="mt-1 text-sm leading-5 text-foreground">{risk.recommendation}</p> : null}
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  if (props.intent.kind === "timeline") {
+    return (
+      <ol className="mt-2 flex flex-col gap-2">
+        {props.intent.items.map((item, index) => (
+          <li key={item.id ?? `${index}:${item.label}`} className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="font-mono text-[10px] text-muted-foreground">{item.timestamp ?? item.order ?? index + 1}</span>
+              {item.status ? <Badge variant="outline" className="shrink-0">{item.status}</Badge> : null}
+              <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-foreground">{item.label}</p>
+            </div>
+            {item.summary ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{item.summary}</p> : null}
+          </li>
+        ))}
+      </ol>
+    );
+  }
+
+  if (props.intent.kind === "resource_bundle") {
+    return (
+      <div className="mt-2 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+        <p className="text-sm leading-5 text-muted-foreground">
+          {props.intent.resources.length} resource{props.intent.resources.length === 1 ? "" : "s"}
+        </p>
+      </div>
+    );
+  }
+
+  if (props.intent.kind === "diagnostic_report") {
+    return (
+      <div className="mt-2 flex flex-col gap-2">
+        {props.intent.sections.map((section) => (
+          <section key={section.title} className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{section.title}</p>
+              {section.status ? (
+                <Badge variant={section.status === "error" ? "destructive" : "outline"} className="shrink-0">
+                  {section.status}
+                </Badge>
+              ) : null}
+            </div>
+            {section.summary ? (
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">{section.summary}</p>
+            ) : null}
+            {section.fields ? <MetaList items={section.fields.map((field) => ({
+              label: field.label,
+              value: formatOperatorEventValue(field.value) ?? "",
+            }))} /> : null}
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEntry }) {
   const presentation = props.entry.toolPresentation;
   if (!presentation) return null;
@@ -156,6 +279,9 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
         ) : null}
       </div>
       <MetaList items={presentation.fields} />
+      {presentation.presentationIntent ? (
+        <PresentationIntentDetails intent={presentation.presentationIntent} />
+      ) : null}
       {presentation.resourceLinks?.map((resource) => (
         <div key={resource.uri} className="min-w-0 rounded-lg bg-background/55 px-2.5 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{previewLabel}</p>
@@ -324,7 +450,7 @@ function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry }) {
 }
 
 function canRenderEventDetails(entry: TimelineEventEntry): boolean {
-  if (entry.details === undefined && (entry.presentationDetails?.length ?? 0) === 0) return false;
+  if (entry.details === undefined && (entry.presentationDetails?.length ?? 0) === 0 && !entry.toolPresentation) return false;
   switch (entry.eventKind) {
     case "tool_call_started":
     case "tool_call_completed":

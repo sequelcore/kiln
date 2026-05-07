@@ -301,6 +301,15 @@ write evidence. GUI, TUI, CLI, SDK, and future operator surfaces must derive
 managed invocation state from these canonical events rather than maintaining
 local managed-agent state.
 
+`managed_agent.invoke` tool results also emit a validated presentation intent
+for operator-facing route evidence. The first supported intent is a
+`comparison_table` row containing route id, provider, model, profile, context
+mode, terminal status, substantive-evidence flag, and failure reason when
+present. This table is presentation evidence only; canonical lifecycle state
+remains the managed invocation record and `agent_invocation_*` events. Surfaces
+render the same validated intent natively or through deterministic text fallback
+instead of parsing markdown tables from the parent assistant response.
+
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Transcript and result handoff URIs emitted
 by managed invocation records must be readable through the shared `resource_read`

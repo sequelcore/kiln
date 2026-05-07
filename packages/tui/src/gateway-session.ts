@@ -5,6 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  formatPresentationIntentAsText,
   isGuiProviderModeless,
   operatorEventTargetsSurface,
   presentOperatorSessionEvent,
@@ -108,7 +109,9 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: "tool_result",
       toolName,
-      output: presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",
+      output: presentation.toolPresentation?.presentationIntent
+        ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
+        : presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",
       toolPresentation: presentation.toolPresentation,
       surfaces: presentation.surfaces,
       ...scoped,

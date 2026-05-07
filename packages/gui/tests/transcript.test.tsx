@@ -229,6 +229,64 @@ describe("Transcript", () => {
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
   });
 
+  it("renders validated comparison-table presentation intents as native tables", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:managed-comparison",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed managed_agent.invoke",
+            summary: "3 child routes compared",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "table",
+              title: "Managed child comparison",
+              summary: "3 child routes compared",
+              fields: [{ label: "Intent", value: "comparison_table" }],
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child comparison",
+                summary: "3 child routes compared",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "provider", label: "Provider" },
+                  { key: "model", label: "Model" },
+                  { key: "status", label: "Status", valueKind: "status" },
+                  { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+                ],
+                rows: [
+                  {
+                    routeId: "codex-oauth-readonly",
+                    provider: "codex-oauth",
+                    model: "gpt-5.4-mini",
+                    status: "completed",
+                    substantiveEvidence: true,
+                  },
+                ],
+              },
+              preview: {
+                text: "| Route | Provider |",
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Evidence" })).toBeInTheDocument();
+    expect(within(table).getByText("codex-oauth-readonly")).toBeInTheDocument();
+    expect(within(table).getByText("yes")).toBeInTheDocument();
+    expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
+  });
+
   it("renders resource-linked tool presentations without fake inspector actions", () => {
     render(
       <Transcript

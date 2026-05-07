@@ -77,6 +77,15 @@ Required operator evidence includes:
 Raw payloads are audit evidence. Normal operator surfaces must prefer shared
 presentation projections and reserve raw objects for inspector/debug views.
 
+Rich result display uses the shared presentation-intent contract. Agents and
+tools may propose a semantic intent such as a comparison table, risk matrix,
+timeline, resource bundle, diagnostic report, or summary. Kiln validates that
+intent in `@kilnai/gateway-contracts` before any surface renders it. GUI may use
+native compact components; TUI, CLI, SDK/widget, IDE, and remote surfaces must
+receive the same validated data and may degrade through the shared deterministic
+text formatter. No surface may accept arbitrary provider-authored HTML, CSS,
+JavaScript, JSX, SVG, or component names as presentation input.
+
 ## Local GUI
 
 The local GUI is the first rich operator surface. It is web-first and
@@ -194,4 +203,3 @@ behavior, or a provider-owned session namespace.
 - Session selection means active continuation unless a surface explicitly
   implements a read-only preview mode.
 - Roadmaps sequence work; stable operator-surface doctrine lives here.
-

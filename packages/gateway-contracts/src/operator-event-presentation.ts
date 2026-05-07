@@ -1,4 +1,11 @@
 import type { OperatorSessionEvent, OperatorSessionEventKind } from "./frames.js";
+import {
+  formatPresentationIntentAsText,
+  parsePresentationIntent,
+  presentationIntentBrief,
+  type PresentationIntent,
+  type PresentationIntentResourceLink,
+} from "./presentation-intent.js";
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
 export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
@@ -46,6 +53,7 @@ export interface ToolResultPresentation {
   readonly title: string;
   readonly summary?: string;
   readonly fields: readonly OperatorEventDetailItem[];
+  readonly presentationIntent?: PresentationIntent;
   readonly preview?: ToolResultPreview;
   readonly resourceLinks?: readonly ToolResultResourceLinkPresentation[];
   readonly raw: ToolResultRawAvailability;
@@ -164,12 +172,14 @@ function parseToolResultEnvelope(value: string | null): {
   readonly output?: string;
   readonly isError?: boolean;
   readonly metadata?: Record<string, unknown>;
+  readonly presentationIntent?: unknown;
   readonly resourceLinks: readonly ToolResultResourceLinkPresentation[];
 } | null {
   if (!value) return null;
   let output: string | undefined;
   let isError: boolean | undefined;
   let metadata: Record<string, unknown> | undefined;
+  let presentationIntent: unknown;
   let resourceLinks: readonly ToolResultResourceLinkPresentation[] = [];
   let current: string | null = value;
   for (let depth = 0; depth < 4 && current; depth += 1) {
@@ -185,10 +195,16 @@ function parseToolResultEnvelope(value: string | null): {
         ...(metadata ?? {}),
         ...nextMetadata,
       };
+      if ("presentationIntent" in nextMetadata) {
+        presentationIntent = nextMetadata.presentationIntent;
+      }
       const links = readResourceLinks(nextMetadata.resourceLinks);
       if (links.length > 0) {
         resourceLinks = links;
       }
+    }
+    if ("presentationIntent" in result) {
+      presentationIntent = result.presentationIntent;
     }
     const directLinks = readResourceLinks(result.resourceLinks);
     if (directLinks.length > 0) {
@@ -212,6 +228,7 @@ function parseToolResultEnvelope(value: string | null): {
     ...(output ? { output } : {}),
     ...(isError !== undefined ? { isError } : {}),
     ...(metadata ? { metadata } : {}),
+    ...(presentationIntent !== undefined ? { presentationIntent } : {}),
     resourceLinks,
   };
 }
@@ -243,6 +260,19 @@ function readResourceLinks(value: unknown): readonly ToolResultResourceLinkPrese
       } satisfies ToolResultResourceLinkPresentation;
     })
     .filter((item): item is ToolResultResourceLinkPresentation => item !== null);
+}
+
+function projectIntentResourceLinks(
+  value: readonly PresentationIntentResourceLink[] | undefined,
+): readonly ToolResultResourceLinkPresentation[] {
+  if (!value) return [];
+  return value.map((resource) => ({
+    uri: resource.uri,
+    ...(resource.title ? { title: resource.title } : {}),
+    ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+    ...(resource.size !== undefined ? { size: resource.size } : {}),
+    ...(resource.relation ? { relation: resource.relation } : {}),
+  }));
 }
 
 function plural(value: number, singular: string, pluralValue = `${singular}s`): string {
@@ -577,6 +607,70 @@ function projectTextPresentation(
   };
 }
 
+function presentationIntentOutputKind(intent: PresentationIntent): ToolResultOutputKind {
+  if (intent.kind === "comparison_table") return "table";
+  if (intent.kind === "resource_bundle") return "resource_links";
+  return "text";
+}
+
+function presentationIntentFields(intent: PresentationIntent): readonly OperatorEventDetailItem[] {
+  const fields = [
+    field("Intent", intent.kind),
+    field("Source", intent.source),
+    field("Confidence", intent.confidence),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  if (intent.kind === "comparison_table") {
+    return [
+      ...fields,
+      field("Rows", intent.rows.length),
+      field("Columns", intent.columns.length),
+    ].filter((item): item is OperatorEventDetailItem => item !== null);
+  }
+  return fields;
+}
+
+function projectPresentationIntentToolPresentation(
+  intent: PresentationIntent,
+  fallbackResourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const intentResourceLinks = projectIntentResourceLinks(
+    intent.kind === "resource_bundle" ? intent.resources : intent.resourceLinks,
+  );
+  const resourceLinks = intentResourceLinks.length > 0 ? intentResourceLinks : fallbackResourceLinks;
+  const text = formatPresentationIntentAsText(intent);
+  return {
+    outputKind: presentationIntentOutputKind(intent),
+    title: intent.title,
+    summary: presentationIntentBrief(intent),
+    fields: presentationIntentFields(intent),
+    presentationIntent: intent,
+    preview: compactPreview(text, 4_000),
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function readPresentationIntent(
+  payload: Record<string, unknown>,
+  envelope: ReturnType<typeof parseToolResultEnvelope>,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): PresentationIntent | undefined {
+  const outputRecord = parseOutputRecord(output);
+  const candidates = [
+    metadata?.presentationIntent,
+    envelope?.presentationIntent,
+    payload.presentationIntent,
+    outputRecord?.presentationIntent,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === undefined) continue;
+    const parsed = parsePresentationIntent(candidate);
+    if (parsed.ok) return parsed.intent;
+  }
+  return undefined;
+}
+
 function projectToolResultPresentation(
   toolName: string,
   payload: Record<string, unknown>,
@@ -592,7 +686,11 @@ function projectToolResultPresentation(
     : undefined;
   const payloadResourceLinks = readResourceLinks(payloadMetadata?.resourceLinks);
   const resourceLinks = payloadResourceLinks.length > 0 ? payloadResourceLinks : envelope?.resourceLinks ?? [];
-  if (!output && !metadata && resourceLinks.length === 0) return undefined;
+  const presentationIntent = readPresentationIntent(payload, envelope, output, metadata);
+  if (!output && !metadata && resourceLinks.length === 0 && !presentationIntent) return undefined;
+  if (presentationIntent) {
+    return projectPresentationIntentToolPresentation(presentationIntent, resourceLinks);
+  }
   const operation = readString(metadata?.operation);
   const kind = readString(metadata?.kind);
   const hasDiff = !!metadata && (

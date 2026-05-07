@@ -123,6 +123,35 @@ export type {
 } from "./operator-event-presentation.js";
 
 export {
+  PRESENTATION_INTENT_KINDS,
+  formatPresentationIntentAsText,
+  isPresentationIntent,
+  parsePresentationIntent,
+  presentationIntentBrief,
+} from "./presentation-intent.js";
+export type {
+  ComparisonTablePresentationCell,
+  ComparisonTablePresentationColumn,
+  ComparisonTablePresentationIntent,
+  DiagnosticReportPresentationIntent,
+  DiagnosticReportPresentationSection,
+  PresentationIntent,
+  PresentationIntentBase,
+  PresentationIntentConfidence,
+  PresentationIntentField,
+  PresentationIntentKind,
+  PresentationIntentResourceLink,
+  PresentationIntentSeverity,
+  PresentationIntentStatus,
+  ResourceBundlePresentationIntent,
+  RiskMatrixPresentationIntent,
+  RiskMatrixPresentationItem,
+  SummaryPresentationIntent,
+  TimelinePresentationIntent,
+  TimelinePresentationItem,
+} from "./presentation-intent.js";
+
+export {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
   OPERATOR_THEME_PALETTES,

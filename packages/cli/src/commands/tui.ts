@@ -40,7 +40,14 @@ import type { PersistedTranscriptEvent } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
-import { GUI_PROVIDER_DISPLAY_ORDER, getGuiProviderMetadata, isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
+import {
+  GUI_PROVIDER_DISPLAY_ORDER,
+  formatPresentationIntentAsText,
+  getGuiProviderMetadata,
+  isGuiProviderModeless,
+  presentOperatorEventPayload,
+  type GuiProviderDiscoveryResult,
+} from "@kilnai/gateway-contracts";
 import {
   createSessionBuiltinToolOptions,
   extractText,
@@ -876,13 +883,25 @@ function mapSessionEventToTui(
         ...scoped,
       };
     case "tool_result": {
-      const output = typeof candidate.output === "string"
-        ? parseToolResultEnvelope(candidate.output).output
+      const toolName = typeof candidate.toolName === "string" ? candidate.toolName : undefined;
+      const presentation = toolName && typeof candidate.output === "string"
+        ? presentOperatorEventPayload("tool_call_completed", buildToolResultPayload({
+          toolCallId: typeof candidate.toolCallId === "string" ? candidate.toolCallId : "tool-result",
+          toolName,
+          output: candidate.output,
+          ...(typeof candidate.outputSummary === "string" ? { outputSummary: candidate.outputSummary } : {}),
+          ...(typeof candidate.isError === "boolean" ? { isError: candidate.isError } : {}),
+        }))
         : undefined;
+      const output = presentation?.toolPresentation?.presentationIntent
+        ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
+        : typeof candidate.output === "string"
+          ? parseToolResultEnvelope(candidate.output).output
+          : undefined;
       return {
         type: "activity",
         activity: "tool_result",
-        toolName: typeof candidate.toolName === "string" ? candidate.toolName : undefined,
+        toolName,
         output,
         ...scoped,
       };

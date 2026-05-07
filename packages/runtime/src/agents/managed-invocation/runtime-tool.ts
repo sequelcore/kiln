@@ -13,6 +13,7 @@ import type {
   ToolDefinition,
 } from "@kilnai/core";
 import { defineManagedAgentInvocationRequest } from "@kilnai/core";
+import type { PresentationIntent } from "@kilnai/gateway-contracts";
 import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
@@ -352,10 +353,20 @@ async function executeManagedInvocationTool(
         `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}': ${unavailableRoute.reason}`,
         {
           routeId: unavailableRoute.routeId,
+          profile: parsed.input.profile,
           providerRoute: {
             providerId: unavailableRoute.providerId,
             ...(unavailableRoute.model ? { model: unavailableRoute.model } : {}),
           },
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            routeId: unavailableRoute.routeId,
+            profile: parsed.input.profile,
+            providerId: unavailableRoute.providerId,
+            model: unavailableRoute.model,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: unavailableRoute.reason,
+          }),
         },
       );
     }
@@ -458,6 +469,16 @@ async function executeManagedInvocationTool(
         context: request.input.context,
         missingCapabilities: result.decision.missingCapabilities,
         sessionEventIds: events.map((event) => event.eventId),
+        presentationIntent: buildManagedInvocationPresentationIntent({
+          routeId: route.routeId,
+          profile: request.profile,
+          providerId: request.providerRoute.providerId,
+          model: request.providerRoute.model,
+          contextMode: parsed.input.contextMode,
+          status: "denied",
+          substantiveEvidence: false,
+          failureReason: result.decision.reason,
+        }),
       },
     };
   }
@@ -484,8 +505,61 @@ async function executeManagedInvocationTool(
       resultHandoff: result.record.resultHandoff,
       transcript: result.record.transcript,
       sessionEventIds: events.map((event) => event.eventId),
+      presentationIntent: buildManagedInvocationPresentationIntent({
+        routeId: route.routeId,
+        profile: result.record.profile,
+        providerId: result.record.providerRoute.providerId,
+        model: result.record.providerRoute.model,
+        contextMode: parsed.input.contextMode,
+        status: result.record.lifecycleState,
+        substantiveEvidence: Boolean(result.record.resultHandoff?.summary),
+        failureReason: terminalError ? summary : undefined,
+      }),
     },
   };
+}
+
+function buildManagedInvocationPresentationIntent(input: {
+  readonly routeId: string;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly providerId: string;
+  readonly model?: string;
+  readonly contextMode?: ManagedAgentInvocationContextMode;
+  readonly status: string;
+  readonly substantiveEvidence: boolean;
+  readonly failureReason?: string;
+}): PresentationIntent {
+  return {
+    kind: "comparison_table",
+    title: "Managed child invocation",
+    summary: `${input.routeId} ${input.status}`,
+    source: MANAGED_AGENT_INVOKE_TOOL_NAME,
+    confidence: input.substantiveEvidence ? "high" : "medium",
+    columns: [
+      { key: "routeId", label: "Route", valueKind: "text" },
+      { key: "provider", label: "Provider", valueKind: "text" },
+      { key: "model", label: "Model", valueKind: "text" },
+      { key: "profile", label: "Profile", valueKind: "text" },
+      { key: "contextMode", label: "Context", valueKind: "text" },
+      { key: "status", label: "Status", valueKind: "status" },
+      { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+      { key: "failureReason", label: "Failure", valueKind: "text" },
+    ],
+    rows: [{
+      routeId: input.routeId,
+      provider: input.providerId,
+      model: input.model ?? "",
+      profile: input.profile,
+      contextMode: input.contextMode ?? "",
+      status: input.status,
+      substantiveEvidence: input.substantiveEvidence,
+      failureReason: boundedPresentationText(input.failureReason ?? ""),
+    }],
+  };
+}
+
+function boundedPresentationText(value: string): string {
+  return value.length > 500 ? `${value.slice(0, 497)}...` : value;
 }
 
 function resolveRoute(

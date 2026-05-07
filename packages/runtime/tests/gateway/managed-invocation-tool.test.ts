@@ -403,6 +403,7 @@ describe("managed invocation runtime tool", () => {
         readonly adapterKind?: string;
         readonly executionMode?: string;
         readonly authorityProfileId?: string;
+        readonly presentationIntent?: Record<string, unknown>;
       };
     };
 
@@ -420,6 +421,19 @@ describe("managed invocation runtime tool", () => {
         adapterKind: "harness",
         executionMode: "cli-harness",
         authorityProfileId: "authority:opencode:readonly",
+        presentationIntent: {
+          kind: "comparison_table",
+          title: "Managed child invocation",
+          rows: [
+            expect.objectContaining({
+              routeId: "opencode-readonly",
+              provider: "opencode",
+              model: "opencode-default-model",
+              status: "completed",
+              substantiveEvidence: true,
+            }),
+          ],
+        },
       },
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);

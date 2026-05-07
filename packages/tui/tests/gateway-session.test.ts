@@ -493,6 +493,82 @@ describe("GatewaySession canonical session events", () => {
 
     await session.dispose();
   });
+
+  it("uses presentation intent text fallback for terminal tool results", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "compare child routes" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-managed-comparison",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-05-07T20:00:00.000Z",
+        kind: "tool_call_completed",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-managed",
+          toolName: "managed_agent.invoke",
+          outputSummary: JSON.stringify({
+            output: "Child invocation completed.",
+            isError: false,
+            metadata: {
+              toolName: "managed_agent.invoke",
+              kind: "managed-invocation",
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child comparison",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "provider", label: "Provider" },
+                  { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+                ],
+                rows: [
+                  { routeId: "codex-oauth-readonly", provider: "codex-oauth", substantiveEvidence: true },
+                ],
+              },
+            },
+          }),
+          status: { state: "succeeded" },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+
+    await collect;
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "activity",
+        activity: "tool_result",
+        toolName: "managed_agent.invoke",
+        output: expect.stringContaining("| Route"),
+        toolPresentation: expect.objectContaining({
+          outputKind: "table",
+          presentationIntent: expect.objectContaining({
+            kind: "comparison_table",
+          }),
+        }),
+      }),
+    ]));
+
+    await session.dispose();
+  });
 });
 
 describe("GatewaySession execution modes", () => {

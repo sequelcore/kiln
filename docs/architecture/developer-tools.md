@@ -98,6 +98,16 @@ The projection is consumer-independent. GUI, TUI, CLI, SDK, and MCP-adjacent
 operator surfaces may choose different visual components, but they must not
 duplicate private JSON-unwrapping rules.
 
+Tools that can describe a richer semantic display may emit a validated
+`metadata.presentationIntent`. That intent is still tool-result evidence, not UI
+authority. The shared gateway contract accepts only the closed
+`PresentationIntent` union and projects accepted values into
+`toolPresentation.presentationIntent`; invalid values are ignored and the normal
+typed presentation remains visible. This keeps agent/tool-authored tables,
+diagnostics, timelines, resource bundles, and risk reports inspectable across
+GUI, TUI, CLI, SDK/widget, and future surfaces without allowing arbitrary UI or
+surface-specific schemas.
+
 ## Command Execution
 
 `bash` preserves its public text output contract while exposing structured

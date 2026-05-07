@@ -145,6 +145,92 @@ describe("operator event presentation", () => {
     expect(completed.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
   });
 
+  it("projects validated presentation intents from tool result envelopes", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "managed_agent.invoke",
+      outputSummary: JSON.stringify({
+        output: "All 3 managed children completed.",
+        isError: false,
+        metadata: {
+          toolName: "managed_agent.invoke",
+          kind: "managed-invocation",
+          presentationIntent: {
+            kind: "comparison_table",
+            title: "Managed child comparison",
+            summary: "3 child routes compared",
+            source: "managed_agent.invoke",
+            columns: [
+              { key: "routeId", label: "Route" },
+              { key: "provider", label: "Provider" },
+              { key: "model", label: "Model" },
+              { key: "status", label: "Status", valueKind: "status" },
+              { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+            ],
+            rows: [
+              {
+                routeId: "codex-oauth-readonly",
+                provider: "codex-oauth",
+                model: "gpt-5.4-mini",
+                status: "completed",
+                substantiveEvidence: true,
+              },
+            ],
+          },
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("3 child routes compared");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "table",
+      title: "Managed child comparison",
+      summary: "3 child routes compared",
+      presentationIntent: {
+        kind: "comparison_table",
+        rows: [
+          expect.objectContaining({
+            routeId: "codex-oauth-readonly",
+            substantiveEvidence: true,
+          }),
+        ],
+      },
+      preview: {
+        text: expect.stringContaining("| Route"),
+      },
+    });
+  });
+
+  it("ignores invalid presentation intents and keeps fallback rendering", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "read",
+      outputSummary: JSON.stringify({
+        output: "# Session Model\n\nKiln session identity is provider-agnostic.",
+        isError: false,
+        metadata: {
+          toolName: "read",
+          kind: "file",
+          operation: "read",
+          filePath: "docs/architecture/session-model.md",
+          presentationIntent: {
+            kind: "html",
+            title: "unsafe",
+            html: "<script>alert(1)</script>",
+          },
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "markdown",
+      title: "docs/architecture/session-model.md",
+    });
+    expect(presentation.toolPresentation).not.toHaveProperty("presentationIntent");
+  });
+
   it("presents managed invocation tool route details without structured placeholders", () => {
     const started = presentOperatorEventPayload("tool_call_started", {
       toolCallId: "tool-1",

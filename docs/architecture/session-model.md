@@ -157,6 +157,20 @@ an `outputKind`, title, summary, fields, bounded preview, resource links, and
 raw-output availability. Consumers must render that presentation before falling
 back to generic detail rows.
 
+`toolPresentation.presentationIntent` is the only canonical path for agent or
+tool authored rich display requests. It is a validated, closed semantic contract
+defined in `@kilnai/gateway-contracts`, not a GUI component request. The runtime
+and gateway may store the raw tool result, but normal surfaces consume only the
+validated intent. Invalid intents fail closed to the existing typed fallback and
+must not block access to the raw audit payload.
+
+Initial presentation-intent kinds are `summary`, `comparison_table`,
+`risk_matrix`, `timeline`, `resource_bundle`, and `diagnostic_report`. Surfaces
+that cannot render a rich intent must use the shared deterministic text
+formatter instead of raw JSON. No intent may carry HTML, CSS, JavaScript, JSX,
+SVG, component names, tool authority, memory authority, filesystem authority, or
+network authority.
+
 Canonical tool-result output kinds:
 
 - `diff` for `patch`, `edit`, `write`, and file-result metadata with
