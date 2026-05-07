@@ -132,13 +132,20 @@ surface-specific behavior, or provider compatibility glue.
    root is ambiguous or lacks project identity. Evolve `agents-md` into a
    bounded repo-shims target that generates project `AGENTS.md`, `CLAUDE.md`,
    and future repo instruction shims from the merged canonical Kiln config
-   instead of maintaining hand-written repo guidance.
+   instead of maintaining hand-written repo guidance. Repo-shim generation
+   should be backed by a deterministic repo scout plus a governed managed-agent
+   review skill: the agent may propose project context from real repo evidence,
+   but Kiln owns schema validation, approval, generated-file signatures, drift
+   detection, backups, and projection status.
 9. Design the cross-surface configuration surface:
    - GUI: dedicated Settings/Setup surface or sidebar mode.
    - TUI: equivalent command/screen.
    - CLI: deterministic `kiln config/status/sync` commands.
    - SDK/widget: read-only config/status descriptors first, mutation later
      behind explicit authority.
+   - All surfaces: global/local config status, provider health, route health,
+     generated-shim status, unmanaged native file detection, drift warnings, and
+     adoption recommendations from the same config-status contract.
 10. Move theme selection and provider/setup diagnostics out of the always-visible
    chat topbar once the configuration surface exists; keep only controls that
    are needed for the active operator workflow.
@@ -165,6 +172,10 @@ surface-specific behavior, or provider compatibility glue.
 - Repo-level `AGENTS.md` and `CLAUDE.md` are generated from the same resolved
   project root and canonical Kiln doctrine; running sync from a subdirectory
   resolves the same root or refuses to write.
+- Generated repo shims carry an explicit Kiln signature and projection metadata,
+  so every surface can distinguish current managed files, stale managed files,
+  manually edited managed files, and unmanaged native guidance files that should
+  be adopted or left alone.
 - Implementation-capable agents can be admitted through bounded write profiles
   with approval and evidence instead of being limited to analysis-only children.
 - Native provider files remain projections of Kiln config; deleting or changing

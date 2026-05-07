@@ -112,6 +112,22 @@ projection may summarize canonical doctrine and link profile ids, but it must
 not become a second source of truth for identity, workflow, agent profiles,
 skills, route policy, or permissions.
 
+Repo context adoption may use a managed agent and a dedicated repo-context skill
+to synthesize project guidance from real repository evidence. That agent output
+is advisory until Kiln validates it against the project-context schema and the
+operator approves adoption. Deterministic commands own root resolution, stack
+and script detection, generated-file signatures, install-state records, drift
+detection, backups, and projection writes.
+
+Generated repo shims must contain a stable Kiln signature and projection
+metadata: target kind, project root identity, source profile ids, generator
+version, and content hash. Config/status surfaces use that metadata to classify
+each repo guidance file as current managed projection, stale managed projection,
+managed file with drift, unmanaged existing guidance, missing projection, or
+blocked by ambiguous root. Unmanaged files are never overwritten silently; Kiln
+may recommend adoption or backup, but the adoption command must make the source
+and target explicit.
+
 ## Install State And Drift
 
 `.kiln/install-state.json` records each managed projection target. Document
@@ -170,6 +186,9 @@ substantive read-only result handoff remains unavailable for
 - Config projection must be shared by all operator surfaces.
 - Repo-local generated shims require an explicitly resolved project root; the
   command's current working directory is not a sufficient architecture contract.
+- Generated repo shims must be self-identifying through Kiln projection
+  metadata so status surfaces can explain whether a file is managed, stale,
+  drifted, unmanaged, or missing.
 - Managed-agent route projection is governed config, not assistant preference.
 - `routing.routes` is the default managed-agent route source; explicit
   `managedAgents.routes` is an allowlist override, not a second routing graph to
