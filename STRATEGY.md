@@ -1,6 +1,6 @@
 # Kiln Strategy
 > Living long-term roadmap aligned to the canonical architecture.
-> Last updated: 2026-04-18
+> Last updated: 2026-05-07
 
 ## 1. Executive Thesis
 
@@ -269,67 +269,44 @@ Completion standard:
 - GUI parity with former TUI scope is closed; TUI remains a frozen maintenance
   surface
 
-Progress (as of 2026-04-17):
+Current status (2026-05-07):
 
-- ADR-005 accepted — TUI frozen
-- ADR-006 accepted — GUI stack decided
-- GUI parity status now lives in `docs/guides/gui-parity.md`
-- `packages/gui/` scaffold landed at commit `54d1d53` (React 19 + TanStack Router/Query + Zustand + Tailwind v4 + Vitest + ESLint 9); pre-spec UI archived under `.reference/`
-- Runtime `gui-gateway` + `operator-gateway` and `kiln gui` CLI command in place
-- `@kilnai/gateway-contracts` package extracted (commit `fbd18dc`); GUI and runtime now share neutral wire-format types; ESLint guard directs consumers there instead of `@kilnai/runtime`
-- Playwright e2e harness added in `packages/gui/` (commit `ed6b59a`); one smoke test passing; fixture uses `node:http` mock gateway pending upgrade to real `gui-gateway`
-- `d18a050` — `gui-gateway` statically mounts built GUI at `/gui/*` with SPA fallback; mount is skipped gracefully if `packages/gui/dist/` is absent.
-- `defe8ad` — `kiln gui --dev|--prod` implemented with Vite child-process lifecycle, `--port/--gui-port/--open/--no-open` flags, and cross-platform browser opener.
-- `cc105f9` — Playwright fixture upgraded to boot a real `gui-gateway` via Bun subprocess runner; Vite proxy reads `GUI_GATEWAY_PORT` env var.
-- `6a4043d` — Pre-existing mock regression for `startOperatorGateway` rename fixed in CLI tests.
-- ADR-006 scaffold follow-ups are complete. GUI parity work has closed and the
-  TUI is retained as a frozen maintenance surface.
-- `637b279` — Slice F (theming pipeline, parity §5 partial): three-theme system (`kiln-dark` default, `kiln-light`, system-follow), accessible radiogroup switcher on landing route, Zustand persist + pre-render guard, 20 semantic tokens wired through Tailwind v4 `@theme`, body-text contrast AAA both themes, Playwright verifies persistence. Rows 5.1, 5.1a, 5.1b, 5.2 ✅.
-- `7903fb3` — Slice G (gateway transport, parity §6 in-scope): `GuiWsClient` with 30s heartbeat, 60s pong watchdog, exponential backoff (1s→30s ±20% jitter), bounded outbound queue, Zod-validated frames via `@kilnai/gateway-contracts`. `waitForGateway`, `stable-user-id` (localStorage), `useGuiWs` hook. Runtime gets pong response. Rows 6.1–6.6 ✅.
-- `919ac91` — test(gui): transport parity coverage (unit + e2e).
-- `bf00904` — fix(gui): e2e fixture port contention; per-worker fixture scope, runner binds port 0 and reports actual port, runtime `startGuiGateway` returns bound port, minimal `/gui/ws` welcome handler. 4/4 e2e green.
-- `3f15b12` — feat(gateway): `GET /gui-api/sessions` + lifecycle frames (text_delta forwarding, clear removes runtime state, welcome/provider_changed payload extension, exec_confirmed, WS connection-count health aliases).
-- `77399e9` — feat(gui): session-lifecycle Zustand store + WS state wiring.
-- `e2ee165` — feat(gui): app shell, transcript, composer, session list, connection status, error banner; adds `react-markdown` + `remark-gfm`.
-- `d21bca7` — test(gui): session-store + composer + transcript unit/component coverage.
-- `070798b` — test(gui): e2e parity flows for rows 1.1–1.6.
-- `c6c7d10` — docs(roadmap): flip rows to ✅. Rows landed: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 4.1, 4.4, 5.3, 5.5. Row 5.4 stayed ☐ (no syntax highlighting / progressive-markdown proof). Verified: typecheck, unit, lint, build, e2e 9/9 green.
-- `0a7ace8` — feat(gateway): welcome frame carries grouped `GuiProviderDescriptor[]` metadata; `provider_changed` ack includes selected model.
-- `3d7e599` — feat(gui): session store `switchProvider` + route mode (`user|auto|responding`) transitions.
-- `b730d09` — feat(gui): provider picker (category-grouped, free badge, keyboard nav) + status pill + Ctrl/Cmd+P shortcut.
-- `0bddfb0` — feat(gui): assistant message header shows routed provider · model from `done` frame.
-- `28cc1d7` — test(gui): provider picker + session-store unit/component coverage.
-- `0819e84` — test(gui): e2e flows for rows 2.1–2.5.
-- `d6e0bba` — docs(roadmap): flip rows 2.1–2.5 to ✅. Verified: typecheck, unit, lint (warnings only), build, e2e 2× green. No new deps.
-- Parity status: 29/51 rows ✅
+- ADR-005 and ADR-006 are accepted. GUI is the primary operator surface; TUI is
+  retained as a frozen maintenance surface.
+- GUI Phase 1 parity is closed. Stable status lives in
+  `docs/guides/gui-parity.md`.
+- Shared tool execution, provider model discovery, provider credential pooling,
+  governed memory, and managed agent invocation have stable doctrine under
+  `docs/architecture/`.
+- `managed_agent.invoke` is the shared runtime-owned child invocation tool for
+  GUI, TUI, operator gateway, and CLI direct-provider executable sessions when
+  managed-agent routes are healthy.
+- Config projection unification is complete. Global config v2, native harness
+  projection, install-state, drift detection, backups, `sync`, `uninstall`,
+  `import-native`, disabled-engine removal, and managed-agent route projection
+  are documented in `docs/architecture/config-projection.md` and
+  `docs/guides/global-config.md`.
+- No active roadmap is open. `docs/roadmap/README.md` lists only deferred
+  tracks until a new accepted execution track is justified.
 
-Sequencing decision (2026-04-17):
+Sequencing decision (2026-05-07):
 
-The work ahead is ordered to maximize daily leverage and let real usage
-inform architectural calls before those calls get locked in.
+The previous GUI parity, shared-tooling, managed-agent, and config-projection
+tracks are closed. Do not continue feature work by extending their old roadmaps.
 
-1. **Dogfood slice** ✅ (2026-04-17) — rows 3.7 (approval queue), 5.4 (markdown + syntax highlighting), 3.8 (tool call log), 3.9 (activity phase indicator). Shipped: `ApprovalQueue`, `ToolCallLog`, `ActivityPhaseIndicator` components; `tool_call_start`/`tool_call_result`/`activity_phase` frames added to contracts; gateway emits new frames; `react-syntax-highlighter` wired into ReactMarkdown code blocks; `activityPhase` derived from frame stream and replaces binary "thinking…" in Composer. Parity: 29/51 ✅. Bar 1 reached.
-2. **Orchestrator refactor Slice O4** — decide and delete fate of Sequential/Supervisor/Swarm strategies. Deliberately sequenced after dogfood so the architectural call is informed by a week of using the tool we're designing around. Doctrine debt; must close before the GUI grows orchestrator surfaces.
-3. **GUI parity closed** — former parity tracking moved to
-   `docs/guides/gui-parity.md`; future GUI work proceeds through operator
-   surface roadmap slices.
-4. **Shared Tool Surface Unification** ✅ — direct/OAuth provider tool execution now uses one canonical Kiln path, builtin tool registration is centralized, MCP is the shared wrapper integration contract, and provider model discovery is explicit and diagnosable. Stable doctrine now lives in `docs/architecture/tool-execution.md` and `docs/architecture/provider-model-discovery.md`.
-5. **Config + Registries Surface ADR** — unify providers, credentials, MCP servers, skills, tools, models, domain packages, UI prefs behind one configuration story with one precedence model and one credential abstraction. Phase I work. See "Configuration scope" below.
-6. **GUI orchestrator surfaces** — spawn teams, route across providers, inspect parallel agents. Net-new feature on top of O4. Bar 2 ("proper multi-provider dev team from the GUI").
+The next implementation roadmap must be created only when one of these is true:
 
-Bar 1 ≠ Bar 2. "Develop Kiln from the GUI" (single agent) lands after step 1. "Run a proper multi-provider dev team from the GUI" requires steps 2, 4, 5 and is weeks of feature work beyond parity.
+1. Real managed-agent workloads expose a high-density supervision problem that
+   the optimized web GUI cannot handle, activating the native-surface
+   experiment.
+2. The evaluated product surface is stable enough to justify external benchmark
+   validation.
+3. A new architecture gap is identified in canonical docs and accepted as an
+   active execution track.
 
-Configuration scope (to be captured in its own ADR before implementation):
-
-- Providers + credentials (9 flows today: OAuth, subscription subprocess, API key, local URL) behind one credential store with per-provider adapters.
-- MCP servers (endpoints, auth, enabled/disabled, per-context).
-- Skills (registry source, capture toggles, generation policy).
-- Tools (registry + enable/disable, approval policy per tool).
-- Models (capability + pricing overrides).
-- Domain packages (`kiln.yaml` loading, overrides, precedence).
-- UI prefs (theme, plan-mode default) — migrates `tui.*` → neutral.
-- Precedence explicitly documented: global `~/.config/kiln/` → workspace `.kiln/` → session overrides. Not three overlapping layers that drift.
-- Registries collapsed: provider-registry, model-capability-registry, model-pricing, tool-registry consumed via one surface by runtime, CLI, and GUI. GUI's current `provider-metadata.ts` fork becomes obsolete.
+Until then, implementation work should be limited to correctness fixes,
+doctrine cleanup, live-test hardening, and removing contradictions between code,
+architecture, guides, and roadmap state.
 
 ### Phase H - Example and Consumer Realignment
 
@@ -387,16 +364,14 @@ Kiln reaches strategic coherence when:
 This section is a delivery queue, not a restatement of the long-term phase
 order above.
 
-1. Finish the remaining orchestrator cleanup after the O4 strategy cuts so
-   export and ownership residue do not leak into the GUI surface.
-2. Finish the remaining GUI parity checklist rows and reach GUI parity with the
-   frozen TUI scope.
-3. Delete the TUI in Phase I once GUI parity is complete and verified.
-4. Execute the shared tool-surface unification track so direct/OAuth providers,
-   wrappers, and MCP all converge on one canonical tool contract.
-5. Write and accept the config and registries surface ADR before broader
-   provider, MCP, skill, tool, and model-management surfaces are implemented.
-6. Build GUI orchestrator surfaces only after the remaining orchestrator
-   cleanup and the config ADR land.
+1. Keep active roadmap state honest: no implementation roadmap is active until
+   a new track is explicitly accepted.
+2. Dogfood managed-agent invocation and config projection through GUI, CLI run,
+   and TUI maintenance paths; record only reproducible correctness gaps.
+3. Preserve TUI maintenance mode. Do not delete or expand the TUI without a new
+   decision.
+4. Keep deferred tracks deferred until their activation criteria are met.
+5. When the next active track is accepted, create a single roadmap file and
+   delete it after stable doctrine is absorbed into architecture or guides.
 
 This document is the strategic source of truth for long-term direction. Detailed execution belongs in the roadmap documents under `docs/roadmap/` and the modular architecture under `docs/architecture/`.
