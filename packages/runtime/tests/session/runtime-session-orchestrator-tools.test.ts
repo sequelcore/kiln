@@ -989,6 +989,50 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
     });
 
+    it("emits tool_called metadata resolved from per-call tool configuration", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        eventBus,
+        capabilityMap: makeCapabilityMap(),
+      });
+
+      await orchestrator.processMessage(
+        makeSession(),
+        textParts("fetch"),
+        undefined,
+        undefined,
+        {
+          toolCallMetadata: new Map([
+            ["get_data", (input) => ({
+              providerRoute: {
+                providerId: "codex-oauth",
+                model: String(input.query) === "test" ? "gpt-5.5" : "unknown",
+              },
+            })],
+          ]),
+        },
+      );
+
+      const toolCalledEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_called");
+      expect(toolCalledEvents).toHaveLength(1);
+      expect(toolCalledEvents[0]![0]).toMatchObject({
+        type: "tool_called",
+        toolName: "get_data",
+        metadata: {
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.5",
+          },
+        },
+      });
+    });
+
     it("emits tool_result with resultSummary", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);

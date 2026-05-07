@@ -128,6 +128,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           toolCallId,
           toolName: runtimeEvent.toolName,
           input: runtimeEvent.toolInput,
+          ...(runtimeEvent.metadata ? { metadata: runtimeEvent.metadata } : {}),
           source: makeSource("tool", "runtime", "orchestrator"),
           timestamp: runtimeEvent.timestamp,
         }));

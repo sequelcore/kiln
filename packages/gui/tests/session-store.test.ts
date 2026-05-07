@@ -232,6 +232,9 @@ describe("session-store", () => {
             providerId: "codex-oauth",
             model: "gpt-5.4-mini",
           },
+          agentProfile: "architecture-reviewer",
+          skills: ["ddd-review"],
+          contextMode: "isolated",
           task: "Inspect docs/architecture/managed-agents.md.",
           summary: "Inspect managed agents architecture doc",
         },
@@ -260,6 +263,13 @@ describe("session-store", () => {
               model: "gpt-5.4-mini",
               surface: "direct-provider",
             },
+            context: {
+              mode: "isolated",
+              agentProfile: "architecture-reviewer",
+              skills: ["ddd-review"],
+              admittedAgentProfile: "architecture-reviewer",
+              admittedSkills: ["ddd-review"],
+            },
             adapterKind: "direct",
             executionMode: "runtime-direct",
             authorityProfileId: "authority:foundation-readonly-plan",
@@ -286,6 +296,9 @@ describe("session-store", () => {
     expect(completedEntry.presentationDetails).toContainEqual({ label: "Provider", value: "codex-oauth" });
     expect(completedEntry.presentationDetails).toContainEqual({ label: "Model", value: "gpt-5.4-mini" });
     expect(completedEntry.presentationDetails).toContainEqual({ label: "Surface", value: "direct-provider" });
+    expect(completedEntry.presentationDetails).toContainEqual({ label: "Context mode", value: "isolated" });
+    expect(completedEntry.presentationDetails).toContainEqual({ label: "Agent profile", value: "architecture-reviewer" });
+    expect(completedEntry.presentationDetails).toContainEqual({ label: "Skills", value: "ddd-review" });
     expect(completedEntry.presentationDetails).not.toContainEqual({ label: "Provider Route", value: "Structured value" });
   });
 

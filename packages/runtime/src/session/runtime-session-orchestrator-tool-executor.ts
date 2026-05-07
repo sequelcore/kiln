@@ -331,7 +331,8 @@ export class RuntimeSessionToolExecutor {
             idempotent: capability.annotations.idempotent,
           }
         : undefined;
-      this.emitToolCalled(session.id, normalizedToolCall.name, normalizedToolCall.input, annotations);
+      const metadata = this.resolveToolCallMetadata(session.id, normalizedToolCall.name, normalizedToolCall.input, perCallConfig);
+      this.emitToolCalled(session.id, normalizedToolCall.name, normalizedToolCall.input, annotations, metadata);
       const startMs = Date.now();
 
       try {
@@ -459,6 +460,25 @@ export class RuntimeSessionToolExecutor {
       return undefined;
     }
     return this.deps.toolAuthorizer.authorize(toolName, capability?.annotations);
+  }
+
+  private resolveToolCallMetadata(
+    sessionId: string,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    perCallConfig?: PerCallToolConfig,
+  ): Record<string, unknown> | undefined {
+    const resolver = perCallConfig?.toolCallMetadata?.get(toolName);
+    if (!resolver) {
+      return undefined;
+    }
+    try {
+      return resolver(toolInput);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emitError(sessionId, `Tool "${toolName}" metadata projection failed: ${message}`);
+      return undefined;
+    }
   }
 
   private isAuthorityDescriptor(value: unknown): value is AuthorityDescriptor {
@@ -857,6 +877,7 @@ export class RuntimeSessionToolExecutor {
     toolName: string,
     toolInput?: Record<string, unknown>,
     annotations?: Record<string, unknown>,
+    metadata?: Record<string, unknown>,
   ): void {
     const event: ToolCalledEvent = {
       type: "tool_called",
@@ -864,6 +885,7 @@ export class RuntimeSessionToolExecutor {
       timestamp: new Date(),
       sessionId,
       ...(toolInput ? { toolInput } : {}),
+      ...(metadata ? { metadata } : {}),
       ...(annotations ? { annotations } : {}),
     };
     this.eventBus?.emit(event);

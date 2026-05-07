@@ -101,6 +101,7 @@ export interface PerCallToolConfig {
   readonly additionalTools?: readonly ToolDefinition[];
   readonly perCallCapabilities?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
+  readonly toolCallMetadata?: ReadonlyMap<string, RuntimeToolCallMetadataResolver>;
   readonly modelOverride?: {
     readonly provider: string;
     readonly model: string;
@@ -109,6 +110,10 @@ export interface PerCallToolConfig {
   };
   readonly reasoningEffort?: ReasoningEffort;
 }
+
+export type RuntimeToolCallMetadataResolver = (
+  input: Record<string, unknown>,
+) => Record<string, unknown> | undefined;
 
 export type CommandShell = "bash" | "sh" | "zsh" | "powershell" | "cmd" | "any";
 export type DangerousCommandAction = "allow" | "ask" | "deny";

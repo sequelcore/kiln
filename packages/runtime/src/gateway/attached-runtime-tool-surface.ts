@@ -29,6 +29,8 @@ import type {
 } from "../operator/operator-surface-controller.js";
 import type { PerCallToolConfig, RuntimeBuiltinToolExecutor } from "../session/runtime-session-orchestrator.js";
 import {
+  createManagedAgentInvokeToolDefinition,
+  createManagedInvocationToolCallMetadataResolver,
   createManagedInvocationToolExecutor,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
@@ -41,6 +43,7 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+  readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>;
   listResources(): readonly ToolResourceDisplayDescriptor[];
   listResourceTemplates(): readonly ToolResourceTemplateDescriptor[];
   readResource(uri: string): Promise<ToolResourceReadResult>;
@@ -134,6 +137,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const callBuiltinTools = new Map(baseSurface.callBuiltinTools);
   const capabilities = new Map(baseSurface.capabilities);
   const toolAuthority = new Map(baseSurface.toolAuthority);
+  const toolCallMetadata = new Map(baseSurface.toolCallMetadata);
   const toolDefinitions = [...baseSurface.toolDefinitions];
 
   if (themeController) {
@@ -159,11 +163,15 @@ export function createAttachedRuntimeBuiltinToolSurface(
   if (options.managedInvocation) {
     callBuiltinTools.set(MANAGED_AGENT_INVOKE_TOOL.name, createManagedInvocationToolExecutor(options.managedInvocation));
     capabilities.set(MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY);
+    toolCallMetadata.set(
+      MANAGED_AGENT_INVOKE_TOOL.name,
+      createManagedInvocationToolCallMetadataResolver(options.managedInvocation),
+    );
     const authority = authorityFromCapability(MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY);
     if (authority) {
       toolAuthority.set(MANAGED_AGENT_INVOKE_TOOL.name, authority);
     }
-    toolDefinitions.push(MANAGED_AGENT_INVOKE_TOOL);
+    toolDefinitions.push(createManagedAgentInvokeToolDefinition(options.managedInvocation));
   }
 
   return {
@@ -171,6 +179,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     toolDefinitions,
     capabilities,
     toolAuthority,
+    toolCallMetadata,
     listResources: baseSurface.listResources,
     listResourceTemplates: baseSurface.listResourceTemplates,
     readResource: baseSurface.readResource,
@@ -183,6 +192,7 @@ function buildRuntimeSurface(coreSurface: DefaultBuiltinToolSurface): AttachedRu
     toolDefinitions: coreSurface.toolDefinitions,
     capabilities: coreSurface.capabilities,
     toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
+    toolCallMetadata: new Map(),
     listResources: () => coreSurface.resources.list().map(projectToolResourceDescriptor),
     listResourceTemplates: () => coreSurface.resources.listTemplates(),
     readResource: (uri: string) => coreSurface.resources.read(uri),
@@ -234,9 +244,30 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ...config,
     toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
     toolAuthority: builtinToolSurface.toolAuthority,
+    toolCallMetadata: builtinToolSurface.toolCallMetadata,
     additionalTools: builtinToolSurface.toolDefinitions,
     perCallCapabilities: builtinToolSurface.capabilities,
   };
+}
+
+export function resolveAttachedRuntimeToolCallMetadata(
+  toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>,
+  toolName: string | undefined,
+  input: unknown,
+): { readonly metadata?: Record<string, unknown> } {
+  if (!toolName || !input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const resolver = toolCallMetadata.get(toolName);
+  if (!resolver) {
+    return {};
+  }
+  try {
+    const metadata = resolver(input as Record<string, unknown>);
+    return metadata ? { metadata } : {};
+  } catch {
+    return {};
+  }
 }
 
 function buildPlanModePerCallConfig(
@@ -266,6 +297,7 @@ function buildPlanModePerCallConfig(
     ...config,
     toolAllowlist,
     toolAuthority,
+    toolCallMetadata: builtinToolSurface.toolCallMetadata,
     additionalTools,
     perCallCapabilities: capabilities,
   };

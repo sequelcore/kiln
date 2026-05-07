@@ -564,7 +564,62 @@ describe("Transcript", () => {
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
     expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
     expect(rows[1]).toHaveTextContent("Using patch");
+    expect(within(rows[1]!).queryByLabelText("Streaming")).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Activity phase: Using patch" })).not.toBeInTheDocument();
+  });
+
+  it("renders canonical tool presentation details in transcript instead of raw structured input", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "delegate this"),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using managed_agent.invoke",
+            summary: "foundation-readonly-plan via codex-oauth/gpt-5.5 (direct-provider) · Execution in progress",
+            tone: "running",
+            details: {
+              input: {
+                profile: "foundation-readonly-plan",
+                providerRoute: { providerId: "codex-oauth" },
+                task: "Inspect docs/architecture/managed-agents.md.",
+              },
+            },
+            presentationDetails: [
+              { label: "Tool", value: "managed_agent.invoke" },
+              { label: "Tool call ID", value: "call_managed_1" },
+              { label: "Profile", value: "foundation-readonly-plan" },
+              { label: "Provider", value: "codex-oauth" },
+              { label: "Model", value: "gpt-5.5" },
+              { label: "Surface", value: "direct-provider" },
+              { label: "Context mode", value: "isolated" },
+              { label: "Agent profile", value: "architecture-reviewer" },
+              { label: "Skills", value: "ddd-review" },
+              { label: "Authority", value: "authority:codex-oauth-readonly:foundation-readonly-plan" },
+              { label: "Invocation ID", value: "managed-1" },
+              { label: "Child session", value: "child-session-1" },
+              { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
+            ],
+          },
+          messageEntry("2", "assistant", "", true),
+        ]}
+      />,
+    );
+
+    const row = screen.getAllByRole("article")[1]!;
+    expect(row).toHaveTextContent("gpt-5.5");
+    expect(row).toHaveTextContent("direct-provider");
+    fireEvent.click(within(row).getByRole("button", { name: "Show details" }));
+    expect(row).toHaveTextContent("architecture-reviewer");
+    expect(row).toHaveTextContent("ddd-review");
+    expect(row).not.toHaveTextContent("Structured value");
+    expect(row).not.toHaveTextContent("Tool call ID");
+    expect(row).not.toHaveTextContent("authority:codex-oauth-readonly");
+    expect(row).not.toHaveTextContent("managed-1");
+    expect(row).not.toHaveTextContent("child-session-1");
   });
 
   it("sticks to bottom unless user scrolled up", () => {

@@ -110,6 +110,18 @@ function addItem(items: OperatorEventDetailItem[], label: string, value: unknown
   }
 }
 
+function readStringList(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function formatStringList(value: unknown): string | null {
+  const items = readStringList(value);
+  return items.length > 0 ? items.join(", ") : null;
+}
+
 function addPrimitiveItems(
   items: OperatorEventDetailItem[],
   record: Record<string, unknown> | null,
@@ -673,6 +685,40 @@ function managedInvocationToolIdentity(payload: Record<string, unknown>): Record
   };
 }
 
+function managedInvocationContext(identity: Record<string, unknown>): Record<string, unknown> | null {
+  const context = asRecord(identity.context) ?? asRecord(identity.invocationContext);
+  if (context) {
+    return context;
+  }
+  const mode = readString(identity.contextMode);
+  const agentProfile = readString(identity.agentProfile);
+  const skills = readStringList(identity.skills);
+  if (!mode && !agentProfile && skills.length === 0) {
+    return null;
+  }
+  return {
+    ...(mode ? { mode } : {}),
+    ...(agentProfile ? { agentProfile } : {}),
+    ...(skills.length > 0 ? { skills } : {}),
+  };
+}
+
+function addManagedInvocationContextDetails(
+  details: OperatorEventDetailItem[],
+  identity: Record<string, unknown>,
+  options: { readonly includeResolution: boolean },
+): void {
+  const context = managedInvocationContext(identity);
+  addItem(details, "Context mode", context?.mode);
+  addItem(details, "Agent profile", context?.agentProfile);
+  addItem(details, "Skills", formatStringList(context?.skills));
+  if (options.includeResolution) {
+    addItem(details, "Admitted profile", context?.admittedAgentProfile);
+    addItem(details, "Admitted skills", formatStringList(context?.admittedSkills));
+    addItem(details, "Denied skills", formatStringList(context?.deniedSkills));
+  }
+}
+
 function addManagedInvocationToolDetails(
   details: OperatorEventDetailItem[],
   identity: Record<string, unknown>,
@@ -683,6 +729,7 @@ function addManagedInvocationToolDetails(
   addItem(details, "Provider", providerRoute?.providerId);
   addItem(details, "Model", providerRoute?.model);
   addItem(details, "Surface", providerRoute?.surface);
+  addManagedInvocationContextDetails(details, identity, { includeResolution: options.includeRuntimeEvidence });
   if (options.includeRuntimeEvidence) {
     addItem(details, "Adapter", identity.adapterKind);
     addItem(details, "Execution", identity.executionMode);
@@ -734,7 +781,7 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: false });
   }
-  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris"]);
+  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context"]);
   return {
     title: `Using ${toolName}`,
     summary: managedInvocationSummary ? `${managedInvocationSummary} · Execution in progress` : "Execution in progress",
@@ -762,7 +809,7 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
   }
-  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris"]);
+  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context"]);
   return {
     title: `Completed ${toolName}`,
     summary: summary ?? undefined,
@@ -941,6 +988,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
   addItem(details, "Provider", asRecord(payload.providerRoute)?.providerId);
   addItem(details, "Model", asRecord(payload.providerRoute)?.model);
   addItem(details, "Surface", asRecord(payload.providerRoute)?.surface);
+  addManagedInvocationContextDetails(details, payload, { includeResolution: true });
   addItem(details, "Adapter", payload.adapterKind);
   addItem(details, "Execution", payload.executionMode);
   addItem(details, "Authority", payload.authorityProfileId);
@@ -956,7 +1004,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
     details,
     payload,
     8,
-    ["agentName", "agentType", "agentId", "profile", "providerRoute", "adapterKind", "executionMode", "authorityProfileId", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
+    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
   );
   return {
     title: titles[kind] ?? "Agent invocation",

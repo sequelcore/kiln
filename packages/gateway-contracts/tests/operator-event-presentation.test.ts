@@ -153,10 +153,25 @@ describe("operator event presentation", () => {
         profile: "foundation-readonly-plan",
         providerRoute: {
           providerId: "codex-oauth",
-          model: "gpt-5.4-mini",
         },
+        agentProfile: "architecture-reviewer",
+        skills: ["ddd-review"],
+        contextMode: "isolated",
         task: "Inspect docs/architecture/managed-agents.md.",
         summary: "Inspect managed agents architecture doc",
+      },
+      metadata: {
+        kind: "managed-invocation",
+        profile: "foundation-readonly-plan",
+        routeId: "codex-oauth-readonly",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+          surface: "direct-provider",
+        },
+        adapterKind: "direct",
+        executionMode: "runtime-direct",
+        authorityProfileId: "authority:foundation-readonly-plan",
       },
     });
     const completed = presentOperatorEventPayload("tool_call_completed", {
@@ -168,6 +183,9 @@ describe("operator event presentation", () => {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
         },
+        agentProfile: "architecture-reviewer",
+        skills: ["ddd-review"],
+        contextMode: "isolated",
         task: "Inspect docs/architecture/managed-agents.md.",
         summary: "Inspect managed agents architecture doc",
       },
@@ -185,6 +203,13 @@ describe("operator event presentation", () => {
             model: "gpt-5.4-mini",
             surface: "direct-provider",
           },
+          context: {
+            mode: "isolated",
+            agentProfile: "architecture-reviewer",
+            skills: ["ddd-review"],
+            admittedAgentProfile: "architecture-reviewer",
+            admittedSkills: ["ddd-review"],
+          },
           adapterKind: "direct",
           executionMode: "runtime-direct",
           authorityProfileId: "authority:foundation-readonly-plan",
@@ -194,13 +219,17 @@ describe("operator event presentation", () => {
       status: { state: "succeeded" },
     });
 
-    expect(started.summary).toBe("foundation-readonly-plan via codex-oauth/gpt-5.4-mini · Execution in progress");
+    expect(started.summary).toBe("foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Execution in progress");
     expect(started.details).toEqual([
       { label: "Tool", value: "managed_agent.invoke" },
       { label: "Tool call ID", value: "tool-1" },
       { label: "Profile", value: "foundation-readonly-plan" },
       { label: "Provider", value: "codex-oauth" },
       { label: "Model", value: "gpt-5.4-mini" },
+      { label: "Surface", value: "direct-provider" },
+      { label: "Context mode", value: "isolated" },
+      { label: "Agent profile", value: "architecture-reviewer" },
+      { label: "Skills", value: "ddd-review" },
       { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
       { label: "Summary", value: "Inspect managed agents architecture doc" },
     ]);
@@ -214,6 +243,11 @@ describe("operator event presentation", () => {
       { label: "Provider", value: "codex-oauth" },
       { label: "Model", value: "gpt-5.4-mini" },
       { label: "Surface", value: "direct-provider" },
+      { label: "Context mode", value: "isolated" },
+      { label: "Agent profile", value: "architecture-reviewer" },
+      { label: "Skills", value: "ddd-review" },
+      { label: "Admitted profile", value: "architecture-reviewer" },
+      { label: "Admitted skills", value: "ddd-review" },
       { label: "Adapter", value: "direct" },
       { label: "Execution", value: "runtime-direct" },
       { label: "Authority", value: "authority:foundation-readonly-plan" },

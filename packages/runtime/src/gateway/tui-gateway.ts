@@ -33,6 +33,7 @@ import { processAdmittedTurn } from "./message-pipeline.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
+  resolveAttachedRuntimeToolCallMetadata,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
 import {
@@ -347,6 +348,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       { publish: (events) => activityStreamer.forwardSessionEvents(events) },
     ),
   });
+  activityStreamer.setToolCallMetadata(builtinToolSurface.toolCallMetadata);
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
   const executor = new CliSubscriptionExecutor(
@@ -844,7 +846,13 @@ class TuiActivityStreamer {
     reject: (sessionId: string, reason: string) => void;
   } | null = null;
 
+  private toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]> = new Map();
+
   constructor(private readonly approvalRegistry: ApprovalGateRegistry) {}
+
+  setToolCallMetadata(metadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>): void {
+    this.toolCallMetadata = metadata;
+  }
 
   bindApprovalBridge(bridge: {
     approve: (sessionId: string) => void;
@@ -1111,6 +1119,7 @@ class TuiActivityStreamer {
           toolCallId,
           toolName: event.toolName ?? "unknown",
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
+          ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
         },
       });
       this.emitActivityPhase({

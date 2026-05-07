@@ -25,6 +25,17 @@ interface TranscriptProps {
 }
 
 const BOTTOM_THRESHOLD_PX = 24;
+const TRANSCRIPT_TOOL_DETAIL_LABELS = new Set([
+  "Status",
+  "Profile",
+  "Provider",
+  "Model",
+  "Surface",
+  "Context mode",
+  "Agent profile",
+  "Skills",
+  "Task",
+]);
 
 function isAtBottom(node: HTMLDivElement): boolean {
   const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
@@ -173,8 +184,17 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
 }
 
 function ToolEventDetails(props: { readonly entry: TimelineEventEntry }) {
+  const presentationDetails = filterTranscriptToolDetails(props.entry.presentationDetails ?? []);
   if (props.entry.toolPresentation) {
-    return <ToolResultPresentationDetails entry={props.entry} />;
+    return (
+      <>
+        <MetaList items={presentationDetails} />
+        <ToolResultPresentationDetails entry={props.entry} />
+      </>
+    );
+  }
+  if (presentationDetails.length > 0) {
+    return <MetaList items={presentationDetails} />;
   }
   const details = asRecord(props.entry.details);
   if (!details) return null;
@@ -193,6 +213,12 @@ function ToolEventDetails(props: { readonly entry: TimelineEventEntry }) {
     }
   }
   return <MetaList items={items} />;
+}
+
+function filterTranscriptToolDetails(
+  details: readonly { readonly label: string; readonly value: string }[],
+): readonly { readonly label: string; readonly value: string }[] {
+  return details.filter((item) => TRANSCRIPT_TOOL_DETAIL_LABELS.has(item.label));
 }
 
 function ApprovalEventDetails(props: { readonly entry: TimelineEventEntry }) {
@@ -298,7 +324,7 @@ function TurnCompletedDetails(props: { readonly entry: TimelineEventEntry }) {
 }
 
 function canRenderEventDetails(entry: TimelineEventEntry): boolean {
-  if (entry.details === undefined) return false;
+  if (entry.details === undefined && (entry.presentationDetails?.length ?? 0) === 0) return false;
   switch (entry.eventKind) {
     case "tool_call_started":
     case "tool_call_completed":

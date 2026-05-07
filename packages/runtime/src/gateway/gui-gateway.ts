@@ -45,6 +45,7 @@ import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
+  resolveAttachedRuntimeToolCallMetadata,
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
 import {
@@ -507,11 +508,11 @@ function wireOperatorTransport(
 ): void {
   const providerLabel = input.transport.sessionManager.getProvider();
   const approvalRegistry = new ApprovalGateRegistry();
-  const activityStreamer = new GuiActivityStreamer(approvalRegistry);
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: input.builtinToolOptions,
     managedInvocation: input.managedInvocation,
   });
+  const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
   const executor = new CliSubscriptionExecutor(
     input.transport.sessionManager.factory,
@@ -1151,7 +1152,10 @@ class GuiActivityStreamer {
     reject: (sessionId: string, reason: string) => void;
   } | null = null;
 
-  constructor(private readonly approvalRegistry: ApprovalGateRegistry) {}
+  constructor(
+    private readonly approvalRegistry: ApprovalGateRegistry,
+    private readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]> = new Map(),
+  ) {}
 
   bindApprovalBridge(bridge: {
     approve: (sessionId: string) => void;
@@ -1445,6 +1449,7 @@ class GuiActivityStreamer {
           toolCallId,
           toolName: event.toolName ?? "unknown",
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
+          ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
         },
       });
       this.emitActivityPhase({

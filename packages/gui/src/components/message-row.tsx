@@ -72,6 +72,9 @@ export function MessageRow(props: MessageRowProps) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
   const isOperational = message.role === "tool" || message.role === "error";
+  const hasAnchoredOperationalContent = Boolean(props.beforeContent || props.afterContent);
+  const hasMessageContent = message.content.trim().length > 0;
+  const showStreamingCursor = message.streaming && (hasMessageContent || !hasAnchoredOperationalContent);
 
   return (
     <article
@@ -116,7 +119,7 @@ export function MessageRow(props: MessageRowProps) {
           {showMarkdown ? (
             <div className="markdown-body">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
-              {message.streaming ? (
+              {showStreamingCursor ? (
                 <span
                   aria-label="Streaming"
                   className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
@@ -126,7 +129,7 @@ export function MessageRow(props: MessageRowProps) {
           ) : (
             <p className="whitespace-pre-wrap break-words">
               {message.content}
-              {message.streaming ? (
+              {showStreamingCursor ? (
                 <span
                   aria-label="Streaming"
                   className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
