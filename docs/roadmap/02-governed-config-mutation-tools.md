@@ -98,9 +98,14 @@ closed and require a fresh proposal.
 
 ## First Implementation Slices
 
-1. Extract canonical config read/projection status services so CLI commands and
-   future tools share one implementation.
-2. Add `kiln_config.read` for read-only effective config and projection status.
+1. Completed 2026-05-07: extract canonical config read/projection status
+   services so CLI commands and future tools share one implementation.
+   `KilnConfigStatusSnapshot` is exported from gateway contracts; CLI status
+   and `kiln config read` consume the shared service for effective config,
+   project/global source status, project-context status, repo-shim status,
+   native projection install-state, and harness capabilities.
+2. Add `kiln_config.read` for read-only effective config and projection status
+   in model-callable tool surfaces, backed by the same config-status service.
 3. Add proposal domain types and validators for skill and agent profile changes.
 4. Add `kiln_config.propose_change` for `skill.upsert`,
    `agent.upsert`, and `agent.attach_skills`.

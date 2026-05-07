@@ -49,18 +49,20 @@ describe("configCommand", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-config-"));
+    vi.stubEnv("XDG_CONFIG_HOME", join(tempDir, "xdg"));
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
     consoleSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 
-  it("show prints current config", () => {
+  it("show prints current config", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain('"domain": "generic"');
@@ -68,66 +70,76 @@ describe("configCommand", () => {
     expect(output).toContain('"maxDepth": 3');
   });
 
-  it("set updates a config value", () => {
+  it("set updates a config value", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "set", ["provider", "openai"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["provider", "openai"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.provider).toBe("openai");
   });
 
-  it("set handles boolean values", () => {
+  it("set handles boolean values", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "set", ["requireApproval", "false"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["requireApproval", "false"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.requireApproval).toBe(false);
   });
 
-  it("set handles numeric values", () => {
+  it("set handles numeric values", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "set", ["maxDepth", "5"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["maxDepth", "5"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.maxDepth).toBe(5);
   });
 
-  it("errors when not initialized", () => {
-    configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
+  it("errors when not initialized", async () => {
+    await configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Not initialized");
   });
 
-  it("set updates permissions.approval", () => {
+  it("set updates permissions.approval", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "set", ["permissions.approval", "never"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["permissions.approval", "never"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.permissions?.approval).toBe("never");
   });
 
-  it("set updates permissions.sandbox", () => {
+  it("set updates permissions.sandbox", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "set", ["permissions.sandbox", "danger-full-access"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["permissions.sandbox", "danger-full-access"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.permissions?.sandbox).toBe("danger-full-access");
   });
 
-  it("reset writes default kiln.yaml", () => {
+  it("reset writes default kiln.yaml", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    configCommand(MOCK_APP_CONFIG, "reset", [], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "reset", [], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.domain).toBe("generic");
     expect(config.provider).toBe("claude");
     expect(config.permissions?.approval).toBe("on-request");
+  });
+
+  it("read projections prints canonical projection status", async () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    await configCommand(MOCK_APP_CONFIG, "read", ["projections"], tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("repo-shim:agents");
+    expect(output).toContain("repo-shim:claude");
   });
 });

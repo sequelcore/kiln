@@ -1,4 +1,19 @@
 export type {
+  KilnConfigProjectSnapshot,
+  KilnConfigReadResult,
+  KilnConfigReadView,
+  KilnConfigSourceSnapshot,
+  KilnConfigSourceStatus,
+  KilnConfigStatusSnapshot,
+  KilnHarnessCapabilitySnapshot,
+  KilnProjectionTargetSnapshot,
+  KilnProjectionTargetStatus,
+} from "./config-status.js";
+export {
+  KILN_CONFIG_READ_VIEWS,
+} from "./config-status.js";
+
+export type {
   GuiProviderDescriptor,
   GuiProviderDiscoveryResult,
   GuiProviderModelCapabilities,

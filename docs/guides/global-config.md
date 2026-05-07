@@ -422,6 +422,24 @@ explicit. The file is canonical project context; generated `AGENTS.md` and
 with a managed read-only child when an agent should review or propose factual
 context changes before adoption.
 
+Inspect canonical configuration and projection status through the shared
+config-status contract:
+
+```bash
+kiln config read effective
+kiln config read projections
+kiln config read health
+kiln config read agents
+kiln config read skills
+```
+
+`kiln config read` is read-only. It resolves the same project root as repo-shim
+sync, merges global and project config through the canonical loaders, reports
+adopted project-context status, classifies generated repo shims, summarizes
+native projection install-state, and exposes harness capability diagnostics.
+Future `kiln_config.read` tools and setup surfaces should consume the same
+contract rather than parsing YAML or native files directly.
+
 When managed invocation is enabled, Kiln exposes a compact admitted agent
 catalog to the `managed_agent.invoke` tool description. Parent assistants should
 select a configured `agentProfile` when the child task clearly matches a

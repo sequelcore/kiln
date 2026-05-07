@@ -1,7 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createSessionBuiltinToolOptions } from "@kilnai/core";
-import { loadKilnConfig } from "../config/config-merger.js";
+import type { KilnYaml } from "../kiln-yaml-types.js";
+import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
@@ -24,20 +25,15 @@ export async function statusCommand(
   projectPath?: string,
   options: StatusCommandOptions = {},
 ): Promise<void> {
-  const root = projectPath ?? process.cwd();
+  const snapshot = await readConfigStatusSnapshot({ projectPath: projectPath ?? process.cwd() });
+  const root = snapshot.project.rootPath;
   const kilnDir = join(root, ".kiln");
-  const projectConfigPath = join(kilnDir, "kiln.yaml");
 
-  if (!existsSync(projectConfigPath)) {
+  if (!snapshot.effectiveConfig) {
     console.log(`Not initialized. Run 'kiln init' first.`);
     return;
   }
-
-  const config = await loadKilnConfig(root);
-  if (!config) {
-    console.log(`Not initialized. Run 'kiln init' first.`);
-    return;
-  }
+  const config = snapshot.effectiveConfig as unknown as KilnYaml;
 
   console.log(`\nKiln Project Status\n`);
   console.log(`  Domain:           ${config.domain ?? "—"}`);
@@ -83,6 +79,13 @@ export async function statusCommand(
     for (const route of managedInvocationResolution.routeHealth) {
       const status = route.available ? "available" : `unavailable - ${route.reason}`;
       console.log(`    - ${route.routeId}: ${route.kind}/${route.provider}${route.model ? ` ${route.model}` : ""} [${route.profiles.join(", ")}] ${status}`);
+    }
+  }
+
+  if (snapshot.projections.length > 0) {
+    console.log(`\n  Config projections:`);
+    for (const projection of snapshot.projections) {
+      console.log(`    - ${projection.targetId}: ${projection.status}`);
     }
   }
 

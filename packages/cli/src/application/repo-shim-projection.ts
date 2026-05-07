@@ -19,7 +19,7 @@ import {
 const GENERATOR_VERSION = "repo-shims-v1";
 const SIGNATURE = "kiln:repo-shim:v1";
 
-type RepoShimKind = "agents" | "claude";
+export type RepoShimKind = "agents" | "claude";
 
 interface RepoShimTarget {
   readonly kind: RepoShimKind;
@@ -39,6 +39,12 @@ export interface RepoShimProjectionResult {
   readonly written: boolean;
   readonly targets: readonly RepoShimProjectionTargetResult[];
   readonly errors: readonly string[];
+}
+
+export interface RepoShimProjectionStatus {
+  readonly target: RepoShimKind;
+  readonly path: string;
+  readonly status: "missing" | "current" | "stale" | "drifted" | "unmanaged";
 }
 
 export interface RepoShimProjectionOptions {
@@ -107,6 +113,51 @@ export async function writeRepoShimProjections(
     targets: results,
     errors,
   };
+}
+
+export async function readRepoShimProjectionStatuses(projectPath: string): Promise<readonly RepoShimProjectionStatus[]> {
+  const agents = await loadAgentDefinitions(projectPath);
+  const instructionProfiles = loadInstructionProfiles(projectPath);
+  const kilnYaml = await loadKilnConfig(projectPath);
+  const repoContext = collectProjectContextEvidence(projectPath);
+  const adoptedProjectContext = readProjectContextMarkdown(projectPath);
+  const sourceProfiles = kilnYaml?.activeInstructionProfiles ?? [];
+  const projectRootId = hashText(repoContext.projectName.toLowerCase()).slice(0, 16);
+
+  return TARGETS.map((target) => {
+    const path = join(projectPath, target.filename);
+    const expected = renderSignedProjection({
+      body: renderRepoShimBody({
+        projectPath,
+        target,
+        agents,
+        instructionProfiles,
+        kilnYaml,
+        repoContext,
+        adoptedProjectContext,
+      }),
+      target,
+      sourceProfiles,
+      projectRootId,
+      projectName: repoContext.projectName,
+    });
+
+    if (!existsSync(path)) {
+      return { target: target.kind, path, status: "missing" };
+    }
+
+    const existing = readFileSync(path, "utf-8");
+    const existingState = classifyExistingProjection(existing, target.kind);
+    if (existingState === "unmanaged" || existingState === "drifted") {
+      return { target: target.kind, path, status: existingState };
+    }
+
+    return {
+      target: target.kind,
+      path,
+      status: existing === expected ? "current" : "stale",
+    };
+  });
 }
 
 function writeRepoShimTarget(input: {

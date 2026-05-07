@@ -139,6 +139,15 @@ missing projection, or blocked by ambiguous root. Unmanaged files are never
 overwritten silently; Kiln may recommend adoption or backup, but the adoption
 command must make the source and target explicit.
 
+Configuration inspection uses the same canonical status contract across
+operator surfaces. `KilnConfigStatusSnapshot` reports resolved project root,
+global config status, project config status, adopted project-context status,
+effective config availability, repo-shim projection status, native projection
+install-state status, and harness integration capabilities. CLI commands,
+future runtime tools, GUI/TUI setup screens, SDK/widget descriptors, and audit
+events must consume that shared contract instead of re-reading YAML or native
+files independently.
+
 ## Install State And Drift
 
 `.kiln/install-state.json` records each managed projection target. Document

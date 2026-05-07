@@ -6,6 +6,11 @@ import {
   type KilnYaml,
 } from "../kiln-yaml.js";
 import type { KilnAppConfig } from "../config.js";
+import {
+  isConfigReadView,
+  readConfigStatusSnapshot,
+  readConfigStatusView,
+} from "../application/config-status.js";
 
 type KilnYamlKey =
   | "domain"
@@ -46,13 +51,13 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "permissions.agentScopes",
 ]);
 
-export function configCommand(
+export async function configCommand(
   _appConfig: KilnAppConfig,
   subcommand: string,
   args: string[],
   projectPath?: string,
-): void {
-  const root = projectPath ?? process.cwd();
+): Promise<void> {
+  const root = projectPath ?? readProjectFlag(args) ?? process.cwd();
   const kilnDir = join(root, ".kiln");
 
   if (!subcommand) {
@@ -60,26 +65,36 @@ export function configCommand(
     return;
   }
 
-  if (subcommand !== "reset") {
-    const config = readKilnYaml(kilnDir);
-    if (!config) {
-      console.log(`Not initialized. Run 'kiln init' first.`);
-      return;
-    }
-  }
-
   switch (subcommand) {
     case "show": {
+      const snapshot = await readConfigStatusSnapshot({ projectPath: root });
+      if (!snapshot.effectiveConfig) {
+        console.log(`Not initialized. Run 'kiln init' first.`);
+        return;
+      }
+      console.log(JSON.stringify(snapshot.effectiveConfig, null, 2));
+      break;
+    }
+
+    case "read": {
+      const viewArg = readPositionalArgs(args)[0] ?? "effective";
+      if (!isConfigReadView(viewArg)) {
+        console.log(`Unknown config read view: ${viewArg}`);
+        console.log("Valid views: effective, providers, routes, agents, skills, permissions, memory, projections, health");
+        return;
+      }
+      const snapshot = await readConfigStatusSnapshot({ projectPath: root });
+      const result = await readConfigStatusView(snapshot, viewArg);
+      console.log(JSON.stringify(result.value, null, 2));
+      break;
+    }
+
+    case "set": {
       const config = readKilnYaml(kilnDir);
       if (!config) {
         console.log(`Not initialized. Run 'kiln init' first.`);
         return;
       }
-      console.log(JSON.stringify(config, null, 2));
-      break;
-    }
-
-    case "set": {
       const key = args[0];
       const value = args[1];
 
@@ -91,12 +106,6 @@ export function configCommand(
       if (!VALID_KEYS.has(key as KilnYamlKey)) {
         console.log(`Unknown config key: ${key}`);
         console.log(`Valid keys: ${[...VALID_KEYS].join(", ")}`);
-        return;
-      }
-
-      const config = readKilnYaml(kilnDir);
-      if (!config) {
-        console.log(`Not initialized. Run 'kiln init' first.`);
         return;
       }
 
@@ -238,8 +247,37 @@ function printConfigHelp(): void {
   console.log(`\nUsage: kiln config <subcommand>\n`);
   console.log("Subcommands:");
   console.log("  show              Print current config");
+  console.log("  read [view]       Print canonical config/status view as JSON");
   console.log("  set <key> <value> Update a config value");
   console.log("  reset             Reset config to defaults");
+  console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, health");
   console.log(`\nValid keys: ${[...VALID_KEYS].join(", ")}`);
   console.log("");
+}
+
+function readProjectFlag(args: readonly string[]): string | undefined {
+  const index = args.findIndex((arg) => arg === "--project" || arg === "--cwd");
+  if (index >= 0) {
+    return args[index + 1];
+  }
+  const inline = args.find((arg) => arg.startsWith("--project=") || arg.startsWith("--cwd="));
+  return inline?.slice(inline.indexOf("=") + 1);
+}
+
+function readPositionalArgs(args: readonly string[]): readonly string[] {
+  const positionals: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--project" || arg === "--cwd") {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--project=") || arg.startsWith("--cwd=")) {
+      continue;
+    }
+    if (!arg.startsWith("--")) {
+      positionals.push(arg);
+    }
+  }
+  return positionals;
 }

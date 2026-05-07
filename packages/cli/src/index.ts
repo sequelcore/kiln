@@ -174,7 +174,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     if (migrateConfigJson(kilnDir)) {
       console.log("Migrated .kiln/config.json → kiln.yaml");
     }
-    configCommand(config, args[1] ?? "", args.slice(2));
+    await configCommand(config, args[1] ?? "", args.slice(2));
     return;
   }
 
