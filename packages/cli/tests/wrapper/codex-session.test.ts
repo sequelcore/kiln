@@ -233,6 +233,35 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(promptArg).toContain("[data-firewall] DENY logs");
   });
 
+  it("run() appends prepared system context after the governed turn prompt", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({
+      prompt: "<kiln-preamble><task>inspect</task></kiln-preamble>",
+      system: "## Operator Identity\n- Operator name: Ricardo",
+    }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const spawnArgs = vi.mocked(mockSpawn).mock.calls[0]?.[1] as string[] | undefined;
+    const promptArg = spawnArgs?.[spawnArgs.length - 1] ?? "";
+    expect(promptArg.indexOf("<kiln-preamble>")).toBeLessThan(promptArg.indexOf("## Operator Identity"));
+    expect(promptArg).toContain("## Operator Identity");
+    expect(promptArg).toContain("- Operator name: Ricardo");
+    expect(promptArg).toContain("--- Kiln Prepared System Context ---");
+    expect(promptArg).toContain("<kiln-preamble>");
+    expect(promptArg).toContain("--- Kiln Task To Execute Now ---");
+    expect(promptArg).toContain("inspect");
+    expect(promptArg).toContain("Execute the task above in this turn.");
+  });
+
   it("run() passes reasoning effort as a Codex config override", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);

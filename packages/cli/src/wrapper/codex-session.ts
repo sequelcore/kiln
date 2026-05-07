@@ -88,6 +88,33 @@ function appendConstraintInstructions(
   return `${prompt}\n\n${constraintInstructions.join("\n")}`;
 }
 
+function appendPreparedSystemContext(prompt: string, systemPrompt?: string): string {
+  const system = systemPrompt?.trim();
+  if (!system) {
+    return prompt;
+  }
+  return `${prompt}\n\n--- Kiln Prepared System Context ---\n${system}`;
+}
+
+function appendTaskReminder(prompt: string, governedPrompt: string): string {
+  const task = extractPreambleTask(governedPrompt);
+  if (!task) {
+    return prompt;
+  }
+  return `${prompt}\n\n--- Kiln Task To Execute Now ---\n${task}\n\nExecute the task above in this turn. Do not ask the operator for another task unless required information is genuinely missing.`;
+}
+
+function extractPreambleTask(prompt: string): string | undefined {
+  const match = prompt.match(/<task>([\s\S]*?)<\/task>/u);
+  const task = match?.[1]?.replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .trim();
+  return task && task.length > 0 ? task : undefined;
+}
+
 interface MutableCapabilities {
   supportedTools: readonly string[];
 }
@@ -220,7 +247,7 @@ export class CodexSession implements IKilnSession {
       args.push("--ephemeral");
     }
     const promptWithExecutionIdentity = appendExecutionIdentity(
-      options.prompt,
+      appendPreparedSystemContext(options.prompt, options.system),
       resolveExecutionIdentity({
         configuredProvider: this.config.localProvider ?? "codex",
         configuredModel: model,
@@ -228,8 +255,9 @@ export class CodexSession implements IKilnSession {
         configuredBillingMode: "unknown",
       }),
     );
+    const promptWithTaskReminder = appendTaskReminder(promptWithExecutionIdentity, options.prompt);
     const promptWithConstraints = appendConstraintInstructions(
-      promptWithExecutionIdentity,
+      promptWithTaskReminder,
       this._constraintInstructions,
     );
     args.push("--cd", cwd, promptWithConstraints);

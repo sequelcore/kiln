@@ -306,6 +306,37 @@ describe("OpenCodeSession.run() integration", () => {
     expect(promptText).toContain("[file-governance] ALLOW src/**");
   });
 
+  it("run() appends prepared system context after the governed turn prompt", async () => {
+    const mock = makeMockClient("ses_system", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_system", status: { type: "idle" } } },
+      },
+    ], 0.001);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    for await (const _event of await session.run({
+      prompt: "<kiln-preamble><task>inspect</task></kiln-preamble>",
+      system: "## Operator Identity\n- Operator name: Ricardo",
+    })) {
+      // consume
+    }
+
+    const promptCall = mock.session.prompt.mock.calls[0]?.[0] as {
+      parts?: Array<{ type: string; text?: string }>;
+    } | undefined;
+    const promptText = promptCall?.parts?.[0]?.text;
+    expect(promptText?.indexOf("<kiln-preamble>")).toBeLessThan(promptText?.indexOf("## Operator Identity") ?? 0);
+    expect(promptText).toContain("## Operator Identity");
+    expect(promptText).toContain("- Operator name: Ricardo");
+    expect(promptText).toContain("--- Kiln Prepared System Context ---");
+    expect(promptText).toContain("<kiln-preamble>");
+    expect(promptText).toContain("--- Kiln Task To Execute Now ---");
+    expect(promptText).toContain("inspect");
+    expect(promptText).toContain("Execute the task above in this turn.");
+  });
+
   it("run() yields text_delta for message.part.delta via SSE", async () => {
     const mock = makeMockClient("ses_123", [
       {

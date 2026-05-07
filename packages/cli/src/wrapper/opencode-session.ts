@@ -382,6 +382,33 @@ function appendConstraintInstructions(
   return sections.filter((section) => section.trim().length > 0).join("\n\n");
 }
 
+function appendPreparedSystemContext(prompt: string, systemPrompt?: string): string {
+  const system = systemPrompt?.trim();
+  if (!system) {
+    return prompt;
+  }
+  return `${prompt}\n\n--- Kiln Prepared System Context ---\n${system}`;
+}
+
+function appendTaskReminder(prompt: string, governedPrompt: string): string {
+  const task = extractPreambleTask(governedPrompt);
+  if (!task) {
+    return prompt;
+  }
+  return `${prompt}\n\n--- Kiln Task To Execute Now ---\n${task}\n\nExecute the task above in this turn. Do not ask the operator for another task unless required information is genuinely missing.`;
+}
+
+function extractPreambleTask(prompt: string): string | undefined {
+  const match = prompt.match(/<task>([\s\S]*?)<\/task>/u);
+  const task = match?.[1]?.replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .trim();
+  return task && task.length > 0 ? task : undefined;
+}
+
 interface MutableCapabilities {
   supportedTools: readonly string[];
 }
@@ -604,13 +631,14 @@ export class OpenCodeSession implements IKilnSession {
       };
 
       const promptWithExecutionIdentity = appendExecutionIdentity(
-        options.prompt,
+        appendPreparedSystemContext(options.prompt, options.system),
         resolveExecutionIdentity({
           configuredProvider: "opencode",
           configuredModel: this._config.model,
           configuredBillingMode: inferOpenCodeBillingMode(this._config.model),
         }),
       );
+      const promptWithTaskReminder = appendTaskReminder(promptWithExecutionIdentity, options.prompt);
       const promptResult = await client.session
         .prompt(
           {
@@ -618,7 +646,7 @@ export class OpenCodeSession implements IKilnSession {
             parts: [{
               type: "text",
               text: appendConstraintInstructions(
-                promptWithExecutionIdentity,
+                promptWithTaskReminder,
                 this._config.constraintInstructions,
                 this._config.nativeRules,
               ),
