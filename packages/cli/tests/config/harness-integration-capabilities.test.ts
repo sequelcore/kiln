@@ -49,7 +49,6 @@ describe("harness integration capabilities", () => {
   });
 
   it("reports supported integration mechanisms by harness", () => {
-    expect(supportsHarnessIntegration("claude", "pluginPackaging")).toBe(true);
     expect(supportsHarnessIntegration("codex", "mcpRuntimeTools")).toBe(true);
     expect(supportsHarnessIntegration("codex", "runtimeConfigInjection")).toBe(true);
     expect(supportsHarnessIntegration("opencode", "runtimeConfigInjection")).toBe(true);

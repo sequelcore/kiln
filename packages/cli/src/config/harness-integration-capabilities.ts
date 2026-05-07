@@ -8,7 +8,6 @@ export type HarnessIntegrationMechanism =
   | "runtimeConfigInjection"
   | "nativeProjection"
   | "nativeConfigImport"
-  | "pluginPackaging"
   | "mcpRuntimeTools"
   | "hooks";
 
@@ -30,7 +29,6 @@ export interface HarnessIntegrationCapability {
   readonly runtimeConfigInjection: RuntimeConfigInjectionCapability;
   readonly nativeProjection: NativeProjectionCapability;
   readonly nativeConfigImport: boolean;
-  readonly pluginPackaging: boolean;
   readonly mcpRuntimeTools: boolean;
   readonly hooks: boolean;
 }
@@ -54,7 +52,6 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     runtimeConfigInjection: { supported: false },
     nativeProjection: NATIVE_PROJECTION_CAPABILITY,
     nativeConfigImport: supportsNativeConfigImport("claude"),
-    pluginPackaging: true,
     mcpRuntimeTools: true,
     hooks: true,
   },
@@ -68,7 +65,6 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     },
     nativeProjection: NATIVE_PROJECTION_CAPABILITY,
     nativeConfigImport: supportsNativeConfigImport("codex"),
-    pluginPackaging: true,
     mcpRuntimeTools: true,
     hooks: true,
   },
@@ -82,7 +78,6 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     },
     nativeProjection: NATIVE_PROJECTION_CAPABILITY,
     nativeConfigImport: supportsNativeConfigImport("opencode"),
-    pluginPackaging: true,
     mcpRuntimeTools: true,
     hooks: true,
   },

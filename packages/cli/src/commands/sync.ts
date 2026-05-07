@@ -6,6 +6,7 @@ import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { writeAgentsMdProjection } from "../application/agents-md-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
+import { listHarnessIntegrationCapabilities } from "../config/harness-integration-capabilities.js";
 import type { KilnAppConfig } from "../config.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "agents-md", "skills"] as const;
@@ -223,6 +224,23 @@ export async function syncCommand(
     }
 
     console.log("─".repeat(40));
+  }
+
+  if (permResult || hookResult || agentResult || agentsMdResult || skillsResult) {
+    console.log("");
+    console.log("Harness capabilities:");
+    for (const capability of listHarnessIntegrationCapabilities()) {
+      const runtimeInjection = capability.runtimeConfigInjection.supported
+        ? `runtime injection: ${capability.runtimeConfigInjection.mechanism ?? "supported"}`
+        : "runtime injection: not proven";
+      const nativeProjection = capability.nativeProjection.supported
+        ? "native projection: install-state"
+        : "native projection: unsupported";
+      const nativeImport = capability.nativeConfigImport ? "native import: supported" : "native import: unsupported";
+      const mcp = capability.mcpRuntimeTools ? "MCP: supported" : "MCP: unsupported";
+      const hooks = capability.hooks ? "hooks: supported" : "hooks: unsupported";
+      console.log(`  ${capability.displayName}: ${runtimeInjection}; ${nativeProjection}; ${nativeImport}; ${mcp}; ${hooks}`);
+    }
   }
 
   if (allErrors.length > 0) {

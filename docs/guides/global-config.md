@@ -45,7 +45,7 @@ usage view.
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
-| `instructionProfiles` | `Record<string, unknown>` | Durable operator/team doctrine such as engineering standards, workflow sequence, review posture, and communication norms. Target schema; implementation is tracked by `docs/roadmap/02-agent-context-capability-model.md`. |
+| `instructionProfiles` | `Record<string, unknown>` | Durable operator/team doctrine such as engineering standards, workflow sequence, review posture, and communication norms. Target schema; implementation is tracked by `docs/roadmap/01-agent-context-capability-model.md`. |
 | `activeInstructionProfiles` | `string[]` | Ordered instruction profile ids selected for global prompt context. Target field; not yet fully enforced across all surfaces. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
@@ -372,6 +372,9 @@ target unless `--force` is confirmed.
 Before overwriting an existing projected native file, Kiln writes a backup under
 `.kiln/backups/<target-id>/`. Backups are append-only.
 
-When `engines.<id>.enabled: false` is set for `claude`, `codex`, or `opencode`,
-`kiln sync` removes recorded managed projections for that harness and does not
-write new permission, hook, agent, or skill projections for it.
+Native projection is independent from runtime routing eligibility. When
+`engines.<id>.enabled: false` is set for `claude`, `codex`, or `opencode`, that
+engine is unavailable for Kiln runtime routing, but `kiln sync` may still write
+canonical permissions, hooks, agents, skills, and shims for direct standalone
+harness usage. To remove projected native artifacts, use explicit uninstall
+commands rather than overloading route availability.

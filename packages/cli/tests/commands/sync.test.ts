@@ -175,6 +175,23 @@ describe("syncCommand", () => {
     );
   });
 
+  it("prints harness capability diagnostics from the canonical capability model", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let output = "";
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--agents-md"]);
+      output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(output).toContain("Harness capabilities:");
+    expect(output).toContain("Claude Code: runtime injection: not proven; native projection: install-state; native import: unsupported; MCP: supported; hooks: supported");
+    expect(output).toContain("Codex: runtime injection: CODEX_HOME + CLI config overrides; native projection: install-state; native import: supported; MCP: supported; hooks: supported");
+    expect(output).toContain("OpenCode: runtime injection: OPENCODE_CONFIG_CONTENT; native projection: install-state; native import: supported; MCP: supported; hooks: supported");
+  });
+
   it("accepts appConfig, subcommand, and args parameters", async () => {
     const { readKilnYaml } = await import("../../src/kiln-yaml.js");
     const originalRead = readKilnYaml;

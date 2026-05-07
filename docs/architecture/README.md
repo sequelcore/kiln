@@ -93,8 +93,8 @@ is documented by concern, not as a single monolith.
 
 - `harness-integration-capabilities.md`
   Canonical capability model for Claude Code, Codex, and OpenCode integration:
-  runtime config injection, native projection, plugin packaging, MCP runtime
-  tools, hooks, and proof requirements.
+  runtime config injection, native projection, native config import, MCP
+  runtime tools, hooks, and proof requirements.
 
 - `operator-surfaces.md`
   Canonical human operator surface model: GUI, CLI, TUI, IDE, remote, future

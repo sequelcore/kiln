@@ -35,13 +35,13 @@ Read the relevant architecture or guide document before using a roadmap:
 - `docs/architecture/operator-surfaces.md`, `docs/guides/gui-parity.md`, and
   `docs/guides/tui-maintenance.md` for GUI, TUI, CLI, IDE, desktop, and remote
   operator surfaces.
-- `docs/roadmap/03-presentation-intent-contract.md` for the active
+- `docs/roadmap/02-presentation-intent-contract.md` for the active
   presentation-intent track until its stable doctrine is promoted into
   architecture and guide documentation.
-- `docs/roadmap/04-managed-agent-platform-productization.md` for the active
+- `docs/roadmap/03-managed-agent-platform-productization.md` for the active
   managed-agent productization track that turns the governed runtime foundation
   into a coherent cross-surface product platform.
-- `docs/roadmap/05-governed-config-mutation-tools.md` for the active governed
+- `docs/roadmap/04-governed-config-mutation-tools.md` for the active governed
   config-mutation track that lets agents inspect, propose, and apply approved
   canonical Kiln configuration changes.
 
@@ -49,50 +49,45 @@ Read the relevant architecture or guide document before using a roadmap:
 
 The managed-agent and setup work is split by architectural responsibility:
 
-- `02-agent-context-capability-model.md` defines the canonical model: identity,
+- `01-agent-context-capability-model.md` defines the canonical model: identity,
   instruction profiles, agent profiles, skills, context admission, precedence,
   and harness projection.
-- `04-managed-agent-platform-productization.md` turns that model into product:
+- `03-managed-agent-platform-productization.md` turns that model into product:
   first-party defaults, natural delegation, setup surfaces, presentation,
   write-capable managed child profiles, and operator workflow.
-- `05-governed-config-mutation-tools.md` makes the setup governable by agents:
+- `04-governed-config-mutation-tools.md` makes the setup governable by agents:
   config reads, structured proposals, approval-gated apply, sync/projection,
   and audit evidence.
 
 ## Active Roadmaps
 
-- `01-harness-integration-capability-model.md`
-  Active capability-driven integration track for Claude Code, Codex, and
-  OpenCode. It replaces implicit native-projection assumptions with explicit
-  runtime injection, native projection, plugin, MCP, and hook capabilities.
-
-- `02-agent-context-capability-model.md`
+- `01-agent-context-capability-model.md`
   Active governed agent-context track for operator identity, instruction
   profiles, agent profiles, skills, and managed child context across all
   surfaces.
 
-- `03-presentation-intent-contract.md`
+- `02-presentation-intent-contract.md`
   Active presentation contract track for validated agent/tool display intents
   across GUI, TUI, CLI, SDK/widget, and future operator surfaces.
 
-- `04-managed-agent-platform-productization.md`
+- `03-managed-agent-platform-productization.md`
   Active productization track for Kiln's managed-agent differentiator:
   canonical config, direct providers and harnesses under one contract,
   governed child invocation, immutable evidence, reusable agent identity, and
   natural delegation across all surfaces.
 
-- `05-governed-config-mutation-tools.md`
+- `04-governed-config-mutation-tools.md`
   Active governed configuration track for native tools that read effective
   config, propose bounded config changes, apply approved changes, emit audit
   events, and run sync/projection through canonical Kiln services.
 
 ## Deferred Roadmaps
 
-- `06-external-benchmark-validation.md`
+- `05-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `07-native-operator-surface-experiment.md`
+- `06-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -121,13 +116,18 @@ The managed-agent and setup work is split by architectural responsibility:
 - Config projection unification completed on 2026-05-06. Stable doctrine lives
   in `docs/architecture/config-projection.md`; operator usage lives in
   `docs/guides/global-config.md`.
+- Harness integration capability model completed on 2026-05-07. Stable
+  doctrine lives in `docs/architecture/harness-integration-capabilities.md`;
+  operator usage lives in `docs/guides/global-config.md`, and `kiln sync`
+  prints runtime injection, native projection, native import, MCP, and hook
+  capability diagnostics.
 
 ## Execution Priority
 
-1. Keep `07-native-operator-surface-experiment.md` deferred until managed
+1. Keep `06-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-2. Keep `06-external-benchmark-validation.md` deferred until the evaluated
+2. Keep `05-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules

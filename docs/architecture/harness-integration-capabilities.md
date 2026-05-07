@@ -16,7 +16,6 @@ Each harness integration declares explicit support for:
 - runtime config injection
 - native projection
 - native config import
-- plugin packaging
 - MCP runtime tools
 - hooks
 
@@ -80,18 +79,16 @@ Current status:
 | Codex | Supported | Provider, model, approval, and sandbox map cleanly |
 | OpenCode | Supported | Provider, model, and default permission map cleanly |
 
-## Plugins, MCP, And Hooks
+## MCP And Hooks
 
-Plugins, MCP, and hooks are complementary integration mechanisms.
+MCP and hooks are complementary integration mechanisms.
 
-- Plugins may package native harness integration, but they still depend on the
-  harness plugin loader and its config scopes.
 - MCP exposes runtime tools after the harness has started. It does not replace
   bootstrap configuration unless a harness explicitly reads startup config
   through MCP, which Claude Code, Codex, and OpenCode do not currently do as a
   shared standard.
-- Hooks are native harness extension points and must be projected or packaged
-  according to the harness capability table.
+- Hooks are native harness extension points and must be projected according to
+  the harness capability table.
 
 ## Invariants
 
