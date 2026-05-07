@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { basename, join, relative } from "node:path";
+import { join, relative } from "node:path";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import {
   findInstructionProfile,
@@ -10,6 +10,11 @@ import {
 } from "./instruction-profile-loader.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import type { KilnYaml } from "../kiln-yaml.js";
+import {
+  collectProjectContextEvidence,
+  readProjectContextMarkdown,
+  type ProjectContextEvidence,
+} from "./project-context.js";
 
 const GENERATOR_VERSION = "repo-shims-v1";
 const SIGNATURE = "kiln:repo-shim:v1";
@@ -40,14 +45,6 @@ export interface RepoShimProjectionOptions {
   readonly force?: boolean;
 }
 
-interface RepoContext {
-  readonly projectName: string;
-  readonly packageManager: string | null;
-  readonly scripts: readonly [string, string][];
-  readonly workspacePackages: readonly string[];
-  readonly docs: readonly string[];
-}
-
 interface ProjectionMetadata {
   readonly target: string;
   readonly contentHash: string;
@@ -76,7 +73,8 @@ export async function writeRepoShimProjections(
     const agents = await loadAgentDefinitions(projectPath);
     const instructionProfiles = loadInstructionProfiles(projectPath);
     const kilnYaml = await loadKilnConfig(projectPath);
-    const repoContext = collectRepoContext(projectPath);
+    const repoContext = collectProjectContextEvidence(projectPath);
+    const adoptedProjectContext = readProjectContextMarkdown(projectPath);
     const sourceProfiles = kilnYaml?.activeInstructionProfiles ?? [];
     const projectRootId = hashText(repoContext.projectName.toLowerCase()).slice(0, 16);
 
@@ -88,6 +86,7 @@ export async function writeRepoShimProjections(
         instructionProfiles,
         kilnYaml,
         repoContext,
+        adoptedProjectContext,
         sourceProfiles,
         projectRootId,
         force: options.force ?? false,
@@ -116,7 +115,8 @@ function writeRepoShimTarget(input: {
   readonly agents: readonly KilnAgentDefinition[];
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: KilnYaml | null;
-  readonly repoContext: RepoContext;
+  readonly repoContext: ProjectContextEvidence;
+  readonly adoptedProjectContext: string | null;
   readonly sourceProfiles: readonly string[];
   readonly projectRootId: string;
   readonly force: boolean;
@@ -183,9 +183,10 @@ function renderRepoShimBody(input: {
   readonly agents: readonly KilnAgentDefinition[];
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: KilnYaml | null;
-  readonly repoContext: RepoContext;
+  readonly repoContext: ProjectContextEvidence;
+  readonly adoptedProjectContext: string | null;
 }): string {
-  const { projectPath, target, agents, instructionProfiles, kilnYaml, repoContext } = input;
+  const { projectPath, target, agents, instructionProfiles, kilnYaml, repoContext, adoptedProjectContext } = input;
   const domain = kilnYaml?.domain ?? "default";
   const provider = kilnYaml?.provider ?? "provider default";
   const model = kilnYaml?.model?.default ?? "provider default";
@@ -211,7 +212,7 @@ function renderRepoShimBody(input: {
     "",
   ];
 
-  if (repoContext.packageManager || repoContext.scripts.length > 0 || repoContext.workspacePackages.length > 0) {
+  if (!adoptedProjectContext && (repoContext.packageManager || repoContext.scripts.length > 0 || repoContext.workspacePackages.length > 0)) {
     lines.push("## Repository Evidence", "");
     if (repoContext.packageManager) {
       lines.push(`- Package manager: ${repoContext.packageManager}`);
@@ -225,11 +226,22 @@ function renderRepoShimBody(input: {
     lines.push("");
   }
 
-  if (repoContext.docs.length > 0) {
+  if (!adoptedProjectContext && repoContext.docs.length > 0) {
     lines.push(
       "## Canonical Project References",
       "",
       ...repoContext.docs.map((doc) => `- ${doc}`),
+      "",
+    );
+  }
+
+  if (adoptedProjectContext) {
+    lines.push(
+      "## Adopted Project Context",
+      "",
+      "Canonical source: `.kiln/project-context.md`.",
+      "",
+      stripFrontmatter(adoptedProjectContext).trim(),
       "",
     );
   }
@@ -302,56 +314,6 @@ function formatProfilePath(profile: KilnInstructionProfileDefinition, projectPat
   return normalizedPath;
 }
 
-function collectRepoContext(projectPath: string): RepoContext {
-  const packageJson = readPackageJson(projectPath);
-  return {
-    projectName: packageJson?.name ?? basename(projectPath),
-    packageManager: detectPackageManager(projectPath),
-    scripts: Object.entries(packageJson?.scripts ?? {}).sort(([left], [right]) => left.localeCompare(right)),
-    workspacePackages: readWorkspacePackages(packageJson),
-    docs: [
-      "README.md",
-      "docs/architecture/README.md",
-      "docs/architecture/engineering-standards.md",
-      "docs/research/README.md",
-      "docs/roadmap/README.md",
-    ].filter((relativePath) => existsSync(join(projectPath, relativePath))),
-  };
-}
-
-function readPackageJson(projectPath: string): { name?: string; scripts?: Record<string, string>; workspaces?: unknown } | null {
-  const path = join(projectPath, "package.json");
-  if (!existsSync(path)) {
-    return null;
-  }
-  try {
-    return JSON.parse(readFileSync(path, "utf-8")) as { name?: string; scripts?: Record<string, string>; workspaces?: unknown };
-  } catch {
-    return null;
-  }
-}
-
-function readWorkspacePackages(packageJson: { workspaces?: unknown } | null): readonly string[] {
-  const workspaces = packageJson?.workspaces;
-  if (Array.isArray(workspaces)) {
-    return workspaces.filter((entry): entry is string => typeof entry === "string").sort();
-  }
-  if (typeof workspaces === "object" && workspaces !== null && Array.isArray((workspaces as { packages?: unknown }).packages)) {
-    return (workspaces as { packages: unknown[] }).packages
-      .filter((entry): entry is string => typeof entry === "string")
-      .sort();
-  }
-  return [];
-}
-
-function detectPackageManager(projectPath: string): string | null {
-  if (existsSync(join(projectPath, "bun.lock")) || existsSync(join(projectPath, "bun.lockb"))) return "bun";
-  if (existsSync(join(projectPath, "pnpm-lock.yaml"))) return "pnpm";
-  if (existsSync(join(projectPath, "yarn.lock"))) return "yarn";
-  if (existsSync(join(projectPath, "package-lock.json"))) return "npm";
-  return null;
-}
-
 function renderSignedProjection(input: {
   readonly body: string;
   readonly target: RepoShimTarget;
@@ -372,6 +334,12 @@ function renderSignedProjection(input: {
     "-->",
     input.body,
   ].join("\n");
+}
+
+function stripFrontmatter(content: string): string {
+  const normalized = content.replace(/^\uFEFF/, "");
+  const match = /^---\s*\r?\n[\s\S]*?\r?\n---\s*([\s\S]*)$/u.exec(normalized);
+  return match?.[1] ?? normalized;
 }
 
 function classifyExistingProjection(content: string, expectedTarget: RepoShimKind): "managed" | "drifted" | "unmanaged" {

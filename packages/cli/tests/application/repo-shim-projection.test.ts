@@ -133,4 +133,26 @@ describe("repo-shim-projection", () => {
     expect(readFileSync(join(PROJECT_PATH, "CLAUDE.md"), "utf-8")).toContain("kiln:repo-shim:v1");
     expect(existsSync(join(PROJECT_PATH, ".kiln", "backups", "repo-shims"))).toBe(true);
   });
+
+  it("projects adopted canonical project context into repo shims", async () => {
+    mkdirSync(join(PROJECT_PATH, ".kiln"), { recursive: true });
+    writeFileSync(join(PROJECT_PATH, ".kiln", "project-context.md"), [
+      "---",
+      "version: \"1\"",
+      "---",
+      "",
+      "# Project Context",
+      "",
+      "Use the modular architecture docs as the active source of truth.",
+      "",
+    ].join("\n"), "utf-8");
+
+    const result = await writeRepoShimProjections(PROJECT_PATH);
+    const agents = readFileSync(join(PROJECT_PATH, "AGENTS.md"), "utf-8");
+
+    expect(result.errors).toEqual([]);
+    expect(agents).toContain("## Adopted Project Context");
+    expect(agents).toContain("Canonical source: `.kiln/project-context.md`.");
+    expect(agents).toContain("Use the modular architecture docs as the active source of truth.");
+  });
 });

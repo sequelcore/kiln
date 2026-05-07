@@ -8,6 +8,15 @@ dist/
 .DS_Store
 *.tsbuildinfo
 .claude/
-.kiln/
+.kiln/*
+!.kiln/kiln.yaml
+!.kiln/project-context.md
+!.kiln/instructions/
+!.kiln/instructions/**
+!.kiln/agents/
+!.kiln/agents/**
+!.kiln/skills/
+!.kiln/skills/**
 packages/cli/.kiln-worktrees/
+packages/cli/.kiln/
 packages/cli/config.json

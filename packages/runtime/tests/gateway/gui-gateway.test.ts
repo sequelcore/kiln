@@ -2679,6 +2679,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses missing OpenRouter API credentials", async () => {
     const fetchSpy = vi.fn();
+    vi.stubEnv("OPENROUTER_API_KEY", "");
     vi.stubGlobal("fetch", fetchSpy);
 
     const discovered = await discoverGuiDirectProviderModelDiscovery({

@@ -130,9 +130,11 @@ surface-specific behavior, or provider compatibility glue.
    canonical Kiln config and deterministic repo evidence. Existing unmanaged
    guidance files and drifted managed files block unless `--force` is explicit,
    and forced overwrites write backups under `.kiln/backups/repo-shims/`.
-   Remaining work: add the repo-context adoption command and governed
-   managed-agent review skill so an agent may propose project context from real
-   repo evidence while Kiln owns schema validation and operator approval.
+   `kiln project scout` exposes deterministic repo evidence, `kiln project
+   adopt` writes `.kiln/project-context.md` as canonical project context, and
+   the `repo-context-review` skill gives managed children a bounded review
+   procedure before adoption or projection. Remaining work: surface repo-shim
+   and project-context status in the cross-surface config/status contract.
 9. Design the cross-surface configuration surface:
    - GUI: dedicated Settings/Setup surface or sidebar mode.
    - TUI: equivalent command/screen.

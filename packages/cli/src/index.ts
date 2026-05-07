@@ -28,6 +28,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     init: `Initialize ${APP_NAME} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
     run: "Start a CLI-only coding session with Claude Code (use --plan for plan mode, --agent for agent profile)",
     plan: "Start a planning session before execution (3-phase workflow)",
+    project: "Scout or adopt canonical repo context for generated project shims",
     status: "Show current phase, tasks, and costs",
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
@@ -140,6 +141,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     const { task, flags } = parseRunArgs(args.slice(1));
     const { runCommand } = await import("./commands/run.js");
     await runCommand(config, task, { ...flags, plan: true });
+    return;
+  }
+
+  if (command === "project") {
+    const { projectCommand } = await import("./commands/project.js");
+    await projectCommand(config, args[1], args.slice(2));
     return;
   }
 

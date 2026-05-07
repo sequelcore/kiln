@@ -168,7 +168,7 @@ export async function initCommand(
     existing = readFileSync(gitignorePath, "utf-8");
   }
 
-  const gitignoreEntries = [`.kiln/memory.db`, `.kiln/agents/`] as const;
+  const gitignoreEntries = [`.kiln/memory.db`] as const;
   const toAppend: string[] = [];
   for (const entry of gitignoreEntries) {
     if (!existing.includes(entry)) {

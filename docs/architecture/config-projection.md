@@ -120,6 +120,14 @@ operator approves adoption. Deterministic commands own root resolution, stack
 and script detection, generated-file signatures, install-state records, drift
 detection, backups, and projection writes.
 
+`kiln project scout` exposes deterministic repository evidence. `kiln project
+adopt` writes `.kiln/project-context.md` as canonical project context and blocks
+when existing context differs unless the operator explicitly forces replacement.
+Generated repo shims may project `.kiln/project-context.md`, but they must not
+own its content. Project context, project instruction profiles, project agents,
+and project skills are canonical repo config and should be versionable; runtime
+state under `.kiln/` remains ignored.
+
 Generated repo shims must contain a stable Kiln signature and projection
 metadata: target kind, project root identity, source profile ids, generator
 version, and content hash. Sync uses that metadata to block unmanaged files and

@@ -83,7 +83,7 @@ describe("initCommand", () => {
 
     const gitignore = readFileSync(join(tempDir, ".gitignore"), "utf-8");
     expect(gitignore).toContain(".kiln/memory.db");
-    expect(gitignore).toContain(".kiln/agents/");
+    expect(gitignore).not.toContain(".kiln/agents/");
   });
 
   it("does not duplicate .gitignore entries on re-init", async () => {

@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:359f225b7c02202afc16db5ba0d0d238351f93add349132ba68f4bb87b00b484
+contentHash: sha256:f519b97cafa417e78a363249900994f21660fa64509b61b13cfb6bd2fd1a9cf8
 -->
 # Claude Project Guidance
 
@@ -20,23 +20,42 @@ contentHash: sha256:359f225b7c02202afc16db5ba0d0d238351f93add349132ba68f4bb87b00
 - Max depth: 3
 - Parallel workers: 1
 
-## Repository Evidence
+## Adopted Project Context
 
+Canonical source: `.kiln/project-context.md`.
+
+# Project Context
+
+This file is canonical Kiln project context. Edit this file or regenerate it
+through `kiln project adopt`; do not put durable repo guidance directly in
+`AGENTS.md` or `CLAUDE.md`.
+
+## Project
+
+- Name: kiln
 - Package manager: bun
-- Script `build`: `bun run --filter '*' build`
-- Script `test`: `bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test`
-- Script `test:e2e`: `bun run --cwd packages/gui test:e2e`
-- Script `test:managed-agents:live`: `vitest run packages/runtime/tests/managed-agent/*.live.test.ts --maxWorkers=1`
-- Script `typecheck`: `tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit`
 - Workspace package: `packages/*`
 
-## Canonical Project References
+## Commands
+
+- `build`: `bun run --filter '*' build`
+- `test`: `bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test`
+- `test:e2e`: `bun run --cwd packages/gui test:e2e`
+- `test:managed-agents:live`: `vitest run packages/runtime/tests/managed-agent/*.live.test.ts --maxWorkers=1`
+- `typecheck`: `tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit`
+
+## Canonical References
 
 - README.md
 - docs/architecture/README.md
 - docs/architecture/engineering-standards.md
 - docs/research/README.md
 - docs/roadmap/README.md
+
+## Agent Review Notes
+
+Add governed repo-specific notes here after review. Keep them factual,
+durable, and backed by repository evidence.
 
 ## Active Instruction Profiles
 

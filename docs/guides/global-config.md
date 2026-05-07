@@ -405,6 +405,23 @@ files with Kiln projection metadata. Existing unmanaged guidance files and
 drifted managed shims block generation unless `--force` is explicit; forced
 overwrites create backups under `.kiln/backups/repo-shims/`.
 
+Adopt durable repository context before syncing shims when the repo needs
+project-specific guidance beyond deterministic package/script/doc evidence:
+
+```bash
+kiln project scout
+kiln project scout --json
+kiln project adopt
+kiln sync --repo-shims
+```
+
+`kiln project adopt` writes `.kiln/project-context.md` from deterministic repo
+evidence and blocks if an existing context differs unless `--force` is
+explicit. The file is canonical project context; generated `AGENTS.md` and
+`CLAUDE.md` project it but do not own it. Use the `repo-context-review` skill
+with a managed read-only child when an agent should review or propose factual
+context changes before adoption.
+
 When managed invocation is enabled, Kiln exposes a compact admitted agent
 catalog to the `managed_agent.invoke` tool description. Parent assistants should
 select a configured `agentProfile` when the child task clearly matches a
