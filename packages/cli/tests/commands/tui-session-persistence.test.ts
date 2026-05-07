@@ -141,6 +141,7 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => null),
   resolveGlobalDefaultProvider: () => undefined,
+  resolveGlobalDefaultModel: () => undefined,
   resolveGlobalUiTheme: () => undefined,
 }));
 

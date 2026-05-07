@@ -26,6 +26,7 @@ export interface RunSessionOptions {
   readonly manager: SessionManager;
   readonly context: SessionContext;
   readonly requirements: SessionRequirements;
+  readonly routeCandidates?: readonly RunSessionRouteCandidate[];
   readonly sessionConfig: ProviderCreateConfig;
   readonly permissionPolicy: ProviderCreateConfig["permissionPolicy"];
   readonly permissionAgent?: string;
@@ -33,6 +34,18 @@ export interface RunSessionOptions {
   readonly approvalMemoryStore?: ApprovalMemoryLookup;
   readonly env: Record<string, string>;
   readonly sessionHooks: SessionHooks;
+}
+
+export interface RunSessionRouteCandidate {
+  readonly provider: ProviderId;
+  readonly model?: string;
+}
+
+export interface RunSessionAttemptResult {
+  readonly providerId: ProviderId;
+  readonly model?: string;
+  readonly succeeded: boolean;
+  readonly error: string | null;
 }
 
 export interface ApprovalMemoryLookup {
@@ -48,6 +61,8 @@ export interface RunSessionResult {
   readonly toolCallCount: number;
   readonly turnDepth: number;
   readonly successfulProviderId?: ProviderId;
+  readonly successfulModelId?: string;
+  readonly attempts: readonly RunSessionAttemptResult[];
   readonly transcript: PersistedTranscriptEvent[];
   readonly exactArtifacts: readonly string[];
   readonly submittedPlan?: string;
@@ -60,12 +75,14 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     { agent: options.permissionAgent },
   );
   const preferredProvider = options.requirements.preferredProvider;
-  const candidates: ProviderId[] = (preferredProvider && isDirectApiProvider(preferredProvider))
+  const candidates: readonly RunSessionRouteCandidate[] = options.routeCandidates && options.routeCandidates.length > 0
+    ? options.routeCandidates
+    : ((preferredProvider && isDirectApiProvider(preferredProvider))
     ? [preferredProvider]
     : (() => {
         const selection = options.registry.selectBest(options.requirements);
         return [selection.primary, ...selection.orderedFallbacks];
-      })();
+      })()).map((provider) => ({ provider }));
 
   let finalCostUsd = 0;
   let sessionSucceeded = false;
@@ -74,6 +91,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let toolCallCount = 0;
   let turnDepth = 0;
   let successfulProviderId: ProviderId | undefined;
+  let successfulModelId: string | undefined;
+  const attempts: RunSessionAttemptResult[] = [];
   const transcript: PersistedTranscriptEvent[] = [];
   const exactArtifacts = new Set<string>();
   let submittedPlan: string | undefined;
@@ -83,12 +102,16 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let lastToolName: string | undefined;
 
   for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-    const providerId = candidates[candidateIndex]!;
+    const candidate = candidates[candidateIndex]!;
+    const providerId = candidate.provider;
+    const candidateSessionConfig = candidate.model
+      ? { ...options.sessionConfig, model: candidate.model }
+      : options.sessionConfig;
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
     let attemptError: string | null = null;
 
-    const session = options.registry.createSession(providerId, options.sessionConfig);
+    const session = options.registry.createSession(providerId, candidateSessionConfig);
     options.cleanupRegistry.register(async () => session.dispose());
 
     try {
@@ -312,6 +335,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
             sessionSucceeded = true;
             successfulProviderId = providerId;
+            successfulModelId = candidateSessionConfig.model;
             options.registry.reportSuccess(providerId);
             break;
           }
@@ -336,6 +360,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       await session.dispose();
     }
 
+    attempts.push({
+      providerId,
+      ...(candidateSessionConfig.model ? { model: candidateSessionConfig.model } : {}),
+      succeeded: sessionSucceeded && successfulProviderId === providerId,
+      error: attemptError,
+    });
+
     if (sessionSucceeded) break;
 
     const hasMoreCandidates = candidateIndex < candidates.length - 1;
@@ -352,6 +383,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     toolCallCount,
     turnDepth,
     successfulProviderId,
+    successfulModelId,
+    attempts,
     transcript,
     exactArtifacts: [...exactArtifacts],
     submittedPlan,

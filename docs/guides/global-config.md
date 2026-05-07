@@ -28,6 +28,7 @@ operator-facing usage view.
 | `engines` | `Record<string, KilnGlobalEngineConfig>` | Engine availability and billing metadata. |
 | `routing.defaultWorker` | `string` | Default engine/provider route for operator sessions. |
 | `routing.fallback` | `string` | Optional fallback route for budget-aware routing. |
+| `routing.routes` | `{ provider: string, model?: string }[]` | Ordered provider/model execution candidates. When present, the first healthy route is the default and later entries are fallbacks. |
 | `routing.budgetAware` | `boolean` | Enables budget-aware route selection when configured. |
 | `routing.budget` | `Record<string, KilnGlobalRoutingBudgetConfig>` | Optional per-engine budget ceilings. |
 | `models.default` | `string` | Default model used when a route-specific model does not override it. |
@@ -78,6 +79,30 @@ writes `ui.theme` because there is no live CLI visual surface to update.
 
 Priority order: CLI flag > environment variable > `~/.kiln/config.yaml` > built-in default.
 
+## Ordered Routes
+
+Use `routing.routes` when routing must express a durable hierarchy instead of
+a single default plus one fallback. Each entry is a provider/model execution
+candidate. Kiln evaluates them in order, skips direct provider/model routes
+that are cooling down, and passes the remaining healthy candidates to the
+runtime session loop.
+
+```yaml
+routing:
+  routes:
+    - provider: codex-oauth
+      model: gpt-5.4-mini
+    - provider: openrouter
+      model: openrouter/free
+    - provider: codex
+      model: gpt-5.3-codex-spark
+```
+
+`routing.defaultWorker` remains the compact single-route form. Do not duplicate
+the same intent in both fields; use `routing.routes` when route order matters.
+For direct providers, prefer route-specific `model` values over `models.default`
+because model identifiers are provider-specific.
+
 ## Example
 
 ```yaml
@@ -90,11 +115,16 @@ engines:
     enabled: true
     billing: plus-quota
 routing:
-  defaultWorker: codex
+  routes:
+    - provider: codex-oauth
+      model: gpt-5.4-mini
+    - provider: openrouter
+      model: openrouter/free
+    - provider: codex
+      model: gpt-5.3-codex-spark
   budgetAware: false
 models:
-  default: claude-sonnet-4-5
-  codex: gpt-5.4
+  codex: gpt-5.3-codex-spark
 permissions:
   approval: on-request
   sandbox: read-only

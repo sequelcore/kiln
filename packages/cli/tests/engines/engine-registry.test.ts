@@ -89,6 +89,26 @@ describe("EngineRegistry", () => {
     expect(route.defaultWorker).toBe("codex");
   });
 
+  it("uses ordered routing routes before scalar default and fallback fields", () => {
+    const route = resolveEngineRoute({
+      ...baseConfig,
+      routing: {
+        ...baseConfig.routing,
+        defaultWorker: "opencode",
+        fallback: "opencode",
+        routes: [
+          { provider: "codex-oauth", model: "gpt-5.4-mini" },
+          { provider: "openrouter", model: "openrouter/free" },
+          { provider: "codex", model: "gpt-5.4-mini" },
+        ],
+      },
+    });
+
+    expect(route.worker).toBe("codex-oauth");
+    expect(route.defaultWorker).toBe("codex-oauth");
+    expect(route.fallback).toBe("openrouter");
+  });
+
   it("keeps default worker when budget awareness is disabled", () => {
     const route = resolveEngineRoute({
       ...baseConfig,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
 import { buildRunSessionRequirements, resolveRunProviderModelAdmission, runCommand } from "../../src/commands/run.js";
+import { readGlobalConfig } from "../../src/config/global-config.js";
 
 const runWiringMocks = vi.hoisted(() => {
   const builtinToolSurfaceOptions = { id: "surface-options" };
@@ -49,7 +50,7 @@ vi.mock("@kilnai/runtime", () => ({
       authState: "authenticated",
     },
     openrouter: {
-      models: ["qwen/qwen3-coder:free"],
+      models: ["openrouter/free", "qwen/qwen3-coder:free"],
       status: "available",
       reason: "OpenRouter models discovered.",
       authState: "authenticated",
@@ -87,10 +88,30 @@ vi.mock("../../src/config/web-tools-config.js", () => ({
 }));
 
 vi.mock("../../src/application/run-session.js", () => ({
-  runSession: vi.fn(async (input: { sessionConfig: unknown }) => {
+  runSession: vi.fn(async (input: {
+    sessionConfig: unknown;
+    routeCandidates?: readonly { provider: string; model?: string }[];
+  }) => {
     runWiringMocks.capturedSessionConfigs.push(input.sessionConfig);
     runWiringMocks.capturedRunSessionInputs.push(input);
-    return runWiringMocks.runSession();
+    const result = await runWiringMocks.runSession();
+    if (result.attempts) {
+      return result;
+    }
+    const firstCandidate = input.routeCandidates?.[0];
+    return {
+      ...result,
+      successfulProviderId: result.successfulProviderId ?? firstCandidate?.provider,
+      successfulModelId: result.successfulModelId ?? firstCandidate?.model,
+      attempts: firstCandidate
+        ? [{
+            providerId: firstCandidate.provider,
+            ...(firstCandidate.model ? { model: firstCandidate.model } : {}),
+            succeeded: result.sessionSucceeded,
+            error: result.lastError,
+          }]
+        : [],
+    };
   }),
 }));
 
@@ -125,10 +146,13 @@ vi.mock("../../src/application/repo-summary-cache.js", () => ({
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => undefined),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
+  resolveGlobalDefaultProvider: vi.fn(() => undefined),
 }));
 
 vi.mock("../../src/config/env-config.js", () => ({
   resolveEffectiveModel: vi.fn((model: string | undefined) => model),
+  resolveEnvModel: vi.fn(() => undefined),
+  resolveEnvProvider: vi.fn(() => undefined),
 }));
 
 vi.mock("../../src/wrapper/session-store.js", () => ({
@@ -218,6 +242,8 @@ const APP_CONFIG: KilnAppConfig = {
   },
 };
 
+const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
+
 describe("run command builtin tool wiring", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -225,6 +251,7 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.capturedRunSessionInputs.length = 0;
     runWiringMocks.evaluateRouteHealth.mockResolvedValue({ healthy: true });
     runWiringMocks.recordRouteOutcome.mockResolvedValue(undefined);
+    readGlobalConfigMock.mockReturnValue(undefined);
   });
 
   afterEach(() => {
@@ -318,6 +345,36 @@ describe("run command builtin tool wiring", () => {
     });
   });
 
+  it("skips cooling configured routes and passes healthy fallback candidates to runSession", async () => {
+    readGlobalConfigMock.mockReturnValue({
+      version: "1",
+      routing: {
+        routes: [
+          { provider: "openrouter", model: "qwen/qwen3-coder:free" },
+          { provider: "openrouter", model: "openrouter/free" },
+          { provider: "codex" },
+        ],
+      },
+    });
+    runWiringMocks.evaluateRouteHealth.mockImplementation((provider: string, model: string) =>
+      provider === "openrouter" && model === "qwen/qwen3-coder:free"
+        ? Promise.resolve({
+            healthy: false,
+            reason: "qwen route is temporarily rate-limited.",
+          })
+        : Promise.resolve({ healthy: true })
+    );
+
+    await runCommand(APP_CONFIG, "ship it", {});
+
+    expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
+      routeCandidates: [
+        { provider: "openrouter", model: "openrouter/free" },
+        { provider: "codex" },
+      ],
+    });
+  });
+
   it("records retryable direct provider failures as route health outcomes", async () => {
     const exit = vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("process.exit");
@@ -329,6 +386,14 @@ describe("run command builtin tool wiring", () => {
       accumulatedText: "",
       toolCallCount: 0,
       turnDepth: 0,
+      successfulProviderId: undefined,
+      successfulModelId: undefined,
+      attempts: [{
+        providerId: "openrouter",
+        model: "qwen/qwen3-coder:free",
+        succeeded: false,
+        error: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429",
+      }],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,

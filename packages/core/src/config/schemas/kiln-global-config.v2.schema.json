@@ -34,6 +34,18 @@
       "properties": {
         "defaultWorker": { "type": "string" },
         "fallback": { "type": "string" },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["provider"],
+            "properties": {
+              "provider": { "type": "string", "minLength": 1 },
+              "model": { "type": "string" }
+            }
+          }
+        },
         "budgetAware": { "type": "boolean" },
         "budget": {
           "type": "object",

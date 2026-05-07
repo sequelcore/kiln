@@ -30,6 +30,13 @@ OpenRouter free testing, prefer `openrouter/free` over a specific `:free` model
 unless a route policy intentionally pins a model; the free router lets
 OpenRouter choose currently available free capacity.
 
+Operator routing uses ordered provider/model candidates when
+`routing.routes` is configured. Direct provider candidates must pass model
+discovery and provider/model route health before they enter the execution loop.
+Harness candidates are evaluated by provider availability and registry health.
+Explicit CLI `--provider` requests remain a single authoritative route; omit
+the flag to use the configured route hierarchy.
+
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|
 | `claude-opus-4-6` | Anthropic | high | yes | yes | yes | 200K |

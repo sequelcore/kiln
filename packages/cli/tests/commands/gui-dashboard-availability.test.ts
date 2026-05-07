@@ -74,6 +74,7 @@ const configMocks = vi.hoisted(() => ({
     const provider = config?.routing?.defaultProvider?.trim() ?? "";
     return provider.length > 0 ? provider : undefined;
   }),
+  resolveGlobalDefaultModel: vi.fn(() => undefined),
   resolveGlobalUiTheme: vi.fn((config: { ui?: { theme?: string } } | null) => config?.ui?.theme),
   resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
     const normalize = (value?: string) => {
@@ -113,6 +114,7 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: configMocks.readGlobalConfig,
   resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
+  resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
   resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
 }));
 

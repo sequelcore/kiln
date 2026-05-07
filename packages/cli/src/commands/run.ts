@@ -36,11 +36,13 @@ import { resolveResumeSessionId } from "../application/session-resume.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
+import type { RunSessionRouteCandidate } from "../application/run-session.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
+import { resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
@@ -164,6 +166,66 @@ function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
   };
 }
 
+interface AdmittedRunRouteCandidate extends RunSessionRouteCandidate {
+  readonly provider: ProviderId;
+}
+
+async function resolveAdmittedRunRouteCandidates(input: {
+  readonly candidates: readonly RunSessionRouteCandidate[];
+  readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
+  readonly env: Record<string, string>;
+  readonly routeHealthStore: ProviderModelRouteHealthStore;
+}): Promise<{
+  readonly candidates: readonly AdmittedRunRouteCandidate[];
+  readonly rejectedReasons: readonly string[];
+}> {
+  const rejectedReasons: string[] = [];
+  const directCandidates = input.candidates.filter((candidate) => isDirectApiProvider(candidate.provider));
+  const directDiscovery = directCandidates.length > 0
+    ? await discoverGuiDirectProviderModelDiscovery({
+        ...getRuntimeProviderAvailability(input.registry),
+        ...Object.fromEntries(directCandidates.map((candidate) => [candidate.provider, true])),
+      }, {
+        ...process.env,
+        ...input.env,
+      })
+    : {};
+
+  const admitted: AdmittedRunRouteCandidate[] = [];
+  for (const candidate of input.candidates) {
+    if (!isDirectApiProvider(candidate.provider)) {
+      admitted.push(candidate as AdmittedRunRouteCandidate);
+      continue;
+    }
+
+    const admission = resolveRunProviderModelAdmission({
+      provider: candidate.provider,
+      model: candidate.model,
+      discovery: directDiscovery,
+    });
+    if (!admission.ok) {
+      rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${admission.error}`);
+      continue;
+    }
+
+    if (candidate.model) {
+      const health = await input.routeHealthStore.evaluateRouteHealth(candidate.provider, candidate.model);
+      if (!health.healthy) {
+        rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${formatProviderModelRouteCooldown(health)}`);
+        continue;
+      }
+    }
+
+    admitted.push(candidate as AdmittedRunRouteCandidate);
+  }
+
+  return { candidates: admitted, rejectedReasons };
+}
+
+function formatRouteCandidate(candidate: RunSessionRouteCandidate): string {
+  return candidate.model ? `${candidate.provider}/${candidate.model}` : candidate.provider;
+}
+
 function appendAgentInstructionsToSystemPrompt(
   appConfig: KilnAppConfig,
   agent?: KilnAgentDefinition,
@@ -283,14 +345,25 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
 
   const globalConfig = readGlobalConfig();
-  const effectiveModel = resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig)) ?? resolvedAgent?.model;
-  const config = buildConfig(flags, mode);
+  const configuredRouteCandidates = resolveProviderRouteCandidates({
+    globalConfig,
+    flagProvider: flags.provider,
+    flagModel: flags.model,
+  }).map((candidate) => (
+    candidate.model || !resolvedAgent?.model
+      ? candidate
+      : { ...candidate, model: resolvedAgent.model }
+  ));
+  const preferredProvider = configuredRouteCandidates[0]?.provider;
+  const effectiveModel = configuredRouteCandidates[0]?.model
+    ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig))
+    ?? resolvedAgent?.model;
+  const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(appConfig, resolvedAgent);
   const sessionId = randomUUID();
   const { registry, worktreeManager } = createDefaultRegistry();
   const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
   const manager = new SessionManager(config, runtimeAppConfig, contextArtifactCache, worktreeManager);
-  const preferredProvider = config.provider as ProviderId | undefined;
   const resumeSessionId = await resolveResumeSessionId(
     cwd,
     flags.resume,
@@ -339,35 +412,23 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     env[`${config.provider.toUpperCase()}_API_KEY`] = config.apiKey;
   }
 
-  if (isDirectApiProvider(preferredProvider)) {
-    const providerAvailability = {
-      ...getRuntimeProviderAvailability(registry),
-      [preferredProvider]: true,
-    };
-    const directProviderDiscovery = await discoverGuiDirectProviderModelDiscovery(providerAvailability, {
-      ...process.env,
-      ...env,
-    });
-    const admission = resolveRunProviderModelAdmission({
-      provider: preferredProvider,
-      model: effectiveModel,
-      discovery: directProviderDiscovery,
-    });
-    if (!admission.ok) {
-      console.error(`Error: ${admission.error}`);
-      process.exit(1);
-    }
-  }
-
-  const directRouteHealthStore = isDirectApiProvider(preferredProvider) && effectiveModel
+  const directRouteHealthStore = configuredRouteCandidates.some((candidate) => isDirectApiProvider(candidate.provider))
     ? new ProviderModelRouteHealthStore()
     : undefined;
-  if (directRouteHealthStore && isDirectApiProvider(preferredProvider) && effectiveModel) {
-    const health = await directRouteHealthStore.evaluateRouteHealth(preferredProvider, effectiveModel);
-    if (!health.healthy) {
-      console.error(`Error: ${formatProviderModelRouteCooldown(health)}`);
-      process.exit(1);
+  const admittedRoutes = configuredRouteCandidates.length > 0
+    ? await resolveAdmittedRunRouteCandidates({
+        candidates: configuredRouteCandidates,
+        registry,
+        env,
+        routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore(),
+      })
+    : { candidates: [], rejectedReasons: [] };
+  if (configuredRouteCandidates.length > 0 && admittedRoutes.candidates.length === 0) {
+    console.error("Error: No configured provider routes are currently available.");
+    for (const reason of admittedRoutes.rejectedReasons) {
+      console.error(`- ${reason}`);
     }
+    process.exit(1);
   }
 
   const requirements = buildRunSessionRequirements(preferredProvider);
@@ -474,6 +535,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     toolCallCount,
     turnDepth,
     successfulProviderId,
+    successfulModelId,
+    attempts,
     transcript,
     exactArtifacts,
     submittedPlan: submittedPlanFromSession,
@@ -483,6 +546,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     manager,
     context,
     requirements,
+    routeCandidates: admittedRoutes.candidates.length > 0 ? admittedRoutes.candidates : undefined,
     sessionConfig,
     permissionPolicy: config.permissionPolicy,
     permissionAgent: resolvedAgent?.name,
@@ -495,15 +559,21 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     unregisterSignalHandlers();
   });
 
-  if (directRouteHealthStore && isDirectApiProvider(preferredProvider) && effectiveModel) {
-    await directRouteHealthStore.recordOutcome({
-      providerId: preferredProvider,
-      modelId: effectiveModel,
-      outcome: sessionSucceeded
-        ? { type: "ok" }
-        : mapProviderModelRouteErrorToOutcome(lastError ?? "Provider ended with unknown error"),
-      ...(lastError ? { errorMessage: lastError } : {}),
-    });
+  if (directRouteHealthStore) {
+    for (const attempt of attempts) {
+      if (!isDirectApiProvider(attempt.providerId) || !attempt.model) {
+        continue;
+      }
+      const errorMessage = attempt.error ?? lastError ?? "Provider ended with unknown error";
+      await directRouteHealthStore.recordOutcome({
+        providerId: attempt.providerId,
+        modelId: attempt.model,
+        outcome: attempt.succeeded
+          ? { type: "ok" }
+          : mapProviderModelRouteErrorToOutcome(errorMessage),
+        ...(attempt.succeeded ? {} : { errorMessage }),
+      });
+    }
   }
 
   try {
@@ -560,7 +630,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       tags: deriveSessionMetadata({
         task,
         provider: successfulProviderId ?? preferredProvider,
-        model: effectiveModel,
+        model: successfulModelId ?? effectiveModel,
         hasFileChanges: exactArtifacts.some((artifact) => /\b(created|modified|deleted|file)\b/i.test(artifact)),
       }).tags,
       task,

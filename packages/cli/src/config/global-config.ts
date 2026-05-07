@@ -28,9 +28,15 @@ export interface KilnGlobalRoutingBudgetConfig {
   readonly onCeiling?: "fallback" | "stop";
 }
 
+export interface KilnGlobalRoutingRouteConfig {
+  readonly provider: string;
+  readonly model?: string;
+}
+
 export interface KilnGlobalRoutingConfig {
   readonly defaultWorker?: string;
   readonly fallback?: string;
+  readonly routes?: readonly KilnGlobalRoutingRouteConfig[];
   readonly budgetAware?: boolean;
   readonly budget?: Record<string, KilnGlobalRoutingBudgetConfig>;
 }
@@ -141,6 +147,10 @@ export function resolveGlobalDefaultProvider(config: KilnGlobalConfig | null | u
   if (!config) {
     return undefined;
   }
+  const firstRouteProvider = config.routing?.routes?.find((route) => route.provider.trim().length > 0)?.provider;
+  if (firstRouteProvider) {
+    return firstRouteProvider;
+  }
   return config.routing?.defaultWorker
     ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled === true)?.[0];
 }
@@ -148,6 +158,10 @@ export function resolveGlobalDefaultProvider(config: KilnGlobalConfig | null | u
 export function resolveGlobalDefaultModel(config: KilnGlobalConfig | null | undefined): string | undefined {
   if (!config) {
     return undefined;
+  }
+  const firstRoute = config.routing?.routes?.find((route) => route.provider.trim().length > 0);
+  if (firstRoute?.model) {
+    return firstRoute.model;
   }
   const provider = resolveGlobalDefaultProvider(config);
   return (provider ? config.models?.[provider] : undefined) ?? config.models?.default;
@@ -221,6 +235,14 @@ function validateRouting(value: unknown): void {
   if (value.fallback !== undefined && typeof value.fallback !== "string") {
     throw new KilnYamlError("routing.fallback must be a string");
   }
+  if (value.routes !== undefined) {
+    if (!Array.isArray(value.routes)) {
+      throw new KilnYamlError("routing.routes must be an array");
+    }
+    for (let index = 0; index < value.routes.length; index += 1) {
+      validateRoutingRoute(value.routes[index], index);
+    }
+  }
   if (value.budgetAware !== undefined && typeof value.budgetAware !== "boolean") {
     throw new KilnYamlError("routing.budgetAware must be a boolean");
   }
@@ -240,6 +262,18 @@ function validateRouting(value: unknown): void {
         throw new KilnYamlError(`routing.budget.${engineId}.onCeiling must be "fallback" or "stop"`);
       }
     }
+  }
+}
+
+function validateRoutingRoute(value: unknown, index: number): void {
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`routing.routes[${index}] must be an object`);
+  }
+  if (typeof value.provider !== "string" || value.provider.trim().length === 0) {
+    throw new KilnYamlError(`routing.routes[${index}].provider must be a non-empty string`);
+  }
+  if (value.model !== undefined && typeof value.model !== "string") {
+    throw new KilnYamlError(`routing.routes[${index}].model must be a string`);
   }
 }
 

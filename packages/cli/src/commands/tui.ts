@@ -12,7 +12,12 @@ import {
   buildCliProjectSummaryArtifactKey,
   buildCliSessionSummaryArtifactKey,
 } from "../application/context-artifact-keys.js";
-import { readGlobalConfig, resolveGlobalDefaultProvider, resolveGlobalUiTheme } from "../config/global-config.js";
+import {
+  readGlobalConfig,
+  resolveGlobalDefaultModel,
+  resolveGlobalDefaultProvider,
+  resolveGlobalUiTheme,
+} from "../config/global-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
@@ -1021,6 +1026,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const globalConfig = readGlobalConfig();
   const startupTransport = resolveTuiStartupTransport(flags);
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
+  const startupModel = resolveGlobalDefaultModel(globalConfig);
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const builtinToolOptions = createSessionBuiltinToolOptions(
@@ -1076,6 +1082,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     "tui",
     managedInvocation,
   );
+  if (startupModel) {
+    sessionManager.setModel(startupModel);
+  }
 
   const bootstrap = await bootstrapTuiSession({
     flags,

@@ -195,6 +195,12 @@ outcomes such as `rate-limited`, `quota-exceeded`, and `connection-failed`
 place the provider/model route in cooldown. A selected route in cooldown is not
 healthy just because discovery still lists the model.
 
+When `routing.routes` declares ordered execution candidates, discovery and
+route health are admission gates for each direct provider/model candidate.
+Unhealthy direct routes are skipped before the runtime loop starts; healthy
+fallback candidates remain eligible. Explicit one-off provider/model requests
+are not silently widened into unrelated providers.
+
 For OpenRouter free capacity, model-specific `:free` routes are volatile
 candidates. `openrouter/free` is the stable free router because OpenRouter
 selects an available free model at request time. Kiln must not hardcode a

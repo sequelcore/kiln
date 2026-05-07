@@ -217,6 +217,7 @@ vi.mock("../../src/config/global-config.js", () => ({
     return config.routing?.defaultWorker
       ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0];
   },
+  resolveGlobalDefaultModel: () => undefined,
   resolveGlobalUiTheme: (config: typeof configMocks.globalConfig) => config?.ui?.theme,
 }));
 

@@ -125,9 +125,12 @@ export function resolveEngineRoute(
   config: KilnGlobalConfig,
   context: EngineRouteContext = {},
 ): EngineRouteResolution {
-  const defaultWorker = config.routing?.defaultWorker
+  const orderedRoutes = normalizeRoutingRoutes(config);
+  const defaultWorker = orderedRoutes[0]
+    ?? config.routing?.defaultWorker
     ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled === true)?.[0];
-  const fallback = config.routing?.fallback;
+  const fallback = orderedRoutes.find((provider) => provider !== defaultWorker)
+    ?? config.routing?.fallback;
   if (!defaultWorker) {
     return { worker: undefined, reason: "missing-default" };
   }
@@ -155,6 +158,19 @@ export function resolveEngineRoute(
   }
 
   return { worker: defaultWorker, reason: "default", defaultWorker, fallback };
+}
+
+function normalizeRoutingRoutes(config: KilnGlobalConfig): readonly string[] {
+  const routes = config.routing?.routes ?? [];
+  const seen = new Set<string>();
+  const providers: string[] = [];
+  for (const route of routes) {
+    const provider = route.provider.trim();
+    if (!provider || seen.has(provider)) continue;
+    seen.add(provider);
+    providers.push(provider);
+  }
+  return providers;
 }
 
 function defaultProbeRunner(

@@ -151,6 +151,39 @@ describe("global-config", () => {
     expect(readGlobalConfig()?.routing?.budget?.opencode?.dailyTokenCeiling).toBeNull();
   });
 
+  it("readGlobalConfig() accepts ordered provider/model routes", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "routing:",
+        "  routes:",
+        "    - provider: codex-oauth",
+        "      model: gpt-5.4-mini",
+        "    - provider: openrouter",
+        "      model: openrouter/free",
+      ].join("\n"),
+    );
+
+    const config = readGlobalConfig();
+
+    expect(config?.routing?.routes).toEqual([
+      { provider: "codex-oauth", model: "gpt-5.4-mini" },
+      { provider: "openrouter", model: "openrouter/free" },
+    ]);
+    expect(resolveGlobalDefaultProvider(config)).toBe("codex-oauth");
+    expect(resolveGlobalDefaultModel(config)).toBe("gpt-5.4-mini");
+  });
+
+  it("readGlobalConfig() rejects malformed ordered routes", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      ["version: \"1\"", "routing:", "  routes:", "    - model: gpt-5.4-mini"].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("routing.routes[0].provider must be a non-empty string");
+  });
+
   it("readGlobalConfig() throws KilnYamlError when file is not a YAML object", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue("- not\n- an\n- object\n");
