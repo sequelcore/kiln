@@ -35,6 +35,9 @@ Read the relevant architecture or guide document before using a roadmap:
 - `docs/architecture/operator-surfaces.md`, `docs/guides/gui-parity.md`, and
   `docs/guides/tui-maintenance.md` for GUI, TUI, CLI, IDE, desktop, and remote
   operator surfaces.
+- `docs/roadmap/04.5-presentation-intent-contract.md` for the active
+  presentation-intent track until its stable doctrine is promoted into
+  architecture and guide documentation.
 
 ## Active Roadmaps
 
@@ -47,6 +50,10 @@ Read the relevant architecture or guide document before using a roadmap:
   Active governed agent-context track for operator identity, instruction
   profiles, agent profiles, skills, and managed child context across all
   surfaces.
+
+- `04.5-presentation-intent-contract.md`
+  Active presentation contract track for validated agent/tool display intents
+  across GUI, TUI, CLI, SDK/widget, and future operator surfaces.
 
 ## Deferred Roadmaps
 
