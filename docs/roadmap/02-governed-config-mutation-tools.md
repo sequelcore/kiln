@@ -117,11 +117,21 @@ closed and require a fresh proposal.
    `skill.upsert`, `agent.upsert`, and `agent.attach_skills`. The model-callable
    tool returns structured proposals from the canonical validators and does not
    write files.
-5. Add approval-gated `kiln_config.apply_change` for those first operations.
-6. Wire apply to existing sync/projection services and emit config mutation
-   events.
-7. Render proposals and mutation events in GUI Activity, TUI, CLI output, and
-   SDK/widget event streams.
+5. Completed 2026-05-07: add approval-gated `kiln_config.apply_change` for
+   the first proposal operations. Proposals are persisted under
+   `.kiln/proposals/config/`; `kiln config approve <proposalId>` creates a
+   proposal-bound `approvalId`; apply fails closed for missing approvals,
+   invalid proposals, mismatched proposal hashes, stale base file hashes, and
+   writes outside `.kiln/agents` or `.kiln/skills`.
+6. Completed 2026-05-07: wire apply to existing native agent, native skill,
+   and repo-shim projection services. Apply records canonical write hashes,
+   consumes approvals after successful canonical writes, and reports projection
+   results as structured effects instead of invoking shell commands.
+7. Completed 2026-05-07: add shared config mutation contracts and presentation
+   support for proposal/apply tool output plus canonical
+   `config_change_*` session events. Runtime session event projection emits
+   proposal/apply events from `kiln_config.*` tool results so GUI, TUI, CLI,
+   SDK, and widget streams can consume one operator event contract.
 
 ## Acceptance Criteria
 
@@ -134,7 +144,7 @@ closed and require a fresh proposal.
   expansion, stale proposals, and missing approvals fail closed.
 - GUI, TUI, CLI, and SDK/widget observe the same proposal/apply events.
 - Tests cover read views, proposal validation, stale proposal rejection,
-  approval-gated apply, projection invocation, and audit event emission.
+  approval-gated apply, projection invocation, and operator event projection.
 
 ## Deferred
 

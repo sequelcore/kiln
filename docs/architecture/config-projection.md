@@ -158,6 +158,31 @@ same `SKILL.md` and Kiln agent-profile parsers used by runtime discovery. The
 model-callable `kiln_config.propose_change` tool may create those proposals but
 must not write files; apply remains a separate approval-gated operation.
 
+Config proposals are durable runtime state, not prompt text. Kiln stores them
+under `.kiln/proposals/config/` with the proposal hash, canonical target paths,
+desired content, previous content hashes, and next content hashes. Approval is
+also durable: `kiln config approve <proposalId>` creates a proposal-bound
+`approvalId` under `.kiln/approvals/config/`. `kiln_config.apply_change` must
+load both records and verify that the approval points to the same proposal hash
+before it writes anything. The model cannot self-approve by repeating an
+approval id in natural language.
+
+Apply writes only canonical project config files under `.kiln/agents/` and
+`.kiln/skills/`. It rejects invalid proposals, missing approvals, consumed
+approvals, mismatched proposal hashes, path traversal, and stale proposals whose
+target files changed after proposal creation. After canonical writes succeed,
+apply invokes the existing native projection services for the affected family
+and the repo-shim projection service. Projection failures are returned as
+structured effects and diagnostics; they are not hidden shell output and they do
+not cause surfaces to patch native harness files directly.
+
+Config mutation evidence is part of the operator session model. The shared
+contracts define `config_change_proposed`, `config_change_approved`,
+`config_change_applied`, and `config_change_failed` event shapes. Runtime
+session projection emits proposal/apply events from `kiln_config.*` tool
+results, and all operator surfaces must render those through the shared
+operator-event presentation contract rather than local string parsing.
+
 ## Install State And Drift
 
 `.kiln/install-state.json` records each managed projection target. Document
@@ -225,3 +250,5 @@ substantive read-only result handoff remains unavailable for
   keep in sync.
 - Instruction profile, agent, and skill definitions are canonical only under
   Kiln-owned directories, never in native harness folders.
+- Config mutation is a governed proposal/approval/apply lifecycle; direct YAML,
+  native harness, or arbitrary filesystem edits are not configuration mutation.

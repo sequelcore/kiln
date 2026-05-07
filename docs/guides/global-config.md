@@ -446,6 +446,23 @@ The tool validates `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
 payloads and returns a structured proposal with diagnostics and preview diff;
 it does not write files. Applying a proposal is a separate approval-gated flow.
 
+The apply flow is intentionally split:
+
+```text
+1. Agent calls kiln_config.propose_change(...)
+2. Operator reviews the returned proposalId, paths, authority impact, and diff
+3. Operator runs: kiln config approve <proposalId>
+4. Agent calls kiln_config.apply_change({ proposalId, approvalId })
+```
+
+`kiln config approve` prints the approval record as JSON. The `approvalId` is
+bound to the stored proposal hash; if the proposal changes, the approval no
+longer matches. `kiln_config.apply_change` writes only canonical project
+config under `.kiln/agents/` or `.kiln/skills/`, rejects stale proposals when a
+target file changed after proposal creation, consumes the approval after a
+successful canonical write, and runs the existing native projection pipeline.
+Native Claude Code, Codex, and OpenCode files remain generated projections.
+
 When managed invocation is enabled, Kiln exposes a compact admitted agent
 catalog to the `managed_agent.invoke` tool description. Parent assistants should
 select a configured `agentProfile` when the child task clearly matches a

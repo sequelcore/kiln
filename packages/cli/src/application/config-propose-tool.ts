@@ -1,7 +1,8 @@
 import type { DevTool, ToolInput, ToolResult } from "@kilnai/core";
 import { KILN_CONFIG_CHANGE_OPERATIONS } from "@kilnai/gateway-contracts";
 import type { KilnConfigChangeOperation } from "@kilnai/gateway-contracts";
-import { createConfigChangeProposal } from "./config-proposal.js";
+import { ConfigMutationStore } from "./config-mutation-store.js";
+import { createConfigChangeProposalRecord } from "./config-proposal.js";
 
 export class KilnConfigProposeChangeTool implements DevTool {
   readonly name = "kiln_config.propose_change";
@@ -41,11 +42,13 @@ export class KilnConfigProposeChangeTool implements DevTool {
       };
     }
 
-    const proposal = createConfigChangeProposal({
+    const record = createConfigChangeProposalRecord({
       projectPath: this.projectPath,
       operation,
       payload: input.input.payload,
     });
+    new ConfigMutationStore(this.projectPath).saveProposal(record);
+    const proposal = record.proposal;
     return {
       output: JSON.stringify(proposal, null, 2),
       isError: proposal.status === "invalid",

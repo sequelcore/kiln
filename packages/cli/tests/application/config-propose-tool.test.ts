@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKilnConfigProposeChangeTool } from "../../src/application/config-propose-tool.js";
@@ -34,11 +34,12 @@ describe("KilnConfigProposeChangeTool", () => {
       },
     });
 
-    const proposal = JSON.parse(result.output) as { status: string; operation: string; affectedCanonicalPaths: string[] };
+    const proposal = JSON.parse(result.output) as { proposalId: string; status: string; operation: string; affectedCanonicalPaths: string[] };
     expect(result.isError).toBe(false);
     expect(proposal.status).toBe("valid");
     expect(proposal.operation).toBe("skill.upsert");
     expect(proposal.affectedCanonicalPaths[0]).toContain(join(".kiln", "skills", "repo-review", "SKILL.md"));
+    expect(existsSync(join(tempDir, ".kiln", "proposals", "config", `${proposal.proposalId}.json`))).toBe(true);
   });
 
   it("returns an error result for invalid proposals", async () => {

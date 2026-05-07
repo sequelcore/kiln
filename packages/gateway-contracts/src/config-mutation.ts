@@ -25,3 +25,35 @@ export interface KilnConfigChangeProposal {
   readonly previewDiff: string;
   readonly rollbackHint: string;
 }
+
+export interface KilnConfigChangeApproval {
+  readonly approvalId: string;
+  readonly proposalId: string;
+  readonly proposalHash: string;
+  readonly approvedAt: string;
+  readonly approvedBy: string;
+  readonly surface: "cli" | "tui" | "gui" | "sdk" | "runtime";
+}
+
+export interface KilnConfigAppliedWrite {
+  readonly path: string;
+  readonly previousHash: string | null;
+  readonly nextHash: string;
+}
+
+export interface KilnConfigProjectionEffectResult {
+  readonly target: "native-agents" | "native-skills" | "repo-shims";
+  readonly status: "ok" | "failed" | "skipped";
+  readonly summary: string;
+  readonly errors: readonly string[];
+}
+
+export interface KilnConfigApplyResult {
+  readonly proposalId: string;
+  readonly approvalId: string;
+  readonly appliedAt: string;
+  readonly status: "applied" | "failed";
+  readonly appliedWrites: readonly KilnConfigAppliedWrite[];
+  readonly projectionEffects: readonly KilnConfigProjectionEffectResult[];
+  readonly diagnostics: readonly KilnConfigValidationDiagnostic[];
+}

@@ -154,6 +154,15 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           source: makeSource("tool", "runtime", "orchestrator"),
           timestamp: runtimeEvent.timestamp,
         }));
+        for (const configEvent of projectConfigMutationEvents({
+          sessionId: session.id,
+          turnId,
+          sequence: nextSequence,
+          runtimeEvent,
+          source: makeSource("tool", "runtime", "config-mutation"),
+        })) {
+          events.push(configEvent);
+        }
         break;
       }
       case "approval_requested": {
@@ -293,6 +302,128 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
 
   session.appendSessionEvents(events);
   return events;
+}
+
+function projectConfigMutationEvents(input: {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly sequence: () => number;
+  readonly runtimeEvent: ToolResultEvent;
+  readonly source: SessionEventSource;
+}): readonly CanonicalSessionEvent[] {
+  const payload = parseJsonRecord(input.runtimeEvent.output);
+  if (!payload || !input.runtimeEvent.toolName.startsWith("kiln_config.")) {
+    return [];
+  }
+  if (input.runtimeEvent.toolName === "kiln_config.propose_change") {
+    const proposalId = readString(payload.proposalId);
+    const operation = readString(payload.operation);
+    const status = payload.status === "valid" || payload.status === "invalid" ? payload.status : undefined;
+    if (!proposalId || !operation || !status) {
+      return [];
+    }
+    return [createSessionEvent<"config_change_proposed">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence(),
+      kind: "config_change_proposed",
+      turnId: input.turnId,
+      proposalId,
+      operation,
+      status,
+      affectedCanonicalPaths: readStringArray(payload.affectedCanonicalPaths),
+      authorityImpact: readString(payload.authorityImpact) ?? "unknown",
+      source: input.source,
+      timestamp: input.runtimeEvent.timestamp,
+    })];
+  }
+  if (input.runtimeEvent.toolName === "kiln_config.apply_change") {
+    const status = readString(payload.status);
+    if (status === "applied") {
+      return [createSessionEvent<"config_change_applied">({
+        kilnSessionId: input.sessionId,
+        sequence: input.sequence(),
+        kind: "config_change_applied",
+        turnId: input.turnId,
+        proposalId: readString(payload.proposalId) ?? "unknown",
+        approvalId: readString(payload.approvalId) ?? "unknown",
+        appliedWrites: readObjectPathArray(payload.appliedWrites),
+        projectionEffects: readProjectionEffectArray(payload.projectionEffects),
+        source: input.source,
+        timestamp: input.runtimeEvent.timestamp,
+      })];
+    }
+    return [createSessionEvent<"config_change_failed">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence(),
+      kind: "config_change_failed",
+      turnId: input.turnId,
+      proposalId: readString(payload.proposalId),
+      approvalId: readString(payload.approvalId),
+      errorMessage: firstDiagnosticMessage(payload.diagnostics) ?? input.runtimeEvent.resultSummary ?? "Config apply failed",
+      source: input.source,
+      timestamp: input.runtimeEvent.timestamp,
+    })];
+  }
+  return [];
+}
+
+function parseJsonRecord(value: string | undefined): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readStringArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
+    : [];
+}
+
+function readObjectPathArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const record = entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+        const path = readString(record?.path);
+        return path ? [path] : [];
+      })
+    : [];
+}
+
+function readProjectionEffectArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const record = entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+        const target = readString(record?.target);
+        const status = readString(record?.status);
+        return target ? [`${target}${status ? `:${status}` : ""}`] : [];
+      })
+    : [];
+}
+
+function firstDiagnosticMessage(value: unknown): string | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  for (const entry of value) {
+    const record = entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : null;
+    const message = readString(record?.message);
+    if (message) {
+      return message;
+    }
+  }
+  return undefined;
 }
 
 function mapChannelToSurface(channel: string): SessionEventSource["surface"] {

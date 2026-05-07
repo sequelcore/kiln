@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { parseSkillMd } from "@kilnai/core";
 import type {
   KilnConfigChangeOperation,
@@ -17,6 +17,19 @@ export interface CreateConfigChangeProposalInput {
   readonly now?: Date;
 }
 
+export interface ConfigChangeProposalWrite {
+  readonly path: string;
+  readonly previousHash: string | null;
+  readonly nextHash: string;
+  readonly nextContent: string;
+}
+
+export interface ConfigChangeProposalRecord {
+  readonly proposal: KilnConfigChangeProposal;
+  readonly proposalHash: string;
+  readonly writes: readonly ConfigChangeProposalWrite[];
+}
+
 interface NormalizedProposalParts {
   readonly payload: Record<string, unknown>;
   readonly path: string;
@@ -28,7 +41,59 @@ interface NormalizedProposalParts {
 }
 
 export function createConfigChangeProposal(input: CreateConfigChangeProposalInput): KilnConfigChangeProposal {
+  return createConfigChangeProposalRecord(input).proposal;
+}
+
+export function createConfigChangeProposalRecord(input: CreateConfigChangeProposalInput): ConfigChangeProposalRecord {
   const parts = normalizeProposal(input);
+  const projectRoot = resolve(input.projectPath);
+  const resolvedPath = resolve(parts.path);
+  if (!isInsideProject(projectRoot, resolvedPath)) {
+    const diagnostic: KilnConfigValidationDiagnostic = {
+      severity: "error",
+      field: "path",
+      message: "Canonical config writes must stay inside the project root.",
+    };
+    const proposal = buildProposal(input, {
+      ...parts,
+      diagnostics: [...parts.diagnostics, diagnostic],
+    });
+    return {
+      proposal,
+      proposalHash: hashStable(proposal),
+      writes: [],
+    };
+  }
+
+  const proposal = buildProposal(input, parts);
+  const existingContent = existsSync(parts.path) ? readFileSync(parts.path, "utf-8") : null;
+  const writes = proposal.status === "valid"
+    ? [{
+      path: parts.path,
+      previousHash: existingContent === null ? null : hashText(existingContent),
+      nextHash: hashText(parts.nextContent),
+      nextContent: parts.nextContent,
+    }]
+    : [];
+
+  return {
+    proposal,
+    proposalHash: hashStable({
+      proposal,
+      writes: writes.map((write) => ({
+        path: write.path,
+        previousHash: write.previousHash,
+        nextHash: write.nextHash,
+      })),
+    }),
+    writes,
+  };
+}
+
+function buildProposal(
+  input: CreateConfigChangeProposalInput,
+  parts: NormalizedProposalParts,
+): KilnConfigChangeProposal {
   const existingContent = existsSync(parts.path) ? readFileSync(parts.path, "utf-8") : "";
   const status = parts.diagnostics.some((diagnostic) => diagnostic.severity === "error") ? "invalid" : "valid";
   const createdAt = (input.now ?? new Date()).toISOString();
@@ -291,6 +356,15 @@ function renderPreviewDiff(path: string, before: string, after: string): string 
 
 function hashStable(value: unknown): string {
   return createHash("sha256").update(stableStringify(value)).digest("hex");
+}
+
+export function hashText(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function isInsideProject(projectRoot: string, candidate: string): boolean {
+  const relativePath = relative(projectRoot, candidate);
+  return relativePath.length === 0 || (!relativePath.startsWith("..") && !/^[A-Za-z]:/.test(relativePath));
 }
 
 function stableStringify(value: unknown): string {

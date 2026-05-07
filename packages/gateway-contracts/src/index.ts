@@ -1,6 +1,10 @@
 export type {
+  KilnConfigAppliedWrite,
+  KilnConfigApplyResult,
+  KilnConfigChangeApproval,
   KilnConfigChangeOperation,
   KilnConfigChangeProposal,
+  KilnConfigProjectionEffectResult,
   KilnConfigValidationDiagnostic,
 } from "./config-mutation.js";
 export {

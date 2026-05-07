@@ -671,6 +671,55 @@ function readPresentationIntent(
   return undefined;
 }
 
+function projectConfigToolPresentation(toolName: string, output: string | undefined): ToolResultPresentation | undefined {
+  if (!toolName.startsWith("kiln_config.") || !output) {
+    return undefined;
+  }
+  const record = parseOutputRecord(output);
+  if (!record) {
+    return undefined;
+  }
+  const proposalId = readString(record.proposalId);
+  const approvalId = readString(record.approvalId);
+  const operation = readString(record.operation);
+  const status = readString(record.status);
+  const affectedPaths = readStringList(record.affectedCanonicalPaths);
+  const appliedWrites = Array.isArray(record.appliedWrites)
+    ? record.appliedWrites
+      .map((write) => readString(asRecord(write)?.path))
+      .filter((path): path is string => Boolean(path))
+    : [];
+  const diagnostics = Array.isArray(record.diagnostics) ? record.diagnostics.length : 0;
+  const summary = [
+    operation,
+    status,
+    appliedWrites.length > 0 ? `${appliedWrites.length} writes` : undefined,
+    diagnostics > 0 ? `${diagnostics} diagnostics` : undefined,
+  ].filter((value): value is string => Boolean(value)).join(" · ") || toolName;
+  const fields = [
+    field("Proposal", proposalId),
+    field("Approval", approvalId),
+    field("Operation", operation),
+    field("Status", status),
+    field("Authority", record.authorityImpact),
+    field("Affected paths", affectedPaths.length > 0 ? affectedPaths.join(", ") : undefined),
+    field("Applied writes", appliedWrites.length > 0 ? appliedWrites.join(", ") : undefined),
+    field("Diagnostics", diagnostics > 0 ? diagnostics : undefined),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: toolName === "kiln_config.propose_change" ? "diff" : "text",
+    title: toolName === "kiln_config.propose_change"
+      ? "Kiln config proposal"
+      : toolName === "kiln_config.apply_change"
+        ? "Kiln config apply"
+        : "Kiln config",
+    summary,
+    fields,
+    preview: compactPreview(readString(record.previewDiff) ?? output, 4_000),
+    raw: { available: false, reason: "Config mutation result is inline" },
+  };
+}
+
 function projectToolResultPresentation(
   toolName: string,
   payload: Record<string, unknown>,
@@ -690,6 +739,10 @@ function projectToolResultPresentation(
   if (!output && !metadata && resourceLinks.length === 0 && !presentationIntent) return undefined;
   if (presentationIntent) {
     return projectPresentationIntentToolPresentation(presentationIntent, resourceLinks);
+  }
+  const configPresentation = projectConfigToolPresentation(toolName, output);
+  if (configPresentation) {
+    return configPresentation;
   }
   const operation = readString(metadata?.operation);
   const kind = readString(metadata?.kind);
@@ -1024,6 +1077,47 @@ function approvalResolvedPresentation(payload: Record<string, unknown>): Operato
   };
 }
 
+function configChangePresentation(kind: OperatorSessionEventKind, payload: Record<string, unknown>): OperatorEventPresentation {
+  const proposalId = readString(payload.proposalId);
+  const approvalId = readString(payload.approvalId);
+  const operation = readString(payload.operation);
+  const status = readString(payload.status);
+  const error = readString(payload.errorMessage);
+  const appliedWrites = readStringList(payload.appliedWrites);
+  const projectionEffects = readStringList(payload.projectionEffects);
+  const titles: Record<string, string> = {
+    config_change_proposed: "Config change proposed",
+    config_change_approved: "Config change approved",
+    config_change_applied: "Config change applied",
+    config_change_failed: "Config change failed",
+  };
+  const identitySummary = [operation, status, proposalId].filter((value): value is string => Boolean(value)).join(" · ");
+  const summary = error ?? (identitySummary || proposalId || "Config mutation");
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Proposal", proposalId);
+  addItem(details, "Approval", approvalId);
+  addItem(details, "Operation", operation);
+  addItem(details, "Status", status);
+  addItem(details, "Authority", payload.authorityImpact);
+  addItem(details, "Approved by", payload.approvedBy);
+  addItem(details, "Surface", payload.surface);
+  addItem(details, "Writes", appliedWrites.length > 0 ? appliedWrites.join(", ") : undefined);
+  addItem(details, "Projections", projectionEffects.length > 0 ? projectionEffects.join(", ") : undefined);
+  addItem(details, "Error", error);
+  return {
+    title: titles[kind] ?? "Config mutation",
+    summary,
+    compactText: summary,
+    tone: kind === "config_change_failed"
+      ? "error"
+      : kind === "config_change_applied" || kind === "config_change_approved"
+        ? "success"
+        : "warning",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+  };
+}
+
 function planSubmittedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const content = readString(payload.content) ?? readString(payload.plan) ?? "Plan submitted";
   const summary = compactText(content);
@@ -1241,6 +1335,11 @@ export function presentOperatorEventPayload(
       return approvalRequestedPresentation(payload);
     case "approval_resolved":
       return approvalResolvedPresentation(payload);
+    case "config_change_proposed":
+    case "config_change_approved":
+    case "config_change_applied":
+    case "config_change_failed":
+      return configChangePresentation(kind, payload);
     case "agent_invocation_requested":
     case "agent_invocation_started":
     case "agent_invocation_completed":

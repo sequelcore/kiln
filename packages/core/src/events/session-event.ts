@@ -23,6 +23,10 @@ export type CanonicalSessionEventKind =
   | "tool_call_completed"
   | "approval_requested"
   | "approval_resolved"
+  | "config_change_proposed"
+  | "config_change_approved"
+  | "config_change_applied"
+  | "config_change_failed"
   | "file_changed"
   | "cost_updated"
   | "agent_invocation_requested"
@@ -177,6 +181,34 @@ export interface CanonicalApprovalResolvedEvent extends SessionEventEnvelope<"ap
   readonly resolution: SessionApprovalResolution;
 }
 
+export interface CanonicalConfigChangeProposedEvent extends SessionEventEnvelope<"config_change_proposed"> {
+  readonly proposalId: string;
+  readonly operation: string;
+  readonly status: "valid" | "invalid";
+  readonly affectedCanonicalPaths: readonly string[];
+  readonly authorityImpact: string;
+}
+
+export interface CanonicalConfigChangeApprovedEvent extends SessionEventEnvelope<"config_change_approved"> {
+  readonly proposalId: string;
+  readonly approvalId: string;
+  readonly approvedBy: string;
+  readonly surface: string;
+}
+
+export interface CanonicalConfigChangeAppliedEvent extends SessionEventEnvelope<"config_change_applied"> {
+  readonly proposalId: string;
+  readonly approvalId: string;
+  readonly appliedWrites: readonly string[];
+  readonly projectionEffects: readonly string[];
+}
+
+export interface CanonicalConfigChangeFailedEvent extends SessionEventEnvelope<"config_change_failed"> {
+  readonly proposalId?: string;
+  readonly approvalId?: string;
+  readonly errorMessage: string;
+}
+
 export interface CanonicalFileChangedEvent extends SessionEventEnvelope<"file_changed"> {
   readonly change: SessionFileChange;
   readonly toolCallId?: string;
@@ -318,6 +350,10 @@ export interface CanonicalSessionEventMap {
   tool_call_completed: CanonicalToolCallCompletedEvent;
   approval_requested: CanonicalApprovalRequestedEvent;
   approval_resolved: CanonicalApprovalResolvedEvent;
+  config_change_proposed: CanonicalConfigChangeProposedEvent;
+  config_change_approved: CanonicalConfigChangeApprovedEvent;
+  config_change_applied: CanonicalConfigChangeAppliedEvent;
+  config_change_failed: CanonicalConfigChangeFailedEvent;
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
   agent_invocation_requested: CanonicalAgentInvocationRequestedEvent;

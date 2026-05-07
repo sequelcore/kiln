@@ -391,6 +391,7 @@ function projectTools(
     "resource_read",
     "kiln_config.read",
     "kiln_config.propose_change",
+    "kiln_config.apply_change",
   ]);
   return tools.filter((tool) => requested.has(tool.name));
 }

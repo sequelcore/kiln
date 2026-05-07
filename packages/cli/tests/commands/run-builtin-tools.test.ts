@@ -307,6 +307,7 @@ describe("run command builtin tool wiring", () => {
       additionalTools: expect.arrayContaining([
         expect.objectContaining({ name: "kiln_config.read" }),
         expect.objectContaining({ name: "kiln_config.propose_change" }),
+        expect.objectContaining({ name: "kiln_config.apply_change" }),
       ]),
     });
     expect(runWiringMocks.capturedSessionConfigs).toHaveLength(1);

@@ -11,6 +11,7 @@ import {
   readConfigStatusSnapshot,
   readConfigStatusView,
 } from "../application/config-status.js";
+import { approveConfigChangeProposal } from "../application/config-approval.js";
 
 type KilnYamlKey =
   | "domain"
@@ -86,6 +87,27 @@ export async function configCommand(
       const snapshot = await readConfigStatusSnapshot({ projectPath: root });
       const result = await readConfigStatusView(snapshot, viewArg);
       console.log(JSON.stringify(result.value, null, 2));
+      break;
+    }
+
+    case "approve": {
+      const proposalId = readPositionalArgs(args)[0];
+      if (!proposalId) {
+        console.log("Usage: kiln config approve <proposalId>");
+        return;
+      }
+      try {
+        const approval = approveConfigChangeProposal({
+          projectPath: root,
+          proposalId,
+          approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+          surface: "cli",
+        });
+        console.log(JSON.stringify(approval, null, 2));
+      } catch (error) {
+        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
       break;
     }
 
@@ -248,6 +270,7 @@ function printConfigHelp(): void {
   console.log("Subcommands:");
   console.log("  show              Print current config");
   console.log("  read [view]       Print canonical config/status view as JSON");
+  console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set <key> <value> Update a config value");
   console.log("  reset             Reset config to defaults");
   console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, health");
