@@ -27,6 +27,9 @@ surface, or bake community prompt packs into product defaults.
   across GUI, TUI, CLI, SDK/widget, and gateway session events.
 - Project agent and skill contracts into Claude Code, Codex, and OpenCode only
   through harness capability declarations.
+- Document a sanitized personal configuration example that demonstrates the
+  canonical route, agent, skill, and managed-child context shape without
+  storing secrets.
 
 ## Non-Goals
 
@@ -59,9 +62,14 @@ surface, or bake community prompt packs into product defaults.
 
 ## Follow-Up Slices
 
-1. Add guarded install/import for third-party skills and agent packs with trust
-   metadata, static scanning, and provenance.
-2. Add an operator-facing configuration wizard that creates a minimal personal
-   Kiln setup from canonical profiles and skills.
-3. Add evaluation harnesses that compare task success with and without selected
-   skills before recommending defaults.
+1. Add evaluation harnesses that run repeatable live-test tasks across selected
+   routes, agent profiles, and skill variants before recommending defaults.
+   The harness should compare quality, evidence use, permission compliance,
+   cost, duration, and actionable output against a fixed rubric.
+2. Deferred: add guarded install/import for third-party skills and agent packs
+   with trust metadata, static scanning, and provenance. Until Kiln is public
+   and has real external catalog consumers, first-party config, agents, and
+   skills remain the only supported source.
+3. Deferred: add an operator-facing configuration wizard that creates a minimal
+   personal Kiln setup from canonical profiles and skills. Until there is a
+   real consumer need, configuration remains explicit YAML plus guides.

@@ -94,11 +94,18 @@ available for surgical removal.
 
 ## Managed Agent Route Projection
 
-Enabled supported child engines project into governed managed-agent runtime
-routes. The CLI resolves route health once using global config, engine
-availability, credential state, and optional managed-agent overrides, then
-passes the same `ManagedInvocationToolOptions` to GUI, TUI, CLI run, and
-operator gateway sessions.
+Ordered `routing.routes` project into governed managed-agent runtime routes
+when no explicit `managedAgents.routes` allowlist is present. Eligible direct
+providers require an explicit tool-call-capable model; harnesses require
+live-proven result handoff for the requested managed profile and use their route
+model, provider-specific `models.<engine>`, or the adapter's safe default. If no
+ordered route list exists, enabled supported child engines project into the same
+read-only route contract only when their handoff proof is complete. The CLI
+resolves route health once using global config, engine availability, credential
+state, provider-advertised model catalogs, model capability, profile-specific
+harness proof, and optional managed-agent overrides, then passes the same
+`ManagedInvocationToolOptions` to
+GUI, TUI, CLI run, and operator gateway sessions.
 
 When at least one healthy route exists, runtime tool projection exposes
 `managed_agent.invoke`. Missing or unhealthy routes fail closed with operator
@@ -106,7 +113,9 @@ diagnostics. Surfaces do not decide their own child-agent provider list.
 
 Synthesized child routes are read-only and use `foundation-readonly-plan`. Write
 capable routes require explicit route config plus live-proven write evidence
-support.
+support. A harness that can prove write evidence but cannot yet prove
+substantive read-only result handoff remains unavailable for
+`foundation-readonly-plan`.
 
 ## Invariants
 
@@ -120,5 +129,8 @@ support.
   copied into harness config.
 - Config projection must be shared by all operator surfaces.
 - Managed-agent route projection is governed config, not assistant preference.
+- `routing.routes` is the default managed-agent route source; explicit
+  `managedAgents.routes` is an allowlist override, not a second routing graph to
+  keep in sync.
 - Agent and skill definitions are canonical only under Kiln-owned agent and
   skill directories, never in native harness folders.

@@ -83,6 +83,11 @@ At runtime, Kiln projects the resolved route registry into the
 route ids and unavailable-route diagnostics. If multiple managed routes share a
 provider/profile, parent agents must select by `routeId` or by an exact
 configured model; provider-only selection fails closed as ambiguous.
+The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
+GUI, TUI, and CLI-launched managed invocations resolve those fields from
+`.kiln/agents`, `~/.kiln/agents`, `.kiln/skills`, and `~/.kiln/skills`. Missing
+profiles, missing skills, or `contextMode: "fork"` fail closed instead of
+falling back to ambient parent context.
 
 Supported operator themes are `kiln-dark`, `kiln-light`, `system-follow`,
 `dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
@@ -159,6 +164,97 @@ components:
     - baseline:core
 ```
 
+## Sanitized Personal Setup Example
+
+This example reflects a local operator setup where direct Codex OAuth is the
+primary route, OpenRouter is an inexpensive direct-provider fallback, native
+Codex CLI is a harness fallback, OpenCode is available for mechanical child
+work, and Claude is disabled until a valid subscription is available. It is a
+shape example only; secrets stay in environment variables or credential pools.
+
+```yaml
+version: "1"
+engines:
+  claude:
+    enabled: false
+    billing: subscription
+  codex-oauth:
+    enabled: true
+    billing: subscription
+  openrouter:
+    enabled: true
+    billing: api-key
+  codex:
+    enabled: true
+    billing: plus-quota
+  opencode:
+    enabled: true
+    billing: free
+routing:
+  routes:
+    - provider: codex-oauth
+      model: gpt-5.4-mini
+    - provider: openrouter
+      model: openrouter/free
+    - provider: codex
+      model: gpt-5.3-codex-spark
+    - provider: opencode
+      model: opencode/minimax-m2.5-free
+  budgetAware: false
+permissions:
+  approval: on-request
+  sandbox: read-only
+identity:
+  name: Ricardo
+  timezone: America/Tijuana
+ui:
+  theme: kiln-dark
+components:
+  include:
+    - baseline:core
+```
+
+Matching global agent profiles live under `~/.kiln/agents/`. They must use the
+canonical profile contract; partial native-agent files are not accepted as
+Kiln source. Example:
+
+```markdown
+---
+name: architecture-reviewer
+role: Architecture reviewer
+description: Reviews architecture decisions, boundaries, and long-term risks.
+goal: Find structural risks and propose clean, durable corrections.
+tier: reasoning
+mode: managed-child
+skills:
+  - architecture-review
+  - ddd-review
+providerRoute:
+  providerId: codex-oauth
+  model: gpt-5.4-mini
+---
+
+Evaluate the assigned scope against Kiln architecture doctrine. Report risks,
+missing tests, and concrete corrections. Do not modify files unless explicitly
+granted write authority by the parent invocation.
+```
+
+Reusable procedures live under `~/.kiln/skills/<skill-name>/SKILL.md`. A child
+invocation may request a profile, skills, and context mode:
+
+```text
+Use managed_agent.invoke with profile foundation-readonly-plan,
+providerRoute.providerId codex-oauth, agentProfile architecture-reviewer,
+skills ["ddd-review"], and contextMode isolated.
+Task: inspect docs/architecture/managed-agents.md and report architectural
+risks. Do not modify files.
+```
+
+`contextMode: isolated` is the current default. `contextMode: resources` may be
+used when the parent supplies explicit governed resource URIs. `contextMode:
+fork` is reserved for a future policy slice and currently fails closed in
+CLI-owned GUI, TUI, and CLI sessions.
+
 ### Supported providers
 
 `routing.defaultWorker` and `KILN_PROVIDER` accept engine/provider identifiers
@@ -202,6 +298,12 @@ loaded as compatibility inputs. Commands that intentionally replace invalid
 global config must write a backup first, then write canonical config.
 
 ## Agent Sync
+
+Kiln agent profiles are canonical executable roles. A valid `.kiln/agents/*.md`
+or `~/.kiln/agents/*.md` file must declare `name`, `role`, `goal`, and `tier`.
+Optional fields include `description`, `backstory`, `model`, `tools`, `skills`,
+`mode`, `authorityProfile`, `routeId`, and `providerRoute`. Incomplete agent
+files are ignored instead of being projected as legacy partial agents.
 
 Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent
 definitions from `~/.kiln/agents/` and `.kiln/agents/` to enabled native CLIs:

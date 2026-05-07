@@ -209,14 +209,23 @@ children as missing evidence during comparisons. Surfaces must not add
 surface-local managed-agent prompt rules that diverge from this generated tool
 contract.
 
-The model supplies a bounded task, a configured provider route, and a requested
-managed invocation profile. The runtime maps that input to a
+The model supplies a bounded task, a configured provider route, a requested
+managed invocation profile, and optionally a child agent profile, child skills,
+resource URIs, and context mode. The runtime maps that input to a
 `ManagedAgentInvocationRequest` using configured route defaults for adapter,
 execution mode, credential route, memory scope, timeout, working directory, and
-authority. The model does not provide arbitrary authority directly.
+authority. Requested agent profiles and skills are resolved by the host context
+resolver and recorded as admitted context before execution. The model does not
+provide arbitrary authority directly.
 When multiple routes share the same provider/profile, admission requires
 `routeId` or an exact configured model match. Ambiguous provider-only selection
 fails closed instead of silently picking the first route.
+
+`agentProfile`, `skills`, and `contextMode: "fork"` fail closed when the active
+surface has not configured a context resolver. `contextMode: "isolated"` is the
+default. `contextMode: "resources"` admits only explicitly provided resources.
+`contextMode: "fork"` is reserved for future policy-approved parent-context
+forking and is rejected by the current CLI-owned resolver.
 
 The tool is classified as approval-gated authority. A GUI/TUI/CLI parent turn
 must pass the normal tool authority path before the child can be spawned. Once

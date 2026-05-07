@@ -64,11 +64,17 @@ definition.
 
 ## Agent Profiles
 
-Agent profiles describe executable roles. A profile may declare:
+Agent profiles describe executable roles. A valid profile declares:
 
 - stable id and display name
-- role and description
+- role
 - goal
+- tier: reasoning, coding, or fast
+
+A profile may also declare:
+
+- description
+- backstory
 - instructions
 - preferred provider/model route
 - mode: primary, subagent, managed-child, or all
@@ -127,7 +133,7 @@ context through:
 - minimal environment facts
 - route and authority metadata
 
-Future supported context modes:
+Supported context modes:
 
 | Mode | Meaning |
 | --- | --- |
@@ -137,6 +143,8 @@ Future supported context modes:
 
 `fork` is not a shortcut for lazy prompting. It is for genuinely context-bound
 delegation where restating the necessary context would be lossy or expensive.
+The current CLI-owned managed invocation resolver rejects `fork` until explicit
+fork admission policy is implemented.
 
 ## Native Versus Personalizable
 
