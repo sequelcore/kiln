@@ -18,6 +18,7 @@ export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
     permissions: global.permissions,
     mcp: global.mcp,
     managedAgents: global.managedAgents,
+    modelTaskSuitability: global.modelTaskSuitability,
     web: global.web,
     hooks: global.hooks,
   };

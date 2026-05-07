@@ -4,6 +4,7 @@ import type {
   ManagedAgentAdmissionProfile,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
+  ModelTaskSuitability,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
 import { isDirectProviderId, ModelCapabilityRegistry } from "@kilnai/core";
@@ -18,6 +19,7 @@ import type {
   KilnManagedAgentsConfig,
   KilnManagedAgentProfile,
   KilnManagedAgentRouteConfig,
+  KilnModelTaskSuitabilityOverride,
 } from "../kiln-yaml-types.js";
 import type {
   ProviderCreateConfig,
@@ -56,6 +58,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
 
 export interface ManagedAgentRouteConfigSource {
   readonly managedAgents?: KilnManagedAgentsConfig;
+  readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly engines?: Record<string, { readonly enabled?: boolean }>;
   readonly routing?: {
     readonly defaultWorker?: string;
@@ -301,7 +304,7 @@ async function resolveRouteConfig(
   }
 
   if (routeConfig.kind === "direct") {
-    return resolveDirectRouteConfig(routeConfig, context, baseHealth);
+    return resolveDirectRouteConfig(routeConfig, context, config, baseHealth);
   }
 
   if (!SUPPORTED_HARNESS_PROVIDERS.has(routeConfig.provider)) {
@@ -341,7 +344,7 @@ async function resolveRouteConfig(
     model,
     adapter,
     surface: "cli-harness",
-    taskSuitability: MODEL_CAPABILITIES.taskSuitability(routeConfig.provider, model),
+    taskSuitability: resolveTaskSuitability(routeConfig.provider, model, config.modelTaskSuitability),
     profiles: {
       [READONLY_PROFILE]: buildReadonlyProfile(routeConfig, context.cwd),
     },
@@ -379,6 +382,7 @@ function buildReadonlyProfile(routeConfig: KilnManagedAgentRouteConfig, cwd: str
 async function resolveDirectRouteConfig(
   routeConfig: KilnManagedAgentRouteConfig,
   context: ResolveManagedInvocationToolOptionsContext,
+  config: ManagedAgentRouteConfigSource,
   baseHealth: Omit<ManagedAgentRouteHealth, "available" | "reason">,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
@@ -406,7 +410,7 @@ async function resolveDirectRouteConfig(
     model,
     adapter,
     surface: "direct-provider",
-    taskSuitability: MODEL_CAPABILITIES.taskSuitability(routeConfig.provider, model),
+    taskSuitability: resolveTaskSuitability(routeConfig.provider, model, config.modelTaskSuitability),
     profiles: {
       [READONLY_PROFILE]: buildReadonlyProfile(routeConfig, context.cwd),
     },
@@ -419,6 +423,29 @@ async function resolveDirectRouteConfig(
     },
     route,
   };
+}
+
+function resolveTaskSuitability(
+  provider: string,
+  model: string,
+  overrides: readonly KilnModelTaskSuitabilityOverride[] | undefined,
+): readonly ModelTaskSuitability[] {
+  const merged = new Map<string, ModelTaskSuitability>();
+  for (const entry of MODEL_CAPABILITIES.taskSuitability(provider, model)) {
+    merged.set(entry.task, entry);
+  }
+  for (const override of overrides ?? []) {
+    if (override.provider !== provider || override.model !== model) {
+      continue;
+    }
+    merged.set(override.task, {
+      task: override.task,
+      level: override.level,
+      source: "operator-override",
+      reason: override.reason,
+    });
+  }
+  return [...merged.values()];
 }
 
 function normalizeProfiles(

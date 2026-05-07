@@ -150,9 +150,12 @@ Canonical task suitability records use:
 - `reason`: short operator-facing explanation
 
 Static suitability belongs in `ModelCapabilityRegistry`. It is advisory and
-must identify itself as `static-profile`. Live harness proof, operator
-overrides, and evaluation results may add or supersede suitability evidence in
-later slices, but they must preserve the same record shape and source.
+must identify itself as `static-profile`. Operator and project overrides live
+in `modelTaskSuitability` config entries and identify themselves as
+`operator-override` after admission. An override supersedes static suitability
+for the same provider/model/task but does not affect unrelated tasks. Live
+harness proof and evaluation results may add or supersede suitability evidence
+in later slices, but they must preserve the same record shape and source.
 
 Parent sessions and managed invocation tool descriptions may use task
 suitability to choose among admitted routes. They must still respect route

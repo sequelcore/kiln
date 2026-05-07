@@ -160,6 +160,38 @@ describe("mergeKilnYaml", () => {
     expect(result.mcp?.servers["custom"]).toBeDefined();
   });
 
+  it("merges model task suitability by provider, model, and task", () => {
+    const base: KilnYaml = {
+      version: "1",
+      modelTaskSuitability: [{
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        task: "frontend-design",
+        level: "limited",
+        reason: "Global operator preference.",
+      }],
+    };
+    const override: Partial<KilnYaml> = {
+      modelTaskSuitability: [{
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        task: "frontend-design",
+        level: "capable",
+        reason: "Project has a strong frontend skill profile.",
+      }],
+    };
+
+    const result = mergeKilnYaml(base, override);
+
+    expect(result.modelTaskSuitability).toEqual([{
+      provider: "codex-oauth",
+      model: "gpt-5.4-mini",
+      task: "frontend-design",
+      level: "capable",
+      reason: "Project has a strong frontend skill profile.",
+    }]);
+  });
+
   it("ignores undefined override values", () => {
     const base: KilnYaml = { version: "1", domain: "python" };
     const override: Partial<KilnYaml> = { domain: undefined };

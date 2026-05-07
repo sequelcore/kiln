@@ -108,10 +108,12 @@ surface-specific behavior, or provider compatibility glue.
 5. Started 2026-05-07: add a route/model capability catalog. Static
    `ModelCapabilityRegistry` evidence now exposes task suitability for
    `frontend-design`, `backend-coding`, `architecture-review`, `research`,
-   `mechanical-edit`, and `test-writing`, and managed invocation tool
-   descriptions surface that evidence to parent sessions. Remaining work:
-   merge live proof, operator overrides, evaluation results, and recommended
-   skill pairings into the same evidence shape.
+   `mechanical-edit`, and `test-writing`, operator/project
+   `modelTaskSuitability` overrides supersede static evidence by
+   provider/model/task, and managed invocation tool descriptions surface the
+   merged evidence to parent sessions. Remaining work: merge live proof,
+   evaluation results, and recommended skill pairings into the same evidence
+   shape.
 6. Improve parent tool guidance so operators can ask for delegated work in
    natural language while the model sees a bounded catalog of admissible agents,
    skills, routes, context modes, and task-affinity hints.

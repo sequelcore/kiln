@@ -4,6 +4,7 @@ import { parse, stringify } from "yaml";
 import { KilnYamlError } from "./kiln-yaml-types.js";
 import type {
   KilnYaml,
+  KilnModelTaskSuitabilityOverride,
   KilnYamlMcp,
   KilnYamlMcpServer,
   KilnYamlWebConfig,
@@ -27,6 +28,9 @@ export type {
   KilnYamlAgentScope,
   KilnYamlProvider,
   KilnYamlSkillGeneration,
+  KilnModelTaskSuitabilityOverride,
+  KilnModelTaskSuitabilityLevel,
+  KilnModelTaskSuitabilityTask,
   KilnYamlWebConfig,
   KilnManagedAgentsConfig,
   KilnHooksConfig,
@@ -79,10 +83,23 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     permissions: override.permissions ?? base.permissions,
     providers: override.providers ?? base.providers,
     managedAgents: override.managedAgents ?? base.managedAgents,
+    modelTaskSuitability: mergeModelTaskSuitability(base.modelTaskSuitability, override.modelTaskSuitability),
     web: mergeWeb(base.web, override.web),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,
   };
+}
+
+function mergeModelTaskSuitability(
+  base: readonly KilnModelTaskSuitabilityOverride[] | undefined,
+  override: readonly KilnModelTaskSuitabilityOverride[] | undefined,
+): readonly KilnModelTaskSuitabilityOverride[] | undefined {
+  if (!base && !override) return undefined;
+  const merged = new Map<string, KilnModelTaskSuitabilityOverride>();
+  for (const entry of [...(base ?? []), ...(override ?? [])]) {
+    merged.set(`${entry.provider}/${entry.model}/${entry.task}`, entry);
+  }
+  return [...merged.values()];
 }
 
 function mergeStringList(

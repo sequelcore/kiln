@@ -43,6 +43,7 @@ usage view.
 | `mcp` | `Record<string, unknown>` | Global MCP server definitions and related client config. |
 | `hooks` | `Record<string, unknown>` | Global hook configuration shared across Kiln-managed workflows. |
 | `managedAgents` | `KilnManagedAgentsConfig` | Governed child-agent route configuration shared by GUI, TUI, and CLI runtime surfaces. |
+| `modelTaskSuitability` | `KilnModelTaskSuitabilityOverride[]` | Operator or project overrides for provider/model task suitability evidence. |
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
@@ -85,6 +86,10 @@ At runtime, Kiln projects the resolved route registry into the
 route ids and unavailable-route diagnostics. If multiple managed routes share a
 provider/profile, parent agents must select by `routeId` or by an exact
 configured model; provider-only selection fails closed as ambiguous.
+`modelTaskSuitability` entries override static suitability evidence for the
+matching provider/model/task. Use them for operator or project knowledge such
+as "this route is limited for frontend design" without changing global product
+defaults.
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
 `.kiln/agents`, `~/.kiln/agents`, `.kiln/instructions`,
@@ -154,6 +159,12 @@ routing:
   budgetAware: false
 models:
   codex: gpt-5.3-codex-spark
+modelTaskSuitability:
+  - provider: codex-oauth
+    model: gpt-5.4-mini
+    task: frontend-design
+    level: limited
+    reason: Prefer a visual-design-specialized route when available.
 permissions:
   approval: on-request
   sandbox: read-only
@@ -206,6 +217,12 @@ routing:
     - provider: opencode
       model: opencode/minimax-m2.5-free
   budgetAware: false
+modelTaskSuitability:
+  - provider: codex-oauth
+    model: gpt-5.4-mini
+    task: frontend-design
+    level: limited
+    reason: Prefer a visual-design-specialized route when available.
 permissions:
   approval: on-request
   sandbox: read-only

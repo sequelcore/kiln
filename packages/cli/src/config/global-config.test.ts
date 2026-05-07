@@ -239,6 +239,45 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("routing.routes[0].provider must be a non-empty string");
   });
 
+  it("readGlobalConfig() validates model task suitability overrides", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "modelTaskSuitability:",
+        "  - provider: codex-oauth",
+        "    model: gpt-5.4-mini",
+        "    task: frontend-design",
+        "    level: limited",
+        "    reason: Prefer a visual-design route when available.",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.modelTaskSuitability).toEqual([{
+      provider: "codex-oauth",
+      model: "gpt-5.4-mini",
+      task: "frontend-design",
+      level: "limited",
+      reason: "Prefer a visual-design route when available.",
+    }]);
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "modelTaskSuitability:",
+        "  - provider: codex-oauth",
+        "    model: gpt-5.4-mini",
+        "    task: frontend-design",
+        "    level: best",
+        "    reason: Invalid level.",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow(
+      "modelTaskSuitability[0].level must be \"preferred\", \"capable\", or \"limited\"",
+    );
+  });
+
   it("readGlobalConfig() throws KilnYamlError when file is not a YAML object", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue("- not\n- an\n- object\n");

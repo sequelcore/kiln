@@ -356,24 +356,33 @@ describe("resolveManagedInvocationToolOptions", () => {
   });
 
   it("resolves an explicit healthy Codex harness route", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
-        id: "codex-readonly",
-        kind: "harness",
+    const result = await resolveManagedInvocationToolOptions({
+      ...baseConfig({
+        routes: [{
+          id: "codex-readonly",
+          kind: "harness",
+          provider: "codex",
+          model: "gpt-5.3-codex-spark",
+          profiles: ["foundation-readonly-plan"],
+          timeoutMs: 120000,
+          workingDirectory: "project",
+          tools: {
+            allowed: ["read", "tree", "grep", "glob"],
+            network: false,
+            writes: false,
+          },
+          memory: { access: "read-only" },
+          credentials: { mode: "runtime-selected" },
+        }],
+      }),
+      modelTaskSuitability: [{
         provider: "codex",
         model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
-        timeoutMs: 120000,
-        workingDirectory: "project",
-        tools: {
-          allowed: ["read", "tree", "grep", "glob"],
-          network: false,
-          writes: false,
-        },
-        memory: { access: "read-only" },
-        credentials: { mode: "runtime-selected" },
+        task: "frontend-design",
+        level: "limited",
+        reason: "Use a stronger visual-design route when available.",
       }],
-    }), {
+    }, {
       cwd: "C:/repo",
       registry: createRegistry("codex"),
       surface: "gui",
@@ -398,6 +407,12 @@ describe("resolveManagedInvocationToolOptions", () => {
           task: "backend-coding",
           level: "capable",
           source: "static-profile",
+        }),
+        expect.objectContaining({
+          task: "frontend-design",
+          level: "limited",
+          source: "operator-override",
+          reason: "Use a stronger visual-design route when available.",
         }),
         expect.objectContaining({
           task: "mechanical-edit",

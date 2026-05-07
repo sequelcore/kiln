@@ -62,6 +62,13 @@ describe("config-merger", () => {
       hooks: {
         SessionStart: [{ hooks: [{ type: "command", command: "echo start" }] }],
       },
+      modelTaskSuitability: [{
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        task: "frontend-design",
+        level: "limited",
+        reason: "Prefer a visual route when available.",
+      }],
     };
     readGlobalConfigMock.mockReturnValue(globalConfig);
     readKilnYamlMock.mockReturnValue(null);
@@ -77,6 +84,13 @@ describe("config-merger", () => {
       hooks: {
         SessionStart: [{ hooks: [{ type: "command", command: "echo start" }] }],
       },
+      modelTaskSuitability: [{
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        task: "frontend-design",
+        level: "limited",
+        reason: "Prefer a visual route when available.",
+      }],
     });
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
   });
@@ -132,6 +146,7 @@ describe("config-merger", () => {
         permissions: undefined,
         mcp: undefined,
         hooks: undefined,
+        modelTaskSuitability: undefined,
       },
       projectConfig,
     );
@@ -179,6 +194,13 @@ describe("config-merger", () => {
       hooks: {
         SessionEnd: [{ hooks: [{ type: "command", command: "echo done" }] }],
       },
+      modelTaskSuitability: [{
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        task: "frontend-design",
+        level: "limited",
+        reason: "Prefer a visual route when available.",
+      }],
     };
 
     expect(globalToKilnYaml(globalConfig)).toEqual({
@@ -190,6 +212,13 @@ describe("config-merger", () => {
       hooks: {
         SessionEnd: [{ hooks: [{ type: "command", command: "echo done" }] }],
       },
+      modelTaskSuitability: [{
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        task: "frontend-design",
+        level: "limited",
+        reason: "Prefer a visual route when available.",
+      }],
     });
   });
 
@@ -207,6 +236,7 @@ describe("config-merger", () => {
       permissions: undefined,
       mcp: undefined,
       hooks: undefined,
+      modelTaskSuitability: undefined,
     });
   });
 });

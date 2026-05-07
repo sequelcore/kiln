@@ -101,6 +101,24 @@ export interface KilnYamlSkillGeneration {
   readonly complexityThreshold?: number;
 }
 
+export type KilnModelTaskSuitabilityTask =
+  | "architecture-review"
+  | "backend-coding"
+  | "frontend-design"
+  | "mechanical-edit"
+  | "research"
+  | "test-writing";
+
+export type KilnModelTaskSuitabilityLevel = "preferred" | "capable" | "limited";
+
+export interface KilnModelTaskSuitabilityOverride {
+  readonly provider: string;
+  readonly model: string;
+  readonly task: KilnModelTaskSuitabilityTask;
+  readonly level: KilnModelTaskSuitabilityLevel;
+  readonly reason: string;
+}
+
 export type KilnYamlWebNetPolicy = "none" | "documentation" | "package-managers" | "full";
 
 export interface KilnYamlWebHttpSearchProvider {
@@ -283,6 +301,7 @@ export interface KilnYaml {
   readonly permissions?: KilnYamlPermissions;
   readonly providers?: Record<string, KilnYamlProvider>;
   readonly managedAgents?: KilnManagedAgentsConfig;
+  readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly web?: KilnYamlWebConfig;
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];

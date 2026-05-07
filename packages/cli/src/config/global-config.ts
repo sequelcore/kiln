@@ -6,6 +6,7 @@ import { KilnYamlError } from "../kiln-yaml.js";
 import type {
   KilnManagedAgentsConfig,
   KilnHooksConfig,
+  KilnModelTaskSuitabilityOverride,
   KilnYamlWebConfig,
   KilnYamlMcp,
   KilnYamlPermissions,
@@ -67,6 +68,7 @@ export interface KilnGlobalConfig {
   readonly hooks?: KilnHooksConfig;
   readonly models?: KilnGlobalModelsConfig;
   readonly managedAgents?: KilnManagedAgentsConfig;
+  readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly web?: KilnYamlWebConfig;
   readonly ui?: KilnGlobalUiConfig;
   readonly components?: KilnGlobalComponentsConfig;
@@ -83,6 +85,7 @@ const ROOT_FIELDS = new Set([
   "hooks",
   "models",
   "managedAgents",
+  "modelTaskSuitability",
   "web",
   "ui",
   "components",
@@ -209,6 +212,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRouting(config.routing);
   validateComponents(config.components);
   validateManagedAgents(config.managedAgents);
+  validateModelTaskSuitability(config.modelTaskSuitability);
 }
 
 function validateIdentity(value: unknown): void {
@@ -370,10 +374,40 @@ function validateManagedAgentRoute(value: unknown, index: number): void {
   }
 }
 
+function validateModelTaskSuitability(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new KilnYamlError("modelTaskSuitability must be an array");
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = value[index];
+    if (!isRecord(entry)) {
+      throw new KilnYamlError(`modelTaskSuitability[${index}] must be an object`);
+    }
+    validateRequiredNonEmptyString(entry, "provider", `modelTaskSuitability[${index}].provider`);
+    validateRequiredNonEmptyString(entry, "model", `modelTaskSuitability[${index}].model`);
+    validateRequiredNonEmptyString(entry, "reason", `modelTaskSuitability[${index}].reason`);
+    if (!isModelTaskSuitabilityTask(entry.task)) {
+      throw new KilnYamlError(`modelTaskSuitability[${index}].task is not supported`);
+    }
+    if (!isModelTaskSuitabilityLevel(entry.level)) {
+      throw new KilnYamlError(`modelTaskSuitability[${index}].level must be "preferred", "capable", or "limited"`);
+    }
+  }
+}
+
 function validateRecordField(config: Record<string, unknown>, field: string): void {
   const value = config[field];
   if (value !== undefined && !isRecord(value)) {
     throw new KilnYamlError(`${field} must be an object`);
+  }
+}
+
+function validateRequiredNonEmptyString(record: Record<string, unknown>, key: string, path: string): void {
+  if (typeof record[key] !== "string" || record[key].trim().length === 0) {
+    throw new KilnYamlError(`${path} must be a non-empty string`);
   }
 }
 
@@ -383,6 +417,19 @@ function isEngineBilling(value: unknown): value is KilnEngineBilling {
     || value === "free"
     || value === "api-key"
     || value === "local";
+}
+
+function isModelTaskSuitabilityTask(value: unknown): boolean {
+  return value === "architecture-review"
+    || value === "backend-coding"
+    || value === "frontend-design"
+    || value === "mechanical-edit"
+    || value === "research"
+    || value === "test-writing";
+}
+
+function isModelTaskSuitabilityLevel(value: unknown): boolean {
+  return value === "preferred" || value === "capable" || value === "limited";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
