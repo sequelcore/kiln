@@ -752,10 +752,18 @@ describe("session-store", () => {
       kind: "agent_invocation_requested",
       payload: {
         invocationId: "inv-1",
-        agentId: "agent-planner",
-        agentName: "Planner",
+        agentId: "codex-oauth:foundation-readonly-plan",
         requestedBy: "user",
         requestSource: "manual",
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+          surface: "direct-provider",
+        },
+        adapterKind: "direct",
+        executionMode: "runtime-direct",
+        authorityProfileId: "authority:foundation-readonly-plan",
       },
     });
     useSessionStore.getState().onSessionEvent({
@@ -766,8 +774,13 @@ describe("session-store", () => {
       kind: "agent_invocation_started",
       payload: {
         invocationId: "inv-1",
-        agentId: "agent-planner",
-        agentName: "Planner",
+        agentId: "codex-oauth:foundation-readonly-plan",
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+          surface: "direct-provider",
+        },
         attempt: 1,
       },
     });
@@ -779,7 +792,13 @@ describe("session-store", () => {
       kind: "agent_invocation_completed",
       payload: {
         invocationId: "inv-1",
-        agentId: "agent-planner",
+        agentId: "codex-oauth:foundation-readonly-plan",
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+          surface: "direct-provider",
+        },
         resultSummary: "Planner returned focused steps",
       },
     });
@@ -820,35 +839,35 @@ describe("session-store", () => {
       eventKind: "agent_invocation_requested",
       title: "Agent invocation requested",
       tone: "info",
-      summary: expect.stringContaining("Planner"),
+      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider)",
     });
     expect(invocationEntries[1]).toMatchObject({
       type: "event",
       eventKind: "agent_invocation_started",
       title: "Agent invocation started",
       tone: "running",
-      summary: expect.stringContaining("attempt 1"),
+      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider)",
     });
     expect(invocationEntries[2]).toMatchObject({
       type: "event",
       eventKind: "agent_invocation_completed",
       title: "Agent invocation completed",
       tone: "success",
-      summary: "Planner returned focused steps",
+      summary: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Planner returned focused steps",
     });
     expect(invocationEntries[3]).toMatchObject({
       type: "event",
       eventKind: "agent_invocation_failed",
       title: "Agent invocation failed",
       tone: "error",
-      summary: "Worker timed out",
+      summary: "agent-coder · Worker timed out",
     });
     expect(invocationEntries[4]).toMatchObject({
       type: "event",
       eventKind: "agent_invocation_cancelled",
       title: "Agent invocation cancelled",
       tone: "warning",
-      summary: "cancelled by operator",
+      summary: "agent-reviewer · cancelled by operator",
     });
     expect(state.activity).toBeNull();
   });

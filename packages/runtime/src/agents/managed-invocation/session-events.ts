@@ -42,6 +42,7 @@ export function appendManagedInvocationSessionEvents(
     parentSessionId: input.request.parentSessionId,
     requestedBy: input.request.requestedBy,
     requestSource: input.request.requestSource,
+    ...managedInvocationIdentity(input.request),
     inputSummary: input.request.input.summary,
     source,
     timestamp,
@@ -59,6 +60,7 @@ export function appendManagedInvocationSessionEvents(
       invocationId: input.request.invocationId,
       agentId: input.request.agentId,
       parentSessionId: input.request.parentSessionId,
+      ...managedInvocationIdentity(input.request),
       errorCode: "ADMISSION_DENIED",
       errorMessage: formatAdmissionDenied(input.decision),
       retriable: false,
@@ -84,6 +86,7 @@ export function appendManagedInvocationSessionEvents(
     invocationId: input.record.invocationId,
     agentId: input.record.agentId,
     parentSessionId: input.record.parentSessionId,
+    ...managedInvocationIdentity(input.record),
     attempt: 1,
     source,
     timestamp,
@@ -130,6 +133,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
+        ...managedInvocationIdentity(input.record),
         durationMs: input.durationMs,
         resultSummary: input.record.resultHandoff?.summary,
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
@@ -146,6 +150,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
+        ...managedInvocationIdentity(input.record),
         reason: "Managed invocation cancelled.",
         cancelledBy: "runtime",
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
@@ -162,6 +167,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
+        ...managedInvocationIdentity(input.record),
         errorCode: "ENGINE_TIMEOUT",
         errorMessage: "Managed invocation timed out.",
         retriable: true,
@@ -179,6 +185,7 @@ function mapTerminalEvent(input: {
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
+        ...managedInvocationIdentity(input.record),
         errorCode: "ENGINE_FAILURE",
         errorMessage: "Managed invocation failed.",
         retriable: true,
@@ -196,6 +203,18 @@ function formatAdmissionDenied(decision: Extract<ManagedAgentAdmissionDecision, 
     ? ` missingCapabilities=${decision.missingCapabilities.join(",")}`
     : "";
   return `${decision.reason}${suffix}`;
+}
+
+function managedInvocationIdentity(
+  source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
+): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "authorityProfileId"> {
+  return {
+    profile: source.profile,
+    providerRoute: source.providerRoute,
+    adapterKind: source.adapterKind,
+    executionMode: source.executionMode,
+    authorityProfileId: source.authority.authorityProfileId,
+  };
 }
 
 function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvocationEvidence | undefined {

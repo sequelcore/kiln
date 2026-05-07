@@ -247,6 +247,11 @@ describe("managed invocation runtime tool", () => {
       readonly metadata: {
         readonly invocationId: string;
         readonly childSessionId?: string;
+        readonly profile?: string;
+        readonly providerRoute?: Record<string, unknown>;
+        readonly adapterKind?: string;
+        readonly executionMode?: string;
+        readonly authorityProfileId?: string;
       };
     };
 
@@ -255,6 +260,15 @@ describe("managed invocation runtime tool", () => {
       isError: false,
       metadata: {
         childSessionId: expect.stringContaining("session-parent:managed:"),
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "opencode",
+          surface: "cli-harness",
+          model: "sonic",
+        },
+        adapterKind: "harness",
+        executionMode: "cli-harness",
+        authorityProfileId: "authority:opencode:readonly",
       },
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);

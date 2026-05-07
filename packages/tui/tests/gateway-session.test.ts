@@ -298,6 +298,28 @@ describe("GatewaySession canonical session events", () => {
       },
     }));
     ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-agent",
+        kilnSessionId: "session-1",
+        sequence: 4,
+        timestamp: "2026-04-28T20:00:03.000Z",
+        kind: "agent_invocation_completed",
+        turnId: "session-1:turn:live",
+        payload: {
+          invocationId: "inv-1",
+          agentId: "codex-oauth:foundation-readonly-plan",
+          profile: "foundation-readonly-plan",
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.4-mini",
+            surface: "direct-provider",
+          },
+          resultSummary: "Inspection completed.",
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "done",
       inputTokens: 1,
@@ -341,6 +363,14 @@ describe("GatewaySession canonical session events", () => {
         linesAdded: 2,
         linesRemoved: 1,
         surfaces: ["activity_panel", "inspector"],
+      }),
+      expect.objectContaining({
+        type: "activity",
+        activity: "agent_invocation_completed",
+        sessionId: "session-1",
+        turnId: "session-1:turn:live",
+        details: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
+        surfaces: ["conversation_inline", "activity_panel", "inspector"],
       }),
     ]));
 

@@ -825,6 +825,30 @@ function invocationLabel(payload: Record<string, unknown>): string {
   return readString(payload.agentName) ?? readString(payload.agentType) ?? readString(payload.agentId) ?? "agent";
 }
 
+function providerRouteLabel(payload: Record<string, unknown>): string | null {
+  const providerRoute = asRecord(payload.providerRoute);
+  const providerId = readString(providerRoute?.providerId);
+  if (!providerId) {
+    return null;
+  }
+  const model = readString(providerRoute?.model);
+  const surface = readString(providerRoute?.surface);
+  return [
+    providerId,
+    model ? `/${model}` : null,
+    surface ? ` (${surface})` : null,
+  ].filter((value): value is string => value !== null).join("");
+}
+
+function invocationRouteSummary(payload: Record<string, unknown>): string {
+  const profile = readString(payload.profile);
+  const route = providerRouteLabel(payload);
+  if (profile && route) {
+    return `${profile} via ${route}`;
+  }
+  return profile ?? route ?? invocationLabel(payload);
+}
+
 function agentPresentation(kind: OperatorSessionEventKind, payload: Record<string, unknown>): OperatorEventPresentation {
   const label = invocationLabel(payload);
   const durationMs = readNumber(payload.durationMs);
@@ -835,14 +859,26 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
     agent_invocation_failed: "Agent invocation failed",
     agent_invocation_cancelled: "Agent invocation cancelled",
   };
-  const summary = readString(payload.resultSummary)
+  const routeSummary = invocationRouteSummary(payload);
+  const terminalSummary = readString(payload.resultSummary)
     ?? readString(payload.errorMessage)
     ?? readString(payload.errorCode)
     ?? readString(payload.reason)
-    ?? readString(payload.cancelledBy)
-    ?? (durationMs !== null ? `${label} · ${durationMs}ms` : label);
+    ?? readString(payload.cancelledBy);
+  const summary = terminalSummary
+    ? `${routeSummary} · ${terminalSummary}`
+    : durationMs !== null
+      ? `${routeSummary} · ${durationMs}ms`
+      : routeSummary;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Agent", label);
+  addItem(details, "Profile", payload.profile);
+  addItem(details, "Provider", asRecord(payload.providerRoute)?.providerId);
+  addItem(details, "Model", asRecord(payload.providerRoute)?.model);
+  addItem(details, "Surface", asRecord(payload.providerRoute)?.surface);
+  addItem(details, "Adapter", payload.adapterKind);
+  addItem(details, "Execution", payload.executionMode);
+  addItem(details, "Authority", payload.authorityProfileId);
   addItem(details, "Invocation ID", payload.invocationId);
   addItem(details, "Requested by", payload.requestedBy);
   addItem(details, "Source", payload.requestSource ?? payload.source);
@@ -855,7 +891,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
     details,
     payload,
     8,
-    ["agentName", "agentType", "agentId", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
+    ["agentName", "agentType", "agentId", "profile", "providerRoute", "adapterKind", "executionMode", "authorityProfileId", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
   );
   return {
     title: titles[kind] ?? "Agent invocation",

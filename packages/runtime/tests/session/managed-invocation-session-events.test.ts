@@ -301,12 +301,22 @@ describe("appendManagedInvocationSessionEvents", () => {
       parentSessionId: request.parentSessionId,
       requestedBy: request.requestedBy,
       requestSource: request.requestSource,
+      profile: request.profile,
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authorityProfileId: request.authority.authorityProfileId,
       inputSummary: request.input.summary,
     });
     expect(events[1]).toMatchObject({
       sequence: 2,
       invocationId: request.invocationId,
       parentSessionId: request.parentSessionId,
+      profile: request.profile,
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authorityProfileId: request.authority.authorityProfileId,
       errorCode: "ADMISSION_DENIED",
       retriable: false,
     });
@@ -337,11 +347,21 @@ describe("appendManagedInvocationSessionEvents", () => {
     expect(events[1]).toMatchObject({
       invocationId: request.invocationId,
       parentSessionId: request.parentSessionId,
+      profile: record.profile,
+      providerRoute: record.providerRoute,
+      adapterKind: record.adapterKind,
+      executionMode: record.executionMode,
+      authorityProfileId: record.authority.authorityProfileId,
       attempt: 1,
     });
     expect(events[2]).toMatchObject({
       invocationId: request.invocationId,
       parentSessionId: request.parentSessionId,
+      profile: record.profile,
+      providerRoute: record.providerRoute,
+      adapterKind: record.adapterKind,
+      executionMode: record.executionMode,
+      authorityProfileId: record.authority.authorityProfileId,
       durationMs: 950,
       resultSummary: "Inspection completed.",
     });

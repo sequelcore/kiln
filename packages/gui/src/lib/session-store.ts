@@ -8,6 +8,7 @@ import type {
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionSummary,
+  OperatorSessionEventKind,
   ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
 import {
@@ -198,48 +199,29 @@ function providerIdentity(payload: Record<string, unknown>): { provider: string 
   };
 }
 
-function invocationLabel(payload: Record<string, unknown>): string {
-  return readString(payload.agentName) ?? readString(payload.agentId) ?? "agent";
+function operatorEventSummary(kind: OperatorSessionEventKind, payload: Record<string, unknown>): string {
+  const presentation = presentOperatorEventPayload(kind, payload);
+  return presentation.summary ?? presentation.compactText ?? presentation.title;
 }
 
 function invocationRequestedSummary(payload: Record<string, unknown>): string {
-  const label = invocationLabel(payload);
-  const invocationId = readString(payload.invocationId);
-  const requestedBy = readString(payload.requestedBy);
-  const requestSource = readString(payload.requestSource);
-  const by = [requestedBy, requestSource].filter((value): value is string => Boolean(value)).join(" · ");
-  return [label, invocationId ? `#${invocationId}` : null, by ? `by ${by}` : null]
-    .filter((value): value is string => Boolean(value))
-    .join(" · ") || "Invocation requested";
+  return operatorEventSummary("agent_invocation_requested", payload);
 }
 
 function invocationStartedSummary(payload: Record<string, unknown>): string {
-  const base = invocationRequestedSummary(payload);
-  const attempt = readNumber(payload.attempt);
-  return attempt !== null ? `${base} · attempt ${attempt}` : base;
+  return operatorEventSummary("agent_invocation_started", payload);
 }
 
 function invocationCompletedSummary(payload: Record<string, unknown>): string {
-  const resultSummary = readString(payload.resultSummary);
-  if (resultSummary) {
-    return resultSummary;
-  }
-  const durationMs = readNumber(payload.durationMs);
-  return durationMs !== null
-    ? `${invocationLabel(payload)} · ${durationMs}ms`
-    : invocationLabel(payload);
+  return operatorEventSummary("agent_invocation_completed", payload);
 }
 
 function invocationFailedSummary(payload: Record<string, unknown>): string {
-  return readString(payload.errorMessage)
-    ?? readString(payload.errorCode)
-    ?? `${invocationLabel(payload)} failed`;
+  return operatorEventSummary("agent_invocation_failed", payload);
 }
 
 function invocationCancelledSummary(payload: Record<string, unknown>): string {
-  return readString(payload.reason)
-    ?? readString(payload.cancelledBy)
-    ?? `${invocationLabel(payload)} cancelled`;
+  return operatorEventSummary("agent_invocation_cancelled", payload);
 }
 
 function normalizeLoadedChangeType(value: unknown): ChangedFileEntry["changeType"] | null {

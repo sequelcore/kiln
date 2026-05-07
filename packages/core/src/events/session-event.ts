@@ -1,9 +1,13 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 
 import type {
+  ManagedAgentAdapterKind,
+  ManagedAgentAdmissionProfile,
+  ManagedAgentExecutionMode,
+  ManagedAgentProviderRoute,
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
-} from "../agents/managed-invocation/write-authority.js";
+} from "../agents/managed-invocation/index.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -188,6 +192,11 @@ export interface SessionAgentInvocationIdentity {
   readonly parentSessionId?: string;
   readonly requestedBy?: string;
   readonly requestSource?: string;
+  readonly profile?: ManagedAgentAdmissionProfile;
+  readonly providerRoute?: ManagedAgentProviderRoute;
+  readonly adapterKind?: ManagedAgentAdapterKind;
+  readonly executionMode?: ManagedAgentExecutionMode;
+  readonly authorityProfileId?: string;
 }
 
 export interface SessionAgentInvocationTranscriptPointer {

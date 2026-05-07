@@ -163,6 +163,15 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       ...scoped,
     };
   }
+  if (event.kind.startsWith("agent_invocation_")) {
+    return {
+      type: "activity",
+      activity: event.kind,
+      details: presentation.compactText,
+      surfaces: presentation.surfaces,
+      ...scoped,
+    };
+  }
   return null;
 }
 

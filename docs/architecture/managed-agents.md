@@ -246,11 +246,18 @@ Managed invocation state projects into canonical session events:
 - `agent_invocation_failed`
 - `agent_invocation_cancelled`
 
-Terminal events carry managed invocation evidence: child lineage, transcript
-pointer, diagnostics, usage, result handoff, write authority, and write
-evidence. GUI, TUI, CLI, SDK, and future operator surfaces must derive managed
-invocation state from these canonical events rather than maintaining local
-managed-agent state.
+Every managed invocation event carries the same visible invocation identity:
+`invocationId`, `agentId`, `profile`, `providerRoute`, `adapterKind`,
+`executionMode`, `authorityProfileId`, parent session lineage, requester, and
+request source when known. Operator surfaces must render that identity as
+structured evidence, for example `foundation-readonly-plan via
+codex-oauth/gpt-5.4-mini`, rather than only showing the tool name.
+
+Terminal events additionally carry managed invocation evidence: child lineage,
+transcript pointer, diagnostics, usage, result handoff, write authority, and
+write evidence. GUI, TUI, CLI, SDK, and future operator surfaces must derive
+managed invocation state from these canonical events rather than maintaining
+local managed-agent state.
 
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Artifact-linked diff evidence must survive

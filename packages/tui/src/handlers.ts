@@ -335,6 +335,12 @@ export function handleActivity(
       ]);
       ctx.renderSidebarChanges?.();
     }
+  } else if (activity.startsWith("agent_invocation_")) {
+    update(ctx.state, "currentActivity", {
+      phase: activity === "agent_invocation_started" ? "executing" : "reasoning",
+      toolName: "managed_agent.invoke",
+      details,
+    });
   }
 }
 

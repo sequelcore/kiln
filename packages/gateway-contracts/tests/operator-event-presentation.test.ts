@@ -80,6 +80,42 @@ describe("operator event presentation", () => {
     ]);
   });
 
+  it("presents managed child invocation identity across surfaces", () => {
+    const presentation = presentOperatorEventPayload("agent_invocation_completed", {
+      invocationId: "inv-1",
+      agentId: "codex-oauth:foundation-readonly-plan",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.4-mini",
+        surface: "direct-provider",
+      },
+      adapterKind: "direct",
+      executionMode: "runtime-direct",
+      authorityProfileId: "authority:foundation-readonly-plan",
+      durationMs: 950,
+      resultSummary: "Inspection completed.",
+    });
+
+    expect(presentation.summary).toBe(
+      "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
+    );
+    expect(presentation.details).toEqual([
+      { label: "Agent", value: "codex-oauth:foundation-readonly-plan" },
+      { label: "Profile", value: "foundation-readonly-plan" },
+      { label: "Provider", value: "codex-oauth" },
+      { label: "Model", value: "gpt-5.4-mini" },
+      { label: "Surface", value: "direct-provider" },
+      { label: "Adapter", value: "direct" },
+      { label: "Execution", value: "runtime-direct" },
+      { label: "Authority", value: "authority:foundation-readonly-plan" },
+      { label: "Invocation ID", value: "inv-1" },
+      { label: "Duration", value: "950 ms" },
+      { label: "Result", value: "Inspection completed." },
+    ]);
+    expect(presentation.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+  });
+
   it("formats nested values as structured values for compact surfaces", () => {
     expect(formatOperatorEventValue({ nested: true })).toBe("Structured value");
   });
