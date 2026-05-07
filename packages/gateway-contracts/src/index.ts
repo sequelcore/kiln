@@ -1,4 +1,13 @@
 export type {
+  KilnConfigChangeOperation,
+  KilnConfigChangeProposal,
+  KilnConfigValidationDiagnostic,
+} from "./config-mutation.js";
+export {
+  KILN_CONFIG_CHANGE_OPERATIONS,
+} from "./config-mutation.js";
+
+export type {
   KilnConfigProjectSnapshot,
   KilnConfigReadResult,
   KilnConfigReadView,

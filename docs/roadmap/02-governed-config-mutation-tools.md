@@ -108,7 +108,11 @@ closed and require a fresh proposal.
    and projection status in model-callable tool surfaces. The tool is registered
    through surface-owned additional builtin tools for CLI, GUI, and TUI sessions
    and returns the same bounded views as `kiln config read`.
-3. Add proposal domain types and validators for skill and agent profile changes.
+3. Completed 2026-05-07: add proposal domain types and validators for skill
+   and agent profile changes. `KilnConfigChangeProposal` is exported from
+   gateway contracts, and CLI proposal services validate `skill.upsert`,
+   `agent.upsert`, and `agent.attach_skills` against canonical `SKILL.md` and
+   Kiln agent-profile parsers without writing files.
 4. Add `kiln_config.propose_change` for `skill.upsert`,
    `agent.upsert`, and `agent.attach_skills`.
 5. Add approval-gated `kiln_config.apply_change` for those first operations.

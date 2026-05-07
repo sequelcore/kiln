@@ -182,6 +182,10 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   };
 }
 
+export function parseAgentDefinitionContent(raw: string, scope: "global" | "project" = "project"): KilnAgentDefinition | undefined {
+  return parseAgentDefinition(raw, scope);
+}
+
 function readDefinitionsFromDirectory(
   directory: string,
   scope: "global" | "project",

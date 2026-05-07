@@ -150,6 +150,12 @@ files independently. The model-callable `kiln_config.read` tool is a read-only
 projection of this contract; it may inspect effective config and status but
 must not mutate configuration or native provider files.
 
+Configuration mutation starts with structured proposals, not patches. A
+proposal records operation id, normalized payload, affected canonical paths,
+native projection effects, authority impact, validation diagnostics, preview
+diff, and rollback hint. Skill and agent profile proposals validate against the
+same `SKILL.md` and Kiln agent-profile parsers used by runtime discovery.
+
 ## Install State And Drift
 
 `.kiln/install-state.json` records each managed projection target. Document
