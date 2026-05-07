@@ -8,7 +8,7 @@
 |---------|-------|
 | Domain | default |
 | Default Provider | codex |
-| Default Model | provider default |
+| Default Model | gpt-5.4-mini |
 | Max Depth | 3 |
 | Parallel Workers | 1 |
 
