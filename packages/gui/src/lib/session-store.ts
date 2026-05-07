@@ -82,6 +82,7 @@ type StoreActivityFrame = {
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const RESUME_TARGET_KEY = "kiln.gui.resumeTarget";
+const PROVIDER_SELECTION_KEY = "kiln.gui.providerSelection";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
 const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
@@ -135,6 +136,34 @@ function readResumeTarget(): string | null {
     return localStorage.getItem(RESUME_TARGET_KEY);
   } catch {
     return null;
+  }
+}
+
+function readStoredProviderSelection(): { readonly provider: string; readonly model: string | null } | null {
+  try {
+    const raw = localStorage.getItem(PROVIDER_SELECTION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isObjectRecord(parsed)) return null;
+    const provider = readString(parsed.provider);
+    if (!provider) return null;
+    return {
+      provider,
+      model: readString(parsed.model),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredProviderSelection(provider: string, model: string | null): void {
+  try {
+    localStorage.setItem(PROVIDER_SELECTION_KEY, JSON.stringify({
+      provider,
+      ...(model ? { model } : {}),
+    }));
+  } catch {
+    // fail-open
   }
 }
 
@@ -1104,6 +1133,34 @@ function providerHasSelectableSurface(provider: ProviderDescriptor): boolean {
   return provider.available && (provider.models.length > 0 || isGuiProviderModeless(provider.id));
 }
 
+function resolveStoredProviderSelectionRestore(
+  state: SessionStoreState,
+  options: { readonly allowActiveOverride?: boolean } = {},
+): { readonly provider: string; readonly model: string | null } | null {
+  if (
+    state.providerSwitching
+    || state.providerCatalogStatus !== "ready"
+    || !state.outboundSend
+  ) {
+    return null;
+  }
+  const stored = readStoredProviderSelection();
+  if (!stored) {
+    return null;
+  }
+  const provider = state.providers.find((candidate) => candidate.id === stored.provider);
+  if (!provider || !providerSupportsSelection(provider, stored.model)) {
+    return null;
+  }
+  if (!options.allowActiveOverride && (state.activeProvider || state.providerExplicitSelection)) {
+    return null;
+  }
+  if (options.allowActiveOverride && state.activeProvider === stored.provider && state.activeModel === stored.model) {
+    return null;
+  }
+  return stored;
+}
+
 function shouldApplySessionScopedFrame(
   state: SessionStoreState,
   kilnSessionId: string,
@@ -1317,6 +1374,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   setSender: (send) => {
     set({ outboundSend: send });
+    if (send) {
+      const restore = resolveStoredProviderSelectionRestore(get());
+      if (restore) {
+        get().switchProvider(restore.provider, restore.model ?? undefined);
+      }
+    }
   },
 
   setSessionList: (sessions) => {
@@ -1457,6 +1520,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerAuthTimeoutId: null,
     });
     persistPlanMode(resolvedPlanMode);
+    const restore = resolveStoredProviderSelectionRestore(get(), { allowActiveOverride: true });
+    if (restore) {
+      get().switchProvider(restore.provider, restore.model ?? undefined);
+    } else if (activeProvider) {
+      writeStoredProviderSelection(activeProvider, activeModel);
+    }
   },
 
   onProvidersRefreshed: (nextProviders, nextProviderDiscovery) => {
@@ -2252,6 +2321,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingProvider: null,
       respondingModel: null,
     });
+    writeStoredProviderSelection(frame.provider, nextModel);
   },
 
   onProviderAuthStarted: (frame) => {

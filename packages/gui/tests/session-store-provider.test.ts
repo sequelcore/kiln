@@ -431,6 +431,117 @@ describe("session-store provider selection", () => {
     expect(state.activeModel).toBeNull();
   });
 
+  it("restores the last valid GUI provider selection after welcome when runtime has no active selection", () => {
+    const send = vi.fn();
+    localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+    }));
+    useSessionStore.getState().setSender(send);
+
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      providers: [
+        {
+          id: "codex-oauth",
+          label: "Codex OAuth",
+          group: "direct-api",
+          free: false,
+          available: true,
+          models: ["gpt-5.5"],
+        },
+      ],
+      models: {
+        "codex-oauth": ["gpt-5.5"],
+      },
+      executionMode: "execute",
+    });
+
+    expect(send).toHaveBeenCalledWith({
+      type: "provider",
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      requestId: expect.any(String),
+    });
+    expect(useSessionStore.getState().providerSwitching).toBe(true);
+  });
+
+  it("restores the last valid GUI provider selection over the startup default", () => {
+    const send = vi.fn();
+    localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+    }));
+    useSessionStore.getState().setSender(send);
+
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      providers: [
+        {
+          id: "openrouter",
+          label: "OpenRouter",
+          group: "direct-api",
+          free: true,
+          available: true,
+          models: ["openrouter/free"],
+        },
+        {
+          id: "codex-oauth",
+          label: "Codex OAuth",
+          group: "direct-api",
+          free: false,
+          available: true,
+          models: ["gpt-5.5"],
+        },
+      ],
+      models: {
+        openrouter: ["openrouter/free"],
+        "codex-oauth": ["gpt-5.5"],
+      },
+      activeProvider: "openrouter",
+      activeModel: "openrouter/free",
+      executionMode: "execute",
+    });
+
+    expect(send).toHaveBeenCalledWith({
+      type: "provider",
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      requestId: expect.any(String),
+    });
+    expect(useSessionStore.getState().providerSwitching).toBe(true);
+  });
+
+  it("persists acknowledged GUI provider selections", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      providers: [
+        {
+          id: "openai",
+          label: "OpenAI",
+          group: "direct-api",
+          free: false,
+          available: true,
+          models: ["gpt-5"],
+        },
+      ],
+    });
+
+    expect(useSessionStore.getState().switchProvider("openai", "gpt-5")).toBe(true);
+    useSessionStore.getState().onProviderChanged({
+      type: "provider_changed",
+      provider: "openai",
+      model: "gpt-5",
+      requestId: lastProviderRequestId(send),
+    });
+
+    expect(localStorage.getItem("kiln.gui.providerSelection")).toBe(JSON.stringify({
+      provider: "openai",
+      model: "gpt-5",
+    }));
+  });
+
   it("welcome accepts model-less Claude as the active authoritative selection", () => {
     useSessionStore.setState({
       activeProvider: "codex",
