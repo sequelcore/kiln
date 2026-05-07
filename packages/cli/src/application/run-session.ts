@@ -117,6 +117,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     try {
       for await (const event of session.run({
         prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
+        system: options.context.systemPrompt,
         cwd: process.cwd(),
         env: options.env,
         reasoningEffort: options.sessionConfig.reasoningEffort,

@@ -81,17 +81,18 @@ describe("governSessionContext", () => {
 describe("runSession context governance integration", () => {
   it("uses governed context when building prompt", async () => {
     runSessionMocks.buildPreamble.mockClear();
+    const run = vi.fn(async function* () {
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: 1,
+        isError: false,
+        isPreflightCrash: false,
+      } as const;
+    });
 
     const fakeSession = {
-      run: async function* () {
-        yield {
-          type: "completed",
-          totalUsd: 0,
-          durationMs: 1,
-          isError: false,
-          isPreflightCrash: false,
-        } as const;
-      },
+      run,
       dispose: async () => {},
     };
 
@@ -150,5 +151,9 @@ describe("runSession context governance integration", () => {
     expect(runSessionMocks.buildPreamble).toHaveBeenCalledTimes(1);
     const governedContext = runSessionMocks.buildPreamble.mock.calls[0]?.[0] as SessionContext;
     expect(governedContext.projectedContext?.blocks?.length).toBe(0);
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "PROMPT",
+      system: context.systemPrompt,
+    }));
   }, 10_000);
 });
