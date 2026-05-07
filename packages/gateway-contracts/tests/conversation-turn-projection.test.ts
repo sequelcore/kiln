@@ -19,7 +19,7 @@ describe("conversation turn projection", () => {
     ]);
   });
 
-  it("keeps trailing tool events attached to the previous assistant turn", () => {
+  it("renders trailing same-turn tool evidence before the previous assistant content", () => {
     const items = projectConversationTurnItems([
       { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },
       { id: "assistant-1", kind: "message", role: "assistant", turnId: "turn-1" },
@@ -29,7 +29,7 @@ describe("conversation turn projection", () => {
 
     expect(items).toEqual([
       { kind: "message", entryId: "user-1", beforeEventIds: [], afterEventIds: [] },
-      { kind: "message", entryId: "assistant-1", beforeEventIds: [], afterEventIds: ["tool-done"] },
+      { kind: "message", entryId: "assistant-1", beforeEventIds: ["tool-done"], afterEventIds: [] },
       { kind: "message", entryId: "user-2", beforeEventIds: [], afterEventIds: [] },
     ]);
   });

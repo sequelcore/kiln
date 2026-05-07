@@ -1,9 +1,11 @@
 import type {
+  ArtifactResourceStore,
   Capability,
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityProfile,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
+  ManagedAgentInvocationRecord,
   ManagedAgentProviderRoute,
   ManagedAgentWorkingDirectory,
   CanonicalSessionEvent,
@@ -36,6 +38,7 @@ export interface ManagedInvocationRouteProfile {
 export interface ManagedInvocationToolRoute {
   readonly routeId: string;
   readonly providerId: string;
+  readonly model?: string;
   readonly adapter: ManagedAgentRuntimeAdapter;
   readonly surface?: string;
   readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
@@ -45,6 +48,7 @@ export interface ManagedInvocationToolOptions {
   readonly routes: readonly ManagedInvocationToolRoute[];
   readonly requestedBy?: string;
   readonly requestSource?: string;
+  readonly artifactStore?: ArtifactResourceStore;
   readonly sessionEventSink?: ManagedInvocationSessionEventSink;
 }
 
@@ -196,7 +200,7 @@ async function executeManagedInvocationTool(
     providerRoute: {
       providerId: route.providerId,
       surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
-      ...(parsed.input.providerRoute.model ? { model: parsed.input.providerRoute.model } : {}),
+      ...(parsed.input.providerRoute.model ?? route.model ? { model: parsed.input.providerRoute.model ?? route.model } : {}),
       ...(parsed.input.providerRoute.reasoningEffort ? { reasoningEffort: parsed.input.providerRoute.reasoningEffort } : {}),
     },
     adapterKind: route.adapter.descriptor.adapterKind,
@@ -223,8 +227,14 @@ async function executeManagedInvocationTool(
   });
 
   const startedAt = Date.now();
-  const result = await service.invoke(request, route.adapter);
+  const invocationResult = await service.invoke(request, route.adapter);
   const durationMs = Date.now() - startedAt;
+  const result = invocationResult.status === "completed"
+    ? {
+        ...invocationResult,
+        record: persistManagedInvocationResources(invocationResult.record, options.artifactStore),
+      }
+    : invocationResult;
   const events = appendManagedInvocationSessionEvents({
     session: context.session,
     request,
@@ -288,6 +298,122 @@ function resolveRoute(
     && (!input.routeId || route.routeId === input.routeId)
     && route.profiles[input.profile] !== undefined
   );
+}
+
+function persistManagedInvocationResources(
+  record: ManagedAgentInvocationRecord,
+  artifactStore: ArtifactResourceStore | undefined,
+): ManagedAgentInvocationRecord {
+  if (!artifactStore) {
+    return record;
+  }
+  const remappedUris = new Map<string, string>();
+  const persistUri = (uri: string, title: string, content: string): string => {
+    const existing = remappedUris.get(uri);
+    if (existing) {
+      return existing;
+    }
+    const artifact = artifactStore.put({
+      namespace: "managed-invocations",
+      title,
+      mimeType: "text/markdown",
+      content: { type: "text", text: content },
+      producer: { kind: "managed-invocation", name: record.providerRoute.providerId },
+      retention: { scope: "session" },
+    });
+    const resourceUri = `kiln://artifacts/managed-invocations/${artifact.id}/content`;
+    remappedUris.set(uri, resourceUri);
+    return resourceUri;
+  };
+
+  const transcriptUri = record.transcript
+    ? persistUri(
+        record.transcript.uri,
+        `Managed invocation ${record.invocationId} transcript`,
+        formatManagedInvocationTranscript(record),
+      )
+    : undefined;
+  const diagnosticUris = new Map(
+    (record.diagnostics ?? []).map((diagnostic) => [
+      diagnostic.uri,
+      persistUri(
+        diagnostic.uri,
+        `Managed invocation ${record.invocationId} ${diagnostic.kind}`,
+        formatManagedInvocationDiagnostic(record, diagnostic.kind),
+      ),
+    ] as const),
+  );
+  const resourceUris = record.resultHandoff?.resourceUris.map((uri) => {
+    if (record.transcript?.uri === uri && transcriptUri) {
+      return transcriptUri;
+    }
+    return diagnosticUris.get(uri) ?? uri;
+  });
+
+  return {
+    ...record,
+    ...(record.transcript && transcriptUri
+      ? {
+          transcript: {
+            ...record.transcript,
+            uri: transcriptUri,
+            persisted: true,
+            retention: "session" as const,
+          },
+        }
+      : {}),
+    ...(record.diagnostics
+      ? {
+          diagnostics: record.diagnostics.map((diagnostic) => ({
+            ...diagnostic,
+            uri: diagnosticUris.get(diagnostic.uri) ?? diagnostic.uri,
+          })),
+        }
+      : {}),
+    ...(record.resultHandoff && resourceUris
+      ? {
+          resultHandoff: {
+            ...record.resultHandoff,
+            resourceUris,
+          },
+        }
+      : {}),
+  };
+}
+
+function formatManagedInvocationTranscript(record: ManagedAgentInvocationRecord): string {
+  return [
+    "# Managed Invocation Transcript",
+    "",
+    `Invocation ID: ${record.invocationId}`,
+    `Status: ${record.lifecycleState}`,
+    `Profile: ${record.profile}`,
+    `Provider: ${record.providerRoute.providerId}`,
+    record.providerRoute.model ? `Model: ${record.providerRoute.model}` : undefined,
+    `Surface: ${record.providerRoute.surface}`,
+    `Adapter: ${record.adapterKind}`,
+    `Execution: ${record.executionMode}`,
+    record.childSessionId ? `Child session: ${record.childSessionId}` : undefined,
+    record.childTurnId ? `Child turn: ${record.childTurnId}` : undefined,
+    "",
+    "## Result",
+    "",
+    record.resultHandoff?.summary ?? "No result summary was recorded.",
+  ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatManagedInvocationDiagnostic(record: ManagedAgentInvocationRecord, kind: string): string {
+  return [
+    "# Managed Invocation Diagnostic",
+    "",
+    `Invocation ID: ${record.invocationId}`,
+    `Diagnostic: ${kind}`,
+    `Status: ${record.lifecycleState}`,
+    `Provider: ${record.providerRoute.providerId}`,
+    record.providerRoute.model ? `Model: ${record.providerRoute.model}` : undefined,
+    "",
+    record.resultHandoff?.summary ?? "No diagnostic summary was recorded.",
+  ].filter((line): line is string => line !== undefined).join("\n");
 }
 
 function parseInput(input: Record<string, unknown>): { readonly ok: true; readonly input: ManagedInvocationToolInput } | { readonly ok: false; readonly error: string } {

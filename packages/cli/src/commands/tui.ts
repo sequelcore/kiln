@@ -1045,6 +1045,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     surface: "tui",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+    artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
 

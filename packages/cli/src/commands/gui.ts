@@ -81,6 +81,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     surface: "gui",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+    artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
   const sessionManager = await makeMultiProviderSessionFactory(

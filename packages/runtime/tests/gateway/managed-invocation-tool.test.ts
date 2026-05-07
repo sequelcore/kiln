@@ -6,6 +6,7 @@ import type {
 import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  MemoryArtifactResourceStore,
   textParts,
 } from "@kilnai/core";
 import {
@@ -105,13 +106,20 @@ function makeAdapter(): ManagedAgentRuntimeAdapter {
   };
 }
 
-function makeSurface(adapter = makeAdapter(), sessionEventSink?: ManagedInvocationSessionEventSink) {
+function makeSurface(
+  adapter = makeAdapter(),
+  sessionEventSink?: ManagedInvocationSessionEventSink,
+  artifactStore?: MemoryArtifactResourceStore,
+) {
   return createAttachedRuntimeBuiltinToolSurface({
+    ...(artifactStore ? { builtinToolOptions: { artifactResources: { store: artifactStore } } } : {}),
     managedInvocation: {
       ...(sessionEventSink ? { sessionEventSink } : {}),
+      ...(artifactStore ? { artifactStore } : {}),
       routes: [{
         routeId: "opencode-readonly",
         providerId: "opencode",
+        model: "opencode-default-model",
         adapter,
         profiles: {
           "foundation-readonly-plan": {
@@ -313,6 +321,49 @@ describe("managed invocation runtime tool", () => {
         childSessionId: result.metadata.childSessionId,
       },
     });
+  });
+
+  it("records the effective route model and persists readable handoff resources", async () => {
+    const artifactStore = new MemoryArtifactResourceStore();
+    const surface = makeSurface(makeAdapter(), undefined, artifactStore);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "opencode" },
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly providerRoute?: Record<string, unknown>;
+        readonly transcript?: { readonly uri?: string };
+        readonly resultHandoff?: { readonly resourceUris?: readonly string[] };
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata.providerRoute).toMatchObject({
+      providerId: "opencode",
+      surface: "cli-harness",
+      model: "opencode-default-model",
+    });
+    expect(result.metadata.transcript?.uri).toMatch(/^kiln:\/\/artifacts\/managed-invocations\/artifact_\d+\/content$/u);
+    expect(result.metadata.resultHandoff?.resourceUris?.[0]).toBe(result.metadata.transcript?.uri);
+
+    const transcript = await surface.readResource(result.metadata.transcript?.uri ?? "");
+    expect(transcript.contents[0]).toMatchObject({
+      mimeType: "text/markdown",
+      text: expect.stringContaining("Model: opencode-default-model"),
+    });
+    expect(String("text" in transcript.contents[0]! ? transcript.contents[0]!.text : "")).toContain("Child review completed.");
   });
 
   it("fails closed when invoked outside a runtime session context", async () => {

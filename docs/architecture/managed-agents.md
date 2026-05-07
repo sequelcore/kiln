@@ -247,11 +247,14 @@ Managed invocation state projects into canonical session events:
 - `agent_invocation_cancelled`
 
 Every managed invocation event carries the same visible invocation identity:
-`invocationId`, `agentId`, `profile`, `providerRoute`, `adapterKind`,
+`invocationId`, `agentId`, `profile`, effective `providerRoute`, `adapterKind`,
 `executionMode`, `authorityProfileId`, parent session lineage, requester, and
-request source when known. Operator surfaces must render that identity as
-structured evidence, for example `foundation-readonly-plan via
-codex-oauth/gpt-5.4-mini`, rather than only showing the tool name.
+request source when known. `providerRoute.model` is the effective child model
+after configured route defaults and runtime execution-profile resolution, not
+only a model override supplied by the parent assistant. Operator surfaces must
+render that identity as structured evidence, for example
+`foundation-readonly-plan via codex-oauth/gpt-5.4-mini`, rather than only
+showing the tool name.
 
 Terminal events additionally carry managed invocation evidence: child lineage,
 transcript pointer, diagnostics, usage, result handoff, write authority, and
@@ -260,9 +263,13 @@ managed invocation state from these canonical events rather than maintaining
 local managed-agent state.
 
 Replay must reconstruct terminal state, authority, result handoff, and write
-evidence after session serialization. Artifact-linked diff evidence must survive
-reload through resource URIs. Raw provider diffs, full transcripts, and
-provider-native event payloads are not session-event state.
+evidence after session serialization. Transcript and result handoff URIs emitted
+by managed invocation records must be readable through the shared `resource_read`
+tool. Runtime may back those URIs with session-scoped artifacts, but it must not
+announce resource links that the active resource plane cannot resolve.
+Artifact-linked diff evidence must survive reload through resource URIs. Raw
+provider diffs, full transcripts, and provider-native event payloads are not
+session-event state.
 
 ## Result Handoff
 

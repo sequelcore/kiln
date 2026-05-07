@@ -98,7 +98,7 @@ export function projectConversationTurnItems<TPhase extends string = string>(
         && pendingToolEvents.length === 0
         && turnIdsCompatible(entry.turnId, turnIdForItem(lastAssistantItem, visibleEntries))
       ) {
-        lastAssistantItem.afterEventIds = [...lastAssistantItem.afterEventIds, entry.id];
+        lastAssistantItem.beforeEventIds = [...lastAssistantItem.beforeEventIds, entry.id];
         continue;
       }
       pendingToolEvents.push(entry);

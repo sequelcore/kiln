@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import type {
+  ArtifactResourceStore,
   ManagedAgentAdmissionProfile,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
@@ -46,6 +47,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly surface: ManagedAgentOperatorSurface;
   readonly isProviderAvailable?: (provider: string) => boolean | undefined;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
+  readonly artifactStore?: ArtifactResourceStore;
 }
 
 export interface ManagedAgentRouteConfigSource {
@@ -98,6 +100,7 @@ export async function resolveManagedInvocationToolOptions(
         routes,
         requestedBy: "assistant",
         requestSource: context.surface,
+        ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
       },
     } : {}),
   };
@@ -239,6 +242,7 @@ async function resolveRouteConfig(
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     providerId: routeConfig.provider,
+    model,
     adapter,
     surface: "cli-harness",
     profiles: {
@@ -297,6 +301,7 @@ async function resolveDirectRouteConfig(
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     providerId: routeConfig.provider,
+    model,
     adapter,
     surface: "direct-provider",
     profiles: {

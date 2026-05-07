@@ -477,6 +477,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     surface: "run",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions, runtimeEnv: env }),
+    artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
 

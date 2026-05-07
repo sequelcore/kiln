@@ -109,7 +109,7 @@ describe("Transcript", () => {
     expect(rows[1]).toHaveTextContent("Here is the summary.");
   });
 
-  it("groups trailing tool activity into the previous assistant message bubble", () => {
+  it("renders trailing same-turn tool activity before the previous assistant content", () => {
     render(
       <Transcript
         entries={[
@@ -135,6 +135,8 @@ describe("Transcript", () => {
     expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
     expect(rows[1]).toHaveTextContent("Completed write");
     expect(rows[1]).toHaveTextContent("Created im_alive.txt with:");
+    const assistantText = rows[1]!.textContent ?? "";
+    expect(assistantText.indexOf("Completed write")).toBeLessThan(assistantText.indexOf("Created im_alive.txt with:"));
     expect(rows[2]).toHaveAttribute("data-role", "user");
   });
 

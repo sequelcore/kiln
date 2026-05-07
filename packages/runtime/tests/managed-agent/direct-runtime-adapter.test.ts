@@ -133,6 +133,11 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       lifecycleState: "completed",
       adapterKind: "direct",
       executionMode: "direct-provider",
+      providerRoute: {
+        providerId: "openai",
+        surface: "direct-provider",
+        model: "gpt-test",
+      },
       childSessionId: "parent-session:managed:inv-direct-1",
       resultHandoff: {
         summary: "Direct child completed.",

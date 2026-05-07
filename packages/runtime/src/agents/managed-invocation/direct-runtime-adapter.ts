@@ -237,10 +237,19 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       parentSessionId: request.parentSessionId,
       parentTurnId: request.parentTurnId,
       profile: request.profile,
-      providerRoute: request.providerRoute,
+      providerRoute: this.providerRoute(request.providerRoute),
       adapterKind: request.adapterKind,
       executionMode: request.executionMode,
       authority: request.authority,
+    };
+  }
+
+  private providerRoute(route: ManagedAgentInvocationRequest["providerRoute"]): ManagedAgentInvocationRequest["providerRoute"] {
+    return {
+      providerId: this.providerId,
+      surface: "direct-provider",
+      ...(route.model ?? this.model ? { model: route.model ?? this.model } : {}),
+      ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
     };
   }
 }
