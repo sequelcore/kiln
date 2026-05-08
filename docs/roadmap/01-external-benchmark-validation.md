@@ -2,7 +2,7 @@
 
 ## Status
 
-Active.
+Closed.
 
 This milestone begins with internal reproducibility gates. Kiln should not
 enter public benchmark comparison until its benchmark-facing profiles have
@@ -80,12 +80,16 @@ it is treated as governed research, not autonomous vulnerability hunting.
 - 2026-05-08: added `generateBenchmarkPublicReport` plus
   `kiln benchmark report --baseline <path> --output <path>` for markdown report
   generation from stored baseline records.
+- 2026-05-08: recorded the canonical coding benchmark decision in
+  `docs/architecture/benchmark-validation.md`: SWE-bench-style tracks remain
+  blocked until a versioned, reproducible, decontamination-aware target can run
+  through normal Kiln managed-coding authority with replayable write, test,
+  diff, rollback, and transcript evidence.
 
 ## Remaining Slices
 
-1. Decide whether any coding benchmark track is acceptable. SWE-bench-style
-   tracks need extra scrutiny because current public SWE benchmarks have known
-   saturation, leakage, and test-quality concerns.
+None. Future work can add deeper benchmark-specific adapters, but the
+benchmark validation platform slice is closed.
 
 ## Candidate Benchmark Track
 

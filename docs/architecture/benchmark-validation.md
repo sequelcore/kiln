@@ -107,6 +107,24 @@ dataset aging, leakage, underspecified tasks, and flawed tests; Kiln should
 prefer modern, reproducible, decontaminated tracks and must explain limitations
 when reporting any SWE-style score.
 
+## Coding Benchmark Decision
+
+Kiln does not accept a SWE-bench-style public coding result by default. Coding
+benchmarks are admissible only when the target benchmark satisfies all of these
+conditions:
+
+- task set is versioned, reproducible, and decontamination-aware
+- expected behavior is verified by tests that Kiln can replay
+- benchmark harness can run through normal Kiln managed-coding authority
+- filesystem writes, diffs, tests, rollback evidence, and transcripts are
+  captured as artifacts
+- report separates provider/model coding capability from Kiln governance,
+  context admission, write authority, and replay evidence
+
+Until those conditions are met, `swe-bench`, `terminal-bench`, `webarena`, and
+`osworld` remain blocked profile tracks. They are research candidates, not
+public readiness claims.
+
 ## Reporting Contract
 
 Every public benchmark report must include:
