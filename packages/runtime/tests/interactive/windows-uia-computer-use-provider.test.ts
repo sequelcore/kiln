@@ -138,6 +138,46 @@ describe("WindowsUiaComputerUseProvider", () => {
     ]);
   });
 
+  it("normalizes accessibility-tree class and named element refs before sending them to the UIA sidecar", async () => {
+    const calls: WindowsUiaSidecarRequest[] = [];
+    const provider = new WindowsUiaComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: ["notepad"],
+      runner: fakeRunner(calls, [
+        { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
+        { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
+        { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
+        { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
+      ]),
+    });
+
+    await provider.execute({
+      toolName: "computer_type",
+      target: "computer",
+      operation: "type",
+      input: {
+        text: "hello",
+        target: { selector: ".RichEditD2DPT" },
+      },
+    });
+    await provider.execute({
+      toolName: "computer_type",
+      target: "computer",
+      operation: "type",
+      input: {
+        text: "hello",
+        target: { selector: "documento \"Editor de texto\" .RichEditD2DPT" },
+      },
+    });
+
+    expect(calls).toEqual([
+      { operation: "observe", includeAccessibility: false, maxDepth: 1, timeoutMs: undefined },
+      { operation: "type", selector: "className=RichEditD2DPT", text: "hello", timeoutMs: undefined },
+      { operation: "observe", includeAccessibility: false, maxDepth: 1, timeoutMs: undefined },
+      { operation: "type", selector: "title=Editor de texto;className=RichEditD2DPT", text: "hello", timeoutMs: undefined },
+    ]);
+  });
+
   it("types text through semantic UIA value patterns", async () => {
     const calls: WindowsUiaSidecarRequest[] = [];
     const provider = new WindowsUiaComputerUseProvider({
@@ -297,9 +337,9 @@ describe("WindowsUiaComputerUseProvider", () => {
     });
 
     expect(calls).toEqual([
-      { operation: "observe", includeAccessibility: false, maxDepth: 1 },
-      { operation: "observe", includeAccessibility: false, maxDepth: 4 },
-      { operation: "minimize_application", application: "CalculatorApp", windowTitle: "Calculadora" },
+      { operation: "observe", includeAccessibility: false, maxDepth: 1, timeoutMs: undefined },
+      { operation: "observe", includeAccessibility: false, maxDepth: 4, timeoutMs: undefined },
+      { operation: "minimize_application", application: "Calculator", windowTitle: "Calculadora", timeoutMs: undefined },
     ]);
   });
 
@@ -307,7 +347,10 @@ describe("WindowsUiaComputerUseProvider", () => {
     const calls: WindowsUiaSidecarRequest[] = [];
     const provider = new WindowsUiaComputerUseProvider({
       allowComputer: true,
-      allowedApplications: ["Notepad"],
+      allowedApplications: ["notepad"],
+      applicationAliases: {
+        notepad: ["Bloc de notas", "notas"],
+      },
       runner: fakeRunner(calls, [
         { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
         { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
@@ -331,7 +374,7 @@ describe("WindowsUiaComputerUseProvider", () => {
     expect(calls).toEqual([
       { operation: "observe", includeAccessibility: false, maxDepth: 1 },
       { operation: "observe", includeAccessibility: false, maxDepth: 4 },
-      { operation: "focus_application", application: "Bloc de notas", windowTitle: undefined, timeoutMs: undefined },
+      { operation: "focus_application", application: "notepad", windowTitle: undefined, timeoutMs: undefined },
     ]);
   });
 });

@@ -281,20 +281,10 @@ bool IsCalculatorAlias(const std::wstring& value) {
     || lower == L"applicationframehost";
 }
 
-bool IsNotepadAlias(const std::wstring& value) {
-  const std::wstring lower = ToLower(value);
-  return lower == L"notepad"
-    || lower == L"bloc de notas"
-    || lower == L"notas";
-}
-
 bool ApplicationMatches(const std::wstring& process, const std::wstring& title, const std::wstring& requestedApplication) {
   if (requestedApplication.empty()) return true;
   if (IsCalculatorAlias(requestedApplication)) {
     return IsCalculatorAlias(process) || IsCalculatorAlias(title);
-  }
-  if (IsNotepadAlias(requestedApplication)) {
-    return IsNotepadAlias(process) || IsNotepadAlias(title);
   }
   return ToLower(process) == ToLower(requestedApplication) || ContainsInsensitive(title, requestedApplication);
 }
@@ -325,7 +315,6 @@ HWND FindRequestedWindow(const Request& request) {
 std::wstring ExecutableCandidate(const std::wstring& application) {
   const std::wstring lower = ToLower(application);
   if (lower == L"calculator" || lower == L"calculadora" || lower == L"calculatorapp" || lower == L"calc") return L"calc.exe";
-  if (IsNotepadAlias(application)) return L"notepad.exe";
   if (lower == L"msedge" || lower == L"edge" || lower == L"microsoft edge") return L"msedge.exe";
   if (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".exe") return application;
   return application + L".exe";
@@ -538,6 +527,34 @@ bool SetElementValue(IUIAutomationElement* element, const std::wstring& text) {
   return ok;
 }
 
+bool SendUnicodeText(const std::wstring& text) {
+  if (text.empty()) return true;
+  std::vector<INPUT> inputs;
+  inputs.reserve(text.size() * 2);
+  for (wchar_t ch : text) {
+    INPUT down = {};
+    down.type = INPUT_KEYBOARD;
+    down.ki.wScan = ch;
+    down.ki.dwFlags = KEYEVENTF_UNICODE;
+    inputs.push_back(down);
+
+    INPUT up = {};
+    up.type = INPUT_KEYBOARD;
+    up.ki.wScan = ch;
+    up.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+    inputs.push_back(up);
+  }
+  const UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+  return sent == inputs.size();
+}
+
+bool TypeTextIntoElement(IUIAutomationElement* element, const std::wstring& text) {
+  if (SetElementValue(element, text)) return true;
+  if (FAILED(element->SetFocus())) return false;
+  Sleep(50);
+  return SendUnicodeText(text);
+}
+
 bool CloseWindowWithUia(IUIAutomation* automation, HWND hwnd) {
   if (!automation || !hwnd) return false;
   ComPtr<IUIAutomationElement> element;
@@ -651,9 +668,9 @@ int main() {
         return Fail("target does not support UIA InvokePattern");
       }
       Sleep(150);
-    } else if (!SetElementValue(target.Get(), request.text)) {
+    } else if (!TypeTextIntoElement(target.Get(), request.text)) {
       CoUninitialize();
-      return Fail("target does not support UIA ValuePattern");
+      return Fail("target does not support UIA ValuePattern and could not receive focused text input");
     }
   } else if (request.operation != "observe"
     && request.operation != "open_application"

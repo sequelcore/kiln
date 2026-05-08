@@ -32,6 +32,7 @@ export interface InteractiveUseConfigurationDiagnostics {
   readonly enabled: boolean;
   readonly allowedDomains: readonly string[];
   readonly allowedApplications: readonly string[];
+  readonly applicationAliases: Readonly<Record<string, readonly string[]>>;
   readonly allowExternalBrowser: boolean;
   readonly allowComputer: boolean;
   readonly browserEnvironment: KilnYamlInteractiveUseBrowserEnvironment;
@@ -104,6 +105,7 @@ export function describeInteractiveUseConfiguration(
   const allowComputer = interactiveUse?.allowComputer === true;
   const allowedDomains = normalizeStringList(interactiveUse?.allowedDomains);
   const allowedApplications = normalizeStringList(interactiveUse?.allowedApplications);
+  const applicationAliases = normalizeStringListRecord(interactiveUse?.applicationAliases);
   const browserEnvironment = readBrowserEnvironment(interactiveUse?.browserEnvironment);
   const computerEnvironment = readComputerEnvironment(interactiveUse?.computerEnvironment);
   const issues: string[] = [];
@@ -140,6 +142,7 @@ export function describeInteractiveUseConfiguration(
     enabled,
     allowedDomains,
     allowedApplications,
+    applicationAliases,
     allowExternalBrowser,
     allowComputer,
     browserEnvironment: browserEnvironment === "invalid" ? "isolated-headless" : browserEnvironment,
@@ -218,6 +221,7 @@ function createWindowsComputerProvider(
   const options = {
     allowComputer: interactiveUse.allowComputer === true,
     allowedApplications: normalizeStringList(interactiveUse.allowedApplications),
+    applicationAliases: normalizeStringListRecord(interactiveUse.applicationAliases),
   };
   return interactiveUse.computerProvider === "windows-uia"
     ? new runtime.WindowsUiaComputerUseProvider(options)
@@ -245,6 +249,21 @@ function normalizeStringList(value: unknown): readonly string[] {
     const normalized = item.trim();
     if (normalized && !out.includes(normalized)) {
       out.push(normalized);
+    }
+  }
+  return out;
+}
+
+function normalizeStringListRecord(value: unknown): Readonly<Record<string, readonly string[]>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const out: Record<string, readonly string[]> = {};
+  for (const [key, aliases] of Object.entries(value)) {
+    const normalizedKey = key.trim();
+    const normalizedAliases = normalizeStringList(aliases);
+    if (normalizedKey && normalizedAliases.length > 0) {
+      out[normalizedKey] = normalizedAliases;
     }
   }
   return out;

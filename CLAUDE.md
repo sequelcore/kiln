@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:f519b97cafa417e78a363249900994f21660fa64509b61b13cfb6bd2fd1a9cf8
+contentHash: sha256:d4475721b785f9926f15f70b5ee89dce5fababd1b3e7ce9f1547bfea24102f5d
 -->
 # Claude Project Guidance
 
@@ -62,6 +62,14 @@ durable, and backed by repository evidence.
 Read these canonical Kiln instruction profiles before work. They are the source of durable operator/team doctrine; this file is only a projection.
 
 - sequel-engineering (global): ~/.kiln/instructions/sequel-engineering.md - doctrine: principles, workflow, quality gates, review posture, delegation
+
+## Work Governance
+
+Follow the resolved Kiln work-governance policy before choosing direct execution.
+- Default posture: orchestrate
+- Direct execution: maxFiles=1, maxRisk=low
+- Orchestrate/delegate for: architecture, security, ui, runtime, provider-routing, managed-agents, config, multi-file, cross-surface, long-running, verification-heavy, formal-proof-candidate
+- Evidence before done: surface-map, risk-hypothesis, plan, tests, typecheck, residual-risk
 
 ## Agents
 

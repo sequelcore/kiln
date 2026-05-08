@@ -639,8 +639,21 @@ interactiveUse:
   computerEnvironment: local-active-desktop
   allowedApplications:
     - Calculator
-    - Chrome
-    - Notepad
+    - msedge
+    - notepad
+  applicationAliases:
+    Calculator:
+      - Calculadora
+      - CalculatorApp
+      - calc
+      - ApplicationFrameHost
+    msedge:
+      - Edge
+      - Microsoft Edge
+    notepad:
+      - Notepad
+      - Bloc de notas
+      - notas
 ```
 
 `allowedDomains` scopes browser automation. `browserEnvironment:
@@ -651,12 +664,14 @@ required before an adapter can attach to an operator-controlled browser instead
 of an isolated project session.
 
 `allowComputer: true`, `allowedApplications`, and `computerEnvironment:
-local-active-desktop` scope desktop automation. Local Windows computer control
-uses the current interactive desktop; it is not a hidden background desktop.
-Use browser automation for background web tasks, and add a future remote/VM
-computer provider when full background desktop automation is required. Run
-`kiln status` to inspect this configuration without launching a browser or
-observing the desktop.
+local-active-desktop` scope desktop automation. `allowedApplications` should
+use canonical process or launch names; `applicationAliases` maps localized,
+branded, or human names to those canonical app names without adding app-specific
+runtime code. Local Windows computer control uses the current interactive
+desktop; it is not a hidden background desktop. Use browser automation for
+background web tasks, and add a future remote/VM computer provider when full
+background desktop automation is required. Run `kiln status` to inspect this
+configuration without launching a browser or observing the desktop.
 
 The same policy can be edited through `kiln config set` without hand-editing
 YAML:
@@ -669,7 +684,8 @@ kiln config set interactiveUse.allowedDomains example.com,docs.example.com
 kiln config set interactiveUse.allowComputer true
 kiln config set interactiveUse.computerProvider windows-uia
 kiln config set interactiveUse.computerEnvironment local-active-desktop
-kiln config set interactiveUse.allowedApplications Calculator,msedge,Notepad
+kiln config set interactiveUse.allowedApplications Calculator,msedge,notepad
+kiln config set interactiveUse.applicationAliases '{"notepad":["Notepad","Bloc de notas","notas"]}'
 ```
 
 The runtime Playwright provider is optional. Runtime hosts that enable

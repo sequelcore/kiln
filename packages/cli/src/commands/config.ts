@@ -34,6 +34,7 @@ type KilnYamlKey =
   | "interactiveUse.enabled"
   | "interactiveUse.allowedDomains"
   | "interactiveUse.allowedApplications"
+  | "interactiveUse.applicationAliases"
   | "interactiveUse.allowExternalBrowser"
   | "interactiveUse.allowComputer"
   | "interactiveUse.browserProvider"
@@ -62,6 +63,7 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "interactiveUse.enabled",
   "interactiveUse.allowedDomains",
   "interactiveUse.allowedApplications",
+  "interactiveUse.applicationAliases",
   "interactiveUse.allowExternalBrowser",
   "interactiveUse.allowComputer",
   "interactiveUse.browserProvider",
@@ -243,6 +245,7 @@ function getNestedKey(config: KilnYaml, key: KilnYamlKey): unknown {
   if (key === "interactiveUse.enabled") return config.interactiveUse?.enabled;
   if (key === "interactiveUse.allowedDomains") return config.interactiveUse?.allowedDomains;
   if (key === "interactiveUse.allowedApplications") return config.interactiveUse?.allowedApplications;
+  if (key === "interactiveUse.applicationAliases") return config.interactiveUse?.applicationAliases;
   if (key === "interactiveUse.allowExternalBrowser") return config.interactiveUse?.allowExternalBrowser;
   if (key === "interactiveUse.allowComputer") return config.interactiveUse?.allowComputer;
   if (key === "interactiveUse.browserProvider") return config.interactiveUse?.browserProvider;
@@ -289,6 +292,9 @@ function setInteractiveUseKey(config: KilnYaml, key: KilnYamlKey, rawValue: stri
   if (key === "interactiveUse.allowedApplications") {
     return { ...config, interactiveUse: { ...interactiveUse, allowedApplications: parseStringList(rawValue) } };
   }
+  if (key === "interactiveUse.applicationAliases") {
+    return { ...config, interactiveUse: { ...interactiveUse, applicationAliases: parseStringListRecord(rawValue, key) } };
+  }
   if (key === "interactiveUse.allowExternalBrowser") {
     return { ...config, interactiveUse: { ...interactiveUse, allowExternalBrowser: parseBoolean(rawValue, key) } };
   }
@@ -328,6 +334,27 @@ function setInteractiveUseKey(config: KilnYaml, key: KilnYamlKey, rawValue: stri
 
 function parseStringList(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function parseStringListRecord(value: string, key: string): Record<string, string[]> {
+  const parsed = parseJson(value, key);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.error(`Invalid JSON value for ${key}: expected an object of string arrays.`);
+    process.exit(1);
+  }
+  const out: Record<string, string[]> = {};
+  for (const [recordKey, recordValue] of Object.entries(parsed)) {
+    if (!Array.isArray(recordValue) || recordValue.some((item) => typeof item !== "string")) {
+      console.error(`Invalid JSON value for ${key}: expected an object of string arrays.`);
+      process.exit(1);
+    }
+    const normalizedKey = recordKey.trim();
+    const normalizedValue = parseStringList(recordValue.join(","));
+    if (normalizedKey && normalizedValue.length > 0) {
+      out[normalizedKey] = normalizedValue;
+    }
+  }
+  return out;
 }
 
 function parseBoolean(value: string, key: string): boolean {

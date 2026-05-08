@@ -2,6 +2,12 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  isApplicationAliasMatch,
+  normalizeApplicationAliases,
+  normalizeApplicationList,
+  type ApplicationAliasMap,
+} from "./application-aliases.js";
 import type {
   InteractiveObservationMetadata,
   InteractiveUseProvider,
@@ -15,6 +21,7 @@ export const WINDOWS_UIA_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE =
 export interface WindowsUiaComputerUseProviderOptions {
   readonly allowComputer?: boolean;
   readonly allowedApplications?: readonly string[];
+  readonly applicationAliases?: ApplicationAliasMap;
   readonly maxAccessibilityDepth?: number;
   readonly sidecarPath?: string;
   readonly runner?: WindowsUiaSidecarRunner;
@@ -52,12 +59,14 @@ export interface WindowsUiaSidecarResponse {
 export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
   private readonly allowComputer: boolean;
   private readonly allowedApplications: readonly string[];
+  private readonly applicationAliases: ApplicationAliasMap;
   private readonly maxAccessibilityDepth: number;
   private readonly runner: WindowsUiaSidecarRunner;
 
   constructor(options: WindowsUiaComputerUseProviderOptions = {}) {
     this.allowComputer = options.allowComputer === true;
-    this.allowedApplications = normalizeList(options.allowedApplications);
+    this.allowedApplications = normalizeApplicationList(options.allowedApplications);
+    this.applicationAliases = normalizeApplicationAliases(options.applicationAliases);
     this.maxAccessibilityDepth = clampDepth(options.maxAccessibilityDepth);
     this.runner = options.runner ?? createWindowsUiaSidecarRunner(options.sidecarPath);
   }
@@ -65,6 +74,7 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
   async execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const requestedAuthority = this.readRequestedAuthority(request);
     this.assertComputerAllowed(requestedAuthority, request.operation);
+    const normalizedAuthority = requestedAuthority ? this.normalizeRequestedAuthority(requestedAuthority) : null;
     if (requestedAuthority) {
       this.assertRequestedApplicationAllowed(requestedAuthority, request.operation);
     } else {
@@ -79,24 +89,24 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
 
     switch (request.operation) {
       case "observe":
-        if (requestedAuthority) {
-          await this.focusRequestedApplication(requestedAuthority, request);
+        if (normalizedAuthority) {
+          await this.focusRequestedApplication(normalizedAuthority, request);
         }
         return {
           provider: "windows-uia",
           observation: await this.observe(request),
         };
       case "click":
-        if (requestedAuthority) {
-          await this.focusRequestedApplication(requestedAuthority, request);
+        if (normalizedAuthority) {
+          await this.focusRequestedApplication(normalizedAuthority, request);
         }
         return {
           provider: "windows-uia",
           observation: await this.click(request),
         };
       case "type":
-        if (requestedAuthority) {
-          await this.focusRequestedApplication(requestedAuthority, request);
+        if (normalizedAuthority) {
+          await this.focusRequestedApplication(normalizedAuthority, request);
         }
         return {
           provider: "windows-uia",
@@ -106,15 +116,15 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       case "focus_application":
       case "minimize_application":
       case "close_application":
-        if (!requestedAuthority) {
+        if (!normalizedAuthority) {
           throw new Error(`Computer ${request.operation.replace(/_/g, " ")} requires an application or windowTitle.`);
         }
         return {
           provider: "windows-uia",
           observation: (await this.runner({
             operation: request.operation,
-            application: requestedAuthority.application,
-            windowTitle: requestedAuthority.windowTitle,
+            application: normalizedAuthority.application,
+            windowTitle: normalizedAuthority.windowTitle,
             timeoutMs: readTimeoutMs(request.input),
           })).observation,
         };
@@ -150,8 +160,8 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       throw new Error("Computer automation could not determine the active application or window title from Windows UI Automation.");
     }
     const allowed = this.allowedApplications.some((entry) => {
-      return isApplicationAliasMatch(application, entry)
-        || isApplicationAliasMatch(windowTitle, entry);
+      return isApplicationAliasMatch(application, entry, this.applicationAliases)
+        || isApplicationAliasMatch(windowTitle, entry, this.applicationAliases);
     });
     if (!allowed) {
       const label = application ?? windowTitle ?? "unknown";
@@ -185,8 +195,8 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       return;
     }
     const allowed = this.allowedApplications.some((entry) => {
-      return isApplicationAliasMatch(authority.application, entry)
-        || isApplicationAliasMatch(authority.windowTitle, entry);
+      return isApplicationAliasMatch(authority.application, entry, this.applicationAliases)
+        || isApplicationAliasMatch(authority.windowTitle, entry, this.applicationAliases);
     });
     if (!allowed) {
       throw new Error(`Computer automation denied for requested application '${label}'. Configure interactiveUse.allowedApplications to allow it.`);
@@ -203,6 +213,18 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       windowTitle: authority.windowTitle,
       timeoutMs: readTimeoutMs(request.input),
     });
+  }
+
+  private normalizeRequestedAuthority(
+    authority: { readonly application?: string; readonly windowTitle?: string },
+  ): { readonly application?: string; readonly windowTitle?: string } {
+    if (!authority.application || this.allowedApplications.includes("*")) {
+      return authority;
+    }
+    const canonical = this.allowedApplications.find((entry) => isApplicationAliasMatch(authority.application, entry, this.applicationAliases));
+    return canonical
+      ? { ...authority, application: canonical }
+      : authority;
   }
 
   private async observe(request: InteractiveUseRequest): Promise<InteractiveObservationMetadata> {
@@ -428,6 +450,17 @@ function normalizeUiaSelector(selector: string | undefined): string | undefined 
   if (trimmed.startsWith("#") && trimmed.length > 1 && !trimmed.includes(";")) {
     return `automationId=${trimmed.slice(1)}`;
   }
+  if (trimmed.startsWith(".") && trimmed.length > 1 && !trimmed.includes(";")) {
+    return `className=${trimmed.slice(1)}`;
+  }
+  const accessibilityLine = /^(?:.+?)\s+"([^"]+)"(?:\s+#[^\s]+)?(?:\s+\.([^\s]+))?$/u.exec(trimmed);
+  if (accessibilityLine) {
+    const [, title, className] = accessibilityLine;
+    return [
+      selectorPart("title", title),
+      selectorPart("className", className),
+    ].filter((part): part is string => Boolean(part)).join(";");
+  }
   return trimmed;
 }
 
@@ -456,46 +489,12 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function isApplicationAliasMatch(left: string | undefined, right: string): boolean {
-  if (!left) {
-    return false;
-  }
-  const leftAliases = applicationAliases(left);
-  const rightAliases = applicationAliases(right);
-  return leftAliases.some((alias) => rightAliases.includes(alias));
-}
-
-function applicationAliases(value: string): readonly string[] {
-  const normalized = value.toLocaleLowerCase("en-US").trim();
-  if (normalized === "calculator" || normalized === "calculadora" || normalized === "calculatorapp" || normalized === "calc") {
-    return ["calculator", "calculadora", "calculatorapp", "calc", "applicationframehost"];
-  }
-  if (normalized === "notepad" || normalized === "bloc de notas" || normalized === "notas") {
-    return ["notepad", "bloc de notas", "notas"];
-  }
-  return [normalized];
-}
-
 function isKilnOperatorSelfAuthority(authority: { readonly application?: string; readonly windowTitle?: string }): boolean {
   return isKilnOperatorName(authority.application) || isKilnOperatorName(authority.windowTitle);
 }
 
 function isKilnOperatorName(value: string | undefined): boolean {
   return value?.toLocaleLowerCase("en-US").trim() === "kiln";
-}
-
-function normalizeList(value: readonly string[] | undefined): readonly string[] {
-  if (!value) {
-    return [];
-  }
-  const out: string[] = [];
-  for (const item of value) {
-    const normalized = item.trim();
-    if (normalized && !out.includes(normalized)) {
-      out.push(normalized);
-    }
-  }
-  return out;
 }
 
 function clampDepth(value: number | undefined): number {

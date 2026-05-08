@@ -13,8 +13,18 @@ interactiveUse:
   computerEnvironment: local-active-desktop
   allowedApplications:
     - Calculator
-    - Calculadora
     - msedge
-    - Notepad
     - notepad
-    - Bloc de notas
+  applicationAliases:
+    Calculator:
+      - Calculadora
+      - CalculatorApp
+      - calc
+      - ApplicationFrameHost
+    msedge:
+      - Edge
+      - Microsoft Edge
+    notepad:
+      - Notepad
+      - Bloc de notas
+      - notas

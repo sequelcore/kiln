@@ -388,6 +388,12 @@ Behavior:
 
 - Normalize accessibility-tree refs such as `#plusButton` to UIA
   `AutomationId` selectors before calling the sidecar.
+- Add `interactiveUse.applicationAliases` so localized or human application
+  names resolve to canonical `allowedApplications` entries in config instead of
+  app-specific runtime hardcoding.
+- Let `computer_type` use UIA `ValuePattern` when available, then fall back to
+  semantic focus plus native Unicode text input for controls such as modern
+  Notepad's editor that do not expose `ValuePattern`.
 - Fail `computer_click` when the target does not support a real UIA invoke
   pattern instead of reporting success after focus-only behavior.
 - Allow `computer_focus_application` to return focus to the Kiln operator

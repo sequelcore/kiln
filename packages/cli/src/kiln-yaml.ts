@@ -182,6 +182,7 @@ function mergeInteractiveUse(
     ...override,
     allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
     allowedApplications: override?.allowedApplications ?? base?.allowedApplications,
+    applicationAliases: override?.applicationAliases ?? base?.applicationAliases,
     ...(browserEnvironment ? { browserEnvironment } : {}),
     ...(computerEnvironment ? { computerEnvironment } : {}),
   };

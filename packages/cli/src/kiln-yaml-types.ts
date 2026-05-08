@@ -293,6 +293,7 @@ export interface KilnYamlInteractiveUseConfig {
   readonly enabled?: boolean;
   readonly allowedDomains?: readonly string[];
   readonly allowedApplications?: readonly string[];
+  readonly applicationAliases?: Readonly<Record<string, readonly string[]>>;
   readonly allowExternalBrowser?: boolean;
   readonly allowComputer?: boolean;
   readonly browserProvider?: KilnYamlInteractiveUseBrowserProvider;

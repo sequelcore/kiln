@@ -13,11 +13,13 @@ vi.mock("@kilnai/runtime", () => ({
     }
   },
   WindowsComputerUseProvider: class MockWindowsComputerUseProvider {
+    constructor(readonly options?: unknown) {}
     execute() {
       return undefined;
     }
   },
   WindowsUiaComputerUseProvider: class MockWindowsUiaComputerUseProvider {
+    constructor(readonly options?: unknown) {}
     execute() {
       return undefined;
     }
@@ -37,6 +39,7 @@ describe("interactive use config", () => {
       enabled: false,
       allowedDomains: [],
       allowedApplications: [],
+      applicationAliases: {},
       allowExternalBrowser: false,
       allowComputer: false,
       browserEnvironment: "isolated-headless",
@@ -57,12 +60,18 @@ describe("interactive use config", () => {
       allowedDomains: ["app.example.com", "docs.example.com"],
       allowComputer: true,
       allowedApplications: ["Calculator", "Chrome"],
+      applicationAliases: {
+        Calculator: ["Calculadora", "CalculatorApp"],
+      },
       browserEnvironment: "isolated-headless",
       computerEnvironment: "local-active-desktop",
     }))).toEqual({
       enabled: true,
       allowedDomains: ["app.example.com", "docs.example.com"],
       allowedApplications: ["Calculator", "Chrome"],
+      applicationAliases: {
+        Calculator: ["Calculadora", "CalculatorApp"],
+      },
       allowExternalBrowser: false,
       allowComputer: true,
       browserEnvironment: "isolated-headless",
@@ -81,17 +90,31 @@ describe("interactive use config", () => {
       computerProvider: "windows-uia",
       allowComputer: true,
       allowedApplications: ["Calculator"],
+      applicationAliases: {
+        Calculator: ["Calculadora", "CalculatorApp"],
+      },
     }));
 
     expect(options.computerUse?.provider).toEqual(expect.objectContaining({
       execute: expect.any(Function),
+      options: expect.objectContaining({
+        applicationAliases: {
+          Calculator: ["Calculadora", "CalculatorApp"],
+        },
+      }),
     }));
     expect(describeInteractiveUseConfiguration(config({
       enabled: true,
       computerProvider: "windows-uia",
       allowComputer: true,
       allowedApplications: ["Calculator"],
+      applicationAliases: {
+        Calculator: ["Calculadora", "CalculatorApp"],
+      },
     }))).toMatchObject({
+      applicationAliases: {
+        Calculator: ["Calculadora", "CalculatorApp"],
+      },
       computerProviderType: "windows-uia",
       computerProviderConfigured: true,
       issues: [],
@@ -240,6 +263,9 @@ describe("interactive use config", () => {
         enabled: false,
         allowedDomains: ["base.example.com"],
         allowedApplications: ["Calculator"],
+        applicationAliases: {
+          Calculator: ["Calculadora"],
+        },
         browserEnvironment: "isolated-headless",
         computerEnvironment: "local-active-desktop",
       }),
@@ -259,6 +285,9 @@ describe("interactive use config", () => {
       computerEnvironment: "local-active-desktop",
       allowedDomains: ["override.example.com"],
       allowedApplications: ["Calculator"],
+      applicationAliases: {
+        Calculator: ["Calculadora"],
+      },
     });
   });
 });

@@ -442,15 +442,23 @@ provider. It invokes Kiln's owned `kiln-windows-uia.exe` sidecar over JSON
 stdin/stdout; the sidecar is the only runtime component that touches native
 `IUIAutomation`. The TypeScript runtime derives the active window from Windows
 UIA focus ancestry before checking `allowedApplications` when no explicit
-target app is provided. When `application` or `windowTitle` is provided, the
-runtime validates that requested target against `allowedApplications` before
-the sidecar opens, focuses, minimizes, or closes the window. The provider
-exposes the accessibility tree through `computer_observe` when
-`includeAccessibility` is set, and executes semantic targets through UIA
-patterns such as `InvokePattern` and `ValuePattern`. Accessibility-tree refs
-such as `#plusButton` are normalized to UIA `AutomationId` selectors before the
-sidecar receives them. A click must invoke a supported UIA pattern or fail; the
-sidecar must not report success after only focusing an element. It does not
+target app is provided. `interactiveUse.applicationAliases` maps localized or
+human app names to canonical `allowedApplications` entries before native
+automation runs, so adding apps such as Blender, Notepad, or video editors is a
+configuration concern unless an app-specific adapter is explicitly introduced.
+When `application` or `windowTitle` is provided, the runtime validates that
+requested target against `allowedApplications` before the sidecar opens,
+focuses, minimizes, or closes the window. The provider exposes the accessibility
+tree through `computer_observe` when `includeAccessibility` is set, and executes
+semantic targets through UIA patterns such as `InvokePattern` and
+`ValuePattern`. Accessibility-tree refs such as `#plusButton`, `.RichEditD2DPT`,
+and copied lines such as `documento "Editor de texto" .RichEditD2DPT` are
+normalized to structured UIA selectors before the sidecar receives them.
+`computer_type` uses `ValuePattern` when available; if the semantically selected
+target lacks `ValuePattern`, the sidecar focuses that UIA element and sends
+Unicode text through native Windows input. A click must invoke a supported UIA
+pattern or fail; the sidecar must not report success after only focusing an
+element. It does not
 treat coordinates as authority evidence or as a physical pointer transport;
 coordinate-only mouse/keyboard work remains owned by the `windows` provider.
 Focusing the Kiln operator window is self-authority for returning control to

@@ -63,6 +63,30 @@ describe("WindowsComputerUseProvider", () => {
     })).rejects.toThrow("Computer automation requires a trusted active application resolver before using Windows computer tools.");
   });
 
+  it("enforces configured application aliases for active-window authority", async () => {
+    const provider = new WindowsComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: ["notepad"],
+      applicationAliases: {
+        notepad: ["Bloc de notas"],
+      },
+      loader: async () => fakeNut(),
+      activeApplicationResolver: () => "Bloc de notas",
+    });
+
+    await expect(provider.execute({
+      toolName: "computer_observe",
+      target: "computer",
+      operation: "observe",
+      input: { application: "notepad" },
+    })).resolves.toMatchObject({
+      provider: "windows-nutjs",
+      observation: {
+        application: "Bloc de notas",
+      },
+    });
+  });
+
   it("observes, clicks, types, and presses keys through nut.js", async () => {
     const events: string[] = [];
     const provider = new WindowsComputerUseProvider({

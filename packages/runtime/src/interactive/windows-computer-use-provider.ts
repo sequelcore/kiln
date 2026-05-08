@@ -7,6 +7,12 @@ import type {
   InteractiveUseProviderResult,
   InteractiveUseRequest,
 } from "@kilnai/core";
+import {
+  isApplicationAliasMatch,
+  normalizeApplicationAliases,
+  normalizeApplicationList,
+  type ApplicationAliasMap,
+} from "./application-aliases.js";
 
 export const NUT_JS_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE =
   "Windows computer use provider is not available. Install the optional peer dependency '@nut-tree/nut-js' in the runtime host before enabling interactiveUse.computerProvider=windows. For Bun: bun add -d @nut-tree/nut-js.";
@@ -14,6 +20,7 @@ export const NUT_JS_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE =
 export interface WindowsComputerUseProviderOptions {
   readonly allowComputer?: boolean;
   readonly allowedApplications?: readonly string[];
+  readonly applicationAliases?: ApplicationAliasMap;
   readonly activeApplicationResolver?: ActiveApplicationResolver;
   readonly loader?: NutJsLoader;
 }
@@ -52,12 +59,14 @@ interface NutJsImage {
 export class WindowsComputerUseProvider implements InteractiveUseProvider {
   private readonly allowComputer: boolean;
   private readonly allowedApplications: readonly string[];
+  private readonly applicationAliases: ApplicationAliasMap;
   private readonly activeApplicationResolver?: ActiveApplicationResolver;
   private readonly loader: NutJsLoader;
 
   constructor(options: WindowsComputerUseProviderOptions = {}) {
     this.allowComputer = options.allowComputer === true;
-    this.allowedApplications = normalizeList(options.allowedApplications);
+    this.allowedApplications = normalizeApplicationList(options.allowedApplications);
+    this.applicationAliases = normalizeApplicationAliases(options.applicationAliases);
     this.activeApplicationResolver = options.activeApplicationResolver;
     this.loader = options.loader ?? loadNutJs;
   }
@@ -165,7 +174,7 @@ export class WindowsComputerUseProvider implements InteractiveUseProvider {
     if (!application) {
       throw new Error("Computer automation could not determine the active application. Configure a trusted active application resolver before using Windows computer tools.");
     }
-    const allowed = this.allowedApplications.some((entry) => entry.toLocaleLowerCase("en-US") === application.toLocaleLowerCase("en-US"));
+    const allowed = this.allowedApplications.some((entry) => isApplicationAliasMatch(application, entry, this.applicationAliases));
     if (!allowed) {
       throw new Error(`Computer automation denied for application '${application}'. Configure interactiveUse.allowedApplications to allow it.`);
     }
@@ -243,18 +252,4 @@ function readString(value: unknown): string | null {
 
 function stringField<TName extends string>(name: TName, value: string | null | undefined): Record<TName, string> | Record<string, never> {
   return value ? { [name]: value } as Record<TName, string> : {};
-}
-
-function normalizeList(value: readonly string[] | undefined): readonly string[] {
-  if (!value) {
-    return [];
-  }
-  const out: string[] = [];
-  for (const item of value) {
-    const normalized = item.trim();
-    if (normalized && !out.includes(normalized)) {
-      out.push(normalized);
-    }
-  }
-  return out;
 }

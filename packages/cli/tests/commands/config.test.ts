@@ -134,6 +134,7 @@ describe("configCommand", () => {
     await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerProvider", "windows-uia"], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerEnvironment", "local-active-desktop"], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowedApplications", "Calculator, msedge"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.applicationAliases", "{\"Calculator\":[\"Calculadora\",\"CalculatorApp\"]}"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.interactiveUse?.enabled).toBe(true);
@@ -145,6 +146,9 @@ describe("configCommand", () => {
     expect(config.interactiveUse?.computerProvider).toBe("windows-uia");
     expect(config.interactiveUse?.computerEnvironment).toBe("local-active-desktop");
     expect(config.interactiveUse?.allowedApplications).toEqual(["Calculator", "msedge"]);
+    expect(config.interactiveUse?.applicationAliases).toEqual({
+      Calculator: ["Calculadora", "CalculatorApp"],
+    });
   });
 
   it("reset writes default kiln.yaml", async () => {

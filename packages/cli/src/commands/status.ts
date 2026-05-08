@@ -143,6 +143,9 @@ function printInteractiveUseStatus(config: KilnYaml): void {
   console.log(`    External browser: ${diagnostics.allowExternalBrowser}`);
   console.log(`    Computer control: ${diagnostics.allowComputer}`);
   console.log(`    Allowed applications: ${diagnostics.allowedApplications.length > 0 ? diagnostics.allowedApplications.join(", ") : "—"}`);
+  const applicationAliases = Object.entries(diagnostics.applicationAliases)
+    .map(([name, aliases]) => `${name}=[${aliases.join(", ")}]`);
+  console.log(`    Application aliases: ${applicationAliases.length > 0 ? applicationAliases.join("; ") : "—"}`);
   if (diagnostics.issues.length > 0) {
     console.log(`    Issues: ${diagnostics.issues.join(", ")}`);
   }
