@@ -203,7 +203,7 @@ export class TaskUpdateTool implements DevTool {
 
 function parseStatus(input: ToolInput): { ok: true; value?: SessionTaskStatus } | { ok: false; message: string } {
   const value = input.input["status"];
-  if (value === undefined) {
+  if (value === undefined || value === null || value === "all") {
     return { ok: true };
   }
   return isTaskStatus(value)
@@ -234,7 +234,7 @@ function parseDependsOn(
   ownId: string | undefined,
 ): { ok: true; value?: readonly string[] } | { ok: false; message: string } {
   const raw = input.input["dependsOn"];
-  if (raw === undefined) {
+  if (raw === undefined || raw === null) {
     return { ok: true };
   }
   if (!Array.isArray(raw)) {

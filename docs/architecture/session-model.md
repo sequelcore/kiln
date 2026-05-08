@@ -58,9 +58,11 @@ switch the operator into a different session namespace.
 
 Session history and resume intent are separate persistence concerns.
 
-`.kiln/sessions.jsonl` is an append-only history index for completed Kiln
-session records. It must not be mutated by clear/new-session operations and it
-must not be treated as a disposable "last session" pointer.
+`.kiln/sessions.jsonl` is the canonical session index for completed Kiln
+session records. It is keyed by Kiln session id: later turns for the same
+session update the canonical row instead of creating duplicate rows in operator
+history. Clear/new-session operations must not delete the index and must not
+treat it as a disposable "last session" pointer.
 
 `.kiln/resume-targets.json` stores the mutable operator resume cursor. The
 default cursor records the canonical Kiln session to continue when no explicit
@@ -72,6 +74,13 @@ Clear/new-session operations clear the resume cursor and detach live runtime
 state. They do not delete session history, transcript metadata, event history,
 or provider-thread metadata. Selecting a prior session sets the active
 continuation target explicitly through the visible session state.
+
+When an operator surface resumes a persisted session whose live runtime object
+has expired or is absent, it must rehydrate the runtime conversation from the
+canonical transcript before admitting the next turn. Visual transcript loading
+and model-visible conversational continuity are the same product contract; a
+surface may not show old messages while sending the next turn to an empty
+runtime session.
 
 ## Surface Semantics
 

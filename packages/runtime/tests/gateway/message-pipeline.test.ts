@@ -321,6 +321,43 @@ describe("processAdmittedTurn", () => {
     });
   });
 
+  it("hydrates an expired persisted operator session before orchestration", async () => {
+    const session = makeMockSession();
+    const sessionRegistry = {
+      getById: vi.fn().mockResolvedValue(undefined),
+      getOrCreate: vi.fn().mockResolvedValue(session),
+      save: vi.fn().mockResolvedValue(undefined),
+    } as unknown as SessionRegistry;
+    const orchestrator = makeMockOrchestrator();
+    const resumeSessionHydrator = vi.fn().mockResolvedValue({
+      rehydrated: true,
+      messageCount: 4,
+      reason: "transcript-store",
+      sourceSequence: 12,
+    });
+
+    await processInboundMessage(makeBaseContext({
+      sessionId: "persisted-session-1",
+      sessionRegistry,
+      orchestrator,
+      resumeSessionHydrator,
+    }));
+
+    expect(sessionRegistry.getById).toHaveBeenCalledWith("persisted-session-1");
+    expect(resumeSessionHydrator).toHaveBeenCalledWith({
+      sessionId: "persisted-session-1",
+      session,
+    });
+    expect(session.exactArtifacts).toContain("Runtime session rehydrated from transcript: 4 messages");
+    expect(orchestrator.processMessage).toHaveBeenCalledWith(
+      session,
+      textParts("hello"),
+      expect.anything(),
+      undefined,
+      undefined,
+    );
+  });
+
   it("builds session bootstrap prompt from tenant when systemPrompt is omitted", async () => {
     const sessionRegistry = makeMockSessionRegistry();
     const now = new Date().toISOString();

@@ -207,7 +207,7 @@ browses Kiln sessions, not provider-specific session namespaces.
 
 Kiln stores:
 
-- `.kiln/sessions.jsonl` as the append-only session index
+- `.kiln/sessions.jsonl` as the canonical deduplicated session index
 - `.kiln/sessions/<sessionId>/meta.json` for per-session metadata
 - `.kiln/sessions/<sessionId>/transcript.jsonl` for the transcript stream
 
@@ -217,6 +217,11 @@ If that record contains provider-thread metadata for the selected provider,
 Kiln may pass the matching provider-native thread ID to that provider. If not,
 Kiln resumes through its own transcript/context continuity without fabricating
 a native provider thread.
+
+Gateway-backed operator surfaces also pass a transcript rehydration hook to the
+runtime pipeline. If the in-memory runtime session expired while the transcript
+remained selected, the next admitted turn reconstructs bounded user/assistant
+conversation history from the canonical transcript before model execution.
 
 The sidebar session browser is populated from the canonical session index.
 `/resume` or an empty-input `Enter` on a selected row marks that Kiln session as

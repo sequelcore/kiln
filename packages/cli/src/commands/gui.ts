@@ -16,6 +16,7 @@ import { loadConfiguredWebToolSurfaceOptions, resolveProjectMemoryScope } from "
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
+import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import {
@@ -79,6 +80,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
+  const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
@@ -158,6 +160,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       onResumeSession: (sessionId) => {
         sessionManager.setResumeSession(sessionId);
       },
+      resumeSessionHydrator,
       contextArtifactCache,
       executionMode: flags.plan ? "plan" : "execute",
       managedInvocation,

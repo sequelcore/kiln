@@ -46,6 +46,31 @@ function isGenericSessionTask(value: string): boolean {
   return value.trim().toLowerCase() === "interactive";
 }
 
+function isLowSignalSessionText(value: string | undefined): boolean {
+  const normalized = compactText(value).toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  const compact = normalized.replace(/[!?.,]+$/g, "");
+  if ([
+    "hi",
+    "hello",
+    "hey",
+    "hola",
+    "ok",
+    "okay",
+    "yes",
+    "no",
+    "start",
+    "continue",
+    "thanks",
+    "thank you",
+  ].includes(compact)) {
+    return true;
+  }
+  return compact.split(/\s+/).filter(Boolean).length <= 1;
+}
+
 function firstUsefulLine(value: string | undefined): string {
   const compacted = compactText(value);
   if (!compacted) {
@@ -97,6 +122,21 @@ export function mergeProvidersUsed(
 export function buildDeterministicInitialTitle(firstPromptOrTask: string | undefined): string {
   const seed = firstUsefulLine(firstPromptOrTask);
   return seed ? truncate(seed, MAX_TITLE_LENGTH) : FALLBACK_TITLE;
+}
+
+export function shouldPromoteLatestPromptToSessionTitle(input: {
+  readonly existingTitle?: string;
+  readonly latestPrompt?: string;
+}): boolean {
+  const latest = firstUsefulLine(input.latestPrompt);
+  if (!latest || isLowSignalSessionText(latest)) {
+    return false;
+  }
+  const existing = firstUsefulLine(input.existingTitle);
+  if (!existing || existing === FALLBACK_TITLE || isLowSignalSessionText(existing)) {
+    return true;
+  }
+  return false;
 }
 
 export function resolveSessionSummary(input: {

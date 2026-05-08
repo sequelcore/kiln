@@ -1,4 +1,5 @@
 import { startTuiGateway, type OnProviderSwitch, type TuiGateway, type TuiGatewayOptions } from "./tui-gateway.js";
+import type { RuntimeSessionHydrator } from "./message-pipeline.js";
 
 export interface OperatorGateway extends TuiGateway {}
 
@@ -15,6 +16,7 @@ type BaseOperatorSessionTransportOptions = Pick<
 
 export interface OperatorSessionTransportOptions extends BaseOperatorSessionTransportOptions {
   readonly onResumeSession?: OnResumeSession;
+  readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly workingDirectory?: string;
   readonly domainLabel?: string;
 }

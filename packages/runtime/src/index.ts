@@ -173,6 +173,8 @@ export type {
   AdmittedTurnResult,
   BudgetDeniedResult,
   ProcessResult,
+  RuntimeSessionHydrationResult,
+  RuntimeSessionHydrator,
 } from "./gateway/message-pipeline.js";
 
 // Trace

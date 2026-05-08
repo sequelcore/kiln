@@ -155,4 +155,36 @@ describe("task state tools", () => {
       output: expect.stringContaining("status"),
     });
   });
+
+  it("treats model-emitted null task filters and dependencies as omitted", async () => {
+    const store = new TaskStateStore({ now: () => 1_800_000_000_000 });
+    const updateTool = new TaskUpdateTool({ store });
+    const listTool = new TaskListTool({ store });
+
+    await expect(updateTool.execute({
+      name: "task_update",
+      input: {
+        title: "Implement bounded task state",
+        status: "pending",
+        dependsOn: null,
+        verbosity: "structured",
+      },
+    })).resolves.toMatchObject({ isError: false });
+
+    await expect(listTool.execute({
+      name: "task_list",
+      input: { status: null, verbosity: "summary" },
+    })).resolves.toMatchObject({
+      isError: false,
+      output: "1 tasks; sequence 1",
+    });
+
+    await expect(listTool.execute({
+      name: "task_list",
+      input: { status: "all", verbosity: "summary" },
+    })).resolves.toMatchObject({
+      isError: false,
+      output: "1 tasks; sequence 1",
+    });
+  });
 });

@@ -7,7 +7,10 @@ import {
 } from "../application/resume-sidebar-info.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
-import { deriveSessionMetadata } from "../application/session-metadata.js";
+import {
+  deriveSessionMetadata,
+  shouldPromoteLatestPromptToSessionTitle,
+} from "../application/session-metadata.js";
 import {
   buildCliPlanSummaryArtifactKeyFromShape,
   buildCliProjectSummaryArtifactKey,
@@ -22,6 +25,7 @@ import {
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
@@ -71,6 +75,7 @@ import type {
   CliSessionFactoryContext,
   CliSessionRunOptions,
   ManagedInvocationToolOptions,
+  RuntimeSessionHydrator,
 } from "@kilnai/runtime";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 
@@ -92,6 +97,7 @@ interface TuiBootstrapOptions {
   readonly systemPrompt: string;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly resumeSessionHydrator?: RuntimeSessionHydrator;
 }
 
 interface TuiBootstrapResult {
@@ -496,14 +502,18 @@ export async function makeMultiProviderSessionFactory(
           transcriptStore.readMeta(capturedId),
         ]);
         const task = existingMeta?.task ?? existingRecord?.task ?? "interactive";
+        const shouldPromoteLatestPrompt = shouldPromoteLatestPromptToSessionTitle({
+          existingTitle: existingMeta?.canonicalTitle ?? existingRecord?.canonicalTitle ?? existingMeta?.title ?? existingRecord?.title,
+          latestPrompt: options.prompt,
+        });
         const metadata = deriveSessionMetadata({
           task,
           prompt: options.prompt,
           provider: providerForTurn,
           model: modelForTurn,
-          canonicalTitle: existingMeta?.canonicalTitle ?? existingRecord?.canonicalTitle,
-          title: existingMeta?.title ?? existingRecord?.title,
-          summary: existingMeta?.summary ?? existingRecord?.summary,
+          canonicalTitle: shouldPromoteLatestPrompt ? undefined : existingMeta?.canonicalTitle ?? existingRecord?.canonicalTitle,
+          title: shouldPromoteLatestPrompt ? undefined : existingMeta?.title ?? existingRecord?.title,
+          summary: shouldPromoteLatestPrompt ? undefined : existingMeta?.summary ?? existingRecord?.summary,
           tags: existingMeta?.tags ?? existingRecord?.tags,
           providersUsed: existingMeta?.providersUsed ?? existingRecord?.providersUsed,
         });
@@ -789,6 +799,7 @@ async function bootstrapGatewaySession(
     executionMode: flags.plan ? "plan" : "execute",
     builtinToolOptions: options.builtinToolOptions,
     managedInvocation: options.managedInvocation,
+    resumeSessionHydrator: options.resumeSessionHydrator,
   });
 
   writeTuiBootstrapStatus("Connecting to local gateway...");
@@ -1108,6 +1119,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   // Inject CLI session factory into the gateway (dependency inversion)
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
+  const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
   const initialResumeInfo: Record<string, ResumeSidebarInfo> = await loadResumeSidebarInfo(
     sessionStore,
     transcriptStore,
@@ -1137,6 +1149,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     systemPrompt,
     builtinToolOptions,
     managedInvocation,
+    resumeSessionHydrator,
   });
 
   const shutdown = (code = 0, error?: unknown) => {

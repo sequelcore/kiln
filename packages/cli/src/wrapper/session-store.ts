@@ -87,6 +87,54 @@ function parseSessionRecord(line: string): SessionRecord | null {
   }
 }
 
+function latestRecordsBySessionId(records: readonly SessionRecord[]): SessionRecord[] {
+  const bySessionId = new Map<string, SessionRecord>();
+  for (const record of records) {
+    bySessionId.delete(record.sessionId);
+    bySessionId.set(record.sessionId, record);
+  }
+  return [...bySessionId.values()];
+}
+
+function mergeProviderIds(
+  existing: readonly string[] | undefined,
+  incoming: readonly (string | undefined)[],
+): string[] | undefined {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const value of [...(existing ?? []), ...incoming]) {
+    const normalized = value?.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    merged.push(normalized);
+  }
+  return merged.length > 0 ? merged : undefined;
+}
+
+function mergeRepeatedSessionRecord(
+  previous: SessionRecord | undefined,
+  next: SessionRecord,
+): SessionRecord {
+  if (!previous) {
+    return next;
+  }
+  const cost = previous.completedAt === next.completedAt
+    ? next.cost
+    : previous.cost + next.cost;
+  return {
+    ...next,
+    cost,
+    providersUsed: mergeProviderIds(next.providersUsed, [
+      next.provider,
+      ...(previous.providersUsed ?? []),
+      previous.provider,
+    ]),
+    tags: parseOptionalStringArray([...(previous.tags ?? []), ...(next.tags ?? [])]),
+  };
+}
+
 export class SessionStore {
   private readonly filePath: string;
   private readonly resumeTargetsPath: string;
@@ -100,12 +148,22 @@ export class SessionStore {
     try {
       const dir = join(this.filePath, '..');
       await mkdir(dir, { recursive: true });
-      const line = serializeSessionRecord(record) + '\n';
-      await appendFile(this.filePath, line, 'utf-8');
+      const currentRecords = await this.readRecords();
+      const previous = currentRecords.findLast((entry) => entry.sessionId === record.sessionId);
+      const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
+      records.push(mergeRepeatedSessionRecord(previous, record));
+      await this.writeRecords(records);
       await this.setResumeTarget(record);
     } catch (err) {
       console.error('[SessionStore] Failed to append session record:', err);
     }
+  }
+
+  private async writeRecords(records: readonly SessionRecord[]): Promise<void> {
+    const dir = join(this.filePath, '..');
+    await mkdir(dir, { recursive: true });
+    const content = records.map(serializeSessionRecord).join('\n');
+    await writeFile(this.filePath, content ? `${content}\n` : '', 'utf-8');
   }
 
   private async readRecords(): Promise<SessionRecord[]> {
@@ -246,7 +304,7 @@ export class SessionStore {
 
   async list(): Promise<SessionRecord[]> {
     try {
-      const records = await this.readRecords();
+      const records = latestRecordsBySessionId(await this.readRecords());
       return records.reverse();
     } catch {
       return [];

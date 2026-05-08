@@ -52,6 +52,7 @@ import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { OperatorExecutionMode } from "@kilnai/gateway-contracts";
+import type { RuntimeSession } from "../session/runtime-session.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -116,6 +117,7 @@ export interface AdmittedTurnContext {
     readonly eventBus?: EventBus;
   };
   readonly contextArtifactCache?: ContextArtifactCache;
+  readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly coordinationContextProvider?: (input: {
     readonly appName: string;
     readonly tenantId: string;
@@ -149,6 +151,18 @@ export interface AdmittedTurnContext {
     readonly abort?: (sessionId: string) => void | Promise<void>;
   };
 }
+
+export interface RuntimeSessionHydrationResult {
+  readonly rehydrated: boolean;
+  readonly messageCount: number;
+  readonly reason?: string;
+  readonly sourceSequence?: number;
+}
+
+export type RuntimeSessionHydrator = (input: {
+  readonly sessionId: string;
+  readonly session: RuntimeSession;
+}) => RuntimeSessionHydrationResult | Promise<RuntimeSessionHydrationResult>;
 
 function extractPlanSubmissions(
   toolExecutions: readonly ToolExecutionSummary[] | undefined,
@@ -532,6 +546,13 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     }
   }
 
+  const shouldAttemptResumeHydration = ctx.sessionId !== undefined && ctx.resumeSessionHydrator !== undefined;
+  const existingResumeTarget = shouldAttemptResumeHydration && ctx.sessionId
+    ? await ctx.sessionRegistry.getById(ctx.sessionId)
+    : undefined;
+  const shouldHydrateResumedSession = shouldAttemptResumeHydration
+    && (existingResumeTarget === undefined || existingResumeTarget.isExpired);
+
   // Get or create session
   const session = await ctx.sessionRegistry.getOrCreate({
     appName: ctx.appName,
@@ -542,6 +563,31 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     idleTimeoutMs: ctx.idleTimeoutMs,
   });
   trace.log("pipeline", "Session ready", { sessionId: session.id, sessionMode: session.sessionMode });
+
+  if (shouldHydrateResumedSession && ctx.sessionId && ctx.resumeSessionHydrator) {
+    try {
+      const hydration = await ctx.resumeSessionHydrator({ sessionId: ctx.sessionId, session });
+      const summary = hydration.rehydrated
+        ? `Runtime session rehydrated from transcript: ${hydration.messageCount} messages`
+        : `Runtime session rehydration skipped: ${hydration.reason ?? "no usable transcript"}`;
+      session.addExactArtifact(summary);
+      session.updateSessionLedger({
+        lastSummary: summary,
+      });
+      trace.log("pipeline", "Resume hydration completed", {
+        sessionId: session.id,
+        rehydrated: hydration.rehydrated,
+        messageCount: hydration.messageCount,
+        reason: hydration.reason,
+        sourceSequence: hydration.sourceSequence,
+      });
+    } catch (error) {
+      const summary = `Runtime session rehydration failed: ${error instanceof Error ? error.message : String(error)}`;
+      session.addExactArtifact(summary);
+      session.updateSessionLedger({ lastSummary: summary });
+      trace.warn("pipeline", "Resume hydration failed", { sessionId: session.id, error: String(error) });
+    }
+  }
 
   // Merge incoming user context into session (merge semantics: keys accumulate)
   if (ctx.userContext && Object.keys(ctx.userContext).length > 0) {

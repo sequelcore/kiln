@@ -30,6 +30,7 @@ import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn } from "./message-pipeline.js";
+import type { RuntimeSessionHydrator } from "./message-pipeline.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
@@ -98,6 +99,7 @@ export interface TuiGatewayOptions {
   readonly executionMode?: OperatorExecutionMode;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
 }
 
@@ -692,6 +694,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 systemPrompt,
                 userParts: textParts(userContent),
                 channel: "tui",
+                resumeSessionHydrator: options.resumeSessionHydrator,
                 providerValidation: currentDiscovery,
                 executionMode,
                 contextArtifactCache: options.contextArtifactCache,

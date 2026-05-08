@@ -38,6 +38,7 @@ import {
   summarizeContextGovernance,
 } from "../application/session-report.js";
 import { buildModuleSummaryArtifact, extractTouchedFilePaths } from "../application/repo-summary-cache.js";
+import { buildCliCompletionContextArtifacts } from "../application/session-context-artifacts.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { resolveResumeSessionId } from "../application/session-resume.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
@@ -60,7 +61,6 @@ import {
   SkillGenerator,
   AnthropicAdapter,
   createSessionBuiltinToolOptions,
-  type ContextArtifact,
   type CanonicalSessionEventKind,
   type ReasoningEffort,
   type SessionEventSource,
@@ -75,11 +75,6 @@ import {
   getProjectContextArtifactCache,
 } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
-import {
-  buildCliPlanSummaryArtifactKey,
-  buildCliProjectSummaryArtifactKey,
-  buildCliSessionSummaryArtifactKey,
-} from "../application/context-artifact-keys.js";
 
 export interface RunFlags {
   readonly apiKey?: string;
@@ -717,52 +712,19 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
     try {
       await transcriptStore.finalize(sessionId, meta);
-      const summaryLines = [
-        `Task: ${task}`,
-        `Phase: completed`,
-        `Provider: ${successfulProviderId ?? "unknown"}`,
-        `Tool calls: ${toolCallCount}`,
-        `Turn depth: ${turnDepth}`,
-        ...(exactArtifacts.length > 0 ? ["Exact artifacts:", ...exactArtifacts.slice(0, 10).map((artifact) => `- ${artifact}`)] : []),
-      ];
-      const now = new Date();
-      const artifact: ContextArtifact = {
-        key: buildCliSessionSummaryArtifactKey(sessionId),
-        kind: "session-summary",
-        content: summaryLines.join("\n"),
-        createdAt: now,
-        updatedAt: now,
-      };
-      contextArtifactCache.set(artifact);
-      const projectArtifact: ContextArtifact = {
-        key: buildCliProjectSummaryArtifactKey(cwd),
-        kind: "project-summary",
-        content: [
-          `Project path: ${cwd}`,
-          `Domain: ${context.domain.displayName}`,
-          `Last successful provider: ${successfulProviderId ?? "unknown"}`,
-          `Latest task: ${task}`,
-          `Latest turn depth: ${turnDepth}`,
-        ].join("\n"),
-        createdAt: now,
-        updatedAt: now,
-      };
-      contextArtifactCache.set(projectArtifact);
-      const planArtifact: ContextArtifact = {
-        key: buildCliPlanSummaryArtifactKey(cwd, task, 80),
-        kind: "plan-summary",
-        content: [
-          `Task pattern: ${task}`,
-          `Successful provider: ${successfulProviderId ?? "unknown"}`,
-          `Observed turn depth: ${turnDepth}`,
-          `Observed tool calls: ${toolCallCount}`,
-          "Useful exact artifacts:",
-          ...exactArtifacts.slice(0, 8).map((artifact) => `- ${artifact}`),
-        ].join("\n"),
-        createdAt: now,
-        updatedAt: now,
-      };
-      contextArtifactCache.set(planArtifact);
+      const artifacts = buildCliCompletionContextArtifacts({
+        sessionId,
+        projectPath: cwd,
+        domainDisplayName: context.domain.displayName,
+        task,
+        successfulProviderId,
+        toolCallCount,
+        turnDepth,
+        exactArtifacts,
+      });
+      contextArtifactCache.set(artifacts.sessionArtifact);
+      contextArtifactCache.set(artifacts.projectArtifact);
+      contextArtifactCache.set(artifacts.planArtifact);
       const touchedFiles = extractTouchedFilePaths(exactArtifacts);
       for (const filePath of touchedFiles.slice(0, 5)) {
         const moduleArtifact = await buildModuleSummaryArtifact(cwd, filePath);

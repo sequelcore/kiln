@@ -956,6 +956,7 @@ function wireOperatorTransport(
                 systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
                 userParts: textParts(userContent),
                 channel: "gui",
+                resumeSessionHydrator: input.transport.resumeSessionHydrator,
                 providerValidation: currentDiscovery,
                 executionMode,
                 contextArtifactCache: input.transport.contextArtifactCache,

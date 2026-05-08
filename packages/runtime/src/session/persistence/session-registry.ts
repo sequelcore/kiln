@@ -56,6 +56,10 @@ export class SessionRegistry {
     return sessionId ? this.store.get(sessionId) : undefined;
   }
 
+  async getById(sessionId: string): Promise<RuntimeSession | undefined> {
+    return this.store.get(sessionId);
+  }
+
   /**
    * Persist a mutated session back to the store. Required for non-reference stores (e.g. Redis).
    * Uses optimistic concurrency: checks that the stored version matches the version at load time.

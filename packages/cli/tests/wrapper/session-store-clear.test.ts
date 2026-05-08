@@ -30,7 +30,7 @@ describe("SessionStore resume targets", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("stores resume targets separately from append-only session history", async () => {
+  it("stores resume targets separately from the canonical session index", async () => {
     await store.append(makeRecord({ sessionId: "a", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "b", provider: "claude" }));
 
@@ -135,10 +135,28 @@ describe("SessionStore resume targets", () => {
     }));
 
     const found = await store.find("reused-1");
+    const listed = await store.list();
     expect(found).toMatchObject({
       provider: "codex-oauth",
       providersUsed: ["claude", "codex-oauth"],
     });
+    expect(listed.filter((record) => record.sessionId === "reused-1")).toHaveLength(1);
+  });
+
+  it("does not double-count identical repeated session writes", async () => {
+    const completedAt = "2026-05-08T00:00:00.000Z";
+    const record = makeRecord({
+      sessionId: "same-turn",
+      provider: "codex-oauth",
+      completedAt,
+      cost: 0.25,
+    });
+
+    await store.append(record);
+    await store.append(record);
+
+    expect((await store.find("same-turn"))?.cost).toBe(0.25);
+    expect(await store.list()).toHaveLength(1);
   });
 });
 

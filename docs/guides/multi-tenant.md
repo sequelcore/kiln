@@ -62,14 +62,22 @@ provider-adapter apps support concurrent multi-user sessions managed by `Session
 | `lastActivityAt` | Updated on every message via `touch()`. |
 | `isExpired` | `true` when `now - lastActivityAt > idleTimeoutMs`. Default idle timeout: 30 minutes. |
 
-`SessionRegistry.getOrCreate()` returns an existing non-expired session or creates a new one. Expired sessions are recreated, not resumed — conversation history is not carried over. `cleanup()` removes all expired sessions and returns the count removed.
+`SessionRegistry.getOrCreate()` returns an existing non-expired session or creates a new one. Expired sessions are recreated by the registry. Operator-surface hydration may restore bounded transcript history before the next admitted turn. `cleanup()` removes all expired sessions and returns the count removed.
 
 ### SessionRegistry API
+
+Operator surfaces that persist canonical transcripts may pass a runtime
+hydration hook when resuming a session id. If the in-memory runtime session has
+expired or is absent, the recreated session receives bounded user/assistant
+history from the transcript before the next admitted turn. `getById(sessionId)`
+exists so the gateway can distinguish an active runtime object from a transcript
+resume that needs hydration.
 
 | Method | Description |
 |--------|-------------|
 | `getOrCreate(config)` | Returns existing non-expired session or creates new. |
 | `get(appName, userId, tenantId?)` | Returns session if it exists (may be expired). Tenant-scoped when `tenantId` is provided. |
+| `getById(sessionId)` | Returns a stored session by canonical runtime id, including expired sessions. |
 | `save(session)` | Persist a mutated session. Uses optimistic concurrency: throws `CONCURRENT_SESSION_MODIFICATION` if the stored version diverges from `loadedVersion`. Required for non-reference stores (e.g., Redis). |
 | `remove(appName, userId, tenantId?)` | Deletes session. Returns `true` if it existed. |
 | `invalidateByTenant(appName, tenantId)` | Removes all sessions for a tenant. Returns count removed. Used on tenant config updates. |
