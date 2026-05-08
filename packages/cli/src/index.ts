@@ -37,6 +37,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     gateway: "Start persistent Gateway (multi-app hosting)",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
     gui: "Start the GUI operator surface or attach to an App Gateway",
+    benchmark: "Inspect benchmark-facing profiles, external tracks, and readiness baselines",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
@@ -231,6 +232,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "skill") {
     const { skillCommand } = await import("./commands/skill.js");
     await skillCommand(config, args[1] ?? "", args.slice(2));
+    return;
+  }
+
+  if (command === "benchmark") {
+    const { benchmarkCommand } = await import("./commands/benchmark.js");
+    await benchmarkCommand(config, args[1], args.slice(2));
     return;
   }
 

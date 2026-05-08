@@ -244,6 +244,17 @@ const report = evaluateBenchmarkReadiness({
 See [Benchmark Validation](../architecture/benchmark-validation.md) for the
 architecture contract and public reporting requirements.
 
+The CLI exposes the same read-only contract:
+
+```bash
+kiln benchmark profiles
+kiln benchmark tracks
+kiln benchmark readiness --baseline ./evals/kiln-baseline.json
+```
+
+The baseline file may be an array of `BenchmarkBaselineResult` records or an
+object with a `baselines` array.
+
 ## Metadata in Eval
 
 `EvalInput.metadata` carries arbitrary structured data from dataset items to scorers. This enables scorers like `tool-trajectory` that need domain-specific data beyond input/output/context.

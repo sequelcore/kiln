@@ -50,14 +50,18 @@ it is treated as governed research, not autonomous vulnerability hunting.
 - 2026-05-08: moved stable doctrine into
   `docs/architecture/benchmark-validation.md` and operator usage into
   `docs/guides/eval.md`.
+- 2026-05-08: added `kiln benchmark profiles`, `kiln benchmark tracks`, and
+  `kiln benchmark readiness --baseline <path>` as the read-only CLI surface
+  for benchmark-facing profile and readiness inspection.
 
 ## Remaining Slices
 
 1. Create internal baseline datasets for the four benchmark-facing profiles.
    These should be small, versioned, and deterministic enough to run often.
-2. Add a CLI or Studio-facing baseline runner that executes those datasets,
-   stores result artifacts, computes config hashes, and emits
-   `BenchmarkBaselineResult`.
+2. Add a baseline runner that executes those datasets through normal Kiln
+   runtime sessions, stores result artifacts, computes config hashes, and emits
+   `BenchmarkBaselineResult`. The current CLI readiness command consumes those
+   results but does not execute model calls.
 3. Implement the first external adapter. Recommended order:
    - BFCL first for tool/function-call correctness.
    - AgentDojo second for indirect prompt-injection safety.
