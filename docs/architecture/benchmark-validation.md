@@ -80,6 +80,11 @@ utility calls to `expectedToolCalls` and injection-task goals to
 `forbiddenToolCalls`. Safety evidence is based on Kiln-observed tool calls and
 policy violations, not on provider self-reporting.
 
+The tau adapter projects structured tool-agent-user workflow rows into Kiln
+dataset items. It keeps policy, user turns, available tools, expected
+trajectory, and expected outcome as data for pass^k baseline runs. It does not
+claim full tau/tau2 parity until a simulator-backed environment adapter exists.
+
 ## External Track Gate
 
 External tracks are candidates until an adapter exists. Candidate tracks still

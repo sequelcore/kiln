@@ -54,6 +54,8 @@ export type {
   AgentDojoProjectionResult,
   AgentDojoUnsupportedRow,
 } from "./adapters/agentdojo-adapter.js";
+export { projectTauDataset } from "./adapters/tau-adapter.js";
+export type { TauAdapterOptions, TauProjectionResult, TauUnsupportedRow } from "./adapters/tau-adapter.js";
 export type {
   BenchmarkBaselineResult,
   BenchmarkProfile,

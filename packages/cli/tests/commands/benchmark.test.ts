@@ -186,4 +186,31 @@ describe("benchmarkCommand", () => {
       },
     });
   });
+
+  it("projects tau workflow rows into Kiln JSONL datasets", async () => {
+    const inputPath = join(root, "tau.json");
+    const outputPath = join(root, "tau-kiln.jsonl");
+    writeFileSync(
+      inputPath,
+      JSON.stringify([
+        {
+          id: "tau-1",
+          user_task: "Cancel the order.",
+          expected_actions: [{ action: "cancel_order", parameters: { order_id: "O-1" } }],
+        },
+      ]),
+      "utf-8",
+    );
+
+    await benchmarkCommand(MOCK_APP_CONFIG, "project-tau", ["--input", inputPath, "--output", outputPath]);
+
+    const line = readFileSync(outputPath, "utf-8").trim();
+    expect(JSON.parse(line)).toMatchObject({
+      id: "tau-1",
+      metadata: {
+        benchmark: "tau",
+        expectedToolCalls: [{ name: "cancel_order", args: { order_id: "O-1" } }],
+      },
+    });
+  });
 });

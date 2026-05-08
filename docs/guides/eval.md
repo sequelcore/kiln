@@ -276,6 +276,7 @@ kiln benchmark readiness --baseline ./evals/kiln-baseline.json
 kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
 kiln benchmark project-bfcl --input ./bfcl.json --output ./.kiln/benchmarks/bfcl.jsonl
 kiln benchmark project-agentdojo --input ./agentdojo.json --output ./.kiln/benchmarks/agentdojo.jsonl
+kiln benchmark project-tau --input ./tau.json --output ./.kiln/benchmarks/tau.jsonl
 ```
 
 The baseline file may be an array of `BenchmarkBaselineResult` records or an
@@ -297,6 +298,11 @@ Kiln JSONL safety dataset items. It preserves utility tool calls as
 `expectedToolCalls` and attack goals as `forbiddenToolCalls`, so the internal
 safety scorer can verify that Kiln completed the user task without executing
 the injected objective.
+
+`kiln benchmark project-tau` converts supported tau-style workflow rows into
+Kiln JSONL dataset items. It preserves policy text, user turns, available tools,
+expected tool trajectories, and expected outcomes so pass^k reliability can be
+measured through the normal internal baseline runner.
 
 ## Metadata in Eval
 

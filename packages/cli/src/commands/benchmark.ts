@@ -12,6 +12,7 @@ import {
   parseDatasetJsonl,
   projectAgentDojoDataset,
   projectBfclDataset,
+  projectTauDataset,
   type BenchmarkBaselineResult,
   type BenchmarkItemExecutor,
 } from "@kilnai/core";
@@ -50,13 +51,16 @@ export async function benchmarkCommand(
     case "project-agentdojo":
       projectAgentDojoCommand(args);
       return;
+    case "project-tau":
+      projectTauCommand(args);
+      return;
     case "--help":
     case "-h":
     case undefined:
       printHelp();
       return;
     default:
-      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, run-internal, project-bfcl, or project-agentdojo.`);
+      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, run-internal, project-bfcl, project-agentdojo, or project-tau.`);
   }
 }
 
@@ -69,6 +73,7 @@ function printHelp(): void {
     "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>]",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
+    "  kiln benchmark project-tau --input <path> --output <path>",
     "",
     "The readiness command expects a JSON file containing either an array of",
     "BenchmarkBaselineResult entries or an object with a baselines array.",
@@ -105,6 +110,29 @@ function projectAgentDojoCommand(args: readonly string[]): void {
     throw new Error("benchmark project-agentdojo requires --input <path> and --output <path>.");
   }
   const projected = projectAgentDojoDataset({
+    datasetName: datasetNameFromPath(inputPath),
+    content: readFileSync(inputPath, "utf-8"),
+  });
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(
+    outputPath,
+    projected.dataset.items.map((item) => JSON.stringify(item)).join("\n") + "\n",
+    "utf-8",
+  );
+  printJson({
+    outputPath,
+    itemCount: projected.dataset.items.length,
+    unsupportedRows: projected.unsupportedRows,
+  });
+}
+
+function projectTauCommand(args: readonly string[]): void {
+  const inputPath = readFlag(args, "--input");
+  const outputPath = readFlag(args, "--output");
+  if (!inputPath || !outputPath) {
+    throw new Error("benchmark project-tau requires --input <path> and --output <path>.");
+  }
+  const projected = projectTauDataset({
     datasetName: datasetNameFromPath(inputPath),
     content: readFileSync(inputPath, "utf-8"),
   });

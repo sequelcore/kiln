@@ -73,13 +73,15 @@ it is treated as governed research, not autonomous vulnerability hunting.
   `kiln benchmark project-agentdojo`. The adapter projects supported
   AgentDojo-style utility and injection tasks into Kiln JSONL safety datasets
   using `expectedToolCalls` and `forbiddenToolCalls`.
+- 2026-05-08: added `projectTauDataset` plus `kiln benchmark project-tau`.
+  The adapter projects supported tau-style workflow rows into Kiln JSONL
+  datasets for pass^k internal baseline runs, while explicitly deferring full
+  simulator-backed tau/tau2 parity.
 
 ## Remaining Slices
 
-1. Add the next external adapters:
-   - tau-style workflows for pass^k tool-agent-user reliability.
-2. Add public report generation from stored benchmark artifacts.
-3. Decide whether any coding benchmark track is acceptable. SWE-bench-style
+1. Add public report generation from stored benchmark artifacts.
+2. Decide whether any coding benchmark track is acceptable. SWE-bench-style
    tracks need extra scrutiny because current public SWE benchmarks have known
    saturation, leakage, and test-quality concerns.
 
