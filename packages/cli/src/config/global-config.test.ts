@@ -223,6 +223,60 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("skills.builtin.enabled must be a boolean");
   });
 
+  it("readGlobalConfig() validates work governance policy", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "workGovernance:",
+        "  defaultPosture: orchestrate",
+        "  directExecution:",
+        "    maxFiles: 1",
+        "    maxRisk: low",
+        "  requireDelegationFor:",
+        "    - architecture",
+        "    - managed-agents",
+        "  requiredEvidence:",
+        "    - surface-map",
+        "    - residual-risk",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.workGovernance).toEqual({
+      defaultPosture: "orchestrate",
+      directExecution: {
+        maxFiles: 1,
+        maxRisk: "low",
+      },
+      requireDelegationFor: ["architecture", "managed-agents"],
+      requiredEvidence: ["surface-map", "residual-risk"],
+    });
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "workGovernance:",
+        "  requireDelegationFor:",
+        "    - vibes",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow(
+      "workGovernance.requireDelegationFor contains unsupported trigger: vibes",
+    );
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "workGovernance:",
+        "  directExecution:",
+        "    maxFiles: 0",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow(
+      "workGovernance.directExecution.maxFiles must be a positive integer",
+    );
+  });
+
   it("readGlobalConfig() accepts web provider defaults", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
@@ -452,6 +506,35 @@ describe("global-config", () => {
         builtin: {
           enabled: true,
         },
+      },
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: [
+          "architecture",
+          "security",
+          "ui",
+          "runtime",
+          "provider-routing",
+          "managed-agents",
+          "config",
+          "multi-file",
+          "cross-surface",
+          "long-running",
+          "verification-heavy",
+          "formal-proof-candidate",
+        ],
+        requiredEvidence: [
+          "surface-map",
+          "risk-hypothesis",
+          "plan",
+          "tests",
+          "typecheck",
+          "residual-risk",
+        ],
       },
       components: {
         include: ["baseline:core"],

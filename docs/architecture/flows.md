@@ -13,9 +13,10 @@ paths that the control plane governs.
 
 1. ingress and fast-path checks
 2. salience classification
-3. routing and target selection
-4. operational mode check
-5. request-contract validation for the selected surface
+3. work-governance classification when the request represents operator work
+4. routing and target selection
+5. operational mode check
+6. request-contract validation for the selected surface
 
 **Gates:**
 
@@ -166,12 +167,15 @@ retrieval.
 
 1. session initialization
 2. canonical admitted-turn handoff when the flow is interactive
-3. context assembly
-4. model invocation
-5. tool loop with repeated safety and authorization checks
-6. response assembly
-7. session update
-8. cost update
+3. resolved work-governance context projection
+4. context assembly
+5. model invocation
+6. tool loop with repeated safety and authorization checks
+7. managed child invocation when the resolved work policy requires orchestration
+8. verification and evidence collection
+9. response assembly
+10. session update
+11. cost update
 
 **Subprocess runtime additions:**
 
@@ -184,6 +188,16 @@ retrieval.
 - per-turn budget
 - phase gates
 - tool safety gates
+- direct-execution envelope when the parent proposes doing work itself
+- required evidence gates before completion claims
+
+**Invariants:**
+
+- CLI, GUI, TUI, SDK, benchmark, and native harness projections consume the
+  same work-governance policy.
+- A child invocation completion is not a task completion unless the configured
+  evidence gates are satisfied.
+- Model self-confidence does not satisfy verification gates.
 
 ## Tool Execution
 

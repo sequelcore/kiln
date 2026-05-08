@@ -6,10 +6,13 @@ import { readGlobalConfig, resolveGlobalDefaultModel, resolveGlobalDefaultProvid
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { readKilnYaml } from "../kiln-yaml.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
+import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions, resolveProjectMemoryScope } from "../config/web-tools-config.js";
@@ -56,12 +59,14 @@ export interface GuiFlags {
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
   const cwd = flags.cwd ?? process.cwd();
   const globalConfig = readGlobalConfig();
+  const projectConfig = readKilnYaml(join(cwd, ".kiln"));
+  const resolvedKilnConfig = await loadKilnConfig(cwd);
   const runtimeAppConfig = withContextCandidates(
-    withGlobalIdentityContext(appConfig, globalConfig),
+    withWorkGovernanceContext(withGlobalIdentityContext(appConfig, globalConfig), resolvedKilnConfig?.workGovernance),
     resolveInstructionProfileContextCandidates({
       projectPath: cwd,
       globalConfig,
-      projectConfig: readKilnYaml(join(cwd, ".kiln")),
+      projectConfig,
     }),
   );
   const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
@@ -94,6 +99,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

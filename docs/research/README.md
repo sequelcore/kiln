@@ -57,6 +57,11 @@ define the active architecture contract. For doctrine, use
   code intelligence, bulk context ingestion, monitors, task state, elicitation,
   and MCP resources.
 
+- `13-work-governance-and-verification.md`
+  External and research basis for moving from prompt engineering to governed
+  work lifecycles: orchestration preference, structured delegation, verifier
+  feedback, and evidence closeout.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -78,3 +83,4 @@ define the active architecture contract. For doctrine, use
 10. `10-coordination-intelligence.md`
 11. `11-agent-tooling-surface.md`
 12. `12-agent-tooling-next-surface.md`
+13. `13-work-governance-and-verification.md`

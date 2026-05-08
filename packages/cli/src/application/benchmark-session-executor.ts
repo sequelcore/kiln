@@ -20,12 +20,15 @@ import {
 } from "../wrapper/session-registry.js";
 import { resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "./instruction-profile-context.js";
+import { withWorkGovernanceContext } from "./work-governance-context.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
+import { createWorkGovernanceTools } from "./work-governance-tool.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -53,6 +56,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const cwd = process.cwd();
     const mode = resolveMode(options.flags);
     const globalConfig = readGlobalConfig();
+    const projectConfig = readKilnYaml(join(cwd, ".kiln"));
+    const resolvedKilnConfig = await loadKilnConfig(cwd);
     const configuredRouteCandidates = resolveProviderRouteCandidates({
       globalConfig,
       flagProvider: options.flags?.provider,
@@ -67,13 +72,16 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       provider: preferredProvider,
       permissionPolicy: BENCHMARK_POLICY,
     };
-    let identityAppConfig = withGlobalIdentityContext(options.appConfig, globalConfig);
+    let identityAppConfig = withWorkGovernanceContext(
+      withGlobalIdentityContext(options.appConfig, globalConfig),
+      resolvedKilnConfig?.workGovernance,
+    );
     identityAppConfig = withContextCandidates(
       identityAppConfig,
       resolveInstructionProfileContextCandidates({
         projectPath: cwd,
         globalConfig,
-        projectConfig: readKilnYaml(join(cwd, ".kiln")),
+        projectConfig,
       }),
     );
     const runtimeAppConfig = {
@@ -107,6 +115,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       additionalTools: [
         ...(configuredBuiltinToolOptions.additionalTools ?? []),
         ...createKilnConfigTools(cwd),
+        ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance),
       ],
     });
     const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

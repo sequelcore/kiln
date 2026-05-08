@@ -55,6 +55,9 @@ generic “orchestration.”
 - add inhibition rules
 - formalize shared-medium behavior
 - expose coordination telemetry
+- make work-governance classification the upstream signal for whether a parent
+  agent should execute directly, decompose work, or delegate to managed
+  children
 - treat distributed substrate as an architecture concern even before full
   infrastructure distribution
 
@@ -89,6 +92,8 @@ feature.
 
 - coordination decisions must remain observable
 - task ownership and claim semantics must be explicit
+- orchestration preference must come from the resolved work-governance policy,
+  not from surface-local prompt wording
 - stale coordination state must expire by policy
 - no hidden second coordination model should grow outside these primitives
 - coordination state must not bypass context governance when entering a model

@@ -13,6 +13,9 @@ Read the relevant architecture or guide document before using a roadmap:
   projection.
 - `docs/architecture/context-governance.md` for model-context admission,
   budgets, overflow, and audit.
+- `docs/architecture/work-governance.md` for operator-work posture,
+  orchestration preference, direct-execution envelopes, delegated work, and
+  evidence closeout.
 - `docs/architecture/context-resource-plane.md` for read-only resource
   contracts.
 - `docs/architecture/agent-context.md` for operator identity, instruction
@@ -138,6 +141,15 @@ deferred validation or experiment tracks.
   `kiln status` diagnostics, `http`, `searxng`, `brave`, `tavily`, and `exa`
   search-provider adapters, and `http`, `tavily`, and `firecrawl`
   extraction-provider adapters.
+- Work-governance posture and orchestration preference completed on
+  2026-05-08. Stable doctrine lives in
+  `docs/architecture/work-governance.md`, `docs/architecture/flows.md`,
+  `docs/architecture/coordination.md`, and
+  `docs/architecture/agent-context.md`; operator usage lives in
+  `docs/guides/global-config.md`; implementation covers canonical
+  `workGovernance` config, CLI/GUI/TUI/benchmark required context projection,
+  repo-shim projection, direct-execution envelope, delegation triggers, and
+  evidence expectations.
 
 ## Execution Priority
 

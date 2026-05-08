@@ -111,6 +111,78 @@ export interface KilnYamlSkillsConfig {
   readonly builtin?: KilnYamlBuiltinSkillsConfig;
 }
 
+export type KilnWorkGovernancePosture = "orchestrate" | "direct";
+
+export type KilnWorkGovernanceRisk = "low" | "medium" | "high";
+
+export type KilnWorkGovernanceTrigger =
+  | "architecture"
+  | "security"
+  | "ui"
+  | "runtime"
+  | "provider-routing"
+  | "managed-agents"
+  | "config"
+  | "multi-file"
+  | "cross-surface"
+  | "long-running"
+  | "verification-heavy"
+  | "formal-proof-candidate";
+
+export type KilnWorkGovernanceEvidence =
+  | "surface-map"
+  | "risk-hypothesis"
+  | "spec"
+  | "plan"
+  | "tests"
+  | "typecheck"
+  | "browser-qa"
+  | "managed-agent-review"
+  | "formal-proof"
+  | "residual-risk";
+
+export interface KilnWorkGovernanceDirectExecutionConfig {
+  readonly maxFiles?: number;
+  readonly maxRisk?: KilnWorkGovernanceRisk;
+}
+
+export interface KilnWorkGovernanceConfig {
+  readonly defaultPosture?: KilnWorkGovernancePosture;
+  readonly directExecution?: KilnWorkGovernanceDirectExecutionConfig;
+  readonly requireDelegationFor?: readonly KilnWorkGovernanceTrigger[];
+  readonly requiredEvidence?: readonly KilnWorkGovernanceEvidence[];
+}
+
+export const DEFAULT_WORK_GOVERNANCE_CONFIG: KilnWorkGovernanceConfig = {
+  defaultPosture: "orchestrate",
+  directExecution: {
+    maxFiles: 1,
+    maxRisk: "low",
+  },
+  requireDelegationFor: [
+    "architecture",
+    "security",
+    "ui",
+    "runtime",
+    "provider-routing",
+    "managed-agents",
+    "config",
+    "multi-file",
+    "cross-surface",
+    "long-running",
+    "verification-heavy",
+    "formal-proof-candidate",
+  ],
+  requiredEvidence: [
+    "surface-map",
+    "risk-hypothesis",
+    "plan",
+    "tests",
+    "typecheck",
+    "residual-risk",
+  ],
+};
+
 export type KilnModelTaskSuitabilityTask =
   | "architecture-review"
   | "backend-coding"
@@ -406,6 +478,7 @@ export interface KilnContextGovernanceConfig {
 export interface KilnYaml {
   readonly version: "1";
   readonly activeInstructionProfiles?: readonly string[];
+  readonly workGovernance?: KilnWorkGovernanceConfig;
   readonly domain?: string;
   readonly provider?: string;
   readonly channels?: string[];

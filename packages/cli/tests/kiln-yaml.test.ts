@@ -223,6 +223,42 @@ describe("mergeKilnYaml", () => {
     });
   });
 
+  it("merges work governance policy with project overrides", () => {
+    const base: KilnYaml = {
+      version: "1",
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: ["architecture"],
+        requiredEvidence: ["surface-map"],
+      },
+    };
+    const override: Partial<KilnYaml> = {
+      workGovernance: {
+        directExecution: {
+          maxFiles: 2,
+        },
+        requireDelegationFor: ["ui"],
+        requiredEvidence: ["browser-qa"],
+      },
+    };
+
+    const result = mergeKilnYaml(base, override);
+
+    expect(result.workGovernance).toEqual({
+      defaultPosture: "orchestrate",
+      directExecution: {
+        maxFiles: 2,
+        maxRisk: "low",
+      },
+      requireDelegationFor: ["architecture", "ui"],
+      requiredEvidence: ["surface-map", "browser-qa"],
+    });
+  });
+
   it("inherits global web providers while project web policy grants authority", () => {
     const base: KilnYaml = {
       version: "1",

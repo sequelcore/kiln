@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
 import { KilnYamlError } from "../kiln-yaml.js";
+import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
 import type {
   KilnManagedAgentsConfig,
   KilnHooksConfig,
@@ -12,6 +13,7 @@ import type {
   KilnYamlMcp,
   KilnYamlPermissions,
   KilnYamlSkillsConfig,
+  KilnWorkGovernanceConfig,
 } from "../kiln-yaml-types.js";
 
 export interface KilnGlobalIdentity {
@@ -68,6 +70,7 @@ export interface KilnGlobalConfig {
   readonly version: typeof CANONICAL_GLOBAL_CONFIG_VERSION;
   readonly identity?: KilnGlobalIdentity;
   readonly activeInstructionProfiles?: readonly string[];
+  readonly workGovernance?: KilnWorkGovernanceConfig;
   readonly engines?: Record<string, KilnGlobalEngineConfig>;
   readonly routing?: KilnGlobalRoutingConfig;
   readonly permissions?: KilnYamlPermissions;
@@ -86,6 +89,7 @@ const ROOT_FIELDS = new Set([
   "version",
   "identity",
   "activeInstructionProfiles",
+  "workGovernance",
   "engines",
   "routing",
   "permissions",
@@ -166,6 +170,7 @@ export function defaultGlobalConfig(): KilnGlobalConfig {
         enabled: true,
       },
     },
+    workGovernance: DEFAULT_WORK_GOVERNANCE_CONFIG,
     components: {
       include: ["baseline:core"],
     },
@@ -215,6 +220,7 @@ export function validateGlobalConfig(config: unknown): void {
     }
   }
   validateRecordField(config, "identity");
+  validateRecordField(config, "workGovernance");
   validateRecordField(config, "engines");
   validateRecordField(config, "routing");
   validateRecordField(config, "permissions");
@@ -228,6 +234,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "components");
   validateIdentity(config.identity);
   validateStringArray(config.activeInstructionProfiles, "activeInstructionProfiles");
+  validateWorkGovernance(config.workGovernance);
   validateEngines(config.engines);
   validateRouting(config.routing);
   validateComponents(config.components);
@@ -288,6 +295,63 @@ function validateGlobalWeb(value: unknown): void {
   }
   validateOptionalRecord(value, "searchProvider", "web.searchProvider");
   validateOptionalRecord(value, "extractProvider", "web.extractProvider");
+}
+
+function validateWorkGovernance(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("workGovernance must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (
+      key !== "defaultPosture"
+      && key !== "directExecution"
+      && key !== "requireDelegationFor"
+      && key !== "requiredEvidence"
+    ) {
+      throw new KilnYamlError(`Unknown workGovernance field: ${key}`);
+    }
+  }
+  if (value.defaultPosture !== undefined && value.defaultPosture !== "orchestrate" && value.defaultPosture !== "direct") {
+    throw new KilnYamlError('workGovernance.defaultPosture must be "orchestrate" or "direct"');
+  }
+  if (value.directExecution !== undefined) {
+    validateWorkGovernanceDirectExecution(value.directExecution);
+  }
+  const requireDelegationFor = value.requireDelegationFor as readonly unknown[] | undefined;
+  validateOptionalStringArray(requireDelegationFor, "workGovernance.requireDelegationFor");
+  for (const trigger of requireDelegationFor ?? []) {
+    if (!isWorkGovernanceTrigger(trigger)) {
+      throw new KilnYamlError(`workGovernance.requireDelegationFor contains unsupported trigger: ${trigger}`);
+    }
+  }
+  const requiredEvidence = value.requiredEvidence as readonly unknown[] | undefined;
+  validateOptionalStringArray(requiredEvidence, "workGovernance.requiredEvidence");
+  for (const evidence of requiredEvidence ?? []) {
+    if (!isWorkGovernanceEvidence(evidence)) {
+      throw new KilnYamlError(`workGovernance.requiredEvidence contains unsupported evidence: ${evidence}`);
+    }
+  }
+}
+
+function validateWorkGovernanceDirectExecution(value: unknown): void {
+  if (!isRecord(value)) {
+    throw new KilnYamlError("workGovernance.directExecution must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== "maxFiles" && key !== "maxRisk") {
+      throw new KilnYamlError(`Unknown workGovernance.directExecution field: ${key}`);
+    }
+  }
+  const maxFiles = value.maxFiles;
+  if (maxFiles !== undefined && (typeof maxFiles !== "number" || !Number.isInteger(maxFiles) || maxFiles < 1)) {
+    throw new KilnYamlError("workGovernance.directExecution.maxFiles must be a positive integer");
+  }
+  if (value.maxRisk !== undefined && !isWorkGovernanceRisk(value.maxRisk)) {
+    throw new KilnYamlError('workGovernance.directExecution.maxRisk must be "low", "medium", or "high"');
+  }
 }
 
 function validateOptionalRecord(record: Record<string, unknown>, key: string, path: string): void {
@@ -602,6 +666,38 @@ function isModelTaskSuitabilityTask(value: unknown): boolean {
 
 function isModelTaskSuitabilityLevel(value: unknown): boolean {
   return value === "preferred" || value === "capable" || value === "limited";
+}
+
+function isWorkGovernanceRisk(value: unknown): boolean {
+  return value === "low" || value === "medium" || value === "high";
+}
+
+function isWorkGovernanceTrigger(value: unknown): boolean {
+  return value === "architecture"
+    || value === "security"
+    || value === "ui"
+    || value === "runtime"
+    || value === "provider-routing"
+    || value === "managed-agents"
+    || value === "config"
+    || value === "multi-file"
+    || value === "cross-surface"
+    || value === "long-running"
+    || value === "verification-heavy"
+    || value === "formal-proof-candidate";
+}
+
+function isWorkGovernanceEvidence(value: unknown): boolean {
+  return value === "surface-map"
+    || value === "risk-hypothesis"
+    || value === "spec"
+    || value === "plan"
+    || value === "tests"
+    || value === "typecheck"
+    || value === "browser-qa"
+    || value === "managed-agent-review"
+    || value === "formal-proof"
+    || value === "residual-risk";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

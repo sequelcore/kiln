@@ -18,12 +18,20 @@ skill, and a managed child boundary have different ownership and safety
 semantics. They may be assembled together for one model call, but they remain
 different contracts.
 
+Work governance is a separate contract from identity, instruction profiles,
+agent profiles, and skills. It decides the default posture for operator work:
+direct execution only for small low-risk tasks, orchestration for non-trivial
+work, and evidence required before closeout. Instruction profiles may express
+team doctrine, but the cross-surface policy lives in resolved
+`workGovernance` config and is projected as required context.
+
 ## Canonical Surfaces
 
 | Surface | Purpose | Native or personalizable |
 | --- | --- | --- |
 | `OperatorIdentity` | Operator metadata for prompt context and UI personalization. | Native schema, personal content. |
 | `InstructionProfile` | Durable doctrine: standards, preferences, policies, principles. | Native precedence/admission, personal/team content. |
+| `WorkGovernancePolicy` | Default posture, direct-execution envelope, delegation triggers, and evidence expectations. | Native schema, global/project values. |
 | `AgentProfile` | Executable role configuration for parent agents, subagents, and managed children. | Native schema/admission, personal/team definitions. |
 | `SkillPackage` | Reusable procedural context, references, scripts, and resources. | Native registry/admission, personal/team/community packages. |
 | `ManagedInvocationContext` | One admitted child-run context assembled from profile, skills, resources, route, and authority. | Native runtime contract. |

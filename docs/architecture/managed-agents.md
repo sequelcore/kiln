@@ -33,10 +33,12 @@ resolve, admit, and record before execution.
 
 ## Non-Boundaries
 
-Managed invocation does not define conductor planning, fan-out/fan-in
+Managed invocation does not itself define conductor planning, fan-out/fan-in
 scheduling, durable workflow execution, team topology mutation, or autonomous
-multi-agent strategy. Those capabilities may use managed invocation later, but
-they must not broaden this contract.
+multi-agent strategy. Work-governance policy may require the parent to use
+managed invocation for non-trivial work, but that policy remains a caller-side
+control decision. Managed invocation owns the child execution boundary once a
+bounded child request is admitted.
 
 Managed invocation also does not make provider-native permission behavior
 authoritative. Provider sandbox and approval claims are telemetry until Kiln

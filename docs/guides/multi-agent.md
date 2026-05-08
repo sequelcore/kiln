@@ -10,6 +10,7 @@ recovery.
 For doctrine, start with:
 
 - [Coordination](../architecture/coordination.md)
+- [Work Governance](../architecture/work-governance.md)
 - [Flows](../architecture/flows.md)
 - [Safety](../architecture/safety.md)
 
@@ -59,6 +60,7 @@ Use multiple roles when they create clear operational benefit, such as:
 - reviewer versus implementer separation
 - read-only versus side-effect-capable separation
 - domain-specific handling with materially different tools or policy
+- work-governance triggers that require orchestration before direct execution
 
 Do not add multiple roles just to mirror an old "swarm" narrative.
 

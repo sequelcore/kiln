@@ -50,6 +50,12 @@ Kiln maintains an operational envelope around autonomous agent sessions that is:
 - continuable
 - multi-tenant
 
+For operator work, the default control behavior is governed orchestration.
+Kiln may let a parent agent execute directly when the work is trivial and
+low-risk, but non-trivial work should be decomposed, delegated, verified, and
+closed with evidence. This is an operating policy inside the control plane,
+not a replacement for the control-plane identity.
+
 ## Primary Operating Model
 
 Kiln operates as a control plane that senses state, compares it to configured

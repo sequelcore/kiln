@@ -314,6 +314,27 @@ function renderRepoShimBody(input: {
     );
   }
 
+  if (kilnYaml?.workGovernance) {
+    lines.push(
+      "## Work Governance",
+      "",
+      "Follow the resolved Kiln work-governance policy before choosing direct execution.",
+      ...[
+        kilnYaml.workGovernance.defaultPosture ? `- Default posture: ${kilnYaml.workGovernance.defaultPosture}` : undefined,
+        kilnYaml.workGovernance.directExecution
+          ? `- Direct execution: ${formatDirectExecution(kilnYaml.workGovernance.directExecution)}`
+          : undefined,
+        kilnYaml.workGovernance.requireDelegationFor && kilnYaml.workGovernance.requireDelegationFor.length > 0
+          ? `- Orchestrate/delegate for: ${kilnYaml.workGovernance.requireDelegationFor.join(", ")}`
+          : undefined,
+        kilnYaml.workGovernance.requiredEvidence && kilnYaml.workGovernance.requiredEvidence.length > 0
+          ? `- Evidence before done: ${kilnYaml.workGovernance.requiredEvidence.join(", ")}`
+          : undefined,
+      ].filter((line): line is string => line !== undefined),
+      "",
+    );
+  }
+
   lines.push(
     "## Agents",
     "",
@@ -337,6 +358,19 @@ function renderRepoShimBody(input: {
   );
 
   return lines.join("\n");
+}
+
+function formatDirectExecution(
+  config: NonNullable<KilnYaml["workGovernance"]>["directExecution"],
+): string {
+  if (!config) {
+    return "configured";
+  }
+  const parts = [
+    config.maxFiles !== undefined ? `maxFiles=${config.maxFiles}` : undefined,
+    config.maxRisk ? `maxRisk=${config.maxRisk}` : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? parts.join(", ") : "configured";
 }
 
 function formatAgentRow(agent: KilnAgentDefinition): string {

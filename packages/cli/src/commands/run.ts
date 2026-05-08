@@ -30,6 +30,7 @@ import {
   withContextCandidates,
 } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import {
   computeEvalScore,
@@ -50,9 +51,11 @@ import { TranscriptStore } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
+import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
@@ -373,6 +376,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
 
   const globalConfig = readGlobalConfig();
+  const projectConfig = readKilnYaml(join(cwd, ".kiln"));
+  const resolvedKilnConfig = await loadKilnConfig(cwd);
   const configuredRouteCandidates = resolveProviderRouteCandidates({
     globalConfig,
     flagProvider: flags.provider,
@@ -387,13 +392,16 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig))
     ?? resolvedAgent?.model;
   const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
-  let identityAppConfig = withGlobalIdentityContext(appConfig, globalConfig);
+  let identityAppConfig = withWorkGovernanceContext(
+    withGlobalIdentityContext(appConfig, globalConfig),
+    resolvedKilnConfig?.workGovernance,
+  );
   identityAppConfig = withContextCandidates(
     identityAppConfig,
     resolveInstructionProfileContextCandidates({
       projectPath: cwd,
       globalConfig,
-      projectConfig: readKilnYaml(join(cwd, ".kiln")),
+      projectConfig,
       agent: resolvedAgent,
     }),
   );
@@ -522,6 +530,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

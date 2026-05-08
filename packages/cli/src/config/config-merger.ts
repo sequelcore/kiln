@@ -5,7 +5,7 @@ import {
   resolveGlobalDefaultProvider,
 } from "./global-config.js";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
-import type { KilnYaml, KilnYamlWebConfig } from "../kiln-yaml-types.js";
+import { DEFAULT_WORK_GOVERNANCE_CONFIG, type KilnYaml, type KilnYamlWebConfig } from "../kiln-yaml-types.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 
 export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
@@ -13,6 +13,7 @@ export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
   return {
     version: "1",
     activeInstructionProfiles: global.activeInstructionProfiles,
+    workGovernance: global.workGovernance ?? DEFAULT_WORK_GOVERNANCE_CONFIG,
     provider: resolveGlobalDefaultProvider(global),
     model: model ? { default: model } : undefined,
     permissions: global.permissions,

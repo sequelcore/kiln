@@ -10,6 +10,9 @@ import type {
   KilnYamlWebConfig,
   KilnYamlSkillsConfig,
   KilnYamlBuiltinSkillsConfig,
+  KilnWorkGovernanceConfig,
+  KilnWorkGovernanceTrigger,
+  KilnWorkGovernanceEvidence,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
@@ -32,6 +35,11 @@ export type {
   KilnYamlSkillGeneration,
   KilnYamlSkillsConfig,
   KilnYamlBuiltinSkillsConfig,
+  KilnWorkGovernanceConfig,
+  KilnWorkGovernancePosture,
+  KilnWorkGovernanceRisk,
+  KilnWorkGovernanceTrigger,
+  KilnWorkGovernanceEvidence,
   KilnModelTaskSuitabilityOverride,
   KilnModelTaskSuitabilityLevel,
   KilnModelTaskSuitabilityTask,
@@ -74,6 +82,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
   return {
     version: override.version ?? base.version ?? "1",
     activeInstructionProfiles: mergeStringList(base.activeInstructionProfiles, override.activeInstructionProfiles),
+    workGovernance: mergeWorkGovernance(base.workGovernance, override.workGovernance),
     domain: override.domain ?? base.domain,
     provider: override.provider ?? base.provider,
     channels: override.channels ?? base.channels,
@@ -92,6 +101,28 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     skills: mergeSkills(base.skills, override.skills),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,
+  };
+}
+
+function mergeWorkGovernance(
+  base: KilnWorkGovernanceConfig | undefined,
+  override: KilnWorkGovernanceConfig | undefined,
+): KilnWorkGovernanceConfig | undefined {
+  if (!base && !override) return undefined;
+  return {
+    defaultPosture: override?.defaultPosture ?? base?.defaultPosture,
+    directExecution: base?.directExecution || override?.directExecution
+      ? {
+        ...base?.directExecution,
+        ...override?.directExecution,
+      }
+      : undefined,
+    requireDelegationFor: mergeStringList(base?.requireDelegationFor, override?.requireDelegationFor) as
+      | readonly KilnWorkGovernanceTrigger[]
+      | undefined,
+    requiredEvidence: mergeStringList(base?.requiredEvidence, override?.requiredEvidence) as
+      | readonly KilnWorkGovernanceEvidence[]
+      | undefined,
   };
 }
 

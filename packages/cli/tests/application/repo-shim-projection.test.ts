@@ -72,6 +72,15 @@ describe("repo-shim-projection", () => {
       maxDepth: 3,
       parallelWorkers: 1,
       activeInstructionProfiles: ["sequel-engineering"],
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: ["architecture", "ui"],
+        requiredEvidence: ["surface-map", "residual-risk"],
+      },
     });
     loadInstructionProfilesMock.mockReturnValue([{
       name: "sequel-engineering",
@@ -100,6 +109,8 @@ describe("repo-shim-projection", () => {
     expect(agents).toContain("- Script `test`: `bun run test`");
     expect(agents).toContain("- Workspace package: `packages/*`");
     expect(agents).toContain("- docs/architecture/README.md");
+    expect(agents).toContain("## Work Governance");
+    expect(agents).toContain("- Orchestrate/delegate for: architecture, ui");
     expect(agents).toContain("| planner (global) | Hal | Planning specialist");
     expect(agents).toContain("sequel-engineering (global): ~/.kiln/instructions/sequel-engineering.md");
     expect(claude).toContain("kiln:repo-shim:v1");

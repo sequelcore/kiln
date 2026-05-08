@@ -68,6 +68,15 @@ describe("config-merger", () => {
           include: ["tdd-workflow"],
         },
       },
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: ["architecture"],
+        requiredEvidence: ["surface-map"],
+      },
       modelTaskSuitability: [{
         provider: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -95,6 +104,15 @@ describe("config-merger", () => {
           enabled: true,
           include: ["tdd-workflow"],
         },
+      },
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: ["architecture"],
+        requiredEvidence: ["surface-map"],
       },
       modelTaskSuitability: [{
         provider: "codex-oauth",
@@ -159,6 +177,35 @@ describe("config-merger", () => {
         mcp: undefined,
         hooks: undefined,
         skills: undefined,
+        workGovernance: {
+          defaultPosture: "orchestrate",
+          directExecution: {
+            maxFiles: 1,
+            maxRisk: "low",
+          },
+          requireDelegationFor: [
+            "architecture",
+            "security",
+            "ui",
+            "runtime",
+            "provider-routing",
+            "managed-agents",
+            "config",
+            "multi-file",
+            "cross-surface",
+            "long-running",
+            "verification-heavy",
+            "formal-proof-candidate",
+          ],
+          requiredEvidence: [
+            "surface-map",
+            "risk-hypothesis",
+            "plan",
+            "tests",
+            "typecheck",
+            "residual-risk",
+          ],
+        },
         modelTaskSuitability: undefined,
       },
       projectConfig,
@@ -212,6 +259,15 @@ describe("config-merger", () => {
           exclude: ["frontend-ux-review"],
         },
       },
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: ["architecture"],
+        requiredEvidence: ["surface-map"],
+      },
       modelTaskSuitability: [{
         provider: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -234,6 +290,15 @@ describe("config-merger", () => {
         builtin: {
           exclude: ["frontend-ux-review"],
         },
+      },
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: ["architecture"],
+        requiredEvidence: ["surface-map"],
       },
       modelTaskSuitability: [{
         provider: "codex-oauth",
@@ -287,6 +352,35 @@ describe("config-merger", () => {
       mcp: undefined,
       hooks: undefined,
       skills: undefined,
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: {
+          maxFiles: 1,
+          maxRisk: "low",
+        },
+        requireDelegationFor: [
+          "architecture",
+          "security",
+          "ui",
+          "runtime",
+          "provider-routing",
+          "managed-agents",
+          "config",
+          "multi-file",
+          "cross-surface",
+          "long-running",
+          "verification-heavy",
+          "formal-proof-candidate",
+        ],
+        requiredEvidence: [
+          "surface-map",
+          "risk-hypothesis",
+          "plan",
+          "tests",
+          "typecheck",
+          "residual-risk",
+        ],
+      },
       modelTaskSuitability: undefined,
     });
   });

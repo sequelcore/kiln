@@ -24,6 +24,11 @@ is documented by concern, not as a single monolith.
   Canonical end-to-end flows and their gates, state transitions, and
   fail-closed or recovery behavior.
 
+- `work-governance.md`
+  Canonical work lifecycle, orchestration preference, direct-execution
+  envelope, evidence expectations, verifier-backed work, and cross-surface
+  work-policy projection.
+
 - `memory.md`
   Layered memory model, retention policy, reconsolidation, forgetting, and
   current/future-state memory design.

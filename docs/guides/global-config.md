@@ -48,6 +48,7 @@ usage view.
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
 | `activeInstructionProfiles` | `string[]` | Ordered canonical instruction profile ids selected for global governed prompt context. Profiles are loaded from `~/.kiln/instructions/*.md` and may be overridden by project profiles with the same id. |
+| `workGovernance` | `KilnWorkGovernanceConfig` | Default work posture, direct-execution envelope, delegation triggers, and evidence expectations projected across CLI, GUI, TUI, benchmark sessions, and repo shims. |
 | `web.searchProvider` | `KilnYamlWebSearchProvider` | Global default web search provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
 | `web.extractProvider` | `KilnYamlWebExtractProvider` | Global default web extraction provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
@@ -211,6 +212,31 @@ identity:
   timezone: America/Tijuana
 activeInstructionProfiles:
   - sequel-engineering
+workGovernance:
+  defaultPosture: orchestrate
+  directExecution:
+    maxFiles: 1
+    maxRisk: low
+  requireDelegationFor:
+    - architecture
+    - security
+    - ui
+    - runtime
+    - provider-routing
+    - managed-agents
+    - config
+    - multi-file
+    - cross-surface
+    - long-running
+    - verification-heavy
+    - formal-proof-candidate
+  requiredEvidence:
+    - surface-map
+    - risk-hypothesis
+    - plan
+    - tests
+    - typecheck
+    - residual-risk
 ui:
   theme: kiln-dark
 components:
@@ -269,6 +295,31 @@ identity:
   timezone: America/Tijuana
 activeInstructionProfiles:
   - sequel-engineering
+workGovernance:
+  defaultPosture: orchestrate
+  directExecution:
+    maxFiles: 1
+    maxRisk: low
+  requireDelegationFor:
+    - architecture
+    - security
+    - ui
+    - runtime
+    - provider-routing
+    - managed-agents
+    - config
+    - multi-file
+    - cross-surface
+    - long-running
+    - verification-heavy
+    - formal-proof-candidate
+  requiredEvidence:
+    - surface-map
+    - risk-hypothesis
+    - plan
+    - tests
+    - typecheck
+    - residual-risk
 ui:
   theme: kiln-dark
 components:
@@ -310,6 +361,16 @@ Use DDD and Clean Architecture boundaries. Do not keep dead code, redundancy,
 compatibility hacks, or boilerplate. Scout before broad changes, write tests
 for behavior changes, verify before claiming complete, and keep commits atomic.
 ```
+
+`workGovernance` is the cross-surface policy that tells parent agents when
+they may execute directly and when they should orchestrate. It is intentionally
+separate from instruction-profile prose so GUI, TUI, CLI, benchmark sessions,
+managed invocations, and generated repo shims can all project the same
+resolved policy. Use instruction profiles for team doctrine; use
+`workGovernance` for the executable posture and evidence expectations.
+CLI-owned runtime surfaces also expose `work_governance.assess`, a read-only
+tool that returns the resolved direct-versus-orchestrate recommendation for a
+specific task.
 
 Matching global agent profiles live under `~/.kiln/agents/`. They must use the
 canonical profile contract; partial native-agent files are not accepted as
