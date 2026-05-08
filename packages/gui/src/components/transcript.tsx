@@ -37,6 +37,7 @@ const TRANSCRIPT_TOOL_DETAIL_LABELS = new Set([
   "Skills",
   "Task",
 ]);
+const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
 
 function isAtBottom(node: HTMLDivElement): boolean {
   const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
@@ -783,14 +784,13 @@ function EmptyTranscript() {
   return (
     <div className="grid min-h-full place-items-center px-4 py-16 text-center">
       <div className="flex flex-col items-center gap-3">
-        <div className="grid size-10 place-items-center rounded-lg text-foreground" aria-hidden="true">
-          <span className="grid gap-1">
-            <span className="block h-px w-5 rounded-full bg-current opacity-30" />
-            <span className="block h-px w-4 rounded-full bg-current opacity-80" />
-            <span className="block h-px w-5 rounded-full bg-current opacity-55" />
-            <span className="block h-px w-3 rounded-full bg-current" />
-          </span>
-        </div>
+        <img
+          src={KILN_LOGO_URL}
+          alt=""
+          className="size-12 object-contain opacity-95"
+          draggable={false}
+          aria-hidden="true"
+        />
         <div className="flex flex-col gap-1" aria-live="off">
           <p className="text-2xl font-semibold tracking-normal text-foreground">{phrase}</p>
           <p className="text-sm text-muted-foreground">Kiln</p>

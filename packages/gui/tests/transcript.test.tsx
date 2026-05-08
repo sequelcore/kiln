@@ -27,10 +27,11 @@ describe("Transcript", () => {
   it("renders a minimal empty state without an instructional card", () => {
     vi.spyOn(Date, "now").mockReturnValue(0);
 
-    render(<Transcript entries={[]} />);
+    const { container } = render(<Transcript entries={[]} />);
 
     expect(screen.getByText("Job's live. Run it clean.")).toBeInTheDocument();
     expect(screen.getByText("Kiln")).toBeInTheDocument();
+    expect(container.querySelector('img[src*="logo.svg"]')).toBeInTheDocument();
     expect(screen.queryByText("Start a conversation to see the transcript.")).not.toBeInTheDocument();
   });
 
