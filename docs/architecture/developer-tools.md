@@ -455,7 +455,10 @@ treat coordinates as authority evidence or as a physical pointer transport;
 coordinate-only mouse/keyboard work remains owned by the `windows` provider.
 Focusing the Kiln operator window is self-authority for returning control to
 the user when `allowComputer` is enabled; closing or otherwise automating Kiln
-still requires explicit application policy.
+still requires explicit application policy. Graceful close captures the target
+window identity before sending `WM_CLOSE`, verifies the requested window closed,
+and reports the requested target rather than whatever window becomes active
+after close.
 Missing setup must produce this operator-facing command:
 
 ```bash

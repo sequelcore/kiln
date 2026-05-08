@@ -393,6 +393,9 @@ Behavior:
 - Allow `computer_focus_application` to return focus to the Kiln operator
   window as self-authority when computer use is enabled, without allowing
   close or arbitrary automation of Kiln by default.
+- Make `computer_close_application` capture the requested target before
+  closing, verify that target disappeared, and report that target instead of the
+  next active foreground window.
 - Keep low-level pointer/keyboard transport out of `windows-uia`; coordinate
   and raw keyboard tasks remain outside this semantic provider.
 

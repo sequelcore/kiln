@@ -262,6 +262,11 @@ struct WindowSearch {
   HWND hwnd = nullptr;
 };
 
+struct CapturedWindow {
+  std::wstring application;
+  std::wstring windowTitle;
+};
+
 bool ContainsInsensitive(const std::wstring& haystack, const std::wstring& needle) {
   if (needle.empty()) return true;
   return ToLower(haystack).find(ToLower(needle)) != std::wstring::npos;
@@ -329,6 +334,25 @@ bool OpenApplication(const Request& request) {
   if (reinterpret_cast<INT_PTR>(result) > 32) return true;
   result = ShellExecuteW(nullptr, L"open", request.application.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
   return reinterpret_cast<INT_PTR>(result) > 32;
+}
+
+CapturedWindow CaptureWindow(HWND hwnd) {
+  CapturedWindow captured;
+  if (!hwnd) return captured;
+  captured.application = WindowProcessName(hwnd);
+  captured.windowTitle = WindowTitle(hwnd);
+  if (captured.application.empty()) captured.application = captured.windowTitle;
+  return captured;
+}
+
+bool WaitForWindowClosed(const Request& request, HWND hwnd) {
+  for (int attempt = 0; attempt < 20; attempt += 1) {
+    Sleep(50);
+    if (!IsWindow(hwnd)) return true;
+    HWND remaining = FindRequestedWindow(request);
+    if (!remaining) return true;
+  }
+  return false;
 }
 
 ComPtr<IUIAutomationElement> ResolveActiveWindow(IUIAutomation* automation) {
@@ -473,6 +497,16 @@ std::string ObservationJson(IUIAutomation* automation, IUIAutomationElement* act
   return json.str();
 }
 
+std::string ObservationJsonFromWindow(const CapturedWindow& window, const std::wstring& visibleText) {
+  std::ostringstream json;
+  json << "{\"observation\":{";
+  json << "\"application\":\"" << JsonEscape(window.application) << "\"";
+  json << ",\"windowTitle\":\"" << JsonEscape(window.windowTitle) << "\"";
+  if (!visibleText.empty()) json << ",\"visibleText\":\"" << JsonEscape(visibleText) << "\"";
+  json << "}}";
+  return json.str();
+}
+
 bool InvokeElement(IUIAutomationElement* element) {
   ComPtr<IUnknown> unknown;
   if (FAILED(element->GetCurrentPattern(UIA_InvokePatternId, &unknown)) || !unknown) return false;
@@ -544,8 +578,18 @@ int main() {
       CoUninitialize();
       return Fail("requested application window was not found");
     }
-    PostMessageW(targetWindow, WM_CLOSE, 0, 0);
-    Sleep(200);
+    const CapturedWindow closedWindow = CaptureWindow(targetWindow);
+    if (!PostMessageW(targetWindow, WM_CLOSE, 0, 0)) {
+      CoUninitialize();
+      return Fail("could not request close for application window");
+    }
+    if (!WaitForWindowClosed(request, targetWindow)) {
+      CoUninitialize();
+      return Fail("requested application window did not close");
+    }
+    std::cout << ObservationJsonFromWindow(closedWindow, L"closed");
+    CoUninitialize();
+    return 0;
   }
 
   ComPtr<IUIAutomationElement> activeWindow = ResolveActiveWindow(automation.Get());
