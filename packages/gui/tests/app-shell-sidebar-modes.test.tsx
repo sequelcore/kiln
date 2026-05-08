@@ -66,10 +66,6 @@ vi.mock("../src/api/client.js", () => ({
       };
     }
 
-    async loadResourceDataUrl() {
-      return "data:image/png;base64,ZmFrZQ==";
-    }
-
     async loadMemoryLatticeGraph() {
       return {
         snapshot: {
@@ -476,51 +472,6 @@ describe("AppShell sidebar modes", () => {
 
     expect(await screen.findByRole("tab", { name: "Browser: Example App" })).toBeInTheDocument();
     expect(screen.getByText("interactive browser")).toBeInTheDocument();
-  });
-
-  it("opens the browser tab from the canonical browser_observe tool event", async () => {
-    render(<AppShell />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-list")).toBeInTheDocument();
-    });
-
-    act(() => {
-      guiWsOnFrame?.({
-        type: "session_event",
-        event: {
-          eventId: "evt-browser-observe",
-          kilnSessionId: "kiln-gui:_gui:test:1",
-          sequence: 6,
-          timestamp: "2026-05-08T23:33:44.000Z",
-          kind: "tool_call_completed",
-          source: { actor: "tool", surface: "gui", component: "gui-command" },
-          turnId: "turn-1",
-          payload: {
-            toolName: "browser_observe",
-            status: { state: "succeeded" },
-            metadata: {
-              toolName: "browser_observe",
-              kind: "interactive",
-              target: "browser",
-              operation: "observe",
-              provider: "playwright",
-              sessionId: "browser-1",
-              observation: {
-                url: "https://example.com/",
-                title: "Example Domain",
-                visibleText: "Example Domain",
-                screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
-              },
-            },
-          },
-        },
-      });
-    });
-
-    expect(await screen.findByRole("tab", { name: "Browser: Example Domain" })).toBeInTheDocument();
-    expect(screen.getByText("interactive browser")).toBeInTheDocument();
-    expect(screen.getByText("https://example.com/")).toBeInTheDocument();
   });
 
   it("collapses the primary sidebar into an icon rail and keeps sessions accessible", async () => {

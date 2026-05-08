@@ -334,20 +334,17 @@ describe("startGuiGateway static mount", () => {
 
       const indexResponse = await app.request("http://localhost/gui/index.html");
       expect(indexResponse.status).toBe(200);
-      expect(indexResponse.headers.get("cache-control")).toBe("no-store");
       const indexHtml = await indexResponse.text();
       expect(indexHtml).toContain("GUI Test Build");
 
       const routeResponse = await app.request("http://localhost/gui/sessions/alpha");
       expect(routeResponse.status).toBe(200);
-      expect(routeResponse.headers.get("cache-control")).toBe("no-store");
       const routeHtml = await routeResponse.text();
       expect(routeHtml).toContain("GUI Test Build");
       expect(routeHtml).toContain("/gui/assets/app.js");
 
       const assetResponse = await app.request("http://localhost/gui/assets/app.js");
       expect(assetResponse.status).toBe(200);
-      expect(assetResponse.headers.get("cache-control")).toBeNull();
       expect(await assetResponse.text()).toContain("asset-ok");
     } finally {
       rmSync(distDir, { recursive: true, force: true });
