@@ -526,6 +526,25 @@ bool SetElementValue(IUIAutomationElement* element, const std::wstring& text) {
   return ok;
 }
 
+bool CloseWindowWithUia(IUIAutomation* automation, HWND hwnd) {
+  if (!automation || !hwnd) return false;
+  ComPtr<IUIAutomationElement> element;
+  if (FAILED(automation->ElementFromHandle(hwnd, &element)) || !element) return false;
+  ComPtr<IUnknown> unknown;
+  if (FAILED(element->GetCurrentPattern(UIA_WindowPatternId, &unknown)) || !unknown) return false;
+  ComPtr<IUIAutomationWindowPattern> window;
+  if (FAILED(unknown.As(&window)) || !window) return false;
+  return SUCCEEDED(window->Close());
+}
+
+bool RequestWindowClose(IUIAutomation* automation, HWND hwnd) {
+  if (CloseWindowWithUia(automation, hwnd)) return true;
+  DWORD_PTR result = 0;
+  if (SendMessageTimeoutW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0, SMTO_ABORTIFHUNG, 1000, &result) != 0) return true;
+  if (SendMessageTimeoutW(hwnd, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 1000, &result) != 0) return true;
+  return PostMessageW(hwnd, WM_CLOSE, 0, 0) != FALSE;
+}
+
 int Fail(const std::string& message) {
   std::cerr << message << std::endl;
   return 1;
@@ -579,13 +598,12 @@ int main() {
       return Fail("requested application window was not found");
     }
     const CapturedWindow closedWindow = CaptureWindow(targetWindow);
-    if (!PostMessageW(targetWindow, WM_CLOSE, 0, 0)) {
-      CoUninitialize();
-      return Fail("could not request close for application window");
-    }
+    const bool closeRequested = RequestWindowClose(automation.Get(), targetWindow);
     if (!WaitForWindowClosed(request, targetWindow)) {
       CoUninitialize();
-      return Fail("requested application window did not close");
+      return Fail(closeRequested
+        ? "requested application window did not close"
+        : "could not request close for application window");
     }
     std::cout << ObservationJsonFromWindow(closedWindow, L"closed");
     CoUninitialize();
