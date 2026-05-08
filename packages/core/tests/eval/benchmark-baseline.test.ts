@@ -77,15 +77,18 @@ describe("benchmark baseline readiness", () => {
     ]);
   });
 
-  it("reports internal-baseline-ready when profiles pass but external adapters remain blocked", () => {
+  it("reports external-ready when a candidate track has its required surface ready", () => {
     const report = evaluateBenchmarkReadiness({
       profiles: [KILN_BENCHMARK_PROFILES[0]!],
       baselines: [baselineFor("kiln-tool-agent")],
     });
 
-    expect(report.status).toBe("internal-baseline-ready");
+    expect(report.status).toBe("external-ready");
     expect(report.profileReadiness[0]?.status).toBe("internal-baseline-ready");
-    expect(report.blockedTracks).toEqual(KILN_EXTERNAL_BENCHMARK_TRACKS.map((track) => track.id));
+    expect(report.externalReadyTracks).toEqual(["bfcl"]);
+    expect(report.blockedTracks).toEqual(KILN_EXTERNAL_BENCHMARK_TRACKS
+      .filter((track) => track.id !== "bfcl")
+      .map((track) => track.id));
   });
 
   it("reports external-ready only for candidate tracks with ready required surfaces", () => {

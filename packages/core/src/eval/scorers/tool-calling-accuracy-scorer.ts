@@ -34,6 +34,12 @@ function extractActualCalls(metadata: Record<string, unknown> | undefined): Expe
   return calls.length > 0 ? calls : undefined;
 }
 
+function extractAllowedExtraCallNames(metadata: Record<string, unknown> | undefined): ReadonlySet<string> {
+  const raw = metadata?.allowedExtraToolCalls;
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(raw.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0));
+}
+
 function argsMatch(expected: Record<string, unknown> | undefined, actual: Record<string, unknown> | undefined): boolean {
   if (!expected) return true; // no expected args = don't check
   if (!actual) return false;
@@ -52,6 +58,7 @@ export class ToolCallingAccuracyScorer implements Scorer {
       return { name: this.name, score: 0, reasoning: "No expectedToolCalls in metadata" };
     }
 
+    const allowedExtraCallNames = extractAllowedExtraCallNames(input.metadata);
     const actual = extractActualCalls(input.metadata);
     if (!actual) {
       return { name: this.name, score: 0, reasoning: `0/${expected.length} expected calls made (no tool calls recorded)` };
@@ -73,12 +80,17 @@ export class ToolCallingAccuracyScorer implements Scorer {
       }
     }
 
-    const precision = actual.length > 0 ? actualMatched.size / actual.length : 0;
+    const relevantActualCount = actual.filter((call, index) =>
+      actualMatched.has(index) || !allowedExtraCallNames.has(call.name)
+    ).length;
+    const precision = relevantActualCount > 0 ? actualMatched.size / relevantActualCount : 0;
     const recall = expectedMatched.size / expected.length;
     const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
 
     const missed = expected.filter((_, i) => !expectedMatched.has(i)).map((c) => c.name);
-    const extra = actual.filter((_, i) => !actualMatched.has(i)).map((c) => c.name);
+    const extra = actual
+      .filter((call, index) => !actualMatched.has(index) && !allowedExtraCallNames.has(call.name))
+      .map((c) => c.name);
 
     const parts: string[] = [`F1=${f1.toFixed(2)} (precision=${precision.toFixed(2)}, recall=${recall.toFixed(2)})`];
     if (missed.length > 0) parts.push(`missed: ${missed.join(", ")}`);

@@ -6,7 +6,9 @@ export class CleanupRegistry {
   }
 
   async runAll(): Promise<void> {
-    await Promise.allSettled([...this.handlers].map((fn) => fn()));
+    const handlers = [...this.handlers];
+    this.handlers.clear();
+    await Promise.allSettled(handlers.map((fn) => fn()));
   }
 }
 

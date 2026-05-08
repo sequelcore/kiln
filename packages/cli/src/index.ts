@@ -238,6 +238,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "benchmark") {
     const { benchmarkCommand } = await import("./commands/benchmark.js");
     await benchmarkCommand(config, args[1], args.slice(2));
+    process.exit(0);
     return;
   }
 

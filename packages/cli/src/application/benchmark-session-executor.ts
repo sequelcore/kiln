@@ -12,7 +12,7 @@ import { withGlobalIdentityContext } from "../config/operator-identity-context.j
 import type { KilnPermissionPolicy, SessionMode } from "../wrapper/index.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import { SessionManager } from "../wrapper/session-manager.js";
-import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
+import { CleanupRegistry } from "../wrapper/cleanup-registry.js";
 import {
   createDefaultRegistry,
   isDirectApiProvider,
@@ -81,6 +81,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       buildSystemPrompt: identityAppConfig.buildSystemPrompt ?? defaultBuildSystemPrompt,
     };
     const { registry, worktreeManager } = createDefaultRegistry();
+    const benchmarkCleanupRegistry = new CleanupRegistry();
     const contextArtifactCache = await getProjectContextArtifactCache(cwd);
     const manager = new SessionManager(wrapperConfig, runtimeAppConfig, contextArtifactCache, worktreeManager);
     const sessionContext = await manager.prepare(
@@ -140,7 +141,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     });
     const result = await runSession({
       registry,
-      cleanupRegistry,
+      cleanupRegistry: benchmarkCleanupRegistry,
       manager,
       context: sessionContext,
       requirements: {
@@ -154,6 +155,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       approvalMemoryStore: new ApprovalMemoryStoreImpl(cwd),
       env,
       sessionHooks,
+    }).finally(async () => {
+      await benchmarkCleanupRegistry.runAll();
+      await manager.cleanupWorktree(sessionContext);
+      closeBuiltinResources(configuredBuiltinToolOptions);
     });
     await recordDirectRouteHealth(configuredRouteCandidates, result.attempts, result.lastError);
 
@@ -182,6 +187,16 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       },
     };
   };
+}
+
+function closeBuiltinResources(options: {
+  readonly memoryResources?: { readonly repository?: { close?: () => void } };
+}): void {
+  try {
+    options.memoryResources?.repository?.close?.();
+  } catch {
+    // fail-open cleanup
+  }
 }
 
 function resolveMode(flags: BenchmarkSessionExecutorFlags | undefined): SessionMode {

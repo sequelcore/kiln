@@ -23,6 +23,22 @@ describe("ToolCallingAccuracyScorer", () => {
     expect(result.reasoning).toContain("F1=1.00");
   });
 
+  it("ignores explicitly allowed extra tool calls", async () => {
+    const scorer = new ToolCallingAccuracyScorer();
+
+    await expect(scorer.score({
+      input: "Find docs",
+      output: "done",
+      metadata: {
+        expectedToolCalls: [{ name: "grep" }],
+        allowedExtraToolCalls: ["read"],
+        toolCalls: [{ name: "grep" }, { name: "read" }],
+      },
+    })).resolves.toMatchObject({
+      score: 1,
+    });
+  });
+
   it("returns 0 when no expectedToolCalls in metadata", async () => {
     const scorer = new ToolCallingAccuracyScorer();
     const result = await scorer.score({ input: "q", output: "a" });
