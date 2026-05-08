@@ -274,6 +274,7 @@ kiln benchmark profiles
 kiln benchmark tracks
 kiln benchmark readiness --baseline ./evals/kiln-baseline.json
 kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
+kiln benchmark project-bfcl --input ./bfcl.json --output ./.kiln/benchmarks/bfcl.jsonl
 ```
 
 The baseline file may be an array of `BenchmarkBaselineResult` records or an
@@ -284,6 +285,11 @@ through normal Kiln runtime sessions. It uses structural benchmark scorers that
 consume Kiln evidence such as tool calls, routing identity, handoff output,
 policy violations, latency, and cost. These internal scores are gates for
 adapter readiness; they are not public external benchmark submissions.
+
+`kiln benchmark project-bfcl` converts supported BFCL rows into Kiln JSONL
+dataset items. The adapter accepts structured JSON/OpenAI-compatible expected
+tool calls and reports unsupported rows instead of guessing from benchmark-
+specific call-code strings.
 
 ## Metadata in Eval
 

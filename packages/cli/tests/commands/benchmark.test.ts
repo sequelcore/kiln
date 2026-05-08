@@ -128,4 +128,32 @@ describe("benchmarkCommand", () => {
       passAtK: 1,
     });
   });
+
+  it("projects BFCL input rows into Kiln JSONL datasets", async () => {
+    const inputPath = join(root, "bfcl.json");
+    const outputPath = join(root, "bfcl-kiln.jsonl");
+    writeFileSync(
+      inputPath,
+      JSON.stringify([
+        {
+          id: "bfcl-1",
+          question: "Find a customer.",
+          function: [{ name: "find_customer" }],
+          ground_truth: [{ name: "find_customer", arguments: { id: "123" } }],
+        },
+      ]),
+      "utf-8",
+    );
+
+    await benchmarkCommand(MOCK_APP_CONFIG, "project-bfcl", ["--input", inputPath, "--output", outputPath]);
+
+    const line = readFileSync(outputPath, "utf-8").trim();
+    expect(JSON.parse(line)).toMatchObject({
+      id: "bfcl-1",
+      metadata: {
+        benchmark: "bfcl",
+        expectedToolCalls: [{ name: "find_customer", args: { id: "123" } }],
+      },
+    });
+  });
 });

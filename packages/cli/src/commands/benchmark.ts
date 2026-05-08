@@ -10,6 +10,7 @@ import {
   createBenchmarkProfileScorers,
   evaluateBenchmarkReadiness,
   parseDatasetJsonl,
+  projectBfclDataset,
   type BenchmarkBaselineResult,
   type BenchmarkItemExecutor,
 } from "@kilnai/core";
@@ -42,13 +43,16 @@ export async function benchmarkCommand(
     case "run-internal":
       await runInternalBenchmark(config, args, dependencies);
       return;
+    case "project-bfcl":
+      projectBfclCommand(args);
+      return;
     case "--help":
     case "-h":
     case undefined:
       printHelp();
       return;
     default:
-      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, or run-internal.`);
+      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, run-internal, or project-bfcl.`);
   }
 }
 
@@ -59,10 +63,34 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>]",
+    "  kiln benchmark project-bfcl --input <path> --output <path>",
     "",
     "The readiness command expects a JSON file containing either an array of",
     "BenchmarkBaselineResult entries or an object with a baselines array.",
   ].join("\n"));
+}
+
+function projectBfclCommand(args: readonly string[]): void {
+  const inputPath = readFlag(args, "--input");
+  const outputPath = readFlag(args, "--output");
+  if (!inputPath || !outputPath) {
+    throw new Error("benchmark project-bfcl requires --input <path> and --output <path>.");
+  }
+  const projected = projectBfclDataset({
+    datasetName: datasetNameFromPath(inputPath),
+    content: readFileSync(inputPath, "utf-8"),
+  });
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(
+    outputPath,
+    projected.dataset.items.map((item) => JSON.stringify(item)).join("\n") + "\n",
+    "utf-8",
+  );
+  printJson({
+    outputPath,
+    itemCount: projected.dataset.items.length,
+    unsupportedRows: projected.unsupportedRows,
+  });
 }
 
 async function runInternalBenchmark(

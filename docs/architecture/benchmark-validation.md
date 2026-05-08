@@ -70,6 +70,11 @@ structural evidence checks, not hidden LLM judges: they score only Kiln-observed
 evidence such as tool calls, route identity, handoff output, policy violations,
 latency, and cost.
 
+The BFCL adapter is a projection adapter. It converts supported BFCL rows into
+Kiln `DatasetItem` records with `expectedToolCalls` metadata. Unsupported row
+formats are reported explicitly; the adapter must not infer benchmark truth from
+opaque call-code strings when a structured expected call is unavailable.
+
 ## External Track Gate
 
 External tracks are candidates until an adapter exists. Candidate tracks still

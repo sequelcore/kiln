@@ -46,6 +46,8 @@ export {
   evaluateBenchmarkReadiness,
 } from "./benchmark-baseline.js";
 export { createBenchmarkProfileScorers } from "./benchmark-scorers.js";
+export { projectBfclDataset } from "./adapters/bfcl-adapter.js";
+export type { BfclAdapterOptions, BfclFunctionCall, BfclProjectionResult, BfclUnsupportedRow } from "./adapters/bfcl-adapter.js";
 export type {
   BenchmarkBaselineResult,
   BenchmarkProfile,

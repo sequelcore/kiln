@@ -65,13 +65,16 @@ it is treated as governed research, not autonomous vulnerability hunting.
   scorers, and a CLI/runtime adapter that executes benchmark items through
   normal Kiln runtime sessions while capturing tool, route, cost, latency, and
   policy evidence.
+- 2026-05-08: added the first external adapter, `projectBfclDataset`, plus
+  `kiln benchmark project-bfcl`. The adapter projects supported structured
+  BFCL rows into Kiln JSONL dataset items and reports unsupported row formats
+  without guessing.
 
 ## Remaining Slices
 
-1. Implement the first external adapter. Recommended order:
-   - BFCL first for tool/function-call correctness.
-   - AgentDojo second for indirect prompt-injection safety.
-   - tau-style workflows third for pass^k tool-agent-user reliability.
+1. Add the next external adapters:
+   - AgentDojo for indirect prompt-injection safety.
+   - tau-style workflows for pass^k tool-agent-user reliability.
 2. Add public report generation from stored benchmark artifacts.
 3. Decide whether any coding benchmark track is acceptable. SWE-bench-style
    tracks need extra scrutiny because current public SWE benchmarks have known
