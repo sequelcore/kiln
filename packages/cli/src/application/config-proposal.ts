@@ -40,6 +40,15 @@ interface NormalizedProposalParts {
   readonly rollbackHint: string;
 }
 
+const SUPPORTED_AGENT_PROFILE_TOOLS = new Set([
+  "read",
+  "grep",
+  "glob",
+  "web",
+  "write",
+  "bash",
+]);
+
 export function createConfigChangeProposal(input: CreateConfigChangeProposalInput): KilnConfigChangeProposal {
   return createConfigChangeProposalRecord(input).proposal;
 }
@@ -173,7 +182,13 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
   const goal = requireText(payload.goal, "goal", diagnostics);
   const tier = requireTier(payload.tier, diagnostics);
   const displayName = optionalText(payload.displayName, "displayName", diagnostics);
-  const tools = optionalStringList(payload.tools, "tools", diagnostics);
+  const nicknameCandidates = optionalAliasList(payload.nicknameCandidates, {
+    field: "nicknameCandidates",
+    canonicalName: name,
+    displayName,
+    diagnostics,
+  });
+  const tools = validateAgentProfileTools(optionalStringList(payload.tools, "tools", diagnostics), diagnostics);
   const skills = optionalStringList(payload.skills, "skills", diagnostics);
   const taskAffinity = optionalTaskAffinity(payload.taskAffinity, diagnostics);
   const model = optionalText(payload.model, "model", diagnostics);
@@ -181,6 +196,7 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
   const normalized = removeUndefined({
     name,
     displayName,
+    nicknameCandidates: nicknameCandidates.length > 0 ? nicknameCandidates : undefined,
     role,
     goal,
     tier,
@@ -295,6 +311,67 @@ function optionalTaskAffinity(value: unknown, diagnostics: KilnConfigValidationD
   return entries.filter((entry) => supported.has(entry));
 }
 
+function validateAgentProfileTools(
+  tools: readonly string[],
+  diagnostics: KilnConfigValidationDiagnostic[],
+): readonly string[] {
+  const valid: string[] = [];
+  for (const tool of tools) {
+    if (!SUPPORTED_AGENT_PROFILE_TOOLS.has(tool)) {
+      diagnostics.push({
+        severity: "error",
+        field: "tools",
+        message: `Unsupported agent profile tool: ${tool}`,
+      });
+      continue;
+    }
+    valid.push(tool);
+  }
+  return valid;
+}
+
+function optionalAliasList(
+  value: unknown,
+  input: {
+    readonly field: string;
+    readonly canonicalName: string;
+    readonly displayName: string | undefined;
+    readonly diagnostics: KilnConfigValidationDiagnostic[];
+  },
+): readonly string[] {
+  const aliases = optionalStringListPreservingDuplicates(value, input.field, input.diagnostics);
+  const normalizedAliases = aliases.map((alias) => normalizeAlias(alias));
+  const seen = new Set<string>();
+  for (const [index, normalized] of normalizedAliases.entries()) {
+    if (!normalized) {
+      continue;
+    }
+    if (seen.has(normalized)) {
+      input.diagnostics.push({
+        severity: "error",
+        field: `${input.field}[${index}]`,
+        message: "Duplicate alias.",
+      });
+    }
+    seen.add(normalized);
+  }
+
+  const reserved = new Set([
+    normalizeAlias(input.canonicalName),
+    normalizeAlias(input.displayName),
+  ].filter((entry): entry is string => Boolean(entry)));
+  for (const [index, normalized] of normalizedAliases.entries()) {
+    if (normalized && reserved.has(normalized)) {
+      input.diagnostics.push({
+        severity: "error",
+        field: `${input.field}[${index}]`,
+        message: "Alias must not duplicate the canonical name or display name.",
+      });
+    }
+  }
+  return uniqueStrings(aliases);
+}
+
 function requireId(value: unknown, field: string, diagnostics: KilnConfigValidationDiagnostic[]): string {
   const text = requireText(value, field, diagnostics);
   if (text && !/^[a-z][a-z0-9-]*$/u.test(text)) {
@@ -331,6 +408,14 @@ function requireTier(value: unknown, diagnostics: KilnConfigValidationDiagnostic
 }
 
 function optionalStringList(value: unknown, field: string, diagnostics: KilnConfigValidationDiagnostic[]): readonly string[] {
+  return uniqueStrings(optionalStringListPreservingDuplicates(value, field, diagnostics));
+}
+
+function optionalStringListPreservingDuplicates(
+  value: unknown,
+  field: string,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): readonly string[] {
   if (value === undefined) {
     return [];
   }
@@ -346,7 +431,7 @@ function optionalStringList(value: unknown, field: string, diagnostics: KilnConf
     }
     strings.push(entry.trim());
   }
-  return uniqueStrings(strings);
+  return strings;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -359,6 +444,11 @@ function removeUndefined(input: Record<string, unknown>): Record<string, unknown
 
 function uniqueStrings(values: readonly string[]): readonly string[] {
   return [...new Set(values)];
+}
+
+function normalizeAlias(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase().replace(/\s+/gu, " ");
+  return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
 function renderPreviewDiff(path: string, before: string, after: string): string {

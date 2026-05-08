@@ -529,7 +529,12 @@ explicit project, sync, and config proposal commands.
 Agents may propose bounded setup changes through `kiln_config.propose_change`.
 The tool validates `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
 payloads and returns a structured proposal with diagnostics and preview diff;
-it does not write files. Applying a proposal is a separate approval-gated flow.
+it does not write files. `agent.upsert` accepts the canonical profile fields
+described above, including `nicknameCandidates`, but duplicate aliases or
+aliases that duplicate the profile id/display name are rejected. Agent `tools`
+must be supported Kiln profile tools (`read`, `grep`, `glob`, `web`, `write`,
+or `bash`); unsupported names fail closed instead of being projected into
+native harness files. Applying a proposal is a separate approval-gated flow.
 
 The apply flow is intentionally split:
 

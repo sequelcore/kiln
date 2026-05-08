@@ -38,10 +38,6 @@ Read the relevant architecture or guide document before using a roadmap:
 - `docs/roadmap/01-managed-agent-platform-productization.md` for the active
   managed-agent productization track that turns the governed runtime foundation
   into a coherent cross-surface product platform.
-- `docs/roadmap/02-governed-config-mutation-tools.md` for the active governed
-  config-mutation track that lets agents inspect, propose, and apply approved
-  canonical Kiln configuration changes.
-
 ## Roadmap Layers
 
 The managed-agent and setup work is split by architectural responsibility:
@@ -50,9 +46,9 @@ The managed-agent and setup work is split by architectural responsibility:
   context model into product:
   first-party defaults, natural delegation, setup surfaces, presentation,
   write-capable managed child profiles, and operator workflow.
-- `02-governed-config-mutation-tools.md` makes the setup governable by agents:
-  config reads, structured proposals, approval-gated apply, sync/projection,
-  and audit evidence.
+- Governed config mutation is closed. Stable doctrine lives in
+  `docs/architecture/config-projection.md` and operator usage lives in
+  `docs/guides/global-config.md`.
 
 ## Active Roadmaps
 
@@ -61,11 +57,6 @@ The managed-agent and setup work is split by architectural responsibility:
   canonical config, direct providers and harnesses under one contract,
   governed child invocation, immutable evidence, reusable agent identity, and
   natural delegation across all surfaces.
-
-- `02-governed-config-mutation-tools.md`
-  Active governed configuration track for native tools that read effective
-  config, propose bounded config changes, apply approved changes, emit audit
-  events, and run sync/projection through canonical Kiln services.
 
 ## Deferred Roadmaps
 
@@ -119,6 +110,13 @@ The managed-agent and setup work is split by architectural responsibility:
   `packages/gateway-contracts/README.md`; implementation covers the closed
   `PresentationIntent` union, validation, tool-result projection, GUI native
   rendering, CLI/TUI text fallback, and managed invocation route evidence.
+- Governed config mutation tools completed on 2026-05-08. Stable doctrine
+  lives in `docs/architecture/config-projection.md`; operator usage lives in
+  `docs/guides/global-config.md`; implementation covers `kiln_config.read`,
+  structured `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
+  proposals, approval-gated apply, canonical `.kiln/agents` and
+  `.kiln/skills` writes only, native projection effects, config mutation
+  session events, and operator presentation across surfaces.
 
 ## Execution Priority
 

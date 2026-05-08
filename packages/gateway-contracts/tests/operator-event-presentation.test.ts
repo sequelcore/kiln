@@ -144,6 +144,42 @@ describe("operator event presentation", () => {
     expect(presentation.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
   });
 
+  it("presents config mutation events as operator-visible audit evidence", () => {
+    const proposed = presentOperatorEventPayload("config_change_proposed", {
+      proposalId: "cfg_skill",
+      operation: "skill.upsert",
+      status: "valid",
+      affectedCanonicalPaths: ["C:/repo/.kiln/skills/repo-review/SKILL.md"],
+      authorityImpact: "none",
+    });
+    const applied = presentOperatorEventPayload("config_change_applied", {
+      proposalId: "cfg_skill",
+      approvalId: "cfgap_skill",
+      appliedWrites: [
+        {
+          path: "C:/repo/.kiln/skills/repo-review/SKILL.md",
+          previousHash: null,
+          nextHash: "sha256-next",
+        },
+      ],
+      projectionEffects: [
+        {
+          target: "native-skills",
+          status: "ok",
+          summary: "1 native skill projections synced",
+          errors: [],
+        },
+      ],
+    });
+
+    expect(proposed.title).toBe("Config change proposed");
+    expect(proposed.summary).toBe("skill.upsert · valid · cfg_skill");
+    expect(proposed.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(applied.title).toBe("Config change applied");
+    expect(applied.summary).toBe("cfg_skill");
+    expect(applied.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+  });
+
   it("formats nested values as structured values for compact surfaces", () => {
     expect(formatOperatorEventValue({ nested: true })).toBe("Structured value");
   });

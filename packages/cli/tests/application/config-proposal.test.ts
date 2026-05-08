@@ -73,6 +73,52 @@ describe("config proposals", () => {
     expect(proposal.previewDiff).toContain("displayName: Reese");
   }));
 
+  it("fails closed for unsupported agent tools", () => withProject((projectPath) => {
+    const proposal = createConfigChangeProposal({
+      projectPath,
+      operation: "agent.upsert",
+      payload: {
+        name: "worker",
+        role: "Implementation worker",
+        goal: "Apply scoped code changes.",
+        tier: "coding",
+        tools: ["read", "root-shell"],
+      },
+    });
+
+    expect(proposal.status).toBe("invalid");
+    expect(proposal.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "tools",
+        message: "Unsupported agent profile tool: root-shell",
+      }),
+    ]));
+  }));
+
+  it("fails closed for duplicate agent aliases", () => withProject((projectPath) => {
+    const proposal = createConfigChangeProposal({
+      projectPath,
+      operation: "agent.upsert",
+      payload: {
+        name: "architect",
+        displayName: "Piama",
+        nicknameCandidates: ["System Designer", "system designer", "Piama"],
+        role: "Software architect",
+        goal: "Review architecture.",
+        tier: "reasoning",
+      },
+    });
+
+    expect(proposal.status).toBe("invalid");
+    expect(proposal.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "nicknameCandidates[1]", message: "Duplicate alias." }),
+      expect.objectContaining({
+        field: "nicknameCandidates[2]",
+        message: "Alias must not duplicate the canonical name or display name.",
+      }),
+    ]));
+  }));
+
   it("attaches skills only to an existing valid project agent", () => withProject((projectPath) => {
     const agentsDir = join(projectPath, ".kiln", "agents");
     mkdirSync(agentsDir, { recursive: true });

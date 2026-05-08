@@ -106,4 +106,46 @@ describe("config apply", () => {
     expect(result.diagnostics[0]?.message).toContain("stale");
     expect(readFileSync(agentPath, "utf-8")).toContain("Changed underneath proposal.");
   });
+
+  it("fails closed when a stored proposal targets non-canonical config paths", async () => {
+    const record = createConfigChangeProposalRecord({
+      projectPath: tempDir,
+      operation: "skill.upsert",
+      payload: {
+        name: "repo-review",
+        description: "Review repo facts.",
+        instructions: "# Repo Review",
+      },
+    });
+    const write = record.writes[0];
+    expect(write).toBeDefined();
+    const tamperedRecord = {
+      ...record,
+      writes: [{
+        ...write!,
+        path: join(tempDir, ".kiln", "config.yaml"),
+      }],
+    };
+    const store = new ConfigMutationStore(tempDir);
+    store.saveProposal(tamperedRecord);
+    const approval = approveConfigChangeProposal({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+    });
+
+    const result = await applyConfigChange({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: join(tempDir, ".kiln", "config.yaml"),
+        message: "Config apply can only write project .kiln/agents or .kiln/skills canonical files.",
+      }),
+    ]));
+    expect(existsSync(join(tempDir, ".kiln", "config.yaml"))).toBe(false);
+  });
 });

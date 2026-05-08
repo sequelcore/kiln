@@ -169,9 +169,14 @@ Configuration mutation starts with structured proposals, not patches. A
 proposal records operation id, normalized payload, affected canonical paths,
 native projection effects, authority impact, validation diagnostics, preview
 diff, and rollback hint. Skill and agent profile proposals validate against the
-same `SKILL.md` and Kiln agent-profile parsers used by runtime discovery. The
-model-callable `kiln_config.propose_change` tool may create those proposals but
-must not write files; apply remains a separate approval-gated operation.
+same `SKILL.md` and Kiln agent-profile parsers used by runtime discovery.
+Agent profile mutation additionally rejects duplicate aliases, aliases that
+collide with the canonical profile id or display name, and unsupported tool
+names. Write-capable tool names such as `write` and `bash` are allowed only as
+explicit proposal data with `authorityImpact` surfaced for review; arbitrary or
+misspelled tool names fail closed. The model-callable
+`kiln_config.propose_change` tool may create those proposals but must not write
+files; apply remains a separate approval-gated operation.
 
 Config proposals are durable runtime state, not prompt text. Kiln stores them
 under `.kiln/proposals/config/` with the proposal hash, canonical target paths,
