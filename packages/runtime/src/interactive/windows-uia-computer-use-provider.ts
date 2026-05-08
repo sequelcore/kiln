@@ -470,6 +470,9 @@ function applicationAliases(value: string): readonly string[] {
   if (normalized === "calculator" || normalized === "calculadora" || normalized === "calculatorapp" || normalized === "calc") {
     return ["calculator", "calculadora", "calculatorapp", "calc", "applicationframehost"];
   }
+  if (normalized === "notepad" || normalized === "bloc de notas" || normalized === "notas") {
+    return ["notepad", "bloc de notas", "notas"];
+  }
   return [normalized];
 }
 

@@ -640,6 +640,7 @@ interactiveUse:
   allowedApplications:
     - Calculator
     - Chrome
+    - Notepad
 ```
 
 `allowedDomains` scopes browser automation. `browserEnvironment:
@@ -668,7 +669,7 @@ kiln config set interactiveUse.allowedDomains example.com,docs.example.com
 kiln config set interactiveUse.allowComputer true
 kiln config set interactiveUse.computerProvider windows-uia
 kiln config set interactiveUse.computerEnvironment local-active-desktop
-kiln config set interactiveUse.allowedApplications Calculator,msedge
+kiln config set interactiveUse.allowedApplications Calculator,msedge,Notepad
 ```
 
 The runtime Playwright provider is optional. Runtime hosts that enable

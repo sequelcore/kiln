@@ -302,6 +302,38 @@ describe("WindowsUiaComputerUseProvider", () => {
       { operation: "minimize_application", application: "CalculatorApp", windowTitle: "Calculadora" },
     ]);
   });
+
+  it("treats localized Notepad identities as the same governed application", async () => {
+    const calls: WindowsUiaSidecarRequest[] = [];
+    const provider = new WindowsUiaComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: ["Notepad"],
+      runner: fakeRunner(calls, [
+        { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
+        { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
+        { observation: { application: "notepad", windowTitle: "Sin titulo - Bloc de notas" } },
+      ]),
+    });
+
+    await provider.execute({
+      toolName: "computer_observe",
+      target: "computer",
+      operation: "observe",
+      input: {},
+    });
+    await provider.execute({
+      toolName: "computer_focus_application",
+      target: "computer",
+      operation: "focus_application",
+      input: { application: "Bloc de notas" },
+    });
+
+    expect(calls).toEqual([
+      { operation: "observe", includeAccessibility: false, maxDepth: 1 },
+      { operation: "observe", includeAccessibility: false, maxDepth: 4 },
+      { operation: "focus_application", application: "Bloc de notas", windowTitle: undefined, timeoutMs: undefined },
+    ]);
+  });
 });
 
 function fakeRunner(

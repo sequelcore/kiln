@@ -281,10 +281,20 @@ bool IsCalculatorAlias(const std::wstring& value) {
     || lower == L"applicationframehost";
 }
 
+bool IsNotepadAlias(const std::wstring& value) {
+  const std::wstring lower = ToLower(value);
+  return lower == L"notepad"
+    || lower == L"bloc de notas"
+    || lower == L"notas";
+}
+
 bool ApplicationMatches(const std::wstring& process, const std::wstring& title, const std::wstring& requestedApplication) {
   if (requestedApplication.empty()) return true;
   if (IsCalculatorAlias(requestedApplication)) {
     return IsCalculatorAlias(process) || IsCalculatorAlias(title);
+  }
+  if (IsNotepadAlias(requestedApplication)) {
+    return IsNotepadAlias(process) || IsNotepadAlias(title);
   }
   return ToLower(process) == ToLower(requestedApplication) || ContainsInsensitive(title, requestedApplication);
 }
@@ -315,6 +325,7 @@ HWND FindRequestedWindow(const Request& request) {
 std::wstring ExecutableCandidate(const std::wstring& application) {
   const std::wstring lower = ToLower(application);
   if (lower == L"calculator" || lower == L"calculadora" || lower == L"calculatorapp" || lower == L"calc") return L"calc.exe";
+  if (IsNotepadAlias(application)) return L"notepad.exe";
   if (lower == L"msedge" || lower == L"edge" || lower == L"microsoft edge") return L"msedge.exe";
   if (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".exe") return application;
   return application + L".exe";
