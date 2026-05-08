@@ -104,14 +104,11 @@ function persistSidebarCollapsedPreference(collapsed: boolean): void {
 
 function KilnMark() {
   return (
-    <div
-      className="grid size-9 shrink-0 place-items-center rounded-lg border border-border/70 bg-background/70 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-text)_5%,transparent)]"
-      aria-hidden="true"
-    >
+    <div className="grid size-9 shrink-0 place-items-center" aria-hidden="true">
       <img
         src={KILN_LOGO_URL}
         alt=""
-        className="size-6 object-contain"
+        className="size-7 object-contain"
         draggable={false}
       />
     </div>

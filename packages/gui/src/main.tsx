@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "./routeTree.gen.js";
 import "./styles.css";
 
+const KILN_LOGO_URL = new URL("../../../docs/assets/logo.svg", import.meta.url).href;
+
 // ── Pre-render theme guard (prevents flash of wrong theme) ──────────
 // Reads persisted store synchronously before first paint so the correct
 // data-theme attribute is set on <html> before CSS is applied.
@@ -44,6 +46,27 @@ import "./styles.css";
     document.documentElement.dataset.theme = "dark";
   }
 })();
+
+function applyKilnWindowIcon(): void {
+  const existing = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  const icon = existing ?? document.createElement("link");
+  icon.rel = "icon";
+  icon.type = "image/svg+xml";
+  icon.href = KILN_LOGO_URL;
+  if (!existing) {
+    document.head.appendChild(icon);
+  }
+
+  const appleIcon = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')
+    ?? document.createElement("link");
+  appleIcon.rel = "apple-touch-icon";
+  appleIcon.href = KILN_LOGO_URL;
+  if (!appleIcon.parentElement) {
+    document.head.appendChild(appleIcon);
+  }
+}
+
+applyKilnWindowIcon();
 
 const queryClient = new QueryClient();
 
