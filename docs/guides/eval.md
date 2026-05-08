@@ -211,6 +211,17 @@ reproducibility requirements. A baseline result must include the exact profile
 version, dataset version, config hash, scorer set, pass^k result, and artifact
 URIs before it can be treated as benchmark-ready.
 
+Internal seed datasets live under `packages/core/evals/benchmark/`:
+
+- `kiln-tool-agent-v1.jsonl`
+- `kiln-managed-child-agent-v1.jsonl`
+- `kiln-managed-coding-agent-v1.jsonl`
+- `kiln-safety-agent-v1.jsonl`
+
+These datasets are product baselines, not public leaderboard submissions. They
+exist to prove the Kiln surface is stable enough before adapting external
+benchmarks.
+
 ```typescript
 import {
   KILN_BENCHMARK_PROFILES,

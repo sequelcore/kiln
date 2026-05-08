@@ -53,21 +53,23 @@ it is treated as governed research, not autonomous vulnerability hunting.
 - 2026-05-08: added `kiln benchmark profiles`, `kiln benchmark tracks`, and
   `kiln benchmark readiness --baseline <path>` as the read-only CLI surface
   for benchmark-facing profile and readiness inspection.
+- 2026-05-08: added internal seed datasets under
+  `packages/core/evals/benchmark/` for the four benchmark-facing profiles.
+  These datasets are parse-validated fixtures for baseline generation, not
+  public benchmark submissions.
 
 ## Remaining Slices
 
-1. Create internal baseline datasets for the four benchmark-facing profiles.
-   These should be small, versioned, and deterministic enough to run often.
-2. Add a baseline runner that executes those datasets through normal Kiln
+1. Add a baseline runner that executes the internal datasets through normal Kiln
    runtime sessions, stores result artifacts, computes config hashes, and emits
    `BenchmarkBaselineResult`. The current CLI readiness command consumes those
    results but does not execute model calls.
-3. Implement the first external adapter. Recommended order:
+2. Implement the first external adapter. Recommended order:
    - BFCL first for tool/function-call correctness.
    - AgentDojo second for indirect prompt-injection safety.
    - tau-style workflows third for pass^k tool-agent-user reliability.
-4. Add public report generation from stored benchmark artifacts.
-5. Decide whether any coding benchmark track is acceptable. SWE-bench-style
+3. Add public report generation from stored benchmark artifacts.
+4. Decide whether any coding benchmark track is acceptable. SWE-bench-style
    tracks need extra scrutiny because current public SWE benchmarks have known
    saturation, leakage, and test-quality concerns.
 
