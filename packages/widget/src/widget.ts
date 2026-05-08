@@ -125,6 +125,15 @@ export class KilnWidget {
     const header = document.createElement("div");
     header.id = "kiln-header";
 
+    if (this.config.logoUrl) {
+      const logo = document.createElement("img");
+      logo.id = "kiln-logo";
+      logo.src = this.config.logoUrl;
+      logo.alt = this.config.logoAlt ?? this.config.appName;
+      logo.decoding = "async";
+      header.appendChild(logo);
+    }
+
     const statusDot = document.createElement("span");
     statusDot.id = "kiln-status-dot";
     statusDot.className = "disconnected";

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/sequelcore/kiln/main/docs/assets/mascot.png" alt="Kiln" width="120" />
+  <img src="https://raw.githubusercontent.com/sequelcore/kiln/main/docs/assets/logo.svg" alt="Kiln" width="100" />
 </p>
 
 <h1 align="center">@kilnai/widget</h1>
@@ -64,6 +64,8 @@ All options can be set via `data-*` attributes on the script tag or passed to th
 | `data-theme` | `light` or `dark` | `dark` |
 | `data-greeting` | Welcome message (overrides tenant config) | From tenant |
 | `data-placeholder` | Input placeholder text | `Type a message...` |
+| `data-logo` | Optional header logo URL | Not shown |
+| `data-logo-alt` | Accessible text for `data-logo` | App name |
 
 ## Features
 

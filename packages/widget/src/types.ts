@@ -7,6 +7,10 @@ export interface WidgetConfig {
   readonly theme?: "light" | "dark" | "auto";
   readonly greeting?: string;
   readonly placeholder?: string;
+  /** Optional tenant/product logo shown in the panel header. */
+  readonly logoUrl?: string;
+  /** Optional accessible label for logoUrl. Defaults to appName. */
+  readonly logoAlt?: string;
 }
 
 /** Visitor identity submitted via the identify frame */

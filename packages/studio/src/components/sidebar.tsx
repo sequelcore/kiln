@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import type { View } from "../types.js";
 import "./sidebar.css";
 
+const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
+
 interface SidebarProps {
   activeView: string;
   onNavigate: (view: View) => void;
@@ -20,6 +22,7 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps): ReactNode {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
+        <img className="sidebar-brand-mark" src={KILN_LOGO_URL} alt="" />
         <span className="sidebar-logo">Kiln Studio</span>
       </div>
       <nav className="sidebar-nav">

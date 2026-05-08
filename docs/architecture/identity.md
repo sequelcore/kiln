@@ -128,6 +128,16 @@ The canonical dark expression is Kiln Obsidian:
 - cyan primary color for technical action, routing, links, and system affordance
 - compact typography, hairline dividers, and dense operator-console rhythm
 
+The canonical brand mark is `docs/assets/logo.svg`; use it for product identity
+in README files, operator shell headers, internal studio navigation, and other
+Kiln-owned surfaces. Use `docs/assets/logo.png` only when a raster image is
+required by a renderer or preview system. `docs/assets/mascot.png` is secondary
+marketing art and should not replace the logo in operator surfaces.
+
+Terminal surfaces should render a compact textual wordmark rather than trying
+to display bitmap or SVG assets. Embeddable customer-facing surfaces should make
+logo display configurable so Kiln branding does not override tenant branding.
+
 Visual metaphor must follow the same rule as architectural metaphor: it is
 valid only when it clarifies control behavior. Avoid generic editor themes,
 purple AI gradients, decorative cyberpunk neon, glitch effects, biological

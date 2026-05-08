@@ -74,6 +74,7 @@ const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
 const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const WORKSPACE_DOCUMENT_TAB_LIMIT = 8;
+const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
 
 const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
   minimal: "Minimal",
@@ -103,13 +104,16 @@ function persistSidebarCollapsedPreference(collapsed: boolean): void {
 
 function KilnMark() {
   return (
-    <div className="grid size-9 place-items-center rounded-lg text-foreground" aria-hidden="true">
-      <span className="grid gap-1">
-        <span className="block h-px w-4 rounded-full bg-current opacity-35" />
-        <span className="block h-px w-3 rounded-full bg-current opacity-80" />
-        <span className="block h-px w-4 rounded-full bg-current opacity-55" />
-        <span className="block h-px w-2 rounded-full bg-current" />
-      </span>
+    <div
+      className="grid size-9 shrink-0 place-items-center rounded-lg border border-border/70 bg-background/70 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-text)_5%,transparent)]"
+      aria-hidden="true"
+    >
+      <img
+        src={KILN_LOGO_URL}
+        alt=""
+        className="size-6 object-contain"
+        draggable={false}
+      />
     </div>
   );
 }
@@ -1289,6 +1293,7 @@ export function AppShell() {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/65">
           {isNarrow ? (
             <header className="flex h-11 min-w-0 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-3 backdrop-blur">
+              <KilnMark />
               <Button
                 type="button"
                 variant="outline"

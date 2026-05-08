@@ -175,6 +175,14 @@ export function getStyles(theme: string): string {
     #kiln-status-dot.disconnected { background: var(--kiln-status-disconnected); }
     #kiln-status-dot.error { background: var(--kiln-status-error); }
 
+    #kiln-logo {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      flex-shrink: 0;
+      border-radius: 6px;
+    }
+
     #kiln-title {
       flex: 1;
       font-size: 15px;

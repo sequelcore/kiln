@@ -7,8 +7,20 @@
   overflow: hidden;
 }
 .sidebar-header {
-  padding: 20px 16px;
+  align-items: center;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  padding: 16px;
+}
+.sidebar-brand-mark {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  height: 28px;
+  object-fit: contain;
+  padding: 4px;
+  width: 28px;
 }
 .sidebar-logo {
   font-size: 16px;

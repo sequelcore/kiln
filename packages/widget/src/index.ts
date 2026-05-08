@@ -19,6 +19,8 @@ import type { WidgetConfig } from "./types.js";
     theme: (script.dataset["theme"] as WidgetConfig["theme"]) ?? "auto",
     greeting: script.dataset["greeting"],
     placeholder: script.dataset["placeholder"],
+    logoUrl: script.dataset["logo"],
+    logoAlt: script.dataset["logoAlt"],
   };
 
   const init = () => new KilnWidget(config);

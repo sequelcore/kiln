@@ -201,6 +201,14 @@ export function initUI(
   });
   mainRow.add(sidebar);
 
+  const sidebarBrandText = new TextRenderable(renderer, {
+    id: "sidebar-brand",
+    content: t`${fg(theme.accent)("KILN")} ${fg(theme.textMuted)("control plane")}`,
+    width: "100%",
+    height: 2,
+  });
+  sidebar.add(sidebarBrandText);
+
   const sidebarProviderText = new TextRenderable(renderer, {
     id: "sidebar-provider",
     content: t`${fg(theme.accent)("[" + provider + "]")} ${fg(theme.text)(domain)}`,
