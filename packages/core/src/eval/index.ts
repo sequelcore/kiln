@@ -33,3 +33,19 @@ export { compareExperiments } from "./experiment-comparator.js";
 export type { ComparisonResult, ScorerComparison } from "./experiment-comparator.js";
 export { ConsistencyRunner } from "./consistency-runner.js";
 export type { ConsistencyRunnerConfig, ConsistencyResult, ConsistencyItemResult } from "./consistency-runner.js";
+export {
+  KILN_BENCHMARK_PROFILES,
+  KILN_EXTERNAL_BENCHMARK_TRACKS,
+  evaluateBenchmarkReadiness,
+} from "./benchmark-baseline.js";
+export type {
+  BenchmarkBaselineResult,
+  BenchmarkProfile,
+  BenchmarkProfileReadiness,
+  BenchmarkReadinessInput,
+  BenchmarkReadinessReport,
+  BenchmarkReadinessStatus,
+  BenchmarkSurface,
+  BenchmarkTrack,
+  BenchmarkTrackId,
+} from "./benchmark-baseline.js";

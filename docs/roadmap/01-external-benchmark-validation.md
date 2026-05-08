@@ -2,12 +2,12 @@
 
 ## Status
 
-Deferred.
+Active.
 
-This milestone begins only after the remaining architectural and product work
-reaches a stable stop point. Kiln should not enter public benchmark comparison
-while its core runtime, coordination substrate, and operator surfaces are still
-shifting materially.
+This milestone begins with internal reproducibility gates. Kiln should not
+enter public benchmark comparison until its benchmark-facing profiles have
+stable internal baselines and the external adapter for the selected benchmark
+is versioned, auditable, and faithful to normal Kiln runtime contracts.
 
 ## Objective
 
@@ -30,13 +30,42 @@ it is treated as governed research, not autonomous vulnerability hunting.
 
 ## Required Results
 
-- internal eval baselines are stable across pass^k, tool-calling accuracy, and
-  adversarial safety runs
-- one or more benchmark-facing Kiln profiles are frozen and reproducible
+- internal eval baselines are stable across pass^k, tool-calling accuracy,
+  handoff quality, route selection, cost, latency, and adversarial safety runs
+- benchmark-facing Kiln profiles are frozen and reproducible
 - benchmark adapters and harnesses are versioned, documented, and auditable
 - published benchmark results explain the tested surface and limitations
 - bug bounty participation runs through scope ingestion, fail-closed policy
   enforcement, human approval gates, evidence provenance, and disclosure review
+
+## Completed
+
+- 2026-05-08: added canonical benchmark-facing profile definitions and
+  readiness evaluation in `@kilnai/core`. `KILN_BENCHMARK_PROFILES` freezes
+  `kiln-tool-agent`, `kiln-managed-child-agent`, `kiln-managed-coding-agent`,
+  and `kiln-safety-agent` as versioned measurement surfaces.
+- 2026-05-08: added `evaluateBenchmarkReadiness()` to block public readiness
+  unless the exact profile version has pass^k, required scorers, result
+  artifact URIs, config hash, and dataset version evidence.
+- 2026-05-08: moved stable doctrine into
+  `docs/architecture/benchmark-validation.md` and operator usage into
+  `docs/guides/eval.md`.
+
+## Remaining Slices
+
+1. Create internal baseline datasets for the four benchmark-facing profiles.
+   These should be small, versioned, and deterministic enough to run often.
+2. Add a CLI or Studio-facing baseline runner that executes those datasets,
+   stores result artifacts, computes config hashes, and emits
+   `BenchmarkBaselineResult`.
+3. Implement the first external adapter. Recommended order:
+   - BFCL first for tool/function-call correctness.
+   - AgentDojo second for indirect prompt-injection safety.
+   - tau-style workflows third for pass^k tool-agent-user reliability.
+4. Add public report generation from stored benchmark artifacts.
+5. Decide whether any coding benchmark track is acceptable. SWE-bench-style
+   tracks need extra scrutiny because current public SWE benchmarks have known
+   saturation, leakage, and test-quality concerns.
 
 ## Candidate Benchmark Track
 

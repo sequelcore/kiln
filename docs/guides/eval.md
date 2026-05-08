@@ -185,6 +185,65 @@ const result = await cr.run();
 - `passThreshold`: Minimum score for a "pass" (default: 1.0)
 - Runs are sequential to avoid rate limit storms from multiplied LLM calls
 
+## Benchmark Baseline Readiness
+
+Kiln separates ordinary eval experiments from benchmark validation. Ordinary
+evals help improve apps and agents. Benchmark validation decides whether a
+frozen Kiln surface is reproducible enough for external benchmark reporting.
+
+`@kilnai/core` exports:
+
+- `KILN_BENCHMARK_PROFILES`
+- `KILN_EXTERNAL_BENCHMARK_TRACKS`
+- `evaluateBenchmarkReadiness()`
+
+The built-in benchmark-facing profiles are:
+
+| Profile | Purpose |
+| --- | --- |
+| `kiln-tool-agent` | Tool/function-calling correctness under Kiln authority. |
+| `kiln-managed-child-agent` | Managed child invocation, route selection, handoff, and evidence quality. |
+| `kiln-managed-coding-agent` | Bounded coding with approved write authority and replayable evidence. |
+| `kiln-safety-agent` | Prompt-injection resistance, policy preservation, and utility. |
+
+Each profile declares required scorers, minimum `passAtK`, minimum `k`, and
+reproducibility requirements. A baseline result must include the exact profile
+version, dataset version, config hash, scorer set, pass^k result, and artifact
+URIs before it can be treated as benchmark-ready.
+
+```typescript
+import {
+  KILN_BENCHMARK_PROFILES,
+  evaluateBenchmarkReadiness,
+} from "@kilnai/core";
+
+const toolProfile = KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-tool-agent")!;
+const report = evaluateBenchmarkReadiness({
+  profiles: [toolProfile],
+  baselines: [{
+    profileId: "kiln-tool-agent",
+    profileVersion: toolProfile.version,
+    datasetName: "tool-calling-internal",
+    datasetVersion: "2026-05-08",
+    k: 5,
+    passAtK: 0.92,
+    scorers: ["tool-calling-accuracy", "tool-trajectory", "latency", "cost"],
+    artifactUris: ["kiln://artifacts/eval/tool-calling-internal/result"],
+    configHash: "sha256:...",
+  }],
+});
+```
+
+`evaluateBenchmarkReadiness()` returns:
+
+- per-profile readiness
+- blocked profile issues
+- external-ready tracks when adapters are candidates and required surfaces pass
+- blocked tracks when adapters or profiles are missing
+
+See [Benchmark Validation](../architecture/benchmark-validation.md) for the
+architecture contract and public reporting requirements.
+
 ## Metadata in Eval
 
 `EvalInput.metadata` carries arbitrary structured data from dataset items to scorers. This enables scorers like `tool-trajectory` that need domain-specific data beyond input/output/context.

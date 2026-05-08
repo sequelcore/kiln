@@ -100,6 +100,11 @@ is documented by concern, not as a single monolith.
   Canonical human operator surface model: GUI, CLI, TUI, IDE, remote, future
   desktop wrapper, supervision evidence, and surface ownership rules.
 
+- `benchmark-validation.md`
+  Canonical benchmark validation contract: benchmark-facing profiles, internal
+  baseline gates, external track gates, reproducible reporting, and bug bounty
+  validation boundaries.
+
 - `adaptation.md`
   Operational modes, allostatic load, predictive regulation, adaptation, and
   anti-drift rules.
