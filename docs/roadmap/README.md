@@ -35,35 +35,22 @@ Read the relevant architecture or guide document before using a roadmap:
 - `docs/architecture/operator-surfaces.md`, `docs/guides/gui-parity.md`, and
   `docs/guides/tui-maintenance.md` for GUI, TUI, CLI, IDE, desktop, and remote
   operator surfaces, including presentation-intent doctrine.
-- `docs/roadmap/01-managed-agent-platform-productization.md` for the active
-  managed-agent productization track that turns the governed runtime foundation
-  into a coherent cross-surface product platform.
-
 ## Roadmap Layers
 
-The remaining active productization work is split by architectural
-responsibility:
-
-- `01-managed-agent-platform-productization.md` turns the canonical agent
-  context model into product:
-  first-party defaults, natural delegation, setup surfaces, presentation,
-  write-capable managed child profiles, and operator workflow.
+There are no active implementation roadmaps at this layer. Remaining files are
+deferred validation or experiment tracks.
 
 ## Active Roadmaps
 
-- `01-managed-agent-platform-productization.md`
-  Active productization track for Kiln's managed-agent differentiator:
-  canonical config, direct providers and harnesses under one contract,
-  governed child invocation, immutable evidence, reusable agent identity, and
-  natural delegation across all surfaces.
+- None.
 
 ## Deferred Roadmaps
 
-- `02-external-benchmark-validation.md`
+- `01-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `03-native-operator-surface-experiment.md`
+- `02-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -116,13 +103,23 @@ responsibility:
   proposals, approval-gated apply, canonical `.kiln/agents` and
   `.kiln/skills` writes only, native projection effects, config mutation
   session events, and operator presentation across surfaces.
+- Managed-agent platform productization completed on 2026-05-08. Stable
+  doctrine lives in `docs/architecture/managed-agents.md`,
+  `docs/architecture/agent-context.md`,
+  `docs/architecture/provider-model-discovery.md`,
+  `docs/architecture/operator-surfaces.md`, and
+  `docs/guides/global-config.md`; implementation covers immutable capability
+  snapshots, cross-surface invocation evidence, natural child selection,
+  first-party agent defaults, route/model task-suitability evidence with live
+  proof and evaluated skill recommendations, write-capable managed profiles,
+  repo-shim projection, setup read models, and simplified GUI operator chrome.
 
 ## Execution Priority
 
-1. Keep `03-native-operator-surface-experiment.md` deferred until managed
+1. Keep `02-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-2. Keep `02-external-benchmark-validation.md` deferred until the evaluated
+2. Keep `01-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules

@@ -180,6 +180,41 @@ task-selection behavior, declare it explicitly in the canonical agent profile.
 Surface-specific renderers may project smaller views, but they must not invent
 local semantics.
 
+## First-Party Agent Defaults
+
+Kiln ships first-party agent profile defaults so a new installation is not an
+empty control plane. These defaults are canonical Kiln profiles, not provider
+prompt hacks. They use stable ids, explicit task affinity, bounded tool hints,
+and role-specific instructions that are safe to project into GUI, TUI, CLI,
+SDK/widget sessions, managed child invocation, Codex, OpenCode, and Claude Code
+repo shims.
+
+The built-in profile ids are:
+
+| Profile | Purpose | Typical authority |
+| --- | --- | --- |
+| `scout` | Read-only codebase/context mapping. | `foundation-readonly-plan` |
+| `planner` | File-level implementation and verification planning. | `foundation-readonly-plan` |
+| `architect` | Architecture, DDD, contract, and boundary review. | `foundation-readonly-plan` |
+| `tdd` | Failing-test design and behavior verification. | Read-only or write-capable when admitted. |
+| `coder` | Bounded implementation after scope is clear. | Write-capable only through explicit route authority. |
+| `fast-coder` | Mechanical low-risk edits and projections. | Write-capable only through explicit route authority. |
+| `reviewer` | Findings-first code review and quality gate. | `foundation-readonly-plan` |
+| `ddd-validator` | Bounded-context and dependency-direction validation. | `foundation-readonly-plan` |
+| `researcher` | Evidence gathering and source separation. | `foundation-readonly-plan` plus admitted research tools. |
+| `refactoring-specialist` | Behavior-preserving cleanup and simplification. | Read-only or write-capable when admitted. |
+
+Global `~/.kiln/agents/*.md` profiles override built-ins with the same id.
+Project `.kiln/agents/*.md` profiles override both. This keeps first-party
+defaults useful while preserving operator and project customization without
+duplicating native harness files.
+
+First-party defaults are evaluated by a repeatable routing rubric before they
+become product defaults. The rubric checks output quality, evidence use,
+permission compliance, cost, duration, and actionable handoff quality. Defaults
+that cannot pass the rubric remain documentation or examples, not runtime
+catalog entries.
+
 ## Skill Packages
 
 Skills are reusable procedural context. They may include:

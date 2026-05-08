@@ -7,6 +7,7 @@ import type {
   ManagedAgentMemoryScope,
   ManagedAgentAuthorityProfile,
   ModelTaskSuitability,
+  ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
 import {
@@ -401,7 +402,12 @@ async function resolveRouteConfig(
     model,
     adapter,
     surface: "cli-harness",
-    taskSuitability: resolveTaskSuitability(routeConfig.provider, model, config.modelTaskSuitability),
+    taskSuitability: resolveTaskSuitability(
+      routeConfig.provider,
+      model,
+      config.modelTaskSuitability,
+      liveProofEvidence(routeConfig.provider, model, profiles),
+    ),
     profiles: profileResolution.profiles,
   };
 
@@ -643,7 +649,12 @@ async function resolveDirectRouteConfig(
     model,
     adapter,
     surface: "direct-provider",
-    taskSuitability: resolveTaskSuitability(routeConfig.provider, model, config.modelTaskSuitability),
+    taskSuitability: resolveTaskSuitability(
+      routeConfig.provider,
+      model,
+      config.modelTaskSuitability,
+      liveProofEvidence(routeConfig.provider, model, normalizeProfiles(routeConfig.profiles)),
+    ),
     profiles: profileResolution.profiles,
   };
   return {
@@ -660,10 +671,11 @@ function resolveTaskSuitability(
   provider: string,
   model: string,
   overrides: readonly KilnModelTaskSuitabilityOverride[] | undefined,
+  liveProof: ModelTaskSuitabilityEvidence | undefined,
 ): readonly ModelTaskSuitability[] {
   const merged = new Map<string, ModelTaskSuitability>();
   for (const entry of MODEL_CAPABILITIES.taskSuitability(provider, model)) {
-    merged.set(entry.task, entry);
+    merged.set(entry.task, appendSuitabilityEvidence(entry, liveProof));
   }
   for (const override of overrides ?? []) {
     if (override.provider !== provider || override.model !== model) {
@@ -674,9 +686,42 @@ function resolveTaskSuitability(
       level: override.level,
       source: "operator-override",
       reason: override.reason,
+      evidence: [
+        {
+          source: "operator-override",
+          status: "declared",
+          summary: override.reason,
+        },
+        ...(liveProof ? [liveProof] : []),
+      ],
     });
   }
   return [...merged.values()];
+}
+
+function appendSuitabilityEvidence(
+  entry: ModelTaskSuitability,
+  evidence: ModelTaskSuitabilityEvidence | undefined,
+): ModelTaskSuitability {
+  if (!evidence) {
+    return entry;
+  }
+  return {
+    ...entry,
+    evidence: [...(entry.evidence ?? []), evidence],
+  };
+}
+
+function liveProofEvidence(
+  provider: string,
+  model: string,
+  profiles: readonly ManagedAgentAdmissionProfile[],
+): ModelTaskSuitabilityEvidence {
+  return {
+    source: "live-proof",
+    status: "observed",
+    summary: `Managed invocation route for ${provider}/${model} is available with live-proven profiles: ${profiles.join(", ")}.`,
+  };
 }
 
 function normalizeProfiles(

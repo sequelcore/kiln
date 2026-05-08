@@ -89,7 +89,10 @@ configured model; provider-only selection fails closed as ambiguous.
 `modelTaskSuitability` entries override static suitability evidence for the
 matching provider/model/task. Use them for operator or project knowledge such
 as "this route is limited for frontend design" without changing global product
-defaults.
+defaults. The resolved route catalog also carries first-party evaluation
+evidence, live route proof, and configured skill recommendations. Skill
+recommendations are advisory; a parent may request a skill only when the skill
+exists in the admitted skill catalog or on the selected agent profile.
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
 `.kiln/agents`, `~/.kiln/agents`, `.kiln/instructions`,
@@ -437,6 +440,15 @@ using task ids such as `architecture-review`, `backend-coding`,
 parent sessions select a configured child but does not grant authority.
 Incomplete agent files are ignored instead of being projected as legacy partial
 agents.
+
+Kiln also provides first-party built-in agent profiles for common roles:
+`scout`, `planner`, `architect`, `tdd`, `coder`, `fast-coder`, `reviewer`,
+`ddd-validator`, `researcher`, and `refactoring-specialist`. These defaults
+are available to managed invocation and native projection so a fresh Kiln setup
+has a usable specialist roster. A global profile with the same `name` replaces
+the built-in profile; a project profile with the same `name` replaces both.
+Use this override path for personal display names, provider preferences, extra
+instruction profiles, and team-specific role doctrine.
 
 Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent
 definitions from `~/.kiln/agents/` and `.kiln/agents/` to enabled native CLIs:

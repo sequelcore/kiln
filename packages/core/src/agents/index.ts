@@ -137,6 +137,7 @@ export { SlidingWindowRateLimiter } from "./sliding-window-rate-limiter.js";
 export { ModelCapabilityRegistry } from "./model-capability-registry.js";
 export type {
   ModelTaskSuitability,
+  ModelTaskSuitabilityEvidence,
   ModelTaskSuitabilityLevel,
   ModelTaskSuitabilitySource,
   ModelTaskSuitabilityTask,

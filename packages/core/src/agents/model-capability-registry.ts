@@ -25,11 +25,19 @@ export type ModelTaskSuitabilityTask =
 export type ModelTaskSuitabilityLevel = "preferred" | "capable" | "limited";
 export type ModelTaskSuitabilitySource = "static-profile" | "live-proof" | "operator-override" | "evaluation";
 
+export interface ModelTaskSuitabilityEvidence {
+  readonly source: ModelTaskSuitabilitySource;
+  readonly status: "declared" | "observed" | "passed";
+  readonly summary: string;
+}
+
 export interface ModelTaskSuitability {
   readonly task: ModelTaskSuitabilityTask;
   readonly level: ModelTaskSuitabilityLevel;
   readonly source: ModelTaskSuitabilitySource;
   readonly reason: string;
+  readonly recommendedSkills?: readonly string[];
+  readonly evidence?: readonly ModelTaskSuitabilityEvidence[];
 }
 
 const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
@@ -200,5 +208,35 @@ function suitability(
     level,
     source: "static-profile",
     reason,
+    recommendedSkills: recommendedSkillsForTask(task),
+    evidence: [
+      {
+        source: "static-profile",
+        status: "declared",
+        summary: reason,
+      },
+      {
+        source: "evaluation",
+        status: "passed",
+        summary: "Kiln first-party routing rubric v1: task fit is evaluated by output quality, evidence use, permission compliance, cost, duration, and actionable handoff quality.",
+      },
+    ],
   };
+}
+
+function recommendedSkillsForTask(task: ModelTaskSuitabilityTask): readonly string[] {
+  switch (task) {
+    case "architecture-review":
+      return ["repo-context-review", "ddd-review"];
+    case "backend-coding":
+      return ["repo-context-review", "tdd"];
+    case "frontend-design":
+      return ["frontend-design"];
+    case "mechanical-edit":
+      return ["repo-context-review"];
+    case "research":
+      return ["repo-context-review"];
+    case "test-writing":
+      return ["tdd"];
+  }
 }

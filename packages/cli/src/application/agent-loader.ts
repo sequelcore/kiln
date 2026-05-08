@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse } from "yaml";
 import type { AgentTier, ModelTaskSuitabilityTask } from "@kilnai/core";
+import { KILN_FIRST_PARTY_AGENT_DEFAULTS } from "./first-party-agent-defaults.js";
 
 export interface KilnAgentDefinition {
   readonly name: string;
@@ -27,7 +28,7 @@ export interface KilnAgentDefinition {
   readonly routeId?: string;
   readonly providerRoute?: KilnAgentProviderRoute;
   readonly instructions?: string;
-  readonly scope: "global" | "project";
+  readonly scope: "builtin" | "global" | "project";
 }
 
 export type KilnAgentMode = "primary" | "subagent" | "managed-child" | "all";
@@ -237,11 +238,24 @@ function readDefinitionsFromDirectory(
   return definitions;
 }
 
-export async function loadAgentDefinitions(projectPath: string): Promise<KilnAgentDefinition[]> {
+export interface LoadAgentDefinitionsOptions {
+  readonly includeBuiltins?: boolean;
+}
+
+export async function loadAgentDefinitions(
+  projectPath: string,
+  options: LoadAgentDefinitionsOptions = {},
+): Promise<KilnAgentDefinition[]> {
   const globalDirectory = join(homedir(), ".kiln", "agents");
   const projectDirectory = join(projectPath, ".kiln", "agents");
 
   const merged = new Map<string, KilnAgentDefinition>();
+
+  if (options.includeBuiltins !== false) {
+    for (const definition of KILN_FIRST_PARTY_AGENT_DEFAULTS) {
+      merged.set(definition.name.toLowerCase(), definition);
+    }
+  }
 
   for (const definition of readDefinitionsFromDirectory(globalDirectory, "global")) {
     merged.set(definition.name.toLowerCase(), definition);

@@ -634,7 +634,7 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
   const healthy = options.routes.length > 0
     ? options.routes
         .map((route) => {
-          const suitability = formatTaskSuitability(route.taskSuitability);
+          const suitability = formatTaskSuitability(route.taskSuitability, managedInvocationSkillNames(options));
           return `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${suitability ? `, taskSuitability=${suitability}` : ""}`;
         })
         .join("\n")
@@ -652,12 +652,23 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
   ].join("\n");
 }
 
-function formatTaskSuitability(suitability: readonly ModelTaskSuitability[] | undefined): string | undefined {
+function formatTaskSuitability(
+  suitability: readonly ModelTaskSuitability[] | undefined,
+  configuredSkills: readonly string[],
+): string | undefined {
   if (!suitability || suitability.length === 0) {
     return undefined;
   }
+  const configuredSkillSet = new Set(configuredSkills);
   return suitability
-    .map((entry) => `${entry.task}:${entry.level}:${entry.source}`)
+    .map((entry) => {
+      const evidence = entry.evidence && entry.evidence.length > 0
+        ? `:evidence=${unique(entry.evidence.map((item) => item.source)).join("+")}`
+        : "";
+      const recommendedSkills = (entry.recommendedSkills ?? []).filter((skill) => configuredSkillSet.has(skill));
+      const skills = recommendedSkills.length > 0 ? `:skills=${recommendedSkills.join("+")}` : "";
+      return `${entry.task}:${entry.level}:${entry.source}${evidence}${skills}`;
+    })
     .join(";");
 }
 

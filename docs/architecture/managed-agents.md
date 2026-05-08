@@ -362,11 +362,16 @@ render the same validated intent natively or through deterministic text fallback
 instead of parsing markdown tables from the parent assistant response.
 
 The model-facing tool description also carries advisory task suitability for
-healthy managed routes when the selected provider/model has static capability
-evidence. Parent agents may use this to prefer, for example, a coding route for
-bounded backend work or a reasoning route for architecture review. Suitability
-is not authority: unavailable routes, unhealthy provider/model pairs, unknown
-agent profiles, missing skills, or denied authority profiles still fail closed.
+healthy managed routes when the selected provider/model has capability
+evidence. The suitability view combines static profile knowledge, first-party
+evaluation evidence, live route proof, operator overrides, and configured skill
+recommendations in one bounded record shape. Parent agents may use this to
+prefer, for example, a coding route for bounded backend work or a reasoning
+route for architecture review. Suitability is not authority: unavailable
+routes, unhealthy provider/model pairs, unknown agent profiles, missing skills,
+or denied authority profiles still fail closed. Recommended skills are shown to
+the parent only when they are also present in the admitted skill catalog or on a
+configured agent profile.
 
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Transcript and result handoff URIs emitted

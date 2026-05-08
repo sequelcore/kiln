@@ -71,10 +71,19 @@ describe("agent-loader", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns empty array when both directories missing", async () => {
+  it("returns first-party defaults when both directories missing", async () => {
     const definitions = await loadAgentDefinitions(PROJECT_PATH);
 
-    expect(definitions).toEqual([]);
+    expect(findAgent(definitions, "architect")).toMatchObject({
+      name: "architect",
+      scope: "builtin",
+      taskAffinity: ["architecture-review"],
+    });
+    expect(findAgent(definitions, "coder")).toMatchObject({
+      name: "coder",
+      scope: "builtin",
+      tools: ["read", "grep", "glob", "write", "bash"],
+    });
     expect(readdirSyncMock).toHaveBeenCalledWith(GLOBAL_AGENTS_DIR);
     expect(readdirSyncMock).toHaveBeenCalledWith(PROJECT_AGENTS_DIR);
   });
@@ -117,7 +126,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
 
     expect(definitions).toEqual([
       {
@@ -158,7 +167,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const [definition] = await loadAgentDefinitions(PROJECT_PATH);
+    const [definition] = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
 
     expect(definition?.instructions).toBe("# Plan\n\nCreate a concrete implementation plan.");
   });
@@ -180,7 +189,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
 
     expect(definitions).toHaveLength(3);
     expect(findAgent(definitions, "shared")).toEqual({
@@ -202,7 +211,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
 
     expect(definitions).toEqual([]);
   });
@@ -215,7 +224,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH);
+    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
 
     expect(definitions).toEqual([]);
   });

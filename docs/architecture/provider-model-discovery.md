@@ -148,14 +148,23 @@ Canonical task suitability records use:
 - `source`: `static-profile`, `live-proof`, `operator-override`, or
   `evaluation`
 - `reason`: short operator-facing explanation
+- `recommendedSkills`: optional advisory skill ids that improve the route for
+  that task when those skills are actually configured and admitted
+- `evidence`: optional evidence rows with `source`, `status`, and `summary`
 
 Static suitability belongs in `ModelCapabilityRegistry`. It is advisory and
 must identify itself as `static-profile`. Operator and project overrides live
 in `modelTaskSuitability` config entries and identify themselves as
 `operator-override` after admission. An override supersedes static suitability
 for the same provider/model/task but does not affect unrelated tasks. Live
-harness proof and evaluation results may add or supersede suitability evidence
-in later slices, but they must preserve the same record shape and source.
+harness proof and evaluation results append evidence rows to the same record
+shape. A healthy managed route therefore carries one normalized view combining
+static profile knowledge, first-party evaluation evidence, route live proof,
+and operator overrides when present.
+
+Recommended skills are not permissions and not implicit context. Parent
+sessions may request a recommended skill only when it appears in the admitted
+skill catalog or on the selected agent profile. Unknown skills fail closed.
 
 Parent sessions and managed invocation tool descriptions may use task
 suitability to choose among admitted routes. They must still respect route
