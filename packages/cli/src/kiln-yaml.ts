@@ -131,6 +131,7 @@ function mergeWeb(
     ...base,
     ...override,
     searchProvider: override?.searchProvider ?? base?.searchProvider,
+    extractProvider: override?.extractProvider ?? base?.extractProvider,
     allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
   };
 }

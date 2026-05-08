@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 
-const FIXTURE_ROOT = join(process.cwd(), ".kiln", "tmp", "project-root-resolver-test");
+const FIXTURE_ROOT = join(tmpdir(), "kiln-project-root-resolver-test");
 
 function resetFixture(): string {
   rmSync(FIXTURE_ROOT, { recursive: true, force: true });
@@ -12,6 +13,10 @@ function resetFixture(): string {
 }
 
 describe("project-root-resolver", () => {
+  afterEach(() => {
+    rmSync(FIXTURE_ROOT, { recursive: true, force: true });
+  });
+
   it("prefers the nearest Kiln project config over a repository root", () => {
     const root = resetFixture();
     mkdirSync(join(root, ".git"), { recursive: true });

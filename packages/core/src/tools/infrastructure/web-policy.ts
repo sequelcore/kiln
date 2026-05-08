@@ -111,7 +111,7 @@ export function validateWebAccess(input: {
     return {
       ok: false,
       message: `Domain access denied: ${normalized.hostname}`,
-      errorCode: "network_denied",
+      errorCode: "domain_denied",
     };
   }
 
@@ -120,7 +120,7 @@ export function validateWebAccess(input: {
     return {
       ok: false,
       message: "Network access denied: explicit network policy is required",
-      errorCode: "network_denied",
+      errorCode: "network_policy_missing",
     };
   }
 

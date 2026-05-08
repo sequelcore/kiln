@@ -59,6 +59,7 @@ describe("tool domain types", () => {
       "ocr_image",
       "web_search",
       "web_fetch",
+      "web_extract",
       "grep",
       "glob",
       "git",
@@ -116,6 +117,10 @@ describe("tool domain types", () => {
       idempotent: true,
     });
     expect(TOOL_SCHEMAS.web_fetch.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.web_extract.annotations).toEqual({
       readOnly: true,
       idempotent: true,
     });
@@ -179,6 +184,7 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.ocr_image.inputSchema.required).toEqual(["path"]);
     expect(TOOL_SCHEMAS.web_search.inputSchema.required).toEqual(["query"]);
     expect(TOOL_SCHEMAS.web_fetch.inputSchema.required).toEqual(["url"]);
+    expect(TOOL_SCHEMAS.web_extract.inputSchema.required).toEqual(["urls"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
     expect(TOOL_SCHEMAS.monitor_start.inputSchema.required).toEqual(["command"]);
     expect(TOOL_SCHEMAS.monitor_read.inputSchema.required).toEqual(["id"]);
@@ -205,6 +211,7 @@ describe("tool domain types", () => {
       "tree",
       "web_search",
       "web_fetch",
+      "web_extract",
       "grep",
       "glob",
       "monitor_start",
@@ -284,6 +291,42 @@ describe("tool domain types", () => {
         title: "Docs",
         rank: 1,
         snippet: "Result snippet",
+      }],
+      verbosity: "structured",
+    });
+  });
+
+  it("builds web extract metadata with page evidence", () => {
+    const metadata: WebToolResultMetadata<"web_extract"> = webToolMetadata("web_extract", {
+      operation: "extract",
+      provider: "test-extract",
+      urls: ["https://example.com/docs"],
+      format: "markdown",
+      extractCount: 1,
+      retrievedAt: "2026-05-08T00:00:00.000Z",
+      pages: [{
+        url: "https://example.com/docs",
+        title: "Docs",
+        bytesRead: 128,
+        truncated: false,
+      }],
+      verbosity: "structured",
+    });
+
+    expect(metadata).toEqual({
+      toolName: "web_extract",
+      kind: "web",
+      operation: "extract",
+      provider: "test-extract",
+      urls: ["https://example.com/docs"],
+      format: "markdown",
+      extractCount: 1,
+      retrievedAt: "2026-05-08T00:00:00.000Z",
+      pages: [{
+        url: "https://example.com/docs",
+        title: "Docs",
+        bytesRead: 128,
+        truncated: false,
       }],
       verbosity: "structured",
     });

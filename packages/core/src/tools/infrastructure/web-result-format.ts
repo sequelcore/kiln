@@ -14,6 +14,17 @@ export interface WebSearchOutput {
   readonly sources: readonly WebSourceMetadata[];
 }
 
+export interface WebExtractOutputPage {
+  readonly url: string;
+  readonly title?: string;
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+export interface WebExtractOutput {
+  readonly pages: readonly WebExtractOutputPage[];
+}
+
 export function formatWebFetchOutput(
   output: WebFetchOutput,
   verbosity: ToolOutputVerbosity,
@@ -54,4 +65,32 @@ export function formatWebSearchOutput(
       source.snippet,
     ].filter(Boolean).join(" "))
     .join("\n");
+}
+
+export function formatWebExtractOutput(
+  output: WebExtractOutput,
+  verbosity: ToolOutputVerbosity,
+): string {
+  if (verbosity === "structured") {
+    return JSON.stringify(output, null, 2);
+  }
+
+  const characterCount = output.pages.reduce((sum, page) => sum + page.text.length, 0);
+  const truncatedCount = output.pages.filter((page) => page.truncated).length;
+  if (verbosity === "summary") {
+    return [
+      `${output.pages.length} extracted ${pluralize(output.pages.length, "page")}`,
+      `${characterCount} characters`,
+      truncatedCount > 0 ? `${truncatedCount} truncated` : "not truncated",
+    ].join("; ");
+  }
+
+  return output.pages
+    .map((page) => [
+      `Source: ${page.url}`,
+      page.title ? `Title: ${page.title}` : undefined,
+      "",
+      page.text,
+    ].filter((line): line is string => line !== undefined).join("\n"))
+    .join("\n\n---\n\n");
 }

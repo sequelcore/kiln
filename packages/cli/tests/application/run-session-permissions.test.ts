@@ -446,7 +446,7 @@ describe("runSession tool permission gating", () => {
     expect(reportFailure).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: { type: "tool_use", toolName: "Bash" },
+        event: expect.objectContaining({ type: "tool_use", toolName: "Bash" }),
       }),
     );
 

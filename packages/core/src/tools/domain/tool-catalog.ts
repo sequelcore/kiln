@@ -159,7 +159,7 @@ function tagsForTool(tool: DevTool): readonly string[] {
   if (tool.name === "view_image" || tool.name === "ocr_image") {
     tags.add("media");
   }
-  if (tool.name === "web_search" || tool.name === "web_fetch") {
+  if (tool.name === "web_search" || tool.name === "web_fetch" || tool.name === "web_extract") {
     tags.add("web");
   }
   if (tool.name === "bash" || tool.name === "git") {

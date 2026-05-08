@@ -3,7 +3,10 @@ import { createDefaultBuiltinToolSurface } from "@kilnai/core";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { createWebToolSurfaceOptions } from "../../src/config/web-tools-config.js";
+import {
+  createWebToolSurfaceOptions,
+  describeWebToolConfiguration,
+} from "../../src/config/web-tools-config.js";
 import type { KilnYaml } from "../../src/kiln-yaml-types.js";
 
 function config(web: KilnYaml["web"]): KilnYaml {
@@ -28,7 +31,7 @@ describe("web tool config", () => {
     expect(result.result.output).toContain("explicit network policy is required");
   });
 
-  it("builds one shared network policy for web_fetch and web_search", async () => {
+  it("builds one shared network policy for web_fetch, web_search, and web_extract", async () => {
     const options = createWebToolSurfaceOptions({
       config: config({
         enabled: true,
@@ -40,6 +43,7 @@ describe("web tool config", () => {
 
     expect(options.webFetch?.networkPolicy?.canAccess("docs.example.com")).toBe(true);
     expect(options.webSearch?.networkPolicy).toBe(options.webFetch?.networkPolicy);
+    expect(options.webExtract?.networkPolicy).toBe(options.webFetch?.networkPolicy);
     expect(options.webSearch?.networkPolicy?.canAccess("api.example.com")).toBe(false);
   });
 
@@ -303,5 +307,412 @@ describe("web tool config", () => {
     expect(result.result.isError).toBe(false);
     expect(result.result.output).toContain("Kiln docs");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("adapts an HTTP extract provider without making consumers provider-specific", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(_url).toBe("https://extract.example.com/pages");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        urls: ["https://docs.example.com/kiln"],
+        format: "markdown",
+        maxBytes: 2000,
+      });
+      return new Response(JSON.stringify({
+        provider: "test-extract",
+        retrievedAt: "2026-05-08T00:00:00.000Z",
+        pages: [{
+          url: "https://docs.example.com/kiln",
+          title: "Kiln docs",
+          text: "# Kiln\n\nControlled web extract",
+        }],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+      config: config({
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+        extractProvider: {
+          type: "http",
+          url: "https://extract.example.com/pages",
+          headers: { "x-test": "yes" },
+        },
+      }),
+      projectPath: "/project",
+      fetchImpl,
+    }));
+
+    const result = await surface.bridge.execute({
+      name: "web_extract",
+      input: {
+        urls: ["https://docs.example.com/kiln"],
+        maxBytes: 2000,
+        verbosity: "structured",
+      },
+    });
+
+    expect(result.result.isError).toBe(false);
+    expect(JSON.parse(result.result.output)).toMatchObject({
+      pages: [{
+        url: "https://docs.example.com/kiln",
+        title: "Kiln docs",
+        text: "# Kiln\n\nControlled web extract",
+      }],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("adapts a SearXNG search provider into the canonical source shape", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      expect(String(url)).toContain("https://searx.example.com/search?");
+      expect(String(url)).toContain("q=kiln+tools+site%3Adocs.example.com");
+      expect(String(url)).toContain("format=json");
+      return new Response(JSON.stringify({
+        results: [{
+          url: "https://docs.example.com/kiln",
+          title: "Kiln docs",
+          content: "Controlled web tools",
+        }],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+      config: config({
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com", "searx.example.com"],
+        searchProvider: {
+          type: "searxng",
+          url: "https://searx.example.com",
+        },
+      }),
+      projectPath: "/project",
+      fetchImpl,
+    }));
+
+    const result = await surface.bridge.execute({
+      name: "web_search",
+      input: { query: "kiln tools", domains: ["docs.example.com"], verbosity: "structured" },
+    });
+
+    expect(result.result.isError).toBe(false);
+    expect(JSON.parse(result.result.output)).toMatchObject({
+      sources: [{
+        url: "https://docs.example.com/kiln",
+        title: "Kiln docs",
+        snippet: "Controlled web tools",
+      }],
+    });
+  });
+
+  it("adapts a Tavily search provider with API-key env indirection", async () => {
+    process.env.KILN_TEST_TAVILY_KEY = "tvly-test";
+    try {
+      const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(_url).toBe("https://api.tavily.com/search");
+        expect(init?.headers).toMatchObject({
+          authorization: "Bearer tvly-test",
+        });
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          query: "kiln tools",
+          max_results: 2,
+          include_domains: ["docs.example.com"],
+        });
+        return new Response(JSON.stringify({
+          results: [{
+            url: "https://docs.example.com/kiln",
+            title: "Kiln docs",
+            content: "Controlled web tools",
+            published_date: "2026-05-01",
+          }],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "documentation",
+          allowedDomains: ["docs.example.com"],
+          searchProvider: {
+            type: "tavily",
+            apiKeyEnv: "KILN_TEST_TAVILY_KEY",
+          },
+        }),
+        projectPath: "/project",
+        fetchImpl,
+      }));
+
+      const result = await surface.bridge.execute({
+        name: "web_search",
+        input: { query: "kiln tools", domains: ["docs.example.com"], maxResults: 2 },
+      });
+
+      expect(result.result.isError).toBe(false);
+      expect(result.result.output).toContain("Kiln docs");
+    } finally {
+      delete process.env.KILN_TEST_TAVILY_KEY;
+    }
+  });
+
+  it("adapts a Tavily extract provider with API-key env indirection", async () => {
+    process.env.KILN_TEST_TAVILY_KEY = "tvly-test";
+    try {
+      const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(_url).toBe("https://api.tavily.com/extract");
+        expect(init?.headers).toMatchObject({
+          authorization: "Bearer tvly-test",
+        });
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          urls: "https://docs.example.com/kiln",
+          extract_depth: "basic",
+          format: "text",
+        });
+        return new Response(JSON.stringify({
+          results: [{
+            url: "https://docs.example.com/kiln",
+            raw_content: "Kiln docs\nControlled web extract",
+          }],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "documentation",
+          allowedDomains: ["docs.example.com"],
+          extractProvider: {
+            type: "tavily",
+            apiKeyEnv: "KILN_TEST_TAVILY_KEY",
+          },
+        }),
+        projectPath: "/project",
+        fetchImpl,
+      }));
+
+      const result = await surface.bridge.execute({
+        name: "web_extract",
+        input: { urls: ["https://docs.example.com/kiln"], format: "text" },
+      });
+
+      expect(result.result.isError).toBe(false);
+      expect(result.result.output).toContain("Kiln docs");
+    } finally {
+      delete process.env.KILN_TEST_TAVILY_KEY;
+    }
+  });
+
+  it("adapts a Brave search provider with API-key env indirection", async () => {
+    process.env.KILN_TEST_BRAVE_KEY = "brave-test";
+    try {
+      const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toContain("https://api.search.brave.com/res/v1/web/search?");
+        expect(String(url)).toContain("q=kiln+tools+site%3Adocs.example.com");
+        expect(init?.headers).toMatchObject({
+          "x-subscription-token": "brave-test",
+        });
+        return new Response(JSON.stringify({
+          web: {
+            results: [{
+              url: "https://docs.example.com/kiln",
+              title: "Kiln docs",
+              description: "Controlled web tools",
+            }],
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "documentation",
+          allowedDomains: ["docs.example.com"],
+          searchProvider: {
+            type: "brave",
+            apiKeyEnv: "KILN_TEST_BRAVE_KEY",
+          },
+        }),
+        projectPath: "/project",
+        fetchImpl,
+      }));
+
+      const result = await surface.bridge.execute({
+        name: "web_search",
+        input: { query: "kiln tools", domains: ["docs.example.com"] },
+      });
+
+      expect(result.result.isError).toBe(false);
+      expect(result.result.output).toContain("Kiln docs");
+    } finally {
+      delete process.env.KILN_TEST_BRAVE_KEY;
+    }
+  });
+
+  it("adapts an Exa search provider with API-key env indirection", async () => {
+    process.env.KILN_TEST_EXA_KEY = "exa-test";
+    try {
+      const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(_url).toBe("https://api.exa.ai/search");
+        expect(init?.headers).toMatchObject({
+          "x-api-key": "exa-test",
+        });
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          query: "kiln tools site:docs.example.com",
+          numResults: 5,
+          type: "auto",
+        });
+        return new Response(JSON.stringify({
+          results: [{
+            url: "https://docs.example.com/kiln",
+            title: "Kiln docs",
+            highlights: ["Controlled web tools"],
+          }],
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "documentation",
+          allowedDomains: ["docs.example.com"],
+          searchProvider: {
+            type: "exa",
+            apiKeyEnv: "KILN_TEST_EXA_KEY",
+          },
+        }),
+        projectPath: "/project",
+        fetchImpl,
+      }));
+
+      const result = await surface.bridge.execute({
+        name: "web_search",
+        input: { query: "kiln tools", domains: ["docs.example.com"] },
+      });
+
+      expect(result.result.isError).toBe(false);
+      expect(result.result.output).toContain("Kiln docs");
+    } finally {
+      delete process.env.KILN_TEST_EXA_KEY;
+    }
+  });
+
+  it("adapts a Firecrawl extract provider with API-key env indirection", async () => {
+    process.env.KILN_TEST_FIRECRAWL_KEY = "fc-test";
+    try {
+      const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(_url).toBe("https://api.firecrawl.dev/v2/scrape");
+        expect(init?.headers).toMatchObject({
+          authorization: "Bearer fc-test",
+        });
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          url: "https://docs.example.com/kiln",
+          formats: ["markdown"],
+          onlyMainContent: true,
+        });
+        return new Response(JSON.stringify({
+          data: {
+            markdown: "# Kiln\n\nControlled web extract",
+            metadata: {
+              sourceURL: "https://docs.example.com/kiln",
+              title: "Kiln docs",
+              statusCode: 200,
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "documentation",
+          allowedDomains: ["docs.example.com"],
+          extractProvider: {
+            type: "firecrawl",
+            apiKeyEnv: "KILN_TEST_FIRECRAWL_KEY",
+          },
+        }),
+        projectPath: "/project",
+        fetchImpl,
+      }));
+
+      const result = await surface.bridge.execute({
+        name: "web_extract",
+        input: { urls: ["https://docs.example.com/kiln"], verbosity: "structured" },
+      });
+
+      expect(result.result.isError).toBe(false);
+      expect(JSON.parse(result.result.output)).toMatchObject({
+        pages: [{
+          url: "https://docs.example.com/kiln",
+          title: "Kiln docs",
+          text: "# Kiln\n\nControlled web extract",
+        }],
+      });
+    } finally {
+      delete process.env.KILN_TEST_FIRECRAWL_KEY;
+    }
+  });
+
+  it("reports web diagnostics without executing a provider", () => {
+    const diagnostics = describeWebToolConfiguration(config({
+      enabled: true,
+      netPolicy: "documentation",
+      allowedDomains: ["docs.example.com"],
+      searchProvider: { type: "searxng", url: "https://searx.example.com" },
+      extractProvider: { type: "firecrawl", apiKeyEnv: "KILN_TEST_FIRECRAWL_KEY" },
+    }));
+
+    expect(diagnostics).toEqual({
+      enabled: true,
+      netPolicy: "documentation",
+      allowedDomains: ["docs.example.com"],
+      searchProviderType: "searxng",
+      searchProviderConfigured: true,
+      searchProviderSource: "effective",
+      extractProviderType: "firecrawl",
+      extractProviderConfigured: true,
+      extractProviderSource: "effective",
+      issues: [],
+    });
+  });
+
+  it("reports inherited global web providers separately from project web authority", () => {
+    const diagnostics = describeWebToolConfiguration(
+      config({
+        enabled: true,
+        netPolicy: "documentation",
+        searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
+        extractProvider: { type: "firecrawl", apiKeyEnv: "FIRECRAWL_API_KEY" },
+      }),
+      {
+        globalWeb: {
+          searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
+          extractProvider: { type: "firecrawl", apiKeyEnv: "FIRECRAWL_API_KEY" },
+        },
+        projectWeb: {
+          enabled: true,
+          netPolicy: "documentation",
+        },
+      },
+    );
+
+    expect(diagnostics.searchProviderSource).toBe("global");
+    expect(diagnostics.extractProviderSource).toBe("global");
+    expect(diagnostics.issues).toEqual([]);
   });
 });

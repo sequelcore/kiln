@@ -49,6 +49,7 @@ import {
 import { ToolCatalogSearchTool } from "./infrastructure/tool-catalog-search-tool.js";
 import { TreeTool } from "./infrastructure/tree-tool.js";
 import { ViewImageTool } from "./infrastructure/view-image-tool.js";
+import { WebExtractTool, type WebExtractToolOptions } from "./infrastructure/web-extract-tool.js";
 import { WebFetchTool, type WebFetchToolOptions } from "./infrastructure/web-fetch-tool.js";
 import { WebSearchTool, type WebSearchToolOptions } from "./infrastructure/web-search-tool.js";
 import { WorkspaceResourceProvider, type WorkspaceResourceProviderOptions } from "./infrastructure/workspace-resource-provider.js";
@@ -68,6 +69,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly grep?: GrepToolOptions;
   readonly glob?: GlobToolOptions;
   readonly webFetch?: WebFetchToolOptions;
+  readonly webExtract?: WebExtractToolOptions;
   readonly webSearch?: WebSearchToolOptions;
   readonly git?: GitToolOptions;
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
@@ -179,6 +181,7 @@ export function createDefaultBuiltinTools(
     new OcrImageTool(),
     new WebSearchTool(options.webSearch),
     new WebFetchTool(options.webFetch),
+    new WebExtractTool(options.webExtract),
     new GrepTool(options.grep),
     new GlobTool(options.glob),
     new GitTool(options.git),

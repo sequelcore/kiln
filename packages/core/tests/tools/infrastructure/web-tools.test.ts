@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { WebExtractTool, type WebExtractProvider } from "../../../src/tools/infrastructure/web-extract-tool.js";
 import { WebFetchTool, type WebFetchClient } from "../../../src/tools/infrastructure/web-fetch-tool.js";
 import { WebSearchTool, type WebSearchProvider } from "../../../src/tools/infrastructure/web-search-tool.js";
 import {
@@ -116,6 +117,25 @@ describe("WebFetchTool", () => {
     expect(fetchClient).not.toHaveBeenCalled();
   });
 
+  it("classifies missing network policy distinctly from domain denial", async () => {
+    const fetchClient = vi.fn<WebFetchClient>();
+    const tool = new WebFetchTool({ fetchClient });
+
+    const result = await tool.execute({
+      name: "web_fetch",
+      input: { url: "https://example.com" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_fetch",
+      kind: "web",
+      operation: "fetch",
+      errorCode: "network_policy_missing",
+    });
+    expect(fetchClient).not.toHaveBeenCalled();
+  });
+
   it("rejects redirect hops that leave network policy", async () => {
     const fetchClient = vi.fn<WebFetchClient>(async () => ({
       url: "https://evil.test/final",
@@ -195,6 +215,25 @@ describe("WebSearchTool", () => {
       operation: "search",
       errorCode: "provider_not_configured",
     });
+  });
+
+  it("classifies missing search network policy distinctly from provider errors", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({ sources: [] }));
+    const tool = new WebSearchTool({ searchProvider });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: { query: "kiln docs" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_search",
+      kind: "web",
+      operation: "search",
+      errorCode: "network_policy_missing",
+    });
+    expect(searchProvider).not.toHaveBeenCalled();
   });
 
   it("passes normalized search controls to the provider and returns ranked sources", async () => {
@@ -282,5 +321,209 @@ describe("WebSearchTool", () => {
       domains: ["docs.example.com"],
       maxResults: 5,
     });
+  });
+
+  it("treats null recencyDays as no recency filter", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "test-search",
+      sources: [],
+    }));
+    const tool = new WebSearchTool({ searchProvider });
+
+    const result = await tool.execute(
+      {
+        name: "web_search",
+        input: {
+          query: "kiln docs",
+          domains: ["docs.example.com"],
+          recencyDays: null,
+          verbosity: "structured",
+        },
+      },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_search",
+      kind: "web",
+      operation: "search",
+      query: "kiln docs",
+      domains: ["docs.example.com"],
+    });
+    expect(result.metadata).not.toMatchObject({
+      recencyDays: expect.any(Number),
+    });
+    expect(searchProvider).toHaveBeenCalledWith({
+      query: "kiln docs",
+      domains: ["docs.example.com"],
+      maxResults: 5,
+    });
+  });
+});
+
+describe("WebExtractTool", () => {
+  it("extracts allowed pages through the provider with structured output and metadata", async () => {
+    const extractProvider = vi.fn<WebExtractProvider>(async () => ({
+      provider: "test-extract",
+      retrievedAt: "2026-05-08T00:00:00.000Z",
+      pages: [{
+        url: "https://docs.example.com/page",
+        title: "<b>Docs</b>",
+        contentType: "text/html",
+        status: 200,
+        text: "<script>bad()</script># Docs\n\nHello",
+        bytesRead: 38,
+      }],
+    }));
+    const tool = new WebExtractTool({ extractProvider });
+
+    const result = await tool.execute(
+      {
+        name: "web_extract",
+        input: {
+          urls: ["https://docs.example.com/page"],
+          format: "markdown",
+          maxBytes: 2000,
+          timeout: 1000,
+          verbosity: "structured",
+        },
+      },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.output)).toMatchObject({
+      pages: [{
+        url: "https://docs.example.com/page",
+        title: "Docs",
+        text: "# Docs\n\nHello",
+        truncated: false,
+      }],
+    });
+    expect(result.metadata).toMatchObject({
+      toolName: "web_extract",
+      kind: "web",
+      operation: "extract",
+      provider: "test-extract",
+      urls: ["https://docs.example.com/page"],
+      format: "markdown",
+      extractCount: 1,
+      bytesRead: 38,
+      truncated: false,
+      verbosity: "structured",
+    });
+    expect(extractProvider).toHaveBeenCalledWith({
+      urls: ["https://docs.example.com/page"],
+      format: "markdown",
+      timeoutMs: 1000,
+      maxBytes: 2000,
+    });
+  });
+
+  it("fails closed when no extract provider is configured", async () => {
+    const tool = new WebExtractTool();
+
+    const result = await tool.execute(
+      { name: "web_extract", input: { urls: ["https://example.com"] } },
+      makeSandbox("C:/workspace", {
+        netPolicy: "full",
+        allowedDomains: ["*"],
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_extract",
+      kind: "web",
+      operation: "extract",
+      errorCode: "provider_not_configured",
+    });
+  });
+
+  it("requires explicit network policy before calling the provider", async () => {
+    const extractProvider = vi.fn<WebExtractProvider>(async () => ({ pages: [] }));
+    const tool = new WebExtractTool({ extractProvider });
+
+    const result = await tool.execute({
+      name: "web_extract",
+      input: { urls: ["https://example.com"] },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_extract",
+      kind: "web",
+      operation: "extract",
+      errorCode: "network_policy_missing",
+    });
+    expect(extractProvider).not.toHaveBeenCalled();
+  });
+
+  it("reports empty extraction as a tool error instead of ambiguous success", async () => {
+    const extractProvider = vi.fn<WebExtractProvider>(async () => ({
+      provider: "test-extract",
+      retrievedAt: "2026-05-08T00:00:00.000Z",
+      pages: [],
+    }));
+    const tool = new WebExtractTool({ extractProvider });
+
+    const result = await tool.execute(
+      {
+        name: "web_extract",
+        input: {
+          urls: ["https://docs.example.com/report.pdf"],
+          format: "markdown",
+          verbosity: "structured",
+        },
+      },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("returned no extractable pages");
+    expect(result.metadata).toMatchObject({
+      toolName: "web_extract",
+      kind: "web",
+      operation: "extract",
+      provider: "test-extract",
+      urls: ["https://docs.example.com/report.pdf"],
+      format: "markdown",
+      extractCount: 0,
+      pages: [],
+      errorCode: "empty_extraction",
+      verbosity: "structured",
+    });
+  });
+
+  it("rejects denied domains before calling the provider", async () => {
+    const extractProvider = vi.fn<WebExtractProvider>(async () => ({ pages: [] }));
+    const tool = new WebExtractTool({ extractProvider });
+
+    const result = await tool.execute(
+      { name: "web_extract", input: { urls: ["https://blocked.test"] } },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_extract",
+      kind: "web",
+      operation: "extract",
+      errorCode: "network_denied",
+    });
+    expect(extractProvider).not.toHaveBeenCalled();
   });
 });

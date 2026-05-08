@@ -245,6 +245,33 @@ describe("config-merger", () => {
     });
   });
 
+  it("globalToKilnYaml() maps web provider defaults without granting network authority", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      web: {
+        searchProvider: {
+          type: "tavily",
+          apiKeyEnv: "TAVILY_API_KEY",
+        },
+        extractProvider: {
+          type: "firecrawl",
+          apiKeyEnv: "FIRECRAWL_API_KEY",
+        },
+      },
+    };
+
+    expect(globalToKilnYaml(globalConfig).web).toEqual({
+      searchProvider: {
+        type: "tavily",
+        apiKeyEnv: "TAVILY_API_KEY",
+      },
+      extractProvider: {
+        type: "firecrawl",
+        apiKeyEnv: "FIRECRAWL_API_KEY",
+      },
+    });
+  });
+
   it("globalToKilnYaml() maps undefined model to undefined", () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",

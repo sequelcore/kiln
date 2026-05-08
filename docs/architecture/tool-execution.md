@@ -366,7 +366,8 @@ The shared metadata families are:
   and `patch`
 - `inspection`: workspace orientation evidence for `stat` and `tree`
 - `media`: image and OCR evidence for `view_image` and `ocr_image`
-- `web`: external source evidence for `web_search` and `web_fetch`
+- `web`: external source evidence for `web_search`, `web_fetch`, and
+  `web_extract`
 - `search`: workspace search evidence for `grep` and `glob`
 - `monitor`: long-running command lifecycle evidence for `monitor_start`,
   `monitor_read`, `monitor_stop`, and `monitor_list`
@@ -392,9 +393,9 @@ The shared result-shaping input is `verbosity`, not `outputMode`. `grep` already
 uses `outputMode` for match semantics (`content`, `files_with_matches`, or
 `count`), so reusing that field for output shape would make the contract
 ambiguous. `verbosity` is currently supported by `bash`, `tree`, `web_search`,
-`web_fetch`, `grep`, `glob`, the monitor lifecycle tools, task-state tools, and
-`operator_elicit`; it changes only `ToolResult.output`, not the metadata
-family.
+`web_fetch`, `web_extract`, `grep`, `glob`, the monitor lifecycle tools,
+task-state tools, and `operator_elicit`; it changes only `ToolResult.output`,
+not the metadata family.
 
 Inspection metadata is read-only orientation state. `stat` can report type,
 size, modified time, and an optional checksum. `tree` can report bounded
@@ -413,10 +414,12 @@ Web metadata is read-only external-source state. `web_search` can report query,
 provider, recency, domain filters, ranked sources, result count, retrieval time,
 and provider/configuration errors. `web_fetch` can report source URL, normalized
 final URL, content type, status, bytes read, redirect chain, truncation, and
-network/content errors. Web tools must require explicit network policy, reject
-private and local targets, validate redirects, and sanitize text before
-reinjection. Runtime file-change evidence must not treat `web` metadata as
-filesystem mutation evidence.
+network/content errors. `web_extract` can report requested URLs, extraction
+format, provider, page evidence, bytes read, truncation, and
+provider/configuration errors. Web tools must require explicit network policy,
+reject private and local targets, validate redirects where they own fetching,
+and sanitize text before reinjection. Runtime file-change evidence must not
+treat `web` metadata as filesystem mutation evidence.
 
 Monitor metadata is lifecycle evidence for session-local long-running
 commands. `monitor_start` records command, cwd, timeout, monitor id, status, and

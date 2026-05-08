@@ -223,6 +223,48 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("skills.builtin.enabled must be a boolean");
   });
 
+  it("readGlobalConfig() accepts web provider defaults", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "web:",
+        "  searchProvider:",
+        "    type: tavily",
+        "    apiKeyEnv: TAVILY_API_KEY",
+        "  extractProvider:",
+        "    type: firecrawl",
+        "    apiKeyEnv: FIRECRAWL_API_KEY",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.web).toEqual({
+      searchProvider: {
+        type: "tavily",
+        apiKeyEnv: "TAVILY_API_KEY",
+      },
+      extractProvider: {
+        type: "firecrawl",
+        apiKeyEnv: "FIRECRAWL_API_KEY",
+      },
+    });
+  });
+
+  it("readGlobalConfig() rejects global web authority fields", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "web:",
+        "  enabled: true",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow(
+      "Unknown global web field: enabled. Put web authority in project .kiln/kiln.yaml.",
+    );
+  });
+
   it("readGlobalConfig() accepts null budget ceilings", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(

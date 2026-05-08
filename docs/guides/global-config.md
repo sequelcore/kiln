@@ -48,6 +48,8 @@ usage view.
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
 | `activeInstructionProfiles` | `string[]` | Ordered canonical instruction profile ids selected for global governed prompt context. Profiles are loaded from `~/.kiln/instructions/*.md` and may be overridden by project profiles with the same id. |
+| `web.searchProvider` | `KilnYamlWebSearchProvider` | Global default web search provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
+| `web.extractProvider` | `KilnYamlWebExtractProvider` | Global default web extraction provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `skills.builtin` | `{ enabled?: boolean, include?: string[], exclude?: string[] }` | First-party built-in skill activation policy. Built-in skill content lives in Kiln core; config only admits or narrows it. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
@@ -446,11 +448,41 @@ credential adoption flow when Kiln needs pool rotation or multiple accounts.
 Global config establishes user-level defaults that apply across every Kiln
 project. Project `kiln.yaml` overrides scalar values such as provider, model,
 permissions, web policy, or managed-agent routes, while MCP server definitions
-are additive so both global and project servers remain active. The merge is
-performed by `loadKilnConfig(projectPath)` in `config/config-merger.ts`; use
-this instead of `readKilnYaml()` in command-level code. `kiln sync`
-materializes the merged result into native CLI configs; edit Kiln config files,
-not the generated native configs directly.
+are additive so both global and project servers remain active.
+
+Web config has a stricter authority split. Global config may define
+`web.searchProvider` and `web.extractProvider` so credentials and provider
+selection are reusable across projects. It may not define `web.enabled`,
+`web.netPolicy`, or `web.allowedDomains`; those authority fields belong in the
+project `.kiln/kiln.yaml`. This keeps provider capability global while every
+repo still grants its own network access explicitly.
+
+```yaml
+# ~/.kiln/config.yaml
+version: "1"
+web:
+  searchProvider:
+    type: tavily
+    apiKeyEnv: TAVILY_API_KEY
+  extractProvider:
+    type: firecrawl
+    apiKeyEnv: FIRECRAWL_API_KEY
+```
+
+```yaml
+# .kiln/kiln.yaml
+version: "1"
+web:
+  enabled: true
+  netPolicy: documentation
+  allowedDomains:
+    - docs.example.com
+```
+
+The merge is performed by `loadKilnConfig(projectPath)` in
+`config/config-merger.ts`; use this instead of `readKilnYaml()` in
+command-level code. `kiln sync` materializes the merged result into native CLI
+configs; edit Kiln config files, not the generated native configs directly.
 
 ## Invalid Configs
 

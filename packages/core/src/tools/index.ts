@@ -71,6 +71,8 @@ export type {
   ToolResultMetadata,
   ToolResultResourceLinkMetadata,
   ToolSpecificResultMetadata,
+  WebExtractFormat,
+  WebExtractPageMetadata,
   WebSourceMetadata,
   WebToolErrorCode,
   WebToolName,
@@ -237,6 +239,14 @@ export type { GrepToolOptions } from "./infrastructure/grep-tool.js";
 export { GrepTool } from "./infrastructure/grep-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";
 export { GlobTool } from "./infrastructure/glob-tool.js";
+export type {
+  WebExtractPage,
+  WebExtractProvider,
+  WebExtractProviderRequest,
+  WebExtractProviderResponse,
+  WebExtractToolOptions,
+} from "./infrastructure/web-extract-tool.js";
+export { WebExtractTool } from "./infrastructure/web-extract-tool.js";
 export type {
   WebFetchClient,
   WebFetchClientRequest,

@@ -65,7 +65,8 @@ Stable metadata families include:
 - `search`: search evidence for `grep` and `glob`
 - `inspection`: read-only path and tree evidence for `stat` and `tree`
 - `media`: image and OCR evidence for `view_image` and `ocr_image`
-- `web`: external source evidence for `web_search` and `web_fetch`
+- `web`: external source evidence for `web_search`, `web_fetch`, and
+  `web_extract`
 
 Metadata is audit and projection evidence. It is not a replacement for the
 visible output contract or structured tool output schemas.
@@ -188,9 +189,9 @@ Resource-linked high-volume outputs are documented in
 
 ## Controlled Web Tools
 
-`web_search` and `web_fetch` are read-only/idempotent core developer tools.
-They project through the canonical builtin surface and emit shared `web`
-metadata.
+`web_search`, `web_fetch`, and `web_extract` are read-only/idempotent core
+developer tools. They project through the canonical builtin surface and emit
+shared `web` metadata.
 
 `web_fetch`:
 
@@ -206,11 +207,39 @@ metadata.
 
 `web_search` accepts query, domain, recency, and max-result controls through an
 injected `WebSearchProvider`. The default provider fails closed; core does not
-scrape public result pages or shell out for search.
+scrape public result pages or shell out for search. CLI configuration can adapt
+provider-specific search payloads from `http`, `searxng`, `brave`, `tavily`,
+and `exa` into the canonical ranked-source metadata shape without making
+runtime consumers provider-specific.
+
+`web_extract` accepts one or more HTTP(S) URLs plus format, byte, timeout, and
+verbosity controls through an injected `WebExtractProvider`. The default
+provider fails closed; core does not own scraping vendors or browser
+automation. CLI configuration can adapt provider-specific extraction payloads
+from `http`, `tavily`, and `firecrawl` into the canonical page-evidence shape
+without making runtime consumers provider-specific.
+
+Web errors use typed metadata so operator surfaces can distinguish missing
+configuration from runtime denial:
+
+- `network_policy_missing`
+- `network_denied`
+- `domain_denied`
+- `provider_not_configured`
+- `provider_unreachable`
+- `timeout`
+- `too_many_requests`
+- `unsupported_content_type`
+- `empty_extraction`
+
+`web_search`, `web_fetch`, and `web_extract` are not the research capability.
+Governed research is a higher-level future capability documented in
+[`controlled-web-research.md`](controlled-web-research.md).
 
 ## Web Configuration
 
-`KilnYaml.web` configures controlled web access once for every consumer.
+Project `KilnYaml.web` configures controlled web authority once for every
+consumer.
 
 Stable fields:
 
@@ -218,9 +247,49 @@ Stable fields:
 - `netPolicy`
 - `allowedDomains`
 - `searchProvider`
+- `extractProvider`
 
 Absent configuration remains fail-closed: `web_fetch` requires explicit network
-policy and `web_search` requires an injected provider.
+policy, `web_search` requires an injected search provider, and `web_extract`
+requires an injected extraction provider.
+
+`web_search.recencyDays` treats `null` the same as an omitted recency filter so
+provider adapters do not fail when model surfaces serialize optional fields as
+JSON nulls.
+
+`web_extract` treats an empty provider response as an error with
+`errorCode: empty_extraction`. A provider returning `pages: []` means Kiln did
+not obtain source text; it is not a successful extraction of an empty document.
+
+`searchProvider` supports:
+
+- `type: none`
+- `type: http`
+- `type: searxng`
+- `type: brave`
+- `type: tavily`
+- `type: exa`
+
+`extractProvider` supports:
+
+- `type: none`
+- `type: http`
+- `type: tavily`
+- `type: firecrawl`
+
+Providers that require credentials reference environment variable names through
+`apiKeyEnv`; secrets are not stored in config or emitted in diagnostics.
+
+`~/.kiln/config.yaml` may define only `web.searchProvider` and
+`web.extractProvider` as global provider defaults. It cannot define
+`web.enabled`, `web.netPolicy`, or `web.allowedDomains`. Effective config may
+inherit those providers, but a project must still grant web authority in
+`.kiln/kiln.yaml`.
+
+`kiln status` projects web diagnostics without executing network calls. Those
+diagnostics are observability evidence only; they do not grant authority or
+validate live provider credentials. When a provider is inherited from global
+config, status labels it as global.
 
 Configured options are passed into `createDefaultBuiltinToolSurface()` for CLI
 MCP startup and into `createAttachedRuntimeBuiltinToolSurface()` for direct

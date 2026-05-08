@@ -137,19 +137,76 @@ export interface KilnYamlWebHttpSearchProvider {
   readonly headers?: Record<string, string>;
 }
 
+export interface KilnYamlWebHttpExtractProvider {
+  readonly type: "http";
+  readonly url: string;
+  readonly headers?: Record<string, string>;
+}
+
+export interface KilnYamlWebSearxngSearchProvider {
+  readonly type: "searxng";
+  readonly url: string;
+  readonly headers?: Record<string, string>;
+}
+
+export interface KilnYamlWebBraveSearchProvider {
+  readonly type: "brave";
+  readonly apiKeyEnv: string;
+  readonly url?: string;
+}
+
+export interface KilnYamlWebTavilySearchProvider {
+  readonly type: "tavily";
+  readonly apiKeyEnv: string;
+  readonly url?: string;
+}
+
+export interface KilnYamlWebExaSearchProvider {
+  readonly type: "exa";
+  readonly apiKeyEnv: string;
+  readonly url?: string;
+}
+
+export interface KilnYamlWebTavilyExtractProvider {
+  readonly type: "tavily";
+  readonly apiKeyEnv: string;
+  readonly url?: string;
+}
+
+export interface KilnYamlWebFirecrawlExtractProvider {
+  readonly type: "firecrawl";
+  readonly apiKeyEnv: string;
+  readonly url?: string;
+}
+
 export interface KilnYamlWebDisabledSearchProvider {
+  readonly type?: "none";
+}
+
+export interface KilnYamlWebDisabledExtractProvider {
   readonly type?: "none";
 }
 
 export type KilnYamlWebSearchProvider =
   | KilnYamlWebDisabledSearchProvider
-  | KilnYamlWebHttpSearchProvider;
+  | KilnYamlWebHttpSearchProvider
+  | KilnYamlWebSearxngSearchProvider
+  | KilnYamlWebBraveSearchProvider
+  | KilnYamlWebTavilySearchProvider
+  | KilnYamlWebExaSearchProvider;
+
+export type KilnYamlWebExtractProvider =
+  | KilnYamlWebDisabledExtractProvider
+  | KilnYamlWebHttpExtractProvider
+  | KilnYamlWebTavilyExtractProvider
+  | KilnYamlWebFirecrawlExtractProvider;
 
 export interface KilnYamlWebConfig {
   readonly enabled?: boolean;
   readonly netPolicy?: KilnYamlWebNetPolicy;
   readonly allowedDomains?: readonly string[];
   readonly searchProvider?: KilnYamlWebSearchProvider;
+  readonly extractProvider?: KilnYamlWebExtractProvider;
 }
 
 export type KilnManagedAgentRouteKind = "harness" | "direct";

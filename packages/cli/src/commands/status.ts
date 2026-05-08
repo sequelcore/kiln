@@ -2,7 +2,9 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createSessionBuiltinToolOptions } from "@kilnai/core";
 import type { KilnYaml } from "../kiln-yaml-types.js";
+import { readKilnYaml } from "../kiln-yaml.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
+import { describeWebToolConfiguration } from "../config/web-tools-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
@@ -44,6 +46,13 @@ export async function statusCommand(
   console.log(`  Mode:             ${config.mode ?? "—"}`);
 
   const globalConfig = readGlobalConfig();
+  const projectConfig = snapshot.project.kilnYaml.status === "valid"
+    ? readKilnYaml(kilnDir)
+    : null;
+  printWebStatus(config, {
+    globalWeb: globalConfig?.web,
+    projectWeb: projectConfig?.web,
+  });
   let engineAvailability: ReadonlyMap<string, boolean> = new Map();
 
   if (globalConfig) {
@@ -104,6 +113,48 @@ export async function statusCommand(
   }
 
   console.log("");
+}
+
+function printWebStatus(
+  config: KilnYaml,
+  sources: Parameters<typeof describeWebToolConfiguration>[1],
+): void {
+  const diagnostics = describeWebToolConfiguration(config, sources);
+  if (
+    !diagnostics.enabled
+    && diagnostics.searchProviderType === "none"
+    && diagnostics.extractProviderType === "none"
+    && diagnostics.netPolicy === "none"
+  ) {
+    return;
+  }
+
+  console.log(`\n  Web access:`);
+  console.log(`    Enabled: ${diagnostics.enabled}`);
+  console.log(`    Network policy: ${diagnostics.netPolicy}`);
+  console.log(`    Allowed domains: ${diagnostics.allowedDomains.length > 0 ? diagnostics.allowedDomains.join(", ") : "—"}`);
+  console.log(`    Search provider: ${formatWebProviderStatus(
+    diagnostics.searchProviderType,
+    diagnostics.searchProviderConfigured,
+    diagnostics.searchProviderSource,
+  )}`);
+  console.log(`    Extract provider: ${formatWebProviderStatus(
+    diagnostics.extractProviderType,
+    diagnostics.extractProviderConfigured,
+    diagnostics.extractProviderSource,
+  )}`);
+  if (diagnostics.issues.length > 0) {
+    console.log(`    Issues: ${diagnostics.issues.join(", ")}`);
+  }
+}
+
+function formatWebProviderStatus(
+  providerType: string,
+  configured: boolean,
+  source: "none" | "effective" | "global" | "project",
+): string {
+  const sourceLabel = source === "global" || source === "project" ? ` (${source})` : "";
+  return `${providerType}${configured ? sourceLabel : " (missing)"}`;
 }
 
 function printEngineStatus(

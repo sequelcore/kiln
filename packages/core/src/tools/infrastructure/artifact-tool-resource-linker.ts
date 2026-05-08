@@ -20,6 +20,7 @@ const DEFAULT_LINKED_TOOLS = new Set([
   "monitor_read",
   "monitor_list",
   "web_fetch",
+  "web_extract",
   "web_search",
   "code_intelligence",
 ]);

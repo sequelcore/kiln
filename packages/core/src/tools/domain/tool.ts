@@ -110,6 +110,7 @@ export type DevToolName =
   | "ocr_image"
   | "web_search"
   | "web_fetch"
+  | "web_extract"
   | "grep"
   | "glob"
   | "git"
@@ -473,6 +474,42 @@ export const TOOL_SCHEMAS: Record<
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["url"],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  web_extract: {
+    name: "web_extract",
+    description: "Extract readable text or markdown from one or more allowed HTTP(S) URLs through the configured provider. Always pass a JSON object with urls and optional format, maxBytes, timeout, or verbosity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        urls: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          minItems: 1,
+          maxItems: 10,
+          description: "HTTP or HTTPS URLs to extract.",
+        },
+        format: {
+          enum: ["text", "markdown"],
+          description: "Requested extracted content format. Defaults to markdown.",
+        },
+        maxBytes: {
+          type: "number",
+          description: "Maximum bytes to keep per extracted page.",
+        },
+        timeout: {
+          type: "number",
+          description: "Optional provider timeout in milliseconds.",
+          "x-kiln-timeout-unit": "milliseconds",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["urls"],
       additionalProperties: false,
     },
     annotations: {

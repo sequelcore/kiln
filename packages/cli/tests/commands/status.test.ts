@@ -206,4 +206,68 @@ describe("statusCommand", () => {
     expect(output).toContain("codex-readonly");
     expect(output).toContain("harness/codex gpt-5.4-mini");
   });
+
+  it("shows web configuration diagnostics", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, {
+      ...defaultKilnYaml("python"),
+      web: {
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+        searchProvider: {
+          type: "searxng",
+          url: "https://searx.example.com",
+        },
+        extractProvider: {
+          type: "firecrawl",
+          apiKeyEnv: "FIRECRAWL_API_KEY",
+        },
+      },
+    });
+
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Web access:");
+    expect(output).toContain("Enabled: true");
+    expect(output).toContain("Network policy: documentation");
+    expect(output).toContain("Allowed domains: docs.example.com");
+    expect(output).toContain("Search provider: searxng");
+    expect(output).toContain("Extract provider: firecrawl");
+  });
+
+  it("shows global web provider defaults with project web authority", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeGlobalConfig({
+      version: "1",
+      web: {
+        searchProvider: {
+          type: "tavily",
+          apiKeyEnv: "TAVILY_API_KEY",
+        },
+        extractProvider: {
+          type: "firecrawl",
+          apiKeyEnv: "FIRECRAWL_API_KEY",
+        },
+      },
+    });
+    writeKilnYaml(kilnDir, {
+      ...defaultKilnYaml("python"),
+      web: {
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      },
+    });
+
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Search provider: tavily (global)");
+    expect(output).toContain("Extract provider: firecrawl (global)");
+    expect(output).toContain("Network policy: documentation");
+  });
 });

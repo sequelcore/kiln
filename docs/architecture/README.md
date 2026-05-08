@@ -64,6 +64,11 @@ is documented by concern, not as a single monolith.
   stat/tree, image/OCR, controlled web tools, verbosity, metadata, and shared
   consumer projection.
 
+- `controlled-web-research.md`
+  Canonical governed web knowledge model: web primitives, provider adapters,
+  diagnostics, extraction/research capability boundaries, and deferred
+  OS-pack packaging concerns.
+
 - `shared-tooling-intelligence.md`
   Canonical shared builtin-tool intelligence contracts: structured outputs,
   catalog discovery, code intelligence, bulk reads, monitors, task state,

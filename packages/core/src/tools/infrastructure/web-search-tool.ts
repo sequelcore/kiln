@@ -154,6 +154,9 @@ function parseOptionalBoundedNumber(
   maxValue: number,
   defaultValue?: number,
 ): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  if (input.input[key] === null) {
+    return { ok: true, value: defaultValue };
+  }
   const value = optionalNumber(input, key);
   if (value === undefined) {
     if (input.input[key] !== undefined) {
@@ -177,14 +180,14 @@ function resolveEffectiveDomains(
     return {
       ok: false,
       message: "Network access denied: explicit network policy is required",
-      errorCode: "network_denied",
+      errorCode: "network_policy_missing",
     };
   }
 
   if (domains.length > 0) {
     for (const domain of domains) {
       if (!policy.canAccess(domain)) {
-        return { ok: false, message: `Domain access denied: ${domain}`, errorCode: "network_denied" };
+        return { ok: false, message: `Domain access denied: ${domain}`, errorCode: "domain_denied" };
       }
     }
     return { ok: true, domains };

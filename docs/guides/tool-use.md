@@ -382,7 +382,7 @@ export interface DevTool {
 }
 ```
 
-The twenty-seven built-in tool names are:
+The twenty-nine built-in tool names are:
 
 - `bash`
 - `read`
@@ -396,6 +396,7 @@ The twenty-seven built-in tool names are:
 - `ocr_image`
 - `web_search`
 - `web_fetch`
+- `web_extract`
 - `grep`
 - `glob`
 - `git`
@@ -408,6 +409,7 @@ The twenty-seven built-in tool names are:
 - `task_update`
 - `operator_elicit`
 - `tool_catalog_search`
+- `memory_save`
 - `resource_list`
 - `resource_template_list`
 - `resource_read`
@@ -477,12 +479,14 @@ source or confidence when available. MCP consumers receive image content as a
 standard MCP image content item; text-only consumers still receive the compact
 JSON `output`.
 
-Web metadata covers `web_search` and `web_fetch`. `web_search` reports provider,
-query, normalized domain filters, recency, result count, retrieval time, ranked
-sources, errors, and requested verbosity. `web_fetch` reports source URL,
-normalized final URL, content type, status, bytes read, redirect chain,
-truncation, errors, and requested verbosity. Web metadata is external-source
-evidence, not workspace search or file-change evidence.
+Web metadata covers `web_search`, `web_fetch`, and `web_extract`. `web_search`
+reports provider, query, normalized domain filters, recency, result count,
+retrieval time, ranked sources, errors, and requested verbosity. `web_fetch`
+reports source URL, normalized final URL, content type, status, bytes read,
+redirect chain, truncation, errors, and requested verbosity. `web_extract`
+reports requested URLs, format, extraction provider, extracted page evidence,
+bytes, truncation, errors, and requested verbosity. Web metadata is
+external-source evidence, not workspace search or file-change evidence.
 
 Monitor metadata covers `monitor_start`, `monitor_read`, `monitor_stop`, and
 `monitor_list`. It reports monitor ids, command/cwd ownership, status, timeout,
@@ -502,6 +506,7 @@ submitted field names. Submitted values are never written to metadata.
 Web tools are fail-closed unless `KilnYaml.web` enables them:
 
 ```yaml
+# .kiln/kiln.yaml
 web:
   enabled: true
   netPolicy: documentation
@@ -512,6 +517,9 @@ web:
     url: https://search.example.com/query
     headers:
       authorization: Bearer replace-with-provider-token
+  extractProvider:
+    type: firecrawl
+    apiKeyEnv: FIRECRAWL_API_KEY
 ```
 
 `netPolicy` accepts `none`, `documentation`, `package-managers`, or `full`.
@@ -519,6 +527,70 @@ web:
 `package-managers` use Kiln's shared default domain lists. The HTTP search
 provider receives the normalized `WebSearchProviderRequest` as JSON and must
 return a JSON object with a `sources` array.
+
+The HTTP extract provider receives the normalized `WebExtractProviderRequest`
+as JSON and must return a JSON object with a `pages` array. Each page must
+include `url` and extracted `text`; optional fields include `normalizedUrl`,
+`title`, `contentType`, `status`, `bytesRead`, and `truncated`.
+
+First-party search provider adapters are also available:
+
+```yaml
+# .kiln/kiln.yaml
+web:
+  enabled: true
+  netPolicy: documentation
+  allowedDomains:
+    - docs.example.com
+  searchProvider:
+    type: tavily
+    apiKeyEnv: TAVILY_API_KEY
+```
+
+Supported `searchProvider.type` values are `none`, `http`, `searxng`, `brave`,
+`tavily`, and `exa`. Providers that need credentials use `apiKeyEnv` so secrets
+stay in the environment rather than `kiln.yaml`.
+
+Supported `extractProvider.type` values are `none`, `http`, `tavily`, and
+`firecrawl`. `tavily` uses Tavily Extract; `firecrawl` uses Firecrawl Scrape
+per URL and normalizes the result into the same page shape.
+
+Provider defaults may also live in global config:
+
+```yaml
+# ~/.kiln/config.yaml
+version: "1"
+web:
+  searchProvider:
+    type: tavily
+    apiKeyEnv: TAVILY_API_KEY
+  extractProvider:
+    type: firecrawl
+    apiKeyEnv: FIRECRAWL_API_KEY
+```
+
+Global web config only supplies adapters and credential environment variable
+names. It cannot enable web access or set network policy. Each project still
+has to declare `web.enabled`, `web.netPolicy`, and optional `allowedDomains` in
+`.kiln/kiln.yaml`; otherwise the effective tool surface remains fail-closed.
+
+Run `kiln status` to inspect web configuration without making network calls. It
+prints whether web access is enabled, the network policy, allowed domains, the
+search and extract provider types, whether those providers come from global or
+project config, and configuration issues such as missing network policy or
+missing search provider.
+
+`web_search.recencyDays: null` is accepted and treated as no recency filter.
+`web_extract` reports provider responses with no pages as `empty_extraction`
+errors, because zero extracted pages means no usable source text was captured.
+PDF and scanned-document handling is a separate future path based on binary
+download artifacts plus PDF text extraction or OCR.
+
+`web_search`, `web_fetch`, and `web_extract` remain primitives. Governed
+multi-source research will be implemented as a higher-level capability over
+search, fetch, extraction,
+artifacts, citations, and budgets; its architecture lives in
+[`Controlled Web Research`](../architecture/controlled-web-research.md).
 
 ### Tool reference
 
@@ -536,6 +608,7 @@ return a JSON object with a `sources` array.
 | `ocr_image` | Extract text from an image through the configured OCR backend | `path`, `language` | `output` is compact JSON text extraction data; metadata includes `path`, `mimeType`, `language`, `textLength`, and optional backend confidence/source |
 | `web_search` | Search the web through the configured provider | `query`, `domains`, `recencyDays`, `maxResults`, `verbosity` | default configuration fails closed; configured providers return ranked sources; metadata includes provider, query, domains, recency, result count, sources, errors, and `verbosity` |
 | `web_fetch` | Fetch and sanitize allowed HTTP(S) text content | `url`, `maxBytes`, `timeout`, `verbosity` | default configuration requires explicit network policy; output is sanitized text, JSON, or summary; metadata includes source/final URL, status, content type, bytes read, redirect chain, truncation, errors, and `verbosity` |
+| `web_extract` | Extract readable text or markdown from allowed HTTP(S) URLs through the configured provider | `urls`, `format`, `maxBytes`, `timeout`, `verbosity` | default configuration requires explicit network policy and an extract provider; output is page text, JSON, or summary; metadata includes requested URLs, format, provider, page evidence, bytes read, truncation, errors, and `verbosity` |
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
 | `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
@@ -579,6 +652,7 @@ The built-in executors are intentionally small and predictable:
 - `OcrImageTool` validates the image through the same path and MIME checks, then calls the configured OCR runner; the default runner uses `tesseract` from PATH when available.
 - `WebSearchTool` validates query, domain, recency, and result-count controls, intersects domains with sandbox network policy, calls an injected provider, and fails closed when no provider is configured.
 - `WebFetchTool` validates HTTP(S) URLs, rejects private/local hosts, requires explicit network policy, validates redirect hops, caps bytes, checks supported text content types, sanitizes returned text, and supports raw, structured, or summary output.
+- `WebExtractTool` validates one or more HTTP(S) URLs against the active network policy, calls an injected extraction provider, caps bytes per page, sanitizes extracted text or markdown, emits page evidence, and fails closed when no provider is configured.
 - `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`; `outputMode` controls match shape while `verbosity` controls result shape.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers; it can return raw path lists, structured JSON matches, or a summary.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
@@ -589,7 +663,8 @@ The built-in executors are intentionally small and predictable:
 - `OperatorElicitationTool` validates form or URL mode, denies sensitive form collection, requires HTTPS URL handoffs, calls the attached `OperatorElicitationResponder`, and records only outcome evidence plus submitted field names.
 - `ToolCatalogSearchTool` searches the shared catalog by exact name, prefix, tags, or lexical query. It is read-only, supports raw, structured, and summary output, and reports stale exact matches as an empty result with `reason: "tool_not_found"`.
 
-All twenty-four tools return `ToolResult`; failures are regular tool results when possible, not uncaught process exceptions.
+All built-in tools return `ToolResult`; failures are regular tool results when
+possible, not uncaught process exceptions.
 
 The default surface can also run in deferred projection mode. In that mode,
 only configured always-on tools plus `tool_catalog_search` are advertised to a

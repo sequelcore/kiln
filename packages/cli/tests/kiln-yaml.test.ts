@@ -223,6 +223,74 @@ describe("mergeKilnYaml", () => {
     });
   });
 
+  it("inherits global web providers while project web policy grants authority", () => {
+    const base: KilnYaml = {
+      version: "1",
+      web: {
+        searchProvider: {
+          type: "tavily",
+          apiKeyEnv: "TAVILY_API_KEY",
+        },
+        extractProvider: {
+          type: "firecrawl",
+          apiKeyEnv: "FIRECRAWL_API_KEY",
+        },
+      },
+    };
+    const override: Partial<KilnYaml> = {
+      web: {
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      },
+    };
+
+    const result = mergeKilnYaml(base, override);
+
+    expect(result.web).toEqual({
+      enabled: true,
+      netPolicy: "documentation",
+      allowedDomains: ["docs.example.com"],
+      searchProvider: {
+        type: "tavily",
+        apiKeyEnv: "TAVILY_API_KEY",
+      },
+      extractProvider: {
+        type: "firecrawl",
+        apiKeyEnv: "FIRECRAWL_API_KEY",
+      },
+    });
+  });
+
+  it("lets project web config explicitly disable inherited providers", () => {
+    const base: KilnYaml = {
+      version: "1",
+      web: {
+        searchProvider: {
+          type: "tavily",
+          apiKeyEnv: "TAVILY_API_KEY",
+        },
+        extractProvider: {
+          type: "firecrawl",
+          apiKeyEnv: "FIRECRAWL_API_KEY",
+        },
+      },
+    };
+    const override: Partial<KilnYaml> = {
+      web: {
+        enabled: true,
+        netPolicy: "documentation",
+        searchProvider: { type: "none" },
+        extractProvider: { type: "none" },
+      },
+    };
+
+    const result = mergeKilnYaml(base, override);
+
+    expect(result.web?.searchProvider).toEqual({ type: "none" });
+    expect(result.web?.extractProvider).toEqual({ type: "none" });
+  });
+
   it("ignores undefined override values", () => {
     const base: KilnYaml = { version: "1", domain: "python" };
     const override: Partial<KilnYaml> = { domain: undefined };

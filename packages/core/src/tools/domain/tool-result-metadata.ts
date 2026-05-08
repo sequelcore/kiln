@@ -2,7 +2,7 @@ export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolName = "stat" | "tree";
 export type MediaToolName = "view_image" | "ocr_image";
-export type WebToolName = "web_search" | "web_fetch";
+export type WebToolName = "web_search" | "web_fetch" | "web_extract";
 export type SearchToolName = "grep" | "glob";
 export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
@@ -18,15 +18,19 @@ export type InspectionEntryType = "file" | "directory" | "symlink" | "other";
 export type MediaToolOperation = "view_image" | "ocr";
 export type ImageDetail = "default" | "original";
 export type ToolOutputVerbosity = "raw" | "structured" | "summary";
-export type WebToolOperation = "search" | "fetch";
+export type WebToolOperation = "search" | "fetch" | "extract";
 export type WebToolErrorCode =
   | "invalid_input"
+  | "network_policy_missing"
   | "network_denied"
+  | "domain_denied"
   | "unsupported_content_type"
   | "too_many_requests"
   | "unavailable"
   | "timeout"
-  | "provider_not_configured";
+  | "provider_unreachable"
+  | "provider_not_configured"
+  | "empty_extraction";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 export type CatalogToolOperation = "search";
@@ -188,6 +192,18 @@ export interface WebSourceMetadata {
   readonly source?: string;
 }
 
+export type WebExtractFormat = "text" | "markdown";
+
+export interface WebExtractPageMetadata {
+  readonly url: string;
+  readonly normalizedUrl?: string;
+  readonly title?: string;
+  readonly contentType?: string;
+  readonly status?: number;
+  readonly bytesRead?: number;
+  readonly truncated?: boolean;
+}
+
 export interface WebToolResultMetadata<TToolName extends WebToolName = WebToolName> {
   readonly toolName: TToolName;
   readonly kind: "web";
@@ -197,8 +213,11 @@ export interface WebToolResultMetadata<TToolName extends WebToolName = WebToolNa
   readonly url?: string;
   readonly normalizedUrl?: string;
   readonly domains?: readonly string[];
+  readonly urls?: readonly string[];
+  readonly format?: WebExtractFormat;
   readonly recencyDays?: number;
   readonly resultCount?: number;
+  readonly extractCount?: number;
   readonly retrievedAt?: string;
   readonly contentType?: string;
   readonly status?: number;
@@ -206,6 +225,7 @@ export interface WebToolResultMetadata<TToolName extends WebToolName = WebToolNa
   readonly truncated?: boolean;
   readonly redirectChain?: readonly string[];
   readonly sources?: readonly WebSourceMetadata[];
+  readonly pages?: readonly WebExtractPageMetadata[];
   readonly errorCode?: WebToolErrorCode;
   readonly verbosity?: ToolOutputVerbosity;
 }

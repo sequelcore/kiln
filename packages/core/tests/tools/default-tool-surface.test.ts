@@ -31,6 +31,7 @@ const BUILTIN_TOOL_NAMES = [
   "ocr_image",
   "web_search",
   "web_fetch",
+  "web_extract",
   "grep",
   "glob",
   "git",

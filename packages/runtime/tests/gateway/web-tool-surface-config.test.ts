@@ -30,6 +30,16 @@ function webToolOptions(): DefaultBuiltinToolRegistryOptions {
         ],
       }),
     },
+    webExtract: {
+      networkPolicy,
+      extractProvider: async (request) => ({
+        provider: "test-extract",
+        pages: request.urls.map((url) => ({
+          url,
+          text: `Extracted ${url}`,
+        })),
+      }),
+    },
   };
 }
 
@@ -48,6 +58,14 @@ describe("attached runtime web tool configuration", () => {
     });
     expect(JSON.stringify(result)).toContain("docs.example.com/result");
 
+    const extract = runtimeSurface.callBuiltinTools.get("web_extract");
+    expect(extract).toBeDefined();
+    const extractResult = await extract?.({ urls: ["https://docs.example.com/source"], outputMode: "raw" });
+    expect(extractResult).toMatchObject({
+      isError: false,
+    });
+    expect(JSON.stringify(extractResult)).toContain("Extracted https://docs.example.com/source");
+
     const perCallConfig = buildAttachedRuntimePerCallToolConfig({
       tenantId: "tenant",
       activeProvider: "codex-oauth",
@@ -56,5 +74,6 @@ describe("attached runtime web tool configuration", () => {
     });
     expect(perCallConfig.perCallCapabilities).toBe(runtimeSurface.capabilities);
     expect(perCallConfig.additionalTools?.map((tool) => tool.name)).toContain("web_search");
+    expect(perCallConfig.additionalTools?.map((tool) => tool.name)).toContain("web_extract");
   });
 });

@@ -7,7 +7,8 @@ import type {
   KilnManagedAgentsConfig,
   KilnHooksConfig,
   KilnModelTaskSuitabilityOverride,
-  KilnYamlWebConfig,
+  KilnYamlWebExtractProvider,
+  KilnYamlWebSearchProvider,
   KilnYamlMcp,
   KilnYamlPermissions,
   KilnYamlSkillsConfig,
@@ -56,6 +57,11 @@ export interface KilnGlobalComponentsConfig {
   readonly include?: readonly string[];
 }
 
+export interface KilnGlobalWebConfig {
+  readonly searchProvider?: KilnYamlWebSearchProvider;
+  readonly extractProvider?: KilnYamlWebExtractProvider;
+}
+
 export const CANONICAL_GLOBAL_CONFIG_VERSION = "1" as const;
 
 export interface KilnGlobalConfig {
@@ -70,7 +76,7 @@ export interface KilnGlobalConfig {
   readonly models?: KilnGlobalModelsConfig;
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
-  readonly web?: KilnYamlWebConfig;
+  readonly web?: KilnGlobalWebConfig;
   readonly ui?: KilnGlobalUiConfig;
   readonly skills?: KilnYamlSkillsConfig;
   readonly components?: KilnGlobalComponentsConfig;
@@ -97,6 +103,11 @@ const ROOT_FIELDS = new Set([
 const IDENTITY_FIELDS = new Set([
   "name",
   "timezone",
+]);
+
+const GLOBAL_WEB_FIELDS = new Set([
+  "searchProvider",
+  "extractProvider",
 ]);
 
 export function resolveGlobalConfigPath(): string {
@@ -223,6 +234,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateManagedAgents(config.managedAgents);
   validateModelTaskSuitability(config.modelTaskSuitability);
   validateSkills(config.skills);
+  validateGlobalWeb(config.web);
 }
 
 function validateIdentity(value: unknown): void {
@@ -257,6 +269,34 @@ function validateStringArray(value: unknown, path: string): void {
   }
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)) {
     throw new KilnYamlError(`${path} must be an array of non-empty strings`);
+  }
+}
+
+function validateGlobalWeb(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("web must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (!GLOBAL_WEB_FIELDS.has(key)) {
+      throw new KilnYamlError(
+        `Unknown global web field: ${key}. Put web authority in project .kiln/kiln.yaml.`,
+      );
+    }
+  }
+  validateOptionalRecord(value, "searchProvider", "web.searchProvider");
+  validateOptionalRecord(value, "extractProvider", "web.extractProvider");
+}
+
+function validateOptionalRecord(record: Record<string, unknown>, key: string, path: string): void {
+  const value = record[key];
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
   }
 }
 

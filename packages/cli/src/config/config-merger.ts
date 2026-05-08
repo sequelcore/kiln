@@ -5,7 +5,7 @@ import {
   resolveGlobalDefaultProvider,
 } from "./global-config.js";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { KilnYaml, KilnYamlWebConfig } from "../kiln-yaml-types.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 
 export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
@@ -19,9 +19,19 @@ export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
     mcp: global.mcp,
     managedAgents: global.managedAgents,
     modelTaskSuitability: global.modelTaskSuitability,
-    web: global.web,
+    web: globalWebToKilnWeb(global.web),
     skills: global.skills,
     hooks: global.hooks,
+  };
+}
+
+function globalWebToKilnWeb(globalWeb: KilnGlobalConfig["web"]): KilnYamlWebConfig | undefined {
+  if (!globalWeb) {
+    return undefined;
+  }
+  return {
+    searchProvider: globalWeb.searchProvider,
+    extractProvider: globalWeb.extractProvider,
   };
 }
 

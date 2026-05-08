@@ -28,6 +28,7 @@ Read the relevant architecture or guide document before using a roadmap:
   write evidence, live adapter proofs, and replay invariants.
 - `docs/architecture/tool-execution.md`,
   `docs/architecture/developer-tools.md`,
+  `docs/architecture/controlled-web-research.md`,
   `docs/architecture/provider-credential-pools.md`,
   `docs/architecture/shared-tooling-intelligence.md`, and
   `docs/architecture/provider-model-discovery.md` for provider, tool, MCP, and
@@ -54,6 +55,16 @@ deferred validation or experiment tracks.
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
+
+- OS-pack packaging for web extraction/browser helpers.
+  Deferred until controlled web primitives and research capability need
+  platform-specific helper binaries or dependencies. Stable boundaries live in
+  `docs/architecture/controlled-web-research.md`.
+
+- Binary/PDF source artifacts for controlled web research.
+  Deferred until the research capability needs reliable PDF text extraction or
+  OCR. Stable authority boundaries live in
+  `docs/architecture/controlled-web-research.md`.
 
 ## Completed Programs
 
@@ -119,6 +130,14 @@ deferred validation or experiment tracks.
   covers neutral removable core skill defaults, explicit `skills.builtin`
   activation policy, project/user override precedence, managed-agent skill
   catalogs, skill listing, and native harness projection through `kiln sync`.
+- Controlled web search/extract diagnostics and provider adapters completed on
+  2026-05-08. Stable doctrine lives in
+  `docs/architecture/controlled-web-research.md` and
+  `docs/architecture/developer-tools.md`; operator usage lives in
+  `docs/guides/tool-use.md`; implementation covers typed web error metadata,
+  `kiln status` diagnostics, `http`, `searxng`, `brave`, `tavily`, and `exa`
+  search-provider adapters, and `http`, `tavily`, and `firecrawl`
+  extraction-provider adapters.
 
 ## Execution Priority
 

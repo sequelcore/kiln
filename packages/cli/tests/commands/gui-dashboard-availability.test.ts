@@ -241,6 +241,7 @@ describe("GUI dashboard provider availability", () => {
     expect(gatewayHarness.lastOptions?.builtinToolOptions).toMatchObject({
       webFetch: expect.any(Object),
       webSearch: expect.any(Object),
+      webExtract: expect.any(Object),
       memoryResources: {
         authority: {
           caller: { kind: "operator_surface", id: "gui" },
