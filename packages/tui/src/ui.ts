@@ -183,7 +183,7 @@ export function initUI(
 
   const commandBarText = new TextRenderable(renderer, {
     id: "command-bar-text",
-    content: t`${fg(theme.textMuted)("/theme  ctrl+shift+P commands")}`,
+    content: t`${fg(theme.textMuted)("/setup /theme /provider  ctrl+shift+P commands")}`,
   });
   commandBar.add(commandBarText);
 

@@ -22,6 +22,7 @@ import {
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -1208,6 +1209,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       session as unknown as { refreshProviders?: () => Promise<void> | void }
     ).refreshProviders?.()),
     (themeName) => persistTuiThemePreference(themeName, globalConfig),
+    async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
   );
 
   bootstrap.shutdown();

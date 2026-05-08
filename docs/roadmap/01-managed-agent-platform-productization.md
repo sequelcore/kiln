@@ -147,15 +147,15 @@ surface-specific behavior, or provider compatibility glue.
    carries a dedicated `setup` snapshot with project-context status, repo-shim
    status, native projection status, and deterministic recommended actions for
    GUI, TUI, CLI, SDK/widget, and runtime tools.
-9. Design the cross-surface configuration surface:
-   - GUI: dedicated Settings/Setup surface or sidebar mode.
-   - TUI: equivalent command/screen.
-   - CLI: deterministic `kiln config/status/sync` commands.
-   - SDK/widget: read-only config/status descriptors first, mutation later
-     behind explicit authority.
-   - All surfaces: global/local config status, provider health, route health,
-     generated-shim status, unmanaged native file detection, drift warnings, and
-     adoption recommendations from the same config-status contract.
+9. Completed 2026-05-08: expose the canonical setup read model across operator
+   surfaces. The CLI has deterministic `kiln config read setup` and `kiln
+   status` setup-action output. The GUI gateway exposes
+   `/gui/api/config/setup`, the GUI client validates it with the shared
+   `KilnConfigSetupSnapshotSchema`, and the GUI sidebar has a Setup mode for
+   project context, repo shims, native projections, drift, and recommended
+   actions. The TUI exposes the same read model through `/setup`. SDK/widget
+   consumers receive the exported setup snapshot schema and types; mutation
+   remains behind explicit config proposal authority.
 10. Move theme selection and provider/setup diagnostics out of the always-visible
    chat topbar once the configuration surface exists; keep only controls that
    are needed for the active operator workflow.

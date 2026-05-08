@@ -246,6 +246,37 @@ describe("GuiGatewayClient", () => {
     );
   });
 
+  it("loads setup status from the GUI gateway", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      projectRoot: "C:/Proyectos/Sequel/kiln",
+      projectContext: {
+        path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+        status: "valid",
+        recommendation: "none",
+      },
+      repoShims: [{
+        target: "agents",
+        targetId: "repo-shim:agents",
+        path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+        status: "current",
+        recommendation: "none",
+      }],
+      nativeProjections: [],
+      recommendedActions: ["none"],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const setup = await client.loadConfigSetup();
+
+    expect(setup.projectContext.status).toBe("valid");
+    expect(setup.repoShims[0]?.targetId).toBe("repo-shim:agents");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/config/setup");
+  });
+
   it("rejects oversized Memory Lattice graph queries before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

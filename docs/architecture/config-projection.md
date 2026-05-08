@@ -144,11 +144,11 @@ operator surfaces. `KilnConfigStatusSnapshot` reports resolved project root,
 global config status, project config status, adopted project-context status,
 effective config availability, repo-shim projection status, native projection
 install-state status, and harness integration capabilities. CLI commands,
-future runtime tools, GUI/TUI setup screens, SDK/widget descriptors, and audit
-events must consume that shared contract instead of re-reading YAML or native
-files independently. The model-callable `kiln_config.read` tool is a read-only
-projection of this contract; it may inspect effective config and status but
-must not mutate configuration or native provider files.
+runtime setup endpoints, GUI/TUI setup screens, SDK/widget descriptors, and
+audit events must consume that shared contract instead of re-reading YAML or
+native files independently. The model-callable `kiln_config.read` tool is a
+read-only projection of this contract; it may inspect effective config and
+status but must not mutate configuration or native provider files.
 
 For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
 read model. It contains project-context status, repo-shim status, native
@@ -157,6 +157,13 @@ projection status, and deterministic recommended actions such as
 `adopt-or-back-up-native-guidance`. GUI, TUI, CLI, SDK/widget, and runtime tools
 must use this setup read model instead of locally filtering generic projection
 lists.
+
+Current setup consumers are intentionally read-only. `kiln config read setup`
+prints the raw setup snapshot, `kiln status` includes deterministic setup
+actions, the GUI reads `/gui/api/config/setup`, and the TUI `/setup` command
+renders the same status. These surfaces may recommend adoption, sync, or drift
+review, but writes still go through explicit project adoption, sync, or config
+proposal flows.
 
 Configuration mutation starts with structured proposals, not patches. A
 proposal records operation id, normalized payload, affected canonical paths,

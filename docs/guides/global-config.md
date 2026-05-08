@@ -514,6 +514,18 @@ The model-callable `kiln_config.read` tool exposes the same views to admitted
 runtime tool surfaces. Setup surfaces should consume the same contract rather
 than parsing YAML or native files directly.
 
+Operator surfaces expose the same setup read model:
+
+- CLI: `kiln config read setup` for JSON and `kiln status` for the summarized
+  setup actions.
+- GUI: the Setup sidebar mode reads the gateway endpoint
+  `/gui/api/config/setup`.
+- TUI: `/setup` renders the same project-context, repo-shim, native projection,
+  and action summary in the terminal session.
+
+These views are diagnostic. Adoption, sync, and mutation still go through the
+explicit project, sync, and config proposal commands.
+
 Agents may propose bounded setup changes through `kiln_config.propose_change`.
 The tool validates `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
 payloads and returns a structured proposal with diagnostics and preview diff;

@@ -3,6 +3,7 @@ import type {
   GuiAppDescriptor,
   GuiMemoryLatticeGraphRequest,
   GuiMemoryLatticeGraphResponse,
+  KilnConfigSetupSnapshot,
   GuiProviderDescriptor,
   GuiResumeInfo,
   GuiSessionDetail,
@@ -17,6 +18,7 @@ import type {
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import {
+  KilnConfigSetupSnapshotSchema,
   GuiMemoryLatticeGraphRequestSchema,
   GuiMemoryLatticeGraphResponseSchema,
 } from "@kilnai/gateway-contracts";
@@ -28,6 +30,7 @@ export type {
   GuiAppDescriptor,
   GuiMemoryLatticeGraphRequest,
   GuiMemoryLatticeGraphResponse,
+  KilnConfigSetupSnapshot,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
 };
@@ -153,6 +156,35 @@ export class GuiGatewayClient {
       failures.length > 0
         ? `Memory Lattice graph fetch failed (${failures.join(" | ")})`
         : "Memory Lattice graph fetch failed.",
+    );
+  }
+
+  async loadConfigSetup(): Promise<KilnConfigSetupSnapshot> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/config/setup", candidateBaseUrl);
+      try {
+        const response = await fetch(url, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = KilnConfigSetupSnapshotSchema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+
+    throw new Error(
+      failures.length > 0
+        ? `Setup status fetch failed (${failures.join(" | ")})`
+        : "Setup status fetch failed.",
     );
   }
 

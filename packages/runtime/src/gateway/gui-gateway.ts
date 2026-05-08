@@ -66,6 +66,7 @@ import {
   type GuiProviderModelCapabilities,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
+  type KilnConfigSetupSnapshot,
   type GuiMemoryLatticeScope,
   type GuiSessionDetail,
   type GuiSessionSummary,
@@ -101,6 +102,7 @@ export interface StartGuiGatewayOptions {
     readonly operatorModels?: Record<string, string[]>;
     readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   }) => Promise<GuiDashboardSnapshot>;
+  readonly getSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly listSessions?: () => Promise<readonly GuiSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
@@ -297,6 +299,13 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       operatorDiscovery: nextDiscovery,
     });
     return c.json(snapshot);
+  });
+
+  app.get("/gui/api/config/setup", async (c) => {
+    if (!options.getSetupSnapshot) {
+      return c.json({ error: "setup_status_unavailable" }, 404);
+    }
+    return c.json(await options.getSetupSnapshot());
   });
 
   app.get("/gui/api/workspace/tree", async (c) => {

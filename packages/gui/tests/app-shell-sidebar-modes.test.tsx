@@ -85,6 +85,28 @@ vi.mock("../src/api/client.js", () => ({
       };
     }
 
+    async loadConfigSetup() {
+      return {
+        projectRoot: "C:/Proyectos/Sequel/kiln",
+        projectContext: {
+          path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+          status: "valid",
+          recommendation: "none",
+        },
+        repoShims: [
+          {
+            target: "agents",
+            targetId: "repo-shim:agents",
+            path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+            status: "current",
+            recommendation: "none",
+          },
+        ],
+        nativeProjections: [],
+        recommendedActions: ["none"],
+      };
+    }
+
     async saveThemePreference() {}
   },
 }));
@@ -314,6 +336,32 @@ describe("AppShell sidebar modes", () => {
           refetch: vi.fn(),
         };
       }
+      if (queryKey.includes("setup")) {
+        return {
+          data: {
+            projectRoot: "C:/Proyectos/Sequel/kiln",
+            projectContext: {
+              path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+              status: "valid" as const,
+              recommendation: "none" as const,
+            },
+            repoShims: [
+              {
+                target: "agents" as const,
+                targetId: "repo-shim:agents",
+                path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+                status: "current" as const,
+                recommendation: "none" as const,
+              },
+            ],
+            nativeProjections: [],
+            recommendedActions: ["none" as const],
+          },
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
+        };
+      }
       return {
         data: {
           providers: [],
@@ -443,6 +491,21 @@ describe("AppShell sidebar modes", () => {
     expect(screen.queryByRole("tab", { name: "Memory Lattice" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: "Open graph" })).toBeInTheDocument();
+  });
+
+  it("switches the left mode panel from sessions to setup", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Setup" }));
+
+    expect(screen.getByRole("complementary")).toHaveTextContent("Setup");
+    expect(screen.getByRole("region", { name: "Setup actions" })).toHaveTextContent("Configuration is current");
+    expect(screen.getByRole("region", { name: "Project context" })).toHaveTextContent("valid");
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
   });
 
   it("invalidates the Memory Lattice query when memory changes arrive over the gateway", async () => {

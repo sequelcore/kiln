@@ -13,6 +13,8 @@ import {
   isOperatorThemeName,
   type GuiProviderCatalogStatus,
   type GuiProviderDiscoveryResult,
+  type KilnConfigSetupAction,
+  type KilnConfigSetupSnapshot,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { Message, ReasoningEffort, ResumeSidebarInfo, SessionListItem } from "./state.js";
@@ -66,6 +68,7 @@ export async function startTui(
   onResumeSession?: (session: SessionListItem) => void,
   refreshProviders?: () => Promise<void> | void,
   persistThemePreference?: (themeName: string) => Promise<void> | void,
+  loadSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -167,6 +170,7 @@ export async function startTui(
     { id: "provider", trigger: "provider", title: "Change provider", description: "Switch AI provider", type: "builtin" as const },
     { id: "effort", trigger: "effort", title: "Change effort", description: "Cycle reasoning effort", type: "builtin" as const },
     { id: "resume", trigger: "resume", title: "Resume session", description: "Browse and resume previous sessions", type: "builtin" as const },
+    { id: "setup", trigger: "setup", title: "Setup status", description: "Show config and projection status", type: "builtin" as const },
   ];
 
   update(state, "slashCommands", SLASH_COMMANDS);
@@ -1107,7 +1111,7 @@ export async function startTui(
 
     renderInput();
     renderCommandBarStatus();
-    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/theme /provider  ctrl+shift+P commands")}`;
+    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/setup /theme /provider  ctrl+shift+P commands")}`;
 
     for (const { msg, node } of messageNodes) {
       const parent = node.parent;
@@ -1214,6 +1218,25 @@ export async function startTui(
   // ─────────────────────────────────────────────────────────────────────────
   // Field poll
   // ─────────────────────────────────────────────────────────────────────────
+
+  async function showSetupStatus(): Promise<void> {
+    if (!loadSetupSnapshot) {
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)("Setup status is unavailable in this TUI session")}`;
+      return;
+    }
+    try {
+      const snapshot = await loadSetupSnapshot();
+      const node = new TextRenderable(renderer, {
+        content: t`${fg(currentTheme.accent)("setup")}\n${fg(currentTheme.text)(formatSetupSnapshot(snapshot))}`,
+        width: "100%",
+      });
+      ui.chatScrollBox.content.add(node);
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Setup status loaded")}`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Setup status failed: ${message}`)}`;
+    }
+  }
 
   const fieldPollInterval = setInterval(async () => {
     try {
@@ -1530,7 +1553,7 @@ export async function startTui(
       }
 
       // Process slash commands (must check before session resume check)
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/resume" || inputText === "/plan") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/resume" || inputText === "/plan" || inputText === "/setup") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1586,6 +1609,11 @@ export async function startTui(
             } else {
               ui.commandBarStatus.content = t`${fg(currentTheme.error)("No sessions to resume")}`;
             }
+            return;
+          }
+
+          if (inputText === "/setup") {
+            void showSetupStatus();
             return;
           }
         }
@@ -1690,6 +1718,10 @@ export async function startTui(
             }
             return;
           }
+          if (cmd.trigger === "setup") {
+            void showSetupStatus();
+            return;
+          }
         }
         return;
       }
@@ -1704,4 +1736,36 @@ export async function startTui(
 
   await new Promise<void>((resolve) => renderer.once("destroy", resolve));
   clearOperatorThemeHandler();
+}
+
+const SETUP_ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
+  none: "current",
+  "adopt-project-context": "adopt project context",
+  "review-project-context": "review project context",
+  "sync-repo-shims": "sync repo shims",
+  "sync-native-projections": "sync native projections",
+  "review-and-force-sync-repo-shims": "review shim drift",
+  "adopt-or-back-up-native-guidance": "adopt native guidance",
+  "review-native-projection-drift": "review native drift",
+};
+
+function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
+  const actions = snapshot.recommendedActions.length > 0
+    ? snapshot.recommendedActions.map((action) => SETUP_ACTION_LABELS[action]).join(", ")
+    : SETUP_ACTION_LABELS.none;
+  const repoShims = snapshot.repoShims.length > 0
+    ? snapshot.repoShims.map((shim) => `  - ${shim.target}: ${shim.status}`).join("\n")
+    : "  - none";
+  const nativeProjections = snapshot.nativeProjections.length > 0
+    ? snapshot.nativeProjections.map((projection) => `  - ${projection.targetId}: ${projection.status}`).join("\n")
+    : "  - none";
+  return [
+    `project: ${snapshot.projectRoot}`,
+    `project context: ${snapshot.projectContext.status}`,
+    `actions: ${actions}`,
+    "repo shims:",
+    repoShims,
+    "native projections:",
+    nativeProjections,
+  ].join("\n");
 }

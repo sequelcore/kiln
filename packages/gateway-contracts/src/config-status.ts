@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export const KILN_CONFIG_READ_VIEWS = [
   "effective",
   "providers",
@@ -14,6 +16,32 @@ export const KILN_CONFIG_READ_VIEWS = [
 export type KilnConfigReadView = typeof KILN_CONFIG_READ_VIEWS[number];
 
 export type KilnConfigSourceStatus = "missing" | "valid" | "invalid";
+
+export const KILN_CONFIG_SOURCE_STATUSES = [
+  "missing",
+  "valid",
+  "invalid",
+] as const;
+
+export const KILN_PROJECTION_TARGET_STATUSES = [
+  "missing",
+  "current",
+  "stale",
+  "managed",
+  "drifted",
+  "unmanaged",
+] as const;
+
+export const KILN_CONFIG_SETUP_ACTIONS = [
+  "none",
+  "adopt-project-context",
+  "review-project-context",
+  "sync-repo-shims",
+  "sync-native-projections",
+  "review-and-force-sync-repo-shims",
+  "adopt-or-back-up-native-guidance",
+  "review-native-projection-drift",
+] as const;
 
 export interface KilnConfigSourceSnapshot {
   readonly path: string;
@@ -101,3 +129,35 @@ export interface KilnConfigReadResult {
   readonly snapshot: KilnConfigStatusSnapshot;
   readonly value: unknown;
 }
+
+export const KilnConfigSourceSnapshotSchema = z.object({
+  path: z.string(),
+  status: z.enum(KILN_CONFIG_SOURCE_STATUSES),
+  error: z.string().optional(),
+});
+
+export const KilnProjectionTargetSnapshotSchema = z.object({
+  targetId: z.string(),
+  path: z.string(),
+  kind: z.enum(["repo-shim", "native"]),
+  status: z.enum(KILN_PROJECTION_TARGET_STATUSES),
+  details: z.string().optional(),
+});
+
+export const KilnRepoShimProjectionSnapshotSchema = z.object({
+  target: z.enum(["agents", "claude"]),
+  targetId: z.string(),
+  path: z.string(),
+  status: z.enum(["missing", "current", "stale", "drifted", "unmanaged"]),
+  recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
+});
+
+export const KilnConfigSetupSnapshotSchema = z.object({
+  projectRoot: z.string(),
+  projectContext: KilnConfigSourceSnapshotSchema.extend({
+    recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
+  }),
+  repoShims: z.array(KilnRepoShimProjectionSnapshotSchema),
+  nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
+  recommendedActions: z.array(z.enum(KILN_CONFIG_SETUP_ACTIONS)),
+});

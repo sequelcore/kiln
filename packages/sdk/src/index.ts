@@ -22,6 +22,9 @@ export type {
   UseEventsReturn,
   UseStateReturn,
   KilnEventData,
+  KilnConfigSetupAction,
+  KilnConfigSetupSnapshot,
+  KilnConfigStatusSnapshot,
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
   OperatorSessionEvent,
@@ -29,6 +32,10 @@ export type {
   WsChatRequest,
   WsChatFrame,
 } from "./types.js";
+
+export {
+  KilnConfigSetupSnapshotSchema,
+} from "@kilnai/gateway-contracts";
 
 export type {
   ToolResourceContent,

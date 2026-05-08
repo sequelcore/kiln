@@ -6,6 +6,7 @@ import { readGlobalConfig, resolveGlobalDefaultModel, resolveGlobalDefaultProvid
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
+import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
@@ -138,6 +139,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       bootstrapContext.domainLabel,
       workspaceExplorer,
     ),
+    getSetupSnapshot: async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
     listSessions: () => loadSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
     workingDirectory: cwd,

@@ -3,6 +3,9 @@ import type {
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
   OperatorSessionEvent,
+  KilnConfigSetupAction,
+  KilnConfigSetupSnapshot,
+  KilnConfigStatusSnapshot,
 } from "@kilnai/gateway-contracts";
 
 export interface KilnConfig {
@@ -66,6 +69,9 @@ export interface KilnEventData {
 }
 
 export type {
+  KilnConfigSetupAction,
+  KilnConfigSetupSnapshot,
+  KilnConfigStatusSnapshot,
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
   OperatorSessionEvent,

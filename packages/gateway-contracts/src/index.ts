@@ -27,6 +27,13 @@ export type {
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
+  KILN_CONFIG_SETUP_ACTIONS,
+  KILN_CONFIG_SOURCE_STATUSES,
+  KILN_PROJECTION_TARGET_STATUSES,
+  KilnConfigSetupSnapshotSchema,
+  KilnConfigSourceSnapshotSchema,
+  KilnProjectionTargetSnapshotSchema,
+  KilnRepoShimProjectionSnapshotSchema,
 } from "./config-status.js";
 
 export type {

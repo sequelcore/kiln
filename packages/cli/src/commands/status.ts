@@ -89,6 +89,14 @@ export async function statusCommand(
     }
   }
 
+  const setupActions = snapshot.setup.recommendedActions.filter((action) => action !== "none");
+  if (setupActions.length > 0) {
+    console.log(`\n  Setup actions:`);
+    for (const action of setupActions) {
+      console.log(`    - ${action}`);
+    }
+  }
+
   const memoryDir = join(kilnDir, "memory");
   if (existsSync(memoryDir)) {
     const files = readdirSync(memoryDir);

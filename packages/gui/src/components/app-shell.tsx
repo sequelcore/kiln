@@ -33,6 +33,7 @@ import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
 import { SessionTelemetry } from "./session-telemetry.js";
 import { MemoryLatticePanel, MemoryLatticeSurface } from "./memory-lattice/memory-lattice-panel.js";
+import { SetupPanel } from "./setup-panel.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/timeline-visibility.js";
 import type { LucideIcon } from "lucide-react";
@@ -45,6 +46,7 @@ import {
   Folder,
   MessagesSquare,
   Network,
+  Settings2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,7 +88,7 @@ function KilnMark() {
   );
 }
 
-type SidebarMode = "sessions" | "workspace" | "changed" | "approvals" | "activity" | "memory";
+type SidebarMode = "sessions" | "workspace" | "changed" | "approvals" | "activity" | "memory" | "setup";
 
 const sidebarModeIcons: Record<SidebarMode, LucideIcon> = {
   sessions: MessagesSquare,
@@ -95,6 +97,7 @@ const sidebarModeIcons: Record<SidebarMode, LucideIcon> = {
   approvals: CheckCheck,
   activity: Activity,
   memory: Network,
+  setup: Settings2,
 };
 
 function SidebarRailButton(props: {
@@ -235,6 +238,18 @@ function LeftRail(props: {
             props.onToggleExpanded();
           }
           props.onSelectMode("memory");
+        }}
+      />
+      <SidebarRailButton
+        mode="setup"
+        label="Setup"
+        shortcut="Ctrl+7"
+        active={props.activeMode === "setup"}
+        onClick={() => {
+          if (!props.expanded) {
+            props.onToggleExpanded();
+          }
+          props.onSelectMode("setup");
         }}
       />
       <div className="flex-1" />
@@ -733,6 +748,13 @@ export function AppShell() {
           setSidebarExpanded(true);
         }
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === "7") {
+        event.preventDefault();
+        setSidebarMode("setup");
+        if (!isNarrow) {
+          setSidebarExpanded(true);
+        }
+      }
       if (event.key === "Escape") {
         setIsPaletteOpen(false);
         setPaletteMode("root");
@@ -868,6 +890,12 @@ export function AppShell() {
     queryKey: ["gui", "memory-lattice", memoryFilters, memoryLatticeInvalidationTick],
     queryFn: async () => gatewayClient.loadMemoryLatticeGraph(memoryFilters),
     enabled: gatewayReady && (sidebarMode === "memory" || memorySurfaceOpen),
+  });
+  const setupQuery = useQuery({
+    queryKey: ["gui", "setup", gatewayReady ? "ready" : "waiting"],
+    queryFn: async () => gatewayClient.loadConfigSetup(),
+    enabled: gatewayReady && sidebarMode === "setup",
+    refetchInterval: sidebarMode === "setup" ? 5_000 : false,
   });
 
   useEffect(() => {
@@ -1032,6 +1060,13 @@ export function AppShell() {
       description: "Open the provider and model picker.",
       keywords: ["model", "routing"],
     },
+    {
+      id: "setup",
+      trigger: "setup",
+      title: "Setup",
+      description: "Open config and projection status.",
+      keywords: ["config", "status", "shims"],
+    },
   ];
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
   const runtimeBootstrapReady = gatewayReady && providerCatalogStatus === "ready";
@@ -1075,6 +1110,13 @@ export function AppShell() {
         return;
       case "provider":
         setIsProviderPickerOpen(true);
+        closePalette();
+        return;
+      case "setup":
+        setSidebarMode("setup");
+        if (!isNarrow) {
+          setSidebarExpanded(true);
+        }
         closePalette();
         return;
       default:
@@ -1161,20 +1203,29 @@ export function AppShell() {
                 entries={timelineEntries}
               />
             )
-            : (
-              <MemoryLatticePanel
-                filters={memoryFilters}
-                response={memoryLatticeQuery.data ?? null}
-                loading={Boolean(memoryLatticeQuery.isFetching)}
-                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                selectedRecordId={selectedMemoryRecordId}
-                onRefresh={() => void memoryLatticeQuery.refetch()}
-                onFiltersChange={setMemoryFilters}
-                onSelectRecord={setSelectedMemoryRecordId}
-                graphOpen={memorySurfaceOpen}
-                onOpenGraph={openMemorySurface}
-              />
-            );
+            : sidebarMode === "memory"
+              ? (
+                <MemoryLatticePanel
+                  filters={memoryFilters}
+                  response={memoryLatticeQuery.data ?? null}
+                  loading={Boolean(memoryLatticeQuery.isFetching)}
+                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                  selectedRecordId={selectedMemoryRecordId}
+                  onRefresh={() => void memoryLatticeQuery.refetch()}
+                  onFiltersChange={setMemoryFilters}
+                  onSelectRecord={setSelectedMemoryRecordId}
+                  graphOpen={memorySurfaceOpen}
+                  onOpenGraph={openMemorySurface}
+                />
+              )
+              : (
+                <SetupPanel
+                  snapshot={setupQuery.data ?? null}
+                  loading={Boolean(setupQuery.isFetching)}
+                  error={setupQuery.error instanceof Error ? setupQuery.error : null}
+                  onRefresh={() => void setupQuery.refetch()}
+                />
+              );
 
   const closeDrawer = () => {
     setDrawerOpen(false);
@@ -1191,7 +1242,9 @@ export function AppShell() {
           ? "Approvals"
           : sidebarMode === "activity"
             ? "Activity"
-            : "Memory";
+            : sidebarMode === "memory"
+              ? "Memory"
+              : "Setup";
   const drawerDescription = sidebarMode === "sessions"
     ? "History moves into a drawer on narrow windows."
     : sidebarMode === "workspace"
@@ -1202,7 +1255,9 @@ export function AppShell() {
           ? "Approval requests move into a drawer on narrow windows."
           : sidebarMode === "activity"
             ? "Runtime activity moves into a drawer on narrow windows."
-            : "Memory Lattice moves into a drawer on narrow windows.";
+            : sidebarMode === "memory"
+              ? "Memory Lattice moves into a drawer on narrow windows."
+              : "Setup diagnostics move into a drawer on narrow windows.";
   const drawerAriaLabel = sidebarMode === "sessions"
     ? "session drawer"
     : sidebarMode === "workspace"
@@ -1213,7 +1268,9 @@ export function AppShell() {
           ? "approvals drawer"
           : sidebarMode === "activity"
             ? "activity drawer"
-            : "memory drawer";
+            : sidebarMode === "memory"
+              ? "memory drawer"
+              : "setup drawer";
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
@@ -1429,11 +1486,13 @@ export function AppShell() {
                 ? "Workspace drawer"
                 : drawerTitle === "Changed Files"
                   ? "Changed files drawer"
-                  : drawerTitle === "Approvals"
-                    ? "Approvals drawer"
-                    : drawerTitle === "Activity"
-                      ? "Activity drawer"
-                      : "Memory drawer"}
+                : drawerTitle === "Approvals"
+                  ? "Approvals drawer"
+                  : drawerTitle === "Activity"
+                    ? "Activity drawer"
+                    : drawerTitle === "Memory"
+                      ? "Memory drawer"
+                      : "Setup drawer"}
             className="flex h-full w-[min(26rem,calc(100vw-3rem))] max-w-full flex-col border-l border-border bg-card shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
