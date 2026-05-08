@@ -37,7 +37,7 @@ describe("WindowsUiaComputerUseProvider", () => {
       toolName: "computer_observe",
       target: "computer",
       operation: "observe",
-      input: { application: "Notepad", includeAccessibility: true },
+      input: { includeAccessibility: true },
     })).resolves.toMatchObject({
       provider: "windows-uia",
       observation: {
@@ -67,7 +67,6 @@ describe("WindowsUiaComputerUseProvider", () => {
       target: "computer",
       operation: "click",
       input: {
-        application: "Calculator",
         target: { selector: "type=button;title=One" },
       },
     })).rejects.toThrow("Computer automation denied for active application 'Notepad'");
@@ -137,6 +136,80 @@ describe("WindowsUiaComputerUseProvider", () => {
     expect(calls).toEqual([
       { operation: "observe", includeAccessibility: false, maxDepth: 1 },
       { operation: "type", selector: "automationId=CalculatorResults", text: "123" },
+    ]);
+  });
+
+  it("focuses a requested allowed application before observation instead of requiring it to be active", async () => {
+    const calls: WindowsUiaSidecarRequest[] = [];
+    const provider = new WindowsUiaComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: ["Calculator"],
+      runner: fakeRunner(calls, [
+        { observation: { application: "Calculator", windowTitle: "Calculator" } },
+        { observation: { application: "Calculator", windowTitle: "Calculator", visibleText: "button One" } },
+      ]),
+    });
+
+    await expect(provider.execute({
+      toolName: "computer_observe",
+      target: "computer",
+      operation: "observe",
+      input: { application: "Calculator", includeAccessibility: true },
+    })).resolves.toMatchObject({
+      provider: "windows-uia",
+      observation: {
+        application: "Calculator",
+        windowTitle: "Calculator",
+      },
+    });
+
+    expect(calls).toEqual([
+      { operation: "focus_application", application: "Calculator" },
+      { operation: "observe", includeAccessibility: true, maxDepth: 4 },
+    ]);
+  });
+
+  it("opens, minimizes, and closes only requested applications allowed by policy", async () => {
+    const calls: WindowsUiaSidecarRequest[] = [];
+    const provider = new WindowsUiaComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: ["Calculator"],
+      runner: fakeRunner(calls, [
+        { observation: { application: "Calculator", windowTitle: "Calculator" } },
+        { observation: { application: "Calculator", windowTitle: "Calculator" } },
+        { observation: { application: "Calculator", windowTitle: "Calculator" } },
+      ]),
+    });
+
+    await provider.execute({
+      toolName: "computer_open_application",
+      target: "computer",
+      operation: "open_application",
+      input: { application: "Calculator" },
+    });
+    await provider.execute({
+      toolName: "computer_minimize_application",
+      target: "computer",
+      operation: "minimize_application",
+      input: { application: "Calculator" },
+    });
+    await provider.execute({
+      toolName: "computer_close_application",
+      target: "computer",
+      operation: "close_application",
+      input: { application: "Calculator" },
+    });
+    await expect(provider.execute({
+      toolName: "computer_close_application",
+      target: "computer",
+      operation: "close_application",
+      input: { application: "Notepad" },
+    })).rejects.toThrow("Computer automation denied for requested application 'Notepad'");
+
+    expect(calls).toEqual([
+      { operation: "open_application", application: "Calculator" },
+      { operation: "minimize_application", application: "Calculator" },
+      { operation: "close_application", application: "Calculator" },
     ]);
   });
 });

@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(41);
+    expect(result.totalIndexed).toBe(45);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -64,7 +64,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 41,
+      totalIndexed: 45,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -160,6 +160,10 @@ describe("ToolCatalogIndex", () => {
       "computer_click",
       "computer_type",
       "computer_keypress",
+      "computer_open_application",
+      "computer_focus_application",
+      "computer_minimize_application",
+      "computer_close_application",
     ]);
     expect(catalog.search({ exact: "browser_type" }).entries[0]).toMatchObject({
       name: "browser_type",

@@ -3,6 +3,7 @@
 #endif
 #include <windows.h>
 #include <UIAutomation.h>
+#include <shellapi.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -18,6 +19,8 @@ struct Request {
   std::string operation;
   std::wstring selector;
   std::wstring text;
+  std::wstring application;
+  std::wstring windowTitle;
   bool includeAccessibility = false;
   int maxDepth = 4;
 };
@@ -153,6 +156,8 @@ Request ParseRequest(const std::string& json) {
   request.operation = ReadJsonStringField(json, "operation");
   request.selector = Utf8ToWide(ReadJsonStringField(json, "selector"));
   request.text = Utf8ToWide(ReadJsonStringField(json, "text"));
+  request.application = Utf8ToWide(ReadJsonStringField(json, "application"));
+  request.windowTitle = Utf8ToWide(ReadJsonStringField(json, "windowTitle"));
   request.includeAccessibility = ReadJsonBoolField(json, "includeAccessibility", false);
   request.maxDepth = std::max(1, std::min(8, ReadJsonIntField(json, "maxDepth", 4)));
   return request;
@@ -216,6 +221,99 @@ std::wstring ProcessName(IUIAutomationElement* element) {
   }
   CloseHandle(process);
   return out;
+}
+
+std::wstring ProcessNameFromId(DWORD processId) {
+  if (processId == 0) return L"";
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+  if (!process) return L"";
+  wchar_t path[MAX_PATH];
+  DWORD size = MAX_PATH;
+  std::wstring out;
+  if (QueryFullProcessImageNameW(process, 0, path, &size)) {
+    out.assign(path, size);
+    const size_t slash = out.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) out = out.substr(slash + 1);
+    const size_t dot = out.find_last_of(L'.');
+    if (dot != std::wstring::npos) out = out.substr(0, dot);
+  }
+  CloseHandle(process);
+  return out;
+}
+
+std::wstring WindowTitle(HWND hwnd) {
+  const int length = GetWindowTextLengthW(hwnd);
+  if (length <= 0) return L"";
+  std::wstring title(static_cast<size_t>(length + 1), L'\0');
+  GetWindowTextW(hwnd, title.data(), length + 1);
+  title.resize(static_cast<size_t>(length));
+  return title;
+}
+
+std::wstring WindowProcessName(HWND hwnd) {
+  DWORD processId = 0;
+  GetWindowThreadProcessId(hwnd, &processId);
+  return ProcessNameFromId(processId);
+}
+
+struct WindowSearch {
+  std::wstring application;
+  std::wstring windowTitle;
+  HWND hwnd = nullptr;
+};
+
+bool ContainsInsensitive(const std::wstring& haystack, const std::wstring& needle) {
+  if (needle.empty()) return true;
+  return ToLower(haystack).find(ToLower(needle)) != std::wstring::npos;
+}
+
+BOOL CALLBACK FindWindowCallback(HWND hwnd, LPARAM lparam) {
+  auto* search = reinterpret_cast<WindowSearch*>(lparam);
+  if (!search || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
+  const std::wstring title = WindowTitle(hwnd);
+  const std::wstring process = WindowProcessName(hwnd);
+  if (title.empty() && process.empty()) return TRUE;
+  const bool applicationMatches = search->application.empty()
+    || ToLower(process) == ToLower(search->application)
+    || ContainsInsensitive(title, search->application);
+  const bool titleMatches = search->windowTitle.empty() || ContainsInsensitive(title, search->windowTitle);
+  if (applicationMatches && titleMatches) {
+    search->hwnd = hwnd;
+    return FALSE;
+  }
+  return TRUE;
+}
+
+HWND FindRequestedWindow(const Request& request) {
+  WindowSearch search;
+  search.application = request.application;
+  search.windowTitle = request.windowTitle;
+  EnumWindows(FindWindowCallback, reinterpret_cast<LPARAM>(&search));
+  return search.hwnd;
+}
+
+std::wstring ExecutableCandidate(const std::wstring& application) {
+  const std::wstring lower = ToLower(application);
+  if (lower == L"calculator" || lower == L"calculadora") return L"calc.exe";
+  if (lower == L"msedge" || lower == L"edge" || lower == L"microsoft edge") return L"msedge.exe";
+  if (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".exe") return application;
+  return application + L".exe";
+}
+
+bool FocusWindow(HWND hwnd) {
+  if (!hwnd) return false;
+  ShowWindow(hwnd, SW_RESTORE);
+  SetForegroundWindow(hwnd);
+  return true;
+}
+
+bool OpenApplication(const Request& request) {
+  if (request.application.empty()) return false;
+  const std::wstring executable = ExecutableCandidate(request.application);
+  HINSTANCE result = ShellExecuteW(nullptr, L"open", executable.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  if (reinterpret_cast<INT_PTR>(result) > 32) return true;
+  result = ShellExecuteW(nullptr, L"open", request.application.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+  return reinterpret_cast<INT_PTR>(result) > 32;
 }
 
 ComPtr<IUIAutomationElement> ResolveActiveWindow(IUIAutomation* automation) {
@@ -398,7 +496,50 @@ int main() {
     return Fail("failed to create Microsoft UI Automation client");
   }
 
+  HWND observationHwnd = nullptr;
+  if (request.operation == "open_application") {
+    if (!OpenApplication(request)) {
+      CoUninitialize();
+      return Fail("could not open requested application");
+    }
+    Sleep(500);
+    HWND opened = FindRequestedWindow(request);
+    if (opened) {
+      observationHwnd = opened;
+      FocusWindow(opened);
+    }
+  } else if (request.operation == "focus_application") {
+    HWND targetWindow = FindRequestedWindow(request);
+    if (!targetWindow || !FocusWindow(targetWindow)) {
+      CoUninitialize();
+      return Fail("requested application window was not found");
+    }
+    observationHwnd = targetWindow;
+  } else if (request.operation == "minimize_application") {
+    HWND targetWindow = FindRequestedWindow(request);
+    if (!targetWindow) {
+      CoUninitialize();
+      return Fail("requested application window was not found");
+    }
+    observationHwnd = targetWindow;
+    ShowWindow(targetWindow, SW_MINIMIZE);
+  } else if (request.operation == "close_application") {
+    HWND targetWindow = FindRequestedWindow(request);
+    if (!targetWindow) {
+      CoUninitialize();
+      return Fail("requested application window was not found");
+    }
+    PostMessageW(targetWindow, WM_CLOSE, 0, 0);
+    Sleep(200);
+  }
+
   ComPtr<IUIAutomationElement> activeWindow = ResolveActiveWindow(automation.Get());
+  if (observationHwnd) {
+    ComPtr<IUIAutomationElement> operationWindow;
+    if (SUCCEEDED(automation->ElementFromHandle(observationHwnd, &operationWindow)) && operationWindow) {
+      activeWindow = operationWindow;
+    }
+  }
   if (!activeWindow) {
     CoUninitialize();
     return Fail("could not determine the active Windows UI Automation element");
@@ -422,7 +563,11 @@ int main() {
       CoUninitialize();
       return Fail("target does not support UIA ValuePattern");
     }
-  } else if (request.operation != "observe") {
+  } else if (request.operation != "observe"
+    && request.operation != "open_application"
+    && request.operation != "focus_application"
+    && request.operation != "minimize_application"
+    && request.operation != "close_application") {
     CoUninitialize();
     return Fail("unsupported operation");
   }

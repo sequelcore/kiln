@@ -157,6 +157,8 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         return this.scroll(request);
       case "session_stop":
         return this.stopSession(request);
+      default:
+        throw new Error(`Playwright browser use provider does not support operation '${request.operation}'.`);
     }
   }
 

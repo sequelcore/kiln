@@ -30,6 +30,16 @@ const INTERACTIVE_TIMEOUT_PROPERTY = {
   "x-kiln-timeout-unit": "milliseconds",
 } as const;
 
+const COMPUTER_APPLICATION_PROPERTY = {
+  type: "string",
+  description: "Target application name from interactiveUse.allowedApplications. Prefer this over relying on the active window.",
+} as const;
+
+const COMPUTER_WINDOW_TITLE_PROPERTY = {
+  type: "string",
+  description: "Optional target window title filter. Used with application when multiple windows exist.",
+} as const;
+
 export type ToolInput = {
   readonly name: string;
   readonly input: Record<string, unknown>;
@@ -146,6 +156,10 @@ export type DevToolName =
   | "computer_click"
   | "computer_type"
   | "computer_keypress"
+  | "computer_open_application"
+  | "computer_focus_application"
+  | "computer_minimize_application"
+  | "computer_close_application"
   | "grep"
   | "glob"
   | "git"
@@ -736,8 +750,8 @@ export const TOOL_SCHEMAS: Record<
     inputSchema: {
       type: "object",
       properties: {
-        windowTitle: { type: "string", description: "Optional target window title filter." },
-        application: { type: "string", description: "Optional target application name." },
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        application: COMPUTER_APPLICATION_PROPERTY,
         includeScreenshot: { type: "boolean" },
         includeAccessibility: { type: "boolean" },
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
@@ -756,6 +770,8 @@ export const TOOL_SCHEMAS: Record<
     inputSchema: {
       type: "object",
       properties: {
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        application: COMPUTER_APPLICATION_PROPERTY,
         target: INTERACTIVE_TARGET_PROPERTY,
         button: { enum: ["left", "middle", "right"] },
         clickCount: { type: "number" },
@@ -776,6 +792,8 @@ export const TOOL_SCHEMAS: Record<
     inputSchema: {
       type: "object",
       properties: {
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        application: COMPUTER_APPLICATION_PROPERTY,
         target: INTERACTIVE_TARGET_PROPERTY,
         text: { type: "string", description: "Text to type." },
         sensitive: { type: "boolean" },
@@ -796,12 +814,86 @@ export const TOOL_SCHEMAS: Record<
     inputSchema: {
       type: "object",
       properties: {
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        application: COMPUTER_APPLICATION_PROPERTY,
         keys: { type: "array", items: { type: "string" }, minItems: 1 },
         requiresApproval: { type: "boolean" },
         timeout: INTERACTIVE_TIMEOUT_PROPERTY,
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["keys"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  computer_open_application: {
+    name: "computer_open_application",
+    description: "Open or launch an allowed desktop application, then return an observation of the resulting window.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        application: COMPUTER_APPLICATION_PROPERTY,
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["application"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  computer_focus_application: {
+    name: "computer_focus_application",
+    description: "Bring an allowed desktop application or window to the foreground before computer use.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        application: COMPUTER_APPLICATION_PROPERTY,
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["application"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  computer_minimize_application: {
+    name: "computer_minimize_application",
+    description: "Minimize an allowed desktop application or window after computer use.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        application: COMPUTER_APPLICATION_PROPERTY,
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["application"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  computer_close_application: {
+    name: "computer_close_application",
+    description: "Gracefully close an allowed desktop application or window. Providers should avoid force-kill behavior unless a separate explicit policy allows it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        application: COMPUTER_APPLICATION_PROPERTY,
+        windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["application"],
       additionalProperties: false,
     },
     annotations: {

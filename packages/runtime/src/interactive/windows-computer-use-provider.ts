@@ -92,6 +92,11 @@ export class WindowsComputerUseProvider implements InteractiveUseProvider {
           provider: "windows-nutjs",
           observation: await this.observe(nut, request, activeApplication),
         };
+      case "open_application":
+      case "focus_application":
+      case "minimize_application":
+      case "close_application":
+        throw new Error(`Windows Nut.js computer provider does not support operation '${request.operation}'. Use computerProvider=windows-uia for application lifecycle control.`);
       default:
         throw new Error(`Windows computer provider does not support operation '${request.operation}'.`);
     }

@@ -14,7 +14,15 @@ export type BrowserToolName =
   | "browser_keypress"
   | "browser_scroll"
   | "browser_session_stop";
-export type ComputerToolName = "computer_observe" | "computer_click" | "computer_type" | "computer_keypress";
+export type ComputerToolName =
+  | "computer_observe"
+  | "computer_click"
+  | "computer_type"
+  | "computer_keypress"
+  | "computer_open_application"
+  | "computer_focus_application"
+  | "computer_minimize_application"
+  | "computer_close_application";
 export type InteractiveToolName = BrowserToolName | ComputerToolName;
 export type SearchToolName = "grep" | "glob";
 export type CatalogToolName = "tool_catalog_search";
@@ -42,7 +50,11 @@ export type InteractiveToolOperation =
   | "type"
   | "keypress"
   | "scroll"
-  | "session_stop";
+  | "session_stop"
+  | "open_application"
+  | "focus_application"
+  | "minimize_application"
+  | "close_application";
 export type InteractiveToolErrorCode =
   | "invalid_input"
   | "provider_not_configured"

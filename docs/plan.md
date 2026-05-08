@@ -60,7 +60,9 @@ Behavior:
 - Add `browser_session_start`, `browser_navigate`, `browser_observe`,
   `browser_click`, `browser_type`, `browser_keypress`, `browser_scroll`,
   `browser_session_stop`, `computer_observe`, `computer_click`,
-  `computer_type`, and `computer_keypress`.
+  `computer_type`, `computer_keypress`, `computer_open_application`,
+  `computer_focus_application`, `computer_minimize_application`, and
+  `computer_close_application`.
 - Add `interactive` metadata with provider, target, session id, action,
   observation, artifact links, approval sensitivity, and typed errors.
 - Default provider fails closed with `provider_not_configured`.
@@ -170,7 +172,7 @@ Verification:
 
 ### Slice 5 - GUI Live Browser Projection
 
-Status: implemented and verified on 2026-05-08 for live browser snapshot
+Status: implemented and verified on 2026-05-08 for dynamic browser tab
 projection.
 
 Files:
@@ -179,14 +181,19 @@ Files:
 - `packages/runtime/src/gateway/interactive-use-frame.ts`
 - `packages/gui/src/components/operator-surface-tabs.tsx`
 - `packages/gui/src/components/app-shell.tsx`
+- `packages/gui/src/api/client.ts`
 - `packages/gui/src/lib/session-store.ts`
 - Focused runtime and GUI tests.
 
 Behavior:
 
-- Render a live Browser tab from runtime `interactive_use_updated` frames.
+- Render Browser as a dynamic workbench tab from runtime
+  `interactive_use_updated` frames, not as a permanent primary sidebar surface.
 - Project current URL, title, status, provider/session metadata, screenshot
   data URL, and artifact URI evidence.
+- Resolve screenshot artifact URIs through the GUI resource endpoint so the tab
+  can display artifact-backed screenshots without storing base64 in transcript
+  metadata.
 - Support takeover/control handoff later without changing runtime contracts.
 
 Verification:
@@ -247,12 +254,18 @@ Behavior:
   Kiln-owned native sidecar, not a third-party Node native wrapper.
 - Derive trusted active-window authority from Windows UIA focus ancestry before
   evaluating `interactiveUse.allowedApplications`.
+- When a request names `application` or `windowTitle`, validate that target
+  against `allowedApplications` before opening, focusing, minimizing, or closing
+  the window.
 - Expose the UIA accessibility tree through `computer_observe` when
   `includeAccessibility` is requested.
 - Execute semantic targets such as `type=button;title=OK` through UIA
   `InvokePattern`; execute text targets through `ValuePattern`.
 - Reject coordinate-only pointer actions with a clear error that directs the
   operator to `computerProvider=windows` for low-level mouse/keyboard work.
+- Provide graceful app lifecycle tools for allowed apps:
+  `computer_open_application`, `computer_focus_application`,
+  `computer_minimize_application`, and `computer_close_application`.
 - Missing setup returns an operator-facing error with the install command:
   `packages\runtime\native\windows-uia\build.cmd`.
 - Runtime communication with the sidecar uses JSON over stdin/stdout so typed
@@ -296,6 +309,9 @@ Behavior:
 - Keep browser screenshots artifact-backed and apply idle cleanup so live GUI
   transcripts do not balloon and forgotten sidecar browser sessions do not
   accumulate.
+- Keep Browser out of the primary sidebar; surface active browser sessions as
+  dynamic tabs and load screenshot artifacts through the runtime resource
+  plane.
 
 Verification:
 

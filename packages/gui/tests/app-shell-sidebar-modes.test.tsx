@@ -446,6 +446,34 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
+  it("keeps browser use out of the primary sidebar and opens it as a dynamic workbench tab", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Browser" })).not.toBeInTheDocument();
+
+    act(() => {
+      guiWsOnFrame?.({
+        type: "interactive_use_updated",
+        snapshot: {
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-08T12:00:00.000Z",
+          toolName: "browser_observe",
+          operation: "observe",
+          sessionId: "browser-1",
+          title: "Example App",
+          url: "https://app.example.com",
+        },
+      });
+    });
+
+    expect(await screen.findByRole("tab", { name: "Browser: Example App" })).toBeInTheDocument();
+    expect(screen.getByText("interactive browser")).toBeInTheDocument();
+  });
+
   it("collapses the primary sidebar into an icon rail and keeps sessions accessible", async () => {
     render(<AppShell />);
 

@@ -245,24 +245,28 @@ Governed research is a higher-level future capability documented in
 `browser_session_start`, `browser_navigate`, `browser_observe`,
 `browser_click`, `browser_type`, `browser_keypress`, `browser_scroll`,
 `browser_session_stop`, `computer_observe`, `computer_click`, `computer_type`,
-and `computer_keypress` are cross-surface core developer tools. They project
-through the canonical builtin surface, emit shared `interactive` metadata, and
-fail closed unless a runtime surface injects an interactive-use provider.
+`computer_keypress`, `computer_open_application`,
+`computer_focus_application`, `computer_minimize_application`, and
+`computer_close_application` are cross-surface core developer tools. They
+project through the canonical builtin surface, emit shared `interactive`
+metadata, and fail closed unless a runtime surface injects an interactive-use
+provider.
 
 Browser tools target isolated browser sessions for QA, debugging,
 documentation flows, and web app automation. Computer tools target a governed
 desktop surface for OS-level automation. Both are action capabilities, not GUI
-features. GUI may render a live tab or cursor view, CLI/TUI may render
-artifacts and compact status, and MCP consumers may receive the same tool
-contracts, but execution still routes through the shared registry, authority,
-approval, audit, and sanitization path.
+features. GUI renders browser use as a dynamic workbench tab when a browser
+session exists; it is not a permanent primary sidebar destination. CLI/TUI may
+render artifacts and compact status, and MCP consumers may receive the same
+tool contracts, but execution still routes through the shared registry,
+authority, approval, audit, and sanitization path.
 
 Interactive metadata records target, operation, provider, session id,
 observation evidence, artifact URIs, timeout, sensitivity, and approval hints.
 Type actions record text length and sensitivity, never typed text. Observation
 tools are read-only/idempotent; click, type, keypress, scroll, navigate,
-session-start, and session-stop are destructive because they can mutate remote
-state or local UI state.
+session-start, session-stop, and application lifecycle operations are
+destructive because they can mutate remote state or local UI state.
 
 Browser use is not a replacement for `web_search`. Search/fetch/extract remain
 read-only source-acquisition primitives with provider and network-policy
@@ -393,6 +397,9 @@ URI. Transcript metadata may carry the screenshot URI and resource link, but it
 must not persist large `data:image/...` payloads when an artifact store is
 available. Providers may use inline data URLs internally as a transport detail;
 the shared tool layer materializes them before transcript projection.
+GUI resolves those screenshot artifact URIs through the runtime resource plane
+for display in the dynamic Browser tab, so transcript storage stays compact
+without losing visual inspection.
 
 Agents should call `browser_session_stop` before their final answer for one-off
 browser tasks. Runtime providers also enforce an idle-session TTL as a cleanup
@@ -405,6 +412,13 @@ explicit escape hatch for attaching to an operator-controlled browser instead
 of a project-scoped isolated session. `allowComputer: true` plus
 `allowedApplications` scopes computer automation to named applications or
 windows.
+
+Computer use should target explicit allowed applications instead of depending
+on whatever window happens to be active. Providers that can focus windows
+should use the request's `application` and optional `windowTitle` to
+open/focus/minimize/close an allowed app, then report the observed result.
+Graceful close is the default; force-kill behavior must remain a separate
+future policy, not an implicit `computer_close_application` fallback.
 
 `kiln status` projects interactive-use diagnostics without launching browsers,
 observing the desktop, or validating live provider availability. Diagnostics
@@ -427,13 +441,16 @@ The `windows-uia` computer provider is the semantic Microsoft UI Automation
 provider. It invokes Kiln's owned `kiln-windows-uia.exe` sidecar over JSON
 stdin/stdout; the sidecar is the only runtime component that touches native
 `IUIAutomation`. The TypeScript runtime derives the active window from Windows
-UIA focus ancestry before checking `allowedApplications`, exposes the
-accessibility tree through `computer_observe` when `includeAccessibility` is
-set, and executes semantic targets through UIA patterns such as `InvokePattern`
-and `ValuePattern`. It does not treat coordinates as authority evidence or as a
-physical pointer transport; coordinate-only mouse/keyboard work remains owned
-by the `windows` provider. Missing setup must produce this operator-facing
-command:
+UIA focus ancestry before checking `allowedApplications` when no explicit
+target app is provided. When `application` or `windowTitle` is provided, the
+runtime validates that requested target against `allowedApplications` before
+the sidecar opens, focuses, minimizes, or closes the window. The provider
+exposes the accessibility tree through `computer_observe` when
+`includeAccessibility` is set, and executes semantic targets through UIA
+patterns such as `InvokePattern` and `ValuePattern`. It does not treat
+coordinates as authority evidence or as a physical pointer transport;
+coordinate-only mouse/keyboard work remains owned by the `windows` provider.
+Missing setup must produce this operator-facing command:
 
 ```bash
 packages\runtime\native\windows-uia\build.cmd

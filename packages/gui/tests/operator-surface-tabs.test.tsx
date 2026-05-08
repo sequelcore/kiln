@@ -124,9 +124,46 @@ describe("OperatorSurfaceTabs", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: "Browser" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Browser: Example App" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Browser screenshot for Example App" })).toHaveAttribute("src", "data:image/png;base64,abc");
     expect(screen.getByText("https://app.example.com")).toBeInTheDocument();
+  });
+
+  it("labels the browser tab with the governed session context", () => {
+    render(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSnapshot={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-08T12:00:00.000Z",
+          toolName: "browser_click",
+          operation: "click",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          url: "https://app.example.com/settings",
+          title: "Settings",
+          screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "Browser: Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Agent controlling")).toBeInTheDocument();
+    expect(screen.getByText("kiln://artifacts/interactive-screenshots/artifact_1/content")).toBeInTheDocument();
   });
 
   it("renders markdown through the safe markdown renderer", () => {

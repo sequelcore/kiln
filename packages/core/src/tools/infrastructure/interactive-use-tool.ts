@@ -354,6 +354,30 @@ export class ComputerKeypressTool extends BaseInteractiveUseTool<"computer_keypr
   }
 }
 
+export class ComputerOpenApplicationTool extends BaseInteractiveUseTool<"computer_open_application"> {
+  constructor(options?: InteractiveUseToolOptions) {
+    super({ name: "computer_open_application", target: "computer", operation: "open_application" }, options);
+  }
+}
+
+export class ComputerFocusApplicationTool extends BaseInteractiveUseTool<"computer_focus_application"> {
+  constructor(options?: InteractiveUseToolOptions) {
+    super({ name: "computer_focus_application", target: "computer", operation: "focus_application" }, options);
+  }
+}
+
+export class ComputerMinimizeApplicationTool extends BaseInteractiveUseTool<"computer_minimize_application"> {
+  constructor(options?: InteractiveUseToolOptions) {
+    super({ name: "computer_minimize_application", target: "computer", operation: "minimize_application" }, options);
+  }
+}
+
+export class ComputerCloseApplicationTool extends BaseInteractiveUseTool<"computer_close_application"> {
+  constructor(options?: InteractiveUseToolOptions) {
+    super({ name: "computer_close_application", target: "computer", operation: "close_application" }, options);
+  }
+}
+
 function observationRequestFromInput(input: Record<string, unknown>): InteractiveObservationRequest {
   return {
     includeScreenshot: readBoolean(input.includeScreenshot),

@@ -246,9 +246,13 @@ export {
   BrowserSessionStartTool,
   BrowserSessionStopTool,
   BrowserTypeTool,
+  ComputerCloseApplicationTool,
   ComputerClickTool,
+  ComputerFocusApplicationTool,
   ComputerKeypressTool,
+  ComputerMinimizeApplicationTool,
   ComputerObserveTool,
+  ComputerOpenApplicationTool,
   ComputerTypeTool,
 } from "./infrastructure/interactive-use-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";

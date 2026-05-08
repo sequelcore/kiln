@@ -138,6 +138,8 @@ async function execute(
       return scroll(config, request);
     case "session_stop":
       return stopSession(request);
+    default:
+      throw new Error(`Playwright browser use provider does not support operation '${request.operation}'.`);
   }
 }
 

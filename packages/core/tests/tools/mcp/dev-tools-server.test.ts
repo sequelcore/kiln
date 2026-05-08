@@ -42,13 +42,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 41 native tool schemas", () => {
+  it("lists the 45 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(41);
+    expect(tools).toHaveLength(45);
     expect(names).toEqual([
       "bash",
       "read",
@@ -75,6 +75,10 @@ describe("DevToolsMcpServer", () => {
       "computer_click",
       "computer_type",
       "computer_keypress",
+      "computer_open_application",
+      "computer_focus_application",
+      "computer_minimize_application",
+      "computer_close_application",
       "grep",
       "glob",
       "git",
@@ -437,7 +441,7 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 41,
+          totalIndexed: 45,
         },
       },
     });

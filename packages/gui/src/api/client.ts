@@ -313,6 +313,34 @@ export class GuiGatewayClient {
     );
   }
 
+  async loadResourceDataUrl(uri: string): Promise<string | null> {
+    const normalizedUri = uri.trim();
+    if (!normalizedUri) {
+      return null;
+    }
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/resources/content", candidateBaseUrl);
+      url.searchParams.set("uri", normalizedUri);
+      try {
+        const response = await fetch(url, {
+          headers: { accept: "application/json" },
+        });
+        if (!response.ok) {
+          continue;
+        }
+        const payload = await response.json() as { dataUrl?: unknown };
+        if (typeof payload.dataUrl === "string" && payload.dataUrl.startsWith("data:")) {
+          this.resolvedBaseUrl = candidateBaseUrl;
+          return payload.dataUrl;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
   notifyWindowClosed(): void {
     for (const candidateBaseUrl of this.resolveCandidateBaseUrls()) {
       const url = new URL("/gui/api/window-closed", candidateBaseUrl);

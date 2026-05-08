@@ -23,11 +23,20 @@ export interface WindowsUiaComputerUseProviderOptions {
 export type WindowsUiaSidecarRunner = (request: WindowsUiaSidecarRequest) => Promise<WindowsUiaSidecarResponse>;
 
 export interface WindowsUiaSidecarRequest {
-  readonly operation: "observe" | "click" | "type";
+  readonly operation:
+    | "observe"
+    | "click"
+    | "type"
+    | "open_application"
+    | "focus_application"
+    | "minimize_application"
+    | "close_application";
   readonly includeAccessibility?: boolean;
   readonly maxDepth?: number;
   readonly selector?: string;
   readonly text?: string;
+  readonly application?: string;
+  readonly windowTitle?: string;
   readonly timeoutMs?: number;
 }
 
@@ -54,30 +63,59 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
 
   async execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     this.assertComputerAllowed();
-
-    const authority = await this.runner({
-      operation: "observe",
-      includeAccessibility: false,
-      maxDepth: 1,
-      timeoutMs: readTimeoutMs(request.input),
-    });
-    this.assertApplicationAllowed(authority.observation);
+    const requestedAuthority = this.readRequestedAuthority(request);
+    if (requestedAuthority) {
+      this.assertRequestedApplicationAllowed(requestedAuthority);
+    } else {
+      const authority = await this.runner({
+        operation: "observe",
+        includeAccessibility: false,
+        maxDepth: 1,
+        timeoutMs: readTimeoutMs(request.input),
+      });
+      this.assertApplicationAllowed(authority.observation);
+    }
 
     switch (request.operation) {
       case "observe":
+        if (requestedAuthority) {
+          await this.focusRequestedApplication(requestedAuthority, request);
+        }
         return {
           provider: "windows-uia",
           observation: await this.observe(request),
         };
       case "click":
+        if (requestedAuthority) {
+          await this.focusRequestedApplication(requestedAuthority, request);
+        }
         return {
           provider: "windows-uia",
           observation: await this.click(request),
         };
       case "type":
+        if (requestedAuthority) {
+          await this.focusRequestedApplication(requestedAuthority, request);
+        }
         return {
           provider: "windows-uia",
           observation: await this.type(request),
+        };
+      case "open_application":
+      case "focus_application":
+      case "minimize_application":
+      case "close_application":
+        if (!requestedAuthority) {
+          throw new Error(`Computer ${request.operation.replace(/_/g, " ")} requires an application or windowTitle.`);
+        }
+        return {
+          provider: "windows-uia",
+          observation: (await this.runner({
+            operation: request.operation,
+            application: requestedAuthority.application,
+            windowTitle: requestedAuthority.windowTitle,
+            timeoutMs: readTimeoutMs(request.input),
+          })).observation,
         };
       case "keypress":
         throw new Error("Windows UI Automation provider does not support raw keypress. Use computerProvider=windows for keyboard input.");
@@ -113,6 +151,47 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       const label = application ?? windowTitle ?? "unknown";
       throw new Error(`Computer automation denied for active application '${label}'. Configure interactiveUse.allowedApplications to allow it.`);
     }
+  }
+
+  private readRequestedAuthority(request: InteractiveUseRequest): { readonly application?: string; readonly windowTitle?: string } | null {
+    const application = readString(request.input.application) ?? request.application;
+    const windowTitle = readString(request.input.windowTitle) ?? request.windowTitle;
+    return application || windowTitle
+      ? {
+          ...(application ? { application } : {}),
+          ...(windowTitle ? { windowTitle } : {}),
+        }
+      : null;
+  }
+
+  private assertRequestedApplicationAllowed(authority: { readonly application?: string; readonly windowTitle?: string }): void {
+    if (this.allowedApplications.includes("*")) {
+      return;
+    }
+    const label = authority.application ?? authority.windowTitle;
+    if (!label) {
+      throw new Error("Computer automation requires an application or window title before targeting an inactive app.");
+    }
+    const allowed = this.allowedApplications.some((entry) => {
+      const normalized = entry.toLocaleLowerCase("en-US");
+      return authority.application?.toLocaleLowerCase("en-US") === normalized
+        || authority.windowTitle?.toLocaleLowerCase("en-US") === normalized;
+    });
+    if (!allowed) {
+      throw new Error(`Computer automation denied for requested application '${label}'. Configure interactiveUse.allowedApplications to allow it.`);
+    }
+  }
+
+  private async focusRequestedApplication(
+    authority: { readonly application?: string; readonly windowTitle?: string },
+    request: InteractiveUseRequest,
+  ): Promise<void> {
+    await this.runner({
+      operation: "focus_application",
+      application: authority.application,
+      windowTitle: authority.windowTitle,
+      timeoutMs: readTimeoutMs(request.input),
+    });
   }
 
   private async observe(request: InteractiveUseRequest): Promise<InteractiveObservationMetadata> {
@@ -338,6 +417,10 @@ function stringField<TName extends string>(name: TName, value: unknown): Record<
   return typeof value === "string" && value.trim().length > 0
     ? { [name]: value.trim() } as Record<TName, string>
     : {};
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function normalizeList(value: readonly string[] | undefined): readonly string[] {

@@ -527,6 +527,11 @@ function wireOperatorTransport(
     builtinToolOptions: input.builtinToolOptions,
     managedInvocation: input.managedInvocation,
   });
+  const resourceSurfaces: AttachedRuntimeBuiltinToolSurface[] = [builtinToolSurface];
+  const rememberToolSurface = (surface: AttachedRuntimeBuiltinToolSurface): void => {
+    resourceSurfaces.unshift(surface);
+    resourceSurfaces.splice(8);
+  };
   const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
   const executor = new CliSubscriptionExecutor(
@@ -546,6 +551,33 @@ function wireOperatorTransport(
   activityStreamer.bindApprovalBridge({
     approve: (approvalId) => orchestrator.continue(approvalId),
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
+  });
+
+  app.get("/gui/api/resources/content", async (c) => {
+    const uri = c.req.query("uri");
+    if (!uri) {
+      return c.json({ error: "resource_uri_required" }, 400);
+    }
+    for (const surface of resourceSurfaces) {
+      const result = await surface.readResource(uri).catch(() => undefined);
+      const content = result?.contents[0];
+      if (!content) {
+        continue;
+      }
+      if ("blob" in content) {
+        return c.json({
+          uri: content.uri,
+          mimeType: content.mimeType,
+          dataUrl: `data:${content.mimeType ?? "application/octet-stream"};base64,${content.blob}`,
+        });
+      }
+      return c.json({
+        uri: content.uri,
+        mimeType: content.mimeType,
+        text: content.text,
+      });
+    }
+    return c.json({ error: "resource_not_found" }, 404);
   });
 
   app.get(
@@ -947,6 +979,7 @@ function wireOperatorTransport(
                   },
                 },
               });
+              rememberToolSurface(turnBuiltinToolSurface);
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,

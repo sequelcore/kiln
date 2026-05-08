@@ -409,6 +409,10 @@ The forty-one built-in tool names are:
 - `computer_click`
 - `computer_type`
 - `computer_keypress`
+- `computer_open_application`
+- `computer_focus_application`
+- `computer_minimize_application`
+- `computer_close_application`
 - `grep`
 - `glob`
 - `git`
@@ -614,9 +618,10 @@ and budgets; its architecture lives in
 [`Controlled Web Research`](../architecture/controlled-web-research.md).
 
 Browser and computer use tools fail closed unless the runtime injects an
-interactive-use provider. They are cross-surface developer tools: GUI can show
-a live browser tab or cursor stream, while CLI, TUI, SDK, and MCP consumers
-receive the same tool contracts and artifact/resource evidence.
+interactive-use provider. They are cross-surface developer tools: GUI shows
+browser use as a dynamic workbench tab when a browser session exists, while
+CLI, TUI, SDK, and MCP consumers receive the same tool contracts and
+artifact/resource evidence.
 
 Project-scoped interactive authority is configured under
 `interactiveUse`:
@@ -688,6 +693,19 @@ is finished; Playwright sessions also have an idle cleanup backstop if the stop
 call is missed. On Windows+Bun, the Node sidecar exits once all browser
 sessions are closed and restarts on demand.
 
+GUI resolves browser screenshot artifact URIs through the runtime resource
+plane for display in the dynamic Browser tab. The primary sidebar remains for
+stable workbench destinations; browser sessions appear in tabs only when the
+agent is using one.
+
+Computer use should target explicit allowed applications instead of requiring
+the operator to manually focus the right window first. Pass `application` and,
+when needed, `windowTitle` to observe, click, type, open, focus, minimize, or
+close a governed app. Providers validate the requested app against
+`interactiveUse.allowedApplications` before changing focus or closing a window.
+`computer_close_application` is graceful close behavior; force-killing a
+process is intentionally outside the current tool contract.
+
 Windows computer providers are also optional. Runtime hosts that enable
 `computerProvider: windows` must install the low-level desktop automation peer:
 
@@ -751,10 +769,14 @@ In the active Calculator window, click the UIA target type=button;title=One.
 | `browser_keypress` | Send key presses to the browser session | `sessionId`, `keys`, `timeout`, `verbosity` | governed action evidence; metadata records key names, provider, session id, timeout, and observation |
 | `browser_scroll` | Scroll a browser session | `sessionId`, `deltaX`, `deltaY`, `timeout`, `verbosity` | governed action evidence; metadata records scroll deltas, provider, session id, timeout, and observation |
 | `browser_session_stop` | Stop a browser automation session | `sessionId`, `reason`, `verbosity` | governed lifecycle evidence; metadata records session id, provider, operation, and stop reason |
-| `computer_observe` | Observe governed desktop state | `windowTitle`, `includeScreenshot`, `includeAccessibility`, `verbosity` | read-only/idempotent observation evidence; metadata may include app name, window title, accessibility text, screenshot/artifact URI, and provider |
-| `computer_click` | Click in the governed desktop surface | `target`, `button`, `timeout`, `verbosity` | governed action evidence; metadata records selector/ref or coordinates, button, provider, timeout, and observation; `windows-uia` requires semantic selectors/refs |
-| `computer_type` | Type text into the governed desktop surface | `text`, `sensitive`, `timeout`, `verbosity` | governed action evidence; metadata records text length and sensitivity without echoing text |
-| `computer_keypress` | Send key presses to the governed desktop surface | `keys`, `timeout`, `verbosity` | governed action evidence; metadata records key names, provider, timeout, and observation |
+| `computer_observe` | Observe governed desktop state | `application`, `windowTitle`, `includeScreenshot`, `includeAccessibility`, `verbosity` | read-only/idempotent observation evidence; metadata may include app name, window title, accessibility text, screenshot/artifact URI, and provider |
+| `computer_click` | Click in the governed desktop surface | `application`, `windowTitle`, `target`, `button`, `timeout`, `verbosity` | governed action evidence; metadata records selector/ref or coordinates, button, provider, timeout, and observation; `windows-uia` requires semantic selectors/refs |
+| `computer_type` | Type text into the governed desktop surface | `application`, `windowTitle`, `text`, `sensitive`, `timeout`, `verbosity` | governed action evidence; metadata records text length and sensitivity without echoing text |
+| `computer_keypress` | Send key presses to the governed desktop surface | `application`, `windowTitle`, `keys`, `timeout`, `verbosity` | governed action evidence; metadata records key names, provider, timeout, and observation |
+| `computer_open_application` | Open a governed desktop app | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; provider validates the requested app against `allowedApplications` before launching/focusing it |
+| `computer_focus_application` | Bring a governed desktop app/window to foreground | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; useful before semantic UIA interactions when the app is not active |
+| `computer_minimize_application` | Minimize a governed desktop app/window | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; used to return the operator's desktop to a quieter state after automation |
+| `computer_close_application` | Gracefully close a governed desktop app/window | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; attempts graceful close only, not force-kill |
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
 | `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
