@@ -123,8 +123,12 @@ inherit a coherent editor-like surface automatically.
 
 The current session rail follows a dense operator-console pattern: grouped
 canonical sessions, hairline separators, compact provider glyphs, stable cost
-formatting, and a subtle active continuation rail. It intentionally avoids
-card stacks and provider-owned history buckets.
+formatting, and a subtle active continuation rail. Selecting a row previews the
+canonical transcript only; it does not silently resume that session. Empty
+submit on the selected row or an explicit resume affordance marks the visible
+continuation target. Typing a prompt from preview starts a fresh session unless
+that resume intent was set. It intentionally avoids card stacks and
+provider-owned history buckets.
 
 ## Operator Layout
 

@@ -27,7 +27,10 @@ The `kiln tui` command currently accepts these flags from `packages/cli/src/comm
 | `--port <number>` | Override the local TUI gateway port when gateway transport is used. |
 | `--plan` | Start the gateway session with plan mode enabled. |
 
-There is no `--resume` flag in `tui.ts`. Resume is handled from persisted session state inside the TUI.
+There is no `--resume` flag in `tui.ts`. Resume is explicit inside the TUI:
+`/resume` or empty `Enter` on a selected history row marks the visible
+continuation target for the next turn. The TUI does not silently load a
+persisted resume cursor at startup.
 
 Examples:
 
@@ -135,10 +138,11 @@ from Kiln's own runtime rather than from an external harness process.
 
 Selecting a provider in the picker sends a `{ type: "provider", provider, model? }` frame through the WebSocket session. The gateway updates the injected session manager with `setProvider()` and, when present, `setModel()`, then acknowledges with `{ type: "provider_changed", provider }`.
 
-On the CLI side, the multi-provider session manager keeps one canonical Kiln
-continuation target and tracks provider-native thread IDs only as provider-scoped
-metadata. Provider selection chooses the route for the next turn; it does not
-move the operator into a provider-owned session namespace.
+On the CLI side, the multi-provider session manager keeps a canonical Kiln
+continuation target only after explicit resume intent and tracks provider-native
+thread IDs only as provider-scoped metadata. Provider selection chooses the route
+for the next turn; it does not move the operator into a provider-owned session
+namespace.
 
 Important distinction:
 
@@ -211,12 +215,11 @@ Kiln stores:
 - `.kiln/sessions/<sessionId>/meta.json` for per-session metadata
 - `.kiln/sessions/<sessionId>/transcript.jsonl` for the transcript stream
 
-At startup, `makeMultiProviderSessionFactory()` loads the latest canonical
-persisted Kiln session record and makes it available to every provider route.
-If that record contains provider-thread metadata for the selected provider,
-Kiln may pass the matching provider-native thread ID to that provider. If not,
-Kiln resumes through its own transcript/context continuity without fabricating
-a native provider thread.
+At startup, `makeMultiProviderSessionFactory()` starts without a hidden active
+resume target. Once the operator explicitly resumes a canonical session, Kiln
+may pass a matching provider-native thread ID to the selected provider. If the
+provider has never participated in that session, Kiln resumes through its own
+transcript/context continuity without fabricating a native provider thread.
 
 Gateway-backed operator surfaces also pass a transcript rehydration hook to the
 runtime pipeline. If the in-memory runtime session expired while the transcript

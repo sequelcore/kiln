@@ -260,7 +260,7 @@ describe("makeMultiProviderSessionFactory", () => {
     });
   });
 
-  it("initializes resumeSessionId from store.last() on startup", async () => {
+  it("starts without an implicit resumeSessionId even when a resume cursor exists", async () => {
     const record = {
       sessionId: "prev-session",
       provider: "claude",
@@ -271,7 +271,7 @@ describe("makeMultiProviderSessionFactory", () => {
       providerThread: { provider: "claude", nativeSessionId: "prov-1" },
     };
     const { store } = makeStore(record);
-    const { registry } = makeRegistry();
+    const { registry, sessions } = makeRegistry();
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
@@ -281,11 +281,12 @@ describe("makeMultiProviderSessionFactory", () => {
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
     expect(registry.createSession).toHaveBeenCalled();
+    expect(sessions[0]?.resumeSessionId).toBeUndefined();
   });
 
   it("initializes with undefined resumeSessionId when store is empty", async () => {
     const { store } = makeStore(null);
-    const { registry } = makeRegistry();
+    const { registry, sessions } = makeRegistry();
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
@@ -295,6 +296,7 @@ describe("makeMultiProviderSessionFactory", () => {
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
     expect(registry.createSession).toHaveBeenCalled();
+    expect(sessions[0]?.resumeSessionId).toBeUndefined();
   });
 
   it("passes configured builtin tool options into provider sessions", async () => {

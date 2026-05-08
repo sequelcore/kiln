@@ -138,14 +138,6 @@ function persistPlanMode(value: boolean): void {
   }
 }
 
-function readResumeTarget(): string | null {
-  try {
-    return localStorage.getItem(RESUME_TARGET_KEY);
-  } catch {
-    return null;
-  }
-}
-
 function readStoredProviderSelection(): { readonly provider: string; readonly model: string | null } | null {
   try {
     const raw = localStorage.getItem(PROVIDER_SELECTION_KEY);
@@ -188,13 +180,9 @@ function providerRequiresSelectedModelMessage(provider: string): string {
   return `Provider '${provider}' requires a selected model.`;
 }
 
-function writeResumeTarget(sessionId: string | null): void {
+function clearStoredResumeTarget(): void {
   try {
-    if (!sessionId) {
-      localStorage.removeItem(RESUME_TARGET_KEY);
-      return;
-    }
-    localStorage.setItem(RESUME_TARGET_KEY, sessionId);
+    localStorage.removeItem(RESUME_TARGET_KEY);
   } catch {
     // fail-open
   }
@@ -367,6 +355,7 @@ function areSessionSummariesEqual(
 function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   readonly messages: readonly Message[];
   readonly timelineEntries: readonly TimelineEntry[];
+  readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
   readonly sessionCostUsd: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -383,6 +372,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   let turnCounter = 0;
   let lastRoutedProvider = detail.meta.lastProvider ?? null;
   let lastRoutedModel: string | null = null;
+  let interactiveUseSnapshot: GuiInteractiveUseSnapshot | null = null;
 
   for (const event of detail.events) {
     const payload = isObjectRecord(event.payload) ? event.payload : {};
@@ -569,6 +559,8 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const toolName = readString(payload.toolName) ?? toolCalls.get(toolCallId)?.toolName ?? "tool";
       const status = isObjectRecord(payload.status) ? payload.status : null;
       const presentation = presentOperatorEventPayload(event.kind, payload);
+      interactiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(detail.id, event, payload, status)
+        ?? interactiveUseSnapshot;
       toolCalls.set(toolCallId, {
         callId: toolCallId,
         toolName,
@@ -848,6 +840,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   return {
     messages,
     timelineEntries,
+    interactiveUseSnapshot,
     sessionCostUsd,
     inputTokens,
     outputTokens,
@@ -1197,6 +1190,54 @@ function shouldApplySessionScopedFrame(
   return true;
 }
 
+function interactiveSnapshotFromPersistedToolEvent(
+  sessionId: string,
+  event: GuiSessionEvent,
+  payload: Record<string, unknown>,
+  status: Record<string, unknown> | null,
+): GuiInteractiveUseSnapshot | null {
+  const metadata = isObjectRecord(payload.metadata) ? payload.metadata : null;
+  if (!metadata || metadata.kind !== "interactive") {
+    return null;
+  }
+  const target = readInteractiveTarget(metadata.target);
+  if (!target) {
+    return null;
+  }
+  const observation = isObjectRecord(metadata.observation) ? metadata.observation : {};
+  return {
+    target,
+    status: readInteractiveStatus(status?.state),
+    updatedAt: event.timestamp,
+    kilnSessionId: sessionId,
+    ...stringField("toolCallId", readString(payload.toolCallId)),
+    ...stringField("toolName", readString(payload.toolName)),
+    ...stringField("provider", readString(metadata.provider)),
+    ...stringField("sessionId", readString(metadata.sessionId)),
+    ...stringField("operation", readString(metadata.operation)),
+    ...stringField("url", readString(observation.url)),
+    ...stringField("title", readString(observation.title)),
+    ...stringField("visibleText", readString(observation.visibleText)),
+    ...stringField("windowTitle", readString(observation.windowTitle)),
+    ...stringField("application", readString(observation.application)),
+    ...stringField("screenshotUri", readString(observation.screenshotUri)),
+    ...stringField("screenshotDataUrl", readString(observation.screenshotDataUrl)),
+    ...stringField("error", readString(payload.output)),
+  };
+}
+
+function readInteractiveTarget(value: unknown): GuiInteractiveUseSnapshot["target"] | null {
+  return value === "browser" || value === "computer" ? value : null;
+}
+
+function readInteractiveStatus(value: unknown): GuiInteractiveUseSnapshot["status"] {
+  return value === "failed" ? "failed" : value === "running" ? "running" : "succeeded";
+}
+
+function stringField<TName extends string>(name: TName, value: string | null): Record<TName, string> | Record<string, never> {
+  return value ? { [name]: value } as Record<TName, string> : {};
+}
+
 function areProviderDescriptorsEqual(
   current: readonly ProviderDescriptor[],
   next: readonly ProviderDescriptor[],
@@ -1423,13 +1464,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setSelectedSessionId: (sessionId) => {
-    if (sessionId === null) {
-      writeResumeTarget(null);
-    }
+    clearStoredResumeTarget();
     set({
       selectedSessionId: sessionId,
       liveSessionId: null,
-      resumeTargetId: sessionId === null ? null : get().resumeTargetId,
+      resumeTargetId: null,
       messages: [],
       timelineEntries: [],
       currentAssistant: null,
@@ -1449,11 +1488,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   viewSessionDetail: (detail) => {
     const loaded = mapSessionDetailToLoadedState(detail);
-    writeResumeTarget(detail.id);
+    clearStoredResumeTarget();
     set({
       selectedSessionId: detail.id,
       liveSessionId: null,
-      resumeTargetId: detail.id,
+      resumeTargetId: null,
       messages: loaded.messages,
       timelineEntries: loaded.timelineEntries,
       currentAssistant: null,
@@ -1467,6 +1506,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnCounter: loaded.turnCounter,
       routedProvider: loaded.routedProvider,
       routedModel: loaded.routedModel,
+      interactiveUseSnapshot: loaded.interactiveUseSnapshot,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
     });
@@ -1517,8 +1557,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const persistedPlanMode = readStoredPlanMode();
     const welcomePlanMode = frame.executionMode ? frame.executionMode === "plan" : undefined;
     const resolvedPlanMode = persistedPlanMode ?? welcomePlanMode ?? current.planMode;
-    const persistedResume = readResumeTarget();
     const explicitSelection = Boolean(activeProvider);
+    clearStoredResumeTarget();
 
     set({
       providers,
@@ -1531,7 +1571,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       planMode: resolvedPlanMode,
       routeMode: explicitSelection ? "user" : "auto",
       providerExplicitSelection: explicitSelection,
-      resumeTargetId: persistedResume,
+      resumeTargetId: current.resumeTargetId,
       status: "ready",
       errorBanner: null,
       providerSwitching: false,
@@ -2292,7 +2332,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
     }
-    writeResumeTarget(null);
+    clearStoredResumeTarget();
     set({
       messages: [],
       timelineEntries: [],
@@ -2662,10 +2702,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       content: normalized,
       createdAt: nowIso(),
     };
+    const isPreviewWithoutExplicitResume = state.selectedSessionId !== null && state.resumeTargetId === null;
+    const baseMessages = isPreviewWithoutExplicitResume ? [] : state.messages;
+    const baseTimelineEntries = isPreviewWithoutExplicitResume ? [] : state.timelineEntries;
     set({
-      messages: [...state.messages, userMessage],
+      messages: [...baseMessages, userMessage],
       timelineEntries: [
-        ...state.timelineEntries,
+        ...baseTimelineEntries,
         {
           id: `timeline:${userMessage.id}`,
           type: "message",
@@ -2674,6 +2717,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         },
       ],
       status: "running",
+      selectedSessionId: null,
       liveSessionId: null,
       activity: { phase: "thinking" },
       activityPhase: "thinking",
@@ -2706,7 +2750,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     state.outboundSend({ type: "clear" });
-    writeResumeTarget(null);
+    clearStoredResumeTarget();
     const timeoutId = setTimeout(() => {
       const latest = get();
       if (!latest.clearPending) return;
@@ -2746,7 +2790,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setResume: (sessionId) => {
-    writeResumeTarget(sessionId);
+    clearStoredResumeTarget();
     set({
       resumeTargetId: sessionId,
     });

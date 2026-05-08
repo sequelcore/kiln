@@ -212,6 +212,38 @@ describe("WindowsUiaComputerUseProvider", () => {
       { operation: "close_application", application: "Calculator" },
     ]);
   });
+
+  it("treats localized Calculator identities as the same governed application", async () => {
+    const calls: WindowsUiaSidecarRequest[] = [];
+    const provider = new WindowsUiaComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: ["Calculator"],
+      runner: fakeRunner(calls, [
+        { observation: { application: "CalculatorApp", windowTitle: "Calculadora" } },
+        { observation: { application: "CalculatorApp", windowTitle: "Calculadora" } },
+        { observation: { application: "CalculatorApp", windowTitle: "Calculadora" } },
+      ]),
+    });
+
+    await provider.execute({
+      toolName: "computer_observe",
+      target: "computer",
+      operation: "observe",
+      input: {},
+    });
+    await provider.execute({
+      toolName: "computer_minimize_application",
+      target: "computer",
+      operation: "minimize_application",
+      input: { application: "CalculatorApp", windowTitle: "Calculadora" },
+    });
+
+    expect(calls).toEqual([
+      { operation: "observe", includeAccessibility: false, maxDepth: 1 },
+      { operation: "observe", includeAccessibility: false, maxDepth: 4 },
+      { operation: "minimize_application", application: "CalculatorApp", windowTitle: "Calculadora" },
+    ]);
+  });
 });
 
 function fakeRunner(

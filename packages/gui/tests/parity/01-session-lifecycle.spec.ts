@@ -38,7 +38,9 @@ test.describe("parity category 1 - session lifecycle", () => {
     await page.getByRole("option", { name: /Summarize parity checklist/ }).click();
     await composer.click();
     await composer.press("Enter");
-    await expect.poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resumeTarget"))).not.toBeNull();
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resumeTarget")))
+      .toBeNull();
 
     await page.getByRole("button", { name: "Plan" }).click();
     await expect(page.getByRole("button", { name: "Plan" })).toHaveAttribute("aria-pressed", "true");

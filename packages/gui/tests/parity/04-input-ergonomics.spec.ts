@@ -17,6 +17,8 @@ test.describe("parity category 4 - input and keyboard ergonomics", () => {
     await composer.click();
     await composer.press("Enter");
 
-    await expect.poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resumeTarget"))).not.toBeNull();
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resumeTarget")))
+      .toBeNull();
   });
 });

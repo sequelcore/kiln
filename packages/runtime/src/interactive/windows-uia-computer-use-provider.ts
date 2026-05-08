@@ -143,9 +143,8 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       throw new Error("Computer automation could not determine the active application or window title from Windows UI Automation.");
     }
     const allowed = this.allowedApplications.some((entry) => {
-      const normalized = entry.toLocaleLowerCase("en-US");
-      return application?.toLocaleLowerCase("en-US") === normalized
-        || windowTitle?.toLocaleLowerCase("en-US") === normalized;
+      return isApplicationAliasMatch(application, entry)
+        || isApplicationAliasMatch(windowTitle, entry);
     });
     if (!allowed) {
       const label = application ?? windowTitle ?? "unknown";
@@ -173,9 +172,8 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       throw new Error("Computer automation requires an application or window title before targeting an inactive app.");
     }
     const allowed = this.allowedApplications.some((entry) => {
-      const normalized = entry.toLocaleLowerCase("en-US");
-      return authority.application?.toLocaleLowerCase("en-US") === normalized
-        || authority.windowTitle?.toLocaleLowerCase("en-US") === normalized;
+      return isApplicationAliasMatch(authority.application, entry)
+        || isApplicationAliasMatch(authority.windowTitle, entry);
     });
     if (!allowed) {
       throw new Error(`Computer automation denied for requested application '${label}'. Configure interactiveUse.allowedApplications to allow it.`);
@@ -421,6 +419,23 @@ function stringField<TName extends string>(name: TName, value: unknown): Record<
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function isApplicationAliasMatch(left: string | undefined, right: string): boolean {
+  if (!left) {
+    return false;
+  }
+  const leftAliases = applicationAliases(left);
+  const rightAliases = applicationAliases(right);
+  return leftAliases.some((alias) => rightAliases.includes(alias));
+}
+
+function applicationAliases(value: string): readonly string[] {
+  const normalized = value.toLocaleLowerCase("en-US").trim();
+  if (normalized === "calculator" || normalized === "calculadora" || normalized === "calculatorapp" || normalized === "calc") {
+    return ["calculator", "calculadora", "calculatorapp", "calc", "applicationframehost"];
+  }
+  return [normalized];
 }
 
 function normalizeList(value: readonly string[] | undefined): readonly string[] {

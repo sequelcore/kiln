@@ -418,18 +418,6 @@ export async function makeMultiProviderSessionFactory(
 
   let currentProvider: ProviderId | null = initialProvider;
 
-  const defaultResumeRecord = await sessionStore.getResumeTarget();
-  for (const p of providers) {
-    const state = providerState.get(p);
-    if (!state) continue;
-    const resumeRecord = await sessionStore.getResumeTarget(p) ?? defaultResumeRecord;
-    if (!resumeRecord) continue;
-    state.resumeSessionId = resumeRecord.sessionId;
-    state.providerSessionId = resumeRecord.providerThread?.provider === p
-      ? resumeRecord.providerThread.nativeSessionId
-      : (await sessionStore.findProviderThread?.(resumeRecord.sessionId, p))?.nativeSessionId;
-  }
-
   const policyAwareFactory: CliSessionFactory = (
     systemPrompt: string,
     sessionCwd: string,

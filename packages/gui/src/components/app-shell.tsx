@@ -656,6 +656,14 @@ export function AppShell() {
     }
   }, [activeModelCapabilities?.defaultReasoningEffort, reasoningEffort, reasoningEffortOptions]);
 
+  useEffect(() => {
+    if (interactiveUseSnapshot?.target !== "browser") {
+      return;
+    }
+    setWorkbenchSurface("chat");
+    setActiveSurface("browser");
+  }, [interactiveUseSnapshot?.target, interactiveUseSnapshot?.toolCallId, interactiveUseSnapshot?.updatedAt]);
+
   const closePalette = () => {
     setIsPaletteOpen(false);
     setPaletteMode("root");

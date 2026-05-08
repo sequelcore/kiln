@@ -267,15 +267,30 @@ bool ContainsInsensitive(const std::wstring& haystack, const std::wstring& needl
   return ToLower(haystack).find(ToLower(needle)) != std::wstring::npos;
 }
 
+bool IsCalculatorAlias(const std::wstring& value) {
+  const std::wstring lower = ToLower(value);
+  return lower == L"calculator"
+    || lower == L"calculadora"
+    || lower == L"calculatorapp"
+    || lower == L"calc"
+    || lower == L"applicationframehost";
+}
+
+bool ApplicationMatches(const std::wstring& process, const std::wstring& title, const std::wstring& requestedApplication) {
+  if (requestedApplication.empty()) return true;
+  if (IsCalculatorAlias(requestedApplication)) {
+    return IsCalculatorAlias(process) || IsCalculatorAlias(title);
+  }
+  return ToLower(process) == ToLower(requestedApplication) || ContainsInsensitive(title, requestedApplication);
+}
+
 BOOL CALLBACK FindWindowCallback(HWND hwnd, LPARAM lparam) {
   auto* search = reinterpret_cast<WindowSearch*>(lparam);
   if (!search || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
   const std::wstring title = WindowTitle(hwnd);
   const std::wstring process = WindowProcessName(hwnd);
   if (title.empty() && process.empty()) return TRUE;
-  const bool applicationMatches = search->application.empty()
-    || ToLower(process) == ToLower(search->application)
-    || ContainsInsensitive(title, search->application);
+  const bool applicationMatches = ApplicationMatches(process, title, search->application);
   const bool titleMatches = search->windowTitle.empty() || ContainsInsensitive(title, search->windowTitle);
   if (applicationMatches && titleMatches) {
     search->hwnd = hwnd;
@@ -294,7 +309,7 @@ HWND FindRequestedWindow(const Request& request) {
 
 std::wstring ExecutableCandidate(const std::wstring& application) {
   const std::wstring lower = ToLower(application);
-  if (lower == L"calculator" || lower == L"calculadora") return L"calc.exe";
+  if (lower == L"calculator" || lower == L"calculadora" || lower == L"calculatorapp" || lower == L"calc") return L"calc.exe";
   if (lower == L"msedge" || lower == L"edge" || lower == L"microsoft edge") return L"msedge.exe";
   if (lower.size() >= 4 && lower.substr(lower.size() - 4) == L".exe") return application;
   return application + L".exe";

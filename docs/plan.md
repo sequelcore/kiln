@@ -323,6 +323,54 @@ Verification:
 - `bun run typecheck`
 - `bun run test`
 
+### Slice 9 - Cross-Surface Resume Contract And Live Projections
+
+Status: implemented and verified on 2026-05-08.
+
+Files:
+
+- `packages/gui/src/lib/session-store.ts`
+- `packages/gui/src/components/app-shell.tsx`
+- `packages/gui/tests/session-store.test.ts`
+- `packages/gui/tests/parity/01-session-lifecycle.spec.ts`
+- `packages/gui/tests/parity/04-input-ergonomics.spec.ts`
+- `packages/cli/src/commands/tui.ts`
+- `packages/cli/tests/commands/tui-session-persistence.test.ts`
+- `packages/runtime/src/interactive/windows-uia-computer-use-provider.ts`
+- `packages/runtime/native/windows-uia/src/kiln-windows-uia.cpp`
+- `packages/runtime/tests/interactive/windows-uia-computer-use-provider.test.ts`
+- `docs/architecture/session-model.md`
+- `docs/guides/gui.md`
+- `docs/guides/tui.md`
+
+Behavior:
+
+- Treat session history selection as preview-only in GUI.
+- Do not persist GUI resume intent in `localStorage`; clear stale
+  `kiln.gui.resumeTarget` values on startup and session selection.
+- Start fresh when the operator types from a historical preview without an
+  explicit resume action.
+- Preserve explicit GUI resume for the next turn when the operator uses empty
+  submit on the selected historical session.
+- Stop TUI startup from loading `.kiln/resume-targets.json` as hidden active
+  continuation state.
+- Keep CLI `run --resume` as the explicit non-interactive resume path.
+- Restore persisted interactive browser snapshots from canonical session events
+  and switch the GUI workbench to the Browser tab when browser evidence arrives.
+- Match Windows Calculator aliases consistently across the TypeScript UIA
+  provider and the native sidecar so open/focus/minimize/close flows use the
+  same allowlist semantics.
+
+Verification:
+
+- `bun run --filter @kilnai/gui test -- session-store.test.ts composer.test.tsx --maxWorkers=1`
+- `bun run --filter @kilnai/cli test -- commands/tui-session-persistence.test.ts`
+- `bun run --filter @kilnai/runtime test -- interactive/windows-uia-computer-use-provider.test.ts`
+- `bun run --filter @kilnai/gui test -- app-shell-sidebar-modes.test.tsx operator-surface-tabs.test.tsx session-list.test.tsx --maxWorkers=1`
+- `bun run typecheck`
+- `packages\runtime\native\windows-uia\build.cmd`
+- `bun run build`
+
 ## Verification
 
 - Focused core tests for slice 1.

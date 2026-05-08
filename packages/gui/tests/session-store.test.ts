@@ -44,6 +44,7 @@ function resetSessionStore(): void {
     providerExplicitSelection: false,
     authorityStatus: null,
     activityPhase: "idle",
+    interactiveUseSnapshot: null,
     outboundSend: null,
     clearTimeoutId: null,
     providerSwitchTimeoutId: null,
@@ -58,7 +59,7 @@ describe("session-store", () => {
     resetSessionStore();
   });
 
-  it("onWelcome seeds providers and persisted plan mode wins", () => {
+  it("onWelcome seeds providers, restores plan mode, and clears stale resume targets", () => {
     localStorage.setItem("kiln.gui.planMode", "true");
     localStorage.setItem("kiln.gui.resumeTarget", "session-123");
 
@@ -92,7 +93,8 @@ describe("session-store", () => {
     expect(state.activeProvider).toBe("claude");
     expect(state.activeModel).toBe("sonnet");
     expect(state.planMode).toBe(true);
-    expect(state.resumeTargetId).toBe("session-123");
+    expect(state.resumeTargetId).toBeNull();
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
   });
 
   it("onTextDelta creates and appends to a single streaming assistant message", () => {
@@ -1127,7 +1129,7 @@ describe("session-store", () => {
     expect(send).toHaveBeenCalledWith({ type: "execution_mode_transition", toMode: "execute" });
   });
 
-  it("persists planMode and session-scoped resume target and reloads on welcome", () => {
+  it("persists planMode but does not silently restore resume target on welcome", () => {
     useSessionStore.getState().setPlanMode(true);
     useSessionStore.getState().setResume("resume-42");
 
@@ -1142,18 +1144,79 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.planMode).toBe(true);
-    expect(state.resumeTargetId).toBe("resume-42");
+    expect(state.resumeTargetId).toBeNull();
     expect(localStorage.getItem("kiln.gui.planMode")).toBe("true");
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBe("resume-42");
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
   });
 
-  it("keeps preview selection separate from explicit resume target", () => {
-    useSessionStore.getState().setSelectedSessionId("preview-session");
+  it("treats historical selection as preview and clears explicit resume intent", () => {
     useSessionStore.getState().setResume("resume-session");
+    useSessionStore.getState().setSelectedSessionId("preview-session");
 
     const state = useSessionStore.getState();
     expect(state.selectedSessionId).toBe("preview-session");
+    expect(state.resumeTargetId).toBeNull();
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+  });
+
+  it("exits historical preview when submitting a resumed live turn", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({ status: "ready" });
+    useSessionStore.getState().setSelectedSessionId("preview-session");
+    useSessionStore.getState().setResume("resume-session");
+
+    expect(useSessionStore.getState().sendMessage("continue with browser")).toBe(true);
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBeNull();
     expect(state.resumeTargetId).toBe("resume-session");
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "message",
+      resumeSessionId: "resume-session",
+    }));
+  });
+
+  it("starts a fresh live turn from historical preview unless resume was explicit", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      status: "ready",
+      selectedSessionId: "preview-session",
+      messages: [
+        {
+          id: "historical-message",
+          role: "assistant",
+          content: "historical content",
+          createdAt: "2026-05-08T20:00:00.000Z",
+        },
+      ],
+      timelineEntries: [
+        {
+          id: "historical-entry",
+          type: "message",
+          createdAt: "2026-05-08T20:00:00.000Z",
+          message: {
+            id: "historical-message",
+            role: "assistant",
+            content: "historical content",
+            createdAt: "2026-05-08T20:00:00.000Z",
+          },
+        },
+      ],
+    });
+
+    expect(useSessionStore.getState().sendMessage("new browser check")).toBe(true);
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBeNull();
+    expect(state.resumeTargetId).toBeNull();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({ role: "user", content: "new browser check" });
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "message",
+      resumeSessionId: undefined,
+    }));
   });
 
   it("loads selected session detail from canonical session events", () => {
@@ -1293,8 +1356,8 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.selectedSessionId).toBe("session-77");
-    expect(state.resumeTargetId).toBe("session-77");
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBe("session-77");
+    expect(state.resumeTargetId).toBeNull();
+    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
     expect(state.status).toBe("ready");
     expect(state.messages).toHaveLength(2);
     expect(state.timelineEntries).toHaveLength(9);
@@ -1351,6 +1414,60 @@ describe("session-store", () => {
         reason: "single-source-cache",
       }),
     }));
+  });
+
+  it("restores the latest interactive browser snapshot from canonical session events", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-browser",
+      meta: {
+        kilnSessionId: "session-browser",
+        title: "Browser test",
+        task: "Browser test",
+        startedAt: "2026-05-08T20:57:00.000Z",
+      },
+      events: [
+        {
+          eventId: "evt-browser",
+          kilnSessionId: "session-browser",
+          sequence: 1,
+          timestamp: "2026-05-08T20:57:55.000Z",
+          kind: "tool_call_completed",
+          payload: {
+            toolCallId: "tool-browser",
+            toolName: "browser_observe",
+            output: "Full tool output is available as resource links.",
+            metadata: {
+              kind: "interactive",
+              target: "browser",
+              operation: "observe",
+              provider: "playwright",
+              sessionId: "browser-1",
+              observation: {
+                url: "https://example.com/",
+                title: "Example Domain",
+                visibleText: "Example Domain",
+                screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+              },
+            },
+            status: { state: "succeeded" },
+          },
+        },
+      ],
+    });
+
+    expect(useSessionStore.getState().interactiveUseSnapshot).toMatchObject({
+      target: "browser",
+      status: "succeeded",
+      kilnSessionId: "session-browser",
+      toolCallId: "tool-browser",
+      toolName: "browser_observe",
+      provider: "playwright",
+      sessionId: "browser-1",
+      operation: "observe",
+      url: "https://example.com/",
+      title: "Example Domain",
+      screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+    });
   });
 
   it("does not auto-select an old session when refreshing the session list", () => {

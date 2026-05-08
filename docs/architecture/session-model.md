@@ -39,10 +39,11 @@ provider session
 
 Resume starts from a canonical Kiln session ID.
 
-When an operator selects a prior session, Kiln makes that canonical session ID
-the active runtime conversation. The next user turn is processed against that
-selected Kiln session, not against whatever live provider/session happened to
-be active before the sidebar selection.
+When an operator selects a prior session, Kiln loads that canonical transcript
+as a preview. The next user turn continues that session only after an explicit
+resume action from the surface, such as `/resume`, empty-submit on the selected
+row, or a CLI `--resume` flag. Without that explicit continuation intent, a new
+prompt starts a fresh canonical session.
 
 When a turn runs, Kiln may additionally pass a provider-native resume/thread ID
 only if the selected provider has matching provider-thread metadata for that
@@ -64,16 +65,17 @@ session update the canonical row instead of creating duplicate rows in operator
 history. Clear/new-session operations must not delete the index and must not
 treat it as a disposable "last session" pointer.
 
-`.kiln/resume-targets.json` stores the mutable operator resume cursor. The
-default cursor records the canonical Kiln session to continue when no explicit
-session is selected. Provider-specific cursors may record the last session used
-by a provider, but they are still references to canonical Kiln sessions, not
-provider-owned session history.
+`.kiln/resume-targets.json` is a legacy/advisory operator cursor. Surfaces may
+use it to display resume hints or support explicit resume commands, but they
+must not load it as hidden active continuation state at startup.
+Provider-specific cursors may record the last session used by a provider, but
+they are still references to canonical Kiln sessions, not provider-owned
+session history.
 
-Clear/new-session operations clear the resume cursor and detach live runtime
-state. They do not delete session history, transcript metadata, event history,
-or provider-thread metadata. Selecting a prior session sets the active
-continuation target explicitly through the visible session state.
+Clear/new-session operations clear visible resume intent and detach live
+runtime state. They do not delete session history, transcript metadata, event
+history, or provider-thread metadata. Selecting a prior session is preview-only;
+the continuation target is set only by an explicit visible resume action.
 
 When an operator surface resumes a persisted session whose live runtime object
 has expired or is absent, it must rehydrate the runtime conversation from the
@@ -87,8 +89,9 @@ runtime session.
 All operator surfaces share the same model:
 
 - GUI session history lists Kiln sessions, not provider-specific sessions.
-- GUI session selection loads the selected transcript into the main chat and
-  makes that session the active continuation target automatically.
+- GUI session selection loads the selected transcript into the main chat as a
+  preview only. Empty-submit or an explicit resume affordance marks it as the
+  continuation target.
 - TUI session history lists Kiln sessions, not provider-specific sessions.
 - CLI persistence stores provider-native IDs as nested provider-thread
   metadata.
@@ -315,8 +318,9 @@ canonical `kilnSessionId`.
 - Provider-native thread metadata is optional and scoped to the provider that
   produced it.
 - Provider/model selection is next-turn routing state.
-- Resume cursors are mutable operator state; session history is append-only
-  audit/history state.
+- Resume intent is visible per-surface operator state; session history is
+  append-only audit/history state. Persisted cursors must not become hidden
+  startup continuation targets.
 - Clear/new-session operations must not delete persisted sessions.
 - Transcript, approvals, tool evidence, changed files, and replay belong to the
   Kiln session.
@@ -332,8 +336,9 @@ A valid live test proves:
 
 - a session can include turns from multiple providers
 - switching providers does not hide or replace the session history
-- selecting a previous session loads its transcript into chat, and sending a
-  new message continues that selected runtime session
+- selecting a previous session loads its transcript into chat without sending
+  hidden resume state, and explicit resume continues that selected runtime
+  session
 - provider-native resume is used only when matching provider-thread metadata
   exists
 - cost/token telemetry remains attributed by provider inside the same Kiln
