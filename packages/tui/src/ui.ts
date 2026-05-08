@@ -44,6 +44,7 @@ export interface UIComponents {
   sidebarFieldText: InstanceType<typeof TextRenderable>;
   sidebarDivider: InstanceType<typeof TextRenderable>;
   sidebarToolsBox: InstanceType<typeof ScrollBoxRenderable>;
+  sidebarWorkText: InstanceType<typeof TextRenderable>;
   sidebarSessionsText: InstanceType<typeof TextRenderable>;
   sidebarApprovalsText: InstanceType<typeof TextRenderable>;
   sidebarChangesText: InstanceType<typeof TextRenderable>;
@@ -273,6 +274,22 @@ export function initUI(
   });
   sidebar.add(sidebarToolsBox);
 
+  const sidebarWorkLabel = new TextRenderable(renderer, {
+    id: "sidebar-work-label",
+    content: t`${fg(theme.textMuted)("work")}`,
+    width: "100%",
+    height: 2,
+  });
+  sidebar.add(sidebarWorkLabel);
+
+  const sidebarWorkText = new TextRenderable(renderer, {
+    id: "sidebar-work",
+    content: t`${fg(theme.textMuted)("(none)")}`,
+    width: "100%",
+    flexGrow: 1,
+  });
+  sidebar.add(sidebarWorkText);
+
   const sidebarSessionsLabel = new TextRenderable(renderer, {
     id: "sidebar-sessions-label",
     content: t`${fg(theme.textMuted)("sessions")}`,
@@ -352,6 +369,7 @@ export function initUI(
     sidebarFieldText,
     sidebarDivider,
     sidebarToolsBox,
+    sidebarWorkText,
     sidebarSessionsText,
     sidebarApprovalsText,
     sidebarChangesText,

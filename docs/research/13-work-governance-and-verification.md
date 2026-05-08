@@ -67,6 +67,11 @@ Child agents should not return only prose. They should return route identity,
 authority identity, evidence produced, checks run, files touched, and residual
 risk.
 
+The implementation implication is a typed work contract: workflow profiles for
+common task shapes, session-scoped work items for decomposition, evidence gates
+that fail closed before closeout, and managed-child handoff fields that carry
+expected evidence and done criteria through canonical session events.
+
 ## Limits
 
 Work governance must not become hidden prompt bloat. The policy needs typed

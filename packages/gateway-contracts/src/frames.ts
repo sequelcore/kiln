@@ -242,6 +242,7 @@ export type OperatorSessionEventKind =
   | "config_change_failed"
   | "file_changed"
   | "cost_updated"
+  | "work_item_updated"
   | "agent_invocation_requested"
   | "agent_invocation_started"
   | "agent_invocation_completed"

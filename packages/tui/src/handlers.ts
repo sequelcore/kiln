@@ -15,7 +15,7 @@ import {
 } from "@opentui/core";
 import { formatOperatorEventValue } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
-import type { ReactiveState, Message, ResumeSidebarInfo, PendingApproval } from "./state.js";
+import type { ReactiveState, Message, ResumeSidebarInfo, PendingApproval, WorkItem } from "./state.js";
 import { update, createMessage } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
@@ -38,6 +38,7 @@ export interface HandlerContext {
   domain: string;
   renderSidebarApprovals?: () => void;
   renderSidebarChanges?: () => void;
+  renderSidebarWork?: () => void;
 }
 
 /**
@@ -331,6 +332,19 @@ export function handleActivity(
       ]);
       ctx.renderSidebarChanges?.();
     }
+  } else if (activity === "work_item_updated") {
+    const item = toWorkItem(input, event?.sessionId, event?.turnId);
+    if (item) {
+      update(ctx.state, "workItems", [
+        item,
+        ...ctx.state.workItems.filter((candidate) => candidate.id !== item.id),
+      ]);
+      ctx.renderSidebarWork?.();
+    }
+    update(ctx.state, "currentActivity", {
+      phase: "planning",
+      details: output ?? details ?? "work item updated",
+    });
   } else if (activity.startsWith("agent_invocation_")) {
     update(ctx.state, "currentActivity", {
       phase: activity === "agent_invocation_started" ? "executing" : "reasoning",
@@ -338,6 +352,48 @@ export function handleActivity(
       details,
     });
   }
+}
+
+function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkItem | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  const id = readText(record.id);
+  const summary = readText(record.summary);
+  const status = readText(record.status);
+  const workflowProfile = readText(record.workflowProfile);
+  if (!id || !summary || !status || !workflowProfile) {
+    return null;
+  }
+  return {
+    sessionId,
+    turnId,
+    id,
+    summary,
+    status,
+    workflowProfile,
+    expectedEvidence: readTextArray(record.expectedEvidence),
+    providedEvidence: readTextArray(record.providedEvidence),
+    updatedAt: readDate(record.updatedAt) ?? new Date(),
+  };
+}
+
+function readText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readTextArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => readText(entry) ? [readText(entry)!] : [])
+    : [];
+}
+
+function readDate(value: unknown): Date | undefined {
+  const text = readText(value);
+  if (!text) return undefined;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 /**

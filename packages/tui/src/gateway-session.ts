@@ -170,6 +170,17 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       ...scoped,
     };
   }
+  if (event.kind === "work_item_updated") {
+    return {
+      type: "activity",
+      activity: "work_item_updated",
+      details: presentation.compactText,
+      output: presentation.summary,
+      input: payload.workItem,
+      surfaces: presentation.surfaces,
+      ...scoped,
+    };
+  }
   if (event.kind.startsWith("agent_invocation_")) {
     return {
       type: "activity",
@@ -487,8 +498,8 @@ export class GatewaySession implements SessionLike {
       if (frame.content) {
         this.push({ type: "text_delta", content: frame.content });
       }
-      this.push({ 
-        type: "completed", 
+      this.push({
+        type: "completed",
         totalUsd: 0,
         inputTokens: frame.inputTokens,
         outputTokens: frame.outputTokens,
@@ -530,16 +541,16 @@ export class GatewaySession implements SessionLike {
         turnId: frame.turnId,
       });
     } else if (frame.type === "approval_requested") {
-      this.push({ 
-        type: "activity", 
+      this.push({
+        type: "activity",
         activity: "approval_requested",
         approvalId: frame.approvalId,
         details: frame.description,
         sessionId: frame.sessionId,
       });
     } else if (frame.type === "approval_received") {
-      this.push({ 
-        type: "activity", 
+      this.push({
+        type: "activity",
         activity: frame.approved ? "approval_approved" : "approval_rejected",
         approvalId: frame.approvalId,
         details: frame.reason,

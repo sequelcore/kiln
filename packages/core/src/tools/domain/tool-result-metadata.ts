@@ -1,3 +1,5 @@
+import type { WorkItem, WorkItemStatus } from "../../work-governance/index.js";
+
 export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolName = "stat" | "tree";
@@ -8,6 +10,7 @@ export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
 export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
 export type TaskStateToolName = "task_list" | "task_update";
+export type WorkItemToolName = "work_item.update" | "work_item.list" | "work_item.complete";
 export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
@@ -53,6 +56,7 @@ export type MonitorToolOperation = "start" | "read" | "stop" | "list";
 export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
+export type WorkItemToolOperation = "update" | "list" | "complete";
 export type ElicitationToolOperation = "elicit";
 export type MemoryToolOperation = "save";
 export type ResourceToolOperation = "list" | "list_templates" | "read";
@@ -294,6 +298,22 @@ export interface TaskStateToolResultMetadata<TToolName extends TaskStateToolName
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface WorkItemToolResultMetadata<TToolName extends WorkItemToolName = WorkItemToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "work_item";
+  readonly operation: WorkItemToolOperation;
+  readonly id?: string;
+  readonly status?: WorkItemStatus;
+  readonly item?: WorkItem;
+  readonly items?: readonly WorkItem[];
+  readonly itemCount?: number;
+  readonly missingEvidence?: readonly string[];
+  readonly missingResidualRisk?: boolean;
+  readonly sequence?: number;
+  readonly errorCode?: "invalid_input" | "not_found" | "missing_evidence";
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export interface ElicitationToolResultMetadata<TToolName extends ElicitationToolName = ElicitationToolName> {
   readonly toolName: TToolName;
   readonly kind: "elicitation";
@@ -350,6 +370,7 @@ export type ToolSpecificResultMetadata =
   | CatalogToolResultMetadata
   | CodeToolResultMetadata
   | MonitorToolResultMetadata
+  | WorkItemToolResultMetadata
   | TaskStateToolResultMetadata
   | ElicitationToolResultMetadata
   | MemoryToolResultMetadata
@@ -497,6 +518,17 @@ export function taskStateToolMetadata<TToolName extends TaskStateToolName>(
   return {
     toolName,
     kind: "task_state",
+    ...metadata,
+  };
+}
+
+export function workItemToolMetadata<TToolName extends WorkItemToolName>(
+  toolName: TToolName,
+  metadata: Omit<WorkItemToolResultMetadata<TToolName>, "toolName" | "kind">,
+): WorkItemToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "work_item",
     ...metadata,
   };
 }

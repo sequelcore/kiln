@@ -64,6 +64,8 @@ export interface ReactiveState {
   pendingApprovals: PendingApproval[];
   /** Files changed in the current session turn. */
   changedFiles: ChangedFile[];
+  /** Governed work items observed in canonical session events. */
+  workItems: WorkItem[];
   /** Whether plan mode is active (read-only planning). */
   planMode: boolean;
   /** Available slash commands for command palette. */
@@ -128,6 +130,21 @@ export interface ChangedFile {
   timestamp: Date;
 }
 
+/** Governed work item summary for sidebar display. */
+export interface WorkItem {
+  sessionId?: string;
+  turnId?: string;
+  id: string;
+  summary: string;
+  status: string;
+  workflowProfile: string;
+  expectedEvidence: string[];
+  providedEvidence: string[];
+  missingEvidence?: string[];
+  missingResidualRisk?: boolean;
+  updatedAt: Date;
+}
+
 /** Slash command for command palette. */
 export interface SlashCommand {
   id: string;
@@ -184,6 +201,7 @@ export function createReactiveState(): ReactiveState {
     selectedSessionIndex: -1,
     pendingApprovals: [],
     changedFiles: [],
+    workItems: [],
     planMode: false,
     slashCommands: [],
     slashCommandIndex: -1,

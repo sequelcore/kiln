@@ -1305,6 +1305,42 @@ function genericPresentation(kind: OperatorSessionEventKind, payload: Record<str
   };
 }
 
+function workItemPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const item = asRecord(payload.workItem);
+  const summary = readString(item?.summary) ?? "Governed work item updated";
+  const status = readString(item?.status) ?? "unknown";
+  const operation = readString(payload.operation) ?? "update";
+  const missingEvidence = Array.isArray(payload.missingEvidence)
+    ? payload.missingEvidence.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
+    : [];
+  const missingResidualRisk = payload.missingResidualRisk === true;
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Work item", item?.id);
+  addItem(details, "Status", status);
+  addItem(details, "Workflow", item?.workflowProfile);
+  addItem(details, "Risk", item?.risk);
+  addItem(details, "Surface", item?.surface);
+  addItem(details, "Agent profile", item?.assignedAgentProfile);
+  addItem(details, "Authority", item?.authorityProfile);
+  addItem(details, "Expected evidence", Array.isArray(item?.expectedEvidence) ? item.expectedEvidence.join(", ") : undefined);
+  addItem(details, "Provided evidence", Array.isArray(item?.providedEvidence) ? item.providedEvidence.join(", ") : undefined);
+  addItem(details, "Missing evidence", missingEvidence.join(", "));
+  addItem(details, "Missing residual risk", missingResidualRisk);
+
+  return {
+    title: status === "completed" ? "Work item completed" : "Work item updated",
+    summary: `${status} · ${summary}`,
+    compactText: `${operation}: ${status} · ${summary}`,
+    tone: status === "completed"
+      ? "success"
+      : status === "blocked"
+        ? "warning"
+        : "info",
+    details,
+    surfaces: ACTIVITY_SURFACES,
+  };
+}
+
 export function operatorEventTargetsSurface(
   presentation: Pick<OperatorEventPresentation, "surfaces">,
   surface: OperatorEventSurface,
@@ -1331,6 +1367,8 @@ export function presentOperatorEventPayload(
       return fileChangedPresentation(payload);
     case "cost_updated":
       return costUpdatedPresentation(payload);
+    case "work_item_updated":
+      return workItemPresentation(payload);
     case "approval_requested":
       return approvalRequestedPresentation(payload);
     case "approval_resolved":

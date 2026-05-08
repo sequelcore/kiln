@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-tool-surface.js";
 import { ToolResourceRegistry } from "../../../src/tools/domain/tool-resource-registry.js";
 import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
+import { WorkItemStore } from "../../../src/work-governance/index.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 
 describe("ToolResourceRegistry", () => {
@@ -107,6 +108,40 @@ describe("ToolResourceRegistry", () => {
     const payload = JSON.parse(result.contents[0]!.text);
     expect(payload.totalIndexed).toBe(29);
     expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("operator_elicit");
+  });
+
+  it("exposes governed work items when a session work item store is attached", async () => {
+    const workItemStore = new WorkItemStore();
+    const surface = createDefaultBuiltinToolSurface({ workItemStore });
+    const item = workItemStore.upsert({
+      summary: "Verify runtime work evidence",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests", "typecheck"],
+      providedEvidence: ["tests"],
+      verificationGates: ["bun run typecheck"],
+    });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/work-items");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/work-items/{id}");
+
+    const snapshot = await surface.resources.read("kiln://session/work-items");
+    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+      sequence: item.sequence,
+      items: [
+        {
+          id: item.id,
+          summary: "Verify runtime work evidence",
+          providedEvidence: ["tests"],
+        },
+      ],
+    });
+
+    const single = await surface.resources.read(`kiln://session/work-items/${item.id}`);
+    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+      id: item.id,
+      expectedEvidence: ["tests", "typecheck"],
+    });
   });
 
   it("reads individual tool catalog entries through the catalog template", async () => {

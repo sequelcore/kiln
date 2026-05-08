@@ -1,0 +1,134 @@
+import type {
+  KilnWorkGovernanceEvidence,
+  KilnWorkGovernanceRisk,
+  KilnWorkGovernanceTrigger,
+} from "../kiln-yaml-types.js";
+
+export type WorkGovernanceWorkflowProfileId =
+  | "small-fix"
+  | "bug-diagnosis"
+  | "architecture-change"
+  | "ui-change"
+  | "managed-agent-change"
+  | "config-change"
+  | "verification-heavy"
+  | "formal-proof-candidate";
+
+export interface WorkGovernanceWorkflowProfile {
+  readonly id: WorkGovernanceWorkflowProfileId;
+  readonly description: string;
+  readonly triggers: readonly KilnWorkGovernanceTrigger[];
+  readonly minimumRisk: KilnWorkGovernanceRisk;
+  readonly recommendedAgentProfiles: readonly string[];
+  readonly defaultAuthorityProfile: string;
+  readonly requiredEvidence: readonly KilnWorkGovernanceEvidence[];
+  readonly verificationGates: readonly string[];
+}
+
+export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowProfile[] = [
+  {
+    id: "small-fix",
+    description: "Local, low-risk correction inside the direct-execution envelope.",
+    triggers: [],
+    minimumRisk: "low",
+    recommendedAgentProfiles: ["coder", "fast-coder"],
+    defaultAuthorityProfile: "foundation-propose-writes",
+    requiredEvidence: ["tests", "typecheck", "residual-risk"],
+    verificationGates: ["focused test or explicit no-test rationale", "typecheck when TypeScript is affected"],
+  },
+  {
+    id: "bug-diagnosis",
+    description: "Diagnose a defect through a surface map, hypothesis, failing proof, minimal fix, and verification loop.",
+    triggers: ["verification-heavy"],
+    minimumRisk: "medium",
+    recommendedAgentProfiles: ["scout", "tdd", "coder", "reviewer"],
+    defaultAuthorityProfile: "foundation-propose-writes",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
+    verificationGates: ["failing test or reproduction before fix", "focused regression test", "typecheck/build"],
+  },
+  {
+    id: "architecture-change",
+    description: "Change with bounded-context, dependency-direction, contract, or long-term design impact.",
+    triggers: ["architecture", "cross-surface"],
+    minimumRisk: "high",
+    recommendedAgentProfiles: ["scout", "architect", "architecture-planner", "ddd-validator", "reviewer"],
+    defaultAuthorityProfile: "foundation-readonly-plan",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
+    verificationGates: ["architecture/DDD review", "contract tests where behavior changes", "typecheck/build"],
+  },
+  {
+    id: "ui-change",
+    description: "Operator-facing or browser-facing change requiring interaction, responsive, and visual evidence.",
+    triggers: ["ui", "cross-surface"],
+    minimumRisk: "medium",
+    recommendedAgentProfiles: ["scout", "react-ts-reviewer", "reviewer"],
+    defaultAuthorityProfile: "foundation-propose-writes",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "browser-qa", "tests", "typecheck", "residual-risk"],
+    verificationGates: ["browser QA screenshot or interaction proof", "accessibility/overflow check", "typecheck"],
+  },
+  {
+    id: "managed-agent-change",
+    description: "Managed invocation, route identity, child handoff, evidence, replay, or provider behavior change.",
+    triggers: ["managed-agents", "provider-routing", "runtime", "cross-surface"],
+    minimumRisk: "high",
+    recommendedAgentProfiles: ["scout", "architect", "adversarial-reviewer", "reviewer"],
+    defaultAuthorityProfile: "foundation-readonly-plan",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
+    verificationGates: ["managed child live or simulated evidence", "route/provider identity check", "typecheck/build"],
+  },
+  {
+    id: "config-change",
+    description: "Global, project, harness projection, or setup mutation change.",
+    triggers: ["config", "cross-surface"],
+    minimumRisk: "medium",
+    recommendedAgentProfiles: ["scout", "reviewer"],
+    defaultAuthorityProfile: "foundation-propose-writes",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
+    verificationGates: ["config parse/merge tests", "projection or sync diagnostic test", "typecheck"],
+  },
+  {
+    id: "verification-heavy",
+    description: "Work where correctness depends on strong checks instead of confidence language.",
+    triggers: ["verification-heavy"],
+    minimumRisk: "medium",
+    recommendedAgentProfiles: ["scout", "tdd", "adversarial-reviewer", "reviewer"],
+    defaultAuthorityProfile: "foundation-propose-writes",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "managed-agent-review", "residual-risk"],
+    verificationGates: ["failing proof or test first", "verification loop until no known blocker", "review closeout"],
+  },
+  {
+    id: "formal-proof-candidate",
+    description: "Small high-value logic surface with crisp invariants suitable for deterministic verifier feedback.",
+    triggers: ["formal-proof-candidate", "verification-heavy"],
+    minimumRisk: "high",
+    recommendedAgentProfiles: ["architect", "tdd", "adversarial-reviewer"],
+    defaultAuthorityProfile: "foundation-readonly-plan",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "spec", "formal-proof", "tests", "residual-risk"],
+    verificationGates: ["explicit invariant/spec review", "deterministic proof/property-test result", "residual-risk closeout"],
+  },
+];
+
+export function findWorkflowProfile(id: string): WorkGovernanceWorkflowProfile | undefined {
+  return WORK_GOVERNANCE_WORKFLOW_PROFILES.find((profile) => profile.id === id);
+}
+
+export function chooseWorkflowProfile(
+  triggers: readonly KilnWorkGovernanceTrigger[],
+  risk: KilnWorkGovernanceRisk | undefined,
+): WorkGovernanceWorkflowProfile {
+  if (triggers.includes("formal-proof-candidate")) return requiredProfile("formal-proof-candidate");
+  if (triggers.includes("managed-agents") || triggers.includes("provider-routing") || triggers.includes("runtime")) return requiredProfile("managed-agent-change");
+  if (triggers.includes("architecture")) return requiredProfile("architecture-change");
+  if (triggers.includes("ui")) return requiredProfile("ui-change");
+  if (triggers.includes("config")) return requiredProfile("config-change");
+  if (triggers.includes("verification-heavy") || risk === "high") return requiredProfile("verification-heavy");
+  return requiredProfile("small-fix");
+}
+
+function requiredProfile(id: WorkGovernanceWorkflowProfileId): WorkGovernanceWorkflowProfile {
+  const profile = findWorkflowProfile(id);
+  if (!profile) {
+    throw new Error(`Missing work governance workflow profile: ${id}`);
+  }
+  return profile;
+}

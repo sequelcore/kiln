@@ -66,6 +66,7 @@ import {
   createSessionBuiltinToolOptions,
   type CanonicalSessionEventKind,
   type ReasoningEffort,
+  WorkItemStore,
   type SessionEventSource,
   VerificationResult,
   formatProviderModelRouteCooldown,
@@ -525,12 +526,14 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
         caller: { kind: "operator_surface", id: "run" },
       },
     });
+  const workItemStore = new WorkItemStore();
   const builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
+    workItemStore,
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore }),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

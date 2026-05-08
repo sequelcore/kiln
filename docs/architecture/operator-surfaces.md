@@ -71,6 +71,8 @@ Required operator evidence includes:
 - changed files and diffs when available
 - provider, model, billing, token, and cost attribution per turn
 - errors, retries, fallbacks, and continuity decisions
+- governed work-item lifecycle, expected evidence, provided evidence,
+  verification gates, and residual-risk closeout status
 - session replay data with stable IDs
 - execution-mode transitions and planning submissions
 - managed child invocation capability snapshots: admitted route id and health,
@@ -94,6 +96,13 @@ native compact components; TUI, CLI, SDK/widget, IDE, and remote surfaces must
 receive the same validated data and may degrade through the shared deterministic
 text formatter. No surface may accept arbitrary provider-authored HTML, CSS,
 JavaScript, JSX, SVG, or component names as presentation input.
+
+Governed work items use the same operator contract. GUI may dedicate a Work
+surface to current items; TUI may show a compact sidebar projection; CLI and SDK
+consumers may read the event stream or `kiln://session/work-items`. None of
+these surfaces may treat a local checklist, visual row, or terminal sidebar
+line as authoritative. Authority remains in the work-item tool metadata,
+canonical `work_item_updated` session events, and resource-plane snapshot.
 
 ## Local GUI
 

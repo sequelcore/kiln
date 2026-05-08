@@ -49,6 +49,7 @@ vi.mock("../src/render.js", () => ({
   renderSidebarSessions: () => undefined,
   renderSidebarApprovals: () => undefined,
   renderSidebarChanges: () => undefined,
+  renderSidebarWork: () => undefined,
   renderSlashPopover: () => undefined,
 }));
 

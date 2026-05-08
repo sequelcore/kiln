@@ -51,7 +51,7 @@ The core contract is defined in `@kilnai/core`:
 
 - `ManagedAgentInvocationRequest`
   Describes the requested child work, parent lineage, provider route, execution
-  surface, authority profile, and bounded input.
+  surface, authority profile, bounded input, and optional work handoff contract.
 - `ManagedAgentAdmissionDecision`
   Records whether the request is admitted or denied and names the exact missing
   capabilities when denied.
@@ -68,6 +68,13 @@ The core contract is defined in `@kilnai/core`:
   provider/model proof, effective provider route, adapter kind, execution mode,
   adapter descriptor, authority profile, context mode, resource-plane
   availability, and projected child identity.
+
+`ManagedAgentInvocationInput.handoff` carries the parent-side work contract
+when a child is executing or reviewing a governed work item. It may include
+`workItemId`, `roleIntent`, `expectedEvidence`, `requiredResultFields`,
+`doneCriteria`, and `residualRiskRequired`. These fields make the child handoff
+auditable across GUI, TUI, CLI, SDK, and replay consumers; they do not grant
+authority and do not replace admission profiles.
 
 Runtime execution is owned by `RuntimeManagedAgentInvocationService`. Adapters
 must not be treated as authoritative when called outside the service. The service

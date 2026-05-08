@@ -4,7 +4,7 @@
  */
 
 import { t, fg } from "@opentui/core";
-import type { ReactiveState, Message, SessionListItem, PendingApproval } from "./state.js";
+import type { ReactiveState, Message, SessionListItem, PendingApproval, WorkItem } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
 
@@ -163,7 +163,7 @@ function fmtSession(s: SessionListItem, selected: boolean): string {
   const date = s.completedAt.slice(0, 10);
   const costStr = `$${s.cost.toFixed(2)}`;
   const taskShort = s.task.length > 14 ? s.task.slice(0, 14) + "…" : s.task;
-  
+
   let meta = "";
   if (s.turns !== undefined && s.turns > 0) {
     meta += `${s.turns}t`;
@@ -174,7 +174,7 @@ function fmtSession(s: SessionListItem, selected: boolean): string {
     meta += secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${secs % 60}s`;
   }
   if (meta) meta = ` · ${meta}`;
-  
+
   const prefix = selected ? "▶ " : "  ";
   return `${prefix}[${s.provider}] ${date} ${costStr}${meta}\n    ${taskShort}`;
 }
@@ -183,8 +183,8 @@ function fmtSession(s: SessionListItem, selected: boolean): string {
  * Formats an approval request for sidebar display.
  */
 function fmtApproval(a: PendingApproval, index: number): string {
-  const descShort = a.description.length > 22 
-    ? a.description.slice(0, 22) + "…" 
+  const descShort = a.description.length > 22
+    ? a.description.slice(0, 22) + "…"
     : a.description;
   const prefix = index === 0 ? "▶ " : "  ";
   return `${prefix}${descShort}`;
@@ -219,13 +219,13 @@ function fmtChange(f: import("./state.js").ChangedFile, index: number): string {
   const icon = f.changeType === "created" ? "+" : f.changeType === "deleted" ? "-" : "~";
   const base = f.path.split("/").pop() ?? f.path;
   const prefix = index === 0 ? "▶ " : "  ";
-  
+
   if (f.linesAdded !== undefined || f.linesRemoved !== undefined) {
     const added = f.linesAdded ? `+${f.linesAdded}` : "";
     const removed = f.linesRemoved ? `-${f.linesRemoved}` : "";
     return `${prefix}${icon} ${base} ${added}${removed}`;
   }
-  
+
   return `${prefix}${icon} ${base}`;
 }
 
@@ -249,6 +249,34 @@ export function renderSidebarApprovals(
     lines.push(fmtApproval(a, i));
   }
   ui.sidebarApprovalsText.content = t`${fg(theme.text)(lines.join("\n"))}`;
+}
+
+function fmtWorkItem(item: WorkItem, index: number): string {
+  const prefix = index === 0 ? "> " : "  ";
+  const summary = item.summary.length > 22 ? item.summary.slice(0, 19) + "..." : item.summary;
+  const evidence = item.expectedEvidence.length > 0
+    ? `${item.providedEvidence.length}/${item.expectedEvidence.length}`
+    : "--";
+  return `${prefix}${item.status} ${evidence} ${summary}`;
+}
+
+/**
+ * Renders governed work items in the sidebar.
+ */
+export function renderSidebarWork(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: UIComponents
+): void {
+  if (state.workItems.length === 0) {
+    ui.sidebarWorkText.content = t`${fg(theme.textMuted)("(none)")}`;
+    return;
+  }
+
+  const items = [...state.workItems]
+    .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
+    .slice(0, 5);
+  ui.sidebarWorkText.content = t`${fg(theme.text)(items.map(fmtWorkItem).join("\n"))}`;
 }
 
 /**
@@ -291,7 +319,7 @@ export function renderSlashPopover(
   ui.slashPopover.visible = true;
   const lines: string[] = [];
   const maxItems = Math.min(state.slashCommands.length, 6);
-  
+
   for (let i = 0; i < maxItems; i++) {
     const cmd = state.slashCommands[i]!;
     const isSelected = i === state.slashCommandIndex;
@@ -299,7 +327,7 @@ export function renderSlashPopover(
     const desc = cmd.description ? ` - ${cmd.description}` : "";
     lines.push(`${prefix}/${cmd.trigger}${desc}`);
   }
-  
+
   ui.slashPopoverText.content = t`${fg(theme.text)(lines.join("\n"))}`;
 }
 

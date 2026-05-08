@@ -2,6 +2,7 @@ import { KilnError } from "../../engine/errors.js";
 import type { ToolCatalogIndex } from "./tool-catalog.js";
 import type { MonitorRegistry } from "../infrastructure/monitor-tools.js";
 import type { TaskStateStore } from "../infrastructure/task-state-tools.js";
+import type { WorkItemStore } from "../../work-governance/index.js";
 import { createHash } from "node:crypto";
 
 const JSON_MIME_TYPE = "application/json";
@@ -66,6 +67,7 @@ export interface ToolResourceProvider {
 export interface ToolResourceRegistryOptions {
   readonly catalog: ToolCatalogIndex;
   readonly taskStateStore: TaskStateStore;
+  readonly workItemStore?: WorkItemStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly providers?: readonly ToolResourceProvider[];
 }
@@ -73,12 +75,14 @@ export interface ToolResourceRegistryOptions {
 export class ToolResourceRegistry {
   private readonly catalog: ToolCatalogIndex;
   private readonly taskStateStore: TaskStateStore;
+  private readonly workItemStore?: WorkItemStore;
   private readonly monitorRegistry: MonitorRegistry;
   private readonly providers: readonly ToolResourceProvider[];
 
   constructor(options: ToolResourceRegistryOptions) {
     this.catalog = options.catalog;
     this.taskStateStore = options.taskStateStore;
+    this.workItemStore = options.workItemStore;
     this.monitorRegistry = options.monitorRegistry;
     this.providers = options.providers ?? [];
   }
@@ -109,6 +113,14 @@ export class ToolResourceRegistry {
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       },
+      ...(this.workItemStore ? [{
+        uri: "kiln://session/work-items",
+        name: "session_work_items",
+        title: "Session Work Items",
+        description: "Read-only snapshot of governed work items and evidence state for this session.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
       ...this.providers.flatMap((provider) => provider.listResources()),
     ];
   }
@@ -139,6 +151,14 @@ export class ToolResourceRegistry {
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       },
+      ...(this.workItemStore ? [{
+        uriTemplate: "kiln://session/work-items/{id}",
+        name: "session_work_item",
+        title: "Session Work Item",
+        description: "Read one governed work item by id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
       ...this.providers.flatMap((provider) => provider.listTemplates()),
     ];
   }
@@ -191,6 +211,19 @@ export class ToolResourceRegistry {
       return jsonResource(uri, {
         monitors: this.monitorRegistry.list(),
       });
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "work-items" && this.workItemStore) {
+      return jsonResource(uri, this.workItemStore.snapshot());
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "work-items" && this.workItemStore) {
+      const id = parsed.path[1] ?? "";
+      const item = this.workItemStore.list().find((candidate) => candidate.id === id);
+      if (!item) {
+        throw resourceNotFound(uri);
+      }
+      return jsonResource(uri, item);
     }
 
     if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "monitors") {

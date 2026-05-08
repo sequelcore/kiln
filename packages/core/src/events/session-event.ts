@@ -5,11 +5,13 @@ import type {
   ManagedAgentAdmissionProfile,
   ManagedAgentCapabilitySnapshot,
   ManagedAgentInvocationContextMode,
+  ManagedAgentInvocationHandoffContract,
   ManagedAgentExecutionMode,
   ManagedAgentProviderRoute,
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
+import type { WorkItem } from "../work-governance/index.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -29,6 +31,7 @@ export type CanonicalSessionEventKind =
   | "config_change_failed"
   | "file_changed"
   | "cost_updated"
+  | "work_item_updated"
   | "agent_invocation_requested"
   | "agent_invocation_started"
   | "agent_invocation_completed"
@@ -220,6 +223,14 @@ export interface CanonicalCostUpdatedEvent extends SessionEventEnvelope<"cost_up
   readonly cost: SessionCost;
 }
 
+export interface CanonicalWorkItemUpdatedEvent extends SessionEventEnvelope<"work_item_updated"> {
+  readonly workItem: WorkItem;
+  readonly operation: "update" | "complete";
+  readonly missingEvidence?: readonly string[];
+  readonly missingResidualRisk?: boolean;
+  readonly toolCallId?: string;
+}
+
 export interface SessionAgentInvocationIdentity {
   readonly invocationId: string;
   readonly agentId: string;
@@ -234,6 +245,7 @@ export interface SessionAgentInvocationIdentity {
   readonly authorityProfileId?: string;
   readonly capabilitySnapshot?: ManagedAgentCapabilitySnapshot;
   readonly invocationContext?: SessionAgentInvocationContext;
+  readonly handoffContract?: ManagedAgentInvocationHandoffContract;
 }
 
 export interface SessionAgentInvocationContext {
@@ -356,6 +368,7 @@ export interface CanonicalSessionEventMap {
   config_change_failed: CanonicalConfigChangeFailedEvent;
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
+  work_item_updated: CanonicalWorkItemUpdatedEvent;
   agent_invocation_requested: CanonicalAgentInvocationRequestedEvent;
   agent_invocation_started: CanonicalAgentInvocationStartedEvent;
   agent_invocation_completed: CanonicalAgentInvocationCompletedEvent;

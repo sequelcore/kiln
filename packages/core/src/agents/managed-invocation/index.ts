@@ -101,6 +101,16 @@ export interface ManagedAgentInvocationInput {
   readonly prompt?: string;
   readonly resourceUris?: readonly string[];
   readonly context?: ManagedAgentInvocationContextSelection;
+  readonly handoff?: ManagedAgentInvocationHandoffContract;
+}
+
+export interface ManagedAgentInvocationHandoffContract {
+  readonly workItemId?: string;
+  readonly roleIntent?: string;
+  readonly expectedEvidence?: readonly string[];
+  readonly requiredResultFields?: readonly string[];
+  readonly doneCriteria?: readonly string[];
+  readonly residualRiskRequired?: boolean;
 }
 
 export type ManagedAgentInvocationContextMode = "isolated" | "resources" | "fork";
@@ -324,6 +334,7 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
       ...(input.input?.prompt !== undefined ? { prompt: input.input.prompt } : {}),
       ...(input.input?.resourceUris !== undefined ? { resourceUris: input.input.resourceUris.map((uri) => requireText(uri, "Managed invocation resource uri is required")) } : {}),
       ...(input.input?.context !== undefined ? { context: requireInvocationContext(input.input.context) } : {}),
+      ...(input.input?.handoff !== undefined ? { handoff: requireHandoffContract(input.input.handoff) } : {}),
     },
   };
 }
@@ -719,6 +730,17 @@ function requireInvocationContext(input: ManagedAgentInvocationContextSelection)
     ...(input.admittedSkills !== undefined ? { admittedSkills: input.admittedSkills.map((skill) => requireText(skill, "Managed invocation admitted skill is required")) } : {}),
     ...(input.admittedInstructionProfiles !== undefined ? { admittedInstructionProfiles: input.admittedInstructionProfiles.map((profile) => requireText(profile, "Managed invocation admitted instruction profile is required")) } : {}),
     ...(input.deniedSkills !== undefined ? { deniedSkills: input.deniedSkills.map((skill) => requireText(skill, "Managed invocation denied skill is required")) } : {}),
+  };
+}
+
+function requireHandoffContract(input: ManagedAgentInvocationHandoffContract): ManagedAgentInvocationHandoffContract {
+  return {
+    ...(input.workItemId !== undefined ? { workItemId: requireText(input.workItemId, "Managed invocation handoff work item id is required") } : {}),
+    ...(input.roleIntent !== undefined ? { roleIntent: requireText(input.roleIntent, "Managed invocation handoff role intent is required") } : {}),
+    ...(input.expectedEvidence !== undefined ? { expectedEvidence: input.expectedEvidence.map((evidence) => requireText(evidence, "Managed invocation handoff evidence is required")) } : {}),
+    ...(input.requiredResultFields !== undefined ? { requiredResultFields: input.requiredResultFields.map((field) => requireText(field, "Managed invocation handoff result field is required")) } : {}),
+    ...(input.doneCriteria !== undefined ? { doneCriteria: input.doneCriteria.map((criterion) => requireText(criterion, "Managed invocation handoff done criterion is required")) } : {}),
+    ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired === true } : {}),
   };
 }
 

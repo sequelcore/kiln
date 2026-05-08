@@ -34,7 +34,7 @@ import {
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
 } from "@kilnai/runtime";
-import { createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
+import { WorkItemStore, createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
 import { persistGuiThemePreference, resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
@@ -85,6 +85,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
+  const workItemStore = new WorkItemStore();
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
@@ -96,10 +97,11 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     });
   const builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
+    workItemStore,
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore }),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

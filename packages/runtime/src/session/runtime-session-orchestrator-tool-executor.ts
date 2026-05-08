@@ -79,6 +79,15 @@ function formatDangerousCommandBlockMessage(decision: DangerousCommandDecisionLi
     : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
 }
 
+function extractToolResultMetadata(resultValue: unknown): Record<string, unknown> | undefined {
+  const resultRecord = resultValue && typeof resultValue === "object" && !Array.isArray(resultValue)
+    ? resultValue as { metadata?: unknown }
+    : undefined;
+  return resultRecord?.metadata && typeof resultRecord.metadata === "object" && !Array.isArray(resultRecord.metadata)
+    ? resultRecord.metadata as Record<string, unknown>
+    : undefined;
+}
+
 function countLines(value: string): number {
   if (value.length === 0) {
     return 0;
@@ -339,6 +348,7 @@ export class RuntimeSessionToolExecutor {
         const execution = await this.executeToolWithPolicy(normalizedToolCall, capability);
         const durationMs = Date.now() - startMs;
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
+        const metadata = extractToolResultMetadata(execution.resultValueRaw);
 
         this.emitToolResult(
           session.id,
@@ -349,6 +359,7 @@ export class RuntimeSessionToolExecutor {
           false,
           execution.retryAttempt,
           sanitized.resultValue,
+          metadata,
         );
 
         const fileChanges = this.extractFileChangesFromToolResult(
@@ -919,6 +930,7 @@ export class RuntimeSessionToolExecutor {
     isError?: boolean,
     retryAttempt?: number,
     output?: string,
+    metadata?: Record<string, unknown>,
   ): void {
     const event: ToolResultEvent = {
       type: "tool_result",
@@ -931,6 +943,7 @@ export class RuntimeSessionToolExecutor {
       ...(resultSummary ? { resultSummary } : {}),
       ...(isError !== undefined ? { isError } : {}),
       ...(retryAttempt !== undefined ? { retryAttempt } : {}),
+      ...(metadata ? { metadata } : {}),
     };
     this.eventBus?.emit(event);
   }

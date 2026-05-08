@@ -370,7 +370,14 @@ resolved policy. Use instruction profiles for team doctrine; use
 `workGovernance` for the executable posture and evidence expectations.
 CLI-owned runtime surfaces also expose `work_governance.assess`, a read-only
 tool that returns the resolved direct-versus-orchestrate recommendation for a
-specific task.
+specific task. The same surfaces expose `work_profile.list`,
+`work_item.update`, `work_item.list`, and `work_item.complete` so parent agents
+can create bounded work items and fail closed when required evidence or
+residual-risk reporting is missing. Work item updates are projected into
+canonical `work_item_updated` session events and a model-readable
+`kiln://session/work-items` resource. Durable project doctrine still belongs in
+canonical config and docs; work items are session evidence, not reusable team
+policy.
 
 Matching global agent profiles live under `~/.kiln/agents/`. They must use the
 canonical profile contract; partial native-agent files are not accepted as

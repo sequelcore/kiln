@@ -18,6 +18,7 @@ export * from "./eval/index.js";
 export * from "./safety/index.js";
 export * from "./enrichment/index.js";
 export * from "./tools/index.js";
+export * from "./work-governance/index.js";
 export type { FsPolicy, NetPolicy, SandboxConfig } from "./sandbox/index.js";
 export {
   DOCUMENTATION_DOMAINS,

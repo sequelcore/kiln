@@ -49,6 +49,23 @@ export interface ChangedFileEntry {
   readonly recordedAt: string;
 }
 
+export interface WorkItemEntry {
+  readonly id: string;
+  readonly summary: string;
+  readonly status: string;
+  readonly workflowProfile: string;
+  readonly risk?: string;
+  readonly surface?: string;
+  readonly assignedAgentProfile?: string;
+  readonly authorityProfile?: string;
+  readonly expectedEvidence: readonly string[];
+  readonly providedEvidence: readonly string[];
+  readonly verificationGates: readonly string[];
+  readonly missingEvidence?: readonly string[];
+  readonly missingResidualRisk?: boolean;
+  readonly updatedAt: string;
+}
+
 export type ProviderCatalogStatus = GuiProviderCatalogStatus;
 
 type StoreTextDeltaFrame = {
@@ -273,6 +290,40 @@ function toolCallIdFromDetails(details: unknown): string | null {
   const record = isObjectRecord(details) ? details : null;
   if (!record) return null;
   return readString(record.toolCallId);
+}
+
+function readStringArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
+    : [];
+}
+
+function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | null {
+  const item = isObjectRecord(payload.workItem) ? payload.workItem : null;
+  if (!item) return null;
+  const id = readString(item.id);
+  const summary = readString(item.summary);
+  const status = readString(item.status);
+  const workflowProfile = readString(item.workflowProfile);
+  if (!id || !summary || !status || !workflowProfile) {
+    return null;
+  }
+  return {
+    id,
+    summary,
+    status,
+    workflowProfile,
+    risk: readString(item.risk) ?? undefined,
+    surface: readString(item.surface) ?? undefined,
+    assignedAgentProfile: readString(item.assignedAgentProfile) ?? undefined,
+    authorityProfile: readString(item.authorityProfile) ?? undefined,
+    expectedEvidence: readStringArray(item.expectedEvidence),
+    providedEvidence: readStringArray(item.providedEvidence),
+    verificationGates: readStringArray(item.verificationGates),
+    missingEvidence: readStringArray(payload.missingEvidence),
+    missingResidualRisk: payload.missingResidualRisk === true,
+    updatedAt: readString(item.updatedAt) ?? nowIso(),
+  };
 }
 
 function formatUsd(value: number): string {
@@ -582,6 +633,24 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
           usage,
           cost,
         },
+      });
+      continue;
+    }
+
+    if (event.kind === "work_item_updated") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
+        details: payload,
       });
       continue;
     }
@@ -975,6 +1044,24 @@ export function deriveChangedFiles(entries: readonly TimelineEntry[]): readonly 
     });
   }
   return changedFiles;
+}
+
+export function deriveWorkItems(entries: readonly TimelineEntry[]): readonly WorkItemEntry[] {
+  const items = new Map<string, WorkItemEntry>();
+  for (const entry of entries) {
+    if (entry.type !== "event" || entry.eventKind !== "work_item_updated") {
+      continue;
+    }
+    const payload = isObjectRecord(entry.details) ? entry.details : null;
+    if (!payload) {
+      continue;
+    }
+    const item = workItemFromPayload(payload);
+    if (item) {
+      items.set(item.id, item);
+    }
+  }
+  return [...items.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 export interface ActivityState {
@@ -1710,6 +1797,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               usage,
               cost,
             },
+          },
+        ],
+      });
+      return;
+    }
+
+    if (event.kind === "work_item_updated") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            ...timelineTurnId(event),
+            title: presentation.title,
+            summary: presentation.summary,
+            tone: presentation.tone,
+            presentationDetails: presentation.details,
+            details: payload,
           },
         ],
       });

@@ -58,6 +58,7 @@ import {
   type GuiProviderDiscoveryResult,
 } from "@kilnai/gateway-contracts";
 import {
+  WorkItemStore,
   createSessionBuiltinToolOptions,
   extractText,
   type AgentMessage,
@@ -405,7 +406,7 @@ export async function makeMultiProviderSessionFactory(
   managedInvocation?: ManagedInvocationToolOptions,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
-  
+
   // Per-provider session state
   const providerState = new Map<ProviderId, ProviderSessionState>(
     providers.map((provider) => [provider, {}]),
@@ -414,7 +415,7 @@ export async function makeMultiProviderSessionFactory(
     providers.map((provider) => [provider, ""]),
   );
   const sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
-  
+
   let currentProvider: ProviderId | null = initialProvider;
 
   const defaultResumeRecord = await sessionStore.getResumeTarget();
@@ -1078,6 +1079,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupTransport = resolveTuiStartupTransport(flags);
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);
+  const workItemStore = new WorkItemStore();
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
@@ -1089,10 +1091,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     });
   const builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
+    workItemStore,
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore }),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

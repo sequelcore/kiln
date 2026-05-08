@@ -8,6 +8,7 @@ import type {
   SessionEventSource,
   SessionProviderIdentity,
   SessionToolStatus,
+  WorkItem,
   ToolCalledEvent,
   ToolResultEvent,
 } from "@kilnai/core";
@@ -163,6 +164,16 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         })) {
           events.push(configEvent);
         }
+        for (const workItemEvent of projectWorkItemEvents({
+          sessionId: session.id,
+          turnId,
+          toolCallId,
+          sequence: nextSequence,
+          runtimeEvent,
+          source: makeSource("tool", "runtime", "work-governance"),
+        })) {
+          events.push(workItemEvent);
+        }
         break;
       }
       case "approval_requested": {
@@ -304,6 +315,39 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
   return events;
 }
 
+function projectWorkItemEvents(input: {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly toolCallId: string;
+  readonly sequence: () => number;
+  readonly runtimeEvent: ToolResultEvent;
+  readonly source: SessionEventSource;
+}): readonly CanonicalSessionEvent[] {
+  if (!input.runtimeEvent.toolName.startsWith("work_item.")) {
+    return [];
+  }
+  const metadata = input.runtimeEvent.metadata;
+  if (!isWorkItemToolMetadata(metadata)) {
+    return [];
+  }
+  if (metadata.operation !== "update" && metadata.operation !== "complete") {
+    return [];
+  }
+  return [createSessionEvent<"work_item_updated">({
+    kilnSessionId: input.sessionId,
+    sequence: input.sequence(),
+    kind: "work_item_updated",
+    turnId: input.turnId,
+    toolCallId: input.toolCallId,
+    workItem: metadata.item,
+    operation: metadata.operation,
+    missingEvidence: readStringArray(metadata.missingEvidence),
+    missingResidualRisk: metadata.missingResidualRisk === true,
+    source: input.source,
+    timestamp: input.runtimeEvent.timestamp,
+  })];
+}
+
 function projectConfigMutationEvents(input: {
   readonly sessionId: string;
   readonly turnId: string;
@@ -365,6 +409,40 @@ function projectConfigMutationEvents(input: {
     })];
   }
   return [];
+}
+
+function isWorkItemToolMetadata(value: unknown): value is {
+  readonly kind: "work_item";
+  readonly operation: "update" | "list" | "complete";
+  readonly item: WorkItem;
+  readonly missingEvidence?: unknown;
+  readonly missingResidualRisk?: unknown;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return candidate.kind === "work_item"
+    && (candidate.operation === "update" || candidate.operation === "list" || candidate.operation === "complete")
+    && isWorkItem(candidate.item);
+}
+
+function isWorkItem(value: unknown): value is WorkItem {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.id === "string"
+    && typeof candidate.summary === "string"
+    && typeof candidate.status === "string"
+    && typeof candidate.workflowProfile === "string"
+    && Array.isArray(candidate.expectedEvidence)
+    && Array.isArray(candidate.providedEvidence)
+    && Array.isArray(candidate.verificationGates)
+    && Array.isArray(candidate.dependencies)
+    && typeof candidate.createdAt === "string"
+    && typeof candidate.updatedAt === "string"
+    && typeof candidate.sequence === "number";
 }
 
 function parseJsonRecord(value: string | undefined): Record<string, unknown> | null {

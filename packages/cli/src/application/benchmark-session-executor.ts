@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { BenchmarkItemExecutor } from "@kilnai/core";
 import {
+  WorkItemStore,
   createSessionBuiltinToolOptions,
   mapProviderModelRouteErrorToOutcome,
 } from "@kilnai/core";
@@ -110,12 +111,14 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         caller: { kind: "operator_surface", id: "benchmark" },
       },
     });
+    const workItemStore = new WorkItemStore();
     const builtinToolOptions = createSessionBuiltinToolOptions({
       ...configuredBuiltinToolOptions,
+      workItemStore,
       additionalTools: [
         ...(configuredBuiltinToolOptions.additionalTools ?? []),
         ...createKilnConfigTools(cwd),
-        ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance),
+        ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore }),
       ],
     });
     const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

@@ -38,6 +38,7 @@ import {
   renderSidebarSessions,
   renderSidebarApprovals,
   renderSidebarChanges,
+  renderSidebarWork,
   renderSlashPopover,
 } from "./render.js";
 import { setTuiOperatorThemeHandler } from "./operator-theme-handler.js";
@@ -305,6 +306,7 @@ export async function startTui(
           domain,
           renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
           renderSidebarChanges: () => renderSidebarChanges(state, currentTheme, ui),
+          renderSidebarWork: () => renderSidebarWork(state, currentTheme, ui),
         },
         text,
         thinkingNodeRef,
@@ -365,6 +367,7 @@ export async function startTui(
   renderSidebarField(state, currentTheme, ui);
   renderSidebarApprovals(state, currentTheme, ui);
   renderSidebarChanges(state, currentTheme, ui);
+  renderSidebarWork(state, currentTheme, ui);
 
   // Load session history into sidebar
   if (loadSessions) {
@@ -1140,11 +1143,11 @@ export async function startTui(
     if (ui.inputTextarea) {
       ui.inputTextarea.textColor = currentTheme.text;
     }
-    
+
     const input = state.input;
     if (input.startsWith("/")) {
       const query = input.slice(1).toLowerCase();
-      const filtered = state.slashCommands.filter(cmd => 
+      const filtered = state.slashCommands.filter(cmd =>
         cmd.trigger.toLowerCase().includes(query)
       );
       update(state, "slashCommands", filtered.length > 0 ? filtered : SLASH_COMMANDS);
@@ -1541,7 +1544,7 @@ export async function startTui(
     ) {
       // First: check for session resume (only when input is empty)
       const inputText = state.input.trim();
-      
+
       // If input is empty and a session is selected, resume it
       if (inputText === "" && state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
         const selectedSession = state.sessions[state.selectedSessionIndex];
@@ -1561,7 +1564,7 @@ export async function startTui(
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
-        
+
         if (inputText === "/clear") {
             void (async () => {
               const session = await createSession();
@@ -1643,6 +1646,7 @@ export async function startTui(
             domain,
             renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
             renderSidebarChanges: () => renderSidebarChanges(state, currentTheme, ui),
+            renderSidebarWork: () => renderSidebarWork(state, currentTheme, ui),
           },
           inputText,
           thinkingNodeRef,
@@ -1687,7 +1691,7 @@ export async function startTui(
           ui.inputTextarea.clear();
           update(state, "input", "");
           update(state, "slashPopoverOpen", false);
-          
+
           if (cmd.trigger === "clear") {
             void (async () => {
               const session = await createSession();

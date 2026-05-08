@@ -101,8 +101,8 @@ All operator surfaces share the same model:
 
 Runtime activity is part of the session model. Tools, approvals, changed files,
 diff previews, cost updates, provider routing, assistant deltas, continuity
-decisions, and turn completion are emitted as canonical operator session
-events.
+decisions, governed work items, and turn completion are emitted as canonical
+operator session events.
 
 Approvals have their own canonical identity. `approval_requested` creates an
 `approvalId`; `approval_resolved` and all operator response frames must carry
@@ -120,6 +120,14 @@ admitted. Replay and audit must use that snapshot rather than recomputing route
 health, provider proof, adapter descriptor, resource-plane availability, or
 child identity from mutable runtime state.
 
+Governed work items also use the same event stream. `work_item.update` and
+`work_item.complete` emit typed tool metadata that the runtime ledger projects
+into `work_item_updated` events. Operator surfaces render work-item status,
+expected evidence, provided evidence, verification gates, and blocked closeout
+state from those events. The live resource snapshot
+`kiln://session/work-items` is a model-readable view over the same session
+state; it is not a second source of truth.
+
 The shared transport contract is:
 
 ```text
@@ -129,7 +137,7 @@ session_event
   -> event.sequence
   -> event.timestamp
   -> event.kind
-  -> event.turnId? 
+  -> event.turnId?
   -> event.source?
   -> event.payload
 ```

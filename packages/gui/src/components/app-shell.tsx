@@ -16,13 +16,14 @@ import {
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
 import { useSessionStore } from "../lib/session-store.js";
-import { deriveChangedFiles, derivePendingApprovals } from "../lib/session-store.js";
+import { deriveChangedFiles, derivePendingApprovals, deriveWorkItems } from "../lib/session-store.js";
 import { SessionList } from "./session-list.js";
 import { WorkspacePanel } from "./workspace-panel.js";
 import { OperatorSurfaceTabs, type OperatorSurfaceKind } from "./operator-surface-tabs.js";
 import { ChangedFilesPanel } from "./changed-files-panel.js";
 import { ApprovalsPanel } from "./approvals-panel.js";
 import { ActivityLogPanel } from "./activity-log-panel.js";
+import { WorkItemsPanel } from "./work-items-panel.js";
 import { ChatWorkbench } from "./chat-workbench.js";
 import { Transcript } from "./transcript.js";
 import { Composer } from "./composer.js";
@@ -41,6 +42,7 @@ import {
   FileDiff,
   Folder,
   History,
+  ListChecks,
   MessagesSquare,
   Network,
   PanelLeftClose,
@@ -112,12 +114,13 @@ function KilnMark() {
   );
 }
 
-type WorkbenchSurface = "chat" | "activity" | "memory" | "setup";
+type WorkbenchSurface = "chat" | "work" | "activity" | "memory" | "setup";
 type InspectorMode = "workspace" | "changed" | "approvals";
 type MobileDrawerMode = "sessions" | "inspector";
 
 const workbenchSurfaceIcons: Record<WorkbenchSurface, LucideIcon> = {
   chat: MessagesSquare,
+  work: ListChecks,
   activity: Activity,
   memory: Network,
   setup: Settings2,
@@ -224,11 +227,11 @@ function PrimarySidebar(props: {
       </header>
       <nav aria-label="Workbench surfaces" className={cn("border-b border-border/70 p-2", props.collapsed && "px-1")}>
         <div className="flex flex-col gap-1">
-          {(["chat", "activity", "memory", "setup"] as const).map((surface) => (
+          {(["chat", "work", "activity", "memory", "setup"] as const).map((surface) => (
             <NavButton
               key={surface}
               mode={surface}
-              label={surface === "chat" ? "Chat" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
+              label={surface === "chat" ? "Chat" : surface === "work" ? "Work" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
               icon={workbenchSurfaceIcons[surface]}
               active={props.activeSurface === surface}
               count={surface === "activity" ? props.activityCount : undefined}
@@ -585,6 +588,7 @@ export function AppShell() {
   const gatewayClient = useMemo(() => new GuiGatewayClient(window.location.origin), []);
   const changedFiles = useMemo(() => deriveChangedFiles(timelineEntries), [timelineEntries]);
   const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
+  const workItems = useMemo(() => deriveWorkItems(timelineEntries), [timelineEntries]);
   const activityEntries = useMemo(() => timelineEntries.filter(isActivityTimelineEntry), [timelineEntries]);
   const conversationEntries = useMemo(() => timelineEntries.filter(isConversationTimelineEntry), [timelineEntries]);
   const approvalCount = pendingApprovals.length;
@@ -748,13 +752,17 @@ export function AppShell() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "5") {
         event.preventDefault();
-        setWorkbenchSurface("activity");
+        setWorkbenchSurface("work");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "6") {
         event.preventDefault();
-        setWorkbenchSurface("memory");
+        setWorkbenchSurface("activity");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "7") {
+        event.preventDefault();
+        setWorkbenchSurface("memory");
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "8") {
         event.preventDefault();
         setWorkbenchSurface("setup");
       }
@@ -1198,11 +1206,13 @@ export function AppShell() {
 
   const workbenchTitle = workbenchSurface === "chat"
     ? "Chat"
-    : workbenchSurface === "activity"
-      ? "Activity"
-      : workbenchSurface === "memory"
-        ? "Memory"
-        : "Setup";
+    : workbenchSurface === "work"
+      ? "Work"
+      : workbenchSurface === "activity"
+        ? "Activity"
+        : workbenchSurface === "memory"
+          ? "Memory"
+          : "Setup";
   const drawerTitle = mobileDrawerMode === "sessions" ? "Sessions" : "Inspector";
   const drawerAriaLabel = mobileDrawerMode === "sessions" ? "session drawer" : "inspector drawer";
 
@@ -1299,7 +1309,7 @@ export function AppShell() {
               <Select
                 value={workbenchSurface}
                 onValueChange={(value) => {
-                  if (value === "chat" || value === "activity" || value === "memory" || value === "setup") {
+                  if (value === "chat" || value === "work" || value === "activity" || value === "memory" || value === "setup") {
                     setWorkbenchSurface(value);
                     if (value === "chat") {
                       setActiveSurface("chat");
@@ -1313,6 +1323,7 @@ export function AppShell() {
                 <SelectContent align="start">
                   <SelectGroup>
                     <SelectItem value="chat">Chat</SelectItem>
+                    <SelectItem value="work">Work</SelectItem>
                     <SelectItem value="activity">Activity</SelectItem>
                     <SelectItem value="memory">Memory</SelectItem>
                     <SelectItem value="setup">Setup</SelectItem>
@@ -1337,7 +1348,7 @@ export function AppShell() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-foreground">{workbenchTitle}</p>
                 <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  {workbenchSurface === "chat" ? "conversation" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
+                  {workbenchSurface === "chat" ? "conversation" : workbenchSurface === "work" ? "governed work items" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -1510,6 +1521,10 @@ export function AppShell() {
           />
               )}
             />
+          ) : workbenchSurface === "work" ? (
+            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
+              <WorkItemsPanel items={workItems} />
+            </div>
           ) : workbenchSurface === "activity" ? (
             <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
               <ActivityLogPanel entries={timelineEntries} />

@@ -228,6 +228,7 @@ export interface ToolResultEvent extends KilnEvent {
   readonly resultSummary?: string;
   readonly isError?: boolean;
   readonly retryAttempt?: number;
+  readonly metadata?: Record<string, unknown>;
 }
 
 /** Tool cache hit event -- cached result used instead of executing tool */

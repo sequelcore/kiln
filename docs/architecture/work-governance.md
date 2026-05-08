@@ -106,20 +106,35 @@ standalone native harness usage sees the same posture. Projection is not the
 authority boundary; managed invocations, tools, approvals, and verification
 gates still enforce the actual authority.
 
-The same resolved policy is exposed through the read-only
-`work_governance.assess` builtin tool in CLI-owned runtime surfaces. Parent
-agents should call it when the task may be broad, risky, cross-surface,
-provider/runtime-related, UI-related, or verification-heavy. The tool returns
-a direct-versus-orchestrate recommendation, matched triggers, reasons, and the
-evidence expected before closeout.
+The same resolved policy is exposed through CLI-owned builtin tools in runtime
+surfaces:
+
+- `work_governance.assess`
+  Returns a direct-versus-orchestrate recommendation, matched triggers, reasons,
+  and the evidence expected before closeout.
+- `work_profile.list`
+  Lists canonical workflow profiles, recommended agents, default authority, and
+  verification gates.
+- `work_item.update`
+  Creates or updates a governed work item in the current session.
+- `work_item.list`
+  Lists current work items and their evidence status.
+- `work_item.complete`
+  Attempts closeout and fails closed when required evidence or residual-risk
+  reporting is missing.
+
+Parent agents should use these tools when the task may be broad, risky,
+cross-surface, provider/runtime-related, UI-related, or verification-heavy.
+They are shared runtime tools, not GUI-only behavior.
 
 ## Work Items
 
-Future workflow automation should represent decomposed work with explicit
-fields instead of prose-only plans:
+Workflow automation represents decomposed work with explicit fields instead of
+prose-only plans:
 
 - id
 - summary
+- workflow profile
 - trigger classification
 - risk level
 - affected surface
@@ -130,9 +145,48 @@ fields instead of prose-only plans:
 - verification gates
 - dependencies
 - residual risk
+- lifecycle status
 
-This allows GUI, TUI, CLI, SDK, and MCP consumers to render different views of
-the same work contract without each surface inventing its own planning model.
+This lets GUI, TUI, CLI, SDK, and MCP consumers render different views of the
+same work contract without each surface inventing its own planning model.
+
+Work item state is part of the session evidence plane:
+
+- `work_item.update` and `work_item.complete` return typed tool metadata.
+- The runtime ledger projects that metadata into canonical
+  `work_item_updated` session events.
+- The session resource plane exposes the current snapshot at
+  `kiln://session/work-items` and individual items at
+  `kiln://session/work-items/{id}`.
+- GUI and TUI render work items from canonical events and shared operator
+  presentation contracts.
+- Persisted transcripts replay the work-item lifecycle without requiring
+  provider-native state or prose parsing.
+
+This is durable within the canonical session model. Kiln must not create a
+parallel task database, GUI-only task state, or prose-only checklist as the
+source of truth. Future long-running workflow queues may index these same
+session events, but they must not replace them.
+
+## Workflow Profiles
+
+Kiln ships canonical workflow profiles for common work shapes:
+
+| Profile | Use |
+| --- | --- |
+| `small-fix` | Local, low-risk work inside the direct-execution envelope. |
+| `bug-diagnosis` | Surface map, hypothesis, failing proof, minimal fix, verification loop. |
+| `architecture-change` | Bounded-context, contract, or long-term design impact. |
+| `ui-change` | Operator-facing or browser-facing behavior requiring browser QA. |
+| `managed-agent-change` | Managed invocation, provider route, evidence, replay, or child handoff changes. |
+| `config-change` | Global, project, harness projection, setup, or sync behavior. |
+| `verification-heavy` | Work where correctness depends on strong checks instead of confidence language. |
+| `formal-proof-candidate` | Small high-value logic with crisp invariants and deterministic verifier feedback. |
+
+Profiles do not replace operator config. They are neutral control-plane
+defaults that combine triggers, recommended agent profiles, default authority,
+required evidence, and verification gates. Project and user configuration can
+still decide which agents and routes satisfy those roles.
 
 ## Managed Agents
 
@@ -145,6 +199,20 @@ child should receive a bounded work item and return:
 - checks run
 - files read or changed when applicable
 - open questions or residual risk
+
+When a parent delegates a work item, `managed_agent.invoke` should carry the
+handoff contract fields:
+
+- `workItemId`
+- `roleIntent`
+- `expectedEvidence`
+- `requiredResultFields`
+- `doneCriteria`
+- `residualRiskRequired`
+
+These fields are admitted as part of the managed invocation request and emitted
+in canonical session events and tool metadata. They are not authority by
+themselves; authority still comes from the managed invocation profile and route.
 
 The parent remains accountable for integration and closeout. A child completion
 is not the same as task completion unless the required evidence gates are

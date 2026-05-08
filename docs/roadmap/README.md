@@ -148,8 +148,10 @@ deferred validation or experiment tracks.
   `docs/architecture/agent-context.md`; operator usage lives in
   `docs/guides/global-config.md`; implementation covers canonical
   `workGovernance` config, CLI/GUI/TUI/benchmark required context projection,
-  repo-shim projection, direct-execution envelope, delegation triggers, and
-  evidence expectations.
+  repo-shim projection, direct-execution envelope, delegation triggers,
+  workflow profiles, session work items, `work_item_updated` canonical events,
+  `kiln://session/work-items` resources, GUI/TUI work-item projections,
+  evidence-gated closeout, and managed-child handoff contract fields.
 
 ## Execution Priority
 

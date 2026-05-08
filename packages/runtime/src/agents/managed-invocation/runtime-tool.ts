@@ -6,6 +6,7 @@ import type {
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
   ManagedAgentInvocationContextMode,
+  ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRecord,
   ManagedAgentProviderRoute,
   ManagedAgentWorkingDirectory,
@@ -128,6 +129,12 @@ interface ManagedInvocationToolInput {
   readonly agentProfile?: string;
   readonly skills?: readonly string[];
   readonly contextMode: ManagedAgentInvocationContextMode;
+  readonly workItemId?: string;
+  readonly roleIntent?: string;
+  readonly expectedEvidence?: readonly string[];
+  readonly requiredResultFields?: readonly string[];
+  readonly doneCriteria?: readonly string[];
+  readonly residualRiskRequired?: boolean;
 }
 
 interface ManagedInvocationToolResult {
@@ -199,6 +206,33 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         default: "isolated",
         description: "Child context mode. Use isolated by default. Use resources only when resourceUris is non-empty. fork requires explicit runtime support and policy admission.",
       },
+      workItemId: {
+        type: "string",
+        description: "Optional governed work item id this child is executing or reviewing.",
+      },
+      roleIntent: {
+        type: "string",
+        description: "Optional short statement of why this child role/route was selected for the work item.",
+      },
+      expectedEvidence: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional evidence the child is expected to produce or explicitly mark as unavailable.",
+      },
+      requiredResultFields: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional child result fields expected in the handoff, such as summary, evidence, checks, files, or residualRisk.",
+      },
+      doneCriteria: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional concrete done criteria for this child invocation.",
+      },
+      residualRiskRequired: {
+        type: "boolean",
+        description: "True when the child handoff must include explicit residual risk.",
+      },
     },
     required: ["profile", "providerRoute", "task"],
     additionalProperties: false,
@@ -269,6 +303,7 @@ export function createManagedAgentInvokeToolDefinition(
       "For comparison tasks, invoke one managed child per selected route, then compare only successful handoffs. Report unavailable, failed, cancelled, or timed-out child invocations separately as missing evidence; do not treat them as opinions.",
       "For delegated work, choose an admitted agentProfile from the configured agent catalog when a profile clearly matches the child task. If no profile matches, omit agentProfile and invoke a generic governed child with the narrowest read-only route. Do not invent agentProfile names.",
       "Only request skills that are listed on a configured agent profile or otherwise known from the Kiln skill catalog. Do not invent skill names; unknown skills fail closed.",
+      "When the child is executing a governed work item, pass workItemId, expectedEvidence, requiredResultFields, doneCriteria, roleIntent, and residualRiskRequired so the handoff is auditable across surfaces.",
       "Use contextMode=isolated unless you are also passing governed resourceUris. Do not use contextMode=resources without resourceUris.",
       "Use routeId when the user asks for a specific route or when more than one route shares a provider. Omit providerRoute.model unless the user explicitly selected an exact configured model.",
     ].join("\n"),
@@ -300,6 +335,7 @@ export function createManagedInvocationToolCallMetadataResolver(
     if (!profileDefaults) {
       return undefined;
     }
+    const handoffContract = buildHandoffContract(parsed.input);
     return {
       kind: "managed-invocation",
       profile: parsed.input.profile,
@@ -315,6 +351,7 @@ export function createManagedInvocationToolCallMetadataResolver(
       authorityProfileId: profileDefaults.authorityProfileId,
       task: parsed.input.task,
       summary: parsed.input.summary,
+      ...(handoffContract ? { handoffContract } : {}),
     };
   };
 }
@@ -399,6 +436,7 @@ async function executeManagedInvocationTool(
     : parsed.input.task;
 
   const invocationId = buildInvocationId(context.session.id, context.session.userTurnCount, context.toolCall.id);
+  const handoffContract = buildHandoffContract(parsed.input);
   const request = defineManagedAgentInvocationRequest({
     invocationId,
     agentId: `${route.routeId}:${parsed.input.profile}`,
@@ -442,6 +480,7 @@ async function executeManagedInvocationTool(
         ...(contextResolution.resolution.admittedInstructionProfiles ? { admittedInstructionProfiles: contextResolution.resolution.admittedInstructionProfiles } : {}),
         ...(contextResolution.resolution.deniedSkills ? { deniedSkills: contextResolution.resolution.deniedSkills } : {}),
       },
+      ...(handoffContract ? { handoff: handoffContract } : {}),
     },
   });
 
@@ -504,6 +543,7 @@ async function executeManagedInvocationTool(
         executionMode: request.executionMode,
         authorityProfileId: request.authority.authorityProfileId,
         context: request.input.context,
+        ...(request.input.handoff ? { handoffContract: request.input.handoff } : {}),
         missingCapabilities: result.decision.missingCapabilities,
         sessionEventIds: events.map((event) => event.eventId),
         presentationIntent: buildManagedInvocationPresentationIntent({
@@ -538,6 +578,7 @@ async function executeManagedInvocationTool(
       authorityProfileId: result.record.authority.authorityProfileId,
       capabilitySnapshot: result.record.capabilitySnapshot,
       context: request.input.context,
+      ...(request.input.handoff ? { handoffContract: request.input.handoff } : {}),
       childSessionId: result.record.childSessionId,
       childTurnId: result.record.childTurnId,
       resultHandoff: result.record.resultHandoff,
@@ -967,6 +1008,9 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
   const skills = Array.isArray(input.skills)
     ? unique(input.skills.map(readText).filter((skill): skill is string => skill !== undefined))
     : undefined;
+  const expectedEvidence = readTextArray(input.expectedEvidence);
+  const requiredResultFields = readTextArray(input.requiredResultFields);
+  const doneCriteria = readTextArray(input.doneCriteria);
   const contextMode = parseContextMode(input.contextMode);
   if (!contextMode) {
     return { ok: false, error: "managed_agent.invoke contextMode is not supported." };
@@ -991,6 +1035,12 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
       ...(readText(input.agentProfile) ? { agentProfile: readText(input.agentProfile) } : {}),
       ...(skills && skills.length > 0 ? { skills } : {}),
       contextMode,
+      ...(readText(input.workItemId) ? { workItemId: readText(input.workItemId) } : {}),
+      ...(readText(input.roleIntent) ? { roleIntent: readText(input.roleIntent) } : {}),
+      ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
+      ...(requiredResultFields && requiredResultFields.length > 0 ? { requiredResultFields } : {}),
+      ...(doneCriteria && doneCriteria.length > 0 ? { doneCriteria } : {}),
+      ...(typeof input.residualRiskRequired === "boolean" ? { residualRiskRequired: input.residualRiskRequired } : {}),
     },
   };
 }
@@ -1044,6 +1094,18 @@ function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | u
   return undefined;
 }
 
+function buildHandoffContract(input: ManagedInvocationToolInput): ManagedAgentInvocationHandoffContract | undefined {
+  const contract: ManagedAgentInvocationHandoffContract = {
+    ...(input.workItemId ? { workItemId: input.workItemId } : {}),
+    ...(input.roleIntent ? { roleIntent: input.roleIntent } : {}),
+    ...(input.expectedEvidence && input.expectedEvidence.length > 0 ? { expectedEvidence: input.expectedEvidence } : {}),
+    ...(input.requiredResultFields && input.requiredResultFields.length > 0 ? { requiredResultFields: input.requiredResultFields } : {}),
+    ...(input.doneCriteria && input.doneCriteria.length > 0 ? { doneCriteria: input.doneCriteria } : {}),
+    ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired } : {}),
+  };
+  return Object.keys(contract).length > 0 ? contract : undefined;
+}
+
 function errorResult(
   output: string,
   metadata: Record<string, unknown> = {},
@@ -1072,6 +1134,14 @@ function readText(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readTextArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const values = unique(value.map(readText).filter((item): item is string => item !== undefined));
+  return values.length > 0 ? values : undefined;
 }
 
 function buildInvocationId(sessionId: string, turnCount: number, toolCallId: string): string {

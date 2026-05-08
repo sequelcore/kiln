@@ -279,6 +279,10 @@ describe("managed invocation runtime tool", () => {
     const schema = tool?.inputSchema as {
       readonly properties?: {
         readonly routeId?: { readonly enum?: readonly string[] };
+        readonly workItemId?: { readonly type?: string };
+        readonly expectedEvidence?: {
+          readonly items?: { readonly type?: string };
+        };
         readonly agentProfile?: { readonly enum?: readonly string[] };
         readonly skills?: {
           readonly items?: { readonly enum?: readonly string[] };
@@ -309,6 +313,7 @@ describe("managed invocation runtime tool", () => {
     expect(tool?.description).toContain("Selection policy");
     expect(tool?.description).toContain("Do not invent agentProfile names");
     expect(tool?.description).toContain("Do not invent skill names");
+    expect(tool?.description).toContain("pass workItemId, expectedEvidence");
     expect(tool?.description).toContain("Do not use contextMode=resources without resourceUris");
     expect(tool?.description).toContain("For comparison tasks");
     expect(schema.properties?.routeId?.enum).toEqual([
@@ -327,6 +332,8 @@ describe("managed invocation runtime tool", () => {
       "Malcolm",
       "tdd-guide",
     ]);
+    expect(schema.properties?.workItemId?.type).toBe("string");
+    expect(schema.properties?.expectedEvidence?.items?.type).toBe("string");
     expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator", "repo-review"]);
   });
 
@@ -428,6 +435,12 @@ describe("managed invocation runtime tool", () => {
         model: "opencode-default-model",
       },
       task: "Inspect the managed invocation tool contract and report risks.",
+      workItemId: "work-42",
+      roleIntent: "Architecture review before implementation.",
+      expectedEvidence: ["surface-map", "managed-agent-review", "residual-risk"],
+      requiredResultFields: ["summary", "evidence", "residualRisk"],
+      doneCriteria: ["Report the top contract risk and cite evidence."],
+      residualRiskRequired: true,
     }, context) as {
       readonly output: string;
       readonly isError: boolean;
@@ -439,6 +452,7 @@ describe("managed invocation runtime tool", () => {
         readonly adapterKind?: string;
         readonly executionMode?: string;
         readonly authorityProfileId?: string;
+        readonly handoffContract?: Record<string, unknown>;
         readonly presentationIntent?: Record<string, unknown>;
       };
     };
@@ -457,6 +471,14 @@ describe("managed invocation runtime tool", () => {
         adapterKind: "harness",
         executionMode: "cli-harness",
         authorityProfileId: "authority:opencode:readonly",
+        handoffContract: {
+          workItemId: "work-42",
+          roleIntent: "Architecture review before implementation.",
+          expectedEvidence: ["surface-map", "managed-agent-review", "residual-risk"],
+          requiredResultFields: ["summary", "evidence", "residualRisk"],
+          doneCriteria: ["Report the top contract risk and cite evidence."],
+          residualRiskRequired: true,
+        },
         presentationIntent: {
           kind: "comparison_table",
           title: "Managed child invocation",
@@ -500,6 +522,11 @@ describe("managed invocation runtime tool", () => {
       input: {
         summary: "Inspect the managed invocation tool contract and report risks.",
         prompt: "Inspect the managed invocation tool contract and report risks.",
+        handoff: {
+          workItemId: "work-42",
+          expectedEvidence: ["surface-map", "managed-agent-review", "residual-risk"],
+          residualRiskRequired: true,
+        },
       },
     });
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
@@ -509,6 +536,10 @@ describe("managed invocation runtime tool", () => {
     ]);
     expect(sessionEventSink.publish).toHaveBeenCalledWith(session.sessionEvents, context);
     expect(session.sessionEvents[2]).toMatchObject({
+      handoffContract: {
+        workItemId: "work-42",
+        residualRiskRequired: true,
+      },
       resultSummary: "Child review completed.",
       managedInvocationEvidence: {
         childSessionId: result.metadata.childSessionId,

@@ -2,6 +2,7 @@ import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
 import type { EventBus } from "../events/index.js";
 import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } from "../memory/resources/index.js";
+import { WorkItemStore } from "../work-governance/index.js";
 import { MemoryMutationService } from "../memory/service.js";
 import type { MemoryRepository } from "../memory/repository.js";
 import { ToolCatalogIndex } from "./domain/tool-catalog.js";
@@ -77,6 +78,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly monitorRegistry?: MonitorRegistry;
   readonly taskState?: TaskStateStoreOptions;
   readonly taskStateStore?: TaskStateStore;
+  readonly workItemStore?: WorkItemStore;
   readonly operatorElicitation?: OperatorElicitationToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
   readonly workspaceResources?: WorkspaceResourceProviderOptions;
@@ -133,6 +135,7 @@ export interface DefaultBuiltinToolSurface {
   readonly artifactStore: ArtifactResourceStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly taskStateStore: TaskStateStore;
+  readonly workItemStore?: WorkItemStore;
 }
 
 export function createSessionBuiltinToolOptions(
@@ -149,6 +152,8 @@ export function createSessionBuiltinToolOptions(
     resourceNotifications,
   });
   taskStateStore.setResourceChangeNotifier(resourceNotifications);
+  const workItemStore = options.workItemStore;
+  workItemStore?.setResourceChangeNotifier(resourceNotifications);
   const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
   artifactStore.setResourceChangeNotifier?.(resourceNotifications);
 
@@ -157,6 +162,7 @@ export function createSessionBuiltinToolOptions(
     resourceNotifications,
     monitorRegistry,
     taskStateStore,
+    ...(workItemStore ? { workItemStore } : {}),
     artifactResources: { store: artifactStore },
   };
 }
@@ -235,6 +241,8 @@ export function createDefaultBuiltinToolSurface(
   if (options.taskStateStore) {
     options.taskStateStore.setResourceChangeNotifier(resourceNotifications);
   }
+  const workItemStore = options.workItemStore;
+  workItemStore?.setResourceChangeNotifier(resourceNotifications);
   const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
   artifactStore.setResourceChangeNotifier?.(resourceNotifications);
   let resources: ToolResourceRegistry | undefined;
@@ -242,6 +250,7 @@ export function createDefaultBuiltinToolSurface(
     ...options,
     monitorRegistry,
     taskStateStore,
+    ...(workItemStore ? { workItemStore } : {}),
     resourceRegistry: () => resources,
   };
   const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
@@ -255,6 +264,7 @@ export function createDefaultBuiltinToolSurface(
     catalog,
     monitorRegistry,
     taskStateStore,
+    ...(workItemStore ? { workItemStore } : {}),
     providers: resourceProviders,
   });
   resources = resourceRegistry;
@@ -276,6 +286,7 @@ export function createDefaultBuiltinToolSurface(
     artifactStore,
     monitorRegistry,
     taskStateStore,
+    workItemStore,
   };
 }
 
