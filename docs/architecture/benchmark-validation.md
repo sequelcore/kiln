@@ -153,13 +153,6 @@ invocation, replay, and evidence.
 profile, dataset, pass^k, scorer, artifact, external-track, issue, and
 limitation sections.
 
-## Bug Bounty Validation
-
-Bug bounty participation is a validation mode only when scope ingestion,
-authorization, human approval, evidence provenance, legal/disclosure review,
-and operator escalation are implemented. It must not become autonomous
-vulnerability hunting.
-
 ## Research Inputs
 
 - BFCL focuses on function/tool-call correctness and multi-turn function use.

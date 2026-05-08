@@ -102,8 +102,7 @@ is documented by concern, not as a single monolith.
 
 - `benchmark-validation.md`
   Canonical benchmark validation contract: benchmark-facing profiles, internal
-  baseline gates, external track gates, reproducible reporting, and bug bounty
-  validation boundaries.
+  baseline gates, external track gates, and reproducible reporting.
 
 - `adaptation.md`
   Operational modes, allostatic load, predictive regulation, adaptation, and
