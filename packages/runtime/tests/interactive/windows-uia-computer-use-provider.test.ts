@@ -112,6 +112,32 @@ describe("WindowsUiaComputerUseProvider", () => {
     ]);
   });
 
+  it("normalizes accessibility-tree automation id refs before sending them to the UIA sidecar", async () => {
+    const calls: WindowsUiaSidecarRequest[] = [];
+    const provider = new WindowsUiaComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: ["Calculator"],
+      runner: fakeRunner(calls, [
+        { observation: { application: "Calculator", windowTitle: "Calculator" } },
+        { observation: { application: "Calculator", windowTitle: "Calculator" } },
+      ]),
+    });
+
+    await provider.execute({
+      toolName: "computer_click",
+      target: "computer",
+      operation: "click",
+      input: {
+        target: { selector: "#plusButton" },
+      },
+    });
+
+    expect(calls).toEqual([
+      { operation: "observe", includeAccessibility: false, maxDepth: 1, timeoutMs: undefined },
+      { operation: "click", selector: "automationId=plusButton", timeoutMs: undefined },
+    ]);
+  });
+
   it("types text through semantic UIA value patterns", async () => {
     const calls: WindowsUiaSidecarRequest[] = [];
     const provider = new WindowsUiaComputerUseProvider({
@@ -210,6 +236,34 @@ describe("WindowsUiaComputerUseProvider", () => {
       { operation: "open_application", application: "Calculator" },
       { operation: "minimize_application", application: "Calculator" },
       { operation: "close_application", application: "Calculator" },
+    ]);
+  });
+
+  it("allows focusing the Kiln operator surface as self-authority without widening app automation policy", async () => {
+    const calls: WindowsUiaSidecarRequest[] = [];
+    const provider = new WindowsUiaComputerUseProvider({
+      allowComputer: true,
+      allowedApplications: [],
+      runner: fakeRunner(calls, [
+        { observation: { application: "msedge", windowTitle: "Kiln" } },
+      ]),
+    });
+
+    await provider.execute({
+      toolName: "computer_focus_application",
+      target: "computer",
+      operation: "focus_application",
+      input: { application: "Kiln" },
+    });
+    await expect(provider.execute({
+      toolName: "computer_close_application",
+      target: "computer",
+      operation: "close_application",
+      input: { application: "Kiln" },
+    })).rejects.toThrow("Computer automation application policy is missing");
+
+    expect(calls).toEqual([
+      { operation: "focus_application", application: "Kiln", windowTitle: undefined, timeoutMs: undefined },
     ]);
   });
 

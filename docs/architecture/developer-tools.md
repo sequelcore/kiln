@@ -447,9 +447,15 @@ runtime validates that requested target against `allowedApplications` before
 the sidecar opens, focuses, minimizes, or closes the window. The provider
 exposes the accessibility tree through `computer_observe` when
 `includeAccessibility` is set, and executes semantic targets through UIA
-patterns such as `InvokePattern` and `ValuePattern`. It does not treat
-coordinates as authority evidence or as a physical pointer transport;
+patterns such as `InvokePattern` and `ValuePattern`. Accessibility-tree refs
+such as `#plusButton` are normalized to UIA `AutomationId` selectors before the
+sidecar receives them. A click must invoke a supported UIA pattern or fail; the
+sidecar must not report success after only focusing an element. It does not
+treat coordinates as authority evidence or as a physical pointer transport;
 coordinate-only mouse/keyboard work remains owned by the `windows` provider.
+Focusing the Kiln operator window is self-authority for returning control to
+the user when `allowComputer` is enabled; closing or otherwise automating Kiln
+still requires explicit application policy.
 Missing setup must produce this operator-facing command:
 
 ```bash

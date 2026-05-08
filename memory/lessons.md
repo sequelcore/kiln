@@ -10,3 +10,7 @@
   "MVP" plans. Use foundation, first production increment, and long-term
   expansion language so the plan respects Kiln's control-plane thesis and
   Sequel engineering standards.
+- For semantic UI automation, never report action success from focus-only
+  behavior or unresolved selector syntax. Normalize model-facing refs from the
+  accessibility tree into provider-native selectors and fail clearly when the
+  target cannot execute the required semantic pattern.

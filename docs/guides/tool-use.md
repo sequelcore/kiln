@@ -724,15 +724,20 @@ If the executable is stored outside the default runtime package path, set
 `KILN_WINDOWS_UIA_HELPER` to the full `kiln-windows-uia.exe` path before
 starting the runtime host.
 
-Kiln still requires `allowComputer: true` and at least one
-`allowedApplications` entry before computer tools can execute. Provider
-authority comes from trusted runtime observation. The model's `application`
-input is not accepted as allowlist evidence.
+Kiln still requires `allowComputer: true` before computer tools can execute.
+External app automation requires at least one `allowedApplications` entry.
+Returning focus to the Kiln operator window through `computer_focus_application`
+is self-authority and does not require listing Kiln as an external governed
+application; closing or otherwise automating Kiln still requires explicit
+policy. Provider authority comes from trusted runtime observation. The model's
+`application` input is not accepted as allowlist evidence.
 
 Use `windows-uia` when the target exposes useful accessibility metadata and you
-want stable semantic selectors such as `type=button;title=OK` or JSON
-`{"type":"button","title":"OK"}`. Use `windows` when the task needs physical
-pointer or keyboard actions by coordinates.
+want stable semantic selectors such as `#plusButton`,
+`type=button;title=OK`, or JSON `{"type":"button","title":"OK"}`. The `#...`
+form maps to UIA `AutomationId`, matching the IDs shown in accessibility tree
+output. Use `windows` when the task needs physical pointer or keyboard actions
+by coordinates.
 
 Live smoke prompts for `windows-uia`:
 
@@ -742,6 +747,10 @@ Observe the current Windows desktop with accessibility details and tell me the a
 
 ```text
 In the active Calculator window, click the UIA target type=button;title=One.
+```
+
+```text
+Open Calculator, click #num2Button, #plusButton, #num3Button, and #equalButton, observe the result, then close Calculator.
 ```
 
 ### Tool reference

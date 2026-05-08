@@ -572,8 +572,10 @@ int main() {
     }
     if (request.operation == "click") {
       if (!InvokeElement(target.Get())) {
-        target->SetFocus();
+        CoUninitialize();
+        return Fail("target does not support UIA InvokePattern");
       }
+      Sleep(150);
     } else if (!SetElementValue(target.Get(), request.text)) {
       CoUninitialize();
       return Fail("target does not support UIA ValuePattern");

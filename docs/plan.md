@@ -371,6 +371,35 @@ Verification:
 - `packages\runtime\native\windows-uia\build.cmd`
 - `bun run build`
 
+### Slice 10 - Windows UIA Semantic Action Reliability
+
+Status: implemented and verified on 2026-05-08.
+
+Files:
+
+- `packages/core/src/tools/domain/tool.ts`
+- `packages/runtime/src/interactive/windows-uia-computer-use-provider.ts`
+- `packages/runtime/native/windows-uia/src/kiln-windows-uia.cpp`
+- `packages/runtime/tests/interactive/windows-uia-computer-use-provider.test.ts`
+- `docs/architecture/developer-tools.md`
+- `docs/guides/tool-use.md`
+
+Behavior:
+
+- Normalize accessibility-tree refs such as `#plusButton` to UIA
+  `AutomationId` selectors before calling the sidecar.
+- Fail `computer_click` when the target does not support a real UIA invoke
+  pattern instead of reporting success after focus-only behavior.
+- Allow `computer_focus_application` to return focus to the Kiln operator
+  window as self-authority when computer use is enabled, without allowing
+  close or arbitrary automation of Kiln by default.
+- Keep low-level pointer/keyboard transport out of `windows-uia`; coordinate
+  and raw keyboard tasks remain outside this semantic provider.
+
+Verification:
+
+- `bun run --filter @kilnai/runtime test -- interactive/windows-uia-computer-use-provider.test.ts`
+
 ## Verification
 
 - Focused core tests for slice 1.

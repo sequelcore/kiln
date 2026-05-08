@@ -62,10 +62,10 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
   }
 
   async execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
-    this.assertComputerAllowed();
     const requestedAuthority = this.readRequestedAuthority(request);
+    this.assertComputerAllowed(requestedAuthority, request.operation);
     if (requestedAuthority) {
-      this.assertRequestedApplicationAllowed(requestedAuthority);
+      this.assertRequestedApplicationAllowed(requestedAuthority, request.operation);
     } else {
       const authority = await this.runner({
         operation: "observe",
@@ -124,11 +124,17 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
     }
   }
 
-  private assertComputerAllowed(): void {
+  private assertComputerAllowed(
+    requestedAuthority: { readonly application?: string; readonly windowTitle?: string } | null,
+    operation: InteractiveUseRequest["operation"],
+  ): void {
     if (!this.allowComputer) {
       throw new Error("Computer automation is disabled. Set interactiveUse.allowComputer=true before using computer tools.");
     }
-    if (this.allowedApplications.length === 0) {
+    if (
+      this.allowedApplications.length === 0
+      && !(operation === "focus_application" && requestedAuthority && isKilnOperatorSelfAuthority(requestedAuthority))
+    ) {
       throw new Error("Computer automation application policy is missing. Configure interactiveUse.allowedApplications before using computer tools.");
     }
   }
@@ -163,13 +169,19 @@ export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
       : null;
   }
 
-  private assertRequestedApplicationAllowed(authority: { readonly application?: string; readonly windowTitle?: string }): void {
+  private assertRequestedApplicationAllowed(
+    authority: { readonly application?: string; readonly windowTitle?: string },
+    operation: InteractiveUseRequest["operation"],
+  ): void {
     if (this.allowedApplications.includes("*")) {
       return;
     }
     const label = authority.application ?? authority.windowTitle;
     if (!label) {
       throw new Error("Computer automation requires an application or window title before targeting an inactive app.");
+    }
+    if (operation === "focus_application" && isKilnOperatorSelfAuthority(authority)) {
+      return;
     }
     const allowed = this.allowedApplications.some((entry) => {
       return isApplicationAliasMatch(authority.application, entry)
@@ -347,11 +359,12 @@ function parseSidecarResponse(stdout: string): WindowsUiaSidecarResponse {
 }
 
 function readSelector(request: InteractiveUseRequest): string | undefined {
-  return request.action?.selector
+  const selector = request.action?.selector
     ?? request.action?.ref
     ?? readTargetString(request.input.target, "selector")
     ?? readTargetString(request.input.target, "ref")
     ?? readSemanticTargetSelector(request.input.target);
+  return normalizeUiaSelector(selector);
 }
 
 function readRequiredText(input: Record<string, unknown>): string {
@@ -405,6 +418,17 @@ function selectorPart(key: string, value: unknown): string | undefined {
     : undefined;
 }
 
+function normalizeUiaSelector(selector: string | undefined): string | undefined {
+  if (!selector) {
+    return undefined;
+  }
+  const trimmed = selector.trim();
+  if (trimmed.startsWith("#") && trimmed.length > 1 && !trimmed.includes(";")) {
+    return `automationId=${trimmed.slice(1)}`;
+  }
+  return trimmed;
+}
+
 function readTimeoutMs(input: Record<string, unknown>): number | undefined {
   return typeof input.timeout === "number" && Number.isFinite(input.timeout)
     ? Math.max(1, Math.floor(input.timeout))
@@ -436,6 +460,14 @@ function applicationAliases(value: string): readonly string[] {
     return ["calculator", "calculadora", "calculatorapp", "calc", "applicationframehost"];
   }
   return [normalized];
+}
+
+function isKilnOperatorSelfAuthority(authority: { readonly application?: string; readonly windowTitle?: string }): boolean {
+  return isKilnOperatorName(authority.application) || isKilnOperatorName(authority.windowTitle);
+}
+
+function isKilnOperatorName(value: string | undefined): boolean {
+  return value?.toLocaleLowerCase("en-US").trim() === "kiln";
 }
 
 function normalizeList(value: readonly string[] | undefined): readonly string[] {

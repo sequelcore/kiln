@@ -16,7 +16,7 @@ const INTERACTIVE_TARGET_PROPERTY = {
   type: "object",
   properties: {
     ref: { type: "string", description: "Provider-issued stable element reference." },
-    selector: { type: "string", description: "CSS, UIA, or provider-supported selector. Windows UIA supports forms such as type=button;title=OK or JSON {\"type\":\"button\",\"title\":\"OK\"}." },
+    selector: { type: "string", description: "CSS, UIA, or provider-supported selector. Windows UIA supports forms such as #automationId, type=button;title=OK, or JSON {\"type\":\"button\",\"title\":\"OK\"}." },
     x: { type: "number", description: "Viewport or screen X coordinate." },
     y: { type: "number", description: "Viewport or screen Y coordinate." },
   },
