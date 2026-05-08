@@ -71,6 +71,11 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Deferred Roadmaps
 
+- `00.06-live-browser-operator-surface.md`
+  Deferred research track for a live browser operator surface. Kiln currently
+  has governed browser automation and artifact-backed Browser tab snapshots;
+  this track covers the future live viewport/streaming experience.
+
 - `01-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.

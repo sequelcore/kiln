@@ -399,7 +399,9 @@ available. Providers may use inline data URLs internally as a transport detail;
 the shared tool layer materializes them before transcript projection.
 GUI resolves those screenshot artifact URIs through the runtime resource plane
 for display in the dynamic Browser tab, so transcript storage stays compact
-without losing visual inspection.
+without losing visual inspection. The current Browser tab is a snapshot
+projection of the governed browser session; a live embedded or streamed browser
+viewport is a separate roadmap track, not the current tab contract.
 
 Agents should call `browser_session_stop` before their final answer for one-off
 browser tasks. Runtime providers also enforce an idle-session TTL as a cleanup

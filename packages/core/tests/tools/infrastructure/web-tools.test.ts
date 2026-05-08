@@ -363,6 +363,42 @@ describe("WebSearchTool", () => {
       maxResults: 5,
     });
   });
+
+  it("treats null domains as no per-call domain filter", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "test-search",
+      sources: [],
+    }));
+    const tool = new WebSearchTool({ searchProvider });
+
+    const result = await tool.execute(
+      {
+        name: "web_search",
+        input: {
+          query: "kiln docs",
+          domains: null,
+        },
+      },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_search",
+      kind: "web",
+      operation: "search",
+      query: "kiln docs",
+      domains: ["docs.example.com"],
+    });
+    expect(searchProvider).toHaveBeenCalledWith({
+      query: "kiln docs",
+      domains: ["docs.example.com"],
+      maxResults: 5,
+    });
+  });
 });
 
 describe("WebExtractTool", () => {

@@ -1714,6 +1714,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     if (event.kind === "tool_call_completed") {
       const status = isObjectRecord(payload.status) ? payload.status : null;
+      const interactiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(event.kilnSessionId, event, payload, status);
       const priorToolCalls = deriveToolCallLog(get().timelineEntries);
       const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
@@ -1745,6 +1746,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         messages: anchored.messages,
         currentAssistant: anchored.currentAssistant,
         activity: null,
+        ...(interactiveUseSnapshot ? { interactiveUseSnapshot } : {}),
       });
       return;
     }

@@ -1470,6 +1470,54 @@ describe("session-store", () => {
     });
   });
 
+  it("opens the interactive browser snapshot from live canonical tool results", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-browser-live",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-browser-live",
+      kilnSessionId: "session-browser-live",
+      sequence: 1,
+      timestamp: "2026-05-08T23:11:00.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-browser-live",
+        toolName: "browser_observe",
+        output: "Full tool output is available as resource links.",
+        metadata: {
+          kind: "interactive",
+          target: "browser",
+          operation: "observe",
+          provider: "playwright",
+          sessionId: "browser-1",
+          observation: {
+            url: "https://example.com/",
+            title: "Example Domain",
+            visibleText: "Example Domain",
+            screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+          },
+        },
+        status: { state: "succeeded" },
+      },
+    });
+
+    expect(useSessionStore.getState().interactiveUseSnapshot).toMatchObject({
+      target: "browser",
+      status: "succeeded",
+      kilnSessionId: "session-browser-live",
+      toolCallId: "tool-browser-live",
+      toolName: "browser_observe",
+      provider: "playwright",
+      sessionId: "browser-1",
+      operation: "observe",
+      url: "https://example.com/",
+      title: "Example Domain",
+      screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+    });
+  });
+
   it("does not auto-select an old session when refreshing the session list", () => {
     useSessionStore.getState().setSessionList([
       {

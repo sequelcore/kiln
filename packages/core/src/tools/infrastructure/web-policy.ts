@@ -72,7 +72,7 @@ export function normalizeWebDomain(input: string): WebPolicyResult<{ readonly do
 }
 
 export function normalizeWebDomains(value: unknown): WebPolicyResult<{ readonly domains: readonly string[] }> {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     return { ok: true, domains: [] };
   }
   if (!Array.isArray(value)) {

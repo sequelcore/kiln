@@ -121,6 +121,28 @@ const GuiAuthorityStatusSchema = z.object({
   completeness: z.enum(["authoritative", "partial"]),
 });
 
+const GuiInteractiveUseSnapshotSchema = z.object({
+  target: z.enum(["browser", "computer"]),
+  status: z.enum(["running", "succeeded", "failed"]),
+  updatedAt: z.string(),
+  kilnSessionId: z.string().optional(),
+  toolCallId: z.string().optional(),
+  toolName: z.string().optional(),
+  provider: z.string().optional(),
+  sessionId: z.string().optional(),
+  operation: z.string().optional(),
+  url: z.string().optional(),
+  title: z.string().optional(),
+  visibleText: z.string().optional(),
+  windowTitle: z.string().optional(),
+  application: z.string().optional(),
+  closeMethod: z.string().optional(),
+  screenshotUri: z.string().optional(),
+  screenshotDataUrl: z.string().optional(),
+  actionSummary: z.string().optional(),
+  error: z.string().optional(),
+});
+
 const GuiSessionEventSchema = z.object({
   eventId: z.string(),
   kilnSessionId: z.string(),
@@ -138,8 +160,13 @@ const GuiSessionEventSchema = z.object({
     "tool_call_completed",
     "approval_requested",
     "approval_resolved",
+    "config_change_proposed",
+    "config_change_approved",
+    "config_change_applied",
+    "config_change_failed",
     "file_changed",
     "cost_updated",
+    "work_item_updated",
     "agent_invocation_requested",
     "agent_invocation_started",
     "agent_invocation_completed",
@@ -177,6 +204,10 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     phase: z.enum(["idle", "thinking", "tool_running", "awaiting_approval", "streaming"]),
     toolName: z.string().optional(),
     details: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("interactive_use_updated"),
+    snapshot: GuiInteractiveUseSnapshotSchema,
   }),
   z.object({
     type: z.literal("done"),

@@ -471,6 +471,68 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
+            type: "session_event",
+            event: {
+              eventId: "evt-work-item",
+              kilnSessionId: "sess-1",
+              sequence: 2,
+              timestamp: "2026-05-08T23:10:00.000Z",
+              kind: "work_item_updated",
+              payload: {
+                id: "task-browser",
+                title: "Verify browser tab",
+                status: "completed",
+              },
+            },
+          },
+          expected: {
+            type: "session_event",
+            event: {
+              eventId: "evt-work-item",
+              kilnSessionId: "sess-1",
+              sequence: 2,
+              timestamp: "2026-05-08T23:10:00.000Z",
+              kind: "work_item_updated",
+              payload: {
+                id: "task-browser",
+                title: "Verify browser tab",
+                status: "completed",
+              },
+            },
+          },
+        },
+        {
+          json: {
+            type: "session_event",
+            event: {
+              eventId: "evt-config-change",
+              kilnSessionId: "sess-1",
+              sequence: 3,
+              timestamp: "2026-05-08T23:10:30.000Z",
+              kind: "config_change_applied",
+              payload: {
+                target: "interactiveUse.browserEnvironment",
+                value: "isolated-headless",
+              },
+            },
+          },
+          expected: {
+            type: "session_event",
+            event: {
+              eventId: "evt-config-change",
+              kilnSessionId: "sess-1",
+              sequence: 3,
+              timestamp: "2026-05-08T23:10:30.000Z",
+              kind: "config_change_applied",
+              payload: {
+                target: "interactiveUse.browserEnvironment",
+                value: "isolated-headless",
+              },
+            },
+          },
+        },
+        {
+          json: {
             type: "activity_phase",
             kilnSessionId: "sess-1",
             turnId: "sess-1:turn:live",
@@ -483,6 +545,42 @@ describe("GuiWsClient", () => {
             turnId: "sess-1:turn:live",
             phase: "tool_running",
             toolName: "grep",
+          },
+        },
+        {
+          json: {
+            type: "interactive_use_updated",
+            snapshot: {
+              target: "browser",
+              status: "succeeded",
+              updatedAt: "2026-05-08T23:11:00.000Z",
+              kilnSessionId: "sess-1",
+              toolCallId: "tool-browser",
+              toolName: "browser_observe",
+              provider: "playwright",
+              sessionId: "browser-1",
+              operation: "observe",
+              url: "https://example.com/",
+              title: "Example Domain",
+              screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+            },
+          },
+          expected: {
+            type: "interactive_use_updated",
+            snapshot: {
+              target: "browser",
+              status: "succeeded",
+              updatedAt: "2026-05-08T23:11:00.000Z",
+              kilnSessionId: "sess-1",
+              toolCallId: "tool-browser",
+              toolName: "browser_observe",
+              provider: "playwright",
+              sessionId: "browser-1",
+              operation: "observe",
+              url: "https://example.com/",
+              title: "Example Domain",
+              screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+            },
           },
         },
         {
