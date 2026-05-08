@@ -29,10 +29,17 @@ export { parseDatasetJsonl } from "./dataset-loader.js";
 export { createScorer } from "./scorer-factory.js";
 export { ExperimentRunner } from "./experiment-runner.js";
 export type { ExperimentRunnerConfig, GenerateOutputResult } from "./experiment-runner.js";
+export { BenchmarkBaselineRunner } from "./benchmark-runner.js";
+export type {
+  BenchmarkBaselineRunnerOptions,
+  BenchmarkBaselineRunResult,
+  BenchmarkItemExecutionContext,
+  BenchmarkItemExecutor,
+} from "./benchmark-runner.js";
 export { compareExperiments } from "./experiment-comparator.js";
 export type { ComparisonResult, ScorerComparison } from "./experiment-comparator.js";
 export { ConsistencyRunner } from "./consistency-runner.js";
-export type { ConsistencyRunnerConfig, ConsistencyResult, ConsistencyItemResult } from "./consistency-runner.js";
+export type { ConsistencyRunnerConfig, ConsistencyResult, ConsistencyItemResult, ExperimentExecutor } from "./consistency-runner.js";
 export {
   KILN_BENCHMARK_PROFILES,
   KILN_EXTERNAL_BENCHMARK_TRACKS,

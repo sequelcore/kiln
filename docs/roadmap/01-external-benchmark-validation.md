@@ -57,13 +57,18 @@ it is treated as governed research, not autonomous vulnerability hunting.
   `packages/core/evals/benchmark/` for the four benchmark-facing profiles.
   These datasets are parse-validated fixtures for baseline generation, not
   public benchmark submissions.
+- 2026-05-08: added `BenchmarkBaselineRunner`, the canonical core runner that
+  executes pass^k over a versioned dataset, applies supplied scorers, stores
+  full consistency evidence in the artifact resource plane, and emits
+  `BenchmarkBaselineResult`.
 
 ## Remaining Slices
 
-1. Add a baseline runner that executes the internal datasets through normal Kiln
-   runtime sessions, stores result artifacts, computes config hashes, and emits
-   `BenchmarkBaselineResult`. The current CLI readiness command consumes those
-   results but does not execute model calls.
+1. Wire a CLI/runtime adapter for `BenchmarkBaselineRunner` that executes each
+   item through normal Kiln runtime sessions, captures transcript/tool metadata,
+   computes effective config hashes, and writes durable benchmark artifacts.
+   The current core runner is canonical, but the CLI readiness command still
+   consumes result files rather than executing model calls.
 2. Implement the first external adapter. Recommended order:
    - BFCL first for tool/function-call correctness.
    - AgentDojo second for indirect prompt-injection safety.

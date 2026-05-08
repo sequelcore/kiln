@@ -222,26 +222,38 @@ These datasets are product baselines, not public leaderboard submissions. They
 exist to prove the Kiln surface is stable enough before adapting external
 benchmarks.
 
+`BenchmarkBaselineRunner` is the canonical baseline runner. It executes a
+versioned dataset with pass^k, applies the supplied scorer set, stores the full
+consistency result in the artifact resource plane, and returns a
+`BenchmarkBaselineResult` suitable for `kiln benchmark readiness`.
+
 ```typescript
 import {
+  BenchmarkBaselineRunner,
   KILN_BENCHMARK_PROFILES,
+  MemoryArtifactResourceStore,
   evaluateBenchmarkReadiness,
 } from "@kilnai/core";
 
 const toolProfile = KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-tool-agent")!;
+const artifactStore = new MemoryArtifactResourceStore();
+const baselineRun = await new BenchmarkBaselineRunner({
+  profile: toolProfile,
+  dataset,
+  datasetVersion: "v1",
+  k: toolProfile.minimumK,
+  configHash: "sha256:<effective-config>",
+  scorers,
+  artifactStore,
+  executeItem: async (input, context) => {
+    // Production adapters must call the normal Kiln runtime/session path here.
+    return runOneKilnSession(input, context);
+  },
+}).run();
+
 const report = evaluateBenchmarkReadiness({
   profiles: [toolProfile],
-  baselines: [{
-    profileId: "kiln-tool-agent",
-    profileVersion: toolProfile.version,
-    datasetName: "tool-calling-internal",
-    datasetVersion: "2026-05-08",
-    k: 5,
-    passAtK: 0.92,
-    scorers: ["tool-calling-accuracy", "tool-trajectory", "latency", "cost"],
-    artifactUris: ["kiln://artifacts/eval/tool-calling-internal/result"],
-    configHash: "sha256:...",
-  }],
+  baselines: [baselineRun.baseline],
 });
 ```
 

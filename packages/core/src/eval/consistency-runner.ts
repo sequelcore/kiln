@@ -1,8 +1,11 @@
 // ConsistencyRunner: implements tau-bench pass^k metric for production readiness evaluation
 
 import type { Experiment } from "./types.js";
-import type { ExperimentRunner } from "./experiment-runner.js";
 import { KilnError } from "../engine/errors.js";
+
+export interface ExperimentExecutor {
+  run(): Promise<Experiment>;
+}
 
 export interface ConsistencyItemResult {
   readonly itemId: string;
@@ -22,7 +25,7 @@ export interface ConsistencyResult {
 }
 
 export interface ConsistencyRunnerConfig {
-  readonly runner: ExperimentRunner;
+  readonly runner: ExperimentExecutor;
   readonly k: number;
   readonly passThreshold?: number;
 }
