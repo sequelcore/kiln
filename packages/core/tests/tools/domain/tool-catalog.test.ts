@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(29);
+    expect(result.totalIndexed).toBe(41);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -30,6 +30,16 @@ describe("ToolCatalogIndex", () => {
       "web_search",
       "web_fetch",
       "web_extract",
+    ]);
+    expect(catalog.search({ prefix: "browser_" }).entries.map((entry) => entry.name)).toEqual([
+      "browser_session_start",
+      "browser_navigate",
+      "browser_observe",
+      "browser_click",
+      "browser_type",
+      "browser_keypress",
+      "browser_scroll",
+      "browser_session_stop",
     ]);
     expect(catalog.search({ tags: ["media"] }).entries.map((entry) => entry.name)).toEqual([
       "view_image",
@@ -54,7 +64,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 29,
+      totalIndexed: 41,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -129,6 +139,41 @@ describe("ToolCatalogIndex", () => {
       authority: "standard",
       tags: expect.arrayContaining(["operator", "elicitation"]),
       inputFields: expect.arrayContaining(["mode", "message", "schema", "url", "sensitive", "verbosity"]),
+    });
+  });
+
+  it("indexes browser and computer use as cross-surface interactive automation tools", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ tags: ["browser"] }).entries.map((entry) => entry.name)).toEqual([
+      "browser_session_start",
+      "browser_navigate",
+      "browser_observe",
+      "browser_click",
+      "browser_type",
+      "browser_keypress",
+      "browser_scroll",
+      "browser_session_stop",
+    ]);
+    expect(catalog.search({ tags: ["computer"] }).entries.map((entry) => entry.name)).toEqual([
+      "computer_observe",
+      "computer_click",
+      "computer_type",
+      "computer_keypress",
+    ]);
+    expect(catalog.search({ exact: "browser_type" }).entries[0]).toMatchObject({
+      name: "browser_type",
+      sourcePackage: "@kilnai/core",
+      authority: "destructive",
+      tags: expect.arrayContaining(["interactive", "browser", "automation", "destructive"]),
+      inputFields: expect.arrayContaining(["sessionId", "text", "sensitive", "verbosity"]),
+    });
+    expect(catalog.search({ exact: "computer_observe" }).entries[0]).toMatchObject({
+      name: "computer_observe",
+      sourcePackage: "@kilnai/core",
+      authority: "read_only",
+      tags: expect.arrayContaining(["interactive", "computer", "automation", "read-only"]),
+      inputFields: expect.arrayContaining(["windowTitle", "verbosity"]),
     });
   });
 

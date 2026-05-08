@@ -212,6 +212,9 @@ Canonical tool-result output kinds:
 - `resource_links` for high-volume outputs such as `read_many` when full output
   is stored behind `kiln://artifacts/...`. Inline views show counts and links,
   not the raw packet.
+- Interactive screenshots are also resource-linked: transcripts keep the
+  `kiln://artifacts/.../content` URI and presentation metadata, while the image
+  payload lives in the session artifact store.
 - `tree` for directory tree results. Inline views show entry counts and bounded
   tree previews.
 - `command` for `bash` and `git`. Inline views show command, cwd, exit/timeout,

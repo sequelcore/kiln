@@ -2,3 +2,16 @@ version: "1"
 web:
   enabled: true
   netPolicy: full
+interactiveUse:
+  enabled: true
+  browserProvider: playwright
+  browserEnvironment: isolated-headless
+  allowedDomains:
+    - "*"
+  allowComputer: true
+  computerProvider: windows-uia
+  computerEnvironment: local-active-desktop
+  allowedApplications:
+    - Calculator
+    - Calculadora
+    - msedge

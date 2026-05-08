@@ -233,6 +233,89 @@ describe("attached runtime builtin tool surface", () => {
     ]);
   });
 
+  it("routes interactive browser and computer tools through runtime-injected providers", async () => {
+    const browserRequests: Record<string, unknown>[] = [];
+    const computerRequests: Record<string, unknown>[] = [];
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        browserUse: {
+          provider: {
+            async execute(request) {
+              browserRequests.push(request);
+              return {
+                provider: "runtime-browser",
+                sessionId: request.sessionId ?? "browser-1",
+                output: "browser action routed",
+                observation: {
+                  url: request.url ?? "https://example.com",
+                  title: "Example",
+                  screenshotUri: "kiln://artifacts/interactive/browser-1/screenshot",
+                },
+              };
+            },
+          },
+        },
+        computerUse: {
+          provider: {
+            async execute(request) {
+              computerRequests.push(request);
+              return {
+                provider: "runtime-computer",
+                output: "computer action routed",
+                observation: {
+                  windowTitle: "Calculator",
+                  screenshotUri: "kiln://artifacts/interactive/computer/screenshot",
+                },
+              };
+            },
+          },
+        },
+      },
+    });
+
+    await expect(runtimeSurface.callBuiltinTools.get("browser_navigate")?.({
+      sessionId: "browser-1",
+      url: "https://example.com",
+    })).resolves.toMatchObject({
+      output: "browser action routed",
+      isError: false,
+      metadata: {
+        toolName: "browser_navigate",
+        kind: "interactive",
+        target: "browser",
+        operation: "navigate",
+        provider: "runtime-browser",
+        sessionId: "browser-1",
+      },
+    });
+    await expect(runtimeSurface.callBuiltinTools.get("computer_observe")?.({
+      windowTitle: "Calculator",
+    })).resolves.toMatchObject({
+      output: "computer action routed",
+      isError: false,
+      metadata: {
+        toolName: "computer_observe",
+        kind: "interactive",
+        target: "computer",
+        operation: "observe",
+        provider: "runtime-computer",
+      },
+    });
+
+    expect(browserRequests).toHaveLength(1);
+    expect(browserRequests[0]).toMatchObject({
+      target: "browser",
+      operation: "navigate",
+      url: "https://example.com",
+    });
+    expect(computerRequests).toHaveLength(1);
+    expect(computerRequests[0]).toMatchObject({
+      target: "computer",
+      operation: "observe",
+      windowTitle: "Calculator",
+    });
+  });
+
   it("surfaces resource links from direct-provider builtin tool execution without injecting artifact content", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "kiln-runtime-resource-links-"));
     try {

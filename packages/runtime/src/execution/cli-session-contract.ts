@@ -15,7 +15,16 @@ export interface CliSessionRunOptions {
 export type CliSessionEvent =
   | { type: "text_delta"; content: string; isThinking?: boolean }
   | { type: "tool_use"; toolName: string; input: unknown; toolCallId?: string }
-  | { type: "tool_result"; toolName: string; output: string; outputSummary?: string; toolCallId?: string; isError?: boolean }
+  | {
+      type: "tool_result";
+      toolName: string;
+      output: string;
+      outputSummary?: string;
+      toolCallId?: string;
+      isError?: boolean;
+      metadata?: Record<string, unknown>;
+      resourceLinks?: readonly { readonly uri: string; readonly title?: string; readonly mimeType?: string; readonly relation?: string }[];
+    }
   | {
       type: "file_changed";
       path: string;

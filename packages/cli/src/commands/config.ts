@@ -30,7 +30,16 @@ type KilnYamlKey =
   | "permissions.commands"
   | "permissions.fileGovernance"
   | "permissions.dataFirewall"
-  | "permissions.agentScopes";
+  | "permissions.agentScopes"
+  | "interactiveUse.enabled"
+  | "interactiveUse.allowedDomains"
+  | "interactiveUse.allowedApplications"
+  | "interactiveUse.allowExternalBrowser"
+  | "interactiveUse.allowComputer"
+  | "interactiveUse.browserProvider"
+  | "interactiveUse.computerProvider"
+  | "interactiveUse.browserEnvironment"
+  | "interactiveUse.computerEnvironment";
 
 const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "domain",
@@ -50,6 +59,15 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "permissions.fileGovernance",
   "permissions.dataFirewall",
   "permissions.agentScopes",
+  "interactiveUse.enabled",
+  "interactiveUse.allowedDomains",
+  "interactiveUse.allowedApplications",
+  "interactiveUse.allowExternalBrowser",
+  "interactiveUse.allowComputer",
+  "interactiveUse.browserProvider",
+  "interactiveUse.computerProvider",
+  "interactiveUse.browserEnvironment",
+  "interactiveUse.computerEnvironment",
 ]);
 
 export async function configCommand(
@@ -202,6 +220,10 @@ function setNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): Kil
     };
   }
 
+  if (key.startsWith("interactiveUse.")) {
+    return setInteractiveUseKey(config, key, rawValue);
+  }
+
   return {
     ...config,
     [key]: parseScalar(rawValue, key),
@@ -218,6 +240,15 @@ function getNestedKey(config: KilnYaml, key: KilnYamlKey): unknown {
   if (key === "permissions.fileGovernance") return config.permissions?.fileGovernance;
   if (key === "permissions.dataFirewall") return config.permissions?.dataFirewall;
   if (key === "permissions.agentScopes") return config.permissions?.agentScopes;
+  if (key === "interactiveUse.enabled") return config.interactiveUse?.enabled;
+  if (key === "interactiveUse.allowedDomains") return config.interactiveUse?.allowedDomains;
+  if (key === "interactiveUse.allowedApplications") return config.interactiveUse?.allowedApplications;
+  if (key === "interactiveUse.allowExternalBrowser") return config.interactiveUse?.allowExternalBrowser;
+  if (key === "interactiveUse.allowComputer") return config.interactiveUse?.allowComputer;
+  if (key === "interactiveUse.browserProvider") return config.interactiveUse?.browserProvider;
+  if (key === "interactiveUse.computerProvider") return config.interactiveUse?.computerProvider;
+  if (key === "interactiveUse.browserEnvironment") return config.interactiveUse?.browserEnvironment;
+  if (key === "interactiveUse.computerEnvironment") return config.interactiveUse?.computerEnvironment;
   switch (key) {
     case "domain": return config.domain;
     case "provider": return config.provider;
@@ -245,6 +276,58 @@ function parseScalar(value: string, key: KilnYamlKey): string | number | boolean
   }
 
   return value;
+}
+
+function setInteractiveUseKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
+  const interactiveUse = config.interactiveUse ?? {};
+  if (key === "interactiveUse.enabled") {
+    return { ...config, interactiveUse: { ...interactiveUse, enabled: parseBoolean(rawValue, key) } };
+  }
+  if (key === "interactiveUse.allowedDomains") {
+    return { ...config, interactiveUse: { ...interactiveUse, allowedDomains: parseStringList(rawValue) } };
+  }
+  if (key === "interactiveUse.allowedApplications") {
+    return { ...config, interactiveUse: { ...interactiveUse, allowedApplications: parseStringList(rawValue) } };
+  }
+  if (key === "interactiveUse.allowExternalBrowser") {
+    return { ...config, interactiveUse: { ...interactiveUse, allowExternalBrowser: parseBoolean(rawValue, key) } };
+  }
+  if (key === "interactiveUse.allowComputer") {
+    return { ...config, interactiveUse: { ...interactiveUse, allowComputer: parseBoolean(rawValue, key) } };
+  }
+  if (key === "interactiveUse.browserProvider") {
+    if (rawValue !== "none" && rawValue !== "playwright") {
+      console.error(`Invalid browser provider: ${rawValue}. Must be none or playwright.`);
+      process.exit(1);
+    }
+    return { ...config, interactiveUse: { ...interactiveUse, browserProvider: rawValue } };
+  }
+  if (key === "interactiveUse.computerProvider") {
+    if (rawValue !== "none" && rawValue !== "windows" && rawValue !== "windows-uia") {
+      console.error(`Invalid computer provider: ${rawValue}. Must be none, windows, or windows-uia.`);
+      process.exit(1);
+    }
+    return { ...config, interactiveUse: { ...interactiveUse, computerProvider: rawValue } };
+  }
+  if (key === "interactiveUse.browserEnvironment") {
+    if (rawValue !== "isolated-headless" && rawValue !== "isolated-headed") {
+      console.error(`Invalid browser environment: ${rawValue}. Must be isolated-headless or isolated-headed.`);
+      process.exit(1);
+    }
+    return { ...config, interactiveUse: { ...interactiveUse, browserEnvironment: rawValue } };
+  }
+  if (key === "interactiveUse.computerEnvironment") {
+    if (rawValue !== "local-active-desktop") {
+      console.error(`Invalid computer environment: ${rawValue}. Must be local-active-desktop.`);
+      process.exit(1);
+    }
+    return { ...config, interactiveUse: { ...interactiveUse, computerEnvironment: rawValue } };
+  }
+  return config;
+}
+
+function parseStringList(value: string): string[] {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
 function parseBoolean(value: string, key: string): boolean {

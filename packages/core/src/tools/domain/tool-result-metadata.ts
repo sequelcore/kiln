@@ -5,6 +5,17 @@ export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolName = "stat" | "tree";
 export type MediaToolName = "view_image" | "ocr_image";
 export type WebToolName = "web_search" | "web_fetch" | "web_extract";
+export type BrowserToolName =
+  | "browser_session_start"
+  | "browser_navigate"
+  | "browser_observe"
+  | "browser_click"
+  | "browser_type"
+  | "browser_keypress"
+  | "browser_scroll"
+  | "browser_session_stop";
+export type ComputerToolName = "computer_observe" | "computer_click" | "computer_type" | "computer_keypress";
+export type InteractiveToolName = BrowserToolName | ComputerToolName;
 export type SearchToolName = "grep" | "glob";
 export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
@@ -22,6 +33,25 @@ export type MediaToolOperation = "view_image" | "ocr";
 export type ImageDetail = "default" | "original";
 export type ToolOutputVerbosity = "raw" | "structured" | "summary";
 export type WebToolOperation = "search" | "fetch" | "extract";
+export type InteractiveTarget = "browser" | "computer";
+export type InteractiveToolOperation =
+  | "session_start"
+  | "navigate"
+  | "observe"
+  | "click"
+  | "type"
+  | "keypress"
+  | "scroll"
+  | "session_stop";
+export type InteractiveToolErrorCode =
+  | "invalid_input"
+  | "provider_not_configured"
+  | "policy_denied"
+  | "approval_required"
+  | "session_not_found"
+  | "target_unavailable"
+  | "timeout"
+  | "provider_error";
 export type WebToolErrorCode =
   | "invalid_input"
   | "network_policy_missing"
@@ -234,6 +264,57 @@ export interface WebToolResultMetadata<TToolName extends WebToolName = WebToolNa
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface InteractiveActionMetadata {
+  readonly type: InteractiveToolOperation;
+  readonly url?: string;
+  readonly x?: number;
+  readonly y?: number;
+  readonly button?: "left" | "middle" | "right";
+  readonly selector?: string;
+  readonly ref?: string;
+  readonly keys?: readonly string[];
+  readonly direction?: "up" | "down" | "left" | "right";
+  readonly deltaX?: number;
+  readonly deltaY?: number;
+  readonly textLength?: number;
+  readonly sensitive?: boolean;
+}
+
+export interface InteractiveObservationMetadata {
+  readonly url?: string;
+  readonly title?: string;
+  readonly visibleText?: string;
+  readonly windowTitle?: string;
+  readonly application?: string;
+  readonly screenshotUri?: string;
+  readonly screenshotDataUrl?: string;
+  readonly domSnapshotUri?: string;
+  readonly accessibilitySnapshotUri?: string;
+  readonly traceUri?: string;
+  readonly videoUri?: string;
+  readonly consoleLogUri?: string;
+  readonly networkLogUri?: string;
+}
+
+export interface InteractiveToolResultMetadata<TToolName extends InteractiveToolName = InteractiveToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "interactive";
+  readonly target: InteractiveTarget;
+  readonly operation: InteractiveToolOperation;
+  readonly provider?: string;
+  readonly sessionId?: string;
+  readonly action?: InteractiveActionMetadata;
+  readonly observation?: InteractiveObservationMetadata;
+  readonly allowedDomains?: readonly string[];
+  readonly allowedApplications?: readonly string[];
+  readonly requiresApproval?: boolean;
+  readonly sensitive?: boolean;
+  readonly timeoutMs?: number;
+  readonly errorCode?: InteractiveToolErrorCode;
+  readonly verbosity?: ToolOutputVerbosity;
+  readonly resourceLinks?: readonly ToolResourceLinkMetadata[];
+}
+
 export interface CatalogToolResultMetadata<TToolName extends CatalogToolName = CatalogToolName> {
   readonly toolName: TToolName;
   readonly kind: "catalog";
@@ -366,12 +447,14 @@ export type ToolSpecificResultMetadata =
   | InspectionToolResultMetadata
   | MediaToolResultMetadata
   | WebToolResultMetadata
+  | InteractiveToolResultMetadata
   | SearchToolResultMetadata
   | CatalogToolResultMetadata
   | CodeToolResultMetadata
   | MonitorToolResultMetadata
   | WorkItemToolResultMetadata
   | TaskStateToolResultMetadata
+  | WorkItemToolResultMetadata
   | ElicitationToolResultMetadata
   | MemoryToolResultMetadata
   | ResourceToolResultMetadata;
@@ -474,6 +557,17 @@ export function webToolMetadata<TToolName extends WebToolName>(
   return {
     toolName,
     kind: "web",
+    ...metadata,
+  };
+}
+
+export function interactiveToolMetadata<TToolName extends InteractiveToolName>(
+  toolName: TToolName,
+  metadata: Omit<InteractiveToolResultMetadata<TToolName>, "toolName" | "kind">,
+): InteractiveToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "interactive",
     ...metadata,
   };
 }

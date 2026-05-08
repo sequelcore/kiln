@@ -122,6 +122,31 @@ describe("configCommand", () => {
     expect(config.permissions?.sandbox).toBe("danger-full-access");
   });
 
+  it("set updates interactive-use policy", async () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.enabled", "true"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.browserProvider", "playwright"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.browserEnvironment", "isolated-headed"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowedDomains", "example.com, docs.example.com"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowExternalBrowser", "false"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowComputer", "true"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerProvider", "windows-uia"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerEnvironment", "local-active-desktop"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowedApplications", "Calculator, msedge"], tempDir);
+
+    const config = readKiln(tempDir);
+    expect(config.interactiveUse?.enabled).toBe(true);
+    expect(config.interactiveUse?.browserProvider).toBe("playwright");
+    expect(config.interactiveUse?.browserEnvironment).toBe("isolated-headed");
+    expect(config.interactiveUse?.allowedDomains).toEqual(["example.com", "docs.example.com"]);
+    expect(config.interactiveUse?.allowExternalBrowser).toBe(false);
+    expect(config.interactiveUse?.allowComputer).toBe(true);
+    expect(config.interactiveUse?.computerProvider).toBe("windows-uia");
+    expect(config.interactiveUse?.computerEnvironment).toBe("local-active-desktop");
+    expect(config.interactiveUse?.allowedApplications).toEqual(["Calculator", "msedge"]);
+  });
+
   it("reset writes default kiln.yaml", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 

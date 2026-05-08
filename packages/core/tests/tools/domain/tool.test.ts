@@ -7,10 +7,12 @@ import {
   inspectionToolMetadata,
   isFileToolResultMetadata,
   mediaToolMetadata,
+  interactiveToolMetadata,
   webToolMetadata,
   searchToolMetadata,
   type CommandToolResultMetadata,
   type FileToolResultMetadata,
+  type InteractiveToolResultMetadata,
   type InspectionToolResultMetadata,
   type MediaToolResultMetadata,
   type SearchToolResultMetadata,
@@ -60,6 +62,18 @@ describe("tool domain types", () => {
       "web_search",
       "web_fetch",
       "web_extract",
+      "browser_session_start",
+      "browser_navigate",
+      "browser_observe",
+      "browser_click",
+      "browser_type",
+      "browser_keypress",
+      "browser_scroll",
+      "browser_session_stop",
+      "computer_observe",
+      "computer_click",
+      "computer_type",
+      "computer_keypress",
       "grep",
       "glob",
       "git",
@@ -124,6 +138,14 @@ describe("tool domain types", () => {
       readOnly: true,
       idempotent: true,
     });
+    expect(TOOL_SCHEMAS.browser_observe.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
+    expect(TOOL_SCHEMAS.computer_observe.annotations).toEqual({
+      readOnly: true,
+      idempotent: true,
+    });
     expect(TOOL_SCHEMAS.tool_catalog_search.annotations).toEqual({
       readOnly: true,
       idempotent: true,
@@ -185,6 +207,18 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.web_search.inputSchema.required).toEqual(["query"]);
     expect(TOOL_SCHEMAS.web_fetch.inputSchema.required).toEqual(["url"]);
     expect(TOOL_SCHEMAS.web_extract.inputSchema.required).toEqual(["urls"]);
+    expect(TOOL_SCHEMAS.browser_session_start.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.browser_navigate.inputSchema.required).toEqual(["url"]);
+    expect(TOOL_SCHEMAS.browser_observe.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.browser_click.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.browser_type.inputSchema.required).toEqual(["text"]);
+    expect(TOOL_SCHEMAS.browser_keypress.inputSchema.required).toEqual(["keys"]);
+    expect(TOOL_SCHEMAS.browser_scroll.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.browser_session_stop.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.computer_observe.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.computer_click.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.computer_type.inputSchema.required).toEqual(["text"]);
+    expect(TOOL_SCHEMAS.computer_keypress.inputSchema.required).toEqual(["keys"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
     expect(TOOL_SCHEMAS.monitor_start.inputSchema.required).toEqual(["command"]);
     expect(TOOL_SCHEMAS.monitor_read.inputSchema.required).toEqual(["id"]);
@@ -212,6 +246,18 @@ describe("tool domain types", () => {
       "web_search",
       "web_fetch",
       "web_extract",
+      "browser_session_start",
+      "browser_navigate",
+      "browser_observe",
+      "browser_click",
+      "browser_type",
+      "browser_keypress",
+      "browser_scroll",
+      "browser_session_stop",
+      "computer_observe",
+      "computer_click",
+      "computer_type",
+      "computer_keypress",
       "grep",
       "glob",
       "monitor_start",
@@ -329,6 +375,46 @@ describe("tool domain types", () => {
         truncated: false,
       }],
       verbosity: "structured",
+    });
+  });
+
+  it("builds interactive metadata with session and artifact evidence", () => {
+    const metadata: InteractiveToolResultMetadata<"browser_click"> = interactiveToolMetadata("browser_click", {
+      target: "browser",
+      operation: "click",
+      provider: "playwright",
+      sessionId: "browser-1",
+      action: {
+        type: "click",
+        x: 120,
+        y: 240,
+      },
+      observation: {
+        url: "https://example.com",
+        title: "Example",
+        screenshotUri: "kiln://artifacts/interactive/browser-1/screenshot",
+      },
+      requiresApproval: false,
+    });
+
+    expect(metadata).toEqual({
+      toolName: "browser_click",
+      kind: "interactive",
+      target: "browser",
+      operation: "click",
+      provider: "playwright",
+      sessionId: "browser-1",
+      action: {
+        type: "click",
+        x: 120,
+        y: 240,
+      },
+      observation: {
+        url: "https://example.com",
+        title: "Example",
+        screenshotUri: "kiln://artifacts/interactive/browser-1/screenshot",
+      },
+      requiresApproval: false,
     });
   });
 

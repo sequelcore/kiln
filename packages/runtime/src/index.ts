@@ -106,6 +106,35 @@ export type {
   AttachedRuntimeBuiltinToolSurface,
   AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "./gateway/attached-runtime-tool-surface.js";
+export {
+  PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE,
+  PlaywrightBrowserUseProvider,
+} from "./interactive/playwright-browser-use-provider.js";
+export type {
+  InteractiveArtifactSink,
+  InteractiveArtifactWrite,
+  PlaywrightBrowserUseProviderOptions,
+} from "./interactive/playwright-browser-use-provider.js";
+export {
+  NUT_JS_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE,
+  WindowsComputerUseProvider,
+} from "./interactive/windows-computer-use-provider.js";
+export type {
+  ActiveApplicationResolver,
+  NutJsLoader,
+  WindowsComputerUseProviderOptions,
+} from "./interactive/windows-computer-use-provider.js";
+export {
+  WINDOWS_UIA_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE,
+  createWindowsUiaSidecarRunner,
+  WindowsUiaComputerUseProvider,
+} from "./interactive/windows-uia-computer-use-provider.js";
+export type {
+  WindowsUiaComputerUseProviderOptions,
+  WindowsUiaSidecarRequest,
+  WindowsUiaSidecarResponse,
+  WindowsUiaSidecarRunner,
+} from "./interactive/windows-uia-computer-use-provider.js";
 export type {
   OperatorSurfaceController,
   OperatorSurfaceThemeController,

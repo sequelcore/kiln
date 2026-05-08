@@ -15,7 +15,8 @@ import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
-import { loadConfiguredWebToolSurfaceOptions, resolveProjectMemoryScope } from "../config/web-tools-config.js";
+import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
@@ -88,7 +89,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const workItemStore = new WorkItemStore();
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
-  const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(runtimeAppConfig, cwd, {
+  const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionAgent: "gui",

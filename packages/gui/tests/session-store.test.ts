@@ -192,6 +192,50 @@ describe("session-store", () => {
     expect(state.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
   });
 
+  it("shows tool result envelope errors as failed tool calls even when the event completed", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-tool-error",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-05-08T14:01:00.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-error",
+        toolName: "computer_observe",
+        outputSummary: JSON.stringify({
+          output: "Computer automation denied for active application 'msedge'.",
+          isError: true,
+          metadata: {
+            toolName: "computer_observe",
+            kind: "interactive",
+            operation: "observe",
+            provider: "windows-uia",
+          },
+        }),
+        status: { state: "succeeded" },
+      },
+    });
+
+    const state = useSessionStore.getState();
+    const entry = state.timelineEntries.find((item) => item.type === "event" && item.eventKind === "tool_call_completed");
+    expect(entry).toMatchObject({
+      type: "event",
+      title: "Failed computer_observe",
+      tone: "error",
+      details: expect.objectContaining({
+        status: "failed",
+        result: "Computer automation denied for active application 'msedge'.",
+      }),
+    });
+    expect(deriveToolCallLog(state.timelineEntries)).toEqual([
+      expect.objectContaining({
+        callId: "tool-error",
+        toolName: "computer_observe",
+        status: "error",
+      }),
+    ]);
+  });
+
   it("onDone closes streaming assistant and flips status to ready", () => {
     useSessionStore.getState().onTextDelta({ type: "text_delta", content: "Hi" });
     useSessionStore.getState().onDone({
@@ -1023,11 +1067,22 @@ describe("session-store", () => {
     useSessionStore.getState().setResume("session-a");
     useSessionStore.setState({ status: "ready" });
     useSessionStore.getState().sendMessage("test");
+    useSessionStore.getState().onInteractiveUseUpdated({
+      type: "interactive_use_updated",
+      snapshot: {
+        target: "browser",
+        status: "succeeded",
+        updatedAt: "2026-05-08T00:00:00.000Z",
+        url: "https://example.com",
+        screenshotDataUrl: "data:image/png;base64,abc",
+      },
+    });
     useSessionStore.getState().onCleared();
 
     const state = useSessionStore.getState();
     expect(state.messages).toHaveLength(0);
     expect(state.timelineEntries).toHaveLength(0);
+    expect(state.interactiveUseSnapshot).toBeNull();
     expect(state.resumeTargetId).toBeNull();
     expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
   });

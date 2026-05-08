@@ -92,6 +92,43 @@ describe("OperatorSurfaceTabs", () => {
     expect(onCloseMemory).toHaveBeenCalledOnce();
   });
 
+  it("renders a live browser tab when an interactive browser snapshot exists", () => {
+    render(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSnapshot={{
+          target: "browser",
+          status: "succeeded",
+          updatedAt: "2026-05-08T12:00:00.000Z",
+          toolName: "browser_observe",
+          operation: "observe",
+          provider: "playwright",
+          sessionId: "browser-1",
+          url: "https://app.example.com",
+          title: "Example App",
+          screenshotDataUrl: "data:image/png;base64,abc",
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "Browser" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Browser screenshot for Example App" })).toHaveAttribute("src", "data:image/png;base64,abc");
+    expect(screen.getByText("https://app.example.com")).toBeInTheDocument();
+  });
+
   it("renders markdown through the safe markdown renderer", () => {
     render(
       <OperatorSurfaceTabs

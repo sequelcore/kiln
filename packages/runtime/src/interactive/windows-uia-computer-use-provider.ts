@@ -1,0 +1,372 @@
+import { spawn } from "node:child_process";
+import { access } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type {
+  InteractiveObservationMetadata,
+  InteractiveUseProvider,
+  InteractiveUseProviderResult,
+  InteractiveUseRequest,
+} from "@kilnai/core";
+
+export const WINDOWS_UIA_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE =
+  "Windows UI Automation provider is not available. Build the Kiln Windows UIA sidecar before enabling interactiveUse.computerProvider=windows-uia. Run: packages\\runtime\\native\\windows-uia\\build.cmd";
+
+export interface WindowsUiaComputerUseProviderOptions {
+  readonly allowComputer?: boolean;
+  readonly allowedApplications?: readonly string[];
+  readonly maxAccessibilityDepth?: number;
+  readonly sidecarPath?: string;
+  readonly runner?: WindowsUiaSidecarRunner;
+}
+
+export type WindowsUiaSidecarRunner = (request: WindowsUiaSidecarRequest) => Promise<WindowsUiaSidecarResponse>;
+
+export interface WindowsUiaSidecarRequest {
+  readonly operation: "observe" | "click" | "type";
+  readonly includeAccessibility?: boolean;
+  readonly maxDepth?: number;
+  readonly selector?: string;
+  readonly text?: string;
+  readonly timeoutMs?: number;
+}
+
+export interface WindowsUiaSidecarResponse {
+  readonly observation: {
+    readonly application?: string;
+    readonly windowTitle?: string;
+    readonly visibleText?: string;
+  };
+}
+
+export class WindowsUiaComputerUseProvider implements InteractiveUseProvider {
+  private readonly allowComputer: boolean;
+  private readonly allowedApplications: readonly string[];
+  private readonly maxAccessibilityDepth: number;
+  private readonly runner: WindowsUiaSidecarRunner;
+
+  constructor(options: WindowsUiaComputerUseProviderOptions = {}) {
+    this.allowComputer = options.allowComputer === true;
+    this.allowedApplications = normalizeList(options.allowedApplications);
+    this.maxAccessibilityDepth = clampDepth(options.maxAccessibilityDepth);
+    this.runner = options.runner ?? createWindowsUiaSidecarRunner(options.sidecarPath);
+  }
+
+  async execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
+    this.assertComputerAllowed();
+
+    const authority = await this.runner({
+      operation: "observe",
+      includeAccessibility: false,
+      maxDepth: 1,
+      timeoutMs: readTimeoutMs(request.input),
+    });
+    this.assertApplicationAllowed(authority.observation);
+
+    switch (request.operation) {
+      case "observe":
+        return {
+          provider: "windows-uia",
+          observation: await this.observe(request),
+        };
+      case "click":
+        return {
+          provider: "windows-uia",
+          observation: await this.click(request),
+        };
+      case "type":
+        return {
+          provider: "windows-uia",
+          observation: await this.type(request),
+        };
+      case "keypress":
+        throw new Error("Windows UI Automation provider does not support raw keypress. Use computerProvider=windows for keyboard input.");
+      default:
+        throw new Error(`Windows UI Automation provider does not support operation '${request.operation}'.`);
+    }
+  }
+
+  private assertComputerAllowed(): void {
+    if (!this.allowComputer) {
+      throw new Error("Computer automation is disabled. Set interactiveUse.allowComputer=true before using computer tools.");
+    }
+    if (this.allowedApplications.length === 0) {
+      throw new Error("Computer automation application policy is missing. Configure interactiveUse.allowedApplications before using computer tools.");
+    }
+  }
+
+  private assertApplicationAllowed(authority: WindowsUiaSidecarResponse["observation"]): void {
+    if (this.allowedApplications.includes("*")) {
+      return;
+    }
+    const application = authority.application;
+    const windowTitle = authority.windowTitle;
+    if (!application && !windowTitle) {
+      throw new Error("Computer automation could not determine the active application or window title from Windows UI Automation.");
+    }
+    const allowed = this.allowedApplications.some((entry) => {
+      const normalized = entry.toLocaleLowerCase("en-US");
+      return application?.toLocaleLowerCase("en-US") === normalized
+        || windowTitle?.toLocaleLowerCase("en-US") === normalized;
+    });
+    if (!allowed) {
+      const label = application ?? windowTitle ?? "unknown";
+      throw new Error(`Computer automation denied for active application '${label}'. Configure interactiveUse.allowedApplications to allow it.`);
+    }
+  }
+
+  private async observe(request: InteractiveUseRequest): Promise<InteractiveObservationMetadata> {
+    const includeAccessibility = request.observationRequest?.includeAccessibility === true
+      || request.input.includeAccessibility === true;
+    return (await this.runner({
+      operation: "observe",
+      includeAccessibility,
+      maxDepth: this.maxAccessibilityDepth,
+      timeoutMs: readTimeoutMs(request.input),
+    })).observation;
+  }
+
+  private async click(request: InteractiveUseRequest): Promise<InteractiveObservationMetadata> {
+    const selector = readSelector(request);
+    if (!selector) {
+      if (readPoint(request.input.target) ?? readActionPoint(request.action)) {
+        throw new Error("Windows UI Automation provider requires a semantic selector/ref for clicks. Use computerProvider=windows for coordinate-only pointer actions.");
+      }
+      throw new Error("Computer click requires a UIA selector/ref.");
+    }
+    return (await this.runner({
+      operation: "click",
+      selector,
+      timeoutMs: readTimeoutMs(request.input),
+    })).observation;
+  }
+
+  private async type(request: InteractiveUseRequest): Promise<InteractiveObservationMetadata> {
+    const selector = readSelector(request);
+    if (!selector) {
+      throw new Error("Windows UI Automation provider requires a target selector/ref for text input. Use computerProvider=windows for keyboard typing into the current focus.");
+    }
+    return (await this.runner({
+      operation: "type",
+      selector,
+      text: readRequiredText(request.input),
+      timeoutMs: readTimeoutMs(request.input),
+    })).observation;
+  }
+}
+
+export function createWindowsUiaSidecarRunner(sidecarPath?: string): WindowsUiaSidecarRunner {
+  let resolvedPath: Promise<string> | undefined;
+  return async (request) => {
+    resolvedPath ??= resolveWindowsUiaSidecarPath(sidecarPath);
+    const executable = await resolvedPath;
+    const stdout = await runWindowsUiaSidecar(executable, request).catch((error: unknown) => {
+      if (isMissingExecutableError(error)) {
+        throw new Error(WINDOWS_UIA_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE);
+      }
+      throw new Error(`Windows UI Automation sidecar failed: ${readErrorMessage(error)}`);
+    });
+    return parseSidecarResponse(stdout);
+  };
+}
+
+async function resolveWindowsUiaSidecarPath(configuredPath: string | undefined): Promise<string> {
+  if (configuredPath) {
+    try {
+      await access(configuredPath);
+      return configuredPath;
+    } catch {
+      throw new Error(WINDOWS_UIA_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE);
+    }
+  }
+
+  const candidates = [
+    process.env.KILN_WINDOWS_UIA_HELPER,
+    join(dirname(fileURLToPath(import.meta.url)), "..", "..", "native", "windows-uia", "bin", "kiln-windows-uia.exe"),
+    join(process.cwd(), "packages", "runtime", "native", "windows-uia", "bin", "kiln-windows-uia.exe"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Keep trying the next deterministic location.
+    }
+  }
+  throw new Error(WINDOWS_UIA_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE);
+}
+
+function runWindowsUiaSidecar(executable: string, request: WindowsUiaSidecarRequest): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const timeoutMs = request.timeoutMs ?? 10000;
+    const child = spawn(executable, [], {
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      child.kill();
+      reject(new Error(`timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      if (stdout.length > 1024 * 1024 && !settled) {
+        settled = true;
+        child.kill();
+        reject(new Error("stdout exceeded 1048576 bytes"));
+      }
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `exited with code ${code ?? "unknown"}`));
+        return;
+      }
+      resolve(stdout);
+    });
+    child.stdin.end(JSON.stringify(request));
+  });
+}
+
+function parseSidecarResponse(stdout: string): WindowsUiaSidecarResponse {
+  try {
+    const parsed = JSON.parse(stdout);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("sidecar response is not an object");
+    }
+    const observation = (parsed as Record<string, unknown>).observation;
+    if (!observation || typeof observation !== "object" || Array.isArray(observation)) {
+      throw new Error("sidecar response is missing observation");
+    }
+    const record = observation as Record<string, unknown>;
+    return {
+      observation: {
+        ...stringField("application", record.application),
+        ...stringField("windowTitle", record.windowTitle),
+        ...stringField("visibleText", record.visibleText),
+      },
+    };
+  } catch (error) {
+    throw new Error(`Windows UI Automation sidecar returned invalid JSON: ${readErrorMessage(error)}`);
+  }
+}
+
+function readSelector(request: InteractiveUseRequest): string | undefined {
+  return request.action?.selector
+    ?? request.action?.ref
+    ?? readTargetString(request.input.target, "selector")
+    ?? readTargetString(request.input.target, "ref")
+    ?? readSemanticTargetSelector(request.input.target);
+}
+
+function readRequiredText(input: Record<string, unknown>): string {
+  if (typeof input.text !== "string") {
+    throw new Error("Computer type requires text.");
+  }
+  return input.text;
+}
+
+function readPoint(value: unknown): { readonly x: number; readonly y: number } | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.x === "number" && Number.isFinite(record.x) && typeof record.y === "number" && Number.isFinite(record.y)
+    ? { x: record.x, y: record.y }
+    : null;
+}
+
+function readActionPoint(action: { readonly x?: unknown; readonly y?: unknown } | undefined): { readonly x: number; readonly y: number } | null {
+  return typeof action?.x === "number" && typeof action.y === "number"
+    ? { x: action.x, y: action.y }
+    : null;
+}
+
+function readTargetString(value: unknown, key: string): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" && field.trim().length > 0 ? field.trim() : undefined;
+}
+
+function readSemanticTargetSelector(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const parts = [
+    selectorPart("type", record.type ?? record.controlType),
+    selectorPart("title", record.title ?? record.name),
+    selectorPart("automationId", record.automationId ?? record.id),
+    selectorPart("className", record.className),
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(";") : undefined;
+}
+
+function selectorPart(key: string, value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? `${key}=${value.trim()}`
+    : undefined;
+}
+
+function readTimeoutMs(input: Record<string, unknown>): number | undefined {
+  return typeof input.timeout === "number" && Number.isFinite(input.timeout)
+    ? Math.max(1, Math.floor(input.timeout))
+    : undefined;
+}
+
+function stringField<TName extends string>(name: TName, value: unknown): Record<TName, string> | Record<string, never> {
+  return typeof value === "string" && value.trim().length > 0
+    ? { [name]: value.trim() } as Record<TName, string>
+    : {};
+}
+
+function normalizeList(value: readonly string[] | undefined): readonly string[] {
+  if (!value) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const item of value) {
+    const normalized = item.trim();
+    if (normalized && !out.includes(normalized)) {
+      out.push(normalized);
+    }
+  }
+  return out;
+}
+
+function clampDepth(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(1, Math.min(8, Math.floor(value)))
+    : 4;
+}
+
+function isMissingExecutableError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && ((error as { readonly code?: unknown }).code === "ENOENT" || (error as { readonly code?: unknown }).code === "UNKNOWN");
+}
+
+function readErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

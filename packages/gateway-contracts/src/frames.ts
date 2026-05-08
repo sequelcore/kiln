@@ -411,6 +411,35 @@ export interface GuiMemoryLatticeInvalidatedFrame {
   readonly admissionId?: string;
 }
 
+export type GuiInteractiveUseTarget = "browser" | "computer";
+export type GuiInteractiveUseStatus = "running" | "succeeded" | "failed";
+
+export interface GuiInteractiveUseSnapshot {
+  readonly target: GuiInteractiveUseTarget;
+  readonly status: GuiInteractiveUseStatus;
+  readonly updatedAt: string;
+  readonly kilnSessionId?: string;
+  readonly toolCallId?: string;
+  readonly toolName?: string;
+  readonly provider?: string;
+  readonly sessionId?: string;
+  readonly operation?: string;
+  readonly url?: string;
+  readonly title?: string;
+  readonly visibleText?: string;
+  readonly windowTitle?: string;
+  readonly application?: string;
+  readonly screenshotUri?: string;
+  readonly screenshotDataUrl?: string;
+  readonly actionSummary?: string;
+  readonly error?: string;
+}
+
+export interface GuiInteractiveUseUpdatedFrame {
+  readonly type: "interactive_use_updated";
+  readonly snapshot: GuiInteractiveUseSnapshot;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -444,6 +473,7 @@ export type GuiInboundFrame =
   | OperatorThemeSetFrame
   | { type: "session_event"; event: OperatorSessionEvent }
   | OperatorActivityPhaseFrame
+  | GuiInteractiveUseUpdatedFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";

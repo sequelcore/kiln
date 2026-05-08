@@ -58,15 +58,15 @@ import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
-import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
+import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
+  WorkItemStore,
   createSessionBuiltinToolOptions,
   type CanonicalSessionEventKind,
   type ReasoningEffort,
-  WorkItemStore,
   type SessionEventSource,
   VerificationResult,
   formatProviderModelRouteCooldown,
@@ -518,7 +518,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       .map((block) => block.content),
   });
 
-  const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(appConfig, cwd, {
+  const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(appConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionPolicy: config.permissionPolicy,

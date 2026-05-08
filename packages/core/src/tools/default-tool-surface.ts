@@ -25,6 +25,21 @@ import { EditTool } from "./infrastructure/edit-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
+import {
+  BrowserClickTool,
+  BrowserKeypressTool,
+  BrowserNavigateTool,
+  BrowserObserveTool,
+  BrowserScrollTool,
+  BrowserSessionStartTool,
+  BrowserSessionStopTool,
+  BrowserTypeTool,
+  ComputerClickTool,
+  ComputerKeypressTool,
+  ComputerObserveTool,
+  ComputerTypeTool,
+  type InteractiveUseToolOptions,
+} from "./infrastructure/interactive-use-tool.js";
 import { MemorySaveTool, type MemorySaveToolCallerContext } from "./infrastructure/memory-save-tool.js";
 import {
   MonitorListTool,
@@ -72,6 +87,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly webFetch?: WebFetchToolOptions;
   readonly webExtract?: WebExtractToolOptions;
   readonly webSearch?: WebSearchToolOptions;
+  readonly browserUse?: InteractiveUseToolOptions;
+  readonly computerUse?: InteractiveUseToolOptions;
   readonly git?: GitToolOptions;
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
   readonly monitor?: MonitorRegistryOptions;
@@ -174,6 +191,13 @@ export function createDefaultBuiltinTools(
   const monitorRegistry = options.monitorRegistry ?? new MonitorRegistry(options.monitor);
   const taskStateStore = options.taskStateStore ?? new TaskStateStore(options.taskState);
   const memoryMutationCallerContext = resolveMemoryMutationCallerContext(options);
+  const artifactStore = options.artifactResources?.store;
+  const browserUse = artifactStore
+    ? { ...(options.browserUse ?? {}), artifactStore }
+    : options.browserUse;
+  const computerUse = artifactStore
+    ? { ...(options.computerUse ?? {}), artifactStore }
+    : options.computerUse;
   const tools = [
     new BashTool(options.bash),
     new ReadTool(),
@@ -188,6 +212,18 @@ export function createDefaultBuiltinTools(
     new WebSearchTool(options.webSearch),
     new WebFetchTool(options.webFetch),
     new WebExtractTool(options.webExtract),
+    new BrowserSessionStartTool(browserUse),
+    new BrowserNavigateTool(browserUse),
+    new BrowserObserveTool(browserUse),
+    new BrowserClickTool(browserUse),
+    new BrowserTypeTool(browserUse),
+    new BrowserKeypressTool(browserUse),
+    new BrowserScrollTool(browserUse),
+    new BrowserSessionStopTool(browserUse),
+    new ComputerObserveTool(computerUse),
+    new ComputerClickTool(computerUse),
+    new ComputerTypeTool(computerUse),
+    new ComputerKeypressTool(computerUse),
     new GrepTool(options.grep),
     new GlobTool(options.glob),
     new GitTool(options.git),
@@ -251,6 +287,7 @@ export function createDefaultBuiltinToolSurface(
     monitorRegistry,
     taskStateStore,
     ...(workItemStore ? { workItemStore } : {}),
+    artifactResources: { store: artifactStore },
     resourceRegistry: () => resources,
   };
   const registry = createDefaultBuiltinToolRegistry(surfaceOptions);

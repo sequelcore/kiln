@@ -805,6 +805,11 @@ function toolResultText(payload: Record<string, unknown>): string | null {
   return compactText(raw);
 }
 
+function toolResultIsError(payload: Record<string, unknown>): boolean {
+  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  return envelope?.isError === true;
+}
+
 function toolResultMetadata(payload: Record<string, unknown>): Record<string, unknown> | null {
   const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
   const payloadMetadata = asRecord(payload.metadata);
@@ -973,7 +978,9 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
 function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const toolName = readString(payload.toolName) ?? "tool";
   const status = asRecord(payload.status);
-  const statusValue = readString(status?.state) ?? readString(payload.status);
+  const rawStatusValue = readString(status?.state) ?? readString(payload.status);
+  const isError = toolResultIsError(payload);
+  const statusValue = isError ? "failed" : rawStatusValue;
   const toolPresentation = projectToolResultPresentation(toolName, payload);
   const result = toolPresentation?.summary ?? toolResultText(payload);
   const managedInvocation = managedInvocationToolIdentity(payload);
@@ -989,10 +996,10 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   }
   addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   return {
-    title: `Completed ${toolName}`,
+    title: `${isError ? "Failed" : "Completed"} ${toolName}`,
     summary: summary ?? undefined,
     compactText: summary ?? managedInvocationSummary ?? toolName,
-    tone: statusValue === "succeeded" || statusValue === "success" ? "success" : "error",
+    tone: !isError && (statusValue === "succeeded" || statusValue === "success") ? "success" : "error",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
     ...(toolPresentation ? { toolPresentation } : {}),

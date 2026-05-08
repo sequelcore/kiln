@@ -40,6 +40,15 @@ export type {
   FileToolOperation,
   FileToolResultMetadata,
   GrepOutputMode,
+  BrowserToolName,
+  ComputerToolName,
+  InteractiveActionMetadata,
+  InteractiveObservationMetadata,
+  InteractiveTarget,
+  InteractiveToolErrorCode,
+  InteractiveToolName,
+  InteractiveToolOperation,
+  InteractiveToolResultMetadata,
   InspectionEntryType,
   InspectionToolName,
   InspectionToolOperation,
@@ -63,11 +72,11 @@ export type {
   SearchToolResultMetadata,
   SearchToolStrategy,
   TaskStateToolName,
+  TaskStateToolOperation,
+  TaskStateToolResultMetadata,
   WorkItemToolName,
   WorkItemToolOperation,
   WorkItemToolResultMetadata,
-  TaskStateToolOperation,
-  TaskStateToolResultMetadata,
   ToolOutputVerbosity,
   ToolResourceLinkMetadata,
   ToolResourceLinkRelation,
@@ -94,9 +103,10 @@ export {
   memoryToolMetadata,
   monitorToolMetadata,
   resourceToolMetadata,
-  workItemToolMetadata,
   searchToolMetadata,
   taskStateToolMetadata,
+  workItemToolMetadata,
+  interactiveToolMetadata,
   webToolMetadata,
 } from "./domain/tool-result-metadata.js";
 
@@ -220,6 +230,27 @@ export type {
   OperatorElicitationToolOptions,
 } from "./infrastructure/operator-elicitation-tool.js";
 export { OperatorElicitationTool } from "./infrastructure/operator-elicitation-tool.js";
+export type {
+  InteractiveObservationRequest,
+  InteractiveUseProvider,
+  InteractiveUseProviderResult,
+  InteractiveUseRequest,
+  InteractiveUseToolOptions,
+} from "./infrastructure/interactive-use-tool.js";
+export {
+  BrowserClickTool,
+  BrowserKeypressTool,
+  BrowserNavigateTool,
+  BrowserObserveTool,
+  BrowserScrollTool,
+  BrowserSessionStartTool,
+  BrowserSessionStopTool,
+  BrowserTypeTool,
+  ComputerClickTool,
+  ComputerKeypressTool,
+  ComputerObserveTool,
+  ComputerTypeTool,
+} from "./infrastructure/interactive-use-tool.js";
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";

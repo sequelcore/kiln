@@ -27,6 +27,8 @@ The developer-tool surface owns concrete local and external developer actions:
 - OCR
 - controlled web search
 - controlled web fetch
+- browser automation
+- computer automation
 - output verbosity for high-volume results
 
 Higher-level intelligence on top of this surface, such as catalog search,
@@ -67,6 +69,8 @@ Stable metadata families include:
 - `media`: image and OCR evidence for `view_image` and `ocr_image`
 - `web`: external source evidence for `web_search`, `web_fetch`, and
   `web_extract`
+- `interactive`: browser and desktop automation evidence for `browser_*` and
+  `computer_*`
 
 Metadata is audit and projection evidence. It is not a replacement for the
 visible output contract or structured tool output schemas.
@@ -236,6 +240,37 @@ configuration from runtime denial:
 Governed research is a higher-level future capability documented in
 [`controlled-web-research.md`](controlled-web-research.md).
 
+## Interactive Browser And Computer Tools
+
+`browser_session_start`, `browser_navigate`, `browser_observe`,
+`browser_click`, `browser_type`, `browser_keypress`, `browser_scroll`,
+`browser_session_stop`, `computer_observe`, `computer_click`, `computer_type`,
+and `computer_keypress` are cross-surface core developer tools. They project
+through the canonical builtin surface, emit shared `interactive` metadata, and
+fail closed unless a runtime surface injects an interactive-use provider.
+
+Browser tools target isolated browser sessions for QA, debugging,
+documentation flows, and web app automation. Computer tools target a governed
+desktop surface for OS-level automation. Both are action capabilities, not GUI
+features. GUI may render a live tab or cursor view, CLI/TUI may render
+artifacts and compact status, and MCP consumers may receive the same tool
+contracts, but execution still routes through the shared registry, authority,
+approval, audit, and sanitization path.
+
+Interactive metadata records target, operation, provider, session id,
+observation evidence, artifact URIs, timeout, sensitivity, and approval hints.
+Type actions record text length and sensitivity, never typed text. Observation
+tools are read-only/idempotent; click, type, keypress, scroll, navigate,
+session-start, and session-stop are destructive because they can mutate remote
+state or local UI state.
+
+Browser use is not a replacement for `web_search`. Search/fetch/extract remain
+read-only source-acquisition primitives with provider and network-policy
+contracts. Browser automation is the correct substrate when the task needs
+stateful interaction, authentication, visual inspection, JavaScript execution,
+or repro/QA artifacts. Future governed research may compose both families, but
+every external subaction must still emit ordinary tool evidence.
+
 ## Web Configuration
 
 Project `KilnYaml.web` configures controlled web authority once for every
@@ -295,6 +330,120 @@ Configured options are passed into `createDefaultBuiltinToolSurface()` for CLI
 MCP startup and into `createAttachedRuntimeBuiltinToolSurface()` for direct
 provider sessions, GUI gateway startup, and TUI gateway startup.
 
+## Interactive Use Configuration
+
+Project `KilnYaml.interactiveUse` declares browser and computer automation
+authority once for every consumer. It does not configure global provider
+defaults and it does not grant web search authority.
+
+Stable fields:
+
+- `enabled`
+- `allowedDomains`
+- `allowedApplications`
+- `allowExternalBrowser`
+- `allowComputer`
+- `browserProvider`
+- `computerProvider`
+- `browserEnvironment`
+- `computerEnvironment`
+
+`browserProvider` currently accepts `none` or `playwright`. `computerProvider`
+currently accepts `none`, `windows`, or `windows-uia`. These are runtime
+provider selections; core still fails closed unless a surface injects the
+matching provider. CLI, TUI, GUI, tools MCP, and benchmark sessions project
+configured interactive providers into the shared builtin tool surface.
+
+`browserEnvironment` declares whether browser automation is allowed to affect
+the operator's visible desktop. The default and recommended value is
+`isolated-headless`: Kiln launches an isolated Playwright browser context in
+the background and rejects prompt-supplied attempts to switch the session to a
+visible headed browser. `isolated-headed` is an explicit debugging mode for
+visible browser windows. This field is policy, not a model hint.
+
+`computerEnvironment` currently accepts only `local-active-desktop`. That name
+is intentionally narrow: local Windows computer providers act against the
+operator's current interactive desktop. They may use semantic UI Automation or
+low-level pointer/keyboard primitives, but they are not a hidden background
+desktop. Real background desktop automation requires a separate isolated
+environment such as a VM, remote Windows worker, or cloud browser/computer
+session, which must be added as a distinct provider/environment rather than
+pretending the local desktop can be safely used invisibly.
+
+The Playwright browser provider lives in `@kilnai/runtime` and loads
+`playwright` as an optional peer dependency. If a runtime host enables
+`interactiveUse.browserProvider: playwright` without installing the optional
+peer and a browser binary, the provider must return a setup error that names
+both required steps:
+
+```bash
+bun add -d playwright
+bun x playwright install chromium
+```
+
+On Windows when the runtime host itself runs on Bun, the Playwright provider
+executes browser automation through a persistent Node sidecar. This keeps Kiln's
+main runtime on Bun while using Playwright in the runtime it supports reliably
+on Windows. The sidecar is an implementation detail of `@kilnai/runtime`; it
+does not change tool schemas, config authority, session ids, or metadata.
+
+Browser observations that include screenshots must store the image in the
+session artifact resource plane and expose a `kiln://artifacts/.../content`
+URI. Transcript metadata may carry the screenshot URI and resource link, but it
+must not persist large `data:image/...` payloads when an artifact store is
+available. Providers may use inline data URLs internally as a transport detail;
+the shared tool layer materializes them before transcript projection.
+
+Agents should call `browser_session_stop` before their final answer for one-off
+browser tasks. Runtime providers also enforce an idle-session TTL as a cleanup
+backstop so forgotten Playwright sessions do not accumulate, while explicit
+session stop remains the preferred lifecycle signal. The Windows+Bun sidecar
+exits once no browser sessions remain and is recreated on demand.
+
+`allowedDomains` scopes browser automation. `allowExternalBrowser: true` is an
+explicit escape hatch for attaching to an operator-controlled browser instead
+of a project-scoped isolated session. `allowComputer: true` plus
+`allowedApplications` scopes computer automation to named applications or
+windows.
+
+`kiln status` projects interactive-use diagnostics without launching browsers,
+observing the desktop, or validating live provider availability. Diagnostics
+are observability evidence only; they do not grant action authority.
+
+The `windows` computer provider lives in `@kilnai/runtime` and loads
+`@nut-tree/nut-js` as an optional peer dependency for low-level pointer,
+keyboard, screen, and window automation. If a runtime host enables
+`interactiveUse.computerProvider: windows`, the provider must still enforce
+`interactiveUse.allowComputer: true` and `interactiveUse.allowedApplications`
+before native automation runs. Runtime hosts must also provide a trusted active
+application resolver; model-supplied `application` fields are display intent,
+not authority evidence. Missing setup must produce this operator-facing command:
+
+```bash
+bun add -d @nut-tree/nut-js
+```
+
+The `windows-uia` computer provider is the semantic Microsoft UI Automation
+provider. It invokes Kiln's owned `kiln-windows-uia.exe` sidecar over JSON
+stdin/stdout; the sidecar is the only runtime component that touches native
+`IUIAutomation`. The TypeScript runtime derives the active window from Windows
+UIA focus ancestry before checking `allowedApplications`, exposes the
+accessibility tree through `computer_observe` when `includeAccessibility` is
+set, and executes semantic targets through UIA patterns such as `InvokePattern`
+and `ValuePattern`. It does not treat coordinates as authority evidence or as a
+physical pointer transport; coordinate-only mouse/keyboard work remains owned
+by the `windows` provider. Missing setup must produce this operator-facing
+command:
+
+```bash
+packages\runtime\native\windows-uia\build.cmd
+```
+
+The runtime also honors `KILN_WINDOWS_UIA_HELPER` when the built sidecar lives
+outside the package's default `native/windows-uia/bin` location. Typed text is
+sent through stdin JSON, not process arguments, so it is not exposed through
+process-list inspection.
+
 ## Consumer Contract
 
 All current consumers must use the shared surface:
@@ -305,6 +454,9 @@ All current consumers must use the shared surface:
 - GUI and TUI operator tools layer on top of the same configured surface.
 - Web policy and search-provider configuration are resolved once from
   `KilnYaml.web`.
+- Browser and computer use providers are injected into the same configured
+  core surface by runtime adapters; consumers do not own private automation
+  registries.
 - MCP and SDK consumers receive projections of core-owned tools and metadata.
 
 The guide-level operator workflow and tool examples live in

@@ -281,6 +281,26 @@ export interface KilnYamlWebConfig {
   readonly extractProvider?: KilnYamlWebExtractProvider;
 }
 
+export type KilnYamlInteractiveUseBrowserProvider = "none" | "playwright";
+export type KilnYamlInteractiveUseComputerProvider = "none" | "windows" | "windows-uia";
+export type KilnYamlInteractiveUseProvider =
+  | KilnYamlInteractiveUseBrowserProvider
+  | KilnYamlInteractiveUseComputerProvider;
+export type KilnYamlInteractiveUseBrowserEnvironment = "isolated-headless" | "isolated-headed";
+export type KilnYamlInteractiveUseComputerEnvironment = "local-active-desktop";
+
+export interface KilnYamlInteractiveUseConfig {
+  readonly enabled?: boolean;
+  readonly allowedDomains?: readonly string[];
+  readonly allowedApplications?: readonly string[];
+  readonly allowExternalBrowser?: boolean;
+  readonly allowComputer?: boolean;
+  readonly browserProvider?: KilnYamlInteractiveUseBrowserProvider;
+  readonly computerProvider?: KilnYamlInteractiveUseComputerProvider;
+  readonly browserEnvironment?: KilnYamlInteractiveUseBrowserEnvironment;
+  readonly computerEnvironment?: KilnYamlInteractiveUseComputerEnvironment;
+}
+
 export type KilnManagedAgentRouteKind = "harness" | "direct";
 
 export type KilnManagedAgentProfile =
@@ -494,6 +514,7 @@ export interface KilnYaml {
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly web?: KilnYamlWebConfig;
+  readonly interactiveUse?: KilnYamlInteractiveUseConfig;
   readonly skills?: KilnYamlSkillsConfig;
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];

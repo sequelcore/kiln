@@ -56,6 +56,7 @@ import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
+import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
 import {
   isGuiProviderModeless,
   isOperatorThemeName,
@@ -1494,11 +1495,25 @@ class GuiActivityStreamer {
           toolName: event.toolName ?? "unknown",
           output: event.output ?? "",
           outputSummary: event.outputSummary ?? event.output ?? "",
+          ...(event.metadata ? { metadata: event.metadata } : {}),
+          ...(event.resourceLinks ? { resourceLinks: event.resourceLinks } : {}),
           status: {
             state: event.isError ? "failed" : "succeeded",
           },
         },
       });
+      const interactiveFrame = projectInteractiveUseFrameFromToolResult({
+        ...(this.capture?.sessionId ? { kilnSessionId: this.capture.sessionId } : {}),
+        toolCallId,
+        toolName: event.toolName ?? "unknown",
+        timestamp: new Date().toISOString(),
+        status: event.isError ? "failed" : "succeeded",
+        metadata: event.metadata,
+        ...(event.isError ? { error: event.output ?? event.outputSummary } : {}),
+      });
+      if (interactiveFrame) {
+        this.ws.send(JSON.stringify(interactiveFrame));
+      }
       this.emitActivityPhase({ phase: "idle" });
     } else if (event.type === "file_changed") {
       if (this.capture) {

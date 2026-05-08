@@ -5,6 +5,7 @@ import type { KilnYaml } from "../kiln-yaml-types.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { describeWebToolConfiguration } from "../config/web-tools-config.js";
+import { describeInteractiveUseConfiguration } from "../config/interactive-use-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
@@ -53,6 +54,7 @@ export async function statusCommand(
     globalWeb: globalConfig?.web,
     projectWeb: projectConfig?.web,
   });
+  printInteractiveUseStatus(config);
   let engineAvailability: ReadonlyMap<string, boolean> = new Map();
 
   if (globalConfig) {
@@ -113,6 +115,44 @@ export async function statusCommand(
   }
 
   console.log("");
+}
+
+function printInteractiveUseStatus(config: KilnYaml): void {
+  const diagnostics = describeInteractiveUseConfiguration(config);
+  if (
+    !diagnostics.enabled
+    && diagnostics.browserProviderType === "none"
+    && diagnostics.computerProviderType === "none"
+  ) {
+    return;
+  }
+
+  console.log(`\n  Interactive use:`);
+  console.log(`    Enabled: ${diagnostics.enabled}`);
+  console.log(`    Browser provider: ${formatInteractiveUseProviderStatus(
+    diagnostics.browserProviderType,
+    diagnostics.browserProviderConfigured,
+  )}`);
+  console.log(`    Computer provider: ${formatInteractiveUseProviderStatus(
+    diagnostics.computerProviderType,
+    diagnostics.computerProviderConfigured,
+  )}`);
+  console.log(`    Browser environment: ${diagnostics.browserEnvironment}`);
+  console.log(`    Computer environment: ${diagnostics.computerEnvironment}`);
+  console.log(`    Allowed domains: ${diagnostics.allowedDomains.length > 0 ? diagnostics.allowedDomains.join(", ") : "—"}`);
+  console.log(`    External browser: ${diagnostics.allowExternalBrowser}`);
+  console.log(`    Computer control: ${diagnostics.allowComputer}`);
+  console.log(`    Allowed applications: ${diagnostics.allowedApplications.length > 0 ? diagnostics.allowedApplications.join(", ") : "—"}`);
+  if (diagnostics.issues.length > 0) {
+    console.log(`    Issues: ${diagnostics.issues.join(", ")}`);
+  }
+}
+
+function formatInteractiveUseProviderStatus(
+  providerType: string,
+  configured: boolean,
+): string {
+  return `${providerType}${configured ? "" : " (missing)"}`;
 }
 
 function printWebStatus(

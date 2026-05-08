@@ -370,6 +370,8 @@ The shared metadata families are:
 - `media`: image and OCR evidence for `view_image` and `ocr_image`
 - `web`: external source evidence for `web_search`, `web_fetch`, and
   `web_extract`
+- `interactive`: browser and computer automation evidence for `browser_*` and
+  `computer_*`
 - `search`: workspace search evidence for `grep` and `glob`
 - `monitor`: long-running command lifecycle evidence for `monitor_start`,
   `monitor_read`, `monitor_stop`, and `monitor_list`
@@ -380,8 +382,8 @@ The shared metadata families are:
 Every builtin metadata object includes:
 
 - `toolName`: the canonical builtin tool name
-- `kind`: one of `command`, `file`, `inspection`, `media`, `web`, `search`,
-  `monitor`, `task_state`, or `elicitation`
+- `kind`: one of `command`, `file`, `inspection`, `media`, `web`,
+  `interactive`, `search`, `monitor`, `task_state`, or `elicitation`
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 `replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
@@ -422,6 +424,17 @@ provider/configuration errors. Web tools must require explicit network policy,
 reject private and local targets, validate redirects where they own fetching,
 and sanitize text before reinjection. Runtime file-change evidence must not
 treat `web` metadata as filesystem mutation evidence.
+
+Interactive metadata is browser and computer automation state. Browser tools
+can report session id, URL, title, visible text, screenshot/artifact URIs,
+coordinates, selectors, keys, scroll deltas, timeout, provider, and typed text
+length. Computer tools can report window title, app name, screenshot/artifact
+URIs, coordinates, keys, timeout, and provider. Metadata must not contain typed
+secrets or screenshots as inline blob payloads; screenshots and traces belong
+behind artifact/resource URIs. Observation operations are read-only orientation
+evidence. Action operations remain governed tool actions and must not be
+treated as file-change evidence unless a separate file tool reports shared
+`file` metadata.
 
 Monitor metadata is lifecycle evidence for session-local long-running
 commands. `monitor_start` records command, cwd, timeout, monitor id, status, and

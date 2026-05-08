@@ -131,6 +131,20 @@ Current adapters are `http`, `tavily`, and `firecrawl`. Future candidates can
 include Exa, Parallel, and a bounded native HTML-to-text fallback only if they
 respect the existing web authority, budget, and metadata contract.
 
+## Current Primitive: Browser And Computer Use Contracts
+
+`browser_*` and `computer_*` are implemented as interactive automation
+contracts before a full provider-backed runtime ships. They are cross-surface
+developer tools, not GUI-only controls and not substitutes for `web_search`.
+
+They exist for cases where source acquisition requires stateful interaction,
+authenticated pages, visual inspection, JavaScript execution, repro capture,
+or desktop automation. Search, fetch, and extraction remain the preferred
+read-only primitives when a task only needs source discovery or page text.
+Future `web_research` may compose interactive browser sessions, but every
+browser or computer action must still route through normal authority,
+approval, audit, artifact, and metadata contracts.
+
 ## Future Capability: `web_research`
 
 `web_research` must not be implemented as a hidden network shortcut.
@@ -141,6 +155,8 @@ It should be a governed composite capability with:
 - search fanout through configured providers or provider-native web tools
 - source ranking and deduplication
 - fetch/extract steps
+- optional browser interaction only when provider-backed primitives cannot
+  obtain the needed source evidence
 - source ledger with citations
 - resource-linked artifacts under `kiln://artifacts/research/...`
 - token, call, time, domain, and provider budgets

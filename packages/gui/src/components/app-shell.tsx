@@ -43,6 +43,7 @@ import {
   Folder,
   History,
   ListChecks,
+  Monitor,
   MessagesSquare,
   Network,
   PanelLeftClose,
@@ -114,12 +115,13 @@ function KilnMark() {
   );
 }
 
-type WorkbenchSurface = "chat" | "work" | "activity" | "memory" | "setup";
+type WorkbenchSurface = "chat" | "browser" | "work" | "activity" | "memory" | "setup";
 type InspectorMode = "workspace" | "changed" | "approvals";
 type MobileDrawerMode = "sessions" | "inspector";
 
 const workbenchSurfaceIcons: Record<WorkbenchSurface, LucideIcon> = {
   chat: MessagesSquare,
+  browser: Monitor,
   work: ListChecks,
   activity: Activity,
   memory: Network,
@@ -227,11 +229,11 @@ function PrimarySidebar(props: {
       </header>
       <nav aria-label="Workbench surfaces" className={cn("border-b border-border/70 p-2", props.collapsed && "px-1")}>
         <div className="flex flex-col gap-1">
-          {(["chat", "work", "activity", "memory", "setup"] as const).map((surface) => (
+          {(["chat", "browser", "work", "activity", "memory", "setup"] as const).map((surface) => (
             <NavButton
               key={surface}
               mode={surface}
-              label={surface === "chat" ? "Chat" : surface === "work" ? "Work" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
+              label={surface === "chat" ? "Chat" : surface === "browser" ? "Browser" : surface === "work" ? "Work" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
               icon={workbenchSurfaceIcons[surface]}
               active={props.activeSurface === surface}
               count={surface === "activity" ? props.activityCount : undefined}
@@ -555,6 +557,7 @@ export function AppShell() {
   const resumeTargetId = useSessionStore((state) => state.resumeTargetId);
   const turnCounter = useSessionStore((state) => state.turnCounter);
   const activityPhase = useSessionStore((state) => state.activityPhase);
+  const interactiveUseSnapshot = useSessionStore((state) => state.interactiveUseSnapshot);
   const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
   const setSender = useSessionStore((state) => state.setSender);
   const setSessionList = useSessionStore((state) => state.setSessionList);
@@ -576,6 +579,7 @@ export function AppShell() {
   const onProviderAuthFailed = useSessionStore((state) => state.onProviderAuthFailed);
   const onExecConfirmed = useSessionStore((state) => state.onExecConfirmed);
   const onActivityPhase = useSessionStore((state) => state.onActivityPhase);
+  const onInteractiveUseUpdated = useSessionStore((state) => state.onInteractiveUseUpdated);
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const sendClear = useSessionStore((state) => state.sendClear);
@@ -752,17 +756,22 @@ export function AppShell() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "5") {
         event.preventDefault();
-        setWorkbenchSurface("work");
+        setWorkbenchSurface("browser");
+        setActiveSurface("browser");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "6") {
         event.preventDefault();
-        setWorkbenchSurface("activity");
+        setWorkbenchSurface("work");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "7") {
         event.preventDefault();
-        setWorkbenchSurface("memory");
+        setWorkbenchSurface("activity");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "8") {
+        event.preventDefault();
+        setWorkbenchSurface("memory");
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "9") {
         event.preventDefault();
         setWorkbenchSurface("setup");
       }
@@ -844,6 +853,11 @@ export function AppShell() {
           setConnectionStatus("running");
         } else if (frame.type === "activity_phase") {
           onActivityPhase(frame);
+        } else if (frame.type === "interactive_use_updated") {
+          onInteractiveUseUpdated(frame);
+          if (frame.snapshot.target === "browser") {
+            setActiveSurface("browser");
+          }
         } else if (frame.type === "memory_lattice_invalidated") {
           setMemoryLatticeInvalidationTick((tick) => tick + 1);
         }
@@ -1206,13 +1220,15 @@ export function AppShell() {
 
   const workbenchTitle = workbenchSurface === "chat"
     ? "Chat"
-    : workbenchSurface === "work"
-      ? "Work"
-      : workbenchSurface === "activity"
-        ? "Activity"
-        : workbenchSurface === "memory"
-          ? "Memory"
-          : "Setup";
+    : workbenchSurface === "browser"
+      ? "Browser"
+      : workbenchSurface === "work"
+        ? "Work"
+        : workbenchSurface === "activity"
+          ? "Activity"
+          : workbenchSurface === "memory"
+            ? "Memory"
+            : "Setup";
   const drawerTitle = mobileDrawerMode === "sessions" ? "Sessions" : "Inspector";
   const drawerAriaLabel = mobileDrawerMode === "sessions" ? "session drawer" : "inspector drawer";
 
@@ -1266,8 +1282,8 @@ export function AppShell() {
             sessionsOpen={sessionPopoverOpen}
             onSelectSurface={(surface) => {
               setWorkbenchSurface(surface);
-              if (surface === "chat") {
-                setActiveSurface("chat");
+              if (surface === "chat" || surface === "browser") {
+                setActiveSurface(surface);
               }
             }}
             onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)}
@@ -1309,10 +1325,10 @@ export function AppShell() {
               <Select
                 value={workbenchSurface}
                 onValueChange={(value) => {
-                  if (value === "chat" || value === "work" || value === "activity" || value === "memory" || value === "setup") {
+                  if (value === "chat" || value === "browser" || value === "work" || value === "activity" || value === "memory" || value === "setup") {
                     setWorkbenchSurface(value);
-                    if (value === "chat") {
-                      setActiveSurface("chat");
+                    if (value === "chat" || value === "browser") {
+                      setActiveSurface(value);
                     }
                   }
                 }}
@@ -1323,6 +1339,7 @@ export function AppShell() {
                 <SelectContent align="start">
                   <SelectGroup>
                     <SelectItem value="chat">Chat</SelectItem>
+                    <SelectItem value="browser">Browser</SelectItem>
                     <SelectItem value="work">Work</SelectItem>
                     <SelectItem value="activity">Activity</SelectItem>
                     <SelectItem value="memory">Memory</SelectItem>
@@ -1348,7 +1365,7 @@ export function AppShell() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-foreground">{workbenchTitle}</p>
                 <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  {workbenchSurface === "chat" ? "conversation" : workbenchSurface === "work" ? "governed work items" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
+                  {workbenchSurface === "chat" ? "conversation" : workbenchSurface === "browser" ? "interactive browser" : workbenchSurface === "work" ? "governed work items" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -1400,7 +1417,7 @@ export function AppShell() {
               />
             </header>
           ) : null}
-          {workbenchSurface === "chat" ? (
+          {workbenchSurface === "chat" || workbenchSurface === "browser" ? (
             <ChatWorkbench
               pendingApprovals={pendingApprovals}
               selectedSessionId={selectedSessionId}
@@ -1413,6 +1430,7 @@ export function AppShell() {
               surfaces={(
           <OperatorSurfaceTabs
             activeSurface={activeSurface}
+            browserSnapshot={interactiveUseSnapshot?.target === "browser" ? interactiveUseSnapshot : null}
             memoryOpen={memorySurfaceOpen}
             files={workspaceDocuments}
             selectedPath={selectedWorkspacePath}
@@ -1420,6 +1438,10 @@ export function AppShell() {
             error={workspaceDocumentError}
             onSelectChat={() => {
               setActiveSurface("chat");
+              setSelectedWorkspacePath(null);
+            }}
+            onSelectBrowser={() => {
+              setActiveSurface("browser");
               setSelectedWorkspacePath(null);
             }}
             onSelectMemory={() => {

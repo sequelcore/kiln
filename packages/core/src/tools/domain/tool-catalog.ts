@@ -162,6 +162,16 @@ function tagsForTool(tool: DevTool): readonly string[] {
   if (tool.name === "web_search" || tool.name === "web_fetch" || tool.name === "web_extract") {
     tags.add("web");
   }
+  if (tool.name.startsWith("browser_")) {
+    tags.add("interactive");
+    tags.add("browser");
+    tags.add("automation");
+  }
+  if (tool.name.startsWith("computer_")) {
+    tags.add("interactive");
+    tags.add("computer");
+    tags.add("automation");
+  }
   if (tool.name === "bash" || tool.name === "git") {
     tags.add("command");
   }

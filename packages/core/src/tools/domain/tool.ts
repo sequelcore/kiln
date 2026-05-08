@@ -7,6 +7,29 @@ const OUTPUT_VERBOSITY_PROPERTY = {
   description: "Controls ToolResult.output shape. raw preserves the compact default, structured returns JSON, summary returns a bounded rollup.",
 } as const;
 
+const INTERACTIVE_SESSION_ID_PROPERTY = {
+  type: "string",
+  description: "Optional interactive-use session id. When omitted, the provider may use the active or default session.",
+} as const;
+
+const INTERACTIVE_TARGET_PROPERTY = {
+  type: "object",
+  properties: {
+    ref: { type: "string", description: "Provider-issued stable element reference." },
+    selector: { type: "string", description: "CSS, UIA, or provider-supported selector. Windows UIA supports forms such as type=button;title=OK or JSON {\"type\":\"button\",\"title\":\"OK\"}." },
+    x: { type: "number", description: "Viewport or screen X coordinate." },
+    y: { type: "number", description: "Viewport or screen Y coordinate." },
+  },
+  additionalProperties: false,
+  description: "Optional target reference. Prefer provider refs, then selectors, then coordinates.",
+} as const;
+
+const INTERACTIVE_TIMEOUT_PROPERTY = {
+  type: "number",
+  description: "Optional provider timeout in milliseconds.",
+  "x-kiln-timeout-unit": "milliseconds",
+} as const;
+
 export type ToolInput = {
   readonly name: string;
   readonly input: Record<string, unknown>;
@@ -111,6 +134,18 @@ export type DevToolName =
   | "web_search"
   | "web_fetch"
   | "web_extract"
+  | "browser_session_start"
+  | "browser_navigate"
+  | "browser_observe"
+  | "browser_click"
+  | "browser_type"
+  | "browser_keypress"
+  | "browser_scroll"
+  | "browser_session_stop"
+  | "computer_observe"
+  | "computer_click"
+  | "computer_type"
+  | "computer_keypress"
   | "grep"
   | "glob"
   | "git"
@@ -502,11 +537,7 @@ export const TOOL_SCHEMAS: Record<
           type: "number",
           description: "Maximum bytes to keep per extracted page.",
         },
-        timeout: {
-          type: "number",
-          description: "Optional provider timeout in milliseconds.",
-          "x-kiln-timeout-unit": "milliseconds",
-        },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["urls"],
@@ -515,6 +546,266 @@ export const TOOL_SCHEMAS: Record<
     annotations: {
       readOnly: true,
       idempotent: true,
+    },
+  },
+  browser_session_start: {
+    name: "browser_session_start",
+    description: "Start or attach to a governed browser automation session. Always pass a JSON object with optional url, viewport, allowedDomains, recordArtifacts, timeout, or verbosity. For one-off tasks, call browser_session_stop before the final answer; runtimes may also close idle sessions automatically.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Optional initial HTTP(S) URL." },
+        viewport: {
+          type: "object",
+          properties: {
+            width: { type: "number" },
+            height: { type: "number" },
+          },
+          required: ["width", "height"],
+          additionalProperties: false,
+          description: "Optional browser viewport size.",
+        },
+        allowedDomains: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional per-session domain allowlist narrowed by runtime policy.",
+        },
+        recordArtifacts: {
+          type: "boolean",
+          description: "When true, request trace/video/screenshot artifacts from the provider.",
+        },
+        headless: {
+          type: "boolean",
+          description: "When false, request a visible browser window from providers that support it. Defaults to provider policy.",
+        },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  browser_navigate: {
+    name: "browser_navigate",
+    description: "Navigate a governed browser session to an allowed HTTP(S) URL.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
+        url: { type: "string", minLength: 1, description: "HTTP(S) URL to open." },
+        timeout: {
+          type: "number",
+          description: "Optional provider timeout in milliseconds.",
+          "x-kiln-timeout-unit": "milliseconds",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  browser_observe: {
+    name: "browser_observe",
+    description: "Capture the current governed browser observation with optional screenshot, DOM, accessibility, console, and network artifact links.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
+        includeScreenshot: { type: "boolean" },
+        includeDom: { type: "boolean" },
+        includeAccessibility: { type: "boolean" },
+        includeConsole: { type: "boolean" },
+        includeNetwork: { type: "boolean" },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  browser_click: {
+    name: "browser_click",
+    description: "Click in a governed browser session by provider ref, selector, or coordinates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
+        target: INTERACTIVE_TARGET_PROPERTY,
+        button: { enum: ["left", "middle", "right"], description: "Mouse button. Defaults to left." },
+        clickCount: { type: "number", description: "Number of clicks. Defaults to 1." },
+        requiresApproval: { type: "boolean", description: "True when the click may be consequential." },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  browser_type: {
+    name: "browser_type",
+    description: "Type text in a governed browser session. Sensitive text is never echoed in metadata.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
+        target: INTERACTIVE_TARGET_PROPERTY,
+        text: { type: "string", description: "Text to type." },
+        sensitive: { type: "boolean", description: "True for credentials, tokens, or private values." },
+        requiresApproval: { type: "boolean", description: "True when typing may be consequential." },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["text"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  browser_keypress: {
+    name: "browser_keypress",
+    description: "Send keyboard keys to a governed browser session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
+        keys: { type: "array", items: { type: "string" }, minItems: 1 },
+        requiresApproval: { type: "boolean" },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["keys"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  browser_scroll: {
+    name: "browser_scroll",
+    description: "Scroll a governed browser session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
+        direction: { enum: ["up", "down", "left", "right"], description: "Scroll direction." },
+        deltaX: { type: "number" },
+        deltaY: { type: "number" },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  browser_session_stop: {
+    name: "browser_session_stop",
+    description: "Stop a governed browser automation session and finalize artifacts. Prefer explicit cleanup before the final answer for one-off browser tasks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
+        reason: { type: "string" },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  computer_observe: {
+    name: "computer_observe",
+    description: "Capture a governed computer observation for an allowed application or window.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        windowTitle: { type: "string", description: "Optional target window title filter." },
+        application: { type: "string", description: "Optional target application name." },
+        includeScreenshot: { type: "boolean" },
+        includeAccessibility: { type: "boolean" },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnly: true,
+      idempotent: true,
+    },
+  },
+  computer_click: {
+    name: "computer_click",
+    description: "Click an allowed computer target by accessibility ref, semantic selector, or screen coordinates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: INTERACTIVE_TARGET_PROPERTY,
+        button: { enum: ["left", "middle", "right"] },
+        clickCount: { type: "number" },
+        requiresApproval: { type: "boolean" },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  computer_type: {
+    name: "computer_type",
+    description: "Type text into an allowed computer target. Sensitive text is never echoed in metadata.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        target: INTERACTIVE_TARGET_PROPERTY,
+        text: { type: "string", description: "Text to type." },
+        sensitive: { type: "boolean" },
+        requiresApproval: { type: "boolean" },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["text"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
+    },
+  },
+  computer_keypress: {
+    name: "computer_keypress",
+    description: "Send keyboard keys to an allowed computer target.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keys: { type: "array", items: { type: "string" }, minItems: 1 },
+        requiresApproval: { type: "boolean" },
+        timeout: INTERACTIVE_TIMEOUT_PROPERTY,
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["keys"],
+      additionalProperties: false,
+    },
+    annotations: {
+      destructive: true,
     },
   },
   grep: {

@@ -27,7 +27,7 @@ import { readKilnYaml } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "./instruction-profile-context.js";
 import { withWorkGovernanceContext } from "./work-governance-context.js";
-import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
+import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
 import { createWorkGovernanceTools } from "./work-governance-tool.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
@@ -104,7 +104,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       undefined,
     );
     const env = buildEnv(wrapperConfig);
-    const configuredBuiltinToolOptions = await loadConfiguredWebToolSurfaceOptions(options.appConfig, cwd, {
+    const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(options.appConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionPolicy: BENCHMARK_POLICY,

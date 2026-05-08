@@ -2,18 +2,19 @@ import { lazy, Suspense } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { OperatorWorkspaceFileSnapshot } from "@kilnai/gateway-contracts";
-import { File, Image, MessageSquare, Network, X } from "lucide-react";
+import type { GuiInteractiveUseSnapshot, OperatorWorkspaceFileSnapshot } from "@kilnai/gateway-contracts";
+import { File, Image, MessageSquare, Monitor, Network, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-export type OperatorSurfaceKind = "chat" | "memory" | "workspace";
+export type OperatorSurfaceKind = "chat" | "browser" | "memory" | "workspace";
 
 interface OperatorSurfaceTabsProps {
   readonly activeSurface: OperatorSurfaceKind;
   readonly chatContent: ReactNode;
+  readonly browserSnapshot?: GuiInteractiveUseSnapshot | null;
   readonly memoryContent: ReactNode;
   readonly memoryOpen: boolean;
   readonly files: readonly OperatorWorkspaceFileSnapshot[];
@@ -21,6 +22,7 @@ interface OperatorSurfaceTabsProps {
   readonly loadingPath: string | null;
   readonly error: string | null;
   readonly onSelectChat: () => void;
+  readonly onSelectBrowser?: () => void;
   readonly onSelectMemory: () => void;
   readonly onCloseMemory: () => void;
   readonly onSelectFile: (path: string) => void;
@@ -28,6 +30,7 @@ interface OperatorSurfaceTabsProps {
 }
 
 const CHAT_TAB_VALUE = "__kiln_chat__";
+const BROWSER_TAB_VALUE = "__kiln_browser__";
 const MEMORY_TAB_VALUE = "__kiln_memory_lattice__";
 
 const WorkspaceCodeHighlighter = lazy(async () => {
@@ -202,20 +205,67 @@ function FilePreview(props: { readonly file: OperatorWorkspaceFileSnapshot }) {
   );
 }
 
+function BrowserUsePanel(props: { readonly snapshot: GuiInteractiveUseSnapshot }) {
+  const label = props.snapshot.title ?? props.snapshot.url ?? props.snapshot.sessionId ?? "Browser";
+  return (
+    <section aria-label="Browser use" className="flex h-full min-h-0 flex-col bg-workspace-viewer">
+      <header className="flex min-h-12 min-w-0 items-center gap-3 border-b border-border/60 bg-workspace-viewer-panel px-4">
+        <Monitor className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{label}</p>
+          {props.snapshot.url ? (
+            <p className="truncate font-mono text-[10.5px] text-muted-foreground">{props.snapshot.url}</p>
+          ) : null}
+        </div>
+        <span className="shrink-0 rounded border border-border/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+          {props.snapshot.status}
+        </span>
+      </header>
+      <div className="min-h-0 flex-1 overflow-auto bg-workspace-viewer p-4">
+        {props.snapshot.screenshotDataUrl ? (
+          <div className="grid min-h-full place-items-center">
+            <img
+              src={props.snapshot.screenshotDataUrl}
+              alt={`Browser screenshot for ${label}`}
+              className="max-h-full max-w-full rounded-md border border-border/70 bg-background object-contain shadow-sm"
+            />
+          </div>
+        ) : (
+          <div className="grid h-full place-items-center text-center">
+            <div>
+              <Monitor className="mx-auto size-7 text-muted-foreground" aria-hidden="true" />
+              <p className="mt-3 text-sm text-muted-foreground">No browser screenshot has been captured yet.</p>
+              {props.snapshot.screenshotUri ? (
+                <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{props.snapshot.screenshotUri}</p>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
   const selectedFile = props.selectedPath ? props.files.find((file) => file.path === props.selectedPath) ?? null : null;
   const pendingPath = props.selectedPath && props.loadingPath === props.selectedPath && !selectedFile ? props.selectedPath : null;
   const transientPath = pendingPath ?? (props.selectedPath && !selectedFile ? props.selectedPath : null);
   const selectedValue = props.activeSurface === "memory" && props.memoryOpen
     ? MEMORY_TAB_VALUE
+    : props.activeSurface === "browser" && props.browserSnapshot
+      ? BROWSER_TAB_VALUE
     : props.activeSurface === "workspace" && props.selectedPath
       ? props.selectedPath
       : CHAT_TAB_VALUE;
-  const hasTabAlternatives = props.memoryOpen || props.files.length > 0 || Boolean(transientPath);
+  const hasTabAlternatives = props.memoryOpen || Boolean(props.browserSnapshot) || props.files.length > 0 || Boolean(transientPath);
 
   function handleTabChange(value: unknown) {
     if (value === CHAT_TAB_VALUE) {
       props.onSelectChat();
+      return;
+    }
+    if (value === BROWSER_TAB_VALUE && props.browserSnapshot) {
+      props.onSelectBrowser?.();
       return;
     }
     if (value === MEMORY_TAB_VALUE && props.memoryOpen) {
@@ -267,6 +317,12 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
             <MessageSquare data-icon="inline-start" />
             Chat
           </TabsTrigger>
+          {props.browserSnapshot ? (
+            <TabsTrigger value={BROWSER_TAB_VALUE} className="h-8 flex-none px-3">
+              <Monitor data-icon="inline-start" />
+              Browser
+            </TabsTrigger>
+          ) : null}
           {props.memoryOpen ? (
             <div
               className={cn(
@@ -337,6 +393,11 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
       <TabsContent value={CHAT_TAB_VALUE} keepMounted className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
         {props.chatContent}
       </TabsContent>
+      {props.browserSnapshot ? (
+        <TabsContent value={BROWSER_TAB_VALUE} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
+          <BrowserUsePanel snapshot={props.browserSnapshot} />
+        </TabsContent>
+      ) : null}
       {props.memoryOpen ? (
         <TabsContent value={MEMORY_TAB_VALUE} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
           {props.memoryContent}

@@ -8,6 +8,7 @@ import type {
   KilnYamlMcp,
   KilnYamlMcpServer,
   KilnYamlWebConfig,
+  KilnYamlInteractiveUseConfig,
   KilnYamlSkillsConfig,
   KilnYamlBuiltinSkillsConfig,
   KilnWorkGovernanceConfig,
@@ -44,6 +45,7 @@ export type {
   KilnModelTaskSuitabilityLevel,
   KilnModelTaskSuitabilityTask,
   KilnYamlWebConfig,
+  KilnYamlInteractiveUseConfig,
   KilnManagedAgentsConfig,
   KilnHooksConfig,
 } from "./kiln-yaml-types.js";
@@ -98,6 +100,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     managedAgents: override.managedAgents ?? base.managedAgents,
     modelTaskSuitability: mergeModelTaskSuitability(base.modelTaskSuitability, override.modelTaskSuitability),
     web: mergeWeb(base.web, override.web),
+    interactiveUse: mergeInteractiveUse(base.interactiveUse, override.interactiveUse),
     skills: mergeSkills(base.skills, override.skills),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,
@@ -164,6 +167,23 @@ function mergeWeb(
     searchProvider: override?.searchProvider ?? base?.searchProvider,
     extractProvider: override?.extractProvider ?? base?.extractProvider,
     allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
+  };
+}
+
+function mergeInteractiveUse(
+  base: KilnYamlInteractiveUseConfig | undefined,
+  override: KilnYamlInteractiveUseConfig | undefined,
+): KilnYamlInteractiveUseConfig | undefined {
+  if (!base && !override) return undefined;
+  const browserEnvironment = override?.browserEnvironment ?? base?.browserEnvironment;
+  const computerEnvironment = override?.computerEnvironment ?? base?.computerEnvironment;
+  return {
+    ...base,
+    ...override,
+    allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
+    allowedApplications: override?.allowedApplications ?? base?.allowedApplications,
+    ...(browserEnvironment ? { browserEnvironment } : {}),
+    ...(computerEnvironment ? { computerEnvironment } : {}),
   };
 }
 

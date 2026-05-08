@@ -209,6 +209,29 @@ describe("operator event presentation", () => {
     expect(completed.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
   });
 
+  it("marks completed tool events as failed when the tool result envelope is an error", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "computer_observe",
+      outputSummary: JSON.stringify({
+        output: "Computer automation denied for active application 'msedge'.",
+        isError: true,
+        metadata: {
+          toolName: "computer_observe",
+          kind: "interactive",
+          operation: "observe",
+          provider: "windows-uia",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.title).toBe("Failed computer_observe");
+    expect(presentation.tone).toBe("error");
+    expect(presentation.details).toContainEqual({ label: "Status", value: "failed" });
+    expect(presentation.summary).toBe("Computer automation denied for active application 'msedge'.");
+  });
+
   it("projects validated presentation intents from tool result envelopes", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   GuiInboundFrame,
+  GuiInteractiveUseSnapshot,
   GuiOutboundFrame,
   GuiProviderCatalogStatus,
   GuiProviderDiscoveryResult,
@@ -278,6 +279,16 @@ function toolEntryStatus(value: unknown): ToolCallStatus {
     return "error";
   }
   return "running";
+}
+
+function toolEntryStatusFromPresentation(value: unknown, tone: TimelineEventEntry["tone"]): ToolCallStatus {
+  if (tone === "error") {
+    return "error";
+  }
+  if (tone === "success") {
+    return "success";
+  }
+  return toolEntryStatus(value);
 }
 
 function approvalIdFromDetails(details: unknown): string | null {
@@ -563,7 +574,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         toolName,
         input: toolCalls.get(toolCallId)?.input ?? {},
         result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
-        status: toolEntryStatus(status?.state),
+        status: toolEntryStatusFromPresentation(status?.state, presentation.tone),
         startedAt: toolCalls.get(toolCallId)?.startedAt ?? event.timestamp,
         completedAt: event.timestamp,
       });
@@ -584,7 +595,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
           toolName,
           input: toolCalls.get(toolCallId)?.input ?? {},
           result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
-          status: status?.state,
+          status: presentation.tone === "error" ? "failed" : status?.state,
         },
       });
       continue;
@@ -980,7 +991,7 @@ export function deriveToolCallLog(entries: readonly TimelineEntry[]): readonly T
         toolName: toolNameFromDetails(details, entry.title, previous?.toolName),
         input: isObjectRecord(details?.input) ? details.input : previous?.input ?? {},
         result: readString(details?.result) ?? entry.summary ?? undefined,
-        status: toolEntryStatus(details?.status) === "running" ? "error" : toolEntryStatus(details?.status),
+        status: toolEntryStatusFromPresentation(details?.status, entry.tone) === "running" ? "error" : toolEntryStatusFromPresentation(details?.status, entry.tone),
         startedAt: previous?.startedAt ?? entry.createdAt,
         completedAt: entry.createdAt,
       });
@@ -1278,6 +1289,7 @@ interface SessionStoreState {
   readonly providerAuthDetails: ProviderAuthDetails | null;
   readonly providerExplicitSelection: boolean;
   readonly authorityStatus: AuthorityStatus | null;
+  readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -1325,6 +1337,7 @@ interface SessionStoreActions {
   setPlanMode: (enabled: boolean) => void;
   setResume: (sessionId: string | null) => void;
   disconnect: () => void;
+  onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
   sendApprovalResponse: (approved: boolean, reason: string | undefined, approvalId: string) => boolean;
 }
@@ -1371,6 +1384,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   providerAuthDetails: null,
   providerExplicitSelection: false,
   authorityStatus: null,
+  interactiveUseSnapshot: null,
   outboundSend: null,
   clearTimeoutId: null,
   providerSwitchTimeoutId: null,
@@ -1421,6 +1435,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentAssistant: null,
       activity: null,
       activityPhase: "idle",
+      interactiveUseSnapshot: null,
       errorBanner: null,
       sessionCostUsd: 0,
       inputTokens: 0,
@@ -1682,7 +1697,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               toolName: readString(payload.toolName) ?? "tool",
               input: priorInput,
               result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
-              status: status?.state,
+              status: presentation.tone === "error" ? "failed" : status?.state,
             },
           },
         ],
@@ -2294,6 +2309,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
+      interactiveUseSnapshot: null,
       sessionCostUsd: 0,
       inputTokens: 0,
       outputTokens: 0,
@@ -2751,6 +2767,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       status: "idle",
       activity: null,
       activityPhase: "idle",
+      interactiveUseSnapshot: null,
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
@@ -2764,6 +2781,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerAuthMessage: null,
       providerAuthDetails: null,
       providerAuthTimeoutId: null,
+    });
+  },
+
+  onInteractiveUseUpdated: (frame) => {
+    const state = get();
+    const kilnSessionId = frame.snapshot.kilnSessionId;
+    if (kilnSessionId && !shouldApplySessionScopedFrame(state, kilnSessionId)) {
+      return;
+    }
+    set({
+      interactiveUseSnapshot: frame.snapshot,
     });
   },
 

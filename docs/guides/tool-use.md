@@ -382,7 +382,7 @@ export interface DevTool {
 }
 ```
 
-The twenty-nine built-in tool names are:
+The forty-one built-in tool names are:
 
 - `bash`
 - `read`
@@ -397,6 +397,18 @@ The twenty-nine built-in tool names are:
 - `web_search`
 - `web_fetch`
 - `web_extract`
+- `browser_session_start`
+- `browser_navigate`
+- `browser_observe`
+- `browser_click`
+- `browser_type`
+- `browser_keypress`
+- `browser_scroll`
+- `browser_session_stop`
+- `computer_observe`
+- `computer_click`
+- `computer_type`
+- `computer_keypress`
 - `grep`
 - `glob`
 - `git`
@@ -452,8 +464,8 @@ Builtin developer tools return one core-owned metadata contract from
 Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
-- `kind`: `command`, `file`, `inspection`, `media`, `web`, `search`,
-  `monitor`, `task_state`, or `elicitation`
+- `kind`: `command`, `file`, `inspection`, `media`, `web`, `interactive`,
+  `search`, `monitor`, `task_state`, or `elicitation`
 - optional `resourceLinks`: artifact-backed resources for large or truncated
   high-volume outputs
 
@@ -487,6 +499,15 @@ redirect chain, truncation, errors, and requested verbosity. `web_extract`
 reports requested URLs, format, extraction provider, extracted page evidence,
 bytes, truncation, errors, and requested verbosity. Web metadata is
 external-source evidence, not workspace search or file-change evidence.
+
+Interactive metadata covers `browser_*` and `computer_*`. Browser metadata can
+report session id, URL, title, visible text, screenshot/artifact URI, action
+coordinates or selectors, keys, scroll deltas, timeout, provider, sensitivity,
+and approval hints. Computer metadata can report window title, app name,
+screenshot/artifact URI, coordinates, keys, timeout, and provider. Type actions
+record text length and sensitivity, never the typed text. Observation tools are
+read-only orientation evidence; action tools are governed automation actions,
+not file-change evidence.
 
 Monitor metadata covers `monitor_start`, `monitor_read`, `monitor_stop`, and
 `monitor_list`. It reports monitor ids, command/cwd ownership, status, timeout,
@@ -588,9 +609,122 @@ download artifacts plus PDF text extraction or OCR.
 
 `web_search`, `web_fetch`, and `web_extract` remain primitives. Governed
 multi-source research will be implemented as a higher-level capability over
-search, fetch, extraction,
-artifacts, citations, and budgets; its architecture lives in
+search, fetch, extraction, optional browser interaction, artifacts, citations,
+and budgets; its architecture lives in
 [`Controlled Web Research`](../architecture/controlled-web-research.md).
+
+Browser and computer use tools fail closed unless the runtime injects an
+interactive-use provider. They are cross-surface developer tools: GUI can show
+a live browser tab or cursor stream, while CLI, TUI, SDK, and MCP consumers
+receive the same tool contracts and artifact/resource evidence.
+
+Project-scoped interactive authority is configured under
+`interactiveUse`:
+
+```yaml
+# .kiln/kiln.yaml
+interactiveUse:
+  enabled: true
+  browserProvider: playwright
+  browserEnvironment: isolated-headless
+  allowedDomains:
+    - app.example.com
+  allowComputer: true
+  computerProvider: windows-uia
+  computerEnvironment: local-active-desktop
+  allowedApplications:
+    - Calculator
+    - Chrome
+```
+
+`allowedDomains` scopes browser automation. `browserEnvironment:
+isolated-headless` runs Playwright in the background and prevents the prompt
+from opening a visible browser window. Use `isolated-headed` only when you
+explicitly want a visible debugging window. `allowExternalBrowser: true` is
+required before an adapter can attach to an operator-controlled browser instead
+of an isolated project session.
+
+`allowComputer: true`, `allowedApplications`, and `computerEnvironment:
+local-active-desktop` scope desktop automation. Local Windows computer control
+uses the current interactive desktop; it is not a hidden background desktop.
+Use browser automation for background web tasks, and add a future remote/VM
+computer provider when full background desktop automation is required. Run
+`kiln status` to inspect this configuration without launching a browser or
+observing the desktop.
+
+The same policy can be edited through `kiln config set` without hand-editing
+YAML:
+
+```bash
+kiln config set interactiveUse.enabled true
+kiln config set interactiveUse.browserProvider playwright
+kiln config set interactiveUse.browserEnvironment isolated-headless
+kiln config set interactiveUse.allowedDomains example.com,docs.example.com
+kiln config set interactiveUse.allowComputer true
+kiln config set interactiveUse.computerProvider windows-uia
+kiln config set interactiveUse.computerEnvironment local-active-desktop
+kiln config set interactiveUse.allowedApplications Calculator,msedge
+```
+
+The runtime Playwright provider is optional. Runtime hosts that enable
+`browserProvider: playwright` must install Playwright and a Chromium browser:
+
+```bash
+bun add -d playwright
+bun x playwright install chromium
+```
+
+On Windows+Bun, Kiln runs Playwright through a persistent Node sidecar because
+Chromium launch can hang under Bun while the same Playwright call succeeds
+under Node. Operators do not need to start that sidecar manually; `node` must be
+available on PATH for the browser provider.
+
+Screenshot observations are artifact-backed. A provider may capture an internal
+data URL, but the shared tool layer writes it to
+`kiln://artifacts/interactive-screenshots/.../content` when the session artifact
+store is available, and transcript metadata keeps the URI instead of the base64
+payload. Agents should call `browser_session_stop` when a one-off browser task
+is finished; Playwright sessions also have an idle cleanup backstop if the stop
+call is missed. On Windows+Bun, the Node sidecar exits once all browser
+sessions are closed and restarts on demand.
+
+Windows computer providers are also optional. Runtime hosts that enable
+`computerProvider: windows` must install the low-level desktop automation peer:
+
+```bash
+bun add -d @nut-tree/nut-js
+```
+
+Runtime hosts that enable `computerProvider: windows-uia` must build Kiln's
+Microsoft UI Automation sidecar on Windows:
+
+```bash
+packages\runtime\native\windows-uia\build.cmd
+```
+
+If the executable is stored outside the default runtime package path, set
+`KILN_WINDOWS_UIA_HELPER` to the full `kiln-windows-uia.exe` path before
+starting the runtime host.
+
+Kiln still requires `allowComputer: true` and at least one
+`allowedApplications` entry before computer tools can execute. Provider
+authority comes from trusted runtime observation. The model's `application`
+input is not accepted as allowlist evidence.
+
+Use `windows-uia` when the target exposes useful accessibility metadata and you
+want stable semantic selectors such as `type=button;title=OK` or JSON
+`{"type":"button","title":"OK"}`. Use `windows` when the task needs physical
+pointer or keyboard actions by coordinates.
+
+Live smoke prompts for `windows-uia`:
+
+```text
+Observe the current Windows desktop with accessibility details and tell me the active application, window title, and visible UI controls.
+```
+
+```text
+In the active Calculator window, click the UIA target type=button;title=One.
+```
 
 ### Tool reference
 
@@ -609,6 +743,18 @@ artifacts, citations, and budgets; its architecture lives in
 | `web_search` | Search the web through the configured provider | `query`, `domains`, `recencyDays`, `maxResults`, `verbosity` | default configuration fails closed; configured providers return ranked sources; metadata includes provider, query, domains, recency, result count, sources, errors, and `verbosity` |
 | `web_fetch` | Fetch and sanitize allowed HTTP(S) text content | `url`, `maxBytes`, `timeout`, `verbosity` | default configuration requires explicit network policy; output is sanitized text, JSON, or summary; metadata includes source/final URL, status, content type, bytes read, redirect chain, truncation, errors, and `verbosity` |
 | `web_extract` | Extract readable text or markdown from allowed HTTP(S) URLs through the configured provider | `urls`, `format`, `maxBytes`, `timeout`, `verbosity` | default configuration requires explicit network policy and an extract provider; output is page text, JSON, or summary; metadata includes requested URLs, format, provider, page evidence, bytes read, truncation, errors, and `verbosity` |
+| `browser_session_start` | Start or attach an isolated browser automation session | `sessionId`, `url`, `headless`, `timeout`, `verbosity` | default configuration fails closed; configured providers return session and observation evidence; `headless:false` is rejected unless `interactiveUse.browserEnvironment` is `isolated-headed`; metadata includes target, operation, provider, session id, timeout, and artifacts |
+| `browser_navigate` | Navigate a browser session to a URL | `url`, `sessionId`, `timeout`, `verbosity` | metadata includes URL, provider, session id, timeout, and observation evidence such as final URL, title, and screenshot/artifact URI |
+| `browser_observe` | Observe the current browser session state | `sessionId`, `includeScreenshot`, `verbosity` | read-only/idempotent observation evidence; metadata may include URL, title, visible text, screenshot/artifact URI, and provider |
+| `browser_click` | Click in a browser session by selector or coordinates | `sessionId`, `selector`, `x`, `y`, `button`, `timeout`, `verbosity` | governed action evidence; metadata records selector/coordinates, provider, session id, timeout, and resulting observation |
+| `browser_type` | Type text into the active browser target | `sessionId`, `text`, `sensitive`, `timeout`, `verbosity` | governed action evidence; metadata records text length and sensitivity without echoing text |
+| `browser_keypress` | Send key presses to the browser session | `sessionId`, `keys`, `timeout`, `verbosity` | governed action evidence; metadata records key names, provider, session id, timeout, and observation |
+| `browser_scroll` | Scroll a browser session | `sessionId`, `deltaX`, `deltaY`, `timeout`, `verbosity` | governed action evidence; metadata records scroll deltas, provider, session id, timeout, and observation |
+| `browser_session_stop` | Stop a browser automation session | `sessionId`, `reason`, `verbosity` | governed lifecycle evidence; metadata records session id, provider, operation, and stop reason |
+| `computer_observe` | Observe governed desktop state | `windowTitle`, `includeScreenshot`, `includeAccessibility`, `verbosity` | read-only/idempotent observation evidence; metadata may include app name, window title, accessibility text, screenshot/artifact URI, and provider |
+| `computer_click` | Click in the governed desktop surface | `target`, `button`, `timeout`, `verbosity` | governed action evidence; metadata records selector/ref or coordinates, button, provider, timeout, and observation; `windows-uia` requires semantic selectors/refs |
+| `computer_type` | Type text into the governed desktop surface | `text`, `sensitive`, `timeout`, `verbosity` | governed action evidence; metadata records text length and sensitivity without echoing text |
+| `computer_keypress` | Send key presses to the governed desktop surface | `keys`, `timeout`, `verbosity` | governed action evidence; metadata records key names, provider, timeout, and observation |
 | `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
 | `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
@@ -653,6 +799,7 @@ The built-in executors are intentionally small and predictable:
 - `WebSearchTool` validates query, domain, recency, and result-count controls, intersects domains with sandbox network policy, calls an injected provider, and fails closed when no provider is configured.
 - `WebFetchTool` validates HTTP(S) URLs, rejects private/local hosts, requires explicit network policy, validates redirect hops, caps bytes, checks supported text content types, sanitizes returned text, and supports raw, structured, or summary output.
 - `WebExtractTool` validates one or more HTTP(S) URLs against the active network policy, calls an injected extraction provider, caps bytes per page, sanitizes extracted text or markdown, emits page evidence, and fails closed when no provider is configured.
+- `Browser*Tool` and `Computer*Tool` validate the shared interactive-use schema, fail closed when no provider is configured, delegate actual automation to an injected provider, and emit shared `interactive` metadata without echoing sensitive typed text.
 - `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`; `outputMode` controls match shape while `verbosity` controls result shape.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers; it can return raw path lists, structured JSON matches, or a summary.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.

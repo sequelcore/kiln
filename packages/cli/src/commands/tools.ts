@@ -5,7 +5,7 @@ import {
   projectToolResourceDescriptor,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
-import { loadConfiguredWebToolSurfaceOptions } from "../config/web-tools-config.js";
+import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 
 export interface ToolsCommandFlags {
   readonly mcp?: boolean;
@@ -29,8 +29,8 @@ export async function toolsCommand(
     }
     : undefined;
   const surfaceOptions = memoryAuthority
-    ? await loadConfiguredWebToolSurfaceOptions(_appConfig, process.cwd(), { memoryAuthority })
-    : await loadConfiguredWebToolSurfaceOptions(_appConfig, process.cwd());
+    ? await loadConfiguredBuiltinToolSurfaceOptions(_appConfig, process.cwd(), { memoryAuthority })
+    : await loadConfiguredBuiltinToolSurfaceOptions(_appConfig, process.cwd());
   const surface = createDefaultBuiltinToolSurface(surfaceOptions);
 
   if (flags.resources) {
