@@ -61,20 +61,19 @@ it is treated as governed research, not autonomous vulnerability hunting.
   executes pass^k over a versioned dataset, applies supplied scorers, stores
   full consistency evidence in the artifact resource plane, and emits
   `BenchmarkBaselineResult`.
+- 2026-05-08: added `kiln benchmark run-internal`, structural benchmark
+  scorers, and a CLI/runtime adapter that executes benchmark items through
+  normal Kiln runtime sessions while capturing tool, route, cost, latency, and
+  policy evidence.
 
 ## Remaining Slices
 
-1. Wire a CLI/runtime adapter for `BenchmarkBaselineRunner` that executes each
-   item through normal Kiln runtime sessions, captures transcript/tool metadata,
-   computes effective config hashes, and writes durable benchmark artifacts.
-   The current core runner is canonical, but the CLI readiness command still
-   consumes result files rather than executing model calls.
-2. Implement the first external adapter. Recommended order:
+1. Implement the first external adapter. Recommended order:
    - BFCL first for tool/function-call correctness.
    - AgentDojo second for indirect prompt-injection safety.
    - tau-style workflows third for pass^k tool-agent-user reliability.
-3. Add public report generation from stored benchmark artifacts.
-4. Decide whether any coding benchmark track is acceptable. SWE-bench-style
+2. Add public report generation from stored benchmark artifacts.
+3. Decide whether any coding benchmark track is acceptable. SWE-bench-style
    tracks need extra scrutiny because current public SWE benchmarks have known
    saturation, leakage, and test-quality concerns.
 

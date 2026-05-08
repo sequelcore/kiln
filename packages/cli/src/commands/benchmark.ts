@@ -1,16 +1,31 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
+  BenchmarkBaselineRunner,
   KILN_BENCHMARK_PROFILES,
   KILN_EXTERNAL_BENCHMARK_TRACKS,
+  MemoryArtifactResourceStore,
+  createBenchmarkProfileScorers,
   evaluateBenchmarkReadiness,
+  parseDatasetJsonl,
   type BenchmarkBaselineResult,
+  type BenchmarkItemExecutor,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
+import { createBenchmarkSessionExecutor, type BenchmarkSessionExecutorFlags } from "../application/benchmark-session-executor.js";
+
+export interface BenchmarkCommandDependencies {
+  readonly executeItem?: BenchmarkItemExecutor;
+  readonly now?: () => Date;
+}
 
 export async function benchmarkCommand(
-  _config: KilnAppConfig,
+  config: KilnAppConfig,
   subcommand: string | undefined,
   args: readonly string[],
+  dependencies: BenchmarkCommandDependencies = {},
 ): Promise<void> {
   switch (subcommand) {
     case "profiles":
@@ -24,13 +39,16 @@ export async function benchmarkCommand(
         baselines: readBaselines(args),
       }));
       return;
+    case "run-internal":
+      await runInternalBenchmark(config, args, dependencies);
+      return;
     case "--help":
     case "-h":
     case undefined:
       printHelp();
       return;
     default:
-      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, or readiness.`);
+      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, or run-internal.`);
   }
 }
 
@@ -40,10 +58,65 @@ function printHelp(): void {
     "  kiln benchmark profiles",
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>]",
     "",
     "The readiness command expects a JSON file containing either an array of",
     "BenchmarkBaselineResult entries or an object with a baselines array.",
   ].join("\n"));
+}
+
+async function runInternalBenchmark(
+  config: KilnAppConfig,
+  args: readonly string[],
+  dependencies: BenchmarkCommandDependencies,
+): Promise<void> {
+  const profileId = readFlag(args, "--profile");
+  if (!profileId) {
+    throw new Error("benchmark run-internal requires --profile <id>.");
+  }
+  const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === profileId);
+  if (!profile) {
+    throw new Error(`Unknown benchmark profile '${profileId}'.`);
+  }
+  const datasetPath = readFlag(args, "--dataset") ?? defaultDatasetPath(profile.id);
+  const datasetContent = readFileSync(datasetPath, "utf-8");
+  const dataset = parseDatasetJsonl(datasetNameFromPath(datasetPath), datasetContent);
+  const k = parsePositiveInteger(readFlag(args, "--k") ?? String(profile.minimumK), "--k");
+  const outputPath = readFlag(args, "--output") ?? defaultOutputPath(profile.id, dependencies.now?.() ?? new Date());
+  const executor = dependencies.executeItem ?? createBenchmarkSessionExecutor({
+    appConfig: config,
+    flags: readExecutorFlags(args),
+  });
+  const runner = new BenchmarkBaselineRunner({
+    profile,
+    dataset,
+    datasetVersion: datasetVersionFromPath(datasetPath),
+    k,
+    configHash: computeConfigHash({
+      profile,
+      datasetName: dataset.name,
+      datasetVersion: datasetVersionFromPath(datasetPath),
+      provider: readFlag(args, "--provider"),
+      model: readFlag(args, "--model"),
+      scorerNames: profile.requiredScorers,
+    }),
+    scorers: createBenchmarkProfileScorers(profile),
+    artifactStore: new MemoryArtifactResourceStore(),
+    executeItem: executor,
+  });
+  const result = await runner.run();
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, JSON.stringify({
+    baselines: [result.baseline],
+    baseline: result.baseline,
+    consistency: result.consistency,
+    artifactUris: result.artifactUris,
+  }, null, 2), "utf-8");
+  printJson({
+    outputPath,
+    baseline: result.baseline,
+    readiness: evaluateBenchmarkReadiness({ baselines: [result.baseline] }),
+  });
 }
 
 function readBaselines(args: readonly string[]): readonly BenchmarkBaselineResult[] {
@@ -105,6 +178,59 @@ function requireStringArray(value: unknown, field: string): readonly string[] {
 function readFlag(args: readonly string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
   return index >= 0 ? args[index + 1] : undefined;
+}
+
+function readExecutorFlags(args: readonly string[]): BenchmarkSessionExecutorFlags {
+  return {
+    provider: readFlag(args, "--provider"),
+    model: readFlag(args, "--model"),
+    apiKey: readFlag(args, "--api-key"),
+    skipGitRepoCheck: args.includes("--skip-git-repo-check"),
+  };
+}
+
+function parsePositiveInteger(value: string, flag: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${flag} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function defaultDatasetPath(profileId: string): string {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  return join(currentDir, "..", "..", "..", "core", "evals", "benchmark", `${profileId}-v1.jsonl`);
+}
+
+function datasetNameFromPath(path: string): string {
+  return path.replace(/\\/gu, "/").split("/").pop()?.replace(/\.jsonl$/u, "") ?? "benchmark-dataset";
+}
+
+function datasetVersionFromPath(path: string): string {
+  const name = datasetNameFromPath(path);
+  return name.match(/-v(\d+)$/u)?.[1] ?? "1";
+}
+
+function defaultOutputPath(profileId: string, now: Date): string {
+  const stamp = now.toISOString().replace(/[:.]/gu, "-");
+  return join(process.cwd(), ".kiln", "benchmarks", `${profileId}-${stamp}.json`);
+}
+
+function computeConfigHash(value: unknown): string {
+  return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right, "en"))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function printJson(value: unknown): void {

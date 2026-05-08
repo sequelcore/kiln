@@ -26,7 +26,7 @@ Requirements:
 
 export type SessionEvent =
   | { readonly type: "text_delta"; readonly content: string }
-  | { readonly type: "tool_use"; readonly toolName: string }
+  | { readonly type: "tool_use"; readonly toolName: string; readonly input?: unknown }
   | { readonly type: "tool_result" };
 
 export interface PersistedTranscriptEvent {

@@ -58,6 +58,8 @@ export interface RunSessionResult {
   readonly sessionSucceeded: boolean;
   readonly lastError: string | null;
   readonly accumulatedText: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
   readonly toolCallCount: number;
   readonly turnDepth: number;
   readonly successfulProviderId?: ProviderId;
@@ -88,6 +90,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let sessionSucceeded = false;
   let lastError: string | null = null;
   let accumulatedText = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
   let toolCallCount = 0;
   let turnDepth = 0;
   let successfulProviderId: ProviderId | undefined;
@@ -282,7 +286,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
-              event: { type: "tool_use", toolName: event.toolName },
+              event: { type: "tool_use", toolName: event.toolName, input: event.input },
             });
             if (event.toolName === "submit_plan") {
               const submitted = extractPlanFromToolInput(event.input);
@@ -311,6 +315,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
           }
           case "cost_update": {
             finalCostUsd = event.usd;
+            inputTokens = event.inputTokens ?? inputTokens;
+            outputTokens = event.outputTokens ?? outputTokens;
             options.manager.trackCostUpdate(
               event.inputTokens ?? 0,
               event.outputTokens ?? 0,
@@ -381,6 +387,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     sessionSucceeded,
     lastError,
     accumulatedText,
+    inputTokens,
+    outputTokens,
     toolCallCount,
     turnDepth,
     successfulProviderId,

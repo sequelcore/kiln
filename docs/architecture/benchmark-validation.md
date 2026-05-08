@@ -62,6 +62,14 @@ exists for the exact profile id and version and includes:
 Missing evidence blocks readiness. This is intentionally stricter than ordinary
 development evals because public benchmark claims must survive replay and audit.
 
+Internal baseline execution uses `BenchmarkBaselineRunner` plus the normal Kiln
+runtime session path. The runner owns pass^k, scorer application, and artifact
+emission; the CLI/runtime adapter owns provider routing, context projection,
+tool metadata capture, and config hashing. Internal baseline scorers are
+structural evidence checks, not hidden LLM judges: they score only Kiln-observed
+evidence such as tool calls, route identity, handoff output, policy violations,
+latency, and cost.
+
 ## External Track Gate
 
 External tracks are candidates until an adapter exists. Candidate tracks still

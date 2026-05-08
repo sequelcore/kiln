@@ -273,10 +273,17 @@ The CLI exposes the same read-only contract:
 kiln benchmark profiles
 kiln benchmark tracks
 kiln benchmark readiness --baseline ./evals/kiln-baseline.json
+kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
 ```
 
 The baseline file may be an array of `BenchmarkBaselineResult` records or an
 object with a `baselines` array.
+
+`kiln benchmark run-internal` executes the selected internal seed dataset
+through normal Kiln runtime sessions. It uses structural benchmark scorers that
+consume Kiln evidence such as tool calls, routing identity, handoff output,
+policy violations, latency, and cost. These internal scores are gates for
+adapter readiness; they are not public external benchmark submissions.
 
 ## Metadata in Eval
 

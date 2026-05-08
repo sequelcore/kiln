@@ -45,6 +45,7 @@ export {
   KILN_EXTERNAL_BENCHMARK_TRACKS,
   evaluateBenchmarkReadiness,
 } from "./benchmark-baseline.js";
+export { createBenchmarkProfileScorers } from "./benchmark-scorers.js";
 export type {
   BenchmarkBaselineResult,
   BenchmarkProfile,

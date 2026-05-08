@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,5 +77,55 @@ describe("benchmarkCommand", () => {
     await expect(benchmarkCommand(MOCK_APP_CONFIG, "readiness", [])).rejects.toThrow(
       "benchmark readiness requires --baseline <path>.",
     );
+  });
+
+  it("runs an internal benchmark profile through the supplied session executor", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    const outputPath = join(root, "baseline.json");
+    writeFileSync(
+      datasetPath,
+      [
+        JSON.stringify({
+          id: "tool-call",
+          input: "Call status.",
+          expected: "status",
+          metadata: {
+            expectedAgentId: "kiln-tool-agent",
+            expectedToolCalls: [{ name: "status" }],
+          },
+        }),
+      ].join("\n"),
+      "utf-8",
+    );
+
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1", "--output", outputPath],
+      {
+        now: () => new Date("2026-05-08T12:00:00.000Z"),
+        executeItem: async (_input, context) => ({
+          output: `completed ${context.item.id}`,
+          durationMs: 10,
+          costUsd: 0.01,
+          inputTokens: 5,
+          outputTokens: 3,
+          metadata: {
+            activeAgentId: context.profile.id,
+            toolCalls: [{ name: "status" }],
+          },
+        }),
+      },
+    );
+
+    expect(existsSync(outputPath)).toBe(true);
+    const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
+      readonly baseline: { readonly profileId: string; readonly k: number; readonly passAtK: number };
+    };
+    expect(written.baseline).toMatchObject({
+      profileId: "kiln-tool-agent",
+      k: 1,
+      passAtK: 1,
+    });
   });
 });
