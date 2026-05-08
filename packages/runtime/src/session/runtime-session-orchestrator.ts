@@ -61,16 +61,16 @@ export class RuntimeSessionOrchestrator {
     return this.deps.eventBus;
   }
 
-  emitApprovalRequested(description: string, sessionId: string): void {
-    this.approvalGate.emitApprovalRequested(description, sessionId);
+  emitApprovalRequested(description: string, sessionId: string, approvalId: string): void {
+    this.approvalGate.emitApprovalRequested(description, sessionId, approvalId);
   }
 
-  emitApprovalReceived(approved: boolean, reason?: string, sessionId?: string): void {
-    this.approvalGate.emitApprovalReceived(approved, reason, sessionId);
+  emitApprovalReceived(approved: boolean, reason: string | undefined, approvalId: string): void {
+    this.approvalGate.emitApprovalReceived(approved, reason, approvalId);
   }
 
-  continue(sessionId: string): void {
-    this.approvalGate.continue(sessionId);
+  continue(approvalId: string): void {
+    this.approvalGate.continue(approvalId);
   }
 
   get tools(): readonly ToolDefinition[] | undefined {

@@ -284,7 +284,7 @@ export function handleActivity(
   outputTokens: number | undefined,
   renderSidebarCost: () => void,
   renderSidebarApprovals?: () => void,
-  event?: { sessionId?: string; turnId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
+  event?: { sessionId?: string; turnId?: string; approvalId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
@@ -293,20 +293,16 @@ export function handleActivity(
   }
 
   if (activity === "approval_requested" && (details !== undefined || output !== undefined)) {
-    handleApprovalRequested(ctx, details ?? output ?? "", event?.sessionId ?? "");
+    handleApprovalRequested(ctx, event?.approvalId ?? "", details ?? output ?? "", event?.sessionId ?? "");
     renderSidebarApprovals?.();
   } else if (activity === "approval_approved" || activity === "approval_rejected") {
-    const sessionId = event?.sessionId;
-    if (sessionId) {
+    const approvalId = event?.approvalId;
+    if (approvalId) {
       update(
         ctx.state,
         "pendingApprovals",
-        ctx.state.pendingApprovals.filter((pending) => pending.sessionId !== sessionId),
+        ctx.state.pendingApprovals.filter((pending) => pending.approvalId !== approvalId),
       );
-      renderSidebarApprovals?.();
-    } else if (ctx.state.pendingApprovals.length > 0) {
-      // Fallback for older payloads without sessionId.
-      update(ctx.state, "pendingApprovals", ctx.state.pendingApprovals.slice(1));
       renderSidebarApprovals?.();
     }
   } else if (activity === "cost_update" && usd !== undefined) {
@@ -435,13 +431,15 @@ export function handleError(
  */
 export function handleApprovalRequested(
   ctx: HandlerContext,
+  approvalId: string,
   description: string,
   sessionId: string
 ): void {
-  if (!sessionId.trim()) {
+  if (!approvalId.trim() || !sessionId.trim()) {
     return;
   }
   const approval: PendingApproval = {
+    approvalId,
     sessionId,
     description,
     requestedAt: new Date(),

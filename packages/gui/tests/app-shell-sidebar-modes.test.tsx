@@ -287,6 +287,7 @@ function resetStore(): void {
 describe("AppShell sidebar modes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
     guiWsOnFrame = null;
     installMatchMedia(false);
     resetStore();
@@ -374,7 +375,7 @@ describe("AppShell sidebar modes", () => {
     });
   });
 
-  it("switches the left mode panel from sessions to changed files", async () => {
+  it("opens changed files in the inspector while keeping sessions persistent", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
@@ -384,10 +385,10 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Changed files" }));
 
     expect(screen.getByTestId("changed-files-panel")).toHaveTextContent("Changed files: 1");
-    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
-  it("switches the left mode panel from sessions to workspace", async () => {
+  it("opens workspace in the inspector while keeping sessions persistent", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
@@ -397,7 +398,7 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
 
     expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Workspace panel: none");
-    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
   it("opens workspace files in main document tabs instead of the sidebar panel", async () => {
@@ -419,7 +420,7 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Selected file: C:/Proyectos/Sequel/kiln/package.json");
   });
 
-  it("switches the left mode panel from sessions to approvals", async () => {
+  it("opens approvals in the inspector while keeping sessions persistent", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
@@ -429,10 +430,10 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approvals" }));
 
     expect(screen.getByTestId("approvals-panel")).toHaveTextContent("Approvals: 1");
-    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
-  it("switches the left mode panel from sessions to activity", async () => {
+  it("opens activity as a main workbench surface while keeping sessions persistent", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
@@ -442,10 +443,47 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
     expect(screen.getByTestId("activity-log-panel")).toHaveTextContent("Activity: 2");
-    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
-  it("switches the left mode panel from sessions to memory", async () => {
+  it("collapses the primary sidebar into an icon rail and keeps sessions accessible", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+
+    expect(localStorage.getItem("kiln.gui.sidebarCollapsed")).toBe("true");
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+
+    expect(await screen.findByTestId("session-list")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+
+    expect(localStorage.getItem("kiln.gui.sidebarCollapsed")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Open sessions" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
+  });
+
+  it("restores the collapsed primary sidebar preference", async () => {
+    localStorage.setItem("kiln.gui.sidebarCollapsed", "true");
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open sessions" })).toBeInTheDocument();
+  });
+
+  it("opens memory as a main workbench surface with graph and records", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
@@ -455,20 +493,6 @@ describe("AppShell sidebar modes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
 
-    expect(screen.queryByRole("tab", { name: "Memory Lattice" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open graph" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Memory records" })).toContainElement(
-      within(screen.getByRole("region", { name: "Memory records" })).getByRole(
-        "button",
-        { name: "Memory Lattice contract" },
-      ),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Open graph" }));
-
-    expect(screen.getByRole("tab", { name: "Memory Lattice" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", { name: "Close Memory Lattice" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Graph open" })).toBeDisabled();
     expect(screen.getByLabelText("Memory graph")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Memory Lattice records" })).toContainElement(
       within(screen.getByRole("region", { name: "Memory Lattice records" })).getByRole(
@@ -476,16 +500,10 @@ describe("AppShell sidebar modes", () => {
         { name: "Memory Lattice contract" },
       ),
     );
-    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Close Memory Lattice" }));
-
-    expect(screen.queryByRole("tab", { name: "Memory Lattice" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", { name: "Open graph" })).toBeInTheDocument();
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
-  it("switches the left mode panel from sessions to setup", async () => {
+  it("opens setup as a main workbench surface", async () => {
     render(<AppShell />);
 
     await waitFor(() => {
@@ -494,10 +512,16 @@ describe("AppShell sidebar modes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Setup" }));
 
-    expect(screen.getByRole("complementary")).toHaveTextContent("Setup");
+    expect(screen.getByRole("region", { name: "Setup" })).toHaveTextContent("Setup");
     expect(screen.getByRole("region", { name: "Setup actions" })).toHaveTextContent("Configuration is current");
     expect(screen.getByRole("region", { name: "Project context" })).toHaveTextContent("valid");
-    expect(screen.queryByTestId("session-list")).not.toBeInTheDocument();
+    const setupQueryOptions = useQueryMock.mock.calls.findLast(([options]) => {
+      const queryKey = (options as { queryKey?: readonly unknown[] }).queryKey ?? [];
+      return queryKey.includes("setup");
+    })?.[0] as { enabled?: boolean; refetchInterval?: unknown } | undefined;
+    expect(setupQueryOptions).toMatchObject({ enabled: true });
+    expect(setupQueryOptions).not.toHaveProperty("refetchInterval");
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
   it("invalidates the Memory Lattice query when memory changes arrive over the gateway", async () => {

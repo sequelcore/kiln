@@ -105,6 +105,11 @@ private memory graph, bypass core scope validation, or decide model-context
 admission locally. YAML apps may declare memory policy in the future, but they
 do not declare GUI layout.
 
+When the resource provider is absent or cannot produce a valid operator graph,
+visual surfaces show an empty unavailable state instead of a transport failure.
+The absence is still explicit data in the graph response; invalid queries remain
+hard errors.
+
 ## Naming Guidance
 
 Use precise names in new docs and code:

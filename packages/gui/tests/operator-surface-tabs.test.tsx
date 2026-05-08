@@ -3,6 +3,30 @@ import { describe, expect, it, vi } from "vitest";
 import { OperatorSurfaceTabs } from "../src/components/operator-surface-tabs.js";
 
 describe("OperatorSurfaceTabs", () => {
+  it("renders isolated chat content without a redundant tab strip", () => {
+    render(
+      <OperatorSurfaceTabs
+        activeSurface="chat"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Operator surfaces")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Chat" })).not.toBeInTheDocument();
+    expect(screen.getByText("Chat transcript")).toBeInTheDocument();
+  });
+
   it("keeps chat as the first main-layout tab while rendering open workspace files", () => {
     render(
       <OperatorSurfaceTabs

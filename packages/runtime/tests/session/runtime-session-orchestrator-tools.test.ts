@@ -8,6 +8,7 @@ import type {
   RateLimiter,
   ToolDefinition,
   AuthorityDescriptor,
+  ApprovalRequestedEvent,
 } from "@kilnai/core";
 import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
@@ -272,7 +273,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
-      orchestrator.continue(session.id);
+      const approvalEvent = approvalRequested.mock.calls[0]?.[0] as ApprovalRequestedEvent;
+      orchestrator.continue(approvalEvent.approvalId);
       await pending;
 
       expect(toolFn).toHaveBeenCalledTimes(1);
@@ -311,7 +313,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
-      orchestrator.emitApprovalReceived(false, "rejected by user", session.id);
+      const approvalEvent = approvalRequested.mock.calls[0]?.[0] as ApprovalRequestedEvent;
+      orchestrator.emitApprovalReceived(false, "rejected by user", approvalEvent.approvalId);
       const result = await pending;
 
       expect(toolFn).not.toHaveBeenCalled();

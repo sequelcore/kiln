@@ -34,8 +34,8 @@ describe("ApprovalsPanel", () => {
     fireEvent.click(within(review).getByRole("button", { name: "Approve" }));
     fireEvent.click(within(review).getByRole("button", { name: "Deny" }));
 
-    expect(onApprove).toHaveBeenCalledWith("session-1");
-    expect(onDeny).toHaveBeenCalledWith("session-1");
+    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(onDeny).toHaveBeenCalledWith("approval-1");
 
     fireEvent.click(screen.getByRole("button", { name: /Edit packages\/gui\/src\/transcript\.tsx/i }));
     expect(within(review).getByText("Edit packages/gui/src/transcript.tsx")).toBeInTheDocument();

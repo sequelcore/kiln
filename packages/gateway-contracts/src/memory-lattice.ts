@@ -85,6 +85,7 @@ export const GuiMemoryLatticeGraphFiltersSchema = z.object({
 export const GuiMemoryLatticeGraphResponseSchema = z.object({
   snapshot: GuiMemoryLatticeGraphSnapshotSchema,
   filters: GuiMemoryLatticeGraphFiltersSchema,
+  unavailableReason: z.string().min(1).optional(),
 });
 
 export const GuiMemoryLatticeGraphRequestSchema = z.object({

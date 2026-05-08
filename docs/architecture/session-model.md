@@ -95,6 +95,13 @@ diff previews, cost updates, provider routing, assistant deltas, continuity
 decisions, and turn completion are emitted as canonical operator session
 events.
 
+Approvals have their own canonical identity. `approval_requested` creates an
+`approvalId`; `approval_resolved` and all operator response frames must carry
+that same `approvalId`. `kilnSessionId` and `sessionId` remain routing,
+display, and audit context only. They must not be used as the approval decision
+key because a session can contain multiple approval gates across turns and
+surfaces.
+
 Managed child invocations use the same event stream. The
 `agent_invocation_requested`, `agent_invocation_started`,
 `agent_invocation_completed`, `agent_invocation_failed`, and
@@ -250,6 +257,8 @@ operational state.
   projections of the visible session timeline.
 - TUI sidebars and activity state are projections of the active runtime
   session/turn.
+- Approval decision actions must target the pending `approvalId`, never a
+  session-level fallback.
 - CLI transcript persistence stores canonical event identity and may project
   the same facts into text output.
 - GUI, TUI, CLI, IDE, SDK, and remote operator surfaces must use the shared

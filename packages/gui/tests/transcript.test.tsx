@@ -769,8 +769,8 @@ describe("Transcript", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 
-    expect(screen.getByText("Workspace mutation")).toBeInTheDocument();
-    expect(onApprove).toHaveBeenCalledWith("session-1");
-    expect(onDeny).toHaveBeenCalledWith("session-1");
+    expect(screen.getAllByText("Workspace mutation")).toHaveLength(2);
+    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(onDeny).toHaveBeenCalledWith("approval-1");
   });
 });

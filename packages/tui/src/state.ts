@@ -111,6 +111,7 @@ export interface SessionListItem {
 
 /** Pending approval request. */
 export interface PendingApproval {
+  approvalId: string;
   sessionId: string;
   description: string;
   requestedAt: Date;

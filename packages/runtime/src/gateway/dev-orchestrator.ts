@@ -20,6 +20,7 @@ export class DevOrchestrator {
   private readonly _approvalRegistry: ApprovalGateRegistry;
   private readonly _eventBus: EventBus;
   private _eventBridge: ((event: KilnEvent) => void) | null = null;
+  private readonly _approvalIds = new Set<string>();
 
   constructor(config: DevOrchestratorConfig) {
     this._orchestrator = new Orchestrator({
@@ -47,17 +48,28 @@ export class DevOrchestrator {
 
     // Bridge events: orchestrator -> gateway EventBus
     this._eventBridge = (event: KilnEvent) => {
+      if (event.type === "approval_requested") {
+        const approvalId = (event as { readonly approvalId?: string }).approvalId;
+        if (approvalId) {
+          this._approvalIds.add(approvalId);
+          const target: ApprovalTarget = {
+            approve: () => this._orchestrator.approve(),
+            reject: (reason: string) => this._orchestrator.reject(reason),
+            status: () => this._orchestrator.status,
+          };
+          this._approvalRegistry.register(approvalId, target);
+        }
+      }
+      if (event.type === "approval_received") {
+        const approvalId = (event as { readonly approvalId?: string }).approvalId;
+        if (approvalId) {
+          this._approvalRegistry.unregister(approvalId);
+          this._approvalIds.delete(approvalId);
+        }
+      }
       this._eventBus.emit(event);
     };
     this._orchestrator.eventBus.onAny(this._eventBridge);
-
-    // Register approval target adapter
-    const target: ApprovalTarget = {
-      approve: () => this._orchestrator.approve(),
-      reject: (reason: string) => this._orchestrator.reject(reason),
-      status: () => this._orchestrator.status,
-    };
-    this._approvalRegistry.register(sessionId, target);
 
     // Fire-and-forget phase loop
     this.runPhaseLoop(sessionId);
@@ -84,7 +96,10 @@ export class DevOrchestrator {
       }
       return { sessionId, status: this._orchestrator.status };
     } finally {
-      this._approvalRegistry.unregister(sessionId);
+      for (const approvalId of this._approvalIds) {
+        this._approvalRegistry.unregister(approvalId);
+      }
+      this._approvalIds.clear();
       if (this._eventBridge) {
         this._orchestrator.eventBus.offAny(this._eventBridge);
         this._eventBridge = null;

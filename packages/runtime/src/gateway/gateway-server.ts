@@ -120,8 +120,8 @@ function buildSharedDevRoutesConfig(deps: DevRoutesSharedDeps): Partial<import("
   return {
     getEventBus: () => eventBus,
     getCostSummary: () => costTracker.summary,
-    approvePhase: (sessionId?: string) => approvalRegistry.approve(sessionId),
-    rejectPhase: (reason: string, sessionId?: string) => approvalRegistry.reject(reason, sessionId),
+    approvePhase: (approvalId?: string) => approvalRegistry.approve(approvalId),
+    rejectPhase: (reason: string, approvalId?: string) => approvalRegistry.reject(reason, approvalId),
     startRun: devOrchestrator
       ? (task: string) => {
           if (devOrchestrator.isRunning) return { error: "A run is already in progress" };

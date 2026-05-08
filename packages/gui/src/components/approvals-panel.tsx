@@ -7,8 +7,8 @@ import { SidebarPanelShell } from "./sidebar-panel-shell.js";
 
 interface ApprovalsPanelProps {
   readonly approvals: readonly ApprovalRequest[];
-  readonly onApprove: (sessionId: string) => void;
-  readonly onDeny: (sessionId: string) => void;
+  readonly onApprove: (approvalId: string) => void;
+  readonly onDeny: (approvalId: string) => void;
 }
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -52,12 +52,12 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
 
   const approveSelected = () => {
     if (!selectedApproval) return;
-    props.onApprove(selectedApproval.sessionId);
+    props.onApprove(selectedApproval.id);
   };
 
   const denySelected = () => {
     if (!selectedApproval) return;
-    props.onDeny(selectedApproval.sessionId);
+    props.onDeny(selectedApproval.id);
   };
 
   return (
@@ -67,9 +67,9 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
           {props.approvals.length === 0 ? (
             <div className="grid h-full place-items-center px-6 py-16 text-center">
               <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">no pending approvals</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">no cross-session approvals</p>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Approval requests from canonical session events will appear here.
+                  Current-turn approvals appear inline in the transcript and above the message composer.
                 </p>
               </div>
             </div>

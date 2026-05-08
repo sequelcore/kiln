@@ -22,6 +22,8 @@ export class PhaseMachine {
   private _currentIndex = 0;
   private _status: OrchestratorStatus = "idle";
   private _approvalResolve: ((phase: Phase | null) => void) | null = null;
+  private _approvalOrdinal = 0;
+  private _currentApprovalId: string | null = null;
   private _sessionId: string;
   private readonly _approvalPhase: string | undefined;
 
@@ -82,8 +84,10 @@ export class PhaseMachine {
     // Approval gate after configured phase
     if (this._approvalPhase && this.currentPhase === this._approvalPhase) {
       this._status = "awaiting_approval";
+      this._currentApprovalId = `${this._sessionId}:phase-approval:${++this._approvalOrdinal}`;
       const approvalEvent: ApprovalRequestedEvent = {
         type: "approval_requested",
+        approvalId: this._currentApprovalId,
         taskId: "",
         description: `${phaseMeta(this.currentPhase).name} plan requires approval before proceeding`,
         timestamp: new Date(),
@@ -118,6 +122,7 @@ export class PhaseMachine {
     this._status = "running";
     const receivedEvent: ApprovalReceivedEvent = {
       type: "approval_received",
+      approvalId: this._currentApprovalId ?? `${this._sessionId}:phase-approval:${++this._approvalOrdinal}`,
       taskId: "",
       approved: true,
       timestamp: new Date(),
@@ -141,6 +146,7 @@ export class PhaseMachine {
 
     const resolve = this._approvalResolve;
     this._approvalResolve = null;
+    this._currentApprovalId = null;
     resolve(newPhase);
   }
 
@@ -151,6 +157,7 @@ export class PhaseMachine {
     this._status = "running";
     const receivedEvent: ApprovalReceivedEvent = {
       type: "approval_received",
+      approvalId: this._currentApprovalId ?? `${this._sessionId}:phase-approval:${++this._approvalOrdinal}`,
       taskId: "",
       approved: false,
       reason,
@@ -161,6 +168,7 @@ export class PhaseMachine {
 
     const resolve = this._approvalResolve;
     this._approvalResolve = null;
+    this._currentApprovalId = null;
     resolve(null);
   }
 

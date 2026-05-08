@@ -139,6 +139,12 @@ MCP consumers. GUI gateway endpoints may adapt these resources for operator UI
 ergonomics, but they must not bypass the core provider or read memory storage
 directly.
 
+Operator graph endpoints return an empty graph with an explicit unavailable
+reason when the Memory Lattice resource provider is not installed or cannot
+project a valid graph. This keeps setup-state absence out of the error path
+while preserving the canonical resource-plane boundary. Invalid requests still
+fail before any resource read.
+
 Operator-only inspection surfaces may use unrestricted project resources.
 Model-facing resource surfaces must pass a `MemoryAuthorityPolicy`; when no
 explicit memory permission is configured, they default to read-only access for

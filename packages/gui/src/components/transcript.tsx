@@ -21,8 +21,8 @@ interface TranscriptProps {
   readonly activityPhase?: ActivityPhase;
   readonly activityToolName?: string;
   readonly activityDetails?: string;
-  readonly onApprove?: (sessionId: string) => void;
-  readonly onDeny?: (sessionId: string) => void;
+  readonly onApprove?: (approvalId: string) => void;
+  readonly onDeny?: (approvalId: string) => void;
 }
 
 const BOTTOM_THRESHOLD_PX = 24;
@@ -623,8 +623,6 @@ function AssistantToolEventStack(props: { readonly entries: readonly TimelineEve
 
 function TimelineEventRow(props: {
   readonly entry: TimelineEventEntry;
-  readonly onApprove?: (sessionId: string) => void;
-  readonly onDeny?: (sessionId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const toneClasses: Record<TimelineEventEntry["tone"], string> = {
@@ -635,7 +633,6 @@ function TimelineEventRow(props: {
     error: "border-destructive/60 bg-card text-foreground",
   };
   const Icon = eventIcon(props.entry);
-  const canResolveApproval = props.entry.eventKind === "approval_requested" && Boolean(props.entry.sessionId);
   const hasDetails = canRenderEventDetails(props.entry);
   const summary = eventSummaryText(props.entry);
 
@@ -673,30 +670,82 @@ function TimelineEventRow(props: {
           </Button>
         ) : null}
       </header>
-      {canResolveApproval && props.entry.sessionId ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            onClick={() => props.onApprove?.(props.entry.sessionId!)}
-          >
-            Approve
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            size="xs"
-            onClick={() => props.onDeny?.(props.entry.sessionId!)}
-          >
-            Deny
-          </Button>
-        </div>
-      ) : null}
       <EventDetails entry={props.entry} open={open} />
     </article>
   );
 }
+
+function ApprovalEventRow(props: {
+  readonly entry: TimelineEventEntry;
+  readonly onApprove?: (approvalId: string) => void;
+  readonly onDeny?: (approvalId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const summary = eventSummaryText(props.entry);
+  const details = asRecord(props.entry.details);
+  const approvalId = readString(details?.approvalId) ?? props.entry.id;
+  const canResolveApproval = approvalId.trim().length > 0;
+  const action = readString(details?.action) ?? summary ?? props.entry.title;
+  const justification = readString(details?.justification);
+
+  return (
+    <article className="mx-auto w-full max-w-3xl border border-[var(--color-warning)]/45 bg-card px-3 py-3 shadow-sm">
+      <header className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <CircleAlert className="size-4 shrink-0 text-[var(--color-warning)]" aria-hidden="true" />
+            <p className="truncate text-sm font-semibold text-foreground">Approval required</p>
+            <time dateTime={props.entry.createdAt} className="shrink-0 font-mono text-[10px] text-muted-foreground" title={props.entry.createdAt}>
+              {new Date(props.entry.createdAt).toLocaleTimeString()}
+            </time>
+          </div>
+          <p className="mt-2 text-sm leading-5 text-foreground">{action}</p>
+          {justification ? (
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">{justification}</p>
+          ) : null}
+          {props.entry.sessionId ? (
+            <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">{props.entry.sessionId}</p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canResolveApproval ? (
+            <>
+              <Button
+                type="button"
+                size="xs"
+                onClick={() => props.onApprove?.(approvalId)}
+              >
+                Approve
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => props.onDeny?.(approvalId)}
+              >
+                Deny
+              </Button>
+            </>
+          ) : null}
+          {canRenderEventDetails(props.entry) ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              aria-label={open ? "Hide details" : "Show details"}
+              aria-expanded={open}
+              onClick={() => setOpen((value) => !value)}
+            >
+              {open ? "Hide details" : "Details"}
+            </Button>
+          ) : null}
+        </div>
+      </header>
+      <EventDetails entry={props.entry} open={open} />
+    </article>
+  );
+}
+
 function AssistantActivityRow(props: {
   readonly phase: ActivityPhase;
   readonly toolName?: string;
@@ -812,9 +861,12 @@ function renderTranscriptEntries(
     if (item.kind === "event") {
       const entry = entriesById.get(item.entryId);
       if (!entry || entry.type !== "event") return null;
+      if (entry.eventKind === "approval_requested") {
+        return <ApprovalEventRow key={entry.id} entry={entry} onApprove={onApprove} onDeny={onDeny} />;
+      }
       return isToolEvent(entry)
         ? <InlineToolEventRow key={entry.id} entry={entry} />
-        : <TimelineEventRow key={entry.id} entry={entry} onApprove={onApprove} onDeny={onDeny} />;
+        : <TimelineEventRow key={entry.id} entry={entry} />;
     }
     if (item.kind === "activity") {
       return (

@@ -13,8 +13,8 @@ export interface DevRoutesConfig {
   readonly getYamlContent?: () => string | undefined;
   readonly putYamlContent?: (content: string) => { ok: boolean; errors?: string[] };
   readonly getEvalExperiments?: () => EvalExperimentSummary[];
-  readonly approvePhase?: (sessionId?: string) => { ok: boolean; error?: string };
-  readonly rejectPhase?: (reason: string, sessionId?: string) => { ok: boolean; error?: string };
+  readonly approvePhase?: (approvalId?: string) => { ok: boolean; error?: string };
+  readonly rejectPhase?: (reason: string, approvalId?: string) => { ok: boolean; error?: string };
   readonly startRun?: (task: string) => { sessionId: string } | { error: string };
   readonly getRunStatus?: () => { sessionId: string | null; status: string; phase: string | null; task: string | null };
   readonly issueToken?: (userId: string) => string;
@@ -172,14 +172,14 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
     if (!config.approvePhase) {
       return c.json({ error: "No active orchestrator" }, 404);
     }
-    let sessionId: string | undefined;
+    let approvalId: string | undefined;
     try {
-      const body = await c.req.json<{ sessionId?: string }>();
-      sessionId = body.sessionId;
+      const body = await c.req.json<{ approvalId?: string }>();
+      approvalId = body.approvalId;
     } catch {
       // body is optional
     }
-    const result = config.approvePhase(sessionId);
+    const result = config.approvePhase(approvalId);
     if (!result.ok) {
       return c.json({ error: result.error ?? "No approval pending" }, 409);
     }
@@ -192,15 +192,15 @@ export function createDevRoutes(config: DevRoutesConfig): Hono {
       return c.json({ error: "No active orchestrator" }, 404);
     }
     let reason = "";
-    let sessionId: string | undefined;
+    let approvalId: string | undefined;
     try {
-      const body = await c.req.json<{ reason?: string; sessionId?: string }>();
+      const body = await c.req.json<{ reason?: string; approvalId?: string }>();
       reason = body.reason ?? "";
-      sessionId = body.sessionId;
+      approvalId = body.approvalId;
     } catch {
       // body is optional
     }
-    const result = config.rejectPhase(reason, sessionId);
+    const result = config.rejectPhase(reason, approvalId);
     if (!result.ok) {
       return c.json({ error: result.error ?? "No approval pending" }, 409);
     }

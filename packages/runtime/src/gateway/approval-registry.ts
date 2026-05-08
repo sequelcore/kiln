@@ -1,4 +1,4 @@
-// ApprovalGateRegistry -- tracks approval targets (orchestrators) by session ID
+// ApprovalGateRegistry -- tracks approval targets by canonical approval ID.
 
 export interface ApprovalTarget {
   readonly approve: () => void;
@@ -9,37 +9,37 @@ export interface ApprovalTarget {
 export class ApprovalGateRegistry {
   private readonly targets = new Map<string, ApprovalTarget>();
 
-  register(sessionId: string, target: ApprovalTarget): void {
-    this.targets.set(sessionId, target);
+  register(approvalId: string, target: ApprovalTarget): void {
+    this.targets.set(approvalId, target);
   }
 
-  unregister(sessionId: string): void {
-    this.targets.delete(sessionId);
+  unregister(approvalId: string): void {
+    this.targets.delete(approvalId);
   }
 
-  approve(sessionId?: string): { ok: boolean; error?: string } {
-    if (!sessionId || sessionId.trim() === "") {
-      return { ok: false, error: "sessionId is required" };
+  approve(approvalId?: string): { ok: boolean; error?: string } {
+    if (!approvalId || approvalId.trim() === "") {
+      return { ok: false, error: "approvalId is required" };
     }
 
-    const target = this.targets.get(sessionId);
-    if (!target) return { ok: false, error: `Session not found: ${sessionId}` };
+    const target = this.targets.get(approvalId);
+    if (!target) return { ok: false, error: `Approval not found: ${approvalId}` };
     if (target.status() !== "awaiting_approval") {
-      return { ok: false, error: `Session ${sessionId} is not awaiting approval` };
+      return { ok: false, error: `Approval ${approvalId} is not awaiting approval` };
     }
     target.approve();
     return { ok: true };
   }
 
-  reject(reason: string, sessionId?: string): { ok: boolean; error?: string } {
-    if (!sessionId || sessionId.trim() === "") {
-      return { ok: false, error: "sessionId is required" };
+  reject(reason: string, approvalId?: string): { ok: boolean; error?: string } {
+    if (!approvalId || approvalId.trim() === "") {
+      return { ok: false, error: "approvalId is required" };
     }
 
-    const target = this.targets.get(sessionId);
-    if (!target) return { ok: false, error: `Session not found: ${sessionId}` };
+    const target = this.targets.get(approvalId);
+    if (!target) return { ok: false, error: `Approval not found: ${approvalId}` };
     if (target.status() !== "awaiting_approval") {
-      return { ok: false, error: `Session ${sessionId} is not awaiting approval` };
+      return { ok: false, error: `Approval ${approvalId} is not awaiting approval` };
     }
     target.reject(reason);
     return { ok: true };

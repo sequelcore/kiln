@@ -117,8 +117,8 @@ export type TuiInboundFrame =
       scope: OperatorThemeScope;
       reason?: string;
     }
-  | { type: "approval_requested"; description: string; sessionId: string }
-  | { type: "approval_received"; approved: boolean; reason?: string; sessionId?: string };
+  | { type: "approval_requested"; approvalId: string; description: string; sessionId: string }
+  | { type: "approval_received"; approvalId: string; approved: boolean; reason?: string; sessionId?: string };
 
 /**
  * Outbound frames the TUI sends to the gateway.
@@ -130,8 +130,8 @@ export type TuiOutboundFrame =
   | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | { type: "operator_theme_set_result"; requestId: string; ok: boolean; appliedTheme?: string; error?: string }
-  | { type: "approve"; sessionId?: string }
-  | { type: "reject"; reason: string; sessionId?: string }
+  | { type: "approve"; approvalId: string }
+  | { type: "reject"; reason: string; approvalId: string }
   | { type: "execution_mode_transition"; toMode: OperatorExecutionMode };
 
 /**

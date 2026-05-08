@@ -48,6 +48,8 @@ Current source-of-truth boundary:
   authority when present, otherwise authorizer fallback and audited default)
 - approval is part of authority handling (`requiresApproval`) rather than a
   parallel authority model
+- operator approval resolution is keyed by canonical `approvalId`; session IDs
+  are routing/audit context and must not be used as the approval grant key
 - safety/security middleware audit rows are explicitly non-authority surfaces
 - GUI/TUI operator authority indicators are read-only projections of existing
   authority state, not independent policy evaluators

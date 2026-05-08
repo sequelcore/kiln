@@ -1138,6 +1138,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "approval_requested",
+          approvalId: "approval-main",
           taskId: "",
           description: "Need confirmation",
           timestamp: new Date(),
@@ -1145,6 +1146,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "approval_requested",
+          approvalId: "approval-other",
           taskId: "",
           description: "Other session request",
           timestamp: new Date(),
@@ -1152,6 +1154,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "approval_received",
+          approvalId: "approval-main",
           taskId: "",
           approved: false,
           reason: "Denied by policy",
@@ -1177,9 +1180,9 @@ describe("processAdmittedTurn", () => {
 
     expect(result.ok).toBe(true);
     const artifacts = (session as unknown as { exactArtifacts: string[] }).exactArtifacts;
-    expect(artifacts).toContain(`Approval requested: ${session.id} (Need confirmation)`);
-    expect(artifacts).toContain(`Approval rejected: ${session.id} (Denied by policy)`);
-    expect(artifacts).not.toContain("Approval requested: other-session (Other session request)");
+    expect(artifacts).toContain(`Approval requested: approval-main - ${session.id} (Need confirmation)`);
+    expect(artifacts).toContain(`Approval rejected: approval-main - ${session.id} (Denied by policy)`);
+    expect(artifacts).not.toContain("Approval requested: approval-other - other-session (Other session request)");
   });
 
   it("captures tool_authorized decisions scoped to current session into canonical turn artifacts", async () => {

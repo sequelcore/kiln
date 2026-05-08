@@ -117,12 +117,12 @@ export class GuiSessionClient {
     });
   }
 
-  approve(sessionId?: string): void {
-    this.send({ type: "approve", sessionId });
+  approve(approvalId: string): void {
+    this.send({ type: "approve", approvalId });
   }
 
-  reject(reason: string, sessionId?: string): void {
-    this.send({ type: "reject", reason, sessionId });
+  reject(reason: string, approvalId: string): void {
+    this.send({ type: "reject", reason, approvalId });
   }
 
   executePlanMode(): void {

@@ -45,8 +45,8 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     error: z.string().optional(),
   }),
   z.object({ type: z.literal("resume"), sessionId: z.string() }),
-  z.object({ type: z.literal("approve"), sessionId: z.string().optional() }),
-  z.object({ type: z.literal("reject"), reason: z.string(), sessionId: z.string().optional() }),
+  z.object({ type: z.literal("approve"), approvalId: z.string().trim().min(1) }),
+  z.object({ type: z.literal("reject"), reason: z.string(), approvalId: z.string().trim().min(1) }),
   z.object({ type: z.literal("execution_mode_transition"), toMode: z.enum(["execute", "plan"]) }),
 ]);
 

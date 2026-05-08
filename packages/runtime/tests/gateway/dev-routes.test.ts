@@ -396,11 +396,11 @@ describe("createDevRoutes", () => {
       expect(approvePhase).toHaveBeenCalledWith(undefined);
     });
 
-    it("passes sessionId from request body to callback", async () => {
+    it("passes approvalId from request body to callback", async () => {
       const approvePhase = vi.fn(() => ({ ok: true }));
       const app = createDevRoutes({ approvePhase });
-      await requestWithMethod(app, "/approve", "POST", JSON.stringify({ sessionId: "sess-123" }), "application/json");
-      expect(approvePhase).toHaveBeenCalledWith("sess-123");
+      await requestWithMethod(app, "/approve", "POST", JSON.stringify({ approvalId: "approval-123" }), "application/json");
+      expect(approvePhase).toHaveBeenCalledWith("approval-123");
     });
 
     it("handles missing body gracefully", async () => {
@@ -440,11 +440,11 @@ describe("createDevRoutes", () => {
       expect(rejectPhase).toHaveBeenCalledWith("Needs rework", undefined);
     });
 
-    it("passes sessionId and reason from request body to callback", async () => {
+    it("passes approvalId and reason from request body to callback", async () => {
       const rejectPhase = vi.fn(() => ({ ok: true }));
       const app = createDevRoutes({ rejectPhase });
-      await requestWithMethod(app, "/reject", "POST", JSON.stringify({ reason: "Scope too broad", sessionId: "sess-456" }), "application/json");
-      expect(rejectPhase).toHaveBeenCalledWith("Scope too broad", "sess-456");
+      await requestWithMethod(app, "/reject", "POST", JSON.stringify({ reason: "Scope too broad", approvalId: "approval-456" }), "application/json");
+      expect(rejectPhase).toHaveBeenCalledWith("Scope too broad", "approval-456");
     });
 
     it("uses empty string reason when body is missing", async () => {

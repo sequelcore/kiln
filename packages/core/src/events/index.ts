@@ -357,6 +357,7 @@ export interface PostcompactEvent extends KilnEvent {
 /** Approval requested event */
 export interface ApprovalRequestedEvent extends KilnEvent {
   readonly type: "approval_requested";
+  readonly approvalId: string;
   readonly taskId: string;
   readonly description: string;
 }
@@ -364,6 +365,7 @@ export interface ApprovalRequestedEvent extends KilnEvent {
 /** Approval received event */
 export interface ApprovalReceivedEvent extends KilnEvent {
   readonly type: "approval_received";
+  readonly approvalId: string;
   readonly taskId: string;
   readonly approved: boolean;
   readonly reason?: string;

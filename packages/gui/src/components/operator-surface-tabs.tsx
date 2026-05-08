@@ -211,6 +211,7 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
     : props.activeSurface === "workspace" && props.selectedPath
       ? props.selectedPath
       : CHAT_TAB_VALUE;
+  const hasTabAlternatives = props.memoryOpen || props.files.length > 0 || Boolean(transientPath);
 
   function handleTabChange(value: unknown) {
     if (value === CHAT_TAB_VALUE) {
@@ -243,6 +244,14 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
       return <FilePreview file={selectedFile} />;
     }
     return <p className="p-4 text-sm text-muted-foreground">Select a file to preview it here.</p>;
+  }
+
+  if (!hasTabAlternatives) {
+    return (
+      <section aria-label="Operator surfaces" className="h-full min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
+        {props.chatContent}
+      </section>
+    );
   }
 
   return (

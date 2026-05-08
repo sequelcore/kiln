@@ -216,7 +216,7 @@ describe("mapEventToSpan", () => {
     describe("approval_requested", () => {
         it("returns addEvent named 'approval.requested'", () => {
             const result = mapEventToSpan(
-                ev({ type: "approval_requested", taskId: "t-1", description: "Deploy to prod?" }),
+                ev({ type: "approval_requested", approvalId: "approval-1", taskId: "t-1", description: "Deploy to prod?" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -229,7 +229,7 @@ describe("mapEventToSpan", () => {
     describe("approval_received", () => {
         it("returns addEvent named 'approval.received'", () => {
             const result = mapEventToSpan(
-                ev({ type: "approval_received", taskId: "t-1", approved: true }),
+                ev({ type: "approval_received", approvalId: "approval-1", taskId: "t-1", approved: true }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {

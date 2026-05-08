@@ -1239,7 +1239,7 @@ interface SessionStoreActions {
   setResume: (sessionId: string | null) => void;
   disconnect: () => void;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
-  sendApprovalResponse: (approved: boolean, reason?: string, sessionId?: string) => boolean;
+  sendApprovalResponse: (approved: boolean, reason: string | undefined, approvalId: string) => boolean;
 }
 
 export type SessionStore = SessionStoreState & SessionStoreActions;
@@ -2675,14 +2675,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
-  sendApprovalResponse: (approved, reason, sessionId) => {
+  sendApprovalResponse: (approved, reason, approvalId) => {
     const state = get();
     const outboundSend = state.outboundSend;
     if (!outboundSend) return false;
     if (approved) {
-      outboundSend({ type: "approve", sessionId });
+      outboundSend({ type: "approve", approvalId });
     } else {
-      outboundSend({ type: "reject", reason: reason ?? "rejected by user", sessionId });
+      outboundSend({ type: "reject", reason: reason ?? "rejected by user", approvalId });
     }
     return true;
   },

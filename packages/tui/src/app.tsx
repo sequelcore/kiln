@@ -1462,7 +1462,9 @@ export async function startTui(
           const hasApprove = typeof (session as unknown as { approve?: unknown }).approve === "function";
           if (hasApprove) {
             const pending = state.pendingApprovals[0];
-            (session as unknown as { approve: (sessionId?: string) => void }).approve(pending?.sessionId);
+            if (pending) {
+              (session as unknown as { approve: (approvalId: string) => void }).approve(pending.approvalId);
+            }
           }
           update(state, "pendingApprovals", state.pendingApprovals.slice(1));
           renderSidebarApprovals(state, currentTheme, ui);
@@ -1475,7 +1477,9 @@ export async function startTui(
           const hasReject = typeof (session as unknown as { reject?: unknown }).reject === "function";
           if (hasReject) {
             const pending = state.pendingApprovals[0];
-            (session as unknown as { reject: (reason: string, sessionId?: string) => void }).reject("rejected by user", pending?.sessionId);
+            if (pending) {
+              (session as unknown as { reject: (reason: string, approvalId: string) => void }).reject("rejected by user", pending.approvalId);
+            }
           }
           update(state, "pendingApprovals", state.pendingApprovals.slice(1));
           renderSidebarApprovals(state, currentTheme, ui);

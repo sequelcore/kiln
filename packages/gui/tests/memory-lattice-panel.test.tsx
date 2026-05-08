@@ -236,6 +236,32 @@ describe("MemoryLatticePanel", () => {
     rerender(
       <MemoryLatticePanel
         filters={{}}
+        response={{
+          snapshot: {
+            nodes: [],
+            edges: [],
+            limits: { maxNodes: 25, maxEdges: 50 },
+            truncated: false,
+          },
+          filters: { depth: 0 },
+          unavailableReason: "Memory resource is not installed for this workspace.",
+        }}
+        loading={false}
+        error={null}
+        selectedRecordId={null}
+        onRefresh={vi.fn()}
+        onFiltersChange={vi.fn()}
+        onSelectRecord={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Memory index unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Memory resource is not installed for this workspace.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    rerender(
+      <MemoryLatticePanel
+        filters={{}}
         response={null}
         loading={false}
         error={new Error("Memory Lattice graph fetch failed.")}

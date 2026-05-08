@@ -12,7 +12,6 @@ import {
   GUI_MEMORY_LATTICE_SCOPE_KINDS,
 } from "@kilnai/gateway-contracts";
 import { Network, RefreshCw, Search } from "lucide-react";
-import { SidebarPanelShell } from "../sidebar-panel-shell.js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -66,6 +65,7 @@ export function MemoryLatticePanel(props: MemoryLatticePanelProps) {
   const snapshot = props.response?.snapshot ?? null;
   const nodes = snapshot?.nodes ?? EMPTY_MEMORY_NODES;
   const edges = snapshot?.edges ?? EMPTY_MEMORY_EDGES;
+  const unavailableReason = props.response?.unavailableReason;
 
   useEffect(() => {
     setDraftQuery(normalizeDraftQuery(props.filters.query ?? ""));
@@ -89,34 +89,7 @@ export function MemoryLatticePanel(props: MemoryLatticePanelProps) {
   };
 
   return (
-    <SidebarPanelShell
-      title="Memory Lattice"
-      meta={snapshot ? `${nodes.length}/${snapshot.limits.maxNodes}` : "graph"}
-      footer={(
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant={props.graphOpen ? "secondary" : "default"}
-            size="sm"
-            className="min-w-0 flex-1"
-            disabled={props.graphOpen}
-            onClick={props.onOpenGraph}
-          >
-            <Network data-icon="inline-start" aria-hidden="true" />
-            {props.graphOpen ? "Graph open" : "Open graph"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            aria-label="Refresh Memory Lattice"
-            onClick={props.onRefresh}
-          >
-            <RefreshCw aria-hidden="true" />
-          </Button>
-        </div>
-      )}
-    >
+    <section aria-label="Memory Lattice" className="flex h-full min-h-0 min-w-0 flex-col bg-card">
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
         <form
           className="flex flex-col gap-3"
@@ -208,8 +181,13 @@ export function MemoryLatticePanel(props: MemoryLatticePanelProps) {
           </div>
         ) : null}
         {!props.loading && !props.error && nodes.length === 0 ? (
-          <div className="rounded-lg border border-border/70 bg-background/60 p-3 text-sm text-muted-foreground">
-            No memory records found.
+          <div className="border border-border/70 bg-background/60 p-3 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">
+              {unavailableReason ? "Memory index unavailable" : "No memory records found."}
+            </p>
+            {unavailableReason ? (
+              <p className="mt-1 leading-5">{unavailableReason}</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -224,7 +202,35 @@ export function MemoryLatticePanel(props: MemoryLatticePanelProps) {
           </div>
         ) : null}
       </div>
-    </SidebarPanelShell>
+      <footer className="border-t border-border/70 p-2.5">
+        <div className="flex items-center gap-2">
+          {props.onOpenGraph ? (
+            <Button
+              type="button"
+              variant={props.graphOpen ? "secondary" : "default"}
+              size="sm"
+              className="min-w-0 flex-1"
+              disabled={props.graphOpen}
+              onClick={props.onOpenGraph}
+            >
+              <Network data-icon="inline-start" aria-hidden="true" />
+              {props.graphOpen ? "Graph open" : "Open graph"}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size={props.onOpenGraph ? "icon-sm" : "sm"}
+            aria-label="Refresh Memory Lattice"
+            className={props.onOpenGraph ? undefined : "w-full"}
+            onClick={props.onRefresh}
+          >
+            <RefreshCw data-icon={props.onOpenGraph ? undefined : "inline-start"} aria-hidden="true" />
+            {props.onOpenGraph ? null : "Refresh"}
+          </Button>
+        </div>
+      </footer>
+    </section>
   );
 }
 
@@ -234,12 +240,13 @@ export function MemoryLatticeSurface(props: Omit<MemoryLatticePanelProps, "filte
   const nodes = snapshot?.nodes ?? EMPTY_MEMORY_NODES;
   const edges = snapshot?.edges ?? EMPTY_MEMORY_EDGES;
   const selectedNode = findSelectedMemoryNode(nodes, props.selectedRecordId);
+  const unavailableReason = props.response?.unavailableReason;
 
   return (
     <section aria-label="Memory Lattice surface" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
       <div className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/60 bg-workspace-viewer-panel px-4">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold text-foreground">Memory Lattice</h2>
+          <h2 className="truncate text-sm font-semibold text-foreground">Graph</h2>
           <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             {snapshot ? `${nodes.length}/${snapshot.limits.maxNodes} records` : "graph"}
           </p>
@@ -264,9 +271,11 @@ export function MemoryLatticeSurface(props: Omit<MemoryLatticePanelProps, "filte
       {!props.loading && !props.error && nodes.length === 0 ? (
         <div className="grid min-h-0 flex-1 place-items-center p-6 text-center">
           <div>
-            <p className="text-sm font-semibold text-foreground">No memory records found.</p>
+            <p className="text-sm font-semibold text-foreground">
+              {unavailableReason ? "Memory index unavailable" : "No memory records found."}
+            </p>
             <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              The Memory Lattice will render here when the project memory graph has admitted records.
+              {unavailableReason ?? "The Memory Lattice will render here when the project memory graph has admitted records."}
             </p>
           </div>
         </div>

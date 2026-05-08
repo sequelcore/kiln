@@ -3,7 +3,6 @@ import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { SidebarPanelShell } from "./sidebar-panel-shell.js";
 
 interface SessionListProps {
   readonly sessions: readonly GuiSessionSummary[];
@@ -28,10 +27,6 @@ function formatDate(iso: string): string {
   return dateFormatter.format(date);
 }
 
-function formatCurrency(value: number): string {
-  return `$${value.toFixed(4)}`;
-}
-
 function sessionProviders(session: GuiSessionSummary): readonly string[] {
   if (session.providersUsed.length > 0) {
     return session.providersUsed;
@@ -48,33 +43,6 @@ function summarizeProviders(session: GuiSessionSummary): string {
     return providers.join(" + ");
   }
   return `${providers.slice(0, 2).join(" + ")} +${providers.length - 2}`;
-}
-
-function providerGlyphKind(provider: string): "square" | "diamond" | "circle" | "dot" {
-  const normalized = provider.toLowerCase();
-  if (normalized.startsWith("codex-oauth")) return "dot";
-  if (normalized.startsWith("codex")) return "square";
-  if (normalized.startsWith("claude")) return "diamond";
-  if (normalized.startsWith("opencode")) return "circle";
-  return "circle";
-}
-
-function ProviderGlyph(props: { readonly provider: string }) {
-  const kind = providerGlyphKind(props.provider);
-  if (kind === "diamond") {
-    return <span aria-hidden="true" className="size-1.5 rotate-45 rounded-[1px] border border-muted-foreground/70" />;
-  }
-  if (kind === "square") {
-    return <span aria-hidden="true" className="size-1.5 rounded-[1px] border border-muted-foreground/70" />;
-  }
-  if (kind === "dot") {
-    return (
-      <span aria-hidden="true" className="relative size-1.5 rounded-[1px] border border-muted-foreground/70">
-        <span className="absolute left-1/2 top-1/2 size-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground" />
-      </span>
-    );
-  }
-  return <span aria-hidden="true" className="size-1.5 rounded-full border border-muted-foreground/70" />;
 }
 
 function groupSessions(sessions: readonly GuiSessionSummary[]) {
@@ -112,45 +80,45 @@ export function SessionList(props: SessionListProps) {
     itemRefs.current[bounded]?.focus();
   }
 
-  const footer = (
-    <Button
-      type="button"
-      variant="outline"
-      aria-label="New Session"
-      onClick={props.onStartNewSession}
-      className="h-9 w-full justify-start border-border/80 bg-transparent font-medium hover:bg-secondary/50"
-    >
-      <Plus data-icon="inline-start" aria-hidden="true" />
-      New Session
-    </Button>
-  );
-
   return (
-    <SidebarPanelShell title="Sessions" meta={`${props.sessions.length} total`} footer={footer}>
+    <section aria-label="Sessions" className="flex h-full min-h-0 flex-col bg-card">
+      <header className="flex min-h-11 items-center gap-2 border-b border-border/60 px-3">
+        <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">Sessions</p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New Session"
+          title="New Session"
+          onClick={props.onStartNewSession}
+          className="text-muted-foreground"
+        >
+          <Plus data-icon="inline-start" aria-hidden="true" />
+        </Button>
+      </header>
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         {props.sessions.length === 0 ? (
-          <div className="grid h-full place-items-center px-6 py-16 text-center">
+          <div className="grid h-full place-items-center px-5 py-12 text-center">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">no sessions yet</p>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                Start a conversation to track transcripts, tool calls, costs, and changed files here.
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">No sessions yet</p>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Start a conversation to keep transcripts and handoffs here.
               </p>
             </div>
           </div>
         ) : (
-          <div role="listbox" aria-label="Session history">
+          <div role="listbox" aria-label="Session history" className="py-1">
             {sessionGroups.map((group) => (
               <section key={group.label}>
-                <div className="flex items-center border-b border-t border-border/60 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/75 first:border-t-0">
-                  <span>{group.label}</span>
-                  <span className="ml-auto">{group.items.length}</span>
+                <div className="px-3 pb-1 pt-3 first:pt-2">
+                  <p className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground/65">{group.label}</p>
                 </div>
-                <ul>
+                <ul className="flex flex-col gap-0.5 px-1.5">
                   {group.items.map((session) => {
                     const index = props.sessions.findIndex((item) => item.id === session.id);
                     const selected = props.selectedSessionId === session.id;
                     const active = props.resumeTargetId === session.id;
-                    const providers = sessionProviders(session);
                     return (
                       <li key={session.id}>
                         <button
@@ -184,27 +152,27 @@ export function SessionList(props: SessionListProps) {
                             }
                           }}
                           className={cn(
-                            "group grid w-full grid-cols-[12px_1fr] overflow-hidden border-b border-border/60 pr-3 text-left outline-none transition-colors",
+                            "group grid w-full grid-cols-[1px_1fr] overflow-hidden rounded-md pr-2 text-left outline-none transition-colors",
                             "focus-visible:ring-3 focus-visible:ring-ring/50",
-                            selected ? "bg-secondary/65" : "bg-transparent hover:bg-secondary/35",
+                            selected ? "bg-muted/60" : "bg-transparent hover:bg-muted/40",
                           )}
                         >
                           <span className="relative block">
                             {selected || active ? (
                               <span
                                 className={cn(
-                                  "absolute inset-y-3 left-0 w-0.5 rounded-r-full",
-                                  active ? "bg-[var(--color-accent)]" : "bg-foreground",
+                                  "absolute inset-y-2 left-0 w-px rounded-r-full",
+                                  active ? "bg-[var(--color-accent)]/80" : "bg-border",
                                 )}
                               />
                             ) : null}
                           </span>
-                          <span className="block min-w-0 py-2.5">
-                            <span className="mb-1 flex min-w-0 items-center gap-2">
+                          <span className="block min-w-0 py-2 pl-2">
+                            <span className="flex min-w-0 items-center gap-2">
                               <span
                                 className={cn(
-                                  "min-w-0 flex-1 truncate text-[13px] leading-5 text-foreground",
-                                  selected ? "font-semibold" : "font-medium",
+                                  "min-w-0 flex-1 truncate text-[13px] leading-5 text-foreground/95",
+                                  selected ? "font-medium" : "font-normal",
                                 )}
                               >
                                 {session.title ?? session.taskSummary}
@@ -213,42 +181,22 @@ export function SessionList(props: SessionListProps) {
                                 <>
                                   <span
                                     aria-label="Active continuation target"
-                                    className="size-1.5 shrink-0 rounded-full bg-[var(--color-accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_18%,transparent)]"
+                                    className="size-1.5 shrink-0 rounded-full bg-[var(--color-accent)]"
                                   />
                                   <span className="sr-only">Active</span>
                                 </>
                               ) : null}
-                              {selected ? (
-                                <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                                  Loaded
-                                </span>
-                              ) : null}
                             </span>
                             {session.summary ? (
-                              <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{session.summary}</span>
+                              <span className="mt-0.5 line-clamp-1 text-xs leading-5 text-muted-foreground">{session.summary}</span>
                             ) : null}
-                            <span className="mt-2 flex min-w-0 items-center gap-2 font-mono text-[10.5px] tracking-[0.01em] text-muted-foreground/70">
-                              <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-                                {providers.length > 0 ? (
-                                  providers.map((provider, providerIndex) => (
-                                    <span key={`${session.id}-${provider}`} className="inline-flex min-w-0 items-center gap-1">
-                                      {providerIndex > 0 ? <span className="text-muted-foreground/40">+</span> : null}
-                                      <ProviderGlyph provider={provider} />
-                                      <span className="truncate">{provider}</span>
-                                    </span>
-                                  ))
-                                ) : (
-                                  <span>{summarizeProviders(session)}</span>
-                                )}
-                              </span>
-                              <span className="ml-auto flex shrink-0 items-center gap-2">
-                                <span>{formatDate(session.completedAt)}</span>
-                                <span className="text-muted-foreground/40">·</span>
-                                <span className="tabular-nums">{formatCurrency(session.cost)}</span>
-                              </span>
+                            <span className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-[10px] tracking-[0.01em] text-muted-foreground/65">
+                              <span className="min-w-0 truncate">{summarizeProviders(session)}</span>
+                              <span aria-hidden="true" className="text-muted-foreground/35">/</span>
+                              <span className="shrink-0">{formatDate(session.completedAt)}</span>
                             </span>
                             {session.tags && session.tags.length > 0 ? (
-                              <span className="mt-2 flex min-w-0 flex-wrap gap-x-2 gap-y-1 font-mono text-[10px] text-muted-foreground/60">
+                              <span className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 font-mono text-[10px] text-muted-foreground/60">
                                 {session.tags.slice(0, 3).map((tag) => (
                                   <span key={tag} className="max-w-full truncate">#{tag}</span>
                                 ))}
@@ -265,6 +213,6 @@ export function SessionList(props: SessionListProps) {
           </div>
         )}
       </div>
-    </SidebarPanelShell>
+    </section>
   );
 }

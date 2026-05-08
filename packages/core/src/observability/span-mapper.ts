@@ -234,7 +234,7 @@ function mapApprovalRequested(e: ApprovalRequestedEvent): SpanOperation {
     return {
         action: "addEvent",
         name: "approval.requested",
-        attributes: { taskId: e.taskId, description: e.description.slice(0, 256) },
+        attributes: { approvalId: e.approvalId, taskId: e.taskId, description: e.description.slice(0, 256) },
     };
 }
 
@@ -242,7 +242,7 @@ function mapApprovalReceived(e: ApprovalReceivedEvent): SpanOperation {
     return {
         action: "addEvent",
         name: "approval.received",
-        attributes: { taskId: e.taskId, approved: e.approved },
+        attributes: { approvalId: e.approvalId, taskId: e.taskId, approved: e.approved },
     };
 }
 

@@ -819,6 +819,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     if (event.sessionId !== session.id) return;
     capturedRuntimeEvents.push(event);
     approvalTransitions.push({
+      approvalId: event.approvalId,
       status: "requested",
       sessionId: event.sessionId,
       reason: event.description,
@@ -828,6 +829,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     if (event.sessionId !== session.id) return;
     capturedRuntimeEvents.push(event);
     approvalTransitions.push({
+      approvalId: event.approvalId,
       status: event.approved ? "approved" : "rejected",
       sessionId: event.sessionId,
       reason: event.reason,

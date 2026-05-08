@@ -179,8 +179,8 @@ describe("Composer", () => {
     const textarea = screen.getByLabelText("Message");
     const inputSurface = textarea.parentElement;
 
-    expect(inputSurface).toHaveClass("gap-2", "px-2.5", "py-2");
-    expect(textarea).toHaveClass("min-h-16", "max-h-32", "px-2.5", "py-2", "text-sm");
+    expect(inputSurface).toHaveClass("overflow-hidden", "rounded-md");
+    expect(textarea).toHaveClass("min-h-16", "max-h-36", "px-3", "py-3", "text-sm");
   });
 
   it("adds a non-interactive fade between transcript content and the composer", () => {
@@ -189,6 +189,7 @@ describe("Composer", () => {
     const section = screen.getByRole("textbox", { name: "Message" }).closest("section");
 
     expect(section).toHaveClass("relative", "z-10", "bg-background/95");
+    expect(section).toHaveClass("border-t", "border-border/60");
     expect(section).toHaveClass("before:pointer-events-none", "before:-top-8", "before:h-8");
     expect(section).toHaveClass("before:bg-gradient-to-t", "before:from-background", "before:to-transparent");
   });

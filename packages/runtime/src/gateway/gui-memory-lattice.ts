@@ -56,17 +56,22 @@ export function createGuiMemoryLatticeRoutes(options: GuiMemoryLatticeRoutesOpti
     try {
       result = await options.resources.readResource(resourceUri);
     } catch {
-      return c.json(emptyGraphResponse(new URL(c.req.url).searchParams, options.defaultScope));
+      return c.json(emptyGraphResponse(
+        new URL(c.req.url).searchParams,
+        options.defaultScope,
+        "Memory resource is not installed for this workspace.",
+      ));
     }
 
     try {
       const response = GuiMemoryLatticeGraphResponseSchema.parse(readJsonResource(result));
       return c.json(response);
     } catch {
-      return c.json({
-        code: "memory_lattice_unavailable",
-        message: "Memory Lattice graph is not available through the runtime resource plane.",
-      } satisfies GuiMemoryLatticeError, 404);
+      return c.json(emptyGraphResponse(
+        new URL(c.req.url).searchParams,
+        options.defaultScope,
+        "Memory resource is not available through the runtime resource plane.",
+      ));
     }
   });
 
@@ -116,6 +121,7 @@ function buildMemoryGraphResourceUri(
 function emptyGraphResponse(
   query: URLSearchParams,
   defaultScope: GuiMemoryLatticeScope | undefined,
+  unavailableReason?: string,
 ): GuiMemoryLatticeGraphResponse {
   const scope = readMemoryScope(query, defaultScope);
   const layer = readMemoryLayer(query);
@@ -141,6 +147,7 @@ function emptyGraphResponse(
       ...(searchQuery ? { query: searchQuery } : {}),
       depth,
     },
+    ...(unavailableReason ? { unavailableReason } : {}),
   };
 }
 

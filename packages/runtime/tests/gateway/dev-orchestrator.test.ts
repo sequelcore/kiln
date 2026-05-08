@@ -2,13 +2,21 @@ import { describe, it, expect, vi } from "vitest";
 import { DevOrchestrator } from "../../src/gateway/dev-orchestrator.js";
 import { ApprovalGateRegistry } from "../../src/gateway/approval-registry.js";
 import { EventBus } from "@kilnai/core";
-import type { KilnEvent } from "@kilnai/core";
+import type { ApprovalRequestedEvent, KilnEvent } from "@kilnai/core";
 
 function createSetup(requireApproval = true) {
   const eventBus = new EventBus(100);
   const approvalRegistry = new ApprovalGateRegistry();
   const devOrch = new DevOrchestrator({ eventBus, approvalRegistry, requireApproval });
   return { eventBus, approvalRegistry, devOrch };
+}
+
+function captureApprovalId(eventBus: EventBus): { current: string | null } {
+  const captured = { current: null as string | null };
+  eventBus.on("approval_requested", (event) => {
+    captured.current = (event as ApprovalRequestedEvent).approvalId;
+  });
+  return captured;
 }
 
 describe("DevOrchestrator", () => {
@@ -20,16 +28,18 @@ describe("DevOrchestrator", () => {
   });
 
   it("start() registers ApprovalTarget with registry", async () => {
-    const { devOrch, approvalRegistry } = createSetup(true);
-    const sessionId = devOrch.start("Build a feature");
+    const { devOrch, approvalRegistry, eventBus } = createSetup(true);
+    const approval = captureApprovalId(eventBus);
+    devOrch.start("Build a feature");
 
     // Wait for approval gate
     await vi.waitFor(() => {
       expect(devOrch.orchestrator.status).toBe("awaiting_approval");
+      expect(approval.current).toBeTruthy();
     }, { timeout: 2000 });
 
     // The target should be registered -- approve should succeed
-    const result = approvalRegistry.approve(sessionId);
+    const result = approvalRegistry.approve(approval.current ?? undefined);
     expect(result.ok).toBe(true);
   });
 
@@ -82,14 +92,16 @@ describe("DevOrchestrator", () => {
   });
 
   it("approvalRegistry.approve() resumes phase loop past gate", async () => {
-    const { devOrch, approvalRegistry } = createSetup(true);
-    const sessionId = devOrch.start("Approve me");
+    const { devOrch, approvalRegistry, eventBus } = createSetup(true);
+    const approval = captureApprovalId(eventBus);
+    devOrch.start("Approve me");
 
     await vi.waitFor(() => {
       expect(devOrch.orchestrator.status).toBe("awaiting_approval");
+      expect(approval.current).toBeTruthy();
     }, { timeout: 2000 });
 
-    approvalRegistry.approve(sessionId);
+    approvalRegistry.approve(approval.current ?? undefined);
 
     await vi.waitFor(() => {
       expect(devOrch.isRunning).toBe(false);
@@ -99,14 +111,16 @@ describe("DevOrchestrator", () => {
   });
 
   it("approvalRegistry.reject() stops loop", async () => {
-    const { devOrch, approvalRegistry } = createSetup(true);
-    const sessionId = devOrch.start("Reject me");
+    const { devOrch, approvalRegistry, eventBus } = createSetup(true);
+    const approval = captureApprovalId(eventBus);
+    devOrch.start("Reject me");
 
     await vi.waitFor(() => {
       expect(devOrch.orchestrator.status).toBe("awaiting_approval");
+      expect(approval.current).toBeTruthy();
     }, { timeout: 2000 });
 
-    approvalRegistry.reject("Bad plan", sessionId);
+    approvalRegistry.reject("Bad plan", approval.current ?? undefined);
 
     await vi.waitFor(() => {
       expect(devOrch.isRunning).toBe(false);
@@ -132,10 +146,10 @@ describe("DevOrchestrator", () => {
       expect(devOrch.isRunning).toBe(false);
     }, { timeout: 2000 });
 
-    // After completion, the registry should not find the session
+    // After completion, the registry should not find a stale approval.
     const result = approvalRegistry.approve(sessionId);
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("Session not found");
+    expect(result.error).toContain("Approval not found");
   });
 
   it("removes event bridge on completion", async () => {

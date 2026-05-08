@@ -4,7 +4,6 @@ import type { TimelineEventEntry, TimelineEntry } from "../lib/session-store.js"
 import { isActivityTimelineEntry } from "../lib/timeline-visibility.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { SidebarPanelShell } from "./sidebar-panel-shell.js";
 
 interface ActivityLogPanelProps {
   readonly entries: readonly TimelineEntry[];
@@ -79,9 +78,11 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
   }, [events, selectedKey]);
 
   return (
-    <SidebarPanelShell title="Activity" meta={`${events.length} events`}>
-      <div className="grid min-h-0 flex-1 lg:grid-rows-[minmax(0,1.15fr)_minmax(14rem,0.85fr)]">
-        <div className="min-h-0 overflow-y-auto border-b border-border/60">
+    <section
+      aria-label="Activity"
+      className="grid h-full min-h-0 min-w-0 bg-card lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)]"
+    >
+      <div className="min-h-0 overflow-y-auto border-b border-border/60 lg:border-b-0 lg:border-r lg:border-border/60">
           {events.length === 0 ? (
             <div className="grid h-full place-items-center px-6 py-16 text-center">
               <div>
@@ -129,9 +130,9 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
               })}
             </ul>
           )}
-        </div>
+      </div>
 
-        <div className="min-h-0 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 overflow-y-auto px-4 py-4">
           {selectedEvent ? (
             <section aria-label="Selected activity detail" className="flex flex-col gap-3">
               <div>
@@ -150,8 +151,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
               <p className="text-sm leading-6 text-muted-foreground">Select an activity event to inspect its runtime details.</p>
             </div>
           )}
-        </div>
       </div>
-    </SidebarPanelShell>
+    </section>
   );
 }

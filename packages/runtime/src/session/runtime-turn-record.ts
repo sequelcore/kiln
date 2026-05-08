@@ -25,6 +25,7 @@ export interface RuntimeTurnFileChange {
 }
 
 export interface RuntimeTurnApprovalTransition {
+  readonly approvalId: string;
   readonly status: "requested" | "approved" | "rejected";
   readonly sessionId: string;
   readonly reason?: string;
@@ -163,7 +164,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
   if (approvalTransitionsForRecord.length > 0) {
     for (const transition of approvalTransitionsForRecord.slice(-8)) {
       const reasonSuffix = transition.reason ? ` (${transition.reason})` : "";
-      session.addExactArtifact(`Approval ${transition.status}: ${transition.sessionId}${reasonSuffix}`);
+      session.addExactArtifact(`Approval ${transition.status}: ${transition.approvalId} - ${transition.sessionId}${reasonSuffix}`);
     }
   }
   if (authorityDecisionsForRecord.length > 0) {

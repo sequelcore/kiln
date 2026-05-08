@@ -370,8 +370,8 @@ describe("GuiWsClient", () => {
         { type: "provider", provider: "openai", model: "gpt-4", requestId: "provider-switch-1" },
         { type: "provider", provider: "claude", requestId: "provider-switch-2" },
         { type: "resume", sessionId: "session-123" },
-        { type: "approve", sessionId: "session-123" },
-        { type: "reject", reason: "not approved", sessionId: "session-123" },
+        { type: "approve", approvalId: "approval-123" },
+        { type: "reject", reason: "not approved", approvalId: "approval-123" },
         { type: "execution_mode_transition", toMode: "execute" },
       ];
 

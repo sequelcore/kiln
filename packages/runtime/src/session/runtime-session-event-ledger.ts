@@ -166,7 +166,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
       case "approval_requested": {
-        const approvalId = `${turnId}:approval:${++approvalOrdinal}`;
+        const approvalId = runtimeEvent.approvalId ?? `${turnId}:approval:${++approvalOrdinal}`;
         pendingApprovalIds.push(approvalId);
         events.push(createSessionEvent<"approval_requested">({
           kilnSessionId: session.id,
@@ -182,7 +182,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
       case "approval_received": {
-        const approvalId = pendingApprovalIds.shift() ?? `${turnId}:approval:${++approvalOrdinal}`;
+        const approvalId = runtimeEvent.approvalId ?? pendingApprovalIds.shift() ?? `${turnId}:approval:${++approvalOrdinal}`;
         events.push(createSessionEvent<"approval_resolved">({
           kilnSessionId: session.id,
           sequence: nextSequence(),

@@ -433,8 +433,8 @@ export type GuiOutboundFrame =
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | OperatorThemeSetResultFrame
   | { type: "resume"; sessionId: string }
-  | { type: "approve"; sessionId?: string }
-  | { type: "reject"; reason: string; sessionId?: string }
+  | { type: "approve"; approvalId: string }
+  | { type: "reject"; reason: string; approvalId: string }
   | { type: "execution_mode_transition"; toMode: OperatorExecutionMode };
 
 /** Frames sent by the gateway to the browser (operator). */

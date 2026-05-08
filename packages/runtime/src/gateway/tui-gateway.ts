@@ -365,8 +365,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   });
   const sessionRegistry = new SessionRegistry();
   activityStreamer.bindApprovalBridge({
-    approve: (sessionId) => orchestrator.continue(sessionId),
-    reject: (sessionId, reason) => orchestrator.emitApprovalReceived(false, reason, sessionId),
+    approve: (approvalId) => orchestrator.continue(approvalId),
+    reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
   });
 
   const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
@@ -585,17 +585,17 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
             // Handle approval responses from TUI
             if (frame.type === "approve") {
-              const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
-              const result = approvalRegistry.approve(sessionId);
+              const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : undefined;
+              const result = approvalRegistry.approve(approvalId);
               if (!result.ok) {
                 ws.send(JSON.stringify({ type: "error", message: result.error ?? "Approval failed" }));
               }
               return;
             }
             if (frame.type === "reject") {
-              const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : undefined;
+              const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : undefined;
               const reason = typeof frame.reason === "string" ? frame.reason : "rejected by user";
-              const result = approvalRegistry.reject(reason, sessionId);
+              const result = approvalRegistry.reject(reason, approvalId);
               if (!result.ok) {
                 ws.send(JSON.stringify({ type: "error", message: result.error ?? "Rejection failed" }));
               }
@@ -829,9 +829,7 @@ class TuiActivityStreamer {
     sessionId: string;
     nextSequence: number;
     toolOrdinal: number;
-    approvalOrdinal: number;
     pendingToolCallIds: Map<string, string[]>;
-    pendingApprovalIds: string[];
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
     authorityDecisions: RuntimeTurnAuthorityDecision[];
@@ -842,8 +840,8 @@ class TuiActivityStreamer {
   private receivedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
   private authorizedHandler: ((event: import("@kilnai/core").KilnEvent) => void) | null = null;
   private approvalBridge: {
-    approve: (sessionId: string) => void;
-    reject: (sessionId: string, reason: string) => void;
+    approve: (approvalId: string) => void;
+    reject: (approvalId: string, reason: string) => void;
   } | null = null;
 
   private toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]> = new Map();
@@ -855,8 +853,8 @@ class TuiActivityStreamer {
   }
 
   bindApprovalBridge(bridge: {
-    approve: (sessionId: string) => void;
-    reject: (sessionId: string, reason: string) => void;
+    approve: (approvalId: string) => void;
+    reject: (approvalId: string, reason: string) => void;
   }): void {
     this.approvalBridge = bridge;
   }
@@ -866,9 +864,7 @@ class TuiActivityStreamer {
       sessionId,
       nextSequence,
       toolOrdinal: 0,
-      approvalOrdinal: 0,
       pendingToolCallIds: new Map<string, string[]>(),
-      pendingApprovalIds: [],
       fileChanges: [],
       approvalTransitions: [],
       authorityDecisions: [],
@@ -979,12 +975,12 @@ class TuiActivityStreamer {
       if (event.type === "approval_requested") {
         const approvalEvent = event as unknown as ApprovalRequestedEvent;
         const sessionId = approvalEvent.sessionId;
-        if (sessionId) {
-          this.pendingApprovals.add(sessionId);
+        const approvalId = approvalEvent.approvalId;
+        if (sessionId && approvalId) {
+          this.pendingApprovals.add(approvalId);
           if (this.capture && this.capture.sessionId === sessionId) {
-            const approvalId = `${sessionId}:live:approval:${++this.capture.approvalOrdinal}`;
-            this.capture.pendingApprovalIds.push(approvalId);
             this.capture.approvalTransitions.push({
+              approvalId,
               status: "requested",
               sessionId,
               reason: approvalEvent.description,
@@ -994,15 +990,16 @@ class TuiActivityStreamer {
               timestamp: approvalEvent.timestamp.toISOString(),
               payload: {
                 approvalId,
+                sessionId,
                 action: approvalEvent.description,
                 justification: approvalEvent.description,
               },
             });
           }
-          this.approvalRegistry.register(sessionId, {
-            approve: () => this.approvalBridge?.approve(sessionId),
-            reject: (reason: string) => this.approvalBridge?.reject(sessionId, reason),
-            status: () => (this.pendingApprovals.has(sessionId) ? "awaiting_approval" : "resolved"),
+          this.approvalRegistry.register(approvalId, {
+            approve: () => this.approvalBridge?.approve(approvalId),
+            reject: (reason: string) => this.approvalBridge?.reject(approvalId, reason),
+            status: () => (this.pendingApprovals.has(approvalId) ? "awaiting_approval" : "resolved"),
           });
         }
         this.emitActivityPhase({
@@ -1018,11 +1015,12 @@ class TuiActivityStreamer {
       if (event.type === "approval_received") {
         const receivedEvent = event as unknown as ApprovalReceivedEvent;
         const sessionId = receivedEvent.sessionId;
-        if (sessionId) {
-          this.pendingApprovals.delete(sessionId);
+        const approvalId = receivedEvent.approvalId;
+        if (sessionId && approvalId) {
+          this.pendingApprovals.delete(approvalId);
           if (this.capture && this.capture.sessionId === sessionId) {
-            const approvalId = this.capture.pendingApprovalIds.shift() ?? `${sessionId}:live:approval:${++this.capture.approvalOrdinal}`;
             this.capture.approvalTransitions.push({
+              approvalId,
               status: receivedEvent.approved ? "approved" : "rejected",
               sessionId,
               reason: receivedEvent.reason,
@@ -1032,6 +1030,7 @@ class TuiActivityStreamer {
               timestamp: receivedEvent.timestamp.toISOString(),
               payload: {
                 approvalId,
+                sessionId,
                 resolution: {
                   decision: receivedEvent.approved ? "approved" : "denied",
                   resolvedBy: "operator",
@@ -1040,7 +1039,7 @@ class TuiActivityStreamer {
               },
             });
           }
-          this.approvalRegistry.unregister(sessionId);
+          this.approvalRegistry.unregister(approvalId);
         }
         this.emitActivityPhase({ phase: "idle", sessionId });
       }

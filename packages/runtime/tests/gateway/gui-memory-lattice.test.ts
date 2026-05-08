@@ -127,6 +127,7 @@ describe("GUI Memory Lattice routes", () => {
         scope: { kind: "project", id: "kiln" },
         depth: 0,
       },
+      unavailableReason: "Memory resource is not installed for this workspace.",
     });
   });
 
@@ -159,7 +160,7 @@ describe("GUI Memory Lattice routes", () => {
     expect(readResource).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the memory resource payload is malformed", async () => {
+  it("returns an unavailable empty graph when the memory resource payload is malformed", async () => {
     const readResource = vi.fn().mockResolvedValue({
       contents: [{
         uri: "kiln://memory/graph",
@@ -171,10 +172,18 @@ describe("GUI Memory Lattice routes", () => {
 
     const response = await app.request("http://localhost/memory/graph");
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      code: "memory_lattice_unavailable",
-      message: "Memory Lattice graph is not available through the runtime resource plane.",
+      snapshot: {
+        nodes: [],
+        edges: [],
+        limits: { maxNodes: 25, maxEdges: 50 },
+        truncated: false,
+      },
+      filters: {
+        depth: 0,
+      },
+      unavailableReason: "Memory resource is not available through the runtime resource plane.",
     });
   });
 });

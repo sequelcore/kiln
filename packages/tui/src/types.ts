@@ -28,7 +28,7 @@ export type SessionEvent =
   | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string; turnId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation };
 
 /**
  * @internal
@@ -60,7 +60,7 @@ export type SessionEventInternal =
     }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; turnId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
 
 /**
  * @description The only session abstraction the TUI depends on.

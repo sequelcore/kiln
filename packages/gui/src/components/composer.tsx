@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { SessionStatus } from "../lib/session-store.js";
 import { ComposerCommandMenu } from "./composer-command-menu.js";
 import type { CommandPaletteItem } from "./command-menu-surface.js";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -42,7 +42,7 @@ export function Composer(props: ComposerProps) {
   }
 
   return (
-    <section className="relative z-10 bg-background/95 px-4 pb-2 pt-1 before:pointer-events-none before:absolute before:inset-x-0 before:-top-8 before:h-8 before:bg-gradient-to-t before:from-background before:to-transparent before:content-[''] supports-[backdrop-filter]:bg-background/88">
+    <section className="relative z-10 border-t border-border/60 bg-background/95 px-4 pb-3 pt-2 before:pointer-events-none before:absolute before:inset-x-0 before:-top-8 before:h-8 before:bg-gradient-to-t before:from-background before:to-transparent before:content-[''] supports-[backdrop-filter]:bg-background/88">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -50,7 +50,7 @@ export function Composer(props: ComposerProps) {
           props.onSubmit(draft);
           setDraft("");
         }}
-        className="relative mx-auto flex max-w-3xl flex-col gap-1.5"
+        className="relative mx-auto flex max-w-4xl flex-col gap-1.5"
       >
         <ComposerCommandMenu
           open={props.commandMenu.open}
@@ -63,7 +63,7 @@ export function Composer(props: ComposerProps) {
         <label className="sr-only" htmlFor="composer-input">
           Message
         </label>
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-2.5 py-2 shadow-[var(--shadow-elevated)] transition-colors focus-within:border-ring/70">
+        <div className="flex flex-col overflow-hidden rounded-md border border-border bg-card shadow-[var(--shadow-elevated)] transition-colors focus-within:border-ring/70">
           <Textarea
             id="composer-input"
             value={draft}
@@ -96,10 +96,10 @@ export function Composer(props: ComposerProps) {
               setDraft("");
             }}
             rows={2}
-            className="min-h-16 max-h-32 resize-none border-0 bg-transparent px-2.5 py-2 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+            className="min-h-16 max-h-36 resize-none border-0 bg-transparent px-3 py-3 text-sm leading-6 shadow-none focus-visible:border-transparent focus-visible:ring-0"
             placeholder="Message Kiln"
           />
-          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <div className="flex min-h-10 flex-wrap items-center gap-2 border-t border-border/55 bg-background/55 px-2.5 py-1.5">
             {props.providerControl || props.reasoningControl ? (
               <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:flex-none">
                 {props.providerControl ? (
@@ -110,12 +110,14 @@ export function Composer(props: ComposerProps) {
             ) : null}
             <Button
               type="button"
-              size="sm"
+              size="icon-sm"
               variant={props.planMode ? "secondary" : "outline"}
               aria-pressed={props.planMode}
+              aria-label="Plan"
+              title="Plan"
               onClick={() => props.onTogglePlanMode(!props.planMode)}
             >
-              Plan
+              <ListChecks aria-hidden="true" />
             </Button>
             <Button
               type="submit"

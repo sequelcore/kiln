@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   OPERATOR_THEME_LABELS,
@@ -23,6 +23,7 @@ import { OperatorSurfaceTabs, type OperatorSurfaceKind } from "./operator-surfac
 import { ChangedFilesPanel } from "./changed-files-panel.js";
 import { ApprovalsPanel } from "./approvals-panel.js";
 import { ActivityLogPanel } from "./activity-log-panel.js";
+import { ChatWorkbench } from "./chat-workbench.js";
 import { Transcript } from "./transcript.js";
 import { Composer } from "./composer.js";
 import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
@@ -37,12 +38,15 @@ import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   CheckCheck,
-  ChevronLeft,
-  ChevronRight,
   FileDiff,
   Folder,
+  History,
   MessagesSquare,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Settings2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -55,9 +59,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
+const SIDEBAR_COLLAPSED_KEY = "kiln.gui.sidebarCollapsed";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
 const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
@@ -73,6 +83,22 @@ const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
 const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
 
+function readSidebarCollapsedPreference(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function persistSidebarCollapsedPreference(collapsed: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "true" : "false");
+  } catch {
+    // Browser storage can be unavailable in restricted contexts; layout still works in memory.
+  }
+}
+
 function KilnMark() {
   return (
     <div className="grid size-9 place-items-center rounded-lg text-foreground" aria-hidden="true">
@@ -86,46 +112,57 @@ function KilnMark() {
   );
 }
 
-type SidebarMode = "sessions" | "workspace" | "changed" | "approvals" | "activity" | "memory" | "setup";
+type WorkbenchSurface = "chat" | "activity" | "memory" | "setup";
+type InspectorMode = "workspace" | "changed" | "approvals";
+type MobileDrawerMode = "sessions" | "inspector";
 
-const sidebarModeIcons: Record<SidebarMode, LucideIcon> = {
-  sessions: MessagesSquare,
-  workspace: Folder,
-  changed: FileDiff,
-  approvals: CheckCheck,
+const workbenchSurfaceIcons: Record<WorkbenchSurface, LucideIcon> = {
+  chat: MessagesSquare,
   activity: Activity,
   memory: Network,
   setup: Settings2,
 };
 
-function SidebarRailButton(props: {
-  readonly mode: SidebarMode;
+const inspectorModeIcons: Record<InspectorMode, LucideIcon> = {
+  workspace: Folder,
+  changed: FileDiff,
+  approvals: CheckCheck,
+};
+
+function NavButton<TMode extends string>(props: {
+  readonly mode: TMode;
   readonly label: string;
-  readonly shortcut: string;
   readonly active: boolean;
   readonly count?: number;
-  readonly disabled?: boolean;
+  readonly icon: LucideIcon;
+  readonly collapsed?: boolean;
   readonly onClick: () => void;
 }) {
-  const Icon = sidebarModeIcons[props.mode];
+  const Icon = props.icon;
   return (
     <Button
       type="button"
       variant={props.active ? "secondary" : "ghost"}
-      size="icon-lg"
+      size={props.collapsed ? "icon-lg" : "sm"}
       aria-current={props.active ? "page" : undefined}
       aria-label={props.label}
-      disabled={props.disabled}
-      title={`${props.label} ${props.shortcut}${props.disabled ? " · coming next" : ""}`}
+      title={props.label}
       onClick={props.onClick}
-      className={cn("relative text-muted-foreground", props.active && "text-foreground")}
+      className={cn(
+        "relative text-muted-foreground",
+        props.collapsed ? "mx-auto" : "w-full justify-start",
+        props.active && "text-foreground",
+      )}
     >
-      {props.active ? <span className="absolute -left-2 top-2 bottom-2 w-0.5 rounded-r-full bg-foreground" /> : null}
-      <Icon aria-hidden="true" />
+      <Icon data-icon="inline-start" aria-hidden="true" />
+      {props.collapsed ? null : <span className="min-w-0 flex-1 truncate text-left">{props.label}</span>}
       {props.count && props.count > 0 ? (
         <Badge
           variant="outline"
-          className="absolute -right-1 -top-1 h-4 min-w-4 px-1 font-mono text-[9px] leading-none text-muted-foreground"
+          className={cn(
+            "h-4 min-w-4 px-1 font-mono text-[9px] leading-none text-muted-foreground",
+            props.collapsed && "absolute -right-1 -top-1",
+          )}
         >
           {props.count}
         </Badge>
@@ -134,124 +171,99 @@ function SidebarRailButton(props: {
   );
 }
 
-function LeftRail(props: {
-  readonly activeMode: SidebarMode;
-  readonly sessionCount: number;
-  readonly changedCount: number;
-  readonly approvalCount: number;
+function PrimarySidebar(props: {
+  readonly activeSurface: WorkbenchSurface;
+  readonly collapsed: boolean;
   readonly activityCount: number;
-  readonly expanded: boolean;
-  readonly onToggleExpanded: () => void;
-  readonly onSelectMode: (mode: SidebarMode) => void;
+  readonly sessionsOpen: boolean;
+  readonly onSelectSurface: (surface: WorkbenchSurface) => void;
+  readonly onToggleCollapsed: () => void;
+  readonly onSessionsOpenChange: (open: boolean) => void;
+  readonly sessions: ReactNode;
 }) {
   return (
-    <nav
-      aria-label="Operator modes"
-      className="flex h-full w-14 shrink-0 flex-col items-center gap-1 border-r border-border/70 bg-card px-0 py-2"
+    <aside
+      className={cn(
+        "flex h-full flex-col border-r border-border/70 bg-card transition-[width,min-width,max-width]",
+        props.collapsed ? "w-14 min-w-14 max-w-14" : "w-[22rem] min-w-[22rem] max-w-[22rem]",
+      )}
     >
-      <KilnMark />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-lg"
-        aria-label={props.expanded ? "Collapse sidebar" : "Expand sidebar"}
-        title={props.expanded ? "Collapse sidebar" : "Expand sidebar"}
-        onClick={props.onToggleExpanded}
-        className="text-muted-foreground"
-      >
-        {props.expanded ? <ChevronLeft aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-      </Button>
-      <div className="h-1" />
-      <SidebarRailButton
-        mode="sessions"
-        label="Sessions"
-        shortcut="Ctrl+1"
-        active={props.activeMode === "sessions"}
-        count={props.sessionCount}
-        onClick={() => {
-          if (!props.expanded) {
-            props.onToggleExpanded();
-          }
-          props.onSelectMode("sessions");
-        }}
-      />
-      <SidebarRailButton
-        mode="workspace"
-        label="Workspace"
-        shortcut="Ctrl+2"
-        active={props.activeMode === "workspace"}
-        onClick={() => {
-          if (!props.expanded) {
-            props.onToggleExpanded();
-          }
-          props.onSelectMode("workspace");
-        }}
-      />
-      <SidebarRailButton
-        mode="changed"
-        label="Changed files"
-        shortcut="Ctrl+3"
-        active={props.activeMode === "changed"}
-        count={props.changedCount}
-        onClick={() => {
-          if (!props.expanded) {
-            props.onToggleExpanded();
-          }
-          props.onSelectMode("changed");
-        }}
-      />
-      <SidebarRailButton
-        mode="approvals"
-        label="Approvals"
-        shortcut="Ctrl+4"
-        active={props.activeMode === "approvals"}
-        count={props.approvalCount}
-        onClick={() => {
-          if (!props.expanded) {
-            props.onToggleExpanded();
-          }
-          props.onSelectMode("approvals");
-        }}
-      />
-      <SidebarRailButton
-        mode="activity"
-        label="Activity"
-        shortcut="Ctrl+5"
-        active={props.activeMode === "activity"}
-        count={props.activityCount}
-        onClick={() => {
-          if (!props.expanded) {
-            props.onToggleExpanded();
-          }
-          props.onSelectMode("activity");
-        }}
-      />
-      <SidebarRailButton
-        mode="memory"
-        label="Memory"
-        shortcut="Ctrl+6"
-        active={props.activeMode === "memory"}
-        onClick={() => {
-          if (!props.expanded) {
-            props.onToggleExpanded();
-          }
-          props.onSelectMode("memory");
-        }}
-      />
-      <SidebarRailButton
-        mode="setup"
-        label="Setup"
-        shortcut="Ctrl+7"
-        active={props.activeMode === "setup"}
-        onClick={() => {
-          if (!props.expanded) {
-            props.onToggleExpanded();
-          }
-          props.onSelectMode("setup");
-        }}
-      />
-      <div className="flex-1" />
-    </nav>
+      <header className={cn("flex min-h-14 items-center border-b border-border/70 px-2", props.collapsed ? "justify-center" : "gap-3")}>
+        {props.collapsed ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-lg"
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            onClick={props.onToggleCollapsed}
+          >
+            <PanelLeftOpen data-icon="inline-start" aria-hidden="true" />
+          </Button>
+        ) : (
+          <>
+            <KilnMark />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-foreground">Kiln</p>
+              <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                Operator workbench
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              onClick={props.onToggleCollapsed}
+            >
+              <PanelLeftClose data-icon="inline-start" aria-hidden="true" />
+            </Button>
+          </>
+        )}
+      </header>
+      <nav aria-label="Workbench surfaces" className={cn("border-b border-border/70 p-2", props.collapsed && "px-1")}>
+        <div className="flex flex-col gap-1">
+          {(["chat", "activity", "memory", "setup"] as const).map((surface) => (
+            <NavButton
+              key={surface}
+              mode={surface}
+              label={surface === "chat" ? "Chat" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
+              icon={workbenchSurfaceIcons[surface]}
+              active={props.activeSurface === surface}
+              count={surface === "activity" ? props.activityCount : undefined}
+              collapsed={props.collapsed}
+              onClick={() => props.onSelectSurface(surface)}
+            />
+          ))}
+        </div>
+      </nav>
+      {props.collapsed ? (
+        <div className="border-b border-border/70 p-1">
+          <Popover open={props.sessionsOpen} onOpenChange={props.onSessionsOpenChange}>
+            <PopoverTrigger
+              render={(
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-lg"
+                  aria-label="Open sessions"
+                  title="Open sessions"
+                  className="relative mx-auto text-muted-foreground"
+                >
+                  <History data-icon="inline-start" aria-hidden="true" />
+                </Button>
+              )}
+            />
+            <PopoverContent aria-label="Sessions" side="right" align="start" sideOffset={8} className="h-[min(42rem,calc(100vh-2rem))] w-96 p-0">
+              <div className="min-h-0 flex-1">{props.sessions}</div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">{props.sessions}</div>
+      )}
+    </aside>
   );
 }
 
@@ -500,8 +512,12 @@ export function AppShell() {
   const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [sidebarExpanded, setSidebarExpanded] = useState(true);
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("sessions");
+  const [mobileDrawerMode, setMobileDrawerMode] = useState<MobileDrawerMode>("sessions");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsedPreference);
+  const [sessionPopoverOpen, setSessionPopoverOpen] = useState(false);
+  const [workbenchSurface, setWorkbenchSurface] = useState<WorkbenchSurface>("chat");
+  const [inspectorMode, setInspectorMode] = useState<InspectorMode>("workspace");
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
   const [selectedAppName, setSelectedAppName] = useState<string | null>(null);
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
@@ -615,6 +631,13 @@ export function AppShell() {
   };
 
   useEffect(() => {
+    persistSidebarCollapsedPreference(sidebarCollapsed);
+    if (!sidebarCollapsed) {
+      setSessionPopoverOpen(false);
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
     if (reasoningEffortOptions.length === 0) {
       if (reasoningEffort !== null) {
         setReasoningEffort(null);
@@ -705,52 +728,35 @@ export function AppShell() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "1") {
         event.preventDefault();
-        setSidebarMode("sessions");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setWorkbenchSurface("chat");
+        setActiveSurface("chat");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "2") {
         event.preventDefault();
-        setSidebarMode("workspace");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setInspectorMode("workspace");
+        setInspectorOpen(true);
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "3") {
         event.preventDefault();
-        setSidebarMode("changed");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setInspectorMode("changed");
+        setInspectorOpen(true);
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "4") {
         event.preventDefault();
-        setSidebarMode("approvals");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setInspectorMode("approvals");
+        setInspectorOpen(true);
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "5") {
         event.preventDefault();
-        setSidebarMode("activity");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setWorkbenchSurface("activity");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "6") {
         event.preventDefault();
-        setSidebarMode("memory");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setWorkbenchSurface("memory");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "7") {
         event.preventDefault();
-        setSidebarMode("setup");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setWorkbenchSurface("setup");
       }
       if (event.key === "Escape") {
         setIsPaletteOpen(false);
@@ -886,13 +892,12 @@ export function AppShell() {
   const memoryLatticeQuery = useQuery({
     queryKey: ["gui", "memory-lattice", memoryFilters, memoryLatticeInvalidationTick],
     queryFn: async () => gatewayClient.loadMemoryLatticeGraph(memoryFilters),
-    enabled: gatewayReady && (sidebarMode === "memory" || memorySurfaceOpen),
+    enabled: gatewayReady && (workbenchSurface === "memory" || memorySurfaceOpen),
   });
   const setupQuery = useQuery({
     queryKey: ["gui", "setup", gatewayReady ? "ready" : "waiting"],
     queryFn: async () => gatewayClient.loadConfigSetup(),
-    enabled: gatewayReady && sidebarMode === "setup",
-    refetchInterval: sidebarMode === "setup" ? 5_000 : false,
+    enabled: gatewayReady && workbenchSurface === "setup",
   });
 
   useEffect(() => {
@@ -1107,10 +1112,7 @@ export function AppShell() {
         closePalette();
         return;
       case "setup":
-        setSidebarMode("setup");
-        if (!isNarrow) {
-          setSidebarExpanded(true);
-        }
+        setWorkbenchSurface("setup");
         closePalette();
         return;
       default:
@@ -1140,16 +1142,15 @@ export function AppShell() {
     sendClear();
     setSelectedSessionId(null);
     setActiveSurface("chat");
+    setWorkbenchSurface("chat");
     setDrawerOpen(false);
+    setSessionPopoverOpen(false);
   };
   const selectedSessionMeta = sessionDetailQuery.data?.meta ?? null;
-  const selectSidebarMode = (mode: SidebarMode) => {
-    setSidebarMode(mode);
-  };
   const openMemorySurface = () => {
     setMemorySurfaceOpen(true);
     setActiveSurface("memory");
-    setSidebarMode("memory");
+    setWorkbenchSurface("memory");
   };
   const closeMemorySurface = () => {
     setMemorySurfaceOpen(false);
@@ -1158,112 +1159,56 @@ export function AppShell() {
     }
   };
 
-  const sidebar = sidebarMode === "sessions"
+  const sessionsPanel = (
+    <SessionList
+      sessions={sessionList}
+      selectedSessionId={selectedSessionId}
+      resumeTargetId={resumeTargetId}
+      onSelect={(sessionId) => {
+        setSelectedSessionId(sessionId);
+        setWorkbenchSurface("chat");
+        setDrawerOpen(false);
+        setSessionPopoverOpen(false);
+      }}
+      onStartNewSession={startNewSession}
+    />
+  );
+
+  const inspector = inspectorMode === "workspace"
     ? (
-      <SessionList
-        sessions={sessionList}
-        selectedSessionId={selectedSessionId}
-        resumeTargetId={resumeTargetId}
-        onSelect={(sessionId) => setSelectedSessionId(sessionId)}
-        onStartNewSession={startNewSession}
+      <WorkspacePanel
+        gatewayWorkingDirectory={workingDirectory}
+        workspaceTree={dashboardData?.workspaceTree}
+        workspaceClient={gatewayClient}
+        worktreePath={selectedSessionMeta?.sessionLedger?.worktreePath ?? null}
+        selectedFilePath={selectedWorkspacePath}
+        onOpenFile={openWorkspaceFile}
       />
-    ) : sidebarMode === "workspace"
+    ) : inspectorMode === "changed"
       ? (
-        <WorkspacePanel
-          gatewayWorkingDirectory={workingDirectory}
-          workspaceTree={dashboardData?.workspaceTree}
-          workspaceClient={gatewayClient}
-          worktreePath={selectedSessionMeta?.sessionLedger?.worktreePath ?? null}
-          selectedFilePath={selectedWorkspacePath}
-          onOpenFile={openWorkspaceFile}
+        <ChangedFilesPanel files={changedFiles} />
+      )
+      : (
+        <ApprovalsPanel
+          approvals={pendingApprovals}
+          onApprove={(approvalId) => sendApprovalResponse(true, undefined, approvalId)}
+          onDeny={(approvalId) => sendApprovalResponse(false, undefined, approvalId)}
         />
-      ) : sidebarMode === "changed"
-        ? (
-          <ChangedFilesPanel
-            files={changedFiles}
-          />
-        )
-        : sidebarMode === "approvals"
-          ? (
-            <ApprovalsPanel
-              approvals={pendingApprovals}
-              onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
-              onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
-            />
-          )
-          : sidebarMode === "activity"
-            ? (
-              <ActivityLogPanel
-                entries={timelineEntries}
-              />
-            )
-            : sidebarMode === "memory"
-              ? (
-                <MemoryLatticePanel
-                  filters={memoryFilters}
-                  response={memoryLatticeQuery.data ?? null}
-                  loading={Boolean(memoryLatticeQuery.isFetching)}
-                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                  selectedRecordId={selectedMemoryRecordId}
-                  onRefresh={() => void memoryLatticeQuery.refetch()}
-                  onFiltersChange={setMemoryFilters}
-                  onSelectRecord={setSelectedMemoryRecordId}
-                  graphOpen={memorySurfaceOpen}
-                  onOpenGraph={openMemorySurface}
-                />
-              )
-              : (
-                <SetupPanel
-                  snapshot={setupQuery.data ?? null}
-                  loading={Boolean(setupQuery.isFetching)}
-                  error={setupQuery.error instanceof Error ? setupQuery.error : null}
-                  onRefresh={() => void setupQuery.refetch()}
-                  onThemeSelected={persistThemePreference}
-                />
-              );
+      );
+
+  const workbenchTitle = workbenchSurface === "chat"
+    ? "Chat"
+    : workbenchSurface === "activity"
+      ? "Activity"
+      : workbenchSurface === "memory"
+        ? "Memory"
+        : "Setup";
+  const drawerTitle = mobileDrawerMode === "sessions" ? "Sessions" : "Inspector";
+  const drawerAriaLabel = mobileDrawerMode === "sessions" ? "session drawer" : "inspector drawer";
 
   const closeDrawer = () => {
     setDrawerOpen(false);
   };
-  const drawerTitle = sidebarMode === "sessions"
-    ? "Sessions"
-    : sidebarMode === "workspace"
-      ? "Workspace"
-      : sidebarMode === "changed"
-        ? "Changed Files"
-        : sidebarMode === "approvals"
-          ? "Approvals"
-          : sidebarMode === "activity"
-            ? "Activity"
-            : sidebarMode === "memory"
-              ? "Memory"
-              : "Setup";
-  const drawerDescription = sidebarMode === "sessions"
-    ? "History moves into a drawer on narrow windows."
-    : sidebarMode === "workspace"
-      ? "Workspace metadata moves into a drawer on narrow windows."
-      : sidebarMode === "changed"
-        ? "Changed files move into a drawer on narrow windows."
-        : sidebarMode === "approvals"
-          ? "Approval requests move into a drawer on narrow windows."
-          : sidebarMode === "activity"
-            ? "Runtime activity moves into a drawer on narrow windows."
-            : sidebarMode === "memory"
-              ? "Memory Lattice moves into a drawer on narrow windows."
-              : "Setup diagnostics move into a drawer on narrow windows.";
-  const drawerAriaLabel = sidebarMode === "sessions"
-    ? "session drawer"
-    : sidebarMode === "workspace"
-      ? "workspace drawer"
-      : sidebarMode === "changed"
-        ? "changed files drawer"
-        : sidebarMode === "approvals"
-          ? "approvals drawer"
-          : sidebarMode === "activity"
-            ? "activity drawer"
-            : sidebarMode === "memory"
-              ? "memory drawer"
-              : "setup drawer";
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
@@ -1304,21 +1249,21 @@ export function AppShell() {
 
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
         {!isNarrow ? (
-          <div className="flex min-h-0">
-            <LeftRail
-              activeMode={sidebarMode}
-              sessionCount={sessionList.length}
-              changedCount={changedFiles.length}
-              approvalCount={approvalCount}
-              activityCount={activityEntries.length}
-              expanded={sidebarExpanded}
-              onToggleExpanded={() => setSidebarExpanded((expanded) => !expanded)}
-              onSelectMode={selectSidebarMode}
-            />
-            {sidebarExpanded ? (
-              <div className="w-80 min-w-80 max-w-80">{sidebar}</div>
-            ) : null}
-          </div>
+          <PrimarySidebar
+            activeSurface={workbenchSurface}
+            collapsed={sidebarCollapsed}
+            activityCount={activityEntries.length}
+            sessionsOpen={sessionPopoverOpen}
+            onSelectSurface={(surface) => {
+              setWorkbenchSurface(surface);
+              if (surface === "chat") {
+                setActiveSurface("chat");
+              }
+            }}
+            onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            onSessionsOpenChange={setSessionPopoverOpen}
+            sessions={sessionsPanel}
+          />
         ) : null}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/65">
           {isNarrow ? (
@@ -1329,11 +1274,51 @@ export function AppShell() {
                 size="xs"
                 aria-controls="session-drawer"
                 aria-expanded={drawerOpen}
-                aria-label={drawerOpen ? `Hide ${drawerAriaLabel}` : `Open ${drawerAriaLabel}`}
-                onClick={() => setDrawerOpen((open) => !open)}
+                aria-label={drawerOpen && mobileDrawerMode === "sessions" ? "Hide session drawer" : "Open session drawer"}
+                onClick={() => {
+                  setMobileDrawerMode("sessions");
+                  setDrawerOpen((open) => mobileDrawerMode === "sessions" ? !open : true);
+                }}
               >
-                {drawerOpen ? `Close ${drawerTitle}` : drawerTitle}
+                Sessions
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                aria-controls="session-drawer"
+                aria-expanded={drawerOpen}
+                aria-label={drawerOpen && mobileDrawerMode === "inspector" ? "Hide inspector drawer" : "Open inspector drawer"}
+                onClick={() => {
+                  setMobileDrawerMode("inspector");
+                  setDrawerOpen((open) => mobileDrawerMode === "inspector" ? !open : true);
+                }}
+              >
+                Inspector
+              </Button>
+              <Select
+                value={workbenchSurface}
+                onValueChange={(value) => {
+                  if (value === "chat" || value === "activity" || value === "memory" || value === "setup") {
+                    setWorkbenchSurface(value);
+                    if (value === "chat") {
+                      setActiveSurface("chat");
+                    }
+                  }
+                }}
+              >
+                <SelectTrigger size="sm" aria-label="Workbench surface" className="min-w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  <SelectGroup>
+                    <SelectItem value="chat">Chat</SelectItem>
+                    <SelectItem value="activity">Activity</SelectItem>
+                    <SelectItem value="memory">Memory</SelectItem>
+                    <SelectItem value="setup">Setup</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <div className="ml-auto" />
               <AppGatewayTargetSelector
                 apps={runtimeAppDescriptors}
@@ -1347,6 +1332,74 @@ export function AppShell() {
               />
             </header>
           ) : null}
+          {!isNarrow ? (
+            <header className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/60 px-4 backdrop-blur">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-foreground">{workbenchTitle}</p>
+                <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {workbenchSurface === "chat" ? "conversation" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                {(["workspace", "changed", "approvals"] as const).map((mode) => (
+                  <Button
+                    key={mode}
+                    type="button"
+                    variant={inspectorOpen && inspectorMode === mode ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-pressed={inspectorOpen && inspectorMode === mode}
+                    aria-label={mode === "workspace" ? "Workspace" : mode === "changed" ? "Changed files" : "Approvals"}
+                    onClick={() => {
+                      setInspectorMode(mode);
+                      setInspectorOpen(true);
+                    }}
+                  >
+                    {(() => {
+                      const Icon = inspectorModeIcons[mode];
+                      return <Icon data-icon="inline-start" aria-hidden="true" />;
+                    })()}
+                    {mode === "workspace" ? "Workspace" : mode === "changed" ? "Changed" : "Approvals"}
+                    {mode === "changed" && changedFiles.length > 0 ? <Badge variant="outline">{changedFiles.length}</Badge> : null}
+                    {mode === "approvals" && approvalCount > 0 ? <Badge variant="outline">{approvalCount}</Badge> : null}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={inspectorOpen ? "Close inspector" : "Open inspector"}
+                  onClick={() => setInspectorOpen((open) => !open)}
+                >
+                  {inspectorOpen ? (
+                    <PanelRightClose data-icon="inline-start" aria-hidden="true" />
+                  ) : (
+                    <PanelRightOpen data-icon="inline-start" aria-hidden="true" />
+                  )}
+                </Button>
+              </div>
+              <AppGatewayTargetSelector
+                apps={runtimeAppDescriptors}
+                selectedAppName={selectedAppName}
+                selectedTenantId={selectedTenantId}
+                onSelectApp={(appName) => {
+                  setSelectedAppName(appName);
+                  setSelectedTenantId(null);
+                }}
+                onSelectTenant={setSelectedTenantId}
+              />
+            </header>
+          ) : null}
+          {workbenchSurface === "chat" ? (
+            <ChatWorkbench
+              pendingApprovals={pendingApprovals}
+              selectedSessionId={selectedSessionId}
+              onApprove={(approvalId) => sendApprovalResponse(true, undefined, approvalId)}
+              onDeny={(approvalId) => sendApprovalResponse(false, undefined, approvalId)}
+              onOpenApprovals={() => {
+                setInspectorMode("approvals");
+                setInspectorOpen(true);
+              }}
+              surfaces={(
           <OperatorSurfaceTabs
             activeSurface={activeSurface}
             memoryOpen={memorySurfaceOpen}
@@ -1374,8 +1427,8 @@ export function AppShell() {
                 activityPhase={activityPhase}
                 activityToolName={activity?.toolName}
                 activityDetails={activity?.details}
-                onApprove={(sessionId) => sendApprovalResponse(true, undefined, sessionId)}
-                onDeny={(sessionId) => sendApprovalResponse(false, undefined, sessionId)}
+                onApprove={(approvalId) => sendApprovalResponse(true, undefined, approvalId)}
+                onDeny={(approvalId) => sendApprovalResponse(false, undefined, approvalId)}
               />
             )}
             memoryContent={(
@@ -1389,6 +1442,8 @@ export function AppShell() {
               />
             )}
           />
+              )}
+              composer={(
           <Composer
             status={status}
             planMode={planMode}
@@ -1453,14 +1508,58 @@ export function AppShell() {
               },
             }}
           />
+              )}
+            />
+          ) : workbenchSurface === "activity" ? (
+            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
+              <ActivityLogPanel entries={timelineEntries} />
+            </div>
+          ) : workbenchSurface === "memory" ? (
+            <div className="grid min-h-0 flex-1 grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] overflow-hidden bg-workspace-viewer">
+              <MemoryLatticePanel
+                filters={memoryFilters}
+                response={memoryLatticeQuery.data ?? null}
+                loading={Boolean(memoryLatticeQuery.isFetching)}
+                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                selectedRecordId={selectedMemoryRecordId}
+                onRefresh={() => void memoryLatticeQuery.refetch()}
+                onFiltersChange={setMemoryFilters}
+                onSelectRecord={setSelectedMemoryRecordId}
+              />
+              <MemoryLatticeSurface
+                response={memoryLatticeQuery.data ?? null}
+                loading={Boolean(memoryLatticeQuery.isFetching)}
+                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                selectedRecordId={selectedMemoryRecordId}
+                onRefresh={() => void memoryLatticeQuery.refetch()}
+                onSelectRecord={setSelectedMemoryRecordId}
+              />
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
+              <SetupPanel
+                snapshot={setupQuery.data ?? null}
+                loading={Boolean(setupQuery.isLoading)}
+                refreshing={Boolean(setupQuery.isFetching && !setupQuery.isLoading)}
+                error={setupQuery.error instanceof Error ? setupQuery.error : null}
+                onRefresh={() => void setupQuery.refetch()}
+                onThemeSelected={persistThemePreference}
+              />
+            </div>
+          )}
         </main>
+        {!isNarrow && inspectorOpen ? (
+          <aside className="w-80 min-w-80 max-w-80 border-l border-border/70 bg-card">
+            {inspector}
+          </aside>
+        ) : null}
       </div>
 
       {isNarrow && drawerOpen ? (
         <div className="fixed inset-0 z-20 flex bg-black/45 backdrop-blur-sm">
           <button
             type="button"
-            aria-label="Close session drawer backdrop"
+            aria-label={`Close ${drawerAriaLabel} backdrop`}
             className="min-w-0 flex-1"
             onClick={closeDrawer}
           />
@@ -1468,25 +1567,15 @@ export function AppShell() {
             id="session-drawer"
             role="dialog"
             aria-modal="true"
-            aria-label={drawerTitle === "Sessions"
-              ? "Sessions drawer"
-              : drawerTitle === "Workspace"
-                ? "Workspace drawer"
-                : drawerTitle === "Changed Files"
-                  ? "Changed files drawer"
-                : drawerTitle === "Approvals"
-                  ? "Approvals drawer"
-                  : drawerTitle === "Activity"
-                    ? "Activity drawer"
-                    : drawerTitle === "Memory"
-                      ? "Memory drawer"
-                      : "Setup drawer"}
+            aria-label={drawerTitle === "Sessions" ? "Sessions drawer" : "Inspector drawer"}
             className="flex h-full w-[min(26rem,calc(100vw-3rem))] max-w-full flex-col border-l border-border bg-card shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-foreground">{drawerTitle}</p>
-                <p className="text-xs text-muted-foreground">{drawerDescription}</p>
+                <p className="text-xs text-muted-foreground">
+                  {mobileDrawerMode === "sessions" ? "Session history and resume targets." : "Workspace, changes, and approvals."}
+                </p>
               </div>
               <Button
                 type="button"
@@ -1498,7 +1587,7 @@ export function AppShell() {
                 Close
               </Button>
             </div>
-            <div className="min-h-0 flex-1">{sidebar}</div>
+            <div className="min-h-0 flex-1">{mobileDrawerMode === "sessions" ? sessionsPanel : inspector}</div>
           </div>
         </div>
       ) : null}

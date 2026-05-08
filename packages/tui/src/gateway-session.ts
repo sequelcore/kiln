@@ -147,10 +147,12 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
     };
   }
   if (event.kind === "approval_requested") {
+    const approvalId = readString(payload.approvalId);
     return {
       type: "activity",
       activity: "approval_requested",
       details: presentation.compactText,
+      approvalId,
       surfaces: presentation.surfaces,
       ...scoped,
     };
@@ -158,10 +160,12 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
   if (event.kind === "approval_resolved") {
     const resolution = asRecord(payload.resolution);
     const decision = readString(resolution?.decision);
+    const approvalId = readString(payload.approvalId);
     return {
       type: "activity",
       activity: decision === "approved" ? "approval_approved" : "approval_rejected",
       details: presentation.compactText,
+      approvalId,
       surfaces: presentation.surfaces,
       ...scoped,
     };
@@ -436,15 +440,15 @@ export class GatewaySession implements SessionLike {
   /**
    * Send an approval response to the gateway.
    */
-  approve(sessionId?: string): void {
-    this.client.send({ type: "approve", sessionId });
+  approve(approvalId: string): void {
+    this.client.send({ type: "approve", approvalId });
   }
 
   /**
    * Send a rejection response to the gateway.
    */
-  reject(reason: string, sessionId?: string): void {
-    this.client.send({ type: "reject", reason, sessionId });
+  reject(reason: string, approvalId: string): void {
+    this.client.send({ type: "reject", reason, approvalId });
   }
 
   executePlanMode(): void {
@@ -529,6 +533,7 @@ export class GatewaySession implements SessionLike {
       this.push({ 
         type: "activity", 
         activity: "approval_requested",
+        approvalId: frame.approvalId,
         details: frame.description,
         sessionId: frame.sessionId,
       });
@@ -536,6 +541,7 @@ export class GatewaySession implements SessionLike {
       this.push({ 
         type: "activity", 
         activity: frame.approved ? "approval_approved" : "approval_rejected",
+        approvalId: frame.approvalId,
         details: frame.reason,
         sessionId: frame.sessionId,
       });

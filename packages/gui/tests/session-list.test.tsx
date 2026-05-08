@@ -51,15 +51,16 @@ describe("SessionList", () => {
     expect(onSelect).toHaveBeenCalledWith("session-1");
   });
 
-  it("marks the selected session as loaded without rendering a sidebar preview", () => {
+  it("marks selected and resume target state without rendering row labels or a sidebar preview", () => {
     renderSessionList({
       selectedSessionId: "session-2",
       resumeTargetId: "session-1",
     });
 
     expect(screen.queryByText("Session Preview")).not.toBeInTheDocument();
-    expect(screen.getByText("Loaded")).toBeInTheDocument();
+    expect(screen.queryByText("Loaded")).not.toBeInTheDocument();
     expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Second task/ })).toHaveAttribute("aria-selected", "true");
   });
 
   it("keeps new session reset action separate from row selection", () => {

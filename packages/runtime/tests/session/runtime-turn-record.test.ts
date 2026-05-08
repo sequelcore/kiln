@@ -67,6 +67,7 @@ describe("applyRuntimeTurnRecord", () => {
       ],
       approvalTransitions: [
         {
+          approvalId: "approval-1",
           status: "requested",
           sessionId: session.id,
           reason: "Needs approval",
@@ -123,7 +124,7 @@ describe("applyRuntimeTurnRecord", () => {
     expect(session.exactArtifacts).toContain("Escalation detected: keyword");
     expect(session.exactArtifacts).toContain("Grounding blocked: unsupported claim");
     expect(session.exactArtifacts).toContain("File changed: src/index.ts");
-    expect(session.exactArtifacts).toContain(`Approval requested: ${session.id} (Needs approval)`);
+    expect(session.exactArtifacts).toContain(`Approval requested: approval-1 - ${session.id} (Needs approval)`);
     expect(session.exactArtifacts).toContain("Tool authority: read_file L1 allow (Read-only tool, auto-execute)");
     expect(session.exactArtifacts).toContain(
       "Dangerous command deny: bash (destructive_unix) Detected destructive Unix command pattern.",
