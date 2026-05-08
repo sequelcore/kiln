@@ -10,6 +10,7 @@ import type {
   KilnYamlWebConfig,
   KilnYamlMcp,
   KilnYamlPermissions,
+  KilnYamlSkillsConfig,
 } from "../kiln-yaml-types.js";
 
 export interface KilnGlobalIdentity {
@@ -71,6 +72,7 @@ export interface KilnGlobalConfig {
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly web?: KilnYamlWebConfig;
   readonly ui?: KilnGlobalUiConfig;
+  readonly skills?: KilnYamlSkillsConfig;
   readonly components?: KilnGlobalComponentsConfig;
 }
 
@@ -88,6 +90,7 @@ const ROOT_FIELDS = new Set([
   "modelTaskSuitability",
   "web",
   "ui",
+  "skills",
   "components",
 ]);
 
@@ -147,6 +150,11 @@ export function defaultGlobalConfig(): KilnGlobalConfig {
       approval: "on-request",
       sandbox: "read-only",
     },
+    skills: {
+      builtin: {
+        enabled: true,
+      },
+    },
     components: {
       include: ["baseline:core"],
     },
@@ -205,6 +213,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "managedAgents");
   validateRecordField(config, "web");
   validateRecordField(config, "ui");
+  validateRecordField(config, "skills");
   validateRecordField(config, "components");
   validateIdentity(config.identity);
   validateStringArray(config.activeInstructionProfiles, "activeInstructionProfiles");
@@ -213,6 +222,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateComponents(config.components);
   validateManagedAgents(config.managedAgents);
   validateModelTaskSuitability(config.modelTaskSuitability);
+  validateSkills(config.skills);
 }
 
 function validateIdentity(value: unknown): void {
@@ -337,6 +347,36 @@ function validateComponents(value: unknown): void {
       throw new KilnYamlError("components.include must be an array of strings");
     }
   }
+}
+
+function validateSkills(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("skills must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== "builtin") {
+      throw new KilnYamlError(`Unknown skills field: ${key}`);
+    }
+  }
+  if (value.builtin === undefined) {
+    return;
+  }
+  if (!isRecord(value.builtin)) {
+    throw new KilnYamlError("skills.builtin must be an object");
+  }
+  for (const key of Object.keys(value.builtin)) {
+    if (key !== "enabled" && key !== "include" && key !== "exclude") {
+      throw new KilnYamlError(`Unknown skills.builtin field: ${key}`);
+    }
+  }
+  if (value.builtin.enabled !== undefined && typeof value.builtin.enabled !== "boolean") {
+    throw new KilnYamlError("skills.builtin.enabled must be a boolean");
+  }
+  validateOptionalStringArray(value.builtin.include, "skills.builtin.include");
+  validateOptionalStringArray(value.builtin.exclude, "skills.builtin.exclude");
 }
 
 function validateManagedAgents(value: unknown): void {

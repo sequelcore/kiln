@@ -202,6 +202,7 @@ export async function syncCommand(
     skillsResult = await syncNativeSkillProjections(root, {
       force: forceSkillSync,
       disabledHarnesses,
+      skillConfig: kilnYaml.skills,
     });
     allErrors.push(...skillsResult.errors);
   }

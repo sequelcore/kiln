@@ -95,9 +95,62 @@ Skills are discovered through a 3-tier progressive disclosure model (`packages/c
 |------|----------|----------|----------|
 | Project | `{project}/.kiln/skills/` | Highest | Project-specific skills |
 | User | `~/.kiln/skills/` | Medium | Cross-project skills |
-| Builtin | Domain packages | Lowest | Default skills |
+| Builtin | Kiln core built-ins and domain packages | Lowest | Default skills |
 
-The registry resolves conflicts by tier priority: project > user > published.
+The registry resolves conflicts by tier priority: project > user > builtin.
+
+## Kiln Core Built-Ins
+
+Kiln includes a compact neutral core skill pack. These skills are procedural
+guidance only; they do not grant tool, filesystem, network, provider, or config
+mutation authority.
+
+Current core built-ins:
+
+- `repo-context-review`
+- `codebase-scouting`
+- `implementation-planning`
+- `tdd-workflow`
+- `code-review-findings`
+- `clean-architecture-boundary-review`
+- `ddd-boundary-review`
+- `refactoring-safety`
+- `security-scope-review`
+- `managed-agent-risk-review`
+- `benchmark-readiness-review`
+- `config-projection-review`
+
+Use global config to make the policy explicit:
+
+```yaml
+skills:
+  builtin:
+    enabled: true
+    include:
+      - repo-context-review
+      - codebase-scouting
+      - implementation-planning
+      - tdd-workflow
+      - code-review-findings
+```
+
+Project config may narrow or disable built-ins:
+
+```yaml
+skills:
+  builtin:
+    exclude:
+      - benchmark-readiness-review
+```
+
+Built-ins are projected to supported native harness skill directories during
+`kiln sync --skills`, unless disabled by config. Generated native skill files
+remain projections; canonical user and project skills live under
+`~/.kiln/skills` and `.kiln/skills`.
+
+Future official packs are deferred. They may later provide web, backend,
+security, data, or opinionated engineering workflows, but packs must be
+installable/removable content rather than core doctrine.
 
 ### Registry API
 

@@ -8,6 +8,8 @@ import type {
   KilnYamlMcp,
   KilnYamlMcpServer,
   KilnYamlWebConfig,
+  KilnYamlSkillsConfig,
+  KilnYamlBuiltinSkillsConfig,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
@@ -28,6 +30,8 @@ export type {
   KilnYamlAgentScope,
   KilnYamlProvider,
   KilnYamlSkillGeneration,
+  KilnYamlSkillsConfig,
+  KilnYamlBuiltinSkillsConfig,
   KilnModelTaskSuitabilityOverride,
   KilnModelTaskSuitabilityLevel,
   KilnModelTaskSuitabilityTask,
@@ -85,6 +89,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     managedAgents: override.managedAgents ?? base.managedAgents,
     modelTaskSuitability: mergeModelTaskSuitability(base.modelTaskSuitability, override.modelTaskSuitability),
     web: mergeWeb(base.web, override.web),
+    skills: mergeSkills(base.skills, override.skills),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
     hooks: override.hooks ?? base.hooks,
   };
@@ -127,6 +132,28 @@ function mergeWeb(
     ...override,
     searchProvider: override?.searchProvider ?? base?.searchProvider,
     allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
+  };
+}
+
+function mergeSkills(
+  base: KilnYamlSkillsConfig | undefined,
+  override: KilnYamlSkillsConfig | undefined,
+): KilnYamlSkillsConfig | undefined {
+  if (!base && !override) return undefined;
+  return {
+    builtin: mergeBuiltinSkills(base?.builtin, override?.builtin),
+  };
+}
+
+function mergeBuiltinSkills(
+  base: KilnYamlBuiltinSkillsConfig | undefined,
+  override: KilnYamlBuiltinSkillsConfig | undefined,
+): KilnYamlBuiltinSkillsConfig | undefined {
+  if (!base && !override) return undefined;
+  return {
+    enabled: override?.enabled ?? base?.enabled,
+    include: mergeStringList(base?.include, override?.include),
+    exclude: mergeStringList(base?.exclude, override?.exclude),
   };
 }
 

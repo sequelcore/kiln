@@ -20,6 +20,7 @@ export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
     managedAgents: global.managedAgents,
     modelTaskSuitability: global.modelTaskSuitability,
     web: global.web,
+    skills: global.skills,
     hooks: global.hooks,
   };
 }

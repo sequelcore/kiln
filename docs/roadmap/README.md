@@ -113,6 +113,12 @@ deferred validation or experiment tracks.
   first-party agent defaults, route/model task-suitability evidence with live
   proof and evaluated skill recommendations, write-capable managed profiles,
   repo-shim projection, setup read models, and simplified GUI operator chrome.
+- Kiln core built-in skills completed on 2026-05-08. Stable doctrine lives in
+  `docs/architecture/agent-context.md`; operator usage lives in
+  `docs/guides/skills.md` and `docs/guides/global-config.md`; implementation
+  covers neutral removable core skill defaults, explicit `skills.builtin`
+  activation policy, project/user override precedence, managed-agent skill
+  catalogs, skill listing, and native harness projection through `kiln sync`.
 
 ## Execution Priority
 

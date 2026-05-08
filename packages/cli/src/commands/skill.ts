@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, cpSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { KilnAppConfig } from "../config.js";
-import { DomainRegistry, SkillRegistry, loadSkillMdIndex, loadSkillMd } from "@kilnai/core";
+import { loadSkillMdIndex, loadSkillMd } from "@kilnai/core";
 import { formatSkillList } from "../formatters.js";
 import { skillCaptureCommand, parseSkillCaptureFlags } from "./skill-capture.js";
+import { loadKilnConfig } from "../config/config-merger.js";
+import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
 
 export async function skillCommand(
   config: KilnAppConfig,
@@ -30,18 +32,15 @@ export async function skillCommand(
   }
 }
 
-function listSkills(_config: KilnAppConfig): void {
+async function listSkills(_config: KilnAppConfig): Promise<void> {
   const cwd = process.cwd();
   const userHome = process.env.HOME ?? process.env.USERPROFILE ?? "";
-
-  // Load domain registry and discover domain package skills
-  const builtinDomains = DomainRegistry.loadBuiltinDomains();
-  const domainRegistry = new DomainRegistry({ builtinConfigs: builtinDomains });
-  domainRegistry.loadInstalledDomains(cwd);
-
-  // Load skill registry with 3-tier discovery
-  const skillRegistry = new SkillRegistry();
-  skillRegistry.discoverAll(cwd, userHome);
+  const kilnYaml = await loadKilnConfig(cwd);
+  const skillRegistry = createConfiguredSkillRegistry({
+    projectPath: cwd,
+    userHome,
+    skillConfig: kilnYaml?.skills,
+  });
 
   const skills = skillRegistry.all();
   console.log(formatSkillList(skills));

@@ -101,6 +101,16 @@ export interface KilnYamlSkillGeneration {
   readonly complexityThreshold?: number;
 }
 
+export interface KilnYamlBuiltinSkillsConfig {
+  readonly enabled?: boolean;
+  readonly include?: readonly string[];
+  readonly exclude?: readonly string[];
+}
+
+export interface KilnYamlSkillsConfig {
+  readonly builtin?: KilnYamlBuiltinSkillsConfig;
+}
+
 export type KilnModelTaskSuitabilityTask =
   | "architecture-review"
   | "backend-coding"
@@ -354,6 +364,7 @@ export interface KilnYaml {
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly web?: KilnYamlWebConfig;
+  readonly skills?: KilnYamlSkillsConfig;
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];
   readonly hooks?: KilnHooksConfig;

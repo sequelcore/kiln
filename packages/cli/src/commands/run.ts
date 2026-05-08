@@ -406,7 +406,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     try {
       identityAppConfig = withContextCandidates(
         identityAppConfig,
-        resolveAgentSkillContextCandidates(resolvedAgent, cwd),
+        resolveAgentSkillContextCandidates(resolvedAgent, cwd, undefined, appConfig.kilnYaml?.skills),
       );
     } catch (error) {
       console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);

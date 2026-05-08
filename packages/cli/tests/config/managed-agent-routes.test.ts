@@ -523,7 +523,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         taskAffinity: ["test-writing"],
         skills: ["test-generator"],
       }));
-      expect(result.managedInvocation?.skillCatalog).toEqual([
+      expect(result.managedInvocation?.skillCatalog).toEqual(expect.arrayContaining([
         {
           name: "repo-review",
           description: "Review repository evidence.",
@@ -534,7 +534,10 @@ describe("resolveManagedInvocationToolOptions", () => {
           description: "Generate focused tests.",
           tags: ["test"],
         },
-      ]);
+        expect.objectContaining({
+          name: "managed-agent-risk-review",
+        }),
+      ]));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

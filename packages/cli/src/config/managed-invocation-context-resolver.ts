@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { SkillRegistry, skillConfigToContextCandidate } from "@kilnai/core";
+import { skillConfigToContextCandidate } from "@kilnai/core";
 import type {
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolution,
@@ -9,8 +9,9 @@ import { resolveInstructionProfileContextCandidates } from "../application/instr
 import { readGlobalConfig } from "./global-config.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { KilnYaml, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { join } from "node:path";
+import { createConfiguredSkillRegistry } from "./skill-registry.js";
 
 export function createManagedInvocationContextResolver(
   projectPath: string,
@@ -18,6 +19,7 @@ export function createManagedInvocationContextResolver(
   config: {
     readonly globalConfig?: KilnGlobalConfig | null;
     readonly projectConfig?: KilnYaml | null;
+    readonly skillConfig?: KilnYamlSkillsConfig | null;
   } = {},
 ): ManagedInvocationContextResolver {
   return async (input) => {
@@ -70,6 +72,7 @@ export function createManagedInvocationContextResolver(
       projectPath,
       userHome,
       sections,
+      config.skillConfig,
     );
 
     return {
@@ -120,13 +123,13 @@ function resolveManagedInvocationSkills(
   projectPath: string,
   userHome: string,
   sections: string[],
+  skillConfig: KilnYamlSkillsConfig | null | undefined,
 ): readonly string[] {
   if (skills.length === 0) {
     return [];
   }
 
-  const registry = new SkillRegistry();
-  registry.discoverAll(projectPath, userHome);
+  const registry = createConfiguredSkillRegistry({ projectPath, userHome, skillConfig });
   const resolved = registry.resolve(skills);
   const resolvedNames = new Set(resolved.map((skill) => skill.name));
   const missing = skills.filter((skill) => !resolvedNames.has(skill));

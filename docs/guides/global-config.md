@@ -49,6 +49,7 @@ usage view.
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
 | `activeInstructionProfiles` | `string[]` | Ordered canonical instruction profile ids selected for global governed prompt context. Profiles are loaded from `~/.kiln/instructions/*.md` and may be overridden by project profiles with the same id. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
+| `skills.builtin` | `{ enabled?: boolean, include?: string[], exclude?: string[] }` | First-party built-in skill activation policy. Built-in skill content lives in Kiln core; config only admits or narrows it. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
 MCP server entries may include `requestTimeoutMs` to override the default
@@ -99,6 +100,38 @@ GUI, TUI, and CLI-launched managed invocations resolve those fields from
 `~/.kiln/instructions`, `.kiln/skills`, and `~/.kiln/skills`. Missing profiles,
 missing instruction profiles, missing skills, or `contextMode: "fork"` fail
 closed instead of falling back to ambient parent context.
+
+Built-in skill activation is configured under `skills.builtin`. Project and
+user skill files override built-ins with the same id. This keeps Kiln useful by
+default without turning generated harness files into a second source of truth.
+
+```yaml
+skills:
+  builtin:
+    enabled: true
+    include:
+      - repo-context-review
+      - codebase-scouting
+      - implementation-planning
+      - tdd-workflow
+      - code-review-findings
+      - clean-architecture-boundary-review
+      - ddd-boundary-review
+      - refactoring-safety
+      - security-scope-review
+      - managed-agent-risk-review
+      - benchmark-readiness-review
+      - config-projection-review
+```
+
+Project `.kiln/kiln.yaml` may disable or narrow the same catalog:
+
+```yaml
+skills:
+  builtin:
+    exclude:
+      - benchmark-readiness-review
+```
 
 Supported operator themes are `kiln-dark`, `kiln-graphite`, `kiln-light`, and
 `system-follow`. `kiln-dark` is the Obsidian default, `kiln-graphite` is a

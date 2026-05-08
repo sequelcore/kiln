@@ -192,6 +192,37 @@ describe("mergeKilnYaml", () => {
     }]);
   });
 
+  it("merges builtin skill policy additively", () => {
+    const base: KilnYaml = {
+      version: "1",
+      skills: {
+        builtin: {
+          enabled: true,
+          include: ["tdd-workflow"],
+          exclude: ["frontend-ux-review"],
+        },
+      },
+    };
+    const override: Partial<KilnYaml> = {
+      skills: {
+        builtin: {
+          include: ["code-review-findings"],
+          exclude: ["benchmark-readiness-review"],
+        },
+      },
+    };
+
+    const result = mergeKilnYaml(base, override);
+
+    expect(result.skills).toEqual({
+      builtin: {
+        enabled: true,
+        include: ["tdd-workflow", "code-review-findings"],
+        exclude: ["frontend-ux-review", "benchmark-readiness-review"],
+      },
+    });
+  });
+
   it("ignores undefined override values", () => {
     const base: KilnYaml = { version: "1", domain: "python" };
     const override: Partial<KilnYaml> = { domain: undefined };

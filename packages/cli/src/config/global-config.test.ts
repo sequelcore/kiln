@@ -190,6 +190,39 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("activeInstructionProfiles must be an array of non-empty strings");
   });
 
+  it("readGlobalConfig() validates builtin skill policy", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "skills:",
+        "  builtin:",
+        "    enabled: true",
+        "    include:",
+        "      - tdd-workflow",
+        "    exclude:",
+        "      - frontend-ux-review",
+      ].join("\n"),
+    );
+    expect(readGlobalConfig()?.skills).toEqual({
+      builtin: {
+        enabled: true,
+        include: ["tdd-workflow"],
+        exclude: ["frontend-ux-review"],
+      },
+    });
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "skills:",
+        "  builtin:",
+        "    enabled: yes",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow("skills.builtin.enabled must be a boolean");
+  });
+
   it("readGlobalConfig() accepts null budget ceilings", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
@@ -372,6 +405,11 @@ describe("global-config", () => {
       permissions: {
         approval: "on-request",
         sandbox: "read-only",
+      },
+      skills: {
+        builtin: {
+          enabled: true,
+        },
       },
       components: {
         include: ["baseline:core"],

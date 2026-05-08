@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SkillRegistry } from "@kilnai/core";
 import type {
   KilnConfigReadResult,
   KilnConfigReadView,
@@ -34,6 +33,7 @@ import { loadAgentDefinitions } from "./agent-loader.js";
 import { projectContextPath } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import { readRepoShimProjectionStatuses } from "./repo-shim-projection.js";
+import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
@@ -387,8 +387,14 @@ async function readAgentIndexes(projectPath: string): Promise<unknown> {
 }
 
 function readSkillIndexes(projectPath: string): unknown {
-  const registry = new SkillRegistry();
-  registry.discoverAll(projectPath, homedir());
+  const globalState = readGlobalConfigState();
+  const projectState = readProjectConfigState(projectPath);
+  const config = buildEffectiveConfig(globalState, projectState, []);
+  const registry = createConfiguredSkillRegistry({
+    projectPath,
+    userHome: homedir(),
+    skillConfig: config?.skills,
+  });
   return {
     skills: registry.all().map((skill) => ({
       name: skill.name,

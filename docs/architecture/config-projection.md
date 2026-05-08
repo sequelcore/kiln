@@ -58,6 +58,9 @@ inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
 `.kiln/instructions/`, `.kiln/agents/`, and `.kiln/skills/`. Native harness
 agent and skill files remain generated projections, and `AGENTS.md` may project
 active instruction profile ids and canonical file paths for direct harness use.
+Kiln core built-in skills are lowest-precedence product defaults controlled by
+`skills.builtin` activation policy. They are projected like other skills during
+native sync, but user and project skills with the same id override them.
 
 ## Sync Contract
 

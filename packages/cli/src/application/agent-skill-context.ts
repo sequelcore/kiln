@@ -1,8 +1,10 @@
 import { homedir } from "node:os";
-import { SkillRegistry, skillConfigToContextCandidate } from "@kilnai/core";
+import { skillConfigToContextCandidate } from "@kilnai/core";
 import type { ContextCandidate } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import type { KilnAgentDefinition } from "./agent-loader.js";
+import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
+import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
 
 const AGENT_SKILL_CONTEXT_SCORE = 0.95;
 
@@ -27,14 +29,14 @@ export function resolveAgentSkillContextCandidates(
   agent: KilnAgentDefinition | undefined,
   projectPath: string,
   userHome = homedir(),
+  skillConfig?: KilnYamlSkillsConfig | null,
 ): readonly ContextCandidate[] {
   const requestedSkills = normalizeSkillNames(agent?.skills);
   if (!agent || requestedSkills.length === 0) {
     return [];
   }
 
-  const registry = new SkillRegistry();
-  registry.discoverAll(projectPath, userHome);
+  const registry = createConfiguredSkillRegistry({ projectPath, userHome, skillConfig });
 
   const resolved = registry.resolve(requestedSkills);
   const resolvedNames = new Set(resolved.map((skill) => skill.name));

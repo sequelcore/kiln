@@ -49,12 +49,13 @@ describe("skillCommand", () => {
   });
 
   describe("list subcommand", () => {
-    it("reports no skills when none are installed", async () => {
+    it("lists Kiln core builtin skills when none are installed", async () => {
       const { skillCommand } = await import("../../src/commands/skill.js");
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "list", []);
       const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(output).toContain("No skills available");
+      expect(output).toContain("repo-context-review");
+      expect(output).toContain("tdd-workflow");
       consoleSpy.mockRestore();
     });
 

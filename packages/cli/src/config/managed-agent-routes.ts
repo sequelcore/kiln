@@ -15,7 +15,6 @@ import {
   defineManagedAgentWriteScope,
   isDirectProviderId,
   ModelCapabilityRegistry,
-  SkillRegistry,
 } from "@kilnai/core";
 import {
   ManagedCliHarnessAdapter,
@@ -30,6 +29,7 @@ import type {
   KilnManagedAgentProfile,
   KilnManagedAgentRouteConfig,
   KilnModelTaskSuitabilityOverride,
+  KilnYamlSkillsConfig,
 } from "../kiln-yaml-types.js";
 import type {
   ProviderCreateConfig,
@@ -38,6 +38,7 @@ import type {
 } from "../wrapper/session-registry.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
+import { createConfiguredSkillRegistry } from "./skill-registry.js";
 
 export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
@@ -70,6 +71,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
 export interface ManagedAgentRouteConfigSource {
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
+  readonly skills?: KilnYamlSkillsConfig;
   readonly engines?: Record<string, { readonly enabled?: boolean }>;
   readonly routing?: {
     readonly defaultWorker?: string;
@@ -141,7 +143,7 @@ export async function resolveManagedInvocationToolOptions(
     ...(agent.providerRoute ? { providerRoute: agent.providerRoute } : {}),
   }));
   const userHome = context.userHome ?? homedir();
-  const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome);
+  const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, config.skills);
 
   for (const routeConfig of routeConfigs) {
     const resolved = await resolveRouteConfig(routeConfig, context, config);
@@ -170,19 +172,24 @@ export async function resolveManagedInvocationToolOptions(
         requestedBy: "assistant",
         requestSource: context.surface,
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
-        contextResolver: createManagedInvocationContextResolver(context.cwd, userHome),
+        contextResolver: createManagedInvocationContextResolver(context.cwd, userHome, {
+          skillConfig: config.skills,
+        }),
       },
     } : {}),
   };
 }
 
-function loadManagedInvocationSkillCatalog(projectPath: string, userHome: string): readonly {
+function loadManagedInvocationSkillCatalog(
+  projectPath: string,
+  userHome: string,
+  skillConfig: KilnYamlSkillsConfig | undefined,
+): readonly {
   readonly name: string;
   readonly description: string;
   readonly tags?: readonly string[];
 }[] {
-  const registry = new SkillRegistry();
-  registry.discoverAll(projectPath, userHome);
+  const registry = createConfiguredSkillRegistry({ projectPath, userHome, skillConfig });
   return registry.all()
     .map((skill) => ({
       name: skill.name,

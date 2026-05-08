@@ -62,6 +62,12 @@ describe("config-merger", () => {
       hooks: {
         SessionStart: [{ hooks: [{ type: "command", command: "echo start" }] }],
       },
+      skills: {
+        builtin: {
+          enabled: true,
+          include: ["tdd-workflow"],
+        },
+      },
       modelTaskSuitability: [{
         provider: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -83,6 +89,12 @@ describe("config-merger", () => {
       mcp: { servers: { shared: { type: "stdio", command: "srv" } } },
       hooks: {
         SessionStart: [{ hooks: [{ type: "command", command: "echo start" }] }],
+      },
+      skills: {
+        builtin: {
+          enabled: true,
+          include: ["tdd-workflow"],
+        },
       },
       modelTaskSuitability: [{
         provider: "codex-oauth",
@@ -146,6 +158,7 @@ describe("config-merger", () => {
         permissions: undefined,
         mcp: undefined,
         hooks: undefined,
+        skills: undefined,
         modelTaskSuitability: undefined,
       },
       projectConfig,
@@ -194,6 +207,11 @@ describe("config-merger", () => {
       hooks: {
         SessionEnd: [{ hooks: [{ type: "command", command: "echo done" }] }],
       },
+      skills: {
+        builtin: {
+          exclude: ["frontend-ux-review"],
+        },
+      },
       modelTaskSuitability: [{
         provider: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -211,6 +229,11 @@ describe("config-merger", () => {
       mcp: { servers: { one: { type: "stdio", command: "one" } } },
       hooks: {
         SessionEnd: [{ hooks: [{ type: "command", command: "echo done" }] }],
+      },
+      skills: {
+        builtin: {
+          exclude: ["frontend-ux-review"],
+        },
       },
       modelTaskSuitability: [{
         provider: "codex-oauth",
@@ -236,6 +259,7 @@ describe("config-merger", () => {
       permissions: undefined,
       mcp: undefined,
       hooks: undefined,
+      skills: undefined,
       modelTaskSuitability: undefined,
     });
   });

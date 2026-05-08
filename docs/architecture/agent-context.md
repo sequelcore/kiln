@@ -237,6 +237,40 @@ tool authority still comes from Kiln's tool and managed invocation policy.
 Agent default skills are resolved through `SkillRegistry`, loaded as governed
 procedural context, and fail closed when a referenced skill is unavailable.
 
+## First-Party Skill Defaults
+
+Kiln ships a small first-party core skill pack so the default system has useful
+procedural behavior without importing an operator's personal doctrine. Built-in
+skills are neutral product content, not Sequel-specific standards and not a
+replacement for operator instruction profiles.
+
+The built-in skill ids are:
+
+| Skill | Purpose | Typical agents |
+| --- | --- | --- |
+| `repo-context-review` | Validate generated project context and repo shims against repository evidence. | `scout`, `architect` |
+| `codebase-scouting` | Map affected files, dependencies, boundaries, and risks before broad changes. | `scout` |
+| `implementation-planning` | Convert a scoped objective into file-level sequence and verification gates. | `planner`, `architecture-planner` |
+| `tdd-workflow` | Design failing tests, implement only the target behavior, and verify. | `tdd`, `coder` |
+| `code-review-findings` | Perform findings-first review with severity, evidence, and test-gap risk. | `reviewer`, `adversarial-reviewer` |
+| `clean-architecture-boundary-review` | Detect dependency direction, port/adapter, layer, and surface ownership drift. | `architect`, `ddd-validator` |
+| `ddd-boundary-review` | Review bounded contexts, aggregate ownership, language leakage, and coupling. | `ddd-validator`, `architect` |
+| `refactoring-safety` | Preserve behavior while removing dead code, redundancy, and avoidable complexity. | `refactoring-specialist` |
+| `security-scope-review` | Review authority, secrets, prompt/tool injection, and unsafe execution scope. | `adversarial-reviewer`, `reviewer` |
+| `managed-agent-risk-review` | Audit child invocation authority, route identity, handoff, replay, and evidence. | `architect`, `reviewer` |
+| `benchmark-readiness-review` | Decide whether eval or benchmark evidence is reproducible and public-ready. | `researcher`, `reviewer` |
+| `config-projection-review` | Review canonical config, generated shims, native projections, drift, and setup state. | `scout`, `architect` |
+
+Built-ins are the lowest precedence tier. Project skills override user skills;
+user skills override built-ins. A project or user may disable built-ins or
+select an allowlist through `skills.builtin`. Unknown skills still fail closed.
+
+First-party built-ins must remain compact, vendor-neutral, removable, and
+evaluated. Framework-specific or opinionated packs belong outside core. Future
+official packs such as web, backend, security, or an opinionated engineering
+pack may be installable content, but they must not become default product
+doctrine unless promoted through the same evaluation and documentation gate.
+
 ## Managed Child Context
 
 A managed child receives an admitted child context, not the parent's ambient
@@ -288,6 +322,7 @@ Personalizable behavior:
 - actual instruction profile content
 - agent definitions
 - installed skills
+- enabled or disabled first-party built-in skills
 - per-agent skill allowlists
 - route/model preferences
 - project-local overrides

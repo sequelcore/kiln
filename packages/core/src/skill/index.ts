@@ -4,6 +4,12 @@ export { SkillRegistry } from "./skill-registry.js";
 export type { SkillRegistryOptions } from "./skill-registry.js";
 export { SkillGenerator } from "./skill-generator.js";
 export type { SkillGeneratorConfig } from "./skill-generator.js";
+export {
+  KILN_CORE_BUILTIN_SKILLS,
+  renderSkillMarkdown,
+  resolveKilnCoreBuiltinSkills,
+} from "./builtin-skills.js";
+export type { BuiltinSkillPolicy } from "./builtin-skills.js";
 export { SkillCaptureService } from "./skill-capture.js";
 export type {
   SkillCaptureSummary,
