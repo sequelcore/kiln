@@ -136,7 +136,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     const system = request.input.summary;
     const prompt = request.input.prompt ?? request.input.summary;
     const filesystemSnapshot = await snapshotFilesystemBoundary(this.filesystemBoundary);
-    const session = this.factory(system, cwd, { kilnSessionId: childSessionId });
+    const session = this.factory(system, cwd, {
+      kilnSessionId: childSessionId,
+      permissionPolicy: permissionPolicyFromAuthority(request),
+    });
     const collected = createEmptyCollectedEvidence();
     const runPromise = this.collectRunEvidence(session, {
       kilnSessionId: childSessionId,
@@ -529,6 +532,18 @@ function hasSubstantiveResultHandoff(
 
 function managedInvocationUri(invocationId: string, resource: string): string {
   return `kiln://managed-invocations/${invocationId}/${resource}`;
+}
+
+function permissionPolicyFromAuthority(
+  request: ManagedAgentInvocationRequest,
+): NonNullable<Parameters<CliSessionFactory>[2]>["permissionPolicy"] {
+  return {
+    approval: "on-request",
+    sandbox: request.authority.toolAuthority.writeAllowed === true
+      && request.authority.workingDirectory.mode === "workspace-write"
+      ? "workspace-write"
+      : "read-only",
+  };
 }
 
 function sleep(ms: number): Promise<void> {

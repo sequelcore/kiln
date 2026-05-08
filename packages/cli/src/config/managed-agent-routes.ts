@@ -1,17 +1,25 @@
 import { homedir } from "node:os";
-import { basename } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
 import type {
   ArtifactResourceStore,
   ManagedAgentAdmissionProfile,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
+  ManagedAgentAuthorityProfile,
   ModelTaskSuitability,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
-import { isDirectProviderId, ModelCapabilityRegistry, SkillRegistry } from "@kilnai/core";
+import {
+  defineManagedAgentWriteAuthority,
+  defineManagedAgentWriteScope,
+  isDirectProviderId,
+  ModelCapabilityRegistry,
+  SkillRegistry,
+} from "@kilnai/core";
 import {
   ManagedCliHarnessAdapter,
   type ManagedAgentRuntimeAdapter,
+  type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
 } from "@kilnai/runtime";
@@ -77,12 +85,27 @@ export interface ManagedAgentRouteConfigSource {
 
 const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["codex", "opencode"]);
 const READONLY_PROFILE: KilnManagedAgentProfile = "foundation-readonly-plan";
+const WRITE_PROFILES = new Set<KilnManagedAgentProfile>([
+  "foundation-propose-writes",
+  "foundation-apply-approved-writes",
+  "foundation-memory-write-proposals",
+]);
 const DEFAULT_ALLOWED_TOOLS = ["read", "tree", "grep", "glob"] as const;
+const DEFAULT_WRITE_ALLOWED_TOOLS = ["read", "tree", "grep", "glob", "write", "edit", "apply-patch"] as const;
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MODELS: Record<string, string> = {
   codex: "gpt-5.3-codex-spark",
   opencode: "opencode/minimax-m2.5-free",
 };
+const LIVE_PROVEN_WRITE_HARNESS_PROVIDERS = new Set<string>(["codex", "opencode"]);
+const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
+  proposalSupported: true,
+  approvedApplySupported: true,
+  memoryProposalSupported: true,
+  rollbackEvidence: true,
+  cleanupEvidence: true,
+  scopeReduction: true,
+} as const;
 const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] | "*"> = {
   codex: "*",
   opencode: ["opencode/minimax-m2.5-free"],
@@ -313,8 +336,9 @@ async function resolveRouteConfig(
     profiles,
   };
 
-  if (profiles.some((profile) => profile !== READONLY_PROFILE) || routeConfig.tools?.writes === true) {
-    return unhealthy(baseHealth, "Write-capable managed invocation routes require explicit write authority and live-proven adapter support.");
+  const writeRequired = routeRequiresWriteAuthority(routeConfig, profiles);
+  if (writeRequired && routeConfig.writeAuthority === undefined) {
+    return unhealthy(baseHealth, "Write-capable managed invocation routes require explicit writeAuthority scope and approval config.");
   }
 
   if (config.engines?.[routeConfig.provider]?.enabled === false) {
@@ -326,11 +350,17 @@ async function resolveRouteConfig(
   }
 
   if (routeConfig.kind === "direct") {
+    if (writeRequired) {
+      return unhealthy(baseHealth, "Direct managed invocation write-capable routes are not live-proven yet.");
+    }
     return resolveDirectRouteConfig(routeConfig, context, config, baseHealth);
   }
 
   if (!SUPPORTED_HARNESS_PROVIDERS.has(routeConfig.provider)) {
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not have a live-proven managed harness adapter.`);
+  }
+  if (writeRequired && !LIVE_PROVEN_WRITE_HARNESS_PROVIDERS.has(routeConfig.provider)) {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not have live-proven write evidence support.`);
   }
 
   if (!isProviderAvailable(context, routeConfig.provider)) {
@@ -355,10 +385,15 @@ async function resolveRouteConfig(
     );
   }
 
+  const profileResolution = buildRouteProfiles(routeConfig, context.cwd, profiles);
+  if (!profileResolution.ok) {
+    return unhealthy(baseHealth, profileResolution.reason);
+  }
   const adapter = new ManagedCliHarnessAdapter({
     providerId: routeConfig.provider,
     model,
     factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context),
+    ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
   });
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
@@ -367,9 +402,7 @@ async function resolveRouteConfig(
     adapter,
     surface: "cli-harness",
     taskSuitability: resolveTaskSuitability(routeConfig.provider, model, config.modelTaskSuitability),
-    profiles: {
-      [READONLY_PROFILE]: buildReadonlyProfile(routeConfig, context.cwd),
-    },
+    profiles: profileResolution.profiles,
   };
 
   return {
@@ -387,7 +420,48 @@ function supportsReadonlyResultHandoff(provider: string, model: string): boolean
   return supportedModels === "*" || supportedModels?.includes(model) === true;
 }
 
-function buildReadonlyProfile(routeConfig: KilnManagedAgentRouteConfig, cwd: string) {
+function routeRequiresWriteAuthority(
+  routeConfig: KilnManagedAgentRouteConfig,
+  profiles: readonly ManagedAgentAdmissionProfile[],
+): boolean {
+  return routeConfig.tools?.writes === true
+    || profiles.some((profile) => WRITE_PROFILES.has(profile as KilnManagedAgentProfile));
+}
+
+function buildRouteProfiles(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+  profiles: readonly ManagedAgentAdmissionProfile[],
+): {
+  readonly ok: true;
+  readonly profiles: ManagedInvocationToolRoute["profiles"];
+} | {
+  readonly ok: false;
+  readonly reason: string;
+} {
+  const resolved: ManagedInvocationToolRoute["profiles"] = {};
+  for (const profile of profiles) {
+    if (profile === READONLY_PROFILE) {
+      resolved[profile] = buildReadonlyProfile(routeConfig, cwd);
+      continue;
+    }
+    if (profile === "foundation-propose-writes" || profile === "foundation-apply-approved-writes" || profile === "foundation-memory-write-proposals") {
+      const writeProfile = buildWriteProfile(routeConfig, cwd, profile);
+      if (!writeProfile.ok) {
+        return writeProfile;
+      }
+      resolved[profile] = writeProfile.profile;
+      continue;
+    }
+    return {
+      ok: false,
+      reason: `Managed invocation profile '${profile}' is not supported by route projection.`,
+    };
+  }
+  return { ok: true, profiles: resolved };
+}
+
+function buildReadonlyProfile(routeConfig: KilnManagedAgentRouteConfig, cwd: string): ManagedInvocationRouteProfile {
   return {
     authorityProfileId: `authority:${routeConfig.id}:${READONLY_PROFILE}`,
     permissionProfile: "read-only",
@@ -398,6 +472,139 @@ function buildReadonlyProfile(routeConfig: KilnManagedAgentRouteConfig, cwd: str
     timeoutMs: routeConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     credentialRoute: resolveCredentialRoute(routeConfig),
     memoryScope: resolveMemoryScope(routeConfig, cwd),
+  };
+}
+
+function buildWriteProfile(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+  profile: Exclude<KilnManagedAgentProfile, "foundation-readonly-plan">,
+): {
+  readonly ok: true;
+  readonly profile: ManagedInvocationRouteProfile;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+} {
+  const writeAuthority = buildWriteAuthority(routeConfig, cwd, profile);
+  if (!writeAuthority.ok) {
+    return writeAuthority;
+  }
+  const applyApproved = profile === "foundation-apply-approved-writes";
+  return {
+    ok: true,
+    profile: {
+      authorityProfileId: `authority:${routeConfig.id}:${profile}`,
+      permissionProfile: applyApproved ? "apply-approved-writes" : "propose-writes",
+      allowedToolNames: routeConfig.tools?.allowed ?? (applyApproved ? DEFAULT_WRITE_ALLOWED_TOOLS : DEFAULT_ALLOWED_TOOLS),
+      writeAllowed: applyApproved,
+      networkAllowed: routeConfig.tools?.network === true,
+      workingDirectory: {
+        path: resolveWorkingDirectory(routeConfig, cwd).path,
+        mode: applyApproved ? "workspace-write" : "read-only",
+      },
+      timeoutMs: routeConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      credentialRoute: resolveCredentialRoute(routeConfig),
+      memoryScope: resolveMemoryScope(routeConfig, cwd, writeAuthority.authority.scope.memory.mode === "propose" ? "write-proposals" : undefined),
+      writeAuthority: writeAuthority.authority,
+    },
+  };
+}
+
+function buildWriteAuthority(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+  profile: Exclude<KilnManagedAgentProfile, "foundation-readonly-plan">,
+): {
+  readonly ok: true;
+  readonly authority: NonNullable<ManagedAgentAuthorityProfile["writeAuthority"]>;
+} | {
+  readonly ok: false;
+  readonly reason: string;
+} {
+  const config = routeConfig.writeAuthority;
+  if (!config) {
+    return {
+      ok: false,
+      reason: "Write-capable managed invocation routes require explicit writeAuthority scope and approval config.",
+    };
+  }
+  const applyApproved = profile === "foundation-apply-approved-writes";
+  const memoryOnly = profile === "foundation-memory-write-proposals";
+  const configuredWorkspaceMode = config.workspace?.mode;
+  const workspaceMode = memoryOnly
+    ? "none"
+    : applyApproved
+      ? "apply-approved"
+      : configuredWorkspaceMode ?? "propose";
+  if (applyApproved && configuredWorkspaceMode !== undefined && configuredWorkspaceMode !== "apply-approved") {
+    return {
+      ok: false,
+      reason: "foundation-apply-approved-writes routes require writeAuthority.workspace.mode apply-approved.",
+    };
+  }
+  if (!applyApproved && configuredWorkspaceMode === "apply-approved") {
+    return {
+      ok: false,
+      reason: `${profile} routes cannot use writeAuthority.workspace.mode apply-approved.`,
+    };
+  }
+  const allowedWorkspacePaths = normalizeManagedRoutePaths(config.workspace?.allowedPaths ?? [], cwd);
+  if (workspaceMode !== "none" && allowedWorkspacePaths.length === 0) {
+    return {
+      ok: false,
+      reason: "Workspace write-capable managed invocation routes require at least one writeAuthority.workspace.allowedPaths entry.",
+    };
+  }
+  const memoryMode = profile === "foundation-memory-write-proposals"
+    ? "propose"
+    : config.memory?.mode ?? "none";
+  if (profile === "foundation-memory-write-proposals" && config.memory?.mode !== undefined && config.memory.mode !== "propose") {
+    return {
+      ok: false,
+      reason: "foundation-memory-write-proposals routes require writeAuthority.memory.mode propose.",
+    };
+  }
+  const artifactMode = config.artifacts?.mode ?? "none";
+  if (!config.approval || (config.approval.mode !== "required-before-apply" && config.approval.mode !== "policy-approved")) {
+    return {
+      ok: false,
+      reason: "Write-capable managed invocation routes require approval.mode required-before-apply or policy-approved.",
+    };
+  }
+
+  return {
+    ok: true,
+    authority: defineManagedAgentWriteAuthority({
+      profile,
+      scope: defineManagedAgentWriteScope({
+        workspace: {
+          mode: workspaceMode,
+          allowedPaths: workspaceMode === "none" ? [] : allowedWorkspacePaths,
+          deniedPaths: workspaceMode === "none" ? [] : normalizeManagedRoutePaths(config.workspace?.deniedPaths ?? [".git"], cwd),
+        },
+        memory: {
+          mode: memoryMode,
+          ...(memoryMode === "propose" ? { scope: { kind: "project" as const, id: basename(cwd.replace(/\\/g, "/")) || "project" } } : {}),
+          operations: memoryMode === "propose" ? config.memory?.operations ?? ["create", "update"] : [],
+        },
+        artifacts: {
+          mode: artifactMode,
+          resourceUris: artifactMode === "none" ? [] : config.artifacts?.resourceUris ?? [],
+          retention: config.artifacts?.retention ?? "none",
+        },
+        tools: {
+          allowedToolNames: config.tools?.allowed ?? routeConfig.tools?.allowed ?? (applyApproved ? DEFAULT_WRITE_ALLOWED_TOOLS : DEFAULT_ALLOWED_TOOLS),
+          deniedToolNames: config.tools?.denied ?? [],
+        },
+      }),
+      approval: {
+        mode: config.approval.mode,
+        evidenceRequired: true,
+        ...(config.approval.approver ? { approver: config.approval.approver } : {}),
+        ...(config.approval.evidenceUris ? { evidenceUris: config.approval.evidenceUris } : {}),
+      },
+    }),
   };
 }
 
@@ -426,6 +633,10 @@ async function resolveDirectRouteConfig(
   if (!adapter) {
     return unhealthy(baseHealth, "Direct managed invocation routes require the direct provider managed runtime adapter.");
   }
+  const profileResolution = buildRouteProfiles(routeConfig, context.cwd, normalizeProfiles(routeConfig.profiles));
+  if (!profileResolution.ok) {
+    return unhealthy(baseHealth, profileResolution.reason);
+  }
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     providerId: routeConfig.provider,
@@ -433,9 +644,7 @@ async function resolveDirectRouteConfig(
     adapter,
     surface: "direct-provider",
     taskSuitability: resolveTaskSuitability(routeConfig.provider, model, config.modelTaskSuitability),
-    profiles: {
-      [READONLY_PROFILE]: buildReadonlyProfile(routeConfig, context.cwd),
-    },
+    profiles: profileResolution.profiles,
   };
   return {
     health: {
@@ -519,7 +728,7 @@ function createHarnessSessionFactory(
       task: systemPrompt,
       systemPrompt,
       cwd,
-      permissionPolicy: {
+      permissionPolicy: factoryContext?.permissionPolicy ?? {
         approval: "on-request",
         sandbox: "read-only",
       },
@@ -541,6 +750,14 @@ function resolveWorkingDirectory(
   };
 }
 
+function normalizeManagedRoutePaths(paths: readonly string[], cwd: string): readonly string[] {
+  return paths.map((path) => normalizeManagedRoutePath(path, cwd));
+}
+
+function normalizeManagedRoutePath(path: string, cwd: string): string {
+  return isAbsolute(path) ? path : resolve(cwd, path);
+}
+
 function resolveCredentialRoute(
   routeConfig: KilnManagedAgentRouteConfig,
 ): ManagedAgentCredentialRoute {
@@ -558,12 +775,13 @@ function resolveCredentialRoute(
 function resolveMemoryScope(
   routeConfig: KilnManagedAgentRouteConfig,
   cwd: string,
+  accessOverride?: ManagedAgentMemoryScope["access"],
 ): ManagedAgentMemoryScope {
   return {
     scope: {
       kind: "project",
       id: basename(cwd.replace(/\\/g, "/")) || "project",
     },
-    access: routeConfig.memory?.access ?? "read-only",
+    access: accessOverride ?? routeConfig.memory?.access ?? "read-only",
   };
 }

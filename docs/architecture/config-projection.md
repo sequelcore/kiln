@@ -223,10 +223,11 @@ When at least one healthy route exists, runtime tool projection exposes
 diagnostics. Surfaces do not decide their own child-agent provider list.
 
 Synthesized child routes are read-only and use `foundation-readonly-plan`. Write
-capable routes require explicit route config plus live-proven write evidence
-support. A harness that can prove write evidence but cannot yet prove
-substantive read-only result handoff remains unavailable for
-`foundation-readonly-plan`.
+capable routes require an explicit `managedAgents.routes[]` entry with
+`writeAuthority` scope and approval config plus live-proven write evidence
+support. `tools.writes: true` does not grant authority by itself. A harness that
+can prove write evidence but cannot yet prove substantive read-only result
+handoff remains unavailable for `foundation-readonly-plan`.
 
 ## Invariants
 

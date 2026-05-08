@@ -122,11 +122,16 @@ surface-specific behavior, or provider compatibility glue.
    route diagnostics, and context-mode rules into one tool contract. Parent
    models are instructed to choose from admitted ids only; unknown profiles or
    skills still fail closed at runtime.
-7. Add bounded write-capable managed routes for implementation roles:
-   `foundation-workspace-write-implementation`,
-   `foundation-approved-patch`, or equivalent names after the authority model is
-   finalized. These routes must produce diff/write evidence and require
-   approval according to policy.
+7. Completed 2026-05-07: add bounded write-capable managed routes for
+   implementation roles through the existing authority profiles
+   `foundation-propose-writes`, `foundation-apply-approved-writes`, and
+   `foundation-memory-write-proposals`. Route projection now requires explicit
+   `managedAgents.routes[].writeAuthority` scope and approval config, admits
+   only live-proven CLI harness write routes, keeps direct-provider write routes
+   unavailable until direct write proof exists, and creates child harness
+   sessions with sandbox/approval derived from the admitted authority. Runtime
+   write evidence remains canonical `write-proposal-*`, `write-attempt-*`, and
+   `write-authority-denied` evidence linked through resource URIs.
 8. Started 2026-05-07: add canonical project-root resolution and repo-shim
    projection. `kiln sync` now resolves a project root from explicit
    `--project`/`--cwd`, then nearest `.kiln/kiln.yaml`, then nearest git root.

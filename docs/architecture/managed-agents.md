@@ -131,8 +131,13 @@ Write authority is Kiln-owned and provider-neutral. It has three responsibilitie
 
 Workspace writes are bounded by allowed and denied paths. Approved application
 requires `foundation-apply-approved-writes`, `apply-approved` workspace scope,
-policy-approved evidence, rollback evidence support, cleanup evidence support,
-and adapter scope reduction.
+approval evidence, rollback evidence support, cleanup evidence support, and
+adapter scope reduction.
+Runtime route projection must obtain that scope from explicit
+`managedAgents.routes[].writeAuthority` configuration. `tools.writes: true` or
+a write profile name is not sufficient by itself, because those fields do not
+define allowed paths, denied paths, approval mode, artifact retention, or memory
+proposal authority.
 
 Memory writes are proposals unless explicitly admitted through the memory write
 profile. Artifact writes are represented through resource URIs. Large diffs,
@@ -180,6 +185,10 @@ filesystem boundary that snapshots tracked paths before execution and observes
 retained changes afterward. If a read-only invocation modifies a tracked path,
 Kiln restores the file when configured and records `write-authority-denied`
 evidence.
+For `foundation-apply-approved-writes`, the CLI harness session is created from
+the admitted authority with workspace-write sandboxing and approval still
+enabled. The adapter remains responsible for reducing provider-native file
+changes and approval decisions into canonical write evidence.
 
 Timeout and cancellation are terminal states, not evidence erasers. The adapter
 keeps an in-progress evidence collector while a live session is running. If the
@@ -202,6 +211,10 @@ managed working directory or explicitly admitted write scope, cannot write, and
 cannot use network tools unless the request authority admits network access.
 Models may still hallucinate hidden or out-of-scope tool calls, but the runtime
 allowlist and sandbox deny them before tool execution.
+Direct-provider write-capable managed routes remain unavailable until direct
+write proof covers approved apply, rollback evidence, cleanup evidence, and
+resource replay. Harness write proof does not automatically transfer to direct
+providers.
 
 CLI configuration resolves direct-provider managed routes through the same
 provider adapter factory used by native Kiln sessions. A direct route becomes
@@ -250,6 +263,11 @@ execution mode, credential route, memory scope, timeout, working directory, and
 authority. Requested agent profiles and skills are resolved by the host context
 resolver and recorded as admitted context before execution. The model does not
 provide arbitrary authority directly.
+For write-capable profiles, route defaults include an explicit
+`writeAuthority` object. Missing write authority, missing workspace
+`allowedPaths`, incompatible workspace mode, disabled provider, unsupported
+adapter family, or unproven write evidence support fails the route closed before
+`managed_agent.invoke` can execute it.
 When multiple routes share the same provider/profile, admission requires
 `routeId` or an exact configured model match. Ambiguous provider-only selection
 fails closed instead of silently picking the first route.

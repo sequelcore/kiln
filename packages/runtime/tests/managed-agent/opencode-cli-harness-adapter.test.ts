@@ -181,7 +181,13 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     expect(factory).toHaveBeenCalledWith(
       "Inspect the managed invocation contract.",
       "C:/Proyectos/Sequel/kiln",
-      { kilnSessionId: "session-parent:managed:invocation-opencode-1" },
+      {
+        kilnSessionId: "session-parent:managed:invocation-opencode-1",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+        },
+      },
     );
     expect(run.mock.calls[0]?.[0]).toMatchObject({
       kilnSessionId: "session-parent:managed:invocation-opencode-1",
@@ -302,10 +308,11 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
     ]));
     const dispose = vi.fn().mockResolvedValue(undefined);
+    const factory = vi.fn(() => ({ run, dispose }));
     const adapter = new ManagedCliHarnessAdapter({
       providerId: "opencode",
       model: "sonic",
-      factory: () => ({ run, dispose }),
+      factory,
       writeAuthority: {
         proposalSupported: true,
         approvedApplySupported: true,
@@ -321,6 +328,17 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const result = await service.invoke(request, adapter);
 
     expect(result.status).toBe("completed");
+    expect(factory).toHaveBeenCalledWith(
+      "Apply an approved fixture update.",
+      "C:/Proyectos/Sequel/kiln",
+      {
+        kilnSessionId: "session-parent:managed:invocation-opencode-write-1",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "workspace-write",
+        },
+      },
+    );
     if (result.status !== "completed") {
       throw new Error("Expected completed managed write invocation result");
     }

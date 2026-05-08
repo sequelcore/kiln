@@ -316,6 +316,70 @@ used when the parent supplies explicit governed resource URIs. `contextMode:
 fork` is reserved for a future policy slice and currently fails closed in
 CLI-owned GUI, TUI, and CLI sessions.
 
+### Write-capable managed routes
+
+Kiln never synthesizes write-capable child routes from `routing.routes` or
+enabled engines. Implementation routes must be explicit because the route must
+declare bounded write scope and approval policy before the runtime can admit a
+child.
+
+```yaml
+managedAgents:
+  enabled: true
+  routes:
+    - id: codex-approved-write
+      kind: harness
+      provider: codex
+      model: gpt-5.3-codex-spark
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - grep
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - packages/cli/src/config
+          deniedPaths:
+            - .git
+            - node_modules
+        memory:
+          mode: propose
+          operations:
+            - create
+            - update
+        artifacts:
+          mode: propose
+          resourceUris:
+            - kiln://artifacts/managed-agent-write/codex-approved-write
+          retention: session
+        tools:
+          allowed:
+            - read
+            - grep
+            - apply-patch
+          denied:
+            - git-commit
+        approval:
+          mode: required-before-apply
+      credentials:
+        mode: runtime-selected
+```
+
+Only live-proven CLI harness providers currently expose approved workspace-write
+routes. Direct-provider write routes fail closed until direct write proof covers
+approved apply, rollback evidence, cleanup evidence, and replay. Read-only
+routes remain the default for analysis, planning, and review.
+
 ### Supported providers
 
 `routing.defaultWorker` and `KILN_PROVIDER` accept engine/provider identifiers

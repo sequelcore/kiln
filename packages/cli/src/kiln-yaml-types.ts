@@ -160,6 +160,56 @@ export interface KilnManagedAgentMemoryConfig {
   readonly access?: "none" | "read-only" | "write-proposals";
 }
 
+export type KilnManagedAgentWriteMode = "none" | "propose" | "apply-approved";
+
+export type KilnManagedAgentArtifactWriteRetention = "none" | "session" | "durable" | "external";
+
+export type KilnManagedAgentMemoryWriteOperation =
+  | "create"
+  | "update"
+  | "archive"
+  | "forget"
+  | "redact"
+  | "promote";
+
+export type KilnManagedAgentWriteApprovalMode = "required-before-apply" | "policy-approved";
+
+export interface KilnManagedAgentWorkspaceWriteConfig {
+  readonly mode?: KilnManagedAgentWriteMode;
+  readonly allowedPaths?: readonly string[];
+  readonly deniedPaths?: readonly string[];
+}
+
+export interface KilnManagedAgentMemoryWriteConfig {
+  readonly mode?: KilnManagedAgentWriteMode;
+  readonly operations?: readonly KilnManagedAgentMemoryWriteOperation[];
+}
+
+export interface KilnManagedAgentArtifactWriteConfig {
+  readonly mode?: KilnManagedAgentWriteMode;
+  readonly resourceUris?: readonly string[];
+  readonly retention?: KilnManagedAgentArtifactWriteRetention;
+}
+
+export interface KilnManagedAgentToolWriteConfig {
+  readonly allowed?: readonly string[];
+  readonly denied?: readonly string[];
+}
+
+export interface KilnManagedAgentWriteApprovalConfig {
+  readonly mode: KilnManagedAgentWriteApprovalMode;
+  readonly approver?: string;
+  readonly evidenceUris?: readonly string[];
+}
+
+export interface KilnManagedAgentWriteAuthorityConfig {
+  readonly workspace?: KilnManagedAgentWorkspaceWriteConfig;
+  readonly memory?: KilnManagedAgentMemoryWriteConfig;
+  readonly artifacts?: KilnManagedAgentArtifactWriteConfig;
+  readonly tools?: KilnManagedAgentToolWriteConfig;
+  readonly approval: KilnManagedAgentWriteApprovalConfig;
+}
+
 export type KilnManagedAgentCredentialsConfig =
   | {
     readonly mode: "runtime-selected";
@@ -179,6 +229,7 @@ export interface KilnManagedAgentRouteConfig {
   readonly timeoutMs?: number;
   readonly tools?: KilnManagedAgentToolsConfig;
   readonly memory?: KilnManagedAgentMemoryConfig;
+  readonly writeAuthority?: KilnManagedAgentWriteAuthorityConfig;
   readonly credentials?: KilnManagedAgentCredentialsConfig;
 }
 

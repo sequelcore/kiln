@@ -758,7 +758,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation?.routes[0]?.surface).toBe("direct-provider");
   });
 
-  it("rejects write-capable routes before live-proven write adapter support", async () => {
+  it("rejects write-capable routes without explicit write authority", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
         id: "codex-write",
@@ -781,7 +781,151 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.routeHealth[0]).toMatchObject({
       routeId: "codex-write",
       available: false,
-      reason: "Write-capable managed invocation routes require explicit write authority and live-proven adapter support.",
+      reason: "Write-capable managed invocation routes require explicit writeAuthority scope and approval config.",
+    });
+  });
+
+  it("resolves explicit live-proven harness routes for approved workspace writes", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-approved-write",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-apply-approved-writes"],
+        tools: {
+          allowed: ["read", "grep", "apply-patch"],
+          writes: true,
+        },
+        memory: { access: "write-proposals" },
+        writeAuthority: {
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths: ["packages/cli/src/config"],
+            deniedPaths: [".git", "node_modules"],
+          },
+          memory: {
+            mode: "propose",
+            operations: ["create", "update"],
+          },
+          artifacts: {
+            mode: "propose",
+            resourceUris: ["kiln://artifacts/managed-agent-write/codex-approved-write"],
+            retention: "session",
+          },
+          tools: {
+            allowed: ["read", "grep", "apply-patch"],
+            denied: ["git-commit"],
+          },
+          approval: {
+            mode: "required-before-apply",
+          },
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-approved-write",
+      kind: "harness",
+      provider: "codex",
+      model: "gpt-5.3-codex-spark",
+      profiles: ["foundation-apply-approved-writes"],
+      available: true,
+    }]);
+    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
+      supportedProfiles: [
+        "foundation-readonly-plan",
+        "foundation-propose-writes",
+        "foundation-apply-approved-writes",
+        "foundation-memory-write-proposals",
+      ],
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    expect(result.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"]).toMatchObject({
+      authorityProfileId: "authority:codex-approved-write:foundation-apply-approved-writes",
+      permissionProfile: "apply-approved-writes",
+      writeAllowed: true,
+      workingDirectory: {
+        path: "C:/repo",
+        mode: "workspace-write",
+      },
+      memoryScope: {
+        access: "write-proposals",
+      },
+      writeAuthority: {
+        profile: "foundation-apply-approved-writes",
+        scope: {
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths: ["C:\\repo\\packages\\cli\\src\\config"],
+            deniedPaths: ["C:\\repo\\.git", "C:\\repo\\node_modules"],
+          },
+          memory: {
+            mode: "propose",
+            operations: ["create", "update"],
+          },
+          artifacts: {
+            mode: "propose",
+            resourceUris: ["kiln://artifacts/managed-agent-write/codex-approved-write"],
+            retention: "session",
+          },
+          tools: {
+            allowedToolNames: ["read", "grep", "apply-patch"],
+            deniedToolNames: ["git-commit"],
+          },
+        },
+        approval: {
+          mode: "required-before-apply",
+          evidenceRequired: true,
+        },
+      },
+    });
+  });
+
+  it("keeps direct provider write-capable routes unavailable until direct write proof exists", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-oauth-approved-write",
+        kind: "direct",
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-apply-approved-writes"],
+        tools: {
+          allowed: ["read", "write"],
+          writes: true,
+        },
+        writeAuthority: {
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths: ["packages/cli/src/config"],
+          },
+          approval: {
+            mode: "required-before-apply",
+          },
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex-oauth"),
+      surface: "gui",
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "codex-oauth-approved-write",
+      available: false,
+      reason: "Direct managed invocation write-capable routes are not live-proven yet.",
     });
   });
 });

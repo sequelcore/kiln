@@ -57,6 +57,10 @@ export interface CliSession {
 export interface CliSessionFactoryContext {
   readonly kilnSessionId?: string;
   readonly operatorSurface?: OperatorSurfaceController;
+  readonly permissionPolicy?: {
+    readonly approval: "never" | "on-request" | "on-failure" | "untrusted";
+    readonly sandbox: "read-only" | "workspace-write" | "danger-full-access";
+  };
 }
 
 /**

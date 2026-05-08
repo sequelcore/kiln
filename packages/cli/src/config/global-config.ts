@@ -372,6 +372,77 @@ function validateManagedAgentRoute(value: unknown, index: number): void {
   if (value.timeoutMs !== undefined && (typeof value.timeoutMs !== "number" || value.timeoutMs <= 0)) {
     throw new KilnYamlError(`managedAgents.routes[${index}].timeoutMs must be positive`);
   }
+  validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
+}
+
+function validateManagedAgentWriteAuthority(value: unknown, path: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  if (!isRecord(value.approval)) {
+    throw new KilnYamlError(`${path}.approval is required`);
+  }
+  if (value.approval.mode !== "required-before-apply" && value.approval.mode !== "policy-approved") {
+    throw new KilnYamlError(`${path}.approval.mode must be "required-before-apply" or "policy-approved"`);
+  }
+  validateOptionalStringArray(value.approval.evidenceUris, `${path}.approval.evidenceUris`);
+  validateManagedAgentWorkspaceWriteConfig(value.workspace, `${path}.workspace`);
+  validateManagedAgentMemoryWriteConfig(value.memory, `${path}.memory`);
+  validateManagedAgentArtifactWriteConfig(value.artifacts, `${path}.artifacts`);
+  validateManagedAgentToolWriteConfig(value.tools, `${path}.tools`);
+}
+
+function validateManagedAgentWorkspaceWriteConfig(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  validateOptionalWriteMode(value.mode, `${path}.mode`);
+  validateOptionalStringArray(value.allowedPaths, `${path}.allowedPaths`);
+  validateOptionalStringArray(value.deniedPaths, `${path}.deniedPaths`);
+}
+
+function validateManagedAgentMemoryWriteConfig(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  validateOptionalWriteMode(value.mode, `${path}.mode`);
+  if (value.operations !== undefined) {
+    if (!Array.isArray(value.operations) || value.operations.some((item) => !isManagedAgentMemoryWriteOperation(item))) {
+      throw new KilnYamlError(`${path}.operations contains an unsupported memory write operation`);
+    }
+  }
+}
+
+function validateManagedAgentArtifactWriteConfig(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  validateOptionalWriteMode(value.mode, `${path}.mode`);
+  validateOptionalStringArray(value.resourceUris, `${path}.resourceUris`);
+  if (
+    value.retention !== undefined
+    && value.retention !== "none"
+    && value.retention !== "session"
+    && value.retention !== "durable"
+    && value.retention !== "external"
+  ) {
+    throw new KilnYamlError(`${path}.retention must be "none", "session", "durable", or "external"`);
+  }
+}
+
+function validateManagedAgentToolWriteConfig(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  validateOptionalStringArray(value.allowed, `${path}.allowed`);
+  validateOptionalStringArray(value.denied, `${path}.denied`);
 }
 
 function validateModelTaskSuitability(value: unknown): void {
@@ -409,6 +480,27 @@ function validateRequiredNonEmptyString(record: Record<string, unknown>, key: st
   if (typeof record[key] !== "string" || record[key].trim().length === 0) {
     throw new KilnYamlError(`${path} must be a non-empty string`);
   }
+}
+
+function validateOptionalStringArray(value: unknown, path: string): void {
+  if (value !== undefined && (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.trim().length === 0))) {
+    throw new KilnYamlError(`${path} must be an array of non-empty strings`);
+  }
+}
+
+function validateOptionalWriteMode(value: unknown, path: string): void {
+  if (value !== undefined && value !== "none" && value !== "propose" && value !== "apply-approved") {
+    throw new KilnYamlError(`${path} must be "none", "propose", or "apply-approved"`);
+  }
+}
+
+function isManagedAgentMemoryWriteOperation(value: unknown): boolean {
+  return value === "create"
+    || value === "update"
+    || value === "archive"
+    || value === "forget"
+    || value === "redact"
+    || value === "promote";
 }
 
 function isEngineBilling(value: unknown): value is KilnEngineBilling {

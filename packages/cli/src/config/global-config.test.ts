@@ -278,6 +278,58 @@ describe("global-config", () => {
     );
   });
 
+  it("readGlobalConfig() validates managed route write authority shape", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  enabled: true",
+        "  routes:",
+        "    - id: codex-approved-write",
+        "      kind: harness",
+        "      provider: codex",
+        "      profiles:",
+        "        - foundation-apply-approved-writes",
+        "      writeAuthority:",
+        "        workspace:",
+        "          mode: apply-approved",
+        "          allowedPaths:",
+        "            - packages/cli/src/config",
+        "        approval:",
+        "          mode: required-before-apply",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.managedAgents?.routes?.[0]?.writeAuthority).toMatchObject({
+      workspace: {
+        mode: "apply-approved",
+        allowedPaths: ["packages/cli/src/config"],
+      },
+      approval: {
+        mode: "required-before-apply",
+      },
+    });
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  routes:",
+        "    - id: codex-approved-write",
+        "      kind: harness",
+        "      provider: codex",
+        "      writeAuthority:",
+        "        approval:",
+        "          mode: auto",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow(
+      "managedAgents.routes[0].writeAuthority.approval.mode must be \"required-before-apply\" or \"policy-approved\"",
+    );
+  });
+
   it("readGlobalConfig() throws KilnYamlError when file is not a YAML object", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue("- not\n- an\n- object\n");
