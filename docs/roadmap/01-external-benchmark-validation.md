@@ -69,11 +69,14 @@ it is treated as governed research, not autonomous vulnerability hunting.
   `kiln benchmark project-bfcl`. The adapter projects supported structured
   BFCL rows into Kiln JSONL dataset items and reports unsupported row formats
   without guessing.
+- 2026-05-08: added `projectAgentDojoDataset` plus
+  `kiln benchmark project-agentdojo`. The adapter projects supported
+  AgentDojo-style utility and injection tasks into Kiln JSONL safety datasets
+  using `expectedToolCalls` and `forbiddenToolCalls`.
 
 ## Remaining Slices
 
 1. Add the next external adapters:
-   - AgentDojo for indirect prompt-injection safety.
    - tau-style workflows for pass^k tool-agent-user reliability.
 2. Add public report generation from stored benchmark artifacts.
 3. Decide whether any coding benchmark track is acceptable. SWE-bench-style

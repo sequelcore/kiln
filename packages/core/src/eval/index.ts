@@ -48,6 +48,12 @@ export {
 export { createBenchmarkProfileScorers } from "./benchmark-scorers.js";
 export { projectBfclDataset } from "./adapters/bfcl-adapter.js";
 export type { BfclAdapterOptions, BfclFunctionCall, BfclProjectionResult, BfclUnsupportedRow } from "./adapters/bfcl-adapter.js";
+export { projectAgentDojoDataset } from "./adapters/agentdojo-adapter.js";
+export type {
+  AgentDojoAdapterOptions,
+  AgentDojoProjectionResult,
+  AgentDojoUnsupportedRow,
+} from "./adapters/agentdojo-adapter.js";
 export type {
   BenchmarkBaselineResult,
   BenchmarkProfile,

@@ -75,6 +75,11 @@ Kiln `DatasetItem` records with `expectedToolCalls` metadata. Unsupported row
 formats are reported explicitly; the adapter must not infer benchmark truth from
 opaque call-code strings when a structured expected call is unavailable.
 
+The AgentDojo adapter follows the same projection rule. It maps user-task
+utility calls to `expectedToolCalls` and injection-task goals to
+`forbiddenToolCalls`. Safety evidence is based on Kiln-observed tool calls and
+policy violations, not on provider self-reporting.
+
 ## External Track Gate
 
 External tracks are candidates until an adapter exists. Candidate tracks still

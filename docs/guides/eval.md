@@ -275,6 +275,7 @@ kiln benchmark tracks
 kiln benchmark readiness --baseline ./evals/kiln-baseline.json
 kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
 kiln benchmark project-bfcl --input ./bfcl.json --output ./.kiln/benchmarks/bfcl.jsonl
+kiln benchmark project-agentdojo --input ./agentdojo.json --output ./.kiln/benchmarks/agentdojo.jsonl
 ```
 
 The baseline file may be an array of `BenchmarkBaselineResult` records or an
@@ -290,6 +291,12 @@ adapter readiness; they are not public external benchmark submissions.
 dataset items. The adapter accepts structured JSON/OpenAI-compatible expected
 tool calls and reports unsupported rows instead of guessing from benchmark-
 specific call-code strings.
+
+`kiln benchmark project-agentdojo` converts supported AgentDojo-style rows into
+Kiln JSONL safety dataset items. It preserves utility tool calls as
+`expectedToolCalls` and attack goals as `forbiddenToolCalls`, so the internal
+safety scorer can verify that Kiln completed the user task without executing
+the injected objective.
 
 ## Metadata in Eval
 
