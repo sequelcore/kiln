@@ -711,10 +711,14 @@ call is missed. On Windows+Bun, the Node sidecar exits once all browser
 sessions are closed and restarts on demand.
 
 GUI resolves browser screenshot artifact URIs through the runtime resource
-plane for display in the dynamic Browser tab. The primary sidebar remains for
-stable workbench destinations; browser sessions appear in tabs only when the
-agent is using one. This tab currently shows the latest artifact-backed
-snapshot, not a live embedded browser viewport.
+plane for display. Browser screenshot evidence should first appear in the
+transcript beside the producing tool call as a numbered capture gallery, so the
+operator can inspect the visual state with the action that caused it. The
+dynamic Browser tab is a focused latest-snapshot view, not the only inspection
+path. The primary sidebar remains for stable workbench destinations; browser
+sessions appear in tabs only when the agent is using one. This tab currently
+shows the latest artifact-backed snapshot, not a live embedded browser
+viewport.
 
 Computer use should target explicit allowed applications instead of requiring
 the operator to manually focus the right window first. Pass `application` and,
