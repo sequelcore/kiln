@@ -39,14 +39,35 @@ Read the relevant architecture or guide document before using a roadmap:
 - `docs/architecture/operator-surfaces.md`, `docs/guides/gui-parity.md`, and
   `docs/guides/tui-maintenance.md` for GUI, TUI, CLI, IDE, desktop, and remote
   operator surfaces, including presentation-intent doctrine.
+- `docs/guides/plan-mode.md`, `docs/architecture/work-governance.md`, and
+  `docs/architecture/coordination.md` for plan mode, goal/work-item execution,
+  orchestration preference, workflow profiles, evidence closeout, and
+  cross-surface coordination.
+
 ## Roadmap Layers
 
-There are no active implementation roadmaps at this layer. Remaining files are
-deferred validation or experiment tracks.
+Active roadmap files describe implementation tracks that have not yet been
+absorbed into stable architecture or guide documentation. Deferred tracks remain
+explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-- None.
+- `00.5-plan-goal-workflow-control.md`
+  Active planned roadmap for structured specifications, clarification gates,
+  structured plan mode, approved goal runs, work-item materialization,
+  managed-agent execution, evidence-gated closeout, and cross-surface workflow
+  projection.
+
+- Interactive browser and computer use implementation is active. Core
+  contracts, config projection, Playwright browser provider, GUI browser
+  snapshot projection, optional Windows computer provider, and Kiln-owned
+  Microsoft UI Automation semantic sidecar provider are implemented. Browser
+  background execution is governed through `interactiveUse.browserEnvironment:
+  isolated-headless`; local Windows desktop automation is explicitly scoped as
+  `computerEnvironment: local-active-desktop`. Remaining follow-up lives in
+  `docs/plan.md`. Stable doctrine is absorbed into
+  `docs/architecture/developer-tools.md`, `docs/architecture/tool-execution.md`,
+  and `docs/guides/tool-use.md`.
 
 ## Deferred Roadmaps
 
@@ -155,10 +176,14 @@ deferred validation or experiment tracks.
 
 ## Execution Priority
 
-1. Keep `02-native-operator-surface-experiment.md` deferred until managed
+1. Implement `00.5-plan-goal-workflow-control.md` before adding new
+   long-running-agent UX or benchmark claims. It is the control-plane bridge
+   between plan mode, orchestration preference, managed-agent delegation, and
+   durable work closeout.
+2. Keep `02-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-2. Keep `01-external-benchmark-validation.md` deferred until the evaluated
+3. Keep `01-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules
