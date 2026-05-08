@@ -8,7 +8,7 @@ import {
   type CreateMemoryRecordInput,
   type MemoryProvenance,
 } from "@kilnai/core";
-import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
+import type { GuiSessionSummary, KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
 
 function parseGatewayPort(): number {
   const raw = process.env.GUI_GATEWAY_PORT ?? "0";
@@ -100,6 +100,32 @@ let resumeSessionId: string | null = null;
 const contextArtifactCache = new InMemoryContextArtifactCache();
 const memoryDbDir = mkdtempSync(join(tmpdir(), "kiln-gui-memory-"));
 const memoryRepository = new SqliteMemoryRepository({ dbPath: join(memoryDbDir, "memory.db") });
+const setupSnapshot: KilnConfigSetupSnapshot = {
+  projectRoot: "C:/Proyectos/Sequel/kiln",
+  projectContext: {
+    path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+    status: "valid",
+    recommendation: "none",
+  },
+  repoShims: [
+    {
+      target: "agents",
+      targetId: "agents",
+      path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+      status: "current",
+      recommendation: "none",
+    },
+    {
+      target: "claude",
+      targetId: "claude",
+      path: "C:/Proyectos/Sequel/kiln/CLAUDE.md",
+      status: "current",
+      recommendation: "none",
+    },
+  ],
+  nativeProjections: [],
+  recommendedActions: ["none"],
+};
 
 seedMemoryRepository(memoryRepository);
 
@@ -118,6 +144,8 @@ async function main(): Promise<void> {
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
       resumeInfoByProvider: {},
     }),
+    getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
+    getSetupSnapshot: async () => setupSnapshot,
     listSessions: async () => sessionSummaries.slice(0, 20),
     builtinToolOptions: {
       memoryResources: { repository: memoryRepository },

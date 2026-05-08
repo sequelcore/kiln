@@ -16,7 +16,7 @@ import {
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
 import { useSessionStore } from "../lib/session-store.js";
-import { deriveChangedFiles, derivePendingApprovals, deriveRuntimeContinuity } from "../lib/session-store.js";
+import { deriveChangedFiles, derivePendingApprovals } from "../lib/session-store.js";
 import { SessionList } from "./session-list.js";
 import { WorkspacePanel } from "./workspace-panel.js";
 import { OperatorSurfaceTabs, type OperatorSurfaceKind } from "./operator-surface-tabs.js";
@@ -27,11 +27,8 @@ import { Transcript } from "./transcript.js";
 import { Composer } from "./composer.js";
 import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
 import { ErrorBanner } from "./error-banner.js";
-import { ConnectionStatus } from "./connection-status.js";
-import { ThemeSwitcher } from "./theme-switcher.js";
 import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
-import { SessionTelemetry } from "./session-telemetry.js";
 import { MemoryLatticePanel, MemoryLatticeSurface } from "./memory-lattice/memory-lattice-panel.js";
 import { SetupPanel } from "./setup-panel.js";
 import { useUiStore } from "../lib/ui-store.js";
@@ -61,6 +58,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
+const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
 const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const WORKSPACE_DOCUMENT_TAB_LIMIT = 8;
@@ -570,7 +568,6 @@ export function AppShell() {
   const setTheme = useUiStore((state) => state.setTheme);
   const gatewayClient = useMemo(() => new GuiGatewayClient(window.location.origin), []);
   const changedFiles = useMemo(() => deriveChangedFiles(timelineEntries), [timelineEntries]);
-  const runtimeContinuity = useMemo(() => deriveRuntimeContinuity(timelineEntries, activeProvider), [activeProvider, timelineEntries]);
   const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
   const activityEntries = useMemo(() => timelineEntries.filter(isActivityTimelineEntry), [timelineEntries]);
   const conversationEntries = useMemo(() => timelineEntries.filter(isConversationTimelineEntry), [timelineEntries]);
@@ -644,7 +641,7 @@ export function AppShell() {
     let cancelled = false;
     setGatewayReady(false);
     setGatewayError(null);
-    void gatewayClient.waitForHealth({ timeoutMs: 3_000 })
+    void gatewayClient.waitForHealth({ timeoutMs: GATEWAY_BOOTSTRAP_TIMEOUT_MS })
       .then(() => {
         if (!cancelled) {
           setGatewayReady(true);
@@ -964,9 +961,6 @@ export function AppShell() {
   }, [memoryLatticeQuery.data?.snapshot?.nodes, selectedMemoryRecordId]);
 
   const dashboardData = dashboardQuery.error ? undefined : dashboardQuery.data;
-  const resumeInfo = activeProvider
-    ? dashboardData?.resumeInfoByProvider?.[activeProvider] ?? null
-    : null;
   const workingDirectory = dashboardData?.workingDirectory;
   const domainLabel = dashboardData?.domainLabel;
   const appDescriptors = dashboardData?.apps ?? EMPTY_APP_DESCRIPTORS;
@@ -1224,14 +1218,13 @@ export function AppShell() {
                   loading={Boolean(setupQuery.isFetching)}
                   error={setupQuery.error instanceof Error ? setupQuery.error : null}
                   onRefresh={() => void setupQuery.refetch()}
+                  onThemeSelected={persistThemePreference}
                 />
               );
 
   const closeDrawer = () => {
     setDrawerOpen(false);
   };
-  const activeSession = sessionList.find((session) => session.id === selectedSessionId) ?? null;
-  const topBarTitle = activeSession?.title ?? activeSession?.taskSummary ?? "New session";
   const drawerTitle = sidebarMode === "sessions"
     ? "Sessions"
     : sidebarMode === "workspace"
@@ -1328,8 +1321,8 @@ export function AppShell() {
           </div>
         ) : null}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/65">
-          <header className="flex h-12 min-w-0 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-4 backdrop-blur">
-            {isNarrow ? (
+          {isNarrow ? (
+            <header className="flex h-11 min-w-0 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-3 backdrop-blur">
               <Button
                 type="button"
                 variant="outline"
@@ -1341,38 +1334,19 @@ export function AppShell() {
               >
                 {drawerOpen ? `Close ${drawerTitle}` : drawerTitle}
               </Button>
-            ) : null}
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">session</span>
-              <span aria-hidden="true" className="text-muted-foreground/45">/</span>
-              <span className="truncate text-sm font-semibold text-foreground">{topBarTitle}</span>
-              {resumeTargetId ? (
-                <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-accent)]">
-                  <span className="size-1.5 rounded-full bg-[var(--color-accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_18%,transparent)]" />
-                  active
-                </span>
-              ) : null}
-            </div>
-            <div className="ml-auto" />
-            <AppGatewayTargetSelector
-              apps={runtimeAppDescriptors}
-              selectedAppName={selectedAppName}
-              selectedTenantId={selectedTenantId}
-              onSelectApp={(appName) => {
-                setSelectedAppName(appName);
-                setSelectedTenantId(null);
-              }}
-              onSelectTenant={setSelectedTenantId}
-            />
-            <ConnectionStatus state={wsState} />
-            <SessionTelemetry
-              activeProvider={activeProvider}
-              resumeInfo={resumeInfo}
-              runtimeContinuity={runtimeContinuity}
-              fieldTelemetry={dashboardData?.telemetry ?? null}
-            />
-            <ThemeSwitcher onThemeSelected={persistThemePreference} />
-          </header>
+              <div className="ml-auto" />
+              <AppGatewayTargetSelector
+                apps={runtimeAppDescriptors}
+                selectedAppName={selectedAppName}
+                selectedTenantId={selectedTenantId}
+                onSelectApp={(appName) => {
+                  setSelectedAppName(appName);
+                  setSelectedTenantId(null);
+                }}
+                onSelectTenant={setSelectedTenantId}
+              />
+            </header>
+          ) : null}
           <OperatorSurfaceTabs
             activeSurface={activeSurface}
             memoryOpen={memorySurfaceOpen}
@@ -1420,12 +1394,26 @@ export function AppShell() {
             planMode={planMode}
             resumeTargetId={resumeTargetId}
             providerControl={(
-              <ProviderStatus
-                compact
-                onOpenPicker={() => setIsProviderPickerOpen(true)}
-                domainLabel={domainLabel}
-                workingDirectory={workingDirectory}
-              />
+              <div className="flex min-w-0 items-center gap-2">
+                <ProviderStatus
+                  compact
+                  onOpenPicker={() => setIsProviderPickerOpen(true)}
+                  domainLabel={domainLabel}
+                  workingDirectory={workingDirectory}
+                />
+                {!isNarrow ? (
+                  <AppGatewayTargetSelector
+                    apps={runtimeAppDescriptors}
+                    selectedAppName={selectedAppName}
+                    selectedTenantId={selectedTenantId}
+                    onSelectApp={(appName) => {
+                      setSelectedAppName(appName);
+                      setSelectedTenantId(null);
+                    }}
+                    onSelectTenant={setSelectedTenantId}
+                  />
+                ) : null}
+              </div>
             )}
             reasoningControl={resolvedReasoningEffort ? (
               <ReasoningEffortControl

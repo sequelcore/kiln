@@ -106,6 +106,30 @@ describe("GUI Memory Lattice routes", () => {
     );
   });
 
+  it("returns an empty graph when the memory resource is not installed yet", async () => {
+    const readResource = vi.fn().mockRejectedValue(new Error("Resource not found"));
+    const app = createGuiMemoryLatticeRoutes({
+      resources: { readResource },
+      defaultScope: { kind: "project", id: "kiln" },
+    });
+
+    const response = await app.request("http://localhost/memory/graph?depth=0&limit=25");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      snapshot: {
+        nodes: [],
+        edges: [],
+        limits: { maxNodes: 25, maxEdges: 50 },
+        truncated: false,
+      },
+      filters: {
+        scope: { kind: "project", id: "kiln" },
+        depth: 0,
+      },
+    });
+  });
+
   it("rejects unsupported query parameters before resource reads", async () => {
     const readResource = vi.fn();
     const app = createGuiMemoryLatticeRoutes({ resources: { readResource } });

@@ -1,8 +1,12 @@
 import { Hono } from "hono";
 import {
   GUI_MEMORY_LATTICE_QUERY_MAX_LENGTH,
+  GUI_MEMORY_LATTICE_LAYER_KINDS,
+  GUI_MEMORY_LATTICE_SCOPE_KINDS,
   GuiMemoryLatticeGraphResponseSchema,
   type GuiMemoryLatticeError,
+  type GuiMemoryLatticeGraphResponse,
+  type GuiMemoryLatticeLayerKind,
   type GuiMemoryLatticeScope,
 } from "@kilnai/gateway-contracts";
 
@@ -48,8 +52,14 @@ export function createGuiMemoryLatticeRoutes(options: GuiMemoryLatticeRoutesOpti
       return c.json(resourceUri, 400);
     }
 
+    let result: RuntimeResourceReadResult;
     try {
-      const result = await options.resources.readResource(resourceUri);
+      result = await options.resources.readResource(resourceUri);
+    } catch {
+      return c.json(emptyGraphResponse(new URL(c.req.url).searchParams, options.defaultScope));
+    }
+
+    try {
       const response = GuiMemoryLatticeGraphResponseSchema.parse(readJsonResource(result));
       return c.json(response);
     } catch {
@@ -101,6 +111,73 @@ function buildMemoryGraphResourceUri(
 
   const suffix = resourceQuery.toString();
   return suffix ? `kiln://memory/graph?${suffix}` : "kiln://memory/graph";
+}
+
+function emptyGraphResponse(
+  query: URLSearchParams,
+  defaultScope: GuiMemoryLatticeScope | undefined,
+): GuiMemoryLatticeGraphResponse {
+  const scope = readMemoryScope(query, defaultScope);
+  const layer = readMemoryLayer(query);
+  const searchQuery = query.get("query")?.trim();
+  const parsedDepth = Number(query.get("depth") ?? 0);
+  const depth = Number.isInteger(parsedDepth) && parsedDepth >= 0 ? parsedDepth : 0;
+  const parsedLimit = Number(query.get("limit") ?? 25);
+  const maxNodes = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 25;
+
+  return {
+    snapshot: {
+      nodes: [],
+      edges: [],
+      limits: {
+        maxNodes,
+        maxEdges: maxNodes * 2,
+      },
+      truncated: false,
+    },
+    filters: {
+      ...(scope ? { scope } : {}),
+      ...(layer ? { layer } : {}),
+      ...(searchQuery ? { query: searchQuery } : {}),
+      depth,
+    },
+  };
+}
+
+function readMemoryScope(
+  query: URLSearchParams,
+  defaultScope: GuiMemoryLatticeScope | undefined,
+): GuiMemoryLatticeScope | undefined {
+  const scope = query.get("scope")?.trim();
+  if (scope) {
+    const separator = scope.indexOf(":");
+    if (separator > 0 && separator < scope.length - 1) {
+      const kind = scope.slice(0, separator);
+      const id = scope.slice(separator + 1);
+      return isMemoryScopeKind(kind) ? { kind, id } : undefined;
+    }
+  }
+
+  const scopeKind = query.get("scopeKind")?.trim();
+  const scopeId = query.get("scopeId")?.trim();
+  if (scopeKind && scopeId && isMemoryScopeKind(scopeKind)) {
+    return { kind: scopeKind, id: scopeId };
+  }
+
+  return defaultScope;
+}
+
+function readMemoryLayer(query: URLSearchParams): GuiMemoryLatticeLayerKind | undefined {
+  const layer = query.get("layer")?.trim();
+  return layer && isMemoryLayerKind(layer) ? layer : undefined;
+}
+
+function isMemoryScopeKind(value: string): value is GuiMemoryLatticeScope["kind"] {
+  return (GUI_MEMORY_LATTICE_SCOPE_KINDS as readonly string[]).includes(value);
+}
+
+function isMemoryLayerKind(value: string): value is GuiMemoryLatticeLayerKind {
+  return (GUI_MEMORY_LATTICE_LAYER_KINDS as readonly string[]).includes(value);
 }
 
 function readJsonResource(result: RuntimeResourceReadResult): unknown {

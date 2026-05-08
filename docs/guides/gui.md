@@ -131,27 +131,25 @@ card stacks and provider-owned history buckets.
 The GUI shell uses a supervision layout rather than a dashboard layout:
 
 - a narrow left rail owns operator modes such as Sessions, Workspace, Changed
-  files, and Approvals
+  files, Approvals, Activity, Memory, and Setup
 - the expanded mode panel owns the selected mode's list or navigation content
-- the main chat column owns conversation, turn composition, and top-level
-  session state
-- the inspector owns deeper runtime details that are useful for diagnosis but
-  should not compete with the chat header
+- the main chat column owns conversation, turn composition, and active-turn
+  controls such as provider/model route and app target selection
+- the Activity mode owns runtime evidence such as routing, tool calls, cost
+  updates, continuity, and turn completion details
+- the Setup mode owns durable configuration diagnostics, projection status, and
+  operator preferences such as theme
 
-The main chat top bar is the summary layer. It should show the active session
-title/state, turns, tokens, current cost, provider/model route, and connection
-state. Do not duplicate those same summary metrics in the inspector.
-Regression coverage now explicitly locks this behavior: turns/tokens/cost stay
-in the top bar and are not duplicated in `SessionTelemetry`.
+The chat surface intentionally does not keep a persistent summary top bar. Tabs
+and the composer remain focused on active work; diagnostics and preferences
+move to their canonical modes. Regression coverage locks this behavior:
+turns/tokens/cost and field telemetry are not rendered as always-visible chrome,
+and theme selection is available through Setup.
 
-The inspector is the detail layer. It should focus on continuity decisions,
-field state, and future event-backed diagnostics. It is collapsed by default so
-the operator can keep the transcript in focus.
-
-Those inspector sections must be projections of the canonical session
-timeline. Do not maintain separate GUI-only caches for changed files,
-continuity, or approval state when the same facts already exist in
-`session_event` history.
+Activity details must be projections of the canonical session timeline. Do not
+maintain separate GUI-only caches for changed files, continuity, approval
+state, cost, or routing when the same facts already exist in `session_event`
+history.
 
 Live runtime progress follows the same rule. The GUI accepts `session_event`
 frames for durable operational evidence and `activity_phase` frames for

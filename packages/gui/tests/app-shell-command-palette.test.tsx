@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store.js";
@@ -84,10 +84,6 @@ vi.mock("../src/components/command-palette.js", () => ({
 
 vi.mock("../src/components/error-banner.js", () => ({
   ErrorBanner: ({ message }: { message: string }) => <div>{message}</div>,
-}));
-
-vi.mock("../src/components/connection-status.js", () => ({
-  ConnectionStatus: ({ state }: { state: string }) => <div>{state}</div>,
 }));
 
 vi.mock("../src/components/theme-switcher.js", () => ({
@@ -246,7 +242,7 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open composer commands" })).toBeInTheDocument();
     });
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
@@ -290,24 +286,13 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open composer commands" })).toBeInTheDocument();
     });
 
+    expect(screen.queryByRole("button", { name: "Details" })).not.toBeInTheDocument();
     expect(screen.queryByText(/turns/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/tokens/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/cost/i)).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    const inspectorSection = await waitFor(() => {
-      const section = screen.getByText("Continuity").closest("section");
-      expect(section).not.toBeNull();
-      return section;
-    });
-    expect(inspectorSection).not.toBeNull();
-    const inspector = within(inspectorSection as HTMLElement);
-    expect(inspector.queryByText(/turns/i)).not.toBeInTheDocument();
-    expect(inspector.queryByText(/tokens/i)).not.toBeInTheDocument();
-    expect(inspector.queryByText(/cost/i)).not.toBeInTheDocument();
   });
 
   it("does not install an outbound sender while the websocket is reconnecting", async () => {
@@ -316,7 +301,7 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open composer commands" })).toBeInTheDocument();
     });
 
     expect(useSessionStore.getState().outboundSend).toBeNull();
@@ -332,7 +317,7 @@ describe("AppShell command palette and telemetry regressions", () => {
       const { rerender, unmount } = render(<AppShell />);
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: "Details" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Open composer commands" })).toBeInTheDocument();
       });
 
       wsState = "reconnecting";
@@ -383,8 +368,6 @@ describe("AppShell command palette and telemetry regressions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
     expect(screen.queryByText("C:/Proyectos/Sequel/kiln")).not.toBeInTheDocument();
     expect(screen.getByText("no dashboard working directory")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    expect(screen.getByText("field [idle]")).toBeInTheDocument();
     expect(screen.queryByText("dom: stale-region")).not.toBeInTheDocument();
 
     dashboardQueryResult = {

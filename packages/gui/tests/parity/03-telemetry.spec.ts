@@ -1,27 +1,30 @@
 import { expect, test } from "./fixtures/gateway.js";
 
 test.describe("parity category 3 - cost and telemetry", () => {
-  test("renders telemetry surfaces and updates session counters after a turn", async ({ page }) => {
+  test("keeps telemetry out of persistent chrome and records cost evidence in Activity", async ({ page }) => {
     await page.goto("/");
 
-    const costSection = page.locator("section").filter({ has: page.getByText("Cost", { exact: true }) }).first();
-    const sessionSection = page.locator("section").filter({ has: page.getByText("Session", { exact: true }) }).first();
-    const continuitySection = page.locator("section").filter({ has: page.getByText("Continuity", { exact: true }) }).first();
-    const fieldSection = page.locator("section").filter({ has: page.getByText("Field", { exact: true }) }).first();
-
-    await expect(costSection).toBeVisible();
-    await expect(sessionSection).toBeVisible();
-    await expect(continuitySection).toBeVisible();
-    await expect(fieldSection).toBeVisible();
-    await expect(page.getByText("field [idle]")).toBeVisible();
-
     const composer = page.locator("#composer-input");
+    await expect(composer).toBeEnabled({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: "Details" })).toHaveCount(0);
+    await expect(page.getByText("field [idle]")).toHaveCount(0);
+    await page.getByRole("button", { name: /provider.*Click to change/i }).click();
+    await page.getByRole("option", { name: "Codex 6 models" }).click();
+    await page.getByRole("option", { name: "gpt-5.4-mini" }).click();
+    await expect(page.getByRole("button", { name: /Codex \/ gpt-5\.4-mini/ })).toBeVisible({
+      timeout: 2_000,
+    });
+
     await composer.fill("collect telemetry evidence");
     await composer.press("Enter");
 
-    await expect(page.getByText("thinking...")).toBeVisible({ timeout: 2_000 });
-    await expect(costSection.getByText("$0.0104", { exact: true })).toBeVisible({ timeout: 5_000 });
-    await expect(sessionSection.getByText("turns: 1", { exact: true })).toBeVisible({ timeout: 5_000 });
-    await expect(sessionSection.getByText(/tok:\s+\d+(?:\.\d+)?k?\/\d+(?:\.\d+)?k?/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('[data-role="assistant"]').last()).toContainText("Reply", { timeout: 5_000 });
+
+    await page.getByRole("button", { name: "Activity" }).click();
+    await page.getByRole("button", { name: /Cost updated/ }).click();
+    const detail = page.getByRole("region", { name: "Selected activity detail" });
+    await expect(detail).toContainText("$0.0104", { timeout: 5_000 });
+    await expect(detail).toContainText("21");
+    await expect(detail).toContainText("42");
   });
 });

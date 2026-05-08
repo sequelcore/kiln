@@ -8,14 +8,15 @@ test.describe("parity category 4 - input and keyboard ergonomics", () => {
     await composer.click();
     await composer.press("/");
 
-    const palette = page.getByRole("dialog", { name: "Command Palette" });
+    const palette = page.getByRole("dialog", { name: "Composer commands" });
     await expect(palette).toBeVisible({ timeout: 2_000 });
     await page.keyboard.press("Escape");
     await expect(palette).toBeHidden({ timeout: 2_000 });
 
-    await page.getByText("Summarize parity checklist").click();
+    await page.getByRole("option", { name: /Summarize parity checklist/ }).click();
+    await composer.click();
     await composer.press("Enter");
 
-    await expect.poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resume.claude"))).not.toBeNull();
+    await expect.poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resumeTarget"))).not.toBeNull();
   });
 });

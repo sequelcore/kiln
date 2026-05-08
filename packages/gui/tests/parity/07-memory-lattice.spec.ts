@@ -20,6 +20,8 @@ test.describe("parity category 7 - memory lattice", () => {
       .getByRole("region", { name: "Memory Lattice records" })
       .getByRole("button", { name: "Context admission evidence", exact: true })
       .click();
-    await expect(page.getByRole("region", { name: "Memory record detail" })).toContainText("context-admission-evidence");
+    await expect(
+      page.getByRole("region", { name: "Memory Lattice surface" }).getByRole("region", { name: "Memory record detail" }),
+    ).toContainText("context-admission-evidence");
   });
 });

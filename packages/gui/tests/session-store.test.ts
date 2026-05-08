@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deriveChangedFiles,
   derivePendingApprovals,
-  deriveRuntimeContinuity,
   deriveToolCallLog,
   useSessionStore,
 } from "../src/lib/session-store.js";
@@ -987,11 +986,17 @@ describe("session-store", () => {
     const state = useSessionStore.getState();
     expect(state.inputTokens).toBe(250);
     expect(state.outputTokens).toBe(75);
-    expect(deriveRuntimeContinuity(state.timelineEntries, "codex")).toMatchObject({
-      strategy: "cache-first",
-      feedbackLabel: "applied",
-      pressure: "medium",
-    });
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "turn_completed",
+      details: expect.objectContaining({
+        runtimeContinuity: expect.objectContaining({
+          strategy: "cache-first",
+          feedbackLabel: "applied",
+          pressure: "medium",
+        }),
+      }),
+    }));
   });
 
   it("onError adds error row and sets banner", () => {
@@ -1283,10 +1288,14 @@ describe("session-store", () => {
     expect(state.inputTokens).toBe(42);
     expect(state.outputTokens).toBe(21);
     expect(state.turnCounter).toBe(1);
-    expect(deriveRuntimeContinuity(state.timelineEntries, "codex-oauth")).toMatchObject({
-      strategy: "continue",
-      selectionReason: "single-source-cache",
-    });
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "continuity_decided",
+      details: expect.objectContaining({
+        decision: "continue",
+        reason: "single-source-cache",
+      }),
+    }));
   });
 
   it("does not auto-select an old session when refreshing the session list", () => {

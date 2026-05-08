@@ -3,9 +3,11 @@ import type {
   KilnConfigSetupSnapshot,
   KilnConfigSourceStatus,
   KilnProjectionTargetStatus,
+  OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import { AlertTriangle, CheckCircle2, FileCode2, RefreshCw, Settings2 } from "lucide-react";
 import { SidebarPanelShell } from "./sidebar-panel-shell.js";
+import { ThemeSwitcher } from "./theme-switcher.js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -14,6 +16,7 @@ interface SetupPanelProps {
   readonly loading: boolean;
   readonly error: Error | null;
   readonly onRefresh: () => void;
+  readonly onThemeSelected?: (theme: OperatorThemeName) => void;
 }
 
 const ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
@@ -64,6 +67,16 @@ export function SetupPanel(props: SetupPanelProps) {
         ) : null}
         {!props.loading && !props.error && props.snapshot ? (
           <>
+            <section aria-label="Appearance" className="rounded-lg border border-border/70 bg-background/55 p-3">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">Appearance</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Operator theme preference</p>
+                </div>
+                <ThemeSwitcher onThemeSelected={props.onThemeSelected} />
+              </div>
+            </section>
+
             <section aria-label="Setup actions" className="rounded-lg border border-border/70 bg-background/55 p-3">
               <div className="flex items-center gap-2">
                 {activeActions.length === 0 ? (

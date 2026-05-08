@@ -39,17 +39,6 @@ export interface ToolCallEntry {
 
 export type ActivityPhase = "idle" | "thinking" | "tool_running" | "awaiting_approval" | "streaming";
 
-export interface RuntimeContinuityInfo {
-  readonly strategy: string;
-  readonly feedbackLabel?: string;
-  readonly pressure?: string;
-  readonly supportArtifactCount?: number;
-  readonly supportArtifactSources?: readonly string[];
-  readonly fallbackLabel?: string;
-  readonly usedCachedSupport?: boolean;
-  readonly selectionReason?: string;
-}
-
 export interface ChangedFileEntry {
   readonly path: string;
   readonly changeType: "created" | "modified" | "deleted";
@@ -311,22 +300,6 @@ function areSessionSummariesEqual(
     }
   }
   return true;
-}
-
-function providerFromTimelineDetails(details: unknown): string | null {
-  const record = isObjectRecord(details) ? details : null;
-  if (!record) {
-    return null;
-  }
-  const routedProvider = readString(record.routedProvider);
-  if (routedProvider) {
-    return routedProvider;
-  }
-  const provider = record.provider;
-  if (isObjectRecord(provider)) {
-    return readString(provider.provider);
-  }
-  return readString(record.provider);
 }
 
 function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
@@ -1002,57 +975,6 @@ export function deriveChangedFiles(entries: readonly TimelineEntry[]): readonly 
     });
   }
   return changedFiles;
-}
-
-export function deriveRuntimeContinuityByProvider(entries: readonly TimelineEntry[]): Readonly<Record<string, RuntimeContinuityInfo>> {
-  const runtimeContinuityByProvider: Record<string, RuntimeContinuityInfo> = {};
-  for (const entry of entries) {
-    if (entry.type !== "event") {
-      continue;
-    }
-    if (entry.eventKind === "continuity_decided") {
-      const details = isObjectRecord(entry.details) ? entry.details : null;
-      const provider = providerFromTimelineDetails(details);
-      const strategy = readString(details?.decision);
-      if (!provider || !strategy) {
-        continue;
-      }
-      runtimeContinuityByProvider[provider] = {
-        strategy,
-        selectionReason: readString(details?.reason) ?? undefined,
-      };
-      continue;
-    }
-    if (entry.eventKind === "turn_completed") {
-      const details = isObjectRecord(entry.details) ? entry.details : null;
-      const provider = providerFromTimelineDetails(details);
-      const runtimeContinuity = isObjectRecord(details?.runtimeContinuity) ? details.runtimeContinuity : null;
-      const strategy = readString(runtimeContinuity?.strategy);
-      if (!provider || !strategy) {
-        continue;
-      }
-      runtimeContinuityByProvider[provider] = {
-        strategy,
-        feedbackLabel: readString(runtimeContinuity?.feedbackLabel) ?? undefined,
-        pressure: readString(runtimeContinuity?.pressure) ?? undefined,
-        supportArtifactCount: readNumber(runtimeContinuity?.supportArtifactCount) ?? undefined,
-        supportArtifactSources: Array.isArray(runtimeContinuity?.supportArtifactSources)
-          ? runtimeContinuity.supportArtifactSources.filter((value): value is string => typeof value === "string")
-          : undefined,
-        fallbackLabel: readString(runtimeContinuity?.fallbackLabel) ?? undefined,
-        usedCachedSupport: typeof runtimeContinuity?.usedCachedSupport === "boolean" ? runtimeContinuity.usedCachedSupport : undefined,
-        selectionReason: readString(runtimeContinuity?.selectionReason) ?? undefined,
-      };
-    }
-  }
-  return runtimeContinuityByProvider;
-}
-
-export function deriveRuntimeContinuity(entries: readonly TimelineEntry[], provider: string | null): RuntimeContinuityInfo | null {
-  if (!provider) {
-    return null;
-  }
-  return deriveRuntimeContinuityByProvider(entries)[provider] ?? null;
 }
 
 export interface ActivityState {

@@ -38,6 +38,7 @@ export default defineConfig({
     env: {
       ...process.env,
       GUI_GATEWAY_PORT: gatewayPort,
+      VITE_GATEWAY_PORT: gatewayPort,
     },
   },
 });

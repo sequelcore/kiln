@@ -119,10 +119,6 @@ vi.mock("../src/components/error-banner.js", () => ({
   ErrorBanner: ({ message }: { message: string }) => <div>{message}</div>,
 }));
 
-vi.mock("../src/components/connection-status.js", () => ({
-  ConnectionStatus: ({ state }: { state: string }) => <div>{state}</div>,
-}));
-
 vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
@@ -133,10 +129,6 @@ vi.mock("../src/components/provider-picker.js", () => ({
 
 vi.mock("../src/components/provider-status.js", () => ({
   ProviderStatus: () => <div>Provider status</div>,
-}));
-
-vi.mock("../src/components/session-telemetry.js", () => ({
-  SessionTelemetry: () => <div>Telemetry</div>,
 }));
 
 vi.mock("../src/components/transcript.js", () => ({

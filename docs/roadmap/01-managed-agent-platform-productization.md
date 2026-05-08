@@ -156,9 +156,15 @@ surface-specific behavior, or provider compatibility glue.
    actions. The TUI exposes the same read model through `/setup`. SDK/widget
    consumers receive the exported setup snapshot schema and types; mutation
    remains behind explicit config proposal authority.
-10. Move theme selection and provider/setup diagnostics out of the always-visible
-   chat topbar once the configuration surface exists; keep only controls that
-   are needed for the active operator workflow.
+10. Completed 2026-05-08: simplify GUI operator chrome now that Setup and
+   Activity are first-class surfaces. The desktop chat topbar has been removed;
+   tabs and the composer own active workflow, provider/app-target controls live
+   with the composer, and narrow windows keep only the drawer/app-target header
+   needed for navigation. Theme selection moved into Setup, persistent
+   telemetry/details widgets were removed, and cost/runtime diagnostics remain
+   canonical Activity/session-event evidence. The Memory Lattice route now
+   degrades to an empty graph when the memory resource plane is not installed
+   yet while malformed resource payloads still fail closed.
 
 ## Acceptance Criteria
 

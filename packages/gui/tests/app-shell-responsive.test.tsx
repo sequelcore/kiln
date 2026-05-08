@@ -84,10 +84,6 @@ vi.mock("../src/components/error-banner.js", () => ({
   ErrorBanner: ({ message }: { message: string }) => <div>{message}</div>,
 }));
 
-vi.mock("../src/components/connection-status.js", () => ({
-  ConnectionStatus: ({ state }: { state: string }) => <div>{state}</div>,
-}));
-
 vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
@@ -98,10 +94,6 @@ vi.mock("../src/components/provider-picker.js", () => ({
 
 vi.mock("../src/components/provider-status.js", () => ({
   ProviderStatus: () => <div>Provider status</div>,
-}));
-
-vi.mock("../src/components/session-telemetry.js", () => ({
-  SessionTelemetry: () => <div>Telemetry</div>,
 }));
 
 vi.mock("../src/components/transcript.js", () => ({
@@ -232,7 +224,7 @@ describe("AppShell responsive sidebar", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Open session drawer" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Theme" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Theme" })).not.toBeInTheDocument();
 
     expect(screen.queryByRole("dialog", { name: "Sessions drawer" })).not.toBeInTheDocument();
 
