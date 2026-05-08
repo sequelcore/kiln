@@ -526,6 +526,8 @@ Operator surfaces expose the same setup read model:
 These views are diagnostic. Adoption, sync, and mutation still go through the
 explicit project, sync, and config proposal commands.
 
+## Governed Config Mutation
+
 Agents may propose bounded setup changes through `kiln_config.propose_change`.
 The tool validates `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
 payloads and returns a structured proposal with diagnostics and preview diff;
@@ -535,6 +537,19 @@ aliases that duplicate the profile id/display name are rejected. Agent `tools`
 must be supported Kiln profile tools (`read`, `grep`, `glob`, `web`, `write`,
 or `bash`); unsupported names fail closed instead of being projected into
 native harness files. Applying a proposal is a separate approval-gated flow.
+
+The current supported operations are:
+
+| Operation | Writes | Projection effects |
+|-----------|--------|--------------------|
+| `skill.upsert` | `.kiln/skills/<name>/SKILL.md` | native skills, repo shims |
+| `agent.upsert` | `.kiln/agents/<name>.md` | native agents, repo shims |
+| `agent.attach_skills` | `.kiln/agents/<name>.md` | native agents, repo shims |
+
+Routing defaults, route enablement, projection sync, third-party packs, and
+team/cloud distribution are not supported mutation operations yet. Use the
+explicit CLI commands for project adoption and sync; do not ask an agent to
+edit YAML or native harness files to imitate a missing config operation.
 
 The apply flow is intentionally split:
 

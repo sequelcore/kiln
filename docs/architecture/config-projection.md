@@ -165,18 +165,77 @@ renders the same status. These surfaces may recommend adoption, sync, or drift
 review, but writes still go through explicit project adoption, sync, or config
 proposal flows.
 
-Configuration mutation starts with structured proposals, not patches. A
-proposal records operation id, normalized payload, affected canonical paths,
-native projection effects, authority impact, validation diagnostics, preview
-diff, and rollback hint. Skill and agent profile proposals validate against the
-same `SKILL.md` and Kiln agent-profile parsers used by runtime discovery.
-Agent profile mutation additionally rejects duplicate aliases, aliases that
-collide with the canonical profile id or display name, and unsupported tool
-names. Write-capable tool names such as `write` and `bash` are allowed only as
-explicit proposal data with `authorityImpact` surfaced for review; arbitrary or
-misspelled tool names fail closed. The model-callable
-`kiln_config.propose_change` tool may create those proposals but must not write
-files; apply remains a separate approval-gated operation.
+## Governed Config Mutation
+
+Governed config mutation is the only path by which model-callable tools may
+change Kiln configuration. It exists so an agent can help the operator add a
+skill, adjust an agent profile, or attach skills without receiving generic
+filesystem write authority and without editing YAML or native harness files
+directly.
+
+Config mutation is a control-plane lifecycle:
+
+1. inspect effective config through read-only setup/config views
+2. create a structured proposal against canonical Kiln config
+3. require an explicit operator approval bound to the stored proposal hash
+4. apply the approved proposal only if the current canonical files still match
+   the proposal base hashes
+5. run native projection through Kiln projection services
+6. emit canonical config mutation evidence for every operator surface
+
+The model-callable tool surface is deliberately small:
+
+```ts
+kiln_config.read({
+  view: "effective" | "providers" | "routes" | "agents" | "skills" |
+    "permissions" | "memory" | "projections" | "setup" | "health"
+})
+
+kiln_config.propose_change({
+  operation: "skill.upsert" | "agent.upsert" | "agent.attach_skills",
+  payload: { ... }
+})
+
+kiln_config.apply_change({
+  proposalId: "...",
+  approvalId: "..."
+})
+```
+
+`routing.set_default`, `route.set_enabled`, `projection.sync`, third-party pack
+installation, team/cloud distribution, and rich GUI editing are not implicit
+config-mutation operations. They require their own explicit contracts before an
+agent may request them through tools. Until then, agents must not simulate those
+changes by editing config files.
+
+`kiln_config.read` is read-only. It exposes the same bounded views as
+`kiln config read` and the setup/status surfaces. It may report effective
+config, provider health, projection status, and setup recommendations, but it
+does not grant mutation authority.
+
+`kiln_config.propose_change` returns a `KilnConfigChangeProposal`, not a patch
+string. A proposal records:
+
+- operation id
+- normalized payload
+- affected canonical config paths
+- native projection effects
+- authority impact
+- validation diagnostics
+- preview diff
+- rollback hint
+
+Skill proposals validate against the canonical `SKILL.md` parser. Agent
+profile proposals validate against the Kiln agent-profile parser used by
+runtime discovery and native projection. `agent.upsert` supports canonical
+profile fields such as `displayName`, `nicknameCandidates`, `tools`, `skills`,
+`instructionProfiles`, `taskAffinity`, `authorityProfile`, `routeId`, and
+`providerRoute`. Duplicate aliases, aliases that collide with the canonical
+profile id or display name, invalid ids, invalid task affinities, unsupported
+tool names, and malformed profile files fail closed. Write-capable tool names
+such as `write` and `bash` are allowed only as explicit proposal data with
+`authorityImpact` surfaced for review; arbitrary or misspelled tool names fail
+closed.
 
 Config proposals are durable runtime state, not prompt text. Kiln stores them
 under `.kiln/proposals/config/` with the proposal hash, canonical target paths,
@@ -189,12 +248,22 @@ approval id in natural language.
 
 Apply writes only canonical project config files under `.kiln/agents/` and
 `.kiln/skills/`. It rejects invalid proposals, missing approvals, consumed
-approvals, mismatched proposal hashes, path traversal, and stale proposals whose
-target files changed after proposal creation. After canonical writes succeed,
-apply invokes the existing native projection services for the affected family
-and the repo-shim projection service. Projection failures are returned as
-structured effects and diagnostics; they are not hidden shell output and they do
-not cause surfaces to patch native harness files directly.
+approvals, mismatched proposal hashes, path traversal, writes outside canonical
+config roots, and stale proposals whose target files changed after proposal
+creation. If the desired state already exists and the stored base hash still
+matches, apply remains idempotent.
+
+After canonical writes succeed, apply invokes the existing native projection
+services for the affected family and the repo-shim projection service. Native
+Claude Code, Codex, and OpenCode files are regenerated projections; config
+mutation tools never patch them directly. Projection failures are returned as
+structured effects and diagnostics instead of hidden shell output.
+
+Config mutation authority is separate from filesystem write authority. A
+read-only child may receive `kiln_config.read` at most. Proposal authority can
+be admitted without apply authority. Apply authority requires an approved
+proposal and the config mutation tool; it does not imply workspace write
+permission for source files.
 
 Config mutation evidence is part of the operator session model. The shared
 contracts define `config_change_proposed`, `config_change_approved`,

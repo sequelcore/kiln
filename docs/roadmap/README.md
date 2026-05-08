@@ -22,8 +22,8 @@ Read the relevant architecture or guide document before using a roadmap:
   `docs/architecture/harness-integration-capabilities.md`, and
   `docs/guides/global-config.md` for canonical global config, harness
   integration capabilities, native harness projection, install-state,
-  drift-aware sync/uninstall/import-native behavior, and managed-agent route
-  projection.
+  drift-aware sync/uninstall/import-native behavior, managed-agent route
+  projection, and governed config mutation.
 - `docs/architecture/managed-agents.md` for managed invocation, child authority,
   write evidence, live adapter proofs, and replay invariants.
 - `docs/architecture/tool-execution.md`,
@@ -38,17 +38,16 @@ Read the relevant architecture or guide document before using a roadmap:
 - `docs/roadmap/01-managed-agent-platform-productization.md` for the active
   managed-agent productization track that turns the governed runtime foundation
   into a coherent cross-surface product platform.
+
 ## Roadmap Layers
 
-The managed-agent and setup work is split by architectural responsibility:
+The remaining active productization work is split by architectural
+responsibility:
 
 - `01-managed-agent-platform-productization.md` turns the canonical agent
   context model into product:
   first-party defaults, natural delegation, setup surfaces, presentation,
   write-capable managed child profiles, and operator workflow.
-- Governed config mutation is closed. Stable doctrine lives in
-  `docs/architecture/config-projection.md` and operator usage lives in
-  `docs/guides/global-config.md`.
 
 ## Active Roadmaps
 
@@ -60,11 +59,11 @@ The managed-agent and setup work is split by architectural responsibility:
 
 ## Deferred Roadmaps
 
-- `03-external-benchmark-validation.md`
+- `02-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `04-native-operator-surface-experiment.md`
+- `03-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -120,10 +119,10 @@ The managed-agent and setup work is split by architectural responsibility:
 
 ## Execution Priority
 
-1. Keep `04-native-operator-surface-experiment.md` deferred until managed
+1. Keep `03-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-2. Keep `03-external-benchmark-validation.md` deferred until the evaluated
+2. Keep `02-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
 ## Rules
