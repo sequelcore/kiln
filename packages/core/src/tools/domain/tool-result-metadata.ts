@@ -298,6 +298,7 @@ export interface InteractiveObservationMetadata {
   readonly visibleText?: string;
   readonly windowTitle?: string;
   readonly application?: string;
+  readonly closeMethod?: "uia-window-pattern" | "win32-sc-close" | "win32-wm-close" | "win32-post-message";
   readonly screenshotUri?: string;
   readonly screenshotDataUrl?: string;
   readonly domSnapshotUri?: string;

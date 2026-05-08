@@ -497,12 +497,13 @@ std::string ObservationJson(IUIAutomation* automation, IUIAutomationElement* act
   return json.str();
 }
 
-std::string ObservationJsonFromWindow(const CapturedWindow& window, const std::wstring& visibleText) {
+std::string ObservationJsonFromWindow(const CapturedWindow& window, const std::wstring& visibleText, const std::string& closeMethod = "") {
   std::ostringstream json;
   json << "{\"observation\":{";
   json << "\"application\":\"" << JsonEscape(window.application) << "\"";
   json << ",\"windowTitle\":\"" << JsonEscape(window.windowTitle) << "\"";
   if (!visibleText.empty()) json << ",\"visibleText\":\"" << JsonEscape(visibleText) << "\"";
+  if (!closeMethod.empty()) json << ",\"closeMethod\":\"" << JsonEscape(Utf8ToWide(closeMethod)) << "\"";
   json << "}}";
   return json.str();
 }
@@ -537,12 +538,13 @@ bool CloseWindowWithUia(IUIAutomation* automation, HWND hwnd) {
   return SUCCEEDED(window->Close());
 }
 
-bool RequestWindowClose(IUIAutomation* automation, HWND hwnd) {
-  if (CloseWindowWithUia(automation, hwnd)) return true;
+std::string RequestWindowClose(IUIAutomation* automation, HWND hwnd) {
+  if (CloseWindowWithUia(automation, hwnd)) return "uia-window-pattern";
   DWORD_PTR result = 0;
-  if (SendMessageTimeoutW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0, SMTO_ABORTIFHUNG, 1000, &result) != 0) return true;
-  if (SendMessageTimeoutW(hwnd, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 1000, &result) != 0) return true;
-  return PostMessageW(hwnd, WM_CLOSE, 0, 0) != FALSE;
+  if (SendMessageTimeoutW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0, SMTO_ABORTIFHUNG, 1000, &result) != 0) return "win32-sc-close";
+  if (SendMessageTimeoutW(hwnd, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 1000, &result) != 0) return "win32-wm-close";
+  if (PostMessageW(hwnd, WM_CLOSE, 0, 0) != FALSE) return "win32-post-message";
+  return "";
 }
 
 int Fail(const std::string& message) {
@@ -598,14 +600,14 @@ int main() {
       return Fail("requested application window was not found");
     }
     const CapturedWindow closedWindow = CaptureWindow(targetWindow);
-    const bool closeRequested = RequestWindowClose(automation.Get(), targetWindow);
+    const std::string closeMethod = RequestWindowClose(automation.Get(), targetWindow);
     if (!WaitForWindowClosed(request, targetWindow)) {
       CoUninitialize();
-      return Fail(closeRequested
+      return Fail(!closeMethod.empty()
         ? "requested application window did not close"
         : "could not request close for application window");
     }
-    std::cout << ObservationJsonFromWindow(closedWindow, L"closed");
+    std::cout << ObservationJsonFromWindow(closedWindow, L"closed", closeMethod);
     CoUninitialize();
     return 0;
   }

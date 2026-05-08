@@ -429,6 +429,7 @@ export interface GuiInteractiveUseSnapshot {
   readonly visibleText?: string;
   readonly windowTitle?: string;
   readonly application?: string;
+  readonly closeMethod?: string;
   readonly screenshotUri?: string;
   readonly screenshotDataUrl?: string;
   readonly actionSummary?: string;

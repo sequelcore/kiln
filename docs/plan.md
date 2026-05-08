@@ -395,7 +395,8 @@ Behavior:
   close or arbitrary automation of Kiln by default.
 - Make `computer_close_application` capture the requested target before
   closing, prefer UIA `WindowPattern.Close()`, verify that target disappeared,
-  and report that target instead of the next active foreground window.
+  and report that target instead of the next active foreground window. Include
+  `closeMethod` so Win32 fallback use is explicit in evidence.
 - Keep low-level pointer/keyboard transport out of `windows-uia`; coordinate
   and raw keyboard tasks remain outside this semantic provider.
 

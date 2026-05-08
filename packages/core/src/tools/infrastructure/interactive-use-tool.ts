@@ -188,6 +188,9 @@ abstract class BaseInteractiveUseTool<TToolName extends InteractiveToolName> imp
       return `${this.operation}: ${result.observation.url}`;
     }
     if (result.observation?.windowTitle) {
+      if (this.operation === "close_application" && result.observation.closeMethod) {
+        return `${this.operation}: ${result.observation.windowTitle} (${result.observation.closeMethod})`;
+      }
       return `${this.operation}: ${result.observation.windowTitle}`;
     }
     return `${this.operation} completed`;

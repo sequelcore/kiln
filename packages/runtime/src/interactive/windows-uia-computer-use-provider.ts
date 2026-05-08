@@ -45,6 +45,7 @@ export interface WindowsUiaSidecarResponse {
     readonly application?: string;
     readonly windowTitle?: string;
     readonly visibleText?: string;
+    readonly closeMethod?: "uia-window-pattern" | "win32-sc-close" | "win32-wm-close" | "win32-post-message";
   };
 }
 
@@ -351,6 +352,7 @@ function parseSidecarResponse(stdout: string): WindowsUiaSidecarResponse {
         ...stringField("application", record.application),
         ...stringField("windowTitle", record.windowTitle),
         ...stringField("visibleText", record.visibleText),
+        ...closeMethodField(record.closeMethod),
       },
     };
   } catch (error) {
@@ -438,6 +440,15 @@ function readTimeoutMs(input: Record<string, unknown>): number | undefined {
 function stringField<TName extends string>(name: TName, value: unknown): Record<TName, string> | Record<string, never> {
   return typeof value === "string" && value.trim().length > 0
     ? { [name]: value.trim() } as Record<TName, string>
+    : {};
+}
+
+function closeMethodField(value: unknown): Pick<WindowsUiaSidecarResponse["observation"], "closeMethod"> | Record<string, never> {
+  return value === "uia-window-pattern"
+    || value === "win32-sc-close"
+    || value === "win32-wm-close"
+    || value === "win32-post-message"
+    ? { closeMethod: value }
     : {};
 }
 

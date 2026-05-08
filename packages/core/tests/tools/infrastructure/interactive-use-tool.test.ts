@@ -8,6 +8,7 @@ import {
   BrowserSessionStopTool,
   BrowserTypeTool,
   ComputerClickTool,
+  ComputerCloseApplicationTool,
   ComputerKeypressTool,
   ComputerObserveTool,
   ComputerTypeTool,
@@ -155,6 +156,39 @@ describe("interactive use tools", () => {
     }));
   });
 
+  it("includes computer close method in default output and metadata", async () => {
+    const provider: InteractiveUseProvider = {
+      execute: vi.fn(async () => ({
+        provider: "test-computer",
+        observation: {
+          application: "Calculator",
+          windowTitle: "Calculator",
+          closeMethod: "win32-sc-close",
+        },
+      })),
+    };
+    const tool = new ComputerCloseApplicationTool({ provider });
+
+    const result = await tool.execute({
+      name: "computer_close_application",
+      input: { application: "Calculator" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toBe("close_application: Calculator (win32-sc-close)");
+    expect(result.metadata).toMatchObject({
+      toolName: "computer_close_application",
+      kind: "interactive",
+      target: "computer",
+      operation: "close_application",
+      observation: {
+        application: "Calculator",
+        windowTitle: "Calculator",
+        closeMethod: "win32-sc-close",
+      },
+    });
+  });
+
   it("stores screenshot data URLs as session artifacts instead of transcript metadata", async () => {
     const artifactStore = new MemoryArtifactResourceStore();
     const provider: InteractiveUseProvider = {
@@ -223,6 +257,7 @@ describe("interactive use tools", () => {
       new ComputerClickTool().name,
       new ComputerTypeTool().name,
       new ComputerKeypressTool().name,
+      new ComputerCloseApplicationTool().name,
     ]).toEqual([
       "browser_session_start",
       "browser_navigate",
@@ -236,6 +271,7 @@ describe("interactive use tools", () => {
       "computer_click",
       "computer_type",
       "computer_keypress",
+      "computer_close_application",
     ]);
   });
 });

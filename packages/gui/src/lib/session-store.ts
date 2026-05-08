@@ -1220,6 +1220,7 @@ function interactiveSnapshotFromPersistedToolEvent(
     ...stringField("visibleText", readString(observation.visibleText)),
     ...stringField("windowTitle", readString(observation.windowTitle)),
     ...stringField("application", readString(observation.application)),
+    ...stringField("closeMethod", readString(observation.closeMethod)),
     ...stringField("screenshotUri", readString(observation.screenshotUri)),
     ...stringField("screenshotDataUrl", readString(observation.screenshotDataUrl)),
     ...stringField("error", readString(payload.output)),

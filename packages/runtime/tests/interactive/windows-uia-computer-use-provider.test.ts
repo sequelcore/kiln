@@ -203,7 +203,7 @@ describe("WindowsUiaComputerUseProvider", () => {
       runner: fakeRunner(calls, [
         { observation: { application: "Calculator", windowTitle: "Calculator" } },
         { observation: { application: "Calculator", windowTitle: "Calculator" } },
-        { observation: { application: "Calculator", windowTitle: "Calculator" } },
+        { observation: { application: "Calculator", windowTitle: "Calculator", closeMethod: "uia-window-pattern" } },
       ]),
     });
 
@@ -219,11 +219,15 @@ describe("WindowsUiaComputerUseProvider", () => {
       operation: "minimize_application",
       input: { application: "Calculator" },
     });
-    await provider.execute({
+    const closeResult = await provider.execute({
       toolName: "computer_close_application",
       target: "computer",
       operation: "close_application",
       input: { application: "Calculator" },
+    });
+    expect(closeResult.observation).toMatchObject({
+      application: "Calculator",
+      closeMethod: "uia-window-pattern",
     });
     await expect(provider.execute({
       toolName: "computer_close_application",

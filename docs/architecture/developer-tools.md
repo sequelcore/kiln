@@ -458,7 +458,10 @@ the user when `allowComputer` is enabled; closing or otherwise automating Kiln
 still requires explicit application policy. Graceful close captures the target
 window identity, asks UIA `WindowPattern.Close()` first, falls back to bounded
 Win32 close messages, verifies the requested window closed, and reports the
-requested target rather than whatever window becomes active after close.
+requested target rather than whatever window becomes active after close. Close
+metadata includes `closeMethod` (`uia-window-pattern`, `win32-sc-close`,
+`win32-wm-close`, or `win32-post-message`) so fallback use is visible in tool
+evidence instead of hidden behind a generic success result.
 Missing setup must produce this operator-facing command:
 
 ```bash
