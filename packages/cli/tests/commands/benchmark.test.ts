@@ -73,6 +73,33 @@ describe("benchmarkCommand", () => {
     });
   });
 
+  it("writes a markdown benchmark report from baseline file", async () => {
+    const profile = KILN_BENCHMARK_PROFILES[0]!;
+    const baselinePath = join(root, "baseline.json");
+    const outputPath = join(root, "report.md");
+    writeFileSync(
+      baselinePath,
+      JSON.stringify({
+        baselines: [{
+          profileId: profile.id,
+          profileVersion: profile.version,
+          datasetName: "kiln-tool-agent-v1",
+          datasetVersion: "1",
+          k: profile.minimumK,
+          passAtK: 1,
+          scorers: profile.requiredScorers,
+          artifactUris: ["kiln://artifacts/benchmark-baselines/artifact_1/content"],
+          configHash: "sha256:test",
+        }],
+      }),
+      "utf-8",
+    );
+
+    await benchmarkCommand(MOCK_APP_CONFIG, "report", ["--baseline", baselinePath, "--output", outputPath]);
+
+    expect(readFileSync(outputPath, "utf-8")).toContain("# Kiln Benchmark Report");
+  });
+
   it("fails closed when readiness has no baseline file", async () => {
     await expect(benchmarkCommand(MOCK_APP_CONFIG, "readiness", [])).rejects.toThrow(
       "benchmark readiness requires --baseline <path>.",

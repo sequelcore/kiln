@@ -77,11 +77,13 @@ it is treated as governed research, not autonomous vulnerability hunting.
   The adapter projects supported tau-style workflow rows into Kiln JSONL
   datasets for pass^k internal baseline runs, while explicitly deferring full
   simulator-backed tau/tau2 parity.
+- 2026-05-08: added `generateBenchmarkPublicReport` plus
+  `kiln benchmark report --baseline <path> --output <path>` for markdown report
+  generation from stored baseline records.
 
 ## Remaining Slices
 
-1. Add public report generation from stored benchmark artifacts.
-2. Decide whether any coding benchmark track is acceptable. SWE-bench-style
+1. Decide whether any coding benchmark track is acceptable. SWE-bench-style
    tracks need extra scrutiny because current public SWE benchmarks have known
    saturation, leakage, and test-quality concerns.
 

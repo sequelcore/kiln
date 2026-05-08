@@ -273,6 +273,7 @@ The CLI exposes the same read-only contract:
 kiln benchmark profiles
 kiln benchmark tracks
 kiln benchmark readiness --baseline ./evals/kiln-baseline.json
+kiln benchmark report --baseline ./evals/kiln-baseline.json --output ./.kiln/benchmarks/report.md
 kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
 kiln benchmark project-bfcl --input ./bfcl.json --output ./.kiln/benchmarks/bfcl.jsonl
 kiln benchmark project-agentdojo --input ./agentdojo.json --output ./.kiln/benchmarks/agentdojo.jsonl
@@ -287,6 +288,10 @@ through normal Kiln runtime sessions. It uses structural benchmark scorers that
 consume Kiln evidence such as tool calls, routing identity, handoff output,
 policy violations, latency, and cost. These internal scores are gates for
 adapter readiness; they are not public external benchmark submissions.
+
+`kiln benchmark report` writes a markdown report from stored baseline records.
+The report includes readiness status, profile/dataset/pass^k evidence, artifact
+links, blocked tracks, and declared limitations.
 
 `kiln benchmark project-bfcl` converts supported BFCL rows into Kiln JSONL
 dataset items. The adapter accepts structured JSON/OpenAI-compatible expected

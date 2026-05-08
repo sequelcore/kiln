@@ -9,6 +9,7 @@ import {
   MemoryArtifactResourceStore,
   createBenchmarkProfileScorers,
   evaluateBenchmarkReadiness,
+  generateBenchmarkPublicReport,
   parseDatasetJsonl,
   projectAgentDojoDataset,
   projectBfclDataset,
@@ -42,6 +43,9 @@ export async function benchmarkCommand(
         baselines: readBaselines(args),
       }));
       return;
+    case "report":
+      writeBenchmarkReport(args);
+      return;
     case "run-internal":
       await runInternalBenchmark(config, args, dependencies);
       return;
@@ -60,7 +64,7 @@ export async function benchmarkCommand(
       printHelp();
       return;
     default:
-      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, run-internal, project-bfcl, project-agentdojo, or project-tau.`);
+      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, report, run-internal, project-bfcl, project-agentdojo, or project-tau.`);
   }
 }
 
@@ -70,6 +74,7 @@ function printHelp(): void {
     "  kiln benchmark profiles",
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
+    "  kiln benchmark report --baseline <path> --output <path>",
     "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>]",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
@@ -78,6 +83,28 @@ function printHelp(): void {
     "The readiness command expects a JSON file containing either an array of",
     "BenchmarkBaselineResult entries or an object with a baselines array.",
   ].join("\n"));
+}
+
+function writeBenchmarkReport(args: readonly string[]): void {
+  const outputPath = readFlag(args, "--output");
+  if (!outputPath) {
+    throw new Error("benchmark report requires --output <path>.");
+  }
+  const report = generateBenchmarkPublicReport({
+    generatedAt: new Date().toISOString(),
+    baselines: readBaselines(args),
+    limitations: [
+      "Generated from supplied Kiln baseline artifacts.",
+      "External leaderboard submission requires benchmark-specific adapter validation.",
+    ],
+  });
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, report.markdown, "utf-8");
+  printJson({
+    outputPath,
+    status: report.readiness.status,
+    issues: report.readiness.issues,
+  });
 }
 
 function projectBfclCommand(args: readonly string[]): void {

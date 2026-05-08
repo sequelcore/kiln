@@ -130,6 +130,11 @@ route that uses a strong provider/model is not enough; the claim must say what
 Kiln contributed through governance, tool authority, context admission, child
 invocation, replay, and evidence.
 
+`generateBenchmarkPublicReport()` is the canonical report renderer. It consumes
+`BenchmarkBaselineResult` records, computes readiness, and renders markdown with
+profile, dataset, pass^k, scorer, artifact, external-track, issue, and
+limitation sections.
+
 ## Bug Bounty Validation
 
 Bug bounty participation is a validation mode only when scope ingestion,
