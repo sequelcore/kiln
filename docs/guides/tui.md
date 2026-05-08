@@ -36,11 +36,11 @@ kiln tui
 ```
 
 ```bash
-kiln tui --provider codex --theme nord
+kiln tui --provider codex --theme kiln-graphite
 ```
 
 ```bash
-kiln tui --provider openai --theme tokyo-night
+kiln tui --provider openai --theme kiln-light
 ```
 
 ```bash
@@ -56,19 +56,9 @@ The TUI exports `KilnTheme`, `defaultTheme`, and the named `themes` map from `pa
 The current build ships these built-in theme names:
 
 - `kiln-dark`
+- `kiln-graphite`
 - `kiln-light`
 - `system-follow`
-- `dracula`
-- `catppuccin-mocha`
-- `nord`
-- `tokyo-night`
-- `gruvbox-dark`
-- `rose-pine`
-- `kanagawa-wave`
-- `everforest-dark`
-- `ayu-dark`
-- `one-dark`
-- `night-owl`
 
 Use any of them with `--theme <name>`.
 

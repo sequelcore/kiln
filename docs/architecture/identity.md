@@ -106,3 +106,24 @@ For the full surface taxonomy, see [`runtime-surfaces.md`](runtime-surfaces.md).
 - Do not describe Kiln primarily as a meta-orchestrator.
 - Do not describe Kiln as a literal biological system.
 - Do not define Kiln by downstream product surfaces.
+
+## Visual Identity
+
+Kiln's visual identity is restrained biocybernetic cyberpunk: dark control
+surfaces, layered graphite structure, precise signal color, and controlled
+ember accents. The interface should feel like an operational control plane, not
+a decorative sci-fi skin.
+
+The canonical dark expression is Kiln Obsidian:
+
+- near-black backgrounds for the governed operating envelope
+- graphite layers for panels, elevated surfaces, and bounded work zones
+- ember accents for Kiln brand heat, liveness, and controlled energy
+- cyan primary color for technical action, routing, links, and system affordance
+- compact typography, hairline dividers, and dense operator-console rhythm
+
+Visual metaphor must follow the same rule as architectural metaphor: it is
+valid only when it clarifies control behavior. Avoid generic editor themes,
+purple AI gradients, decorative cyberpunk neon, glitch effects, biological
+ornament, or organism/fungal imagery unless a specific product surface has a
+governed mechanism that the visual treatment helps explain.

@@ -26,6 +26,11 @@ The current product direction is a dense operator surface, not a generic
 dashboard: compact rows, hairline dividers, provider glyphs, clear active
 continuation state, and visible telemetry where it helps supervision.
 
+The visual direction follows Kiln's restrained biocybernetic cyberpunk identity:
+Obsidian dark surfaces, graphite layering, precise signal color, and controlled
+ember accents. It should read as a serious control plane, not a decorative
+sci-fi skin or a borrowed code-editor theme.
+
 ## Layout ownership
 
 The shell is split into a left operator rail, an optional mode panel, and the
@@ -34,16 +39,16 @@ main chat column. Keep ownership boundaries explicit:
 - the left rail owns operator mode navigation and collapse state
 - the mode panel owns mode-specific navigation, currently canonical sessions
   plus the event-backed changed-files review panel
-- the chat top bar owns summary state: title, turns, tokens, cost,
-  provider/model route, connection, and primary actions
-- the inspector owns deeper diagnostics: continuity, field, changed files, and
-  future event-backed details
+- the main chat column owns conversation, active document surfaces, and turn
+  composition
+- operator modes own diagnostics such as activity, changed files, approvals,
+  memory, setup, and workspace navigation
 - the composer owns draft input, slash commands, file affordances, plan mode,
-  and send behavior
+  provider/model route, reasoning effort, and send behavior
 
-Do not repeat the same summary telemetry in multiple headers. If a value is
-useful at a glance, it belongs in the chat top bar; if it helps diagnose why a
-turn behaved a certain way, it belongs in the inspector.
+Do not repeat the same summary telemetry in multiple headers. If a value helps
+diagnose why a turn behaved a certain way, it belongs in the relevant
+event-backed operator mode instead of persistent chrome.
 
 Inspector data should come from canonical timeline projections, not separate
 GUI-maintained caches for files, approvals, or continuity.

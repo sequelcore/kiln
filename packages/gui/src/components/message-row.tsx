@@ -108,7 +108,9 @@ export function MessageRow(props: MessageRowProps) {
         <div
           className={cn(
             "min-w-0 text-sm leading-6 text-foreground",
-            isUser ? "rounded-2xl rounded-tr-md bg-primary px-3.5 py-2.5 text-primary-foreground shadow-sm" : "",
+            isUser
+              ? "rounded-2xl rounded-tr-md border border-[var(--color-user-border)] bg-[var(--color-user-bg)] px-3.5 py-2.5 text-[var(--color-user-fg)] shadow-sm"
+              : "",
           )}
         >
           {isAssistant && props.beforeContent ? (

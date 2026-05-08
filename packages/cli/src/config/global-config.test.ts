@@ -385,11 +385,11 @@ describe("global-config", () => {
       engines: { codex: { enabled: true as const } },
       routing: { defaultWorker: "codex" },
       models: { default: "fallback-model", codex: "gpt-5.4" },
-      ui: { theme: "night-owl" },
+      ui: { theme: "kiln-graphite" },
     };
 
     expect(resolveGlobalDefaultProvider(config)).toBe("codex");
     expect(resolveGlobalDefaultModel(config)).toBe("gpt-5.4");
-    expect(resolveGlobalUiTheme(config)).toBe("night-owl");
+    expect(resolveGlobalUiTheme(config)).toBe("kiln-graphite");
   });
 });

@@ -10,7 +10,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const switcher = page.getByRole("combobox", { name: "Theme" });
     await expect(switcher).toBeVisible();
     await switcher.click();
-    await page.getByRole("option", { name: "Light" }).click();
+    await page.getByRole("option", { name: "Kiln Paper" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
     await page.reload();

@@ -28,19 +28,19 @@ describe("operator theme preferences", () => {
   });
 
   it("resolves GUI theme preference from request, then GUI config, then TUI config", () => {
-    expect(resolveGuiThemePreference("dracula", { version: "1", ui: { theme: "night-owl" } })).toBe("dracula");
-    expect(resolveGuiThemePreference(undefined, { version: "1", ui: { theme: "night-owl" } })).toBe("night-owl");
+    expect(resolveGuiThemePreference("kiln-graphite", { version: "1", ui: { theme: "kiln-light" } })).toBe("kiln-graphite");
+    expect(resolveGuiThemePreference(undefined, { version: "1", ui: { theme: "kiln-light" } })).toBe("kiln-light");
     expect(resolveGuiThemePreference(undefined, null)).toBe("kiln-dark");
   });
 
   it("persists operator theme defaults into neutral UI config", () => {
     readGlobalConfigMock.mockReturnValue({ version: "1", ui: { theme: "kiln-dark" } });
 
-    persistOperatorThemePreference("night-owl");
+    persistOperatorThemePreference("kiln-graphite");
 
     expect(writeGlobalConfigMock).toHaveBeenCalledWith({
       version: "1",
-      ui: { theme: "night-owl" },
+      ui: { theme: "kiln-graphite" },
     });
   });
 
@@ -48,19 +48,19 @@ describe("operator theme preferences", () => {
     readGlobalConfigMock.mockReturnValue(null);
     const controller = createCliOperatorThemeController();
 
-    await expect(controller.setTheme({ theme: "dracula", scope: "session" })).resolves.toEqual({
+    await expect(controller.setTheme({ theme: "kiln-graphite", scope: "session" })).resolves.toEqual({
       ok: false,
       error: "The CLI has no live visual theme surface. Use scope='persisted' to update GUI and TUI defaults.",
     });
-    await expect(controller.setTheme({ theme: "dracula", scope: "persisted" })).resolves.toEqual({
+    await expect(controller.setTheme({ theme: "kiln-graphite", scope: "persisted" })).resolves.toEqual({
       ok: true,
-      appliedTheme: "dracula",
+      appliedTheme: "kiln-graphite",
     });
     expect(writeGlobalConfigMock).toHaveBeenCalledWith({
       version: "1",
       routing: { defaultWorker: "claude", budgetAware: false },
       components: { include: ["baseline:core"] },
-      ui: { theme: "dracula" },
+      ui: { theme: "kiln-graphite" },
     });
   });
 });

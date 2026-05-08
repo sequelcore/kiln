@@ -101,7 +101,7 @@ describe("GUI authority forwarding", () => {
   it("adds the operator theme tool when a live operator theme controller is attached", async () => {
     const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const { createAttachedRuntimeBuiltinToolSurface } = await import("../../src/gateway/attached-runtime-tool-surface.js");
-    const setTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "dracula" });
+    const setTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "kiln-graphite" });
     const surface = createAttachedRuntimeBuiltinToolSurface({
       operatorSurface: { theme: { setTheme } },
     });
@@ -121,15 +121,15 @@ describe("GUI authority forwarding", () => {
     });
 
     const result = await surface.callBuiltinTools.get("operator_set_theme")?.({
-      theme: "dracula",
+      theme: "kiln-graphite",
       scope: "session",
       reason: "test",
     });
 
-    expect(setTheme).toHaveBeenCalledWith({ theme: "dracula", scope: "session", reason: "test" });
+    expect(setTheme).toHaveBeenCalledWith({ theme: "kiln-graphite", scope: "session", reason: "test" });
     expect(result).toMatchObject({
       isError: false,
-      metadata: { appliedTheme: "dracula" },
+      metadata: { appliedTheme: "kiln-graphite" },
     });
   });
 

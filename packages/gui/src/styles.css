@@ -10,8 +10,9 @@
 /*
  * Kiln GUI — semantic token system
  * 20 tokens matching KilnTheme from @kilnai/tui
- * Dark values are pixel-exact from packages/tui/src/theme.ts kilnDark palette.
- * Light values verified WCAG AA >= 4.5:1 body text contrast.
+ * Theme values are sourced from @kilnai/gateway-contracts operator palettes.
+ * The default dark palette is Kiln Obsidian: near-black control surface,
+ * graphite layers, restrained ember brand accent, and cyan action color.
  */
 
 /* ── Dark theme (default / data-theme="dark") ─────────────────────── */
@@ -19,31 +20,26 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  /* backgrounds — from kilnDark: bg0=#11131a bg1=#161925 bg2=#1d2230 */
-  --color-background:         oklch(10.8% 0.02 258);
-  --color-background-panel:   oklch(13.2% 0.024 258);
-  --color-background-element: oklch(16.5% 0.026 258);
+  --color-background:         #07080a;
+  --color-background-panel:   #0d0f13;
+  --color-background-element: #151922;
 
-  /* borders — border=#515d78 borderActive=#8090b0 */
-  --color-border:             oklch(38.5% 0.038 258);
-  --color-border-active:      oklch(58.0% 0.055 258);
+  --color-border:             #303743;
+  --color-border-active:      #646b78;
 
-  /* text — text=#d9e1f2 textMuted=#93a0b8 */
-  --color-text:               oklch(89.0% 0.028 258);
-  --color-text-muted:         oklch(65.0% 0.030 258);
+  --color-text:               #e8eaed;
+  --color-text-muted:         #9ca3ad;
 
-  /* brand / semantic — accent=#b8a1ff primary=#7ad7ff success=#8fe1a5
-     error=#ff8b99 warning=#f3c96b info=#9fb0c7 */
-  --color-accent:             oklch(68.0% 0.18  290);
-  --color-primary:            oklch(82.0% 0.10  210);
-  --color-success:            oklch(83.0% 0.10  148);
-  --color-error:              oklch(72.0% 0.17   16);
-  --color-warning:            oklch(82.0% 0.14   88);
-  --color-info:               oklch(72.0% 0.04  244);
+  --color-accent:             #f2a65a;
+  --color-primary:            #76c7e8;
+  --color-success:            #73c991;
+  --color-error:              #f87171;
+  --color-warning:            #e0b557;
+  --color-info:               #8ab4f8;
 
   /* chat-role tokens (derived from createTheme() in tui/src/theme.ts) */
   --color-user-fg:            var(--color-text);
-  --color-user-bg:            var(--color-background-element);
+  --color-user-bg:            color-mix(in srgb, var(--color-primary) 12%, var(--color-background-element));
   --color-user-border:        var(--color-border);
   --color-assistant-bg:       var(--color-background-panel);
   --color-tool-fg:            var(--color-success);
@@ -100,33 +96,28 @@
 }
 
 /* ── Light theme (data-theme="light") ─────────────────────────────── */
-/* Contrast ratios (body text --color-text vs --color-background):
-   oklch(16% 0.018 258) on oklch(98.5% 0.004 258) ≈ 14.3:1 (WCAG AAA) */
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --color-background:         oklch(98.5% 0.004 258);
-  --color-background-panel:   oklch(95.0% 0.006 258);
-  --color-background-element: oklch(91.0% 0.008 258);
+  --color-background:         #f7f7f4;
+  --color-background-panel:   #efefeb;
+  --color-background-element: #e4e5df;
 
-  --color-border:             oklch(72.0% 0.020 258);
-  --color-border-active:      oklch(48.0% 0.040 258);
+  --color-border:             #c8c9c0;
+  --color-border-active:      #6f766d;
 
-  /* text — contrast ≈ 14.3:1 vs background (WCAG AAA) */
-  --color-text:               oklch(16.0% 0.018 258);
-  /* muted text — contrast ≈ 4.9:1 vs background (WCAG AA) */
-  --color-text-muted:         oklch(42.0% 0.022 258);
+  --color-text:               #1d1f1b;
+  --color-text-muted:         #5f665e;
 
-  /* same hues as dark, lightness lowered for contrast on light bg */
-  --color-accent:             oklch(48.0% 0.20  290);
-  --color-primary:            oklch(42.0% 0.14  210);
-  --color-success:            oklch(38.0% 0.13  148);
-  --color-error:              oklch(42.0% 0.20   16);
-  --color-warning:            oklch(44.0% 0.17   88);
-  --color-info:               oklch(42.0% 0.07  244);
+  --color-accent:             #9a4d16;
+  --color-primary:            #0b6785;
+  --color-success:            #246b3d;
+  --color-error:              #b42318;
+  --color-warning:            #73530f;
+  --color-info:               #355f9f;
 
   --color-user-fg:            var(--color-text);
-  --color-user-bg:            var(--color-background-element);
+  --color-user-bg:            color-mix(in srgb, var(--color-primary) 10%, var(--color-background-element));
   --color-user-border:        var(--color-border);
   --color-assistant-bg:       var(--color-background-panel);
   --color-tool-fg:            var(--color-success);

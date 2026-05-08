@@ -9,14 +9,14 @@ test.describe("GUI smoke", () => {
 });
 
 test.describe("theme switcher", () => {
-  test("setup theme switcher persists Light on <html>", async ({ page, gatewayPort: _ }) => {
+  test("setup theme switcher persists Kiln Paper on <html>", async ({ page, gatewayPort: _ }) => {
     await page.goto("/");
 
     await page.getByRole("button", { name: "Setup" }).click();
     const switcher = page.getByRole("combobox", { name: "Theme" });
     await expect(switcher).toBeVisible();
     await switcher.click();
-    await page.getByRole("option", { name: "Light" }).click();
+    await page.getByRole("option", { name: "Kiln Paper" }).click();
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 

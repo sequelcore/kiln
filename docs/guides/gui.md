@@ -87,11 +87,11 @@ GUI theme preference is stored in `~/.kiln/config.yaml` under the shared
 `ui.theme` key. If `ui.theme` is absent, Kiln falls back to `kiln-dark`.
 
 GUI and TUI use the same operator theme catalog from
-`@kilnai/gateway-contracts`: `kiln-dark`, `kiln-light`, `system-follow`,
-`dracula`, `catppuccin-mocha`, `nord`, `tokyo-night`, `gruvbox-dark`,
-`rose-pine`, `kanagawa-wave`, `everforest-dark`, `ayu-dark`, `one-dark`, and
-`night-owl`. `system-follow` follows the OS color preference in the GUI; in the
-TUI it resolves to the terminal-safe dark palette because there is no reliable
+`@kilnai/gateway-contracts`: `kiln-dark`, `kiln-graphite`, `kiln-light`, and
+`system-follow`. `kiln-dark` is the Obsidian default, `kiln-graphite` is a
+slightly lifted dark surface, and `kiln-light` is the Paper light variant.
+`system-follow` follows the OS color preference in the GUI; in the TUI it
+resolves to the terminal-safe dark palette because there is no reliable
 cross-terminal OS theme bridge.
 
 Connected executable providers can call the runtime `operator_set_theme` tool

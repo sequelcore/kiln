@@ -1269,7 +1269,7 @@ export function AppShell() {
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,color-mix(in_srgb,var(--color-accent)_10%,transparent),transparent_28%),linear-gradient(180deg,color-mix(in_srgb,var(--color-background-element)_30%,transparent),transparent_34%)]"
+        className="pointer-events-none absolute inset-0 opacity-70 [background-image:linear-gradient(180deg,color-mix(in_srgb,var(--color-background-element)_42%,transparent),transparent_30%),linear-gradient(90deg,color-mix(in_srgb,var(--color-border)_18%,transparent)_1px,transparent_1px),linear-gradient(color-mix(in_srgb,var(--color-border)_14%,transparent)_1px,transparent_1px)] [background-size:100%_100%,48px_48px,48px_48px]"
       />
       {errorBanner ? (
         <ErrorBanner

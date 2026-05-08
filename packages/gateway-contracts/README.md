@@ -94,6 +94,15 @@ the GUI, TUI, CLI config parsing, and runtime operator-surface tools. Add or
 remove operator themes here first, then update each renderer to consume the
 same contract instead of maintaining a private list.
 
+The catalog is intentionally curated as Kiln identity, not a generic collection
+of popular editor themes:
+
+- `kiln-dark` / Kiln Obsidian: the default near-black control surface.
+- `kiln-graphite`: a slightly lifted dark surface for brighter environments.
+- `kiln-light` / Kiln Paper: the light counterpart for OS or operator
+  preference.
+- `system-follow`: a polarity resolver for surfaces that can observe OS theme.
+
 `system-follow` is part of the contract for config parity. GUI resolves it
 against the browser/OS color preference; TUI accepts it but maps it to a
 terminal-safe dark palette.

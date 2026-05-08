@@ -377,7 +377,7 @@ function FileChangedDetails(props: { readonly entry: TimelineEventEntry }) {
       <MetaList items={items} />
       {diffPreview ? (
         <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-background-element)] p-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-dim)]">Diff preview</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">Diff preview</p>
           <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1.5 text-[11px] leading-5 text-[var(--color-text)]">
             {diffPreview}
           </pre>

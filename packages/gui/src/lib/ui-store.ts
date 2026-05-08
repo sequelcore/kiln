@@ -46,7 +46,7 @@ function applyTheme(theme: KilnTheme): void {
     root.style.setProperty(token, palette[key]);
   }
   root.style.setProperty("--color-user-fg", "var(--color-text)");
-  root.style.setProperty("--color-user-bg", "var(--color-background-element)");
+  root.style.setProperty("--color-user-bg", "color-mix(in srgb, var(--color-primary) 12%, var(--color-background-element))");
   root.style.setProperty("--color-user-border", "var(--color-border)");
   root.style.setProperty("--color-assistant-bg", "var(--color-background-panel)");
   root.style.setProperty("--color-tool-fg", "var(--color-success)");

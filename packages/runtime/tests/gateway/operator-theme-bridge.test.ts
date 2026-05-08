@@ -17,12 +17,12 @@ describe("operator theme bridge", () => {
       sentFrames.push(frame);
     });
 
-    const result = bridge.request({ theme: "dracula", scope: "session", reason: "operator asked" });
+    const result = bridge.request({ theme: "kiln-graphite", scope: "session", reason: "operator asked" });
 
     expect(sentFrames).toHaveLength(1);
     expect(sentFrames[0]).toMatchObject({
       type: "operator_theme_set",
-      theme: "dracula",
+      theme: "kiln-graphite",
       scope: "session",
       reason: "operator asked",
     });
@@ -31,15 +31,15 @@ describe("operator theme bridge", () => {
       type: "operator_theme_set_result",
       requestId: sentFrames[0]!.requestId,
       ok: true,
-      appliedTheme: "dracula",
+      appliedTheme: "kiln-graphite",
     });
 
-    await expect(result).resolves.toEqual({ ok: true, appliedTheme: "dracula" });
+    await expect(result).resolves.toEqual({ ok: true, appliedTheme: "kiln-graphite" });
   });
 
   it("times out unresolved requests", async () => {
     const bridge = createOperatorThemeBridge(() => {}, 25);
-    const result = bridge.request({ theme: "nord", scope: "session" });
+    const result = bridge.request({ theme: "kiln-light", scope: "session" });
 
     await vi.advanceTimersByTimeAsync(25);
 
@@ -51,7 +51,7 @@ describe("operator theme bridge", () => {
 
   it("rejects all pending requests when the surface disconnects", async () => {
     const bridge = createOperatorThemeBridge(() => {});
-    const result = bridge.request({ theme: "tokyo-night", scope: "persisted" });
+    const result = bridge.request({ theme: "kiln-dark", scope: "persisted" });
 
     bridge.rejectAll("Operator surface disconnected.");
 

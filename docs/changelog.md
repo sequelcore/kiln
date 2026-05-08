@@ -2,6 +2,18 @@
 
 ## Unreleased -- Shared Tooling Intelligence
 
+- Replaced the generic built-in operator theme set with the curated Kiln visual
+  identity: `kiln-dark` (Obsidian), `kiln-graphite`, `kiln-light` (Paper), and
+  `system-follow`.
+- Reworked the default GUI palette toward a restrained biocybernetic control
+  surface: near-black backgrounds, graphite layers, controlled ember accent,
+  cyan action color, quieter user message surfaces, and a subtle operator-grid
+  shell background.
+- Removed duplicated TUI color palette definitions by deriving TUI themes from
+  the shared `@kilnai/gateway-contracts` operator theme catalog.
+- Documented Kiln's visual identity as restrained biocybernetic cyberpunk:
+  operational control-plane feel, not decorative sci-fi skin or borrowed
+  editor themes.
 - Added a core `ToolCatalogIndex` over builtin tool names, descriptions, input
   fields, output fields, tags, authority class, source package, and optional
   cloned schemas.
