@@ -53,7 +53,7 @@ Initial tools should be small and explicit:
 ```ts
 kiln_config.read({
   view: "effective" | "providers" | "routes" | "agents" | "skills" |
-    "permissions" | "memory" | "projections" | "health"
+    "permissions" | "memory" | "projections" | "setup" | "health"
 })
 
 kiln_config.propose_change({
@@ -103,7 +103,8 @@ closed and require a fresh proposal.
    `KilnConfigStatusSnapshot` is exported from gateway contracts; CLI status
    and `kiln config read` consume the shared service for effective config,
    project/global source status, project-context status, repo-shim status,
-   native projection install-state, and harness capabilities.
+   native projection install-state, harness capabilities, and a dedicated
+   cross-surface `setup` snapshot with deterministic recommended actions.
 2. Completed 2026-05-07: add `kiln_config.read` for read-only effective config
    and projection status in model-callable tool surfaces. The tool is registered
    through surface-owned additional builtin tools for CLI, GUI, and TUI sessions

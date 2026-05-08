@@ -132,7 +132,7 @@ surface-specific behavior, or provider compatibility glue.
    sessions with sandbox/approval derived from the admitted authority. Runtime
    write evidence remains canonical `write-proposal-*`, `write-attempt-*`, and
    `write-authority-denied` evidence linked through resource URIs.
-8. Started 2026-05-07: add canonical project-root resolution and repo-shim
+8. Completed 2026-05-08: add canonical project-root resolution and repo-shim
    projection. `kiln sync` now resolves a project root from explicit
    `--project`/`--cwd`, then nearest `.kiln/kiln.yaml`, then nearest git root.
    `kiln sync --repo-shims` generates signed project `AGENTS.md` for Codex CLI
@@ -143,8 +143,10 @@ surface-specific behavior, or provider compatibility glue.
    `kiln project scout` exposes deterministic repo evidence, `kiln project
    adopt` writes `.kiln/project-context.md` as canonical project context, and
    the `repo-context-review` skill gives managed children a bounded review
-   procedure before adoption or projection. Remaining work: surface repo-shim
-   and project-context status in the cross-surface config/status contract.
+   procedure before adoption or projection. `KilnConfigStatusSnapshot` now
+   carries a dedicated `setup` snapshot with project-context status, repo-shim
+   status, native projection status, and deterministic recommended actions for
+   GUI, TUI, CLI, SDK/widget, and runtime tools.
 9. Design the cross-surface configuration surface:
    - GUI: dedicated Settings/Setup surface or sidebar mode.
    - TUI: equivalent command/screen.

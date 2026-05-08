@@ -150,6 +150,14 @@ files independently. The model-callable `kiln_config.read` tool is a read-only
 projection of this contract; it may inspect effective config and status but
 must not mutate configuration or native provider files.
 
+For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
+read model. It contains project-context status, repo-shim status, native
+projection status, and deterministic recommended actions such as
+`adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or
+`adopt-or-back-up-native-guidance`. GUI, TUI, CLI, SDK/widget, and runtime tools
+must use this setup read model instead of locally filtering generic projection
+lists.
+
 Configuration mutation starts with structured proposals, not patches. A
 proposal records operation id, normalized payload, affected canonical paths,
 native projection effects, authority impact, validation diagnostics, preview

@@ -15,12 +15,15 @@ export type {
   KilnConfigProjectSnapshot,
   KilnConfigReadResult,
   KilnConfigReadView,
+  KilnConfigSetupAction,
+  KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
   KilnConfigSourceStatus,
   KilnConfigStatusSnapshot,
   KilnHarnessCapabilitySnapshot,
   KilnProjectionTargetSnapshot,
   KilnProjectionTargetStatus,
+  KilnRepoShimProjectionSnapshot,
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,

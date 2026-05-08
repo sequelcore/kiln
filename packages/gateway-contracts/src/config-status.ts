@@ -7,6 +7,7 @@ export const KILN_CONFIG_READ_VIEWS = [
   "permissions",
   "memory",
   "projections",
+  "setup",
   "health",
 ] as const;
 
@@ -45,6 +46,24 @@ export interface KilnProjectionTargetSnapshot {
   readonly details?: string;
 }
 
+export interface KilnRepoShimProjectionSnapshot {
+  readonly target: "agents" | "claude";
+  readonly targetId: string;
+  readonly path: string;
+  readonly status: Extract<KilnProjectionTargetStatus, "missing" | "current" | "stale" | "drifted" | "unmanaged">;
+  readonly recommendation: KilnConfigSetupAction;
+}
+
+export type KilnConfigSetupAction =
+  | "none"
+  | "adopt-project-context"
+  | "review-project-context"
+  | "sync-repo-shims"
+  | "sync-native-projections"
+  | "review-and-force-sync-repo-shims"
+  | "adopt-or-back-up-native-guidance"
+  | "review-native-projection-drift";
+
 export interface KilnHarnessCapabilitySnapshot {
   readonly harness: string;
   readonly displayName: string;
@@ -55,6 +74,16 @@ export interface KilnHarnessCapabilitySnapshot {
   readonly hooks: string;
 }
 
+export interface KilnConfigSetupSnapshot {
+  readonly projectRoot: string;
+  readonly projectContext: KilnConfigSourceSnapshot & {
+    readonly recommendation: KilnConfigSetupAction;
+  };
+  readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
+  readonly recommendedActions: readonly KilnConfigSetupAction[];
+}
+
 export interface KilnConfigStatusSnapshot {
   readonly generatedAt: string;
   readonly project: KilnConfigProjectSnapshot;
@@ -63,6 +92,7 @@ export interface KilnConfigStatusSnapshot {
   readonly effectiveConfig?: Record<string, unknown>;
   readonly errors: readonly string[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
+  readonly setup: KilnConfigSetupSnapshot;
   readonly harnessCapabilities: readonly KilnHarnessCapabilitySnapshot[];
 }
 

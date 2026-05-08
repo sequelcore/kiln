@@ -51,6 +51,25 @@ describe("config-status", () => {
       expect.objectContaining({ targetId: "repo-shim:agents", status: "missing" }),
       expect.objectContaining({ targetId: "repo-shim:claude", status: "missing" }),
     ]));
+    expect(snapshot.setup).toMatchObject({
+      projectRoot: tempDir,
+      projectContext: {
+        status: "missing",
+        recommendation: "adopt-project-context",
+      },
+      repoShims: expect.arrayContaining([
+        expect.objectContaining({
+          target: "agents",
+          targetId: "repo-shim:agents",
+          status: "missing",
+          recommendation: "sync-repo-shims",
+        }),
+      ]),
+      recommendedActions: expect.arrayContaining([
+        "adopt-project-context",
+        "sync-repo-shims",
+      ]),
+    });
   });
 
   it("marks generated repo shims as current", async () => {
@@ -63,6 +82,10 @@ describe("config-status", () => {
       expect.objectContaining({ targetId: "repo-shim:agents", status: "current" }),
       expect.objectContaining({ targetId: "repo-shim:claude", status: "current" }),
     ]));
+    expect(snapshot.setup.repoShims).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "repo-shim:agents", status: "current", recommendation: "none" }),
+      expect.objectContaining({ targetId: "repo-shim:claude", status: "current", recommendation: "none" }),
+    ]));
   });
 
   it("returns bounded read views", async () => {
@@ -71,9 +94,11 @@ describe("config-status", () => {
 
     const permissions = await readConfigStatusView(snapshot, "permissions");
     const health = await readConfigStatusView(snapshot, "health");
+    const setup = await readConfigStatusView(snapshot, "setup");
 
     expect(permissions.value).toEqual({ approval: "on-request", sandbox: "read-only" });
     expect(JSON.stringify(health.value)).toContain("harnessCapabilities");
+    expect(setup.value).toEqual(snapshot.setup);
   });
 
   it("reports invalid project context without blocking effective config", async () => {

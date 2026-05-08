@@ -496,6 +496,7 @@ config-status contract:
 ```bash
 kiln config read effective
 kiln config read projections
+kiln config read setup
 kiln config read health
 kiln config read agents
 kiln config read skills
@@ -505,6 +506,10 @@ kiln config read skills
 sync, merges global and project config through the canonical loaders, reports
 adopted project-context status, classifies generated repo shims, summarizes
 native projection install-state, and exposes harness capability diagnostics.
+The `setup` view is the operator-facing setup read model: project-context
+status, repo-shim status, native projection status, and recommended actions such
+as `adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or
+`adopt-or-back-up-native-guidance`.
 The model-callable `kiln_config.read` tool exposes the same views to admitted
 runtime tool surfaces. Setup surfaces should consume the same contract rather
 than parsing YAML or native files directly.

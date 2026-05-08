@@ -5,10 +5,13 @@ import { SkillRegistry } from "@kilnai/core";
 import type {
   KilnConfigReadResult,
   KilnConfigReadView,
+  KilnConfigSetupAction,
+  KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
   KilnConfigStatusSnapshot,
   KilnHarnessCapabilitySnapshot,
   KilnProjectionTargetSnapshot,
+  KilnRepoShimProjectionSnapshot,
 } from "@kilnai/gateway-contracts";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
@@ -59,7 +62,13 @@ export async function readConfigStatusSnapshot(
     ...sourceErrors("project context", projectContext),
   );
 
-  const projections = await readProjectionSnapshots(rootPath, errors);
+  const projectionState = await readProjectionSnapshots(rootPath, errors);
+  const setup = buildSetupSnapshot({
+    rootPath,
+    projectContext,
+    repoShims: projectionState.repoShims,
+    projections: projectionState.projections,
+  });
 
   return {
     generatedAt: (options.now ?? new Date()).toISOString(),
@@ -75,7 +84,8 @@ export async function readConfigStatusSnapshot(
     effectiveConfigStatus: effectiveConfig ? "valid" : errors.length > 0 ? "invalid" : "missing",
     ...(effectiveConfig ? { effectiveConfig: effectiveConfig as unknown as Record<string, unknown> } : {}),
     errors,
-    projections,
+    projections: projectionState.projections,
+    setup,
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
   };
 }
@@ -183,17 +193,31 @@ function readProjectContextState(projectPath: string): KilnConfigSourceSnapshot 
 async function readProjectionSnapshots(
   projectPath: string,
   errors: string[],
-): Promise<readonly KilnProjectionTargetSnapshot[]> {
+): Promise<{
+  readonly projections: readonly KilnProjectionTargetSnapshot[];
+  readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+}> {
   const projections: KilnProjectionTargetSnapshot[] = [];
+  const repoShimSnapshots: KilnRepoShimProjectionSnapshot[] = [];
 
   try {
     const repoShims = await readRepoShimProjectionStatuses(projectPath);
-    projections.push(...repoShims.map((shim) => ({
-      targetId: `repo-shim:${shim.target}`,
-      path: shim.path,
-      kind: "repo-shim" as const,
-      status: shim.status,
-    })));
+    for (const shim of repoShims) {
+      const targetId = `repo-shim:${shim.target}`;
+      repoShimSnapshots.push({
+        target: shim.target,
+        targetId,
+        path: shim.path,
+        status: shim.status,
+        recommendation: repoShimRecommendation(shim.status),
+      });
+      projections.push({
+        targetId,
+        path: shim.path,
+        kind: "repo-shim" as const,
+        status: shim.status,
+      });
+    }
   } catch (error) {
     errors.push(`repo-shims: ${errorMessage(error)}`);
   }
@@ -213,7 +237,10 @@ async function readProjectionSnapshots(
     errors.push(`native projections: ${errorMessage(error)}`);
   }
 
-  return projections.sort((left, right) => left.targetId.localeCompare(right.targetId));
+  return {
+    projections: projections.sort((left, right) => left.targetId.localeCompare(right.targetId)),
+    repoShims: repoShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
+  };
 }
 
 function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnProjectionTargetSnapshot["status"] {
@@ -267,6 +294,8 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
       };
     case "projections":
       return snapshot.projections;
+    case "setup":
+      return snapshot.setup;
     case "health":
       return {
         global: snapshot.global,
@@ -276,6 +305,69 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
         harnessCapabilities: snapshot.harnessCapabilities,
       };
   }
+}
+
+function buildSetupSnapshot(input: {
+  readonly rootPath: string;
+  readonly projectContext: KilnConfigSourceSnapshot;
+  readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly projections: readonly KilnProjectionTargetSnapshot[];
+}): KilnConfigSetupSnapshot {
+  const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
+  const projectContextRecommendation = projectContextRecommendationFor(input.projectContext);
+  const actions = uniqueSetupActions([
+    projectContextRecommendation,
+    ...input.repoShims.map((shim) => shim.recommendation),
+    ...nativeProjections.map(nativeProjectionRecommendation),
+  ]);
+  return {
+    projectRoot: input.rootPath,
+    projectContext: {
+      ...input.projectContext,
+      recommendation: projectContextRecommendation,
+    },
+    repoShims: input.repoShims,
+    nativeProjections,
+    recommendedActions: actions,
+  };
+}
+
+function projectContextRecommendationFor(source: KilnConfigSourceSnapshot): KilnConfigSetupAction {
+  if (source.status === "missing") {
+    return "adopt-project-context";
+  }
+  if (source.status === "invalid") {
+    return "review-project-context";
+  }
+  return "none";
+}
+
+function repoShimRecommendation(status: KilnRepoShimProjectionSnapshot["status"]): KilnConfigSetupAction {
+  if (status === "missing" || status === "stale") {
+    return "sync-repo-shims";
+  }
+  if (status === "drifted") {
+    return "review-and-force-sync-repo-shims";
+  }
+  if (status === "unmanaged") {
+    return "adopt-or-back-up-native-guidance";
+  }
+  return "none";
+}
+
+function nativeProjectionRecommendation(projection: KilnProjectionTargetSnapshot): KilnConfigSetupAction {
+  if (projection.status === "missing" || projection.status === "stale") {
+    return "sync-native-projections";
+  }
+  if (projection.status === "drifted") {
+    return "review-native-projection-drift";
+  }
+  return "none";
+}
+
+function uniqueSetupActions(actions: readonly KilnConfigSetupAction[]): readonly KilnConfigSetupAction[] {
+  const filtered = actions.filter((action) => action !== "none");
+  return filtered.length > 0 ? [...new Set(filtered)] : ["none"];
 }
 
 async function readAgentIndexes(projectPath: string): Promise<unknown> {

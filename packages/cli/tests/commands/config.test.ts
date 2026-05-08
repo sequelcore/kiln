@@ -142,4 +142,15 @@ describe("configCommand", () => {
     expect(output).toContain("repo-shim:agents");
     expect(output).toContain("repo-shim:claude");
   });
+
+  it("read setup prints cross-surface setup recommendations", async () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    await configCommand(MOCK_APP_CONFIG, "read", ["setup"], tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain('"projectRoot"');
+    expect(output).toContain('"repoShims"');
+    expect(output).toContain('"recommendedActions"');
+  });
 });

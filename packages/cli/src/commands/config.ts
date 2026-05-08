@@ -81,7 +81,7 @@ export async function configCommand(
       const viewArg = readPositionalArgs(args)[0] ?? "effective";
       if (!isConfigReadView(viewArg)) {
         console.log(`Unknown config read view: ${viewArg}`);
-        console.log("Valid views: effective, providers, routes, agents, skills, permissions, memory, projections, health");
+        console.log("Valid views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
         return;
       }
       const snapshot = await readConfigStatusSnapshot({ projectPath: root });
@@ -273,7 +273,7 @@ function printConfigHelp(): void {
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set <key> <value> Update a config value");
   console.log("  reset             Reset config to defaults");
-  console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, health");
+  console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
   console.log(`\nValid keys: ${[...VALID_KEYS].join(", ")}`);
   console.log("");
 }
