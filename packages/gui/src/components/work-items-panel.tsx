@@ -1,4 +1,7 @@
+import { projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
 import type { WorkItemEntry } from "../lib/session-store.js";
+import { OperatorAvatar } from "./operator-avatar.js";
+import type { OperatorAvatarState } from "./operator-avatar.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +20,14 @@ function statusTone(status: string): string {
 function evidenceLabel(item: WorkItemEntry): string {
   if (item.expectedEvidence.length === 0) return "No evidence gates";
   return `${item.providedEvidence.length}/${item.expectedEvidence.length} evidence`;
+}
+
+function avatarStateForStatus(status: string): OperatorAvatarState {
+  if (status === "in_progress") return "running";
+  if (status === "completed") return "success";
+  if (status === "blocked") return "warning";
+  if (status === "cancelled") return "error";
+  return "idle";
 }
 
 export function WorkItemsPanel(props: WorkItemsPanelProps) {
@@ -41,9 +52,18 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
             ...(item.missingEvidence ?? []),
             ...(item.missingResidualRisk ? ["residual-risk"] : []),
           ];
+          const identity = projectAgentProfileIdentity(item.assignedAgentProfile);
           return (
             <li key={item.id} className="px-5 py-4">
               <div className="flex min-w-0 items-start gap-3">
+                {identity ? (
+                  <OperatorAvatar
+                    identity={identity}
+                    size="sm"
+                    state={avatarStateForStatus(item.status)}
+                    className="mt-0.5"
+                  />
+                ) : null}
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <p className="min-w-0 truncate text-sm font-semibold text-foreground">{item.summary}</p>

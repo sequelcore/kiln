@@ -4,9 +4,11 @@ import SyntaxHighlighter from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import type { Components } from "react-markdown";
 import type { ReactNode } from "react";
-import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
+import { getGuiProviderMetadata, projectMessageIdentity } from "@kilnai/gateway-contracts";
 import type { Message } from "../lib/session-store.js";
+import { getStableUserId } from "../lib/stable-user-id.js";
 import { useSessionStore } from "../lib/session-store.js";
+import { OperatorAvatar } from "./operator-avatar.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -75,15 +77,26 @@ export function MessageRow(props: MessageRowProps) {
   const hasAnchoredOperationalContent = Boolean(props.beforeContent || props.afterContent);
   const hasMessageContent = message.content.trim().length > 0;
   const showStreamingCursor = message.streaming && (hasMessageContent || !hasAnchoredOperationalContent);
+  const identity = projectMessageIdentity({
+    role: message.role,
+    provider: assistantProvider,
+    model: assistantModel,
+    userId: isUser ? getStableUserId() : null,
+  });
+  const avatarState = message.role === "error" ? "error" : message.streaming ? "running" : "idle";
+  const avatarMotion = message.streaming && isAssistant ? "subtle" : "none";
 
   return (
     <article
       data-role={message.role}
       className={cn(
-        "mx-auto flex w-full max-w-3xl",
+        "mx-auto flex w-full max-w-3xl items-start gap-2",
         isUser ? "justify-end" : "justify-start",
       )}
     >
+      {!isUser ? (
+        <OperatorAvatar identity={identity} state={avatarState} motion={avatarMotion} className="mt-1" />
+      ) : null}
       <div
         className={cn(
           "min-w-0",
@@ -146,6 +159,7 @@ export function MessageRow(props: MessageRowProps) {
           ) : null}
         </div>
       </div>
+      {isUser ? <OperatorAvatar identity={identity} state={avatarState} className="mt-1" /> : null}
     </article>
   );
 }

@@ -152,6 +152,18 @@ export type {
 } from "./operator-empty-state.js";
 
 export {
+  operatorIdentityInitials,
+  projectAgentProfileIdentity,
+  projectManagedAgentIdentity,
+  projectMessageIdentity,
+} from "./operator-identity.js";
+export type {
+  OperatorIdentityKind,
+  OperatorIdentityProjection,
+  OperatorMessageIdentityRole,
+} from "./operator-identity.js";
+
+export {
   formatOperatorEventValue,
   operatorEventTargetsSurface,
   presentOperatorEventPayload,

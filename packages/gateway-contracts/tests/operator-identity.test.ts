@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vitest";
+import {
+  operatorIdentityInitials,
+  projectAgentProfileIdentity,
+  projectManagedAgentIdentity,
+  projectMessageIdentity,
+} from "../src/operator-identity.js";
+
+describe("operator identity projection", () => {
+  it("uses child identity as the stable managed-agent avatar source", () => {
+    expect(projectManagedAgentIdentity({
+      agentId: "codex-oauth:foundation-readonly-plan",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.4-mini",
+        surface: "direct-provider",
+      },
+      capabilitySnapshot: {
+        snapshotId: "inv-1:capability-snapshot",
+        capturedAt: "2026-05-07T08:00:00.000Z",
+        routeHealth: { status: "healthy" },
+        providerModelProof: { status: "live-proven" },
+        resourcePlane: { available: true, resourceUris: [] },
+        childIdentity: {
+          agentId: "codex-oauth:foundation-readonly-plan",
+          displayName: "Piama",
+          admittedAgentProfile: "architecture-reviewer",
+        },
+      },
+    })).toEqual({
+      kind: "agent",
+      id: "codex-oauth:foundation-readonly-plan",
+      label: "Piama",
+      seed: "agent:codex-oauth:foundation-readonly-plan",
+      subtitle: "codex-oauth/gpt-5.4-mini (direct-provider)",
+    });
+  });
+
+  it("falls back to profile identity when a work item has only an assigned profile", () => {
+    expect(projectAgentProfileIdentity("planner")).toEqual({
+      kind: "agent_profile",
+      id: "planner",
+      label: "planner",
+      seed: "agent-profile:planner",
+    });
+  });
+
+  it("projects chat participant identities without surface dependencies", () => {
+    expect(projectMessageIdentity({ role: "user", userId: "local-user-1" })).toMatchObject({
+      kind: "operator",
+      id: "local-user-1",
+      seed: "operator:local-user-1",
+    });
+    expect(projectMessageIdentity({ role: "assistant", provider: "codex-oauth", model: "gpt-5.4" })).toMatchObject({
+      kind: "assistant",
+      id: "codex-oauth:gpt-5.4",
+      seed: "assistant:codex-oauth:gpt-5.4",
+    });
+  });
+
+  it("formats deterministic initials for text-only surfaces", () => {
+    expect(operatorIdentityInitials("Piama")).toBe("PI");
+    expect(operatorIdentityInitials("codex-oauth:foundation-readonly-plan")).toBe("CO");
+  });
+});

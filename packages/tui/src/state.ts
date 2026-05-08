@@ -138,6 +138,7 @@ export interface WorkItem {
   summary: string;
   status: string;
   workflowProfile: string;
+  assignedAgentProfile?: string;
   expectedEvidence: string[];
   providedEvidence: string[];
   missingEvidence?: string[];

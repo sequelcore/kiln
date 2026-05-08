@@ -370,6 +370,10 @@ describe("GatewaySession canonical session events", () => {
         sessionId: "session-1",
         turnId: "session-1:turn:live",
         details: "foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.",
+        input: expect.objectContaining({
+          agentId: "codex-oauth:foundation-readonly-plan",
+          profile: "foundation-readonly-plan",
+        }),
         surfaces: ["conversation_inline", "activity_panel", "inspector"],
       }),
     ]));

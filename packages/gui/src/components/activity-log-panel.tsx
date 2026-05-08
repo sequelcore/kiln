@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { presentOperatorEventPayload, type OperatorEventDetailItem } from "@kilnai/gateway-contracts";
+import {
+  presentOperatorEventPayload,
+  projectManagedAgentIdentity,
+  type OperatorEventDetailItem,
+  type OperatorIdentityProjection,
+} from "@kilnai/gateway-contracts";
 import type { TimelineEventEntry, TimelineEntry } from "../lib/session-store.js";
 import { isActivityTimelineEntry } from "../lib/timeline-visibility.js";
+import { OperatorAvatar } from "./operator-avatar.js";
+import type { OperatorAvatarState } from "./operator-avatar.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +45,20 @@ function detailsPayloadForEvent(entry: TimelineEventEntry): Record<string, unkno
     : {};
 }
 
+function identityForEvent(entry: TimelineEventEntry): OperatorIdentityProjection | null {
+  return entry.eventKind.startsWith("agent_invocation_")
+    ? projectManagedAgentIdentity(detailsPayloadForEvent(entry))
+    : null;
+}
+
+function avatarStateForTone(tone: TimelineEventEntry["tone"]): OperatorAvatarState {
+  if (tone === "running") return "running";
+  if (tone === "success") return "success";
+  if (tone === "warning") return "warning";
+  if (tone === "error") return "error";
+  return "idle";
+}
+
 function DetailList(props: { readonly items: readonly OperatorEventDetailItem[] }) {
   if (props.items.length === 0) return null;
   return (
@@ -63,6 +84,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
     ? presentOperatorEventPayload(selectedEvent.eventKind, detailsPayloadForEvent(selectedEvent))
     : null;
   const selectedDetails = selectedEvent?.presentationDetails ?? selectedPresentation?.details ?? [];
+  const selectedIdentity = selectedEvent ? identityForEvent(selectedEvent) : null;
 
   useEffect(() => {
     if (events.length === 0) {
@@ -96,6 +118,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
             <ul aria-label="Activity log" className="divide-y divide-border/60">
               {events.map((entry) => {
                 const active = selectedEvent ? activityKey(entry) === activityKey(selectedEvent) : false;
+                const identity = identityForEvent(entry);
                 return (
                   <li key={activityKey(entry)}>
                     <button
@@ -103,10 +126,18 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
                       aria-pressed={active}
                       onClick={() => setSelectedKey(activityKey(entry))}
                       className={cn(
-                        "grid w-full gap-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                        "grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
                         active ? "bg-secondary/60" : "hover:bg-secondary/35",
                       )}
                     >
+                      {identity ? (
+                        <OperatorAvatar
+                          identity={identity}
+                          size="sm"
+                          state={avatarStateForTone(entry.tone)}
+                          className="row-span-2 mt-0.5"
+                        />
+                      ) : <span />}
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-foreground">
                           {entry.title}
@@ -115,7 +146,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
                           {compactKind(entry.eventKind)}
                         </Badge>
                       </span>
-                      <span className="flex min-w-0 items-center gap-2 font-mono text-[10.5px] tracking-[0.01em] text-muted-foreground/75">
+                      <span className="col-start-2 flex min-w-0 items-center gap-2 font-mono text-[10.5px] tracking-[0.01em] text-muted-foreground/75">
                         <span>{formatCreatedAt(entry.createdAt)}</span>
                         {entry.summary ? (
                           <>
@@ -135,14 +166,23 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
       <div className="min-h-0 overflow-y-auto px-4 py-4">
           {selectedEvent ? (
             <section aria-label="Selected activity detail" className="flex flex-col gap-3">
-              <div>
-                <p className="text-sm font-medium leading-6 text-foreground">{selectedEvent.title}</p>
-                {selectedEvent.summary ? (
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">{selectedEvent.summary}</p>
+              <div className="flex min-w-0 items-start gap-3">
+                {selectedIdentity ? (
+                  <OperatorAvatar
+                    identity={selectedIdentity}
+                    state={avatarStateForTone(selectedEvent.tone)}
+                    motion={selectedEvent.tone === "running" ? "subtle" : "none"}
+                  />
                 ) : null}
-                <p className="mt-2 font-mono text-[10.5px] tracking-[0.01em] text-muted-foreground/75">
-                  {formatCreatedAt(selectedEvent.createdAt)}
-                </p>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium leading-6 text-foreground">{selectedEvent.title}</p>
+                  {selectedEvent.summary ? (
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{selectedEvent.summary}</p>
+                  ) : null}
+                  <p className="mt-2 font-mono text-[10.5px] tracking-[0.01em] text-muted-foreground/75">
+                    {formatCreatedAt(selectedEvent.createdAt)}
+                  </p>
+                </div>
               </div>
               <DetailList items={selectedDetails} />
             </section>

@@ -13,7 +13,12 @@ import {
   type CliRenderer,
   type ScrollBoxRenderable,
 } from "@opentui/core";
-import { formatOperatorEventValue } from "@kilnai/gateway-contracts";
+import {
+  formatOperatorEventValue,
+  operatorIdentityInitials,
+  projectAgentProfileIdentity,
+  projectManagedAgentIdentity,
+} from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { ReactiveState, Message, ResumeSidebarInfo, PendingApproval, WorkItem } from "./state.js";
 import { update, createMessage } from "./state.js";
@@ -346,10 +351,12 @@ export function handleActivity(
       details: output ?? details ?? "work item updated",
     });
   } else if (activity.startsWith("agent_invocation_")) {
+    const identity = projectManagedAgentIdentity(input as Parameters<typeof projectManagedAgentIdentity>[0]);
+    const identityLabel = identity ? `[${operatorIdentityInitials(identity.label)} ${identity.label}]` : null;
     update(ctx.state, "currentActivity", {
       phase: activity === "agent_invocation_started" ? "executing" : "reasoning",
       toolName: "managed_agent.invoke",
-      details,
+      details: identity ? `${identityLabel} ${details ?? identity.subtitle ?? ""}`.trim() : details,
     });
   }
 }
@@ -363,6 +370,7 @@ function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkIt
   const summary = readText(record.summary);
   const status = readText(record.status);
   const workflowProfile = readText(record.workflowProfile);
+  const agentIdentity = projectAgentProfileIdentity(readText(record.assignedAgentProfile));
   if (!id || !summary || !status || !workflowProfile) {
     return null;
   }
@@ -373,6 +381,7 @@ function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkIt
     summary,
     status,
     workflowProfile,
+    ...(agentIdentity ? { assignedAgentProfile: agentIdentity.label } : {}),
     expectedEvidence: readTextArray(record.expectedEvidence),
     providedEvidence: readTextArray(record.providedEvidence),
     updatedAt: readDate(record.updatedAt) ?? new Date(),

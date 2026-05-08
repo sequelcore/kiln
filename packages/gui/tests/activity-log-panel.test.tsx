@@ -78,4 +78,45 @@ describe("ActivityLogPanel", () => {
     expect(detail).not.toHaveTextContent("\"runtimeContinuity\"");
     expect(detail).not.toHaveTextContent("{");
   });
+
+  it("renders managed-agent identity avatars from canonical invocation payloads", () => {
+    const entries: TimelineEntry[] = [
+      {
+        id: "timeline:event:agent",
+        type: "event",
+        eventKind: "agent_invocation_completed",
+        createdAt: "2026-05-07T08:00:00.000Z",
+        title: "Agent invocation completed",
+        summary: "architecture-reviewer via codex-oauth/gpt-5.4-mini",
+        tone: "success",
+        details: {
+          invocationId: "inv-1",
+          agentId: "codex-oauth:foundation-readonly-plan",
+          profile: "foundation-readonly-plan",
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.4-mini",
+            surface: "direct-provider",
+          },
+          capabilitySnapshot: {
+            snapshotId: "inv-1:capability-snapshot",
+            capturedAt: "2026-05-07T08:00:00.000Z",
+            routeHealth: { status: "healthy" },
+            providerModelProof: { status: "live-proven" },
+            resourcePlane: { available: true, resourceUris: [] },
+            childIdentity: {
+              agentId: "codex-oauth:foundation-readonly-plan",
+              displayName: "Piama",
+            },
+          },
+        },
+      },
+    ];
+
+    render(<ActivityLogPanel entries={entries} />);
+
+    const avatars = screen.getAllByLabelText("Piama avatar");
+    expect(avatars).toHaveLength(2);
+    expect(avatars[0]).toHaveAttribute("data-avatar-state", "success");
+  });
 });

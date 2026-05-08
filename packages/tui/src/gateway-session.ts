@@ -186,6 +186,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: event.kind,
       details: presentation.compactText,
+      input: payload,
       surfaces: presentation.surfaces,
       ...scoped,
     };

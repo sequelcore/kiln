@@ -66,6 +66,9 @@ describe("Transcript", () => {
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
     expect(rows[2]).toHaveAttribute("data-role", "error");
+    expect(screen.getByLabelText("User avatar")).toBeInTheDocument();
+    expect(screen.getByLabelText("Assistant avatar")).toBeInTheDocument();
+    expect(screen.getByLabelText("Error avatar")).toHaveAttribute("data-avatar-state", "error");
   });
 
   it("groups tool activity into the following assistant message bubble", () => {
@@ -502,6 +505,8 @@ describe("Transcript", () => {
       />,
     );
     expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
+    expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-state", "running");
+    expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-motion", "subtle");
   });
 
   it("renders assistant messages in a lightweight chat bubble", () => {
@@ -513,8 +518,9 @@ describe("Transcript", () => {
 
     const assistantRow = screen.getByRole("article");
     expect(assistantRow).toHaveAttribute("data-role", "assistant");
-    expect(assistantRow.firstElementChild).toHaveClass("rounded-2xl", "rounded-tl-md", "bg-muted/35");
-    expect(assistantRow.firstElementChild).not.toHaveClass("border", "bg-card");
+    const bubble = assistantRow.querySelector(".rounded-2xl.rounded-tl-md");
+    expect(bubble).toHaveClass("rounded-2xl", "rounded-tl-md", "bg-muted/35");
+    expect(bubble).not.toHaveClass("border", "bg-card");
   });
 
   it("shows assistant thinking state in the transcript instead of the composer", () => {

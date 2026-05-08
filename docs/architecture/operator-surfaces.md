@@ -104,6 +104,14 @@ these surfaces may treat a local checklist, visual row, or terminal sidebar
 line as authoritative. Authority remains in the work-item tool metadata,
 canonical `work_item_updated` session events, and resource-plane snapshot.
 
+Operator identity display follows the same rule. Agent, sub-agent, operator,
+assistant, provider, tool, and system identities must be projected from
+canonical gateway-contract data before any surface renders them. Rich surfaces
+may render deterministic visual avatars from the shared identity seed; terminal
+surfaces may degrade to deterministic initials or text labels. Avatar libraries,
+colors, and glyphs are presentation choices only. They must not create new
+agent IDs, profile names, routing semantics, or authority boundaries.
+
 ## Local GUI
 
 The local GUI is the first rich operator surface. It is web-first and

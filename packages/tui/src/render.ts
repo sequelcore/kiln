@@ -4,6 +4,7 @@
  */
 
 import { t, fg } from "@opentui/core";
+import { operatorIdentityInitials, projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
 import type { ReactiveState, Message, SessionListItem, PendingApproval, WorkItem } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
@@ -257,7 +258,9 @@ function fmtWorkItem(item: WorkItem, index: number): string {
   const evidence = item.expectedEvidence.length > 0
     ? `${item.providedEvidence.length}/${item.expectedEvidence.length}`
     : "--";
-  return `${prefix}${item.status} ${evidence} ${summary}`;
+  const identity = projectAgentProfileIdentity(item.assignedAgentProfile);
+  const agent = identity ? `[${operatorIdentityInitials(identity.label)}] ` : "";
+  return `${prefix}${agent}${item.status} ${evidence} ${summary}`;
 }
 
 /**
