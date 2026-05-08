@@ -16,6 +16,11 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   ".woff2": "font/woff2",
 };
 
+const INDEX_HEADERS = {
+  "Content-Type": "text/html; charset=utf-8",
+  "Cache-Control": "no-store",
+} as const;
+
 export function mountGuiStaticAssets(app: Hono, guiDistPath: string): void {
   const indexHtmlPath = join(guiDistPath, "index.html");
   const indexHtml = readFileSync(indexHtmlPath, "utf-8");
@@ -31,13 +36,16 @@ export function mountGuiStaticAssets(app: Hono, guiDistPath: string): void {
       const extension = extname(assetPath).toLowerCase();
       const contentType = CONTENT_TYPES[extension];
       const assetBuffer = readFileSync(assetPath);
+      if (assetPath === indexHtmlPath) {
+        return c.body(assetBuffer, 200, INDEX_HEADERS);
+      }
       if (contentType) {
         return c.body(assetBuffer, 200, { "Content-Type": contentType });
       }
       return c.body(assetBuffer);
     }
 
-    return c.html(indexHtml);
+    return c.html(indexHtml, 200, { "Cache-Control": "no-store" });
   });
 }
 
