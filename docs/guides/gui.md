@@ -281,9 +281,11 @@ thread IDs, when available, are stored as provider-thread metadata under the
 Kiln session and are used only for the matching provider.
 
 Selecting a session from the rail loads that session's transcript into the main
-chat and makes it the active continuation target. There is no separate
-"preview" or "set resume target" step in the GUI: if the selected conversation
-is visible in chat, the next message continues that conversation.
+chat as a preview. It does not silently mark the session as the active
+continuation target. Empty submit on the selected session or an explicit resume
+affordance marks the visible continuation target for the next turn. Typing a
+normal prompt from a historical preview starts a fresh session unless that
+resume intent was set.
 
 `New Session` detaches the current runtime conversation and clears the visible
 chat for a new conversation. It does not delete stored history.
@@ -302,8 +304,10 @@ Operational panels are session-scoped:
   the live or visible session.
 
 For live validation, create two conversations, select the first one from
-history, and send another message. The expected result is that the runtime logs
-show the first canonical Kiln session ID and the assistant has the selected
+history, and type a normal prompt. The expected result is a fresh session, not
+hidden continuation. Then select the first conversation again and use the
+explicit resume action; the expected result is that the runtime logs show the
+first canonical Kiln session ID and the assistant has the selected
 conversation's prior context. Provider switching should still produce one
 continued Kiln conversation with per-provider telemetry attribution, not
 separate provider-owned histories.

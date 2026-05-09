@@ -66,8 +66,8 @@ is documented by concern, not as a single monolith.
 
 - `developer-tools.md`
   Canonical builtin developer-tool surface: command, file, search, patch,
-  stat/tree, image/OCR, controlled web tools, verbosity, metadata, and shared
-  consumer projection.
+  stat/tree, image/OCR, controlled web tools, interactive browser/computer
+  automation, verbosity, metadata, and shared consumer projection.
 
 - `controlled-web-research.md`
   Canonical governed web knowledge model: web primitives, provider adapters,

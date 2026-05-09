@@ -58,23 +58,24 @@ explicitly parked until their prerequisite product surface exists.
   managed-agent execution, evidence-gated closeout, and cross-surface workflow
   projection.
 
-- Interactive browser and computer use implementation is active. Core
-  contracts, config projection, Playwright browser provider, GUI browser
-  snapshot projection, optional Windows computer provider, and Kiln-owned
-  Microsoft UI Automation semantic sidecar provider are implemented. Browser
-  background execution is governed through `interactiveUse.browserEnvironment:
-  isolated-headless`; local Windows desktop automation is explicitly scoped as
-  `computerEnvironment: local-active-desktop`. Remaining follow-up lives in
-  `docs/plan.md`. Stable doctrine is absorbed into
-  `docs/architecture/developer-tools.md`, `docs/architecture/tool-execution.md`,
-  and `docs/guides/tool-use.md`.
-
 ## Deferred Roadmaps
 
 - `00.06-live-browser-operator-surface.md`
   Deferred research track for a live browser operator surface. Kiln currently
   has governed browser automation and artifact-backed Browser tab snapshots;
   this track covers the future live viewport/streaming experience.
+
+- `00.07-multimodal-transport-and-capability-delegation.md`
+  Deferred foundation track for governed multimodal transport, artifact-backed
+  image/document/audio evidence, capability-aware provider routing, auxiliary
+  managed-agent delegation, and explicit OCR/transform degradation across
+  CLI, TUI, GUI, webhooks, SDK, and replay.
+
+- `00.08-agent-qa-showcase-recorder.md`
+  Deferred product track for turning governed agent runs into real QA and
+  showcase videos. The track combines raw browser/desktop capture with Kiln's
+  structured action timeline for auto-zoom, captions, voiceover, redaction,
+  replay, and export.
 
 - `01-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
@@ -103,6 +104,15 @@ explicitly parked until their prerequisite product surface exists.
   `docs/architecture/developer-tools.md`.
 - Shared tooling intelligence completed on 2026-04-29. Stable doctrine lives in
   `docs/architecture/shared-tooling-intelligence.md`.
+- Interactive browser and computer use completed on 2026-05-08. Stable
+  doctrine lives in `docs/architecture/developer-tools.md`,
+  `docs/architecture/tool-execution.md`, `docs/architecture/session-model.md`,
+  `docs/guides/tool-use.md`, `docs/guides/gui.md`, and `docs/guides/tui.md`.
+  Implementation covers core contracts, project config projection, Playwright
+  browser automation, artifact-backed browser evidence, GUI Browser snapshot
+  projection, optional low-level Windows computer control, Kiln-owned Microsoft
+  UI Automation semantic control, explicit browser/computer environment policy,
+  application aliases, and cross-surface resume/projection semantics.
 - Context resource plane completed on 2026-04-30. Stable doctrine lives in
   `docs/architecture/context-resource-plane.md`.
 - Memory Lattice and governed memory completed on 2026-05-01. Stable doctrine
