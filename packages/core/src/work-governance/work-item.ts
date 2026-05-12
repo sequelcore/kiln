@@ -431,23 +431,35 @@ function missingRequiredVerificationGates(
   results: readonly VerificationGateResult[],
   skippedVerificationGates: readonly string[],
 ): readonly string[] {
-  if (!item.expectedEvidence.includes("managed-agent-review")) {
-    return [];
-  }
   const satisfied = new Set([
     ...results
       .filter((result) => result.status === "passed" || result.status === "skipped")
       .map((result) => result.gate),
     ...skippedVerificationGates,
   ]);
+  const requiredGatePredicates: ((gate: string) => boolean)[] = [];
+  if (item.expectedEvidence.includes("managed-agent-review")) {
+    requiredGatePredicates.push(isReviewVerificationGate);
+  }
+  if (item.expectedEvidence.includes("browser-qa")) {
+    requiredGatePredicates.push(isBrowserQaVerificationGate);
+  }
+  if (requiredGatePredicates.length === 0) {
+    return [];
+  }
   return item.verificationGates
-    .filter(isReviewVerificationGate)
+    .filter((gate) => requiredGatePredicates.some((predicate) => predicate(gate)))
     .filter((gate) => !satisfied.has(gate));
 }
 
 function isReviewVerificationGate(gate: string): boolean {
   const normalized = gate.toLowerCase();
   return normalized.includes("review") || normalized.includes("ddd");
+}
+
+function isBrowserQaVerificationGate(gate: string): boolean {
+  const normalized = gate.toLowerCase();
+  return normalized.includes("browser") || normalized.includes("accessibility") || normalized.includes("overflow");
 }
 
 function mergeVerificationGateResults(

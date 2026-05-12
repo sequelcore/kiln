@@ -681,6 +681,54 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("blocks UI profile closeout until browser QA gates pass", async () => {
+    const tools = createWorkGovernanceTools(policy);
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const completeTool = tools.find((candidate) => candidate.name === "work_item.complete");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Verify browser QA closeout.",
+        workflowProfile: "ui-change",
+        triggers: ["ui"],
+      },
+    });
+    expect(created?.isError).toBe(false);
+    const parsed = JSON.parse(created?.output ?? "{}") as {
+      item: {
+        id: string;
+        expectedEvidence: readonly string[];
+      };
+    };
+
+    const blocked = await completeTool?.execute({
+      name: "work_item.complete",
+      input: {
+        id: parsed.item.id,
+        providedEvidence: parsed.item.expectedEvidence,
+        residualRisk: "No known residual risk after UI verification.",
+        verificationGateResults: [
+          { gate: "typecheck", status: "passed" },
+        ],
+      },
+    });
+
+    expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("missing gate: browser QA screenshot or interaction proof");
+    expect(blocked?.output).toContain("missing gate: accessibility/overflow check");
+    expect(blocked?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "complete",
+      status: "blocked",
+      missingVerificationGates: [
+        "browser QA screenshot or interaction proof",
+        "accessibility/overflow check",
+      ],
+      errorCode: "missing_evidence",
+    });
+  });
+
   it("does not start an explicit work item before earlier dependencies are complete", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

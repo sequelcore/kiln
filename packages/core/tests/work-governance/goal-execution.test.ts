@@ -530,6 +530,90 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("blocks UI profile closeout until browser QA gates have passed", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-browser-gate",
+      summary: "Verify browser QA closeout.",
+      workflowProfile: "ui-change",
+      triggers: ["ui"],
+      expectedEvidence: ["browser-qa", "tests", "typecheck"],
+      verificationGates: ["browser QA screenshot or interaction proof", "accessibility/overflow check", "typecheck"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-browser-gate",
+      objective: "Execute UI profile work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "ui-change" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["browser-qa", "tests", "typecheck"],
+      verificationGateResults: [
+        { gate: "typecheck", status: "passed" },
+      ],
+    });
+
+    expect(blocked).toMatchObject({
+      missingEvidence: [],
+      missingVerificationGates: [
+        "browser QA screenshot or interaction proof",
+        "accessibility/overflow check",
+      ],
+      item: {
+        status: "blocked",
+      },
+      attempt: {
+        status: "blocked",
+      },
+    });
+
+    const completed = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      verificationGateResults: [
+        { gate: "browser QA screenshot or interaction proof", status: "passed", summary: "Screenshot evidence captured." },
+        { gate: "accessibility/overflow check", status: "passed", summary: "No overflow or keyboard regressions found." },
+      ],
+      closeoutSummary: "Browser QA passed.",
+    });
+
+    expect(completed).toMatchObject({
+      missingVerificationGates: [],
+      item: {
+        status: "completed",
+      },
+      goal: {
+        status: "completed",
+        closeoutSummary: "Browser QA passed.",
+      },
+    });
+  });
+
   it("blocks goal completion when required goal evidence is missing from linked work items", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
