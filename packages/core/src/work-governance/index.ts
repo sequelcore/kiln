@@ -19,6 +19,20 @@ export {
   reconstructGoalRunsFromSessionEvents,
 } from "./goal-run.js";
 export type {
+  FinishGoalExecutionAttemptInput,
+  GoalExecutionAttemptFinish,
+  GoalExecutionAttemptTransition,
+  GoalExecutionGovernanceAssessment,
+  GoalExecutionStep,
+  SelectNextGoalExecutionStepInput,
+  StartGoalExecutionAttemptInput,
+} from "./goal-execution.js";
+export {
+  finishGoalExecutionAttempt,
+  selectNextGoalExecutionStep,
+  startGoalExecutionAttempt,
+} from "./goal-execution.js";
+export type {
   WorkItemMaterialization,
   WorkItemMaterializationInput,
   WorkItemMaterializationResult,
@@ -31,11 +45,18 @@ export {
 export type {
   WorkItem,
   WorkItemCompletionInput,
+  WorkItemExecutionAttempt,
+  WorkItemExecutionAttemptStatus,
+  WorkItemExecutionMode,
   WorkItemRecommendedReasoningEffort,
   WorkItemCompletionResult,
+  WorkItemFinishExecutionAttemptInput,
+  WorkItemFinishExecutionAttemptResult,
   WorkItemResourceChangeNotifier,
   WorkItemRoutingRecommendation,
   WorkItemSnapshot,
+  WorkItemStartExecutionAttemptInput,
+  WorkItemStartExecutionAttemptResult,
   WorkItemStoreOptions,
   WorkItemStatus,
   WorkItemUpsertInput,

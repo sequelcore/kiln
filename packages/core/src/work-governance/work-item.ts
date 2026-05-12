@@ -10,6 +10,25 @@ export interface WorkItemRoutingRecommendation {
   readonly rationale: string;
 }
 
+export type WorkItemExecutionMode = "direct" | "managed_delegation";
+export type WorkItemExecutionAttemptStatus = "started" | "completed" | "blocked" | "failed" | "cancelled";
+
+export interface WorkItemExecutionAttempt {
+  readonly id: string;
+  readonly workItemId: string;
+  readonly goalRunId: string;
+  readonly status: WorkItemExecutionAttemptStatus;
+  readonly executionMode: WorkItemExecutionMode;
+  readonly startedAt: string;
+  readonly completedAt?: string;
+  readonly summary?: string;
+  readonly managedInvocationId?: string;
+  readonly providedEvidence: readonly string[];
+  readonly missingEvidence: readonly string[];
+  readonly missingResidualRisk: boolean;
+  readonly residualRisk?: string;
+}
+
 export interface WorkItemUpsertInput {
   readonly id?: string;
   readonly summary: string;
@@ -31,6 +50,7 @@ export interface WorkItemUpsertInput {
   readonly goalRunId?: string;
   readonly sourceWorkItemId?: string;
   readonly routingRecommendation?: WorkItemRoutingRecommendation;
+  readonly executionAttempts?: readonly WorkItemExecutionAttempt[];
 }
 
 export interface WorkItem extends WorkItemUpsertInput {
@@ -41,6 +61,7 @@ export interface WorkItem extends WorkItemUpsertInput {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly sequence: number;
+  readonly executionAttempts: readonly WorkItemExecutionAttempt[];
 }
 
 export interface WorkItemCompletionInput {
@@ -53,6 +74,31 @@ export interface WorkItemCompletionResult {
   readonly item: WorkItem;
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
+}
+
+export interface WorkItemStartExecutionAttemptInput {
+  readonly id: string;
+  readonly goalRunId: string;
+  readonly executionMode: WorkItemExecutionMode;
+  readonly summary?: string;
+  readonly managedInvocationId?: string;
+}
+
+export interface WorkItemStartExecutionAttemptResult {
+  readonly item: WorkItem;
+  readonly attempt: WorkItemExecutionAttempt;
+}
+
+export interface WorkItemFinishExecutionAttemptInput {
+  readonly id: string;
+  readonly attemptId: string;
+  readonly providedEvidence?: readonly string[];
+  readonly residualRisk?: string;
+  readonly summary?: string;
+}
+
+export interface WorkItemFinishExecutionAttemptResult extends WorkItemCompletionResult {
+  readonly attempt: WorkItemExecutionAttempt;
 }
 
 export interface WorkItemSnapshot {
@@ -110,6 +156,7 @@ export class WorkItemStore {
       goalRunId: input.goalRunId ?? existing?.goalRunId,
       sourceWorkItemId: input.sourceWorkItemId ?? existing?.sourceWorkItemId,
       routingRecommendation: input.routingRecommendation ?? existing?.routingRecommendation,
+      executionAttempts: input.executionAttempts ?? existing?.executionAttempts ?? [],
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       sequence: ++this.sequence,
@@ -161,6 +208,77 @@ export class WorkItemStore {
 
     return {
       item,
+      missingEvidence,
+      missingResidualRisk,
+    };
+  }
+
+  startExecutionAttempt(input: WorkItemStartExecutionAttemptInput): WorkItemStartExecutionAttemptResult | undefined {
+    const existing = this.items.get(input.id);
+    if (!existing) {
+      return undefined;
+    }
+    const startedAt = this.now();
+    const attempt: WorkItemExecutionAttempt = {
+      id: `${input.goalRunId}:${existing.id}:attempt:${existing.executionAttempts.length + 1}`,
+      workItemId: existing.id,
+      goalRunId: input.goalRunId,
+      status: "started",
+      executionMode: input.executionMode,
+      startedAt,
+      ...(input.summary ? { summary: input.summary } : {}),
+      ...(input.managedInvocationId ? { managedInvocationId: input.managedInvocationId } : {}),
+      providedEvidence: [],
+      missingEvidence: [],
+      missingResidualRisk: false,
+    };
+    const item = this.upsert({
+      ...existing,
+      status: "in_progress",
+      executionAttempts: [...existing.executionAttempts, attempt],
+    });
+    return { item, attempt };
+  }
+
+  finishExecutionAttempt(input: WorkItemFinishExecutionAttemptInput): WorkItemFinishExecutionAttemptResult | undefined {
+    const existing = this.items.get(input.id);
+    if (!existing) {
+      return undefined;
+    }
+    const attempt = existing.executionAttempts.find((candidate) => candidate.id === input.attemptId);
+    if (!attempt) {
+      return undefined;
+    }
+    const providedEvidence = unique([
+      ...existing.providedEvidence,
+      ...attempt.providedEvidence,
+      ...(input.providedEvidence ?? []),
+    ]);
+    const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
+    const residualRisk = input.residualRisk ?? existing.residualRisk ?? attempt.residualRisk;
+    const missingResidualRisk = existing.expectedEvidence.includes("residual-risk") && !residualRisk;
+    const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk ? "completed" : "blocked";
+    const completedAttempt: WorkItemExecutionAttempt = {
+      ...attempt,
+      status: status === "completed" ? "completed" : "blocked",
+      completedAt: this.now(),
+      ...(input.summary ? { summary: input.summary } : {}),
+      providedEvidence,
+      missingEvidence,
+      missingResidualRisk,
+      ...(residualRisk ? { residualRisk } : {}),
+    };
+    const item = this.upsert({
+      ...existing,
+      status,
+      providedEvidence,
+      residualRisk,
+      executionAttempts: existing.executionAttempts.map((candidate) =>
+        candidate.id === input.attemptId ? completedAttempt : candidate),
+    });
+    return {
+      item,
+      attempt: completedAttempt,
       missingEvidence,
       missingResidualRisk,
     };
