@@ -79,6 +79,7 @@ export interface FinishGoalExecutionAttemptInput {
   readonly workItemId: string;
   readonly attemptId: string;
   readonly providedEvidence?: readonly string[];
+  readonly skippedVerificationGates?: readonly string[];
   readonly residualRisk?: string;
   readonly summary?: string;
   readonly closeoutSummary?: string;
@@ -215,6 +216,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     id: input.workItemId,
     attemptId: input.attemptId,
     providedEvidence: input.providedEvidence,
+    skippedVerificationGates: input.skippedVerificationGates,
     residualRisk: input.residualRisk,
     summary: input.summary,
   });

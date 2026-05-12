@@ -444,6 +444,11 @@ export class WorkItemCompleteTool implements DevTool {
         description: "Evidence produced for this work item.",
       },
       residualRisk: { type: "string", description: "Residual-risk closeout. Required when residual-risk is expected evidence." },
+      skippedVerificationGates: {
+        type: "array",
+        items: { type: "string" },
+        description: "Verification gates intentionally skipped during closeout. Requires residual-risk closeout.",
+      },
     },
     required: ["id"],
     additionalProperties: false,
@@ -460,6 +465,7 @@ export class WorkItemCompleteTool implements DevTool {
     const completion = this.store.complete({
       id,
       providedEvidence: readEvidence(input.input.providedEvidence),
+      skippedVerificationGates: readTextArray(input.input.skippedVerificationGates),
       residualRisk: readText(input.input.residualRisk),
     });
     if (!completion) {
@@ -697,6 +703,11 @@ export class WorkItemExecutionFinishTool implements DevTool {
         description: "Evidence produced by the attempt.",
       },
       residualRisk: { type: "string", description: "Residual-risk closeout." },
+      skippedVerificationGates: {
+        type: "array",
+        items: { type: "string" },
+        description: "Verification gates intentionally skipped by the attempt. Requires residual-risk closeout.",
+      },
       summary: { type: "string", description: "Attempt result summary." },
       closeoutSummary: { type: "string", description: "Goal closeout summary if this attempt completes the final work item." },
     },
@@ -728,6 +739,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
         workItemId,
         attemptId,
         providedEvidence: readEvidence(input.input.providedEvidence),
+        skippedVerificationGates: readTextArray(input.input.skippedVerificationGates),
         residualRisk: readText(input.input.residualRisk),
         summary: readText(input.input.summary),
         closeoutSummary: readText(input.input.closeoutSummary),

@@ -151,6 +151,48 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("blocks direct work item completion when a verification gate is skipped without residual risk", async () => {
+    const tools = createWorkGovernanceTools(policy);
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const completeTool = tools.find((candidate) => candidate.name === "work_item.complete");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Verify skipped direct closeout.",
+        workflowProfile: "small-fix",
+        triggers: [],
+        expectedEvidence: ["tests"],
+        verificationGates: ["bun test", "bun run typecheck"],
+      },
+    });
+    expect(created?.isError).toBe(false);
+    const parsed = JSON.parse(created?.output ?? "{}") as { item: { id: string; expectedEvidence: string[] } };
+
+    const blocked = await completeTool?.execute({
+      name: "work_item.complete",
+      input: {
+        id: parsed.item.id,
+        providedEvidence: parsed.item.expectedEvidence,
+        skippedVerificationGates: ["bun run typecheck"],
+      },
+    });
+
+    expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("residual-risk closeout");
+    expect(blocked?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "complete",
+      status: "blocked",
+      missingEvidence: [],
+      missingResidualRisk: true,
+      errorCode: "missing_evidence",
+      item: {
+        skippedVerificationGates: ["bun run typecheck"],
+      },
+    });
+  });
+
   it("shares work item state with the caller-provided session store", async () => {
     const workItemStore = new WorkItemStore();
     const tools = createWorkGovernanceTools(policy, { workItemStore });
@@ -321,6 +363,77 @@ describe("work-governance-tool", () => {
     });
     expect(workItemStore.get(item.id)?.status).toBe("blocked");
     expect(goalRunStore.get(goal.id)?.currentPhase).toBe("paused:work-blocked-finish");
+  });
+
+  it("blocks skipped verification gates until residual risk is documented", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-skipped-gate",
+      summary: "Verify skipped gate closeout.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test", "bun run typecheck"],
+      goalRunId: "goal-skipped-gate",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-skipped-gate",
+      objective: "Execute closeout-gated work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+
+    await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        summary: "Start closeout-gated execution.",
+      },
+    });
+
+    const blocked = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-skipped-gate:work-skipped-gate:attempt:1",
+        providedEvidence: ["tests"],
+        skippedVerificationGates: ["bun run typecheck"],
+        summary: "Tests passed; typecheck was skipped.",
+      },
+    });
+
+    expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("residual-risk closeout");
+    expect(blocked?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "execution_finished",
+      id: item.id,
+      status: "blocked",
+      missingEvidence: [],
+      missingResidualRisk: true,
+      errorCode: "missing_evidence",
+      attempt: {
+        id: "goal-skipped-gate:work-skipped-gate:attempt:1",
+        skippedVerificationGates: ["bun run typecheck"],
+      },
+      item: {
+        skippedVerificationGates: ["bun run typecheck"],
+      },
+    });
+    expect(goalRunStore.get(goal.id)?.currentPhase).toBe("paused:work-skipped-gate");
   });
 
   it("does not start an explicit work item before earlier dependencies are complete", async () => {

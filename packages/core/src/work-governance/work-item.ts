@@ -40,6 +40,7 @@ export interface WorkItemExecutionAttempt {
   readonly providedEvidence: readonly string[];
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
+  readonly skippedVerificationGates: readonly string[];
   readonly residualRisk?: string;
 }
 
@@ -57,6 +58,7 @@ export interface WorkItemUpsertInput {
   readonly expectedEvidence: readonly string[];
   readonly providedEvidence?: readonly string[];
   readonly verificationGates: readonly string[];
+  readonly skippedVerificationGates?: readonly string[];
   readonly dependencies?: readonly string[];
   readonly residualRisk?: string;
   readonly pauseRequirements?: readonly WorkItemPauseRequirement[];
@@ -72,6 +74,7 @@ export interface WorkItem extends WorkItemUpsertInput {
   readonly id: string;
   readonly status: WorkItemStatus;
   readonly providedEvidence: readonly string[];
+  readonly skippedVerificationGates: readonly string[];
   readonly dependencies: readonly string[];
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -82,6 +85,7 @@ export interface WorkItem extends WorkItemUpsertInput {
 export interface WorkItemCompletionInput {
   readonly id: string;
   readonly providedEvidence?: readonly string[];
+  readonly skippedVerificationGates?: readonly string[];
   readonly residualRisk?: string;
 }
 
@@ -108,6 +112,7 @@ export interface WorkItemFinishExecutionAttemptInput {
   readonly id: string;
   readonly attemptId: string;
   readonly providedEvidence?: readonly string[];
+  readonly skippedVerificationGates?: readonly string[];
   readonly residualRisk?: string;
   readonly summary?: string;
 }
@@ -164,6 +169,7 @@ export class WorkItemStore {
       expectedEvidence: unique(input.expectedEvidence),
       providedEvidence: unique(input.providedEvidence ?? existing?.providedEvidence ?? []),
       verificationGates: unique(input.verificationGates),
+      skippedVerificationGates: unique(input.skippedVerificationGates ?? existing?.skippedVerificationGates ?? []),
       dependencies: unique(input.dependencies ?? existing?.dependencies ?? []),
       residualRisk: input.residualRisk ?? existing?.residualRisk,
       pauseRequirements: normalizePauseRequirements(input.pauseRequirements ?? existing?.pauseRequirements ?? []),
@@ -210,15 +216,20 @@ export class WorkItemStore {
       ...existing.providedEvidence,
       ...(input.providedEvidence ?? []),
     ]);
+    const skippedVerificationGates = unique([
+      ...existing.skippedVerificationGates,
+      ...(input.skippedVerificationGates ?? []),
+    ]);
     const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
     const residualRisk = input.residualRisk ?? existing.residualRisk;
-    const missingResidualRisk = existing.expectedEvidence.includes("residual-risk") && !residualRisk;
+    const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, skippedVerificationGates) && !residualRisk;
     const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk ? "completed" : "blocked";
 
     const item = this.upsert({
       ...existing,
       status,
       providedEvidence,
+      skippedVerificationGates,
       residualRisk,
     });
 
@@ -247,6 +258,7 @@ export class WorkItemStore {
       providedEvidence: [],
       missingEvidence: [],
       missingResidualRisk: false,
+      skippedVerificationGates: [],
     };
     const item = this.upsert({
       ...existing,
@@ -270,9 +282,14 @@ export class WorkItemStore {
       ...attempt.providedEvidence,
       ...(input.providedEvidence ?? []),
     ]);
+    const skippedVerificationGates = unique([
+      ...existing.skippedVerificationGates,
+      ...attempt.skippedVerificationGates,
+      ...(input.skippedVerificationGates ?? []),
+    ]);
     const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
     const residualRisk = input.residualRisk ?? existing.residualRisk ?? attempt.residualRisk;
-    const missingResidualRisk = existing.expectedEvidence.includes("residual-risk") && !residualRisk;
+    const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, skippedVerificationGates) && !residualRisk;
     const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk ? "completed" : "blocked";
     const completedAttempt: WorkItemExecutionAttempt = {
       ...attempt,
@@ -282,12 +299,14 @@ export class WorkItemStore {
       providedEvidence,
       missingEvidence,
       missingResidualRisk,
+      skippedVerificationGates,
       ...(residualRisk ? { residualRisk } : {}),
     };
     const item = this.upsert({
       ...existing,
       status,
       providedEvidence,
+      skippedVerificationGates,
       residualRisk,
       executionAttempts: existing.executionAttempts.map((candidate) =>
         candidate.id === input.attemptId ? completedAttempt : candidate),
@@ -332,6 +351,13 @@ export function reconstructWorkItemsFromSessionEvents(
 
 function unique<T extends string>(values: readonly T[]): readonly T[] {
   return [...new Set(values)];
+}
+
+function requiresResidualRisk(
+  expectedEvidence: readonly string[],
+  skippedVerificationGates: readonly string[],
+): boolean {
+  return expectedEvidence.includes("residual-risk") || skippedVerificationGates.length > 0;
 }
 
 function normalizePauseRequirements(

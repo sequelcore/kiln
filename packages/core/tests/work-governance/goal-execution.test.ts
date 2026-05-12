@@ -268,6 +268,91 @@ describe("goal execution loop", () => {
     expect(blocked.goal.currentPhase).toBe("paused:work-verify");
   });
 
+  it("blocks closeout when a verification gate is skipped without residual risk", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-skipped-gate",
+      summary: "Verify skipped gate closeout.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test", "bun run typecheck"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-skipped-gate",
+      objective: "Execute closeout-gated work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+      summary: "Run focused verification.",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+      skippedVerificationGates: ["bun run typecheck"],
+      summary: "Tests passed; typecheck was not run.",
+    });
+
+    expect(blocked).toMatchObject({
+      missingEvidence: [],
+      missingResidualRisk: true,
+      item: {
+        status: "blocked",
+        skippedVerificationGates: ["bun run typecheck"],
+      },
+      attempt: {
+        status: "blocked",
+        skippedVerificationGates: ["bun run typecheck"],
+        missingResidualRisk: true,
+      },
+    });
+    expect(blocked.goal.currentPhase).toBe("paused:work-skipped-gate");
+
+    const completed = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      residualRisk: "Typecheck was skipped because this change only exercised test fixtures.",
+      closeoutSummary: "Skipped gate documented.",
+    });
+
+    expect(completed).toMatchObject({
+      missingEvidence: [],
+      missingResidualRisk: false,
+      item: {
+        status: "completed",
+        skippedVerificationGates: ["bun run typecheck"],
+        residualRisk: "Typecheck was skipped because this change only exercised test fixtures.",
+      },
+      goal: {
+        status: "completed",
+        closeoutSummary: "Skipped gate documented.",
+      },
+    });
+  });
+
   it("replays work item execution attempts from canonical session events", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
