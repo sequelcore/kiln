@@ -144,6 +144,10 @@ export interface WorkItem {
   assignedAgentProfile?: string;
   expectedEvidence: string[];
   providedEvidence: string[];
+  latestAttemptStatus?: string;
+  latestAttemptMode?: string;
+  latestManagedInvocationId?: string;
+  pendingPauseRequirementCount?: number;
   missingEvidence?: string[];
   missingResidualRisk?: boolean;
   updatedAt: Date;

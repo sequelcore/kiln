@@ -261,7 +261,13 @@ function fmtWorkItem(item: WorkItem, index: number): string {
     : "--";
   const identity = projectAgentProfileIdentity(item.assignedAgentProfile);
   const agent = identity ? `[${operatorIdentityInitials(identity.label)}] ` : "";
-  return `${prefix}${agent}${item.status} ${evidence} ${summary}`;
+  const attempt = item.latestAttemptStatus && item.latestAttemptMode
+    ? ` ${item.latestAttemptMode.replace(/_/g, " ")}:${item.latestAttemptStatus}`
+    : "";
+  const paused = item.pendingPauseRequirementCount && item.pendingPauseRequirementCount > 0
+    ? ` pause:${item.pendingPauseRequirementCount}`
+    : "";
+  return `${prefix}${agent}${item.status} ${evidence}${attempt}${paused} ${summary}`;
 }
 
 /**

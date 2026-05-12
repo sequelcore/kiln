@@ -337,7 +337,11 @@ export function handleActivity(
       ]);
       ctx.renderSidebarChanges?.();
     }
-  } else if (activity === "work_item_updated") {
+  } else if (
+    activity === "work_item_updated"
+    || activity === "work_item_execution_started"
+    || activity === "work_item_execution_finished"
+  ) {
     const item = toWorkItem(input, event?.sessionId, event?.turnId);
     if (item) {
       update(ctx.state, "workItems", [
@@ -384,6 +388,10 @@ function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkIt
     ...(agentIdentity ? { assignedAgentProfile: agentIdentity.label } : {}),
     expectedEvidence: readTextArray(record.expectedEvidence),
     providedEvidence: readTextArray(record.providedEvidence),
+    latestAttemptStatus: readText(record.latestAttemptStatus),
+    latestAttemptMode: readText(record.latestAttemptMode),
+    latestManagedInvocationId: readText(record.latestManagedInvocationId),
+    pendingPauseRequirementCount: readPendingPauseRequirementCount(record.pauseRequirements),
     updatedAt: readDate(record.updatedAt) ?? new Date(),
   };
 }
@@ -396,6 +404,18 @@ function readTextArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.flatMap((entry) => readText(entry) ? [readText(entry)!] : [])
     : [];
+}
+
+function readPendingPauseRequirementCount(value: unknown): number | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return false;
+    }
+    return (entry as Record<string, unknown>).status === "pending";
+  }).length;
 }
 
 function readDate(value: unknown): Date | undefined {

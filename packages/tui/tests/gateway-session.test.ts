@@ -402,6 +402,94 @@ describe("GatewaySession canonical session events", () => {
     await session.dispose();
   });
 
+  it("projects canonical work item execution events with attempt state", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "execute governed work" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-work-start",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-05-12T20:00:00.000Z",
+        kind: "work_item_execution_started",
+        turnId: "session-1:turn:live",
+        payload: {
+          workItem: {
+            id: "work-1",
+            summary: "Run Slice 9 verification",
+            status: "in_progress",
+            workflowProfile: "verification-heavy",
+            expectedEvidence: ["tests"],
+            providedEvidence: [],
+            executionAttempts: [
+              {
+                id: "goal-1:work-1:attempt:1",
+                status: "started",
+                executionMode: "managed_delegation",
+                managedInvocationId: "invocation-1",
+                startedAt: "2026-05-12T20:00:00.000Z",
+              },
+            ],
+            pauseRequirements: [
+              {
+                id: "operator-input-1",
+                kind: "operator_input",
+                summary: "Confirm execution",
+                status: "resolved",
+              },
+            ],
+            updatedAt: "2026-05-12T20:00:00.000Z",
+          },
+          attempt: {
+            id: "goal-1:work-1:attempt:1",
+            status: "started",
+            executionMode: "managed_delegation",
+            managedInvocationId: "invocation-1",
+            startedAt: "2026-05-12T20:00:00.000Z",
+          },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+
+    await collect;
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "activity",
+        activity: "work_item_execution_started",
+        sessionId: "session-1",
+        turnId: "session-1:turn:live",
+        details: "started · managed_delegation · Run Slice 9 verification",
+        input: expect.objectContaining({
+          id: "work-1",
+          latestAttemptStatus: "started",
+          latestAttemptMode: "managed_delegation",
+          latestManagedInvocationId: "invocation-1",
+        }),
+        surfaces: ["conversation_inline", "activity_panel", "inspector"],
+      }),
+    ]));
+
+    await session.dispose();
+  });
+
   it("projects read and tree tool results from full payload envelopes", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];

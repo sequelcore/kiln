@@ -1433,6 +1433,50 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   };
 }
 
+function workItemExecutionPresentation(
+  kind: OperatorSessionEventKind,
+  payload: Record<string, unknown>,
+): OperatorEventPresentation {
+  const item = asRecord(payload.workItem);
+  const attempt = asRecord(payload.attempt);
+  const summary = readString(item?.summary) ?? "Governed work item execution";
+  const status = readString(attempt?.status) ?? readString(item?.status) ?? "unknown";
+  const executionMode = readString(attempt?.executionMode) ?? "unknown";
+  const missingEvidence = readStringList(payload.missingEvidence);
+  const missingResidualRisk = payload.missingResidualRisk === true;
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Work item", item?.id);
+  addItem(details, "Attempt", attempt?.id);
+  addItem(details, "Status", status);
+  addItem(details, "Execution mode", executionMode);
+  addItem(details, "Managed invocation", attempt?.managedInvocationId);
+  addItem(details, "Started", attempt?.startedAt);
+  addItem(details, "Completed", attempt?.completedAt);
+  addItem(details, "Missing evidence", missingEvidence.join(", "));
+  addItem(details, "Missing residual risk", missingResidualRisk);
+
+  return {
+    title: kind === "work_item_execution_started"
+      ? "Work item execution started"
+      : status === "completed"
+        ? "Work item execution completed"
+        : "Work item execution finished",
+    summary: `${status} · ${executionMode} · ${summary}`,
+    compactText: `${status} · ${executionMode} · ${summary}`,
+    tone: status === "started"
+      ? "running"
+      : status === "completed"
+        ? "success"
+        : status === "failed"
+          ? "error"
+          : status === "blocked" || status === "cancelled"
+            ? "warning"
+            : "info",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+  };
+}
+
 function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string, unknown>): OperatorEventPresentation {
   const goal = asRecord(payload.goal);
   const authority = asRecord(goal?.authorityEnvelope);
@@ -1542,6 +1586,9 @@ export function presentOperatorEventPayload(
       return workItemsMaterializedPresentation(payload);
     case "work_item_updated":
       return workItemPresentation(payload);
+    case "work_item_execution_started":
+    case "work_item_execution_finished":
+      return workItemExecutionPresentation(kind, payload);
     case "approval_requested":
       return approvalRequestedPresentation(payload);
     case "approval_resolved":

@@ -78,6 +78,20 @@ function normalizeChangeType(value: unknown): "created" | "modified" | "deleted"
   return undefined;
 }
 
+function workItemActivityInput(payload: Record<string, unknown>): unknown {
+  const workItem = asRecord(payload.workItem);
+  if (!workItem) {
+    return payload.workItem;
+  }
+  const attempt = asRecord(payload.attempt);
+  return {
+    ...workItem,
+    ...(readString(attempt?.status) ? { latestAttemptStatus: readString(attempt?.status) } : {}),
+    ...(readString(attempt?.executionMode) ? { latestAttemptMode: readString(attempt?.executionMode) } : {}),
+    ...(readString(attempt?.managedInvocationId) ? { latestManagedInvocationId: readString(attempt?.managedInvocationId) } : {}),
+  };
+}
+
 function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInternal | null {
   const payload = asRecord(event.payload) ?? {};
   const presentation = presentOperatorSessionEvent(event);
@@ -171,13 +185,17 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       ...scoped,
     };
   }
-  if (event.kind === "work_item_updated") {
+  if (
+    event.kind === "work_item_updated"
+    || event.kind === "work_item_execution_started"
+    || event.kind === "work_item_execution_finished"
+  ) {
     return {
       type: "activity",
-      activity: "work_item_updated",
+      activity: event.kind,
       details: presentation.compactText,
       output: presentation.summary,
-      input: payload.workItem,
+      input: workItemActivityInput(payload),
       surfaces: presentation.surfaces,
       ...scoped,
     };

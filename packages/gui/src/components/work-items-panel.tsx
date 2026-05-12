@@ -30,6 +30,14 @@ function avatarStateForStatus(status: string): OperatorAvatarState {
   return "idle";
 }
 
+function latestAttempt(item: WorkItemEntry) {
+  return item.executionAttempts?.at(-1);
+}
+
+function attemptModeLabel(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
 export function WorkItemsPanel(props: WorkItemsPanelProps) {
   if (props.items.length === 0) {
     return (
@@ -52,6 +60,8 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
             ...(item.missingEvidence ?? []),
             ...(item.missingResidualRisk ? ["residual-risk"] : []),
           ];
+          const pendingRequirements = item.pauseRequirements?.filter((requirement) => requirement.status === "pending") ?? [];
+          const attempt = latestAttempt(item);
           const identity = projectAgentProfileIdentity(item.assignedAgentProfile);
           return (
             <li key={item.id} className="px-5 py-4">
@@ -94,6 +104,25 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
                 <p className="mt-3 text-sm leading-6 text-amber-300">
                   Missing: {missing.join(", ")}
                 </p>
+              ) : null}
+              {pendingRequirements.length > 0 ? (
+                <div className="mt-3 space-y-1">
+                  {pendingRequirements.map((requirement) => (
+                    <p key={requirement.id} className="text-sm leading-6 text-amber-300">
+                      {requirement.kind.replace(/_/g, " ")}: {requirement.summary}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+              {attempt ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                  <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
+                    {attemptModeLabel(attempt.executionMode)} / {attempt.status.replace(/_/g, " ")}
+                  </Badge>
+                  {attempt.managedInvocationId ? (
+                    <span>{attempt.managedInvocationId}</span>
+                  ) : null}
+                </div>
               ) : null}
             </li>
           );

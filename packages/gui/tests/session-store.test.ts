@@ -3,6 +3,7 @@ import {
   deriveChangedFiles,
   derivePendingApprovals,
   deriveToolCallLog,
+  deriveWorkItems,
   useSessionStore,
 } from "../src/lib/session-store.js";
 
@@ -1001,6 +1002,108 @@ describe("session-store", () => {
       summary: "agent-reviewer · cancelled by operator",
     });
     expect(state.activity).toBeNull();
+  });
+
+  it("derives work item execution attempts and pause requirements from canonical events", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-work-update",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-05-12T20:00:00.000Z",
+      kind: "work_item_updated",
+      payload: {
+        operation: "update",
+        workItem: {
+          id: "work-1",
+          summary: "Run Slice 9 verification",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          expectedEvidence: ["tests"],
+          providedEvidence: [],
+          verificationGates: ["bun test"],
+          pauseRequirements: [
+            {
+              id: "approval-1",
+              kind: "approval",
+              summary: "Approve execution",
+              status: "pending",
+            },
+          ],
+          updatedAt: "2026-05-12T20:00:00.000Z",
+        },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-work-started",
+      kilnSessionId: "session-live",
+      sequence: 2,
+      timestamp: "2026-05-12T20:01:00.000Z",
+      kind: "work_item_execution_started",
+      payload: {
+        workItem: {
+          id: "work-1",
+          summary: "Run Slice 9 verification",
+          status: "in_progress",
+          workflowProfile: "verification-heavy",
+          expectedEvidence: ["tests"],
+          providedEvidence: [],
+          verificationGates: ["bun test"],
+          executionAttempts: [
+            {
+              id: "goal-1:work-1:attempt:1",
+              workItemId: "work-1",
+              goalRunId: "goal-1",
+              status: "started",
+              executionMode: "managed_delegation",
+              managedInvocationId: "invocation-1",
+              startedAt: "2026-05-12T20:01:00.000Z",
+              providedEvidence: [],
+              missingEvidence: [],
+              missingResidualRisk: false,
+            },
+          ],
+          updatedAt: "2026-05-12T20:01:00.000Z",
+        },
+        attempt: {
+          id: "goal-1:work-1:attempt:1",
+          status: "started",
+          executionMode: "managed_delegation",
+          managedInvocationId: "invocation-1",
+          startedAt: "2026-05-12T20:01:00.000Z",
+        },
+      },
+    });
+
+    const items = deriveWorkItems(useSessionStore.getState().timelineEntries);
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: "work-1",
+        status: "in_progress",
+        pauseRequirements: [
+          expect.objectContaining({
+            id: "approval-1",
+            kind: "approval",
+            status: "pending",
+          }),
+        ],
+        executionAttempts: [
+          expect.objectContaining({
+            id: "goal-1:work-1:attempt:1",
+            executionMode: "managed_delegation",
+            status: "started",
+            managedInvocationId: "invocation-1",
+          }),
+        ],
+      }),
+    ]);
+    expect(useSessionStore.getState().timelineEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "event",
+        eventKind: "work_item_execution_started",
+        title: "Work item execution started",
+      }),
+    ]));
   });
 
   it("stores runtime continuity per finalized provider and reconciles done-token fallback", () => {

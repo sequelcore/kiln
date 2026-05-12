@@ -154,6 +154,55 @@ describe("operator event presentation", () => {
     ]);
   });
 
+  it("presents work-item execution attempts as operator-visible checkpoints", () => {
+    const started = presentOperatorEventPayload("work_item_execution_started", {
+      workItem: {
+        id: "work-1",
+        summary: "Run Slice 9 verification",
+        status: "in_progress",
+        workflowProfile: "verification-heavy",
+      },
+      attempt: {
+        id: "goal-1:work-1:attempt:1",
+        status: "started",
+        executionMode: "managed_delegation",
+        managedInvocationId: "invocation-1",
+        startedAt: "2026-05-12T20:00:00.000Z",
+      },
+    });
+    const finished = presentOperatorEventPayload("work_item_execution_finished", {
+      workItem: {
+        id: "work-1",
+        summary: "Run Slice 9 verification",
+        status: "completed",
+        workflowProfile: "verification-heavy",
+      },
+      attempt: {
+        id: "goal-1:work-1:attempt:1",
+        status: "completed",
+        executionMode: "managed_delegation",
+        managedInvocationId: "invocation-1",
+        startedAt: "2026-05-12T20:00:00.000Z",
+        completedAt: "2026-05-12T20:05:00.000Z",
+      },
+      missingEvidence: [],
+      missingResidualRisk: false,
+    });
+
+    expect(started).toMatchObject({
+      title: "Work item execution started",
+      summary: "started · managed_delegation · Run Slice 9 verification",
+      tone: "running",
+    });
+    expect(started.details).toContainEqual({ label: "Attempt", value: "goal-1:work-1:attempt:1" });
+    expect(started.details).toContainEqual({ label: "Managed invocation", value: "invocation-1" });
+    expect(finished).toMatchObject({
+      title: "Work item execution completed",
+      summary: "completed · managed_delegation · Run Slice 9 verification",
+      tone: "success",
+    });
+  });
+
   it("presents turn completion nested data as operator detail rows", () => {
     const presentation = presentOperatorEventPayload("turn_completed", {
       routedProvider: "codex-oauth",

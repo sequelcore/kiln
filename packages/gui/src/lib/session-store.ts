@@ -64,9 +64,27 @@ export interface WorkItemEntry {
   readonly expectedEvidence: readonly string[];
   readonly providedEvidence: readonly string[];
   readonly verificationGates: readonly string[];
+  readonly pauseRequirements?: readonly WorkItemPauseRequirementEntry[];
+  readonly executionAttempts?: readonly WorkItemExecutionAttemptEntry[];
   readonly missingEvidence?: readonly string[];
   readonly missingResidualRisk?: boolean;
   readonly updatedAt: string;
+}
+
+export interface WorkItemPauseRequirementEntry {
+  readonly id: string;
+  readonly kind: string;
+  readonly summary: string;
+  readonly status: string;
+}
+
+export interface WorkItemExecutionAttemptEntry {
+  readonly id: string;
+  readonly status: string;
+  readonly executionMode: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+  readonly managedInvocationId?: string;
 }
 
 export type ProviderCatalogStatus = GuiProviderCatalogStatus;
@@ -321,9 +339,63 @@ function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | 
     expectedEvidence: readStringArray(item.expectedEvidence),
     providedEvidence: readStringArray(item.providedEvidence),
     verificationGates: readStringArray(item.verificationGates),
+    pauseRequirements: readWorkItemPauseRequirements(item.pauseRequirements),
+    executionAttempts: readWorkItemExecutionAttempts(item.executionAttempts),
     missingEvidence: readStringArray(payload.missingEvidence),
     missingResidualRisk: payload.missingResidualRisk === true,
     updatedAt: readString(item.updatedAt) ?? nowIso(),
+  };
+}
+
+function readWorkItemPauseRequirements(value: unknown): readonly WorkItemPauseRequirementEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.flatMap((entry) => {
+    const record = isObjectRecord(entry) ? entry : null;
+    const id = readString(record?.id);
+    const kind = readString(record?.kind);
+    const summary = readString(record?.summary);
+    const status = readString(record?.status);
+    return id && kind && summary && status
+      ? [{ id, kind, summary, status }]
+      : [];
+  });
+}
+
+function readWorkItemExecutionAttempts(value: unknown): readonly WorkItemExecutionAttemptEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.flatMap((entry) => {
+    const record = isObjectRecord(entry) ? entry : null;
+    const id = readString(record?.id);
+    const status = readString(record?.status);
+    const executionMode = readString(record?.executionMode);
+    return id && status && executionMode
+      ? [{
+        id,
+        status,
+        executionMode,
+        startedAt: readString(record?.startedAt) ?? undefined,
+        completedAt: readString(record?.completedAt) ?? undefined,
+        managedInvocationId: readString(record?.managedInvocationId) ?? undefined,
+      }]
+      : [];
+  });
+}
+
+function isWorkItemTimelineEventKind(kind: OperatorSessionEventKind): boolean {
+  return kind === "work_item_updated"
+    || kind === "work_item_execution_started"
+    || kind === "work_item_execution_finished";
+}
+
+function mergeWorkItemEntry(previous: WorkItemEntry | undefined, next: WorkItemEntry): WorkItemEntry {
+  return {
+    ...next,
+    pauseRequirements: next.pauseRequirements ?? previous?.pauseRequirements,
+    executionAttempts: next.executionAttempts ?? previous?.executionAttempts,
   };
 }
 
@@ -642,7 +714,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       continue;
     }
 
-    if (event.kind === "work_item_updated") {
+    if (isWorkItemTimelineEventKind(event.kind)) {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       timelineEntries.push({
         id: `${detail.id}:timeline:${event.sequence}`,
@@ -1056,7 +1128,7 @@ export function deriveChangedFiles(entries: readonly TimelineEntry[]): readonly 
 export function deriveWorkItems(entries: readonly TimelineEntry[]): readonly WorkItemEntry[] {
   const items = new Map<string, WorkItemEntry>();
   for (const entry of entries) {
-    if (entry.type !== "event" || entry.eventKind !== "work_item_updated") {
+    if (entry.type !== "event" || !isWorkItemTimelineEventKind(entry.eventKind)) {
       continue;
     }
     const payload = isObjectRecord(entry.details) ? entry.details : null;
@@ -1065,7 +1137,7 @@ export function deriveWorkItems(entries: readonly TimelineEntry[]): readonly Wor
     }
     const item = workItemFromPayload(payload);
     if (item) {
-      items.set(item.id, item);
+      items.set(item.id, mergeWorkItemEntry(items.get(item.id), item));
     }
   }
   return [...items.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -1865,7 +1937,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return;
     }
 
-    if (event.kind === "work_item_updated") {
+    if (isWorkItemTimelineEventKind(event.kind)) {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       set({
         timelineEntries: [
