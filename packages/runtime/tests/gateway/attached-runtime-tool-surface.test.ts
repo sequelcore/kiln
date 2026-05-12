@@ -1480,6 +1480,58 @@ describe("attached runtime builtin tool surface", () => {
     });
   });
 
+  it("keeps managed-delegation work item execution paused when the managed route cannot be hydrated", async () => {
+    const startTool = makeManagedExecutionStartTool();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool],
+      }),
+      managedInvocation: {
+        routes: [],
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+    const output = JSON.parse(result.output) as Record<string, unknown>;
+
+    expect(result.isError).toBe(true);
+    expect(output).toMatchObject({
+      status: "paused",
+      reason: "Managed child invocation failed before work item execution could start.",
+      managedInvocation: expect.objectContaining({
+        isError: true,
+        output: "managed_agent.invoke requires providerRoute.providerId.",
+      }),
+    });
+    expect(startTool.calls).toHaveLength(1);
+    expect(result.metadata).toMatchObject({
+      operation: "managed_invocation_failed",
+      managedInvocationAutoStarted: false,
+      managedInvocationFailureReason: "Managed child invocation failed before work item execution could start.",
+      managedInvocation: {
+        toolName: "managed_agent.invoke",
+        kind: "managed-invocation",
+        status: "failed",
+      },
+    });
+  });
+
   it("propagates deferred core tool projection to runtime consumers", () => {
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: {
