@@ -18,7 +18,10 @@ export type CanonicalSessionEventKind =
   | "user_message"
   | "assistant_message"
   | "assistant_delta"
+  | "specification_submitted"
+  | "clarification_recorded"
   | "plan_submitted"
+  | "plan_analysis_reported"
   | "plan_approved"
   | "provider_routed"
   | "tool_call_started"
@@ -140,16 +143,63 @@ export interface CanonicalAssistantDeltaEvent extends SessionEventEnvelope<"assi
   readonly deltaIndex: number;
 }
 
+export interface CanonicalSpecificationSubmittedEvent extends SessionEventEnvelope<"specification_submitted"> {
+  readonly specificationId: string;
+  readonly status: "draft" | "ready_for_plan";
+  readonly summary: string;
+  readonly issueCodes: readonly string[];
+  readonly blockingIssueCodes: readonly string[];
+}
+
+export interface CanonicalClarificationRecordedEvent extends SessionEventEnvelope<"clarification_recorded"> {
+  readonly specificationId: string;
+  readonly clarificationId: string;
+  readonly affectedSection: string;
+}
+
 export interface CanonicalPlanSubmittedEvent extends SessionEventEnvelope<"plan_submitted"> {
   readonly planId: string;
   readonly mode: "plan";
-  readonly content: string;
+  readonly objective: string;
+  readonly nonGoals: readonly string[];
+  readonly operatorDecisionsRequired: readonly string[];
+  readonly assumptions: readonly string[];
+  readonly affectedSurfaces: readonly string[];
+  readonly riskClassification: "low" | "medium" | "high" | "critical";
+  readonly workflowProfile: string;
+  readonly workGovernancePosture: "direct" | "orchestrate" | "delegate";
+  readonly expectedEvidence: readonly string[];
+  readonly verificationGates: readonly string[];
+  readonly managedAgentDelegationCandidates: readonly string[];
+  readonly approvalBoundaries: readonly string[];
+  readonly rollbackNotes: string;
+  readonly residualRisks: readonly string[];
+  readonly sourceSpecificationId: string;
+  readonly clarificationRecordIds: readonly string[];
+  readonly constitutionSnapshotHash: string;
+  readonly proposedWorkItemCount: number;
+  readonly summary: string;
 }
 
 export interface CanonicalPlanApprovedEvent extends SessionEventEnvelope<"plan_approved"> {
-  readonly planId?: string;
+  readonly planId: string;
+  readonly approvalId: string;
+  readonly planHash: string;
+  readonly approvedAt: string;
   readonly fromMode: "plan";
   readonly toMode: "execute";
+}
+
+export interface CanonicalPlanAnalysisReportedEvent extends SessionEventEnvelope<"plan_analysis_reported"> {
+  readonly reportId: string;
+  readonly planId: string;
+  readonly specificationId: string;
+  readonly status: "blocked" | "ready";
+  readonly highestSeverity: "critical" | "high" | "medium" | "low" | "none";
+  readonly findingIds: readonly string[];
+  readonly blockingFindingIds: readonly string[];
+  readonly findingCount: number;
+  readonly summary: string;
 }
 
 export interface CanonicalProviderRoutedEvent extends SessionEventEnvelope<"provider_routed"> {
@@ -355,7 +405,10 @@ export interface CanonicalSessionEventMap {
   user_message: CanonicalUserMessageEvent;
   assistant_message: CanonicalAssistantMessageEvent;
   assistant_delta: CanonicalAssistantDeltaEvent;
+  specification_submitted: CanonicalSpecificationSubmittedEvent;
+  clarification_recorded: CanonicalClarificationRecordedEvent;
   plan_submitted: CanonicalPlanSubmittedEvent;
+  plan_analysis_reported: CanonicalPlanAnalysisReportedEvent;
   plan_approved: CanonicalPlanApprovedEvent;
   provider_routed: CanonicalProviderRoutedEvent;
   tool_call_started: CanonicalToolCallStartedEvent;

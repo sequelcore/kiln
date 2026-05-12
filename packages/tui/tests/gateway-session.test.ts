@@ -90,6 +90,27 @@ function sentOperatorThemeResultFrame(ws: MockWebSocket): {
   return frame as { requestId: string; ok: boolean; appliedTheme?: string; error?: string };
 }
 
+function sentMessageFrame(ws: MockWebSocket): {
+  type: "message";
+  content: string;
+  executionMode?: "execute" | "plan";
+  requestedAuthority?: "auto" | "read_only" | "audited" | "destructive";
+  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+} {
+  const messageCall = ws.send.mock.calls.find(([payload]) => {
+    if (typeof payload !== "string" || payload === "ping") return false;
+    return (JSON.parse(payload) as { type?: string }).type === "message";
+  });
+  expect(messageCall).toBeDefined();
+  return JSON.parse(messageCall?.[0] as string) as {
+    type: "message";
+    content: string;
+    executionMode?: "execute" | "plan";
+    requestedAuthority?: "auto" | "read_only" | "audited" | "destructive";
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  };
+}
+
 describe("GatewaySession provider switching", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -604,15 +625,41 @@ describe("GatewaySession execution modes", () => {
     })();
     await Promise.resolve();
 
-    const messageCall = ws.send.mock.calls.find(([payload]) => {
-      if (typeof payload !== "string" || payload === "ping") return false;
-      return (JSON.parse(payload) as { type?: string }).type === "message";
-    });
-    expect(messageCall).toBeDefined();
-    expect(JSON.parse(messageCall?.[0] as string)).toMatchObject({
+    expect(sentMessageFrame(ws)).toMatchObject({
       type: "message",
       content: "make a plan",
       executionMode: "plan",
+    });
+
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "",
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+    await collect;
+    await session.dispose();
+  });
+
+  it("sends requestedAuthority when provided on run options", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const collect = (async () => {
+      for await (const _event of session.run({
+        prompt: "review this patch",
+        requestedAuthority: "audited",
+      })) {
+        // drain until done
+      }
+    })();
+    await Promise.resolve();
+
+    expect(sentMessageFrame(ws)).toMatchObject({
+      type: "message",
+      content: "review this patch",
+      requestedAuthority: "audited",
     });
 
     ws.simulateMessage(JSON.stringify({

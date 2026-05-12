@@ -88,6 +88,20 @@ function extractToolResultMetadata(resultValue: unknown): Record<string, unknown
     : undefined;
 }
 
+function extractToolResultIsError(resultValue: unknown): boolean | undefined {
+  const resultRecord = resultValue && typeof resultValue === "object" && !Array.isArray(resultValue)
+    ? resultValue as { isError?: unknown }
+    : undefined;
+  return typeof resultRecord?.isError === "boolean" ? resultRecord.isError : undefined;
+}
+
+function extractToolResultOutput(resultValue: unknown): string | undefined {
+  const resultRecord = resultValue && typeof resultValue === "object" && !Array.isArray(resultValue)
+    ? resultValue as { output?: unknown }
+    : undefined;
+  return typeof resultRecord?.output === "string" ? resultRecord.output : undefined;
+}
+
 function countLines(value: string): number {
   if (value.length === 0) {
     return 0;
@@ -349,14 +363,19 @@ export class RuntimeSessionToolExecutor {
         const durationMs = Date.now() - startMs;
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
         const metadata = extractToolResultMetadata(execution.resultValueRaw);
+        const resultOutput = extractToolResultOutput(execution.resultValueRaw);
+        const envelopeIsError = extractToolResultIsError(execution.resultValueRaw);
+        const isError = envelopeIsError === true;
+        const success = !isError;
+        const resultSummary = (resultOutput ?? sanitized.resultValue).slice(0, 200);
 
         this.emitToolResult(
           session.id,
           normalizedToolCall.name,
           durationMs,
-          true,
-          sanitized.resultSummary,
-          false,
+          success,
+          resultSummary,
+          isError,
           execution.retryAttempt,
           sanitized.resultValue,
           metadata,
@@ -371,19 +390,27 @@ export class RuntimeSessionToolExecutor {
           toolCallId: normalizedToolCall.id,
           toolName: normalizedToolCall.name,
           input: normalizedToolCall.input,
+          ...(metadata ? { metadata } : {}),
           durationMs,
-          success: true,
+          success,
           output: sanitized.resultValue,
-          resultSummary: sanitized.resultSummary,
+          resultSummary,
           fileChanges,
         });
 
-        this.appendAudit(normalizedToolCall.name, durationMs, sanitized.sanitized ? "success_sanitized" : "success", authResult);
+        this.appendAudit(
+          normalizedToolCall.name,
+          durationMs,
+          isError
+            ? "error"
+            : (sanitized.sanitized ? "success_sanitized" : "success"),
+          authResult,
+        );
         resultParts.push({
           type: "tool_result",
           toolUseId: normalizedToolCall.id,
           content: sanitized.resultValue,
-          isError: false,
+          isError,
         });
 
         if (cacheTtl && this.deps.toolCache) {

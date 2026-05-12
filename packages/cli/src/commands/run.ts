@@ -288,6 +288,9 @@ function parseSubmittedPlan(line: string): string | undefined {
         : undefined;
       return payload ? extractSubmitPlan(payload) : undefined;
     }
+    if (parsed.kind === "plan_submitted") {
+      return renderStructuredPlanSummary(parsed.payload);
+    }
     return undefined;
   } catch {
     return undefined;
@@ -307,7 +310,71 @@ function extractSubmitPlan(event: Record<string, unknown>): string | undefined {
     ? event.input as Record<string, unknown>
     : undefined;
   const plan = input?.plan;
-  return typeof plan === "string" ? plan : undefined;
+  if (typeof plan === "string") {
+    return plan;
+  }
+  return renderStructuredPlanSummary(input);
+}
+
+function renderStructuredPlanSummary(input: unknown): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+  const plan = input as Record<string, unknown>;
+  const objective = typeof plan.objective === "string" ? plan.objective.trim() : "";
+  if (!objective) {
+    return undefined;
+  }
+  const list = (value: unknown) => Array.isArray(value)
+    ? value.flatMap((entry) => typeof entry === "string" ? [entry.trim()] : []).filter((entry) => entry.length > 0)
+    : [];
+  const recommendation = plan.workGovernanceRecommendation
+    && typeof plan.workGovernanceRecommendation === "object"
+    && !Array.isArray(plan.workGovernanceRecommendation)
+    ? plan.workGovernanceRecommendation as Record<string, unknown>
+    : undefined;
+  const proposedWorkItems = Array.isArray(plan.proposedWorkItems)
+    ? plan.proposedWorkItems.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) as Record<string, unknown>[]
+    : [];
+  const lines = [
+    objective,
+    typeof plan.riskClassification === "string" ? `- risk: ${plan.riskClassification}` : undefined,
+    typeof recommendation?.posture === "string" ? `- posture: ${recommendation.posture}` : undefined,
+    typeof recommendation?.workflowProfile === "string" ? `- workflow: ${recommendation.workflowProfile}` : undefined,
+    typeof recommendation?.rationale === "string" ? `- governance rationale: ${recommendation.rationale}` : undefined,
+    typeof plan.sourceSpecificationId === "string" ? `- source specification: ${plan.sourceSpecificationId}` : undefined,
+    ...list(plan.clarificationRecordIds).map((clarification) => `- clarification: ${clarification}`),
+    ...list(plan.affectedSurfaces).map((surface) => `- affected surface: ${surface}`),
+    ...list(plan.nonGoals).map((goal) => `- non-goal: ${goal}`),
+    ...list(plan.assumptions).map((assumption) => `- assumption: ${assumption}`),
+    ...list(plan.operatorDecisionsRequired).map((decision) => `- decision: ${decision}`),
+    ...list(plan.expectedEvidence).map((evidence) => `- evidence: ${evidence}`),
+    ...list(plan.verificationGates).map((gate) => `- gate: ${gate}`),
+    ...list(plan.managedAgentDelegationCandidates).map((candidate) => `- delegation candidate: ${candidate}`),
+    ...list(plan.approvalBoundaries).map((boundary) => `- approval boundary: ${boundary}`),
+    typeof plan.rollbackNotes === "string" && plan.rollbackNotes.trim().length > 0
+      ? `- rollback: ${plan.rollbackNotes.trim()}`
+      : undefined,
+    ...list(plan.residualRisks).map((risk) => `- residual risk: ${risk}`),
+    ...proposedWorkItems.flatMap((item) => {
+      const itemId = typeof item.id === "string" ? item.id.trim() : "";
+      const itemSummary = typeof item.summary === "string" ? item.summary.trim() : "";
+      const itemWorkflow = typeof item.workflowProfile === "string" ? item.workflowProfile.trim() : "";
+      const itemRisk = typeof item.risk === "string" ? item.risk.trim() : "";
+      const itemEvidence = list(item.expectedEvidence);
+      const itemGates = list(item.verificationGates);
+      const itemDeps = list(item.dependencies);
+      return [
+        itemSummary || itemId ? `- work item ${itemId || "item"}: ${itemSummary || "(no summary)"}` : undefined,
+        itemWorkflow ? `  workflow: ${itemWorkflow}` : undefined,
+        itemRisk ? `  risk: ${itemRisk}` : undefined,
+        ...itemEvidence.map((evidence) => `  evidence: ${evidence}`),
+        ...itemGates.map((gate) => `  gate: ${gate}`),
+        ...itemDeps.map((dependency) => `  depends on: ${dependency}`),
+      ];
+    }),
+  ].filter((line): line is string => typeof line === "string" && line.length > 0);
+  return lines.join("\n");
 }
 
 async function readSubmittedPlanFromTranscript(projectPath: string, sessionId: string): Promise<string | undefined> {

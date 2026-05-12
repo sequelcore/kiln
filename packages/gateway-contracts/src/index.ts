@@ -43,6 +43,7 @@ export type {
   GuiProviderModelRouteHealth,
   GuiProviderReasoningEffort,
   OperatorExecutionMode,
+  OperatorTurnRequestedAuthority,
   GuiProviderDiscoveryStatus,
   GuiProviderAuthState,
   GuiProviderCatalogStatus,

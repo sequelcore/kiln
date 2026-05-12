@@ -43,6 +43,7 @@ export type GuiProviderCatalogStatus = "pending" | "refreshing" | "ready" | "err
 export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type OperatorExecutionMode = "execute" | "plan";
+export type OperatorTurnRequestedAuthority = "auto" | "read_only" | "audited" | "destructive";
 
 export interface GuiProviderModelCapabilities {
   readonly supportsFunctionTools?: boolean;
@@ -229,7 +230,10 @@ export type OperatorSessionEventKind =
   | "user_message"
   | "assistant_message"
   | "assistant_delta"
+  | "specification_submitted"
+  | "clarification_recorded"
   | "plan_submitted"
+  | "plan_analysis_reported"
   | "plan_approved"
   | "provider_routed"
   | "tool_call_started"
@@ -447,6 +451,7 @@ export type GuiOutboundFrame =
       type: "message";
       content: string;
       executionMode?: OperatorExecutionMode;
+      requestedAuthority?: OperatorTurnRequestedAuthority;
       resumeSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       appName?: string;
@@ -466,7 +471,7 @@ export type GuiOutboundFrame =
   | { type: "resume"; sessionId: string }
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }
-  | { type: "execution_mode_transition"; toMode: OperatorExecutionMode };
+  | { type: "execution_mode_transition"; toMode: OperatorExecutionMode; planId?: string };
 
 /** Frames sent by the gateway to the browser (operator). */
 export type GuiInboundFrame =
@@ -516,7 +521,13 @@ export type GuiInboundFrame =
         completeness: "authoritative" | "partial";
       };
     }
-    | { type: "execution_mode_transitioned"; executionMode: OperatorExecutionMode }
+    | {
+        type: "execution_mode_transitioned";
+        executionMode: OperatorExecutionMode;
+        planId?: string;
+        approvalId?: string;
+        planHash?: string;
+      }
     | { type: "cleared" }
     | GuiProviderAuthDeviceCodeStarted
     | GuiProviderAuthCompleted

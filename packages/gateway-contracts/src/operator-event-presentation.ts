@@ -1126,11 +1126,18 @@ function configChangePresentation(kind: OperatorSessionEventKind, payload: Recor
 }
 
 function planSubmittedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
-  const content = readString(payload.content) ?? readString(payload.plan) ?? "Plan submitted";
-  const summary = compactText(content);
+  const summary = compactText(
+    readString(payload.summary)
+    ?? readString(payload.objective)
+    ?? "Plan submitted",
+  );
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Plan", payload.planId);
   addItem(details, "Mode", payload.mode);
+  addItem(details, "Workflow", payload.workflowProfile);
+  addItem(details, "Risk", payload.riskClassification);
+  addItem(details, "Source spec", payload.sourceSpecificationId);
+  addItem(details, "Work items", payload.proposedWorkItemCount);
   return {
     title: "Plan submitted",
     summary,
@@ -1141,14 +1148,92 @@ function planSubmittedPresentation(payload: Record<string, unknown>): OperatorEv
   };
 }
 
+function specificationSubmittedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const specificationId = readString(payload.specificationId) ?? "specification";
+  const status = readString(payload.status) ?? "draft";
+  const summary = readString(payload.summary) ?? "Structured specification submitted.";
+  const issueCodes = Array.isArray(payload.issueCodes)
+    ? payload.issueCodes.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
+    : [];
+  const blockingIssueCodes = Array.isArray(payload.blockingIssueCodes)
+    ? payload.blockingIssueCodes.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
+    : [];
+  return {
+    title: "Specification Submitted",
+    summary: `${specificationId} · ${status}`,
+    compactText: summary,
+    tone: blockingIssueCodes.length > 0 ? "warning" : "info",
+    details: [
+      { label: "Specification", value: specificationId },
+      { label: "Status", value: status },
+      ...(issueCodes.length > 0 ? [{ label: "Issues", value: issueCodes.join(", ") }] : []),
+      ...(blockingIssueCodes.length > 0 ? [{ label: "Blocking", value: blockingIssueCodes.join(", ") }] : []),
+    ],
+    surfaces: ACTIVITY_SURFACES,
+  };
+}
+
+function planAnalysisReportedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const reportId = readString(payload.reportId) ?? "analysis-report";
+  const planId = readString(payload.planId) ?? "plan";
+  const status = readString(payload.status) ?? "ready";
+  const highestSeverity = readString(payload.highestSeverity) ?? "none";
+  const summary = readString(payload.summary) ?? "Plan/spec consistency analysis completed.";
+  const findingCount = readNumber(payload.findingCount);
+  const blocking = Array.isArray(payload.blockingFindingIds)
+    ? payload.blockingFindingIds.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
+    : [];
+  return {
+    title: "Plan Analysis Reported",
+    summary: `${status} · ${summary}`,
+    compactText: `${planId} · ${status}`,
+    tone: status === "blocked"
+      ? "error"
+      : highestSeverity === "high" || highestSeverity === "medium"
+        ? "warning"
+        : "info",
+    details: [
+      { label: "Report", value: reportId },
+      { label: "Plan", value: planId },
+      ...(readString(payload.specificationId) ? [{ label: "Specification", value: readString(payload.specificationId)! }] : []),
+      { label: "Status", value: status },
+      { label: "Highest severity", value: highestSeverity },
+      ...(findingCount !== undefined ? [{ label: "Findings", value: String(findingCount) }] : []),
+      ...(blocking.length > 0 ? [{ label: "Blocking findings", value: blocking.join(", ") }] : []),
+    ],
+    surfaces: ACTIVITY_SURFACES,
+  };
+}
+
+function clarificationRecordedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const specificationId = readString(payload.specificationId) ?? "specification";
+  const clarificationId = readString(payload.clarificationId) ?? "clarification";
+  const affectedSection = readString(payload.affectedSection);
+  return {
+    title: "Clarification Recorded",
+    summary: `${clarificationId} · ${specificationId}`,
+    compactText: `Clarification recorded for ${specificationId}`,
+    tone: "info",
+    details: [
+      { label: "Specification", value: specificationId },
+      { label: "Clarification", value: clarificationId },
+      ...(affectedSection ? [{ label: "Section", value: affectedSection }] : []),
+    ],
+    surfaces: ACTIVITY_SURFACES,
+  };
+}
+
 function planApprovedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const fromMode = readString(payload.fromMode) ?? "plan";
   const toMode = readString(payload.toMode) ?? "execute";
   const summary = `${fromMode} -> ${toMode}`;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Plan", payload.planId);
+  addItem(details, "Approval", payload.approvalId);
+  addItem(details, "Plan hash", payload.planHash);
   addItem(details, "From", fromMode);
   addItem(details, "To", toMode);
+  addItem(details, "Approved at", payload.approvedAt);
   return {
     title: "Plan approved",
     summary,
@@ -1360,8 +1445,14 @@ export function presentOperatorEventPayload(
   payload: Record<string, unknown>,
 ): OperatorEventPresentation {
   switch (kind) {
+    case "specification_submitted":
+      return specificationSubmittedPresentation(payload);
+    case "clarification_recorded":
+      return clarificationRecordedPresentation(payload);
     case "plan_submitted":
       return planSubmittedPresentation(payload);
+    case "plan_analysis_reported":
+      return planAnalysisReportedPresentation(payload);
     case "plan_approved":
       return planApprovedPresentation(payload);
     case "provider_routed":

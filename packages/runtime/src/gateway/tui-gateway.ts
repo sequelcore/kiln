@@ -8,6 +8,7 @@ import {
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
   type OperatorExecutionMode,
+  type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
@@ -43,6 +44,7 @@ import {
 } from "../agents/managed-invocation/runtime-tool.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
+import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import {
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
@@ -137,6 +139,12 @@ export function buildTuiPerCallToolConfig(): PerCallToolConfig {
 export function deriveTuiAuthorityStatusFromPerCallConfig(
   config: PerCallToolConfig,
 ): TuiAuthorityStatus {
+  if (config.effectiveTurnAuthority) {
+    return {
+      effective: config.effectiveTurnAuthority.admittedAuthority,
+      completeness: config.effectiveTurnAuthority.completeness,
+    };
+  }
   const hasAllowlist = config.toolAllowlist !== undefined;
   const allowlistSize = config.toolAllowlist?.size ?? 0;
   const authorityMap = config.toolAuthority;
@@ -175,6 +183,13 @@ export function deriveTuiAuthorityStatusFromPerCallConfig(
   return { effective: "unknown", completeness: "partial" };
 }
 
+export function deriveTuiDoneAuthorityStatus(
+  turnPerCallConfig: PerCallToolConfig | undefined,
+  fallbackPerCallConfig: PerCallToolConfig = buildTuiPerCallToolConfig(),
+): TuiAuthorityStatus {
+  return deriveTuiAuthorityStatusFromPerCallConfig(turnPerCallConfig ?? fallbackPerCallConfig);
+}
+
 export function buildTuiWelcomeFramePayload(input: {
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -203,6 +218,7 @@ export function buildTuiTurnPerCallConfig(
   activeModelCapabilities?: GuiProviderModelCapabilities,
   reasoningEffort?: ReasoningEffort,
   executionMode: OperatorExecutionMode = "execute",
+  requestedAuthority?: OperatorTurnRequestedAuthority,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
@@ -212,6 +228,7 @@ export function buildTuiTurnPerCallConfig(
     reasoningEffort,
     builtinToolSurface,
     executionMode,
+    requestedAuthority,
   });
 }
 
@@ -238,6 +255,16 @@ function resolveRequestedReasoningEffort(
 
 function resolveExecutionMode(value: unknown): OperatorExecutionMode {
   return value === "plan" ? "plan" : "execute";
+}
+
+export function resolveTuiRequestedAuthority(value: unknown): OperatorTurnRequestedAuthority | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "auto" || value === "read_only" || value === "audited" || value === "destructive") {
+    return value;
+  }
+  throw new Error(`Unknown requested authority '${String(value)}'.`);
 }
 
 function findProviderModelCapabilities(
@@ -350,6 +377,11 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       { publish: (events) => activityStreamer.forwardSessionEvents(events) },
     ),
   });
+  const resourceSurfaces: AttachedRuntimeBuiltinToolSurface[] = [builtinToolSurface];
+  const rememberToolSurface = (surface: AttachedRuntimeBuiltinToolSurface): void => {
+    resourceSurfaces.unshift(surface);
+    resourceSurfaces.splice(8);
+  };
   activityStreamer.setToolCallMetadata(builtinToolSurface.toolCallMetadata);
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
@@ -581,6 +613,29 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
 
             if (frame.type === "execution_mode_transition") {
               const toMode = resolveExecutionMode(frame.toMode);
+              if (toMode === "execute") {
+                const transition = await approvePlanExecutionTransition({
+                  surfaces: resourceSurfaces,
+                  planId: typeof frame.planId === "string" ? frame.planId : undefined,
+                  sessionRegistry,
+                  appName: TUI_APP_NAME,
+                  tenantId: TUI_TENANT_ID,
+                  userId,
+                  sourceSurface: "tui",
+                  component: "tui-gateway",
+                });
+                if (!transition.ok) {
+                  ws.send(JSON.stringify({
+                    type: "error",
+                    code: transition.code,
+                    message: transition.message,
+                  } satisfies GuiInboundFrame));
+                  return;
+                }
+                activityStreamer.forwardSessionEvents([transition.event]);
+                ws.send(JSON.stringify(transition.frame));
+                return;
+              }
               ws.send(JSON.stringify({ type: "execution_mode_transitioned", executionMode: toMode }));
               return;
             }
@@ -614,10 +669,9 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             // Send "thinking" status to indicate work has started
             ws.send(JSON.stringify({ type: "thinking" }));
             let result;
-            let turnDiscovery: readonly GuiProviderDiscoveryResult[] = [];
+            let turnPerCallConfig: PerCallToolConfig | undefined;
             try {
               const currentDiscovery = await refreshDiscovery();
-              turnDiscovery = currentDiscovery;
               const activeProvider = options.sessionManager.getProvider();
               const activeDiscovery = currentDiscovery.find((entry) => entry.provider === activeProvider);
               const providerModels = activeDiscovery?.available ? activeDiscovery.models : undefined;
@@ -672,6 +726,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 frame.reasoningEffort,
               );
               const executionMode = resolveExecutionMode(frame.executionMode);
+              const requestedAuthority = resolveTuiRequestedAuthority(frame.requestedAuthority);
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions,
                 executionMode,
@@ -685,6 +740,16 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                   },
                 },
               });
+              rememberToolSurface(turnBuiltinToolSurface);
+              turnPerCallConfig = buildTuiTurnPerCallConfig(
+                activeProvider,
+                activeModel,
+                turnBuiltinToolSurface,
+                activeModelCapabilities,
+                reasoningEffort,
+                executionMode,
+                requestedAuthority,
+              );
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -699,14 +764,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 executionMode,
                 contextArtifactCache: options.contextArtifactCache,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
-                perCallConfig: buildTuiTurnPerCallConfig(
-                  activeProvider,
-                  activeModel,
-                  turnBuiltinToolSurface,
-                  activeModelCapabilities,
-                  reasoningEffort,
-                  executionMode,
-                ),
+                perCallConfig: turnPerCallConfig,
                 turnCapture: {
                   start: (sessionId, nextSequence) => {
                     activityStreamer.beginTurnCapture(sessionId, nextSequence);
@@ -739,31 +797,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               ? ""
               : options.sessionManager.getModel();
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
-            const routedModelCapabilities = findProviderModelCapabilities(
-              turnDiscovery.length > 0 ? turnDiscovery : providerDiscovery,
-              routedProvider,
-              routedModel || undefined,
-            );
-
-            const authorityStatus = deriveTuiAuthorityStatusFromPerCallConfig(
-              buildTuiTurnPerCallConfig(
-                routedProvider,
-                routedModel || undefined,
-                createAttachedRuntimeBuiltinToolSurface({
-                  builtinToolOptions,
-                  managedInvocation: attachManagedInvocationSessionEventSink(
-                    options.managedInvocation,
-                    { publish: (events) => activityStreamer.forwardSessionEvents(events) },
-                  ),
-                  operatorSurface: {
-                    theme: {
-                      setTheme: operatorThemeBridge.request,
-                    },
-                  },
-                }),
-                routedModelCapabilities,
-              ),
-            );
+            const authorityStatus = deriveTuiDoneAuthorityStatus(turnPerCallConfig);
             ws.send(JSON.stringify(buildTuiDoneFramePayload({
               content: extractText(output.parts),
               parts: output.parts,

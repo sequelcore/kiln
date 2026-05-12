@@ -416,8 +416,82 @@ function extractFilePathFromToolInput(input: unknown): string | undefined {
 
 function extractPlanFromToolInput(input: unknown): string | undefined {
   if (typeof input !== "object" || input === null) return undefined;
-  const withPlan = input as { plan?: unknown };
-  return typeof withPlan.plan === "string" ? withPlan.plan : undefined;
+  const withPlan = input as {
+    plan?: unknown;
+    objective?: unknown;
+    nonGoals?: unknown;
+    operatorDecisionsRequired?: unknown;
+    expectedEvidence?: unknown;
+    verificationGates?: unknown;
+    approvalBoundaries?: unknown;
+    residualRisks?: unknown;
+    riskClassification?: unknown;
+    workGovernanceRecommendation?: unknown;
+    sourceSpecificationId?: unknown;
+    clarificationRecordIds?: unknown;
+    affectedSurfaces?: unknown;
+    assumptions?: unknown;
+    managedAgentDelegationCandidates?: unknown;
+    rollbackNotes?: unknown;
+    proposedWorkItems?: unknown;
+  };
+  if (typeof withPlan.plan === "string") {
+    return withPlan.plan;
+  }
+  if (typeof withPlan.objective !== "string") {
+    return undefined;
+  }
+  const objective = withPlan.objective.trim();
+  const list = (value: unknown) => Array.isArray(value)
+    ? value.flatMap((item) => typeof item === "string" ? [item.trim()] : []).filter((item) => item.length > 0)
+    : [];
+  const recommendation = withPlan.workGovernanceRecommendation
+    && typeof withPlan.workGovernanceRecommendation === "object"
+    && !Array.isArray(withPlan.workGovernanceRecommendation)
+    ? withPlan.workGovernanceRecommendation as Record<string, unknown>
+    : undefined;
+  const proposedWorkItems = Array.isArray(withPlan.proposedWorkItems)
+    ? withPlan.proposedWorkItems.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) as Record<string, unknown>[]
+    : [];
+  const lines = [
+    objective,
+    typeof withPlan.riskClassification === "string" ? `- risk: ${withPlan.riskClassification}` : undefined,
+    typeof recommendation?.posture === "string" ? `- posture: ${recommendation.posture}` : undefined,
+    typeof recommendation?.workflowProfile === "string" ? `- workflow: ${recommendation.workflowProfile}` : undefined,
+    typeof recommendation?.rationale === "string" ? `- governance rationale: ${recommendation.rationale}` : undefined,
+    typeof withPlan.sourceSpecificationId === "string" ? `- source specification: ${withPlan.sourceSpecificationId}` : undefined,
+    ...list(withPlan.clarificationRecordIds).map((clarification) => `- clarification: ${clarification}`),
+    ...list(withPlan.affectedSurfaces).map((surface) => `- affected surface: ${surface}`),
+    ...list(withPlan.nonGoals).map((goal) => `- non-goal: ${goal}`),
+    ...list(withPlan.assumptions).map((assumption) => `- assumption: ${assumption}`),
+    ...list(withPlan.operatorDecisionsRequired).map((decision) => `- decision: ${decision}`),
+    ...list(withPlan.expectedEvidence).map((evidence) => `- evidence: ${evidence}`),
+    ...list(withPlan.verificationGates).map((gate) => `- gate: ${gate}`),
+    ...list(withPlan.managedAgentDelegationCandidates).map((candidate) => `- delegation candidate: ${candidate}`),
+    ...list(withPlan.approvalBoundaries).map((boundary) => `- approval boundary: ${boundary}`),
+    typeof withPlan.rollbackNotes === "string" && withPlan.rollbackNotes.trim().length > 0
+      ? `- rollback: ${withPlan.rollbackNotes.trim()}`
+      : undefined,
+    ...list(withPlan.residualRisks).map((risk) => `- residual risk: ${risk}`),
+    ...proposedWorkItems.flatMap((item) => {
+      const itemId = typeof item.id === "string" ? item.id.trim() : "";
+      const itemSummary = typeof item.summary === "string" ? item.summary.trim() : "";
+      const itemWorkflow = typeof item.workflowProfile === "string" ? item.workflowProfile.trim() : "";
+      const itemRisk = typeof item.risk === "string" ? item.risk.trim() : "";
+      const itemEvidence = list(item.expectedEvidence);
+      const itemGates = list(item.verificationGates);
+      const itemDeps = list(item.dependencies);
+      return [
+        itemSummary || itemId ? `- work item ${itemId || "item"}: ${itemSummary || "(no summary)"}` : undefined,
+        itemWorkflow ? `  workflow: ${itemWorkflow}` : undefined,
+        itemRisk ? `  risk: ${itemRisk}` : undefined,
+        ...itemEvidence.map((evidence) => `  evidence: ${evidence}`),
+        ...itemGates.map((gate) => `  gate: ${gate}`),
+        ...itemDeps.map((dependency) => `  depends on: ${dependency}`),
+      ];
+    }),
+  ].filter((line): line is string => typeof line === "string" && line.length > 0);
+  return lines.join("\n");
 }
 
 async function findToolApprovalMemory(

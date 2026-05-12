@@ -3,7 +3,12 @@
  * @module @kilnai/tui
  */
 
-import type { OperatorEventSurface, OperatorExecutionMode, ToolResultPresentation } from "@kilnai/gateway-contracts";
+import type {
+  OperatorEventSurface,
+  OperatorExecutionMode,
+  OperatorTurnRequestedAuthority,
+  ToolResultPresentation,
+} from "@kilnai/gateway-contracts";
 
 export type MessageRole = "user" | "assistant" | "tool" | "error";
 
@@ -67,6 +72,12 @@ export type SessionEventInternal =
  * Both GatewaySession (Phase 7c+) and any future session type must satisfy this interface.
  */
 export interface SessionLike {
-  run(opts: { prompt: string; cwd?: string; executionMode?: OperatorExecutionMode; reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" }): AsyncIterable<SessionEventInternal>;
+  run(opts: {
+    prompt: string;
+    cwd?: string;
+    executionMode?: OperatorExecutionMode;
+    requestedAuthority?: OperatorTurnRequestedAuthority;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  }): AsyncIterable<SessionEventInternal>;
   dispose(): Promise<void>;
 }

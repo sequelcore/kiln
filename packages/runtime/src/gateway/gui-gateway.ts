@@ -54,6 +54,7 @@ import {
 } from "../agents/managed-invocation/runtime-tool.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
+import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
@@ -132,6 +133,7 @@ export interface GuiGateway {
 
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
+type OperatorTurnRequestedAuthority = Extract<GuiOutboundFrame, { type: "message" }>["requestedAuthority"];
 
 function guiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
   if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
@@ -191,6 +193,12 @@ type GuiAuthorityStatus = NonNullable<Extract<GuiInboundFrame, { type: "welcome"
 export function deriveGuiAuthorityStatusFromPerCallConfig(
   config: PerCallToolConfig,
 ): GuiAuthorityStatus {
+  if (config.effectiveTurnAuthority) {
+    return {
+      effective: config.effectiveTurnAuthority.admittedAuthority,
+      completeness: config.effectiveTurnAuthority.completeness,
+    };
+  }
   const hasAllowlist = config.toolAllowlist !== undefined;
   const allowlistSize = config.toolAllowlist?.size ?? 0;
   const authorityMap = config.toolAuthority;
@@ -227,6 +235,13 @@ export function deriveGuiAuthorityStatusFromPerCallConfig(
   if (sawIdempotent) return { effective: "idempotent", completeness: "authoritative" };
   if (sawReadOnly) return { effective: "read_only", completeness: "authoritative" };
   return { effective: "unknown", completeness: "partial" };
+}
+
+export function deriveGuiDoneAuthorityStatus(
+  turnPerCallConfig: PerCallToolConfig | undefined,
+  fallbackPerCallConfig: PerCallToolConfig = buildGuiPerCallToolConfig(),
+): GuiAuthorityStatus {
+  return deriveGuiAuthorityStatusFromPerCallConfig(turnPerCallConfig ?? fallbackPerCallConfig);
 }
 
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
@@ -847,6 +862,29 @@ function wireOperatorTransport(
 
             if (frame.type === "execution_mode_transition") {
               const toMode = resolveExecutionMode(frame.toMode);
+              if (toMode === "execute") {
+                const transition = await approvePlanExecutionTransition({
+                  surfaces: resourceSurfaces,
+                  planId: typeof frame.planId === "string" ? frame.planId : undefined,
+                  sessionRegistry,
+                  appName: GUI_APP_NAME,
+                  tenantId: GUI_TENANT_ID,
+                  userId,
+                  sourceSurface: "gui",
+                  component: "gui-gateway",
+                });
+                if (!transition.ok) {
+                  ws.send(JSON.stringify({
+                    type: "error",
+                    code: transition.code,
+                    message: transition.message,
+                  } satisfies GuiInboundFrame));
+                  return;
+                }
+                activityStreamer.forwardSessionEvents([transition.event]);
+                ws.send(JSON.stringify(transition.frame satisfies GuiInboundFrame));
+                return;
+              }
               ws.send(JSON.stringify({
                 type: "execution_mode_transitioned",
                 executionMode: toMode,
@@ -901,10 +939,9 @@ function wireOperatorTransport(
 
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
             let result;
-            let turnDiscovery: readonly GuiProviderDiscoveryResult[] = [];
+            let turnPerCallConfig: PerCallToolConfig | undefined;
             try {
               const currentDiscovery = await refreshDiscovery();
-              turnDiscovery = currentDiscovery;
               const activeProvider = input.transport.sessionManager.getProvider().trim();
               if (activeProvider.length === 0) {
                 ws.send(JSON.stringify({
@@ -966,6 +1003,7 @@ function wireOperatorTransport(
                 frame.reasoningEffort,
               );
               const executionMode = resolveExecutionMode(frame.executionMode);
+              const requestedAuthority = resolveGuiRequestedAuthority(frame.requestedAuthority);
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions: input.builtinToolOptions,
                 executionMode,
@@ -980,6 +1018,15 @@ function wireOperatorTransport(
                 },
               });
               rememberToolSurface(turnBuiltinToolSurface);
+              turnPerCallConfig = buildGuiTurnPerCallConfig(
+                activeProvider,
+                activeModel,
+                turnBuiltinToolSurface,
+                activeModelCapabilities,
+                reasoningEffort,
+                executionMode,
+                requestedAuthority,
+              );
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -995,14 +1042,7 @@ function wireOperatorTransport(
                 executionMode,
                 contextArtifactCache: input.transport.contextArtifactCache,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
-                perCallConfig: buildGuiTurnPerCallConfig(
-                  activeProvider,
-                  activeModel,
-                  turnBuiltinToolSurface,
-                  activeModelCapabilities,
-                  reasoningEffort,
-                  executionMode,
-                ),
+                perCallConfig: turnPerCallConfig,
                 turnCapture: {
                   start: (sessionId, nextSequence) => {
                     activityStreamer.beginTurnCapture(sessionId, nextSequence);
@@ -1035,11 +1075,6 @@ function wireOperatorTransport(
               ? ""
               : input.transport.sessionManager.getModel();
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
-            const routedModelCapabilities = findProviderModelCapabilities(
-              turnDiscovery.length > 0 ? turnDiscovery : discovery,
-              routedProvider,
-              routedModel || undefined,
-            );
 
             ws.send(JSON.stringify({
               type: "done",
@@ -1050,25 +1085,7 @@ function wireOperatorTransport(
               routedProvider,
               routedModel,
               runtimeContinuity,
-              authorityStatus: deriveGuiAuthorityStatusFromPerCallConfig(
-                buildGuiTurnPerCallConfig(
-                  routedProvider,
-                  routedModel || undefined,
-                  createAttachedRuntimeBuiltinToolSurface({
-                    builtinToolOptions: input.builtinToolOptions,
-                    managedInvocation: attachManagedInvocationSessionEventSink(
-                      input.managedInvocation,
-                      { publish: (events) => activityStreamer.forwardSessionEvents(events) },
-                    ),
-                    operatorSurface: {
-                      theme: {
-                        setTheme: operatorThemeBridge.request,
-                      },
-                    },
-                  }),
-                  routedModelCapabilities,
-                ),
-              ),
+              authorityStatus: deriveGuiDoneAuthorityStatus(turnPerCallConfig),
             } satisfies GuiInboundFrame));
           } catch {
             // discard malformed frames
@@ -1109,6 +1126,7 @@ export function buildGuiTurnPerCallConfig(
   activeModelCapabilities?: GuiProviderModelCapabilities,
   reasoningEffort?: ReasoningEffort,
   executionMode: OperatorExecutionMode = "execute",
+  requestedAuthority?: OperatorTurnRequestedAuthority,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
@@ -1118,11 +1136,22 @@ export function buildGuiTurnPerCallConfig(
     reasoningEffort,
     builtinToolSurface,
     executionMode,
+    requestedAuthority,
   });
 }
 
 function resolveExecutionMode(value: unknown): OperatorExecutionMode {
   return value === "plan" ? "plan" : "execute";
+}
+
+export function resolveGuiRequestedAuthority(value: unknown): OperatorTurnRequestedAuthority | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === "auto" || value === "read_only" || value === "audited" || value === "destructive") {
+    return value;
+  }
+  throw new Error(`Unknown requested authority '${String(value)}'.`);
 }
 
 function resolveRequestedReasoningEffort(

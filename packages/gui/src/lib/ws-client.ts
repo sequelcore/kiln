@@ -17,6 +17,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("message"),
     content: z.string(),
     executionMode: z.enum(["execute", "plan"]).optional(),
+    requestedAuthority: z.enum(["auto", "read_only", "audited", "destructive"]).optional(),
     resumeSessionId: z.string().optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
     appName: z.string().optional(),
@@ -47,7 +48,11 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("resume"), sessionId: z.string() }),
   z.object({ type: z.literal("approve"), approvalId: z.string().trim().min(1) }),
   z.object({ type: z.literal("reject"), reason: z.string(), approvalId: z.string().trim().min(1) }),
-  z.object({ type: z.literal("execution_mode_transition"), toMode: z.enum(["execute", "plan"]) }),
+  z.object({
+    type: z.literal("execution_mode_transition"),
+    toMode: z.enum(["execute", "plan"]),
+    planId: z.string().trim().min(1).optional(),
+  }),
 ]);
 
 const GuiProviderDescriptorSchema = z.object({
@@ -153,7 +158,10 @@ const GuiSessionEventSchema = z.object({
     "user_message",
     "assistant_message",
     "assistant_delta",
+    "specification_submitted",
+    "clarification_recorded",
     "plan_submitted",
+    "plan_analysis_reported",
     "plan_approved",
     "provider_routed",
     "tool_call_started",
@@ -243,7 +251,13 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     executionMode: z.enum(["execute", "plan"]).optional(),
     authorityStatus: GuiAuthorityStatusSchema.optional(),
   }),
-  z.object({ type: z.literal("execution_mode_transitioned"), executionMode: z.enum(["execute", "plan"]) }),
+  z.object({
+    type: z.literal("execution_mode_transitioned"),
+    executionMode: z.enum(["execute", "plan"]),
+    planId: z.string().optional(),
+    approvalId: z.string().optional(),
+    planHash: z.string().optional(),
+  }),
   z.object({ type: z.literal("cleared") }),
   z.object({
     type: z.literal("provider_auth_started"),

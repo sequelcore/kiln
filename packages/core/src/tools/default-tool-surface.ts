@@ -15,6 +15,10 @@ import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
 import { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";
 import {
+  AnalysisStateStore,
+  type AnalysisStateStoreOptions,
+} from "./infrastructure/analysis-state-store.js";
+import {
   ArtifactResourceProvider,
   MemoryArtifactResourceStore,
   type ArtifactResourceStore,
@@ -59,6 +63,14 @@ import { PatchTool } from "./infrastructure/patch-tool.js";
 import { ReadManyTool } from "./infrastructure/read-many-tool.js";
 import { ReadTool } from "./infrastructure/read-tool.js";
 import { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";
+import {
+  PlanStateStore,
+  type PlanStateStoreOptions,
+} from "./infrastructure/plan-state-store.js";
+import {
+  type SpecificationStateStoreOptions,
+  SpecificationStateStore,
+} from "./infrastructure/specification-state-store.js";
 import { StatTool } from "./infrastructure/stat-tool.js";
 import {
   TaskListTool,
@@ -99,6 +111,12 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly monitorRegistry?: MonitorRegistry;
   readonly taskState?: TaskStateStoreOptions;
   readonly taskStateStore?: TaskStateStore;
+  readonly analysisState?: AnalysisStateStoreOptions;
+  readonly analysisStateStore?: AnalysisStateStore;
+  readonly planState?: PlanStateStoreOptions;
+  readonly planStateStore?: PlanStateStore;
+  readonly specificationState?: SpecificationStateStoreOptions;
+  readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
   readonly operatorElicitation?: OperatorElicitationToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
@@ -156,6 +174,9 @@ export interface DefaultBuiltinToolSurface {
   readonly artifactStore: ArtifactResourceStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly taskStateStore: TaskStateStore;
+  readonly analysisStateStore?: AnalysisStateStore;
+  readonly planStateStore?: PlanStateStore;
+  readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
 }
 
@@ -173,6 +194,21 @@ export function createSessionBuiltinToolOptions(
     resourceNotifications,
   });
   taskStateStore.setResourceChangeNotifier(resourceNotifications);
+  const analysisStateStore = options.analysisStateStore ?? new AnalysisStateStore({
+    ...options.analysisState,
+    resourceNotifications,
+  });
+  analysisStateStore.setResourceChangeNotifier(resourceNotifications);
+  const planStateStore = options.planStateStore ?? new PlanStateStore({
+    ...options.planState,
+    resourceNotifications,
+  });
+  planStateStore.setResourceChangeNotifier(resourceNotifications);
+  const specificationStateStore = options.specificationStateStore ?? new SpecificationStateStore({
+    ...options.specificationState,
+    resourceNotifications,
+  });
+  specificationStateStore.setResourceChangeNotifier(resourceNotifications);
   const workItemStore = options.workItemStore;
   workItemStore?.setResourceChangeNotifier(resourceNotifications);
   const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
@@ -183,6 +219,9 @@ export function createSessionBuiltinToolOptions(
     resourceNotifications,
     monitorRegistry,
     taskStateStore,
+    analysisStateStore,
+    planStateStore,
+    specificationStateStore,
     ...(workItemStore ? { workItemStore } : {}),
     artifactResources: { store: artifactStore },
   };
@@ -285,6 +324,30 @@ export function createDefaultBuiltinToolSurface(
   if (options.taskStateStore) {
     options.taskStateStore.setResourceChangeNotifier(resourceNotifications);
   }
+  const analysisStateStore = options.analysisStateStore
+    ?? (options.analysisState
+      ? new AnalysisStateStore({
+        ...options.analysisState,
+        resourceNotifications,
+      })
+      : undefined);
+  options.analysisStateStore?.setResourceChangeNotifier(resourceNotifications);
+  const planStateStore = options.planStateStore
+    ?? (options.planState
+      ? new PlanStateStore({
+        ...options.planState,
+        resourceNotifications,
+      })
+      : undefined);
+  options.planStateStore?.setResourceChangeNotifier(resourceNotifications);
+  const specificationStateStore = options.specificationStateStore
+    ?? (options.specificationState
+      ? new SpecificationStateStore({
+        ...options.specificationState,
+        resourceNotifications,
+      })
+      : undefined);
+  options.specificationStateStore?.setResourceChangeNotifier(resourceNotifications);
   const workItemStore = options.workItemStore;
   workItemStore?.setResourceChangeNotifier(resourceNotifications);
   const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
@@ -294,6 +357,9 @@ export function createDefaultBuiltinToolSurface(
     ...options,
     monitorRegistry,
     taskStateStore,
+    ...(analysisStateStore ? { analysisStateStore } : {}),
+    ...(planStateStore ? { planStateStore } : {}),
+    ...(specificationStateStore ? { specificationStateStore } : {}),
     ...(workItemStore ? { workItemStore } : {}),
     artifactResources: { store: artifactStore },
     resourceRegistry: () => resources,
@@ -309,6 +375,9 @@ export function createDefaultBuiltinToolSurface(
     catalog,
     monitorRegistry,
     taskStateStore,
+    ...(analysisStateStore ? { analysisStateStore } : {}),
+    ...(planStateStore ? { planStateStore } : {}),
+    ...(specificationStateStore ? { specificationStateStore } : {}),
     ...(workItemStore ? { workItemStore } : {}),
     providers: resourceProviders,
   });
@@ -331,6 +400,9 @@ export function createDefaultBuiltinToolSurface(
     artifactStore,
     monitorRegistry,
     taskStateStore,
+    ...(analysisStateStore ? { analysisStateStore } : {}),
+    ...(planStateStore ? { planStateStore } : {}),
+    ...(specificationStateStore ? { specificationStateStore } : {}),
     workItemStore,
   };
 }

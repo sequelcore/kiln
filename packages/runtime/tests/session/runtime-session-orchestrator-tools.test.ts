@@ -214,6 +214,39 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
     });
 
+    it("treats builtin tool isError envelopes as failed executions", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const toolFn = vi.fn().mockResolvedValue({
+        output: "Plan submitted with blocking issues.",
+        isError: true,
+        metadata: {
+          toolName: "submit_plan",
+          operation: "submit_plan",
+          planId: "plan_1",
+        },
+      });
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("submit plan"));
+
+      expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: "get_data",
+        success: false,
+        metadata: {
+          operation: "submit_plan",
+          planId: "plan_1",
+        },
+      });
+    });
+
     it("skips tool execution when authorization denied", async () => {
       const provider = makeProvider(1);
       const toolFn = vi.fn().mockResolvedValue("should not run");

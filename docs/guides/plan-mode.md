@@ -43,14 +43,127 @@ operator-facing contracts must not introduce a separate `planMode` wire field.
 ## Tool Boundaries
 
 Plan mode exposes only tools whose capability metadata is explicitly read-only,
-plus the runtime-owned `submit_plan` tool. Mutating tools such as write, edit,
-patch, shell execution, dependency installation, and other implementation
-surfaces are not part of the plan-mode tool set.
+plus the runtime-owned planning workflow tools:
 
-When the plan is ready, the assistant calls `submit_plan` with the complete
-operator-facing plan. The runtime records the submission as a canonical
-`plan_submitted` session event. Approval or later execution is a mode transition
-and a new execution turn, not hidden work performed by the planning turn.
+- `submit_specification`
+- `record_clarification`
+- `submit_plan`
+
+Mutating tools such as write, edit, patch, shell execution, dependency
+installation, and other implementation surfaces are not part of the plan-mode
+tool set.
+
+## Structured Intake
+
+Planning now requires structured specification intake before plan acceptance.
+
+`submit_specification` captures a canonical specification artifact with:
+
+- objective and non-goals
+- success criteria and actors
+- data lifecycle
+- UX edge cases
+- security/privacy posture
+- external dependencies
+- completion signals
+- constitution/instruction-profile snapshot
+
+`record_clarification` appends clarification records with question, answer,
+affected section, and rationale. Conflicting clarification answers for the same
+question+section are rejected.
+
+Runtime validation classifies ambiguity and missing required sections as
+blocking issues. `submit_plan` fails closed while blocking specification issues
+remain unresolved.
+
+## Structured Plan Contract
+
+`submit_plan` now accepts a typed governed artifact instead of free-form
+plan text. The contract includes:
+
+- objective and non-goals
+- operator decisions required and assumptions
+- affected surfaces and risk classification
+- work governance recommendation (posture + workflow profile + rationale)
+- proposed work items
+- expected evidence and verification gates
+- managed-agent delegation candidates
+- approval boundaries
+- rollback notes and residual risks
+- source specification id and clarification record ids
+- constitution snapshot
+
+High-control plans (for example high/critical risk or architecture-class
+workflow profiles) require additional fields such as operator decisions,
+approval boundaries, rollback notes, and residual risks. Missing required
+fields fail validation.
+
+## Analysis Gate
+
+After plan validation, runtime runs a plan/spec consistency analysis report.
+
+The analyzer emits durable findings with stable ids and severity levels:
+
+- `critical`
+- `high`
+- `medium`
+- `low`
+
+Current finding categories include duplication, ambiguity,
+underspecification, constitution conflict, coverage gaps, task/order
+inconsistency, and terminology drift.
+
+If any `critical` findings remain open, plan submission fails closed for
+approval/implementation transition.
+
+Specification and clarification state is projected through canonical resources:
+
+- `kiln://session/specifications`
+- `kiln://session/specifications/{id}`
+- `kiln://session/clarifications`
+- `kiln://session/clarifications/{specificationId}`
+
+The runtime records these changes as canonical session events:
+
+- `specification_submitted`
+- `clarification_recorded`
+- `plan_submitted`
+- `plan_analysis_reported`
+
+Analysis state is projected as read-only resources:
+
+- `kiln://session/analysis-reports`
+- `kiln://session/analysis-reports/{id}`
+- `kiln://session/analysis-findings`
+- `kiln://session/analysis-findings/{id}`
+
+Approval or later execution is a mode transition and a new execution turn, not
+hidden work performed by the planning turn.
+
+## Approval Transition
+
+Every submitted plan has a deterministic content hash. Approval records bind to
+that hash, not only to a plan id. Revising a plan with the same `planId`
+recomputes the hash and supersedes any stale approval instead of creating a
+duplicate plan.
+
+Gateway-backed GUI and TUI surfaces approve execution through
+`execution_mode_transition` with `toMode: "execute"` and optional `planId`.
+Runtime validates the selected or latest plan, records `plan_approved` with
+`planId`, `approvalId`, and `planHash`, then acknowledges with
+`execution_mode_transitioned`. A local UI toggle is not approval.
+
+Plan turns also project explicit effective authority. Runtime derives the
+per-call `effectiveTurnAuthority` snapshot from the final plan-mode allowlist
+and tool-authority map, so the provider only sees read-only and planning tools
+and operator surfaces summarize that same admitted authority.
+
+Requested authority cannot widen plan mode. If a surface asks for destructive
+authority on a plan turn, runtime still records the request as `planning` and
+admits only the narrowed read-only/planning tool surface. Execute turns may
+request `read_only` or `audited` authority; those requests narrow the provider
+tool surface before invocation, and malformed authority values fail instead of
+falling back to full authority.
 
 ## Expected Outcome
 

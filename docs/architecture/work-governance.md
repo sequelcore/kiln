@@ -122,10 +122,30 @@ surfaces:
 - `work_item.complete`
   Attempts closeout and fails closed when required evidence or residual-risk
   reporting is missing.
+- `submit_plan`
+  Submits a structured governed plan artifact (objective, risk/workflow profile,
+  work items, evidence gates, and spec/clarification linkage) during plan-mode
+  turns.
+  The submission path also emits a consistency analysis report; critical
+  findings fail closed before approval.
+  Plan approval is hash-bound: revisions with the same plan id recompute the
+  content hash and supersede stale approvals rather than duplicating the plan.
 
 Parent agents should use these tools when the task may be broad, risky,
 cross-surface, provider/runtime-related, UI-related, or verification-heavy.
 They are shared runtime tools, not GUI-only behavior.
+
+Each runtime provider call carries an `effectiveTurnAuthority` snapshot in its
+per-call tool config. The snapshot is projected from the final admitted tool
+allowlist and tool-authority map, so operator displays summarize the same
+authority that provider execution receives.
+
+Operator surfaces may request turn authority, but runtime validates and admits
+the effective authority. Invalid requested-authority values fail before
+admission. In execute mode, `read_only` and `audited` requests narrow the
+provider tool surface before invocation; `auto` and `destructive` preserve the
+full admitted executable surface. Done-frame authority status is projected from
+the same per-call config used for the turn, not from a freshly derived default.
 
 ## Work Items
 

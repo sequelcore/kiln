@@ -44,7 +44,49 @@ export interface AppendCanonicalTurnEventsInput {
   readonly runtimeEvents: readonly CapturedRuntimeLedgerEvent[];
   readonly planSubmissions?: readonly {
     readonly planId: string;
-    readonly content: string;
+    readonly mode: "plan";
+    readonly objective: string;
+    readonly nonGoals: readonly string[];
+    readonly operatorDecisionsRequired: readonly string[];
+    readonly assumptions: readonly string[];
+    readonly affectedSurfaces: readonly string[];
+    readonly riskClassification: "low" | "medium" | "high" | "critical";
+    readonly workflowProfile: string;
+    readonly workGovernancePosture: "direct" | "orchestrate" | "delegate";
+    readonly expectedEvidence: readonly string[];
+    readonly verificationGates: readonly string[];
+    readonly managedAgentDelegationCandidates: readonly string[];
+    readonly approvalBoundaries: readonly string[];
+    readonly rollbackNotes: string;
+    readonly residualRisks: readonly string[];
+    readonly sourceSpecificationId: string;
+    readonly clarificationRecordIds: readonly string[];
+    readonly constitutionSnapshotHash: string;
+    readonly proposedWorkItemCount: number;
+    readonly summary: string;
+  }[];
+  readonly analysisReports?: readonly {
+    readonly reportId: string;
+    readonly planId: string;
+    readonly specificationId: string;
+    readonly status: "blocked" | "ready";
+    readonly highestSeverity: "critical" | "high" | "medium" | "low" | "none";
+    readonly findingIds: readonly string[];
+    readonly blockingFindingIds: readonly string[];
+    readonly findingCount: number;
+    readonly summary: string;
+  }[];
+  readonly specificationSubmissions?: readonly {
+    readonly specificationId: string;
+    readonly status: "draft" | "ready_for_plan";
+    readonly summary: string;
+    readonly issueCodes: readonly string[];
+    readonly blockingIssueCodes: readonly string[];
+  }[];
+  readonly clarificationRecords?: readonly {
+    readonly specificationId: string;
+    readonly clarificationId: string;
+    readonly affectedSection: string;
   }[];
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
 }
@@ -260,8 +302,76 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       kind: "plan_submitted",
       turnId,
       planId: submission.planId,
-      mode: "plan",
-      content: submission.content,
+      mode: submission.mode,
+      objective: submission.objective,
+      nonGoals: submission.nonGoals,
+      operatorDecisionsRequired: submission.operatorDecisionsRequired,
+      assumptions: submission.assumptions,
+      affectedSurfaces: submission.affectedSurfaces,
+      riskClassification: submission.riskClassification,
+      workflowProfile: submission.workflowProfile,
+      workGovernancePosture: submission.workGovernancePosture,
+      expectedEvidence: submission.expectedEvidence,
+      verificationGates: submission.verificationGates,
+      managedAgentDelegationCandidates: submission.managedAgentDelegationCandidates,
+      approvalBoundaries: submission.approvalBoundaries,
+      rollbackNotes: submission.rollbackNotes,
+      residualRisks: submission.residualRisks,
+      sourceSpecificationId: submission.sourceSpecificationId,
+      clarificationRecordIds: submission.clarificationRecordIds,
+      constitutionSnapshotHash: submission.constitutionSnapshotHash,
+      proposedWorkItemCount: submission.proposedWorkItemCount,
+      summary: submission.summary,
+      source: runtimeSource,
+      timestamp: input.turnCompletedAt,
+    }));
+  }
+
+  for (const report of input.analysisReports ?? []) {
+    events.push(createSessionEvent<"plan_analysis_reported">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "plan_analysis_reported",
+      turnId,
+      reportId: report.reportId,
+      planId: report.planId,
+      specificationId: report.specificationId,
+      status: report.status,
+      highestSeverity: report.highestSeverity,
+      findingIds: report.findingIds,
+      blockingFindingIds: report.blockingFindingIds,
+      findingCount: report.findingCount,
+      summary: report.summary,
+      source: runtimeSource,
+      timestamp: input.turnCompletedAt,
+    }));
+  }
+
+  for (const specification of input.specificationSubmissions ?? []) {
+    events.push(createSessionEvent<"specification_submitted">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "specification_submitted",
+      turnId,
+      specificationId: specification.specificationId,
+      status: specification.status,
+      summary: specification.summary,
+      issueCodes: specification.issueCodes,
+      blockingIssueCodes: specification.blockingIssueCodes,
+      source: runtimeSource,
+      timestamp: input.turnCompletedAt,
+    }));
+  }
+
+  for (const clarification of input.clarificationRecords ?? []) {
+    events.push(createSessionEvent<"clarification_recorded">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "clarification_recorded",
+      turnId,
+      specificationId: clarification.specificationId,
+      clarificationId: clarification.clarificationId,
+      affectedSection: clarification.affectedSection,
       source: runtimeSource,
       timestamp: input.turnCompletedAt,
     }));

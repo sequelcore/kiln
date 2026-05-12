@@ -1,0 +1,169 @@
+import { describe, expect, it } from "vitest";
+import {
+  PlanStateStore,
+  type PlanSubmissionInput,
+} from "../../../src/tools/infrastructure/plan-state-store.js";
+
+describe("plan state store", () => {
+  it("keeps content hash stable across timestamp and sequence-only revisions", () => {
+    let now = 1_800_000_000_000;
+    const store = new PlanStateStore({ now: () => now });
+
+    const first = store.submitPlan(baseInput());
+    now += 60_000;
+    const second = store.submitPlan({
+      ...baseInput(),
+      planId: first.id,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(second.contentHash).toBe(first.contentHash);
+    expect(second.sequence).toBeGreaterThan(first.sequence);
+    expect(second.updatedAt).not.toBe(first.updatedAt);
+    expect(store.listPlans()).toHaveLength(1);
+  });
+
+  it("invalidates stale approvals when a same-id revision changes content", () => {
+    const notifications: string[] = [];
+    const store = new PlanStateStore({
+      now: () => 1_800_000_000_000,
+      resourceNotifications: {
+        notifyResourceUpdated(uri: string): void {
+          notifications.push(uri);
+        },
+      },
+    });
+
+    const first = store.submitPlan(baseInput());
+    const approved = store.approvePlan(first.id);
+    expect(approved.success).toBe(true);
+    expect(store.executionReadiness(first.id)).toMatchObject({ success: true, ready: true });
+
+    notifications.length = 0;
+    const revised = store.submitPlan({
+      ...baseInput(),
+      planId: first.id,
+      objective: "Deliver updated Slice 4 approval behavior.",
+    });
+
+    expect(revised.contentHash).not.toBe(first.contentHash);
+    expect(revised.approval?.status).toBe("superseded");
+    expect(revised.approval?.supersededByPlanHash).toBe(revised.contentHash);
+    expect(store.executionReadiness(first.id)).toMatchObject({
+      success: true,
+      ready: false,
+      code: "approval_hash_mismatch",
+    });
+    expect(notifications).toContain("kiln://session/plans");
+    expect(notifications).toContain(`kiln://session/plans/${first.id}`);
+  });
+
+  it("does not approve draft or malformed plans", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+    const draft = store.submitPlan({
+      ...baseInput(),
+      objective: " ",
+      proposedWorkItems: [],
+    });
+
+    expect(draft.status).toBe("draft");
+    expect(store.approvePlan(draft.id)).toMatchObject({
+      success: false,
+      code: "plan_not_ready_for_approval",
+      planId: draft.id,
+    });
+    expect(store.approvePlan("missing-plan")).toMatchObject({
+      success: false,
+      code: "plan_not_found",
+      planId: "missing-plan",
+    });
+  });
+
+  it("revisions and rejection keep one plan id without duplication", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+    const first = store.submitPlan(baseInput());
+    const second = store.submitPlan({
+      ...baseInput(),
+      planId: first.id,
+      assumptions: ["Session resources are available.", "Tool catalog remains stable."],
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(store.listPlans()).toHaveLength(1);
+
+    const rejected = store.rejectPlan(first.id, "Need stronger rollback details.");
+    expect(rejected).toMatchObject({
+      success: true,
+      code: "rejected",
+      planId: first.id,
+    });
+    expect(store.listPlans()).toHaveLength(1);
+    expect(store.getPlan(first.id)?.approval).toMatchObject({
+      status: "rejected",
+      rejectionReason: "Need stronger rollback details.",
+    });
+  });
+
+  it("approves latest ready plan when plan id is omitted", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+    const first = store.submitPlan(baseInput({ objective: "Plan A objective." }));
+    const second = store.submitPlan(baseInput({ objective: "Plan B objective." }));
+
+    const result = store.approvePlan();
+    expect(result).toMatchObject({
+      success: true,
+      code: "approved",
+      planId: second.id,
+    });
+    expect(result.success && result.approval.planHash).toBe(second.contentHash);
+    expect(store.executionReadiness()).toMatchObject({
+      success: true,
+      ready: true,
+      planId: second.id,
+    });
+    expect(store.executionReadiness(first.id)).toMatchObject({
+      success: true,
+      ready: false,
+      code: "approval_missing",
+      planId: first.id,
+    });
+  });
+});
+
+function baseInput(overrides: Partial<PlanSubmissionInput> = {}): PlanSubmissionInput {
+  return {
+    objective: "Deliver Slice 4 approval state for session plans.",
+    nonGoals: ["No runtime or gateway behavior changes."],
+    operatorDecisionsRequired: ["Approve execution only after review."],
+    assumptions: ["Session resources are available."],
+    affectedSurfaces: ["core/tools/infrastructure"],
+    riskClassification: "medium",
+    workGovernanceRecommendation: {
+      posture: "orchestrate",
+      rationale: "Shared session state behavior change.",
+      workflowProfile: "verification-heavy",
+    },
+    proposedWorkItems: [{
+      id: "wi-1",
+      summary: "Implement content-hash-aware plan approval state.",
+      workflowProfile: "verification-heavy",
+      risk: "medium",
+      expectedEvidence: ["unit-tests"],
+      verificationGates: ["bun test"],
+      dependencies: [],
+    }],
+    expectedEvidence: ["unit-tests", "typecheck"],
+    verificationGates: ["bun test --filter @kilnai/core"],
+    managedAgentDelegationCandidates: [],
+    approvalBoundaries: ["Operator approves before execution mode."],
+    rollbackNotes: "Revert plan state changes and regenerate plan approval.",
+    residualRisks: ["Approval semantics may need CLI surface integration."],
+    sourceSpecificationId: "spec-1",
+    clarificationRecordIds: [],
+    constitutionSnapshot: {
+      instructionProfileHash: "profile-hash",
+      instructionProfileIds: ["sequel-engineering"],
+    },
+    ...overrides,
+  };
+}

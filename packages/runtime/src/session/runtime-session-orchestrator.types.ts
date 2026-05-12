@@ -55,6 +55,7 @@ export interface ToolExecutionSummary {
   readonly toolCallId?: string;
   readonly toolName: string;
   readonly input?: Record<string, unknown>;
+  readonly metadata?: Record<string, unknown>;
   readonly durationMs: number;
   readonly success: boolean;
   readonly output?: string;
@@ -94,6 +95,39 @@ export interface GovernedRuntimeContext {
   readonly audit?: ContextAuditEntry;
 }
 
+export type EffectiveTurnAuthorityLevel =
+  | "fail_closed"
+  | "read_only"
+  | "idempotent"
+  | "audited"
+  | "destructive"
+  | "unknown";
+
+export type EffectiveTurnAuthorityCompleteness = "authoritative" | "partial";
+
+export type EffectiveTurnAuthoritySourcePolicy =
+  | "provider_profile_gate"
+  | "runtime_surface_projection"
+  | "plan_mode_projection";
+
+export type EffectiveTurnAuthoritySandboxProjection =
+  | "none"
+  | "read_only"
+  | "workspace_write"
+  | "unknown";
+
+export interface EffectiveTurnAuthoritySnapshot {
+  readonly executionMode: "execute" | "plan";
+  readonly requestedAuthority: "planning" | "auto" | "read_only" | "audited" | "destructive";
+  readonly admittedAuthority: EffectiveTurnAuthorityLevel;
+  readonly sourcePolicy: EffectiveTurnAuthoritySourcePolicy;
+  readonly reason: string;
+  readonly completeness: EffectiveTurnAuthorityCompleteness;
+  readonly toolCount: number;
+  readonly deniedToolCount: number;
+  readonly sandboxProjection?: EffectiveTurnAuthoritySandboxProjection;
+}
+
 export interface PerCallToolConfig {
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
@@ -109,6 +143,7 @@ export interface PerCallToolConfig {
     readonly billingMode?: ExecutionBillingMode;
   };
   readonly reasoningEffort?: ReasoningEffort;
+  readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
 }
 
 export type RuntimeToolCallMetadataResolver = (

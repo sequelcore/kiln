@@ -48,6 +48,13 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.size).toBe(0);
     expect(cfg.toolAuthority).toBeInstanceOf(Map);
     expect(cfg.toolAuthority?.size).toBe(0);
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "auto",
+      admittedAuthority: "fail_closed",
+      completeness: "authoritative",
+      toolCount: 0,
+    });
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "fail_closed",
       completeness: "authoritative",
@@ -68,13 +75,19 @@ describe("GUI authority forwarding", () => {
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
     });
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      admittedAuthority: "destructive",
+      completeness: "authoritative",
+      toolCount: cfg.toolAllowlist?.size,
+    });
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "destructive",
       completeness: "authoritative",
     });
   });
 
-  it("restricts plan execution mode to read-only tools plus submit_plan", async () => {
+  it("restricts plan execution mode to read-only tools plus planning workflow tools", async () => {
     const { buildGuiTurnPerCallConfig, deriveGuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const cfg = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini", undefined, undefined, undefined, "plan");
 
@@ -82,6 +95,8 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("read")).toBe(true);
     expect(cfg.toolAllowlist?.has("tree")).toBe(true);
     expect(cfg.toolAllowlist?.has("submit_plan")).toBe(true);
+    expect(cfg.toolAllowlist?.has("submit_specification")).toBe(true);
+    expect(cfg.toolAllowlist?.has("record_clarification")).toBe(true);
     expect(cfg.toolAllowlist?.has("write")).toBe(false);
     expect(cfg.toolAllowlist?.has("edit")).toBe(false);
     expect(cfg.toolAllowlist?.has("patch")).toBe(false);
@@ -92,8 +107,65 @@ describe("GUI authority forwarding", () => {
     });
     expect(cfg.additionalTools?.some((tool) => tool.name === "submit_plan")).toBe(true);
     expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "plan",
+      requestedAuthority: "planning",
+      admittedAuthority: "read_only",
+      completeness: "authoritative",
+      toolCount: cfg.toolAllowlist?.size,
+    });
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "read_only",
+      completeness: "authoritative",
+    });
+  });
+
+  it("records explicit requested authority on execute-mode GUI turns", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "audited",
+    );
+
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "audited",
+      admittedAuthority: "idempotent",
+    });
+    expect(cfg.toolAllowlist?.has("read")).toBe(true);
+    expect(cfg.toolAllowlist?.has("write")).toBe(false);
+    expect(cfg.toolAllowlist?.has("shell_command")).toBe(false);
+  });
+
+  it("rejects malformed requested authority instead of falling back to auto", async () => {
+    const { resolveGuiRequestedAuthority } = await import("../../src/gateway/gui-gateway.js");
+
+    expect(resolveGuiRequestedAuthority(undefined)).toBeUndefined();
+    expect(() => resolveGuiRequestedAuthority("invalid")).toThrow("Unknown requested authority 'invalid'.");
+    expect(() => resolveGuiRequestedAuthority(null)).toThrow("Unknown requested authority 'null'.");
+  });
+
+  it("keeps plan-mode authority semantics when destructive authority is requested", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "plan",
+      "destructive",
+    );
+
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "plan",
+      requestedAuthority: "planning",
+      admittedAuthority: "read_only",
       completeness: "authoritative",
     });
   });
@@ -204,6 +276,29 @@ describe("GUI authority forwarding", () => {
       model: "gpt-4o",
     });
     expect(cfg.toolAllowlist?.has("read")).toBe(true);
+  });
+
+  it("prefers turn authority config for done-frame status over a destructive default config", async () => {
+    const {
+      buildGuiTurnPerCallConfig,
+      deriveGuiDoneAuthorityStatus,
+    } = await import("../../src/gateway/gui-gateway.js");
+
+    const doneTurnConfig = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "audited",
+    );
+    const destructiveDefaultConfig = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
+
+    expect(deriveGuiDoneAuthorityStatus(doneTurnConfig, destructiveDefaultConfig)).toEqual({
+      effective: "idempotent",
+      completeness: "authoritative",
+    });
   });
 
   it("includes authorityStatus in both welcome and done frame payload shapes", async () => {

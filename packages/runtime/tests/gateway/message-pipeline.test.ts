@@ -237,7 +237,38 @@ describe("processAdmittedTurn", () => {
         toolCallId: "tool-plan",
         toolName: "submit_plan",
         input: {
-          plan: "1. Inspect contracts\n2. Implement execution mode\n3. Verify all consumers",
+          objective: "Implement execution mode lifecycle.",
+          nonGoals: ["Do not execute implementation in plan mode."],
+          operatorDecisionsRequired: ["Approve transition to execute mode."],
+          assumptions: ["Existing event replay remains canonical."],
+          affectedSurfaces: ["runtime", "cli"],
+          riskClassification: "high",
+          workGovernanceRecommendation: {
+            posture: "orchestrate",
+            rationale: "Multi-file runtime workflow change.",
+            workflowProfile: "architecture-change",
+          },
+          proposedWorkItems: [{
+            id: "wi-1",
+            summary: "Add typed contract.",
+            workflowProfile: "architecture-change",
+            risk: "high",
+            expectedEvidence: ["tests"],
+            verificationGates: ["bun test"],
+            dependencies: [],
+          }],
+          expectedEvidence: ["tests", "typecheck"],
+          verificationGates: ["bun test", "bun run typecheck"],
+          managedAgentDelegationCandidates: ["reviewer"],
+          approvalBoundaries: ["approve plan before execution"],
+          rollbackNotes: "Rollback event payload to prior shape if needed.",
+          residualRisks: ["consumer parser drift"],
+          sourceSpecificationId: "spec_1",
+          clarificationRecordIds: ["clar_1"],
+          constitutionSnapshot: {
+            instructionProfileHash: "hash-1",
+            instructionProfileIds: ["sequel-engineering"],
+          },
         },
         durationMs: 1,
         success: true,
@@ -246,10 +277,33 @@ describe("processAdmittedTurn", () => {
           isError: false,
           metadata: {
             toolName: "submit_plan",
+            operation: "submit_plan",
             planId: "tool-plan",
+            analysisReportId: "analysis_report_1",
+            analysisStatus: "ready",
+            analysisHighestSeverity: "low",
+            analysisFindingCount: 1,
+            analysisBlockingFindingCount: 0,
+            analysisFindingIds: ["analysis_finding_1"],
+            analysisBlockingFindingIds: [],
+            analysisSummary: "No critical findings. Ready for approval.",
+            sourceSpecificationId: "spec_1",
           },
         }),
         resultSummary: "Plan submitted.",
+        metadata: {
+          operation: "submit_plan",
+          planId: "tool-plan",
+          analysisReportId: "analysis_report_1",
+          analysisStatus: "ready",
+          analysisHighestSeverity: "low",
+          analysisFindingCount: 1,
+          analysisBlockingFindingCount: 0,
+          analysisFindingIds: ["analysis_finding_1"],
+          analysisBlockingFindingIds: [],
+          analysisSummary: "No critical findings. Ready for approval.",
+          sourceSpecificationId: "spec_1",
+        },
       }],
     } satisfies OrchestrateResult);
 
@@ -264,7 +318,319 @@ describe("processAdmittedTurn", () => {
       kind: "plan_submitted",
       planId: "tool-plan",
       mode: "plan",
-      content: "1. Inspect contracts\n2. Implement execution mode\n3. Verify all consumers",
+      objective: "Implement execution mode lifecycle.",
+      riskClassification: "high",
+      workflowProfile: "architecture-change",
+      sourceSpecificationId: "spec_1",
+    }));
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "plan_analysis_reported",
+      reportId: "analysis_report_1",
+      planId: "tool-plan",
+      specificationId: "spec_1",
+      status: "ready",
+      highestSeverity: "low",
+    }));
+  });
+
+  it("projects normalized plan fields from submit_plan metadata over raw input", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Plan submitted."),
+      inputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolCallId: "tool-plan-metadata",
+        toolName: "submit_plan",
+        input: {
+          objective: "  Ship structured plan contract  ",
+          nonGoals: ["  duplicate  ", "duplicate", "  legacy mode "],
+          expectedEvidence: [" tests ", "tests"],
+          verificationGates: ["bun test", " bun test "],
+          sourceSpecificationId: " spec_1 ",
+          riskClassification: "high",
+          workGovernanceRecommendation: {
+            posture: "orchestrate",
+            workflowProfile: "architecture-change",
+          },
+        },
+        durationMs: 1,
+        success: true,
+        output: "Plan submitted.",
+        resultSummary: "Plan submitted.",
+        metadata: {
+          operation: "submit_plan",
+          planId: "plan_1",
+          summary: "Ship structured plan contract",
+          objective: "Ship structured plan contract",
+          nonGoals: ["duplicate", "legacy mode"],
+          expectedEvidence: ["tests"],
+          verificationGates: ["bun test"],
+          sourceSpecificationId: "spec_1",
+          riskClassification: "high",
+          workGovernancePosture: "orchestrate",
+          workflowProfile: "architecture-change",
+          proposedWorkItemCount: 1,
+          constitutionSnapshotHash: "hash-1",
+          clarificationRecordIds: ["clar_1"],
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      executionMode: "plan",
+      sessionRegistry: makeMockSessionRegistry(session),
+      orchestrator,
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.sessionEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "plan_submitted",
+        planId: "plan_1",
+        objective: "Ship structured plan contract",
+        nonGoals: ["duplicate", "legacy mode"],
+        expectedEvidence: ["tests"],
+        verificationGates: ["bun test"],
+        sourceSpecificationId: "spec_1",
+        summary: "Ship structured plan contract",
+      }),
+    ]));
+  });
+
+  it("records specification and clarification events in plan execution mode", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Specification captured."),
+      inputTokens: 12,
+      outputTokens: 7,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolCallId: "tool-spec",
+        toolName: "submit_specification",
+        input: {
+          specificationId: "spec_1",
+          title: "Slice 1",
+          objective: "Implement structured specification intake.",
+        },
+        durationMs: 2,
+        success: true,
+        output: "Specification submitted.",
+        resultSummary: "Specification spec_1 is ready for planning.",
+        metadata: {
+          toolName: "submit_specification",
+          operation: "submit_specification",
+          specificationId: "spec_1",
+          specificationStatus: "ready_for_plan",
+          issues: [],
+          blockingIssueCodes: [],
+        },
+      }, {
+        toolCallId: "tool-clar",
+        toolName: "record_clarification",
+        input: {
+          specificationId: "spec_1",
+          question: "Should plan mode remain read-only?",
+          answer: "Yes.",
+          affectedSection: "authority",
+          rationale: "Plan mode must not mutate workspace files.",
+        },
+        durationMs: 1,
+        success: true,
+        output: "Clarification recorded.",
+        resultSummary: "Clarification recorded.",
+        metadata: {
+          toolName: "record_clarification",
+          operation: "record_clarification",
+          specificationId: "spec_1",
+          clarificationId: "clar_1",
+          affectedSection: "authority",
+        },
+      }, {
+        toolCallId: "tool-plan",
+        toolName: "submit_plan",
+        input: {
+          objective: "Validate schema and add resources.",
+          nonGoals: ["Do not execute implementation work in plan mode."],
+          operatorDecisionsRequired: ["Approve execution transition."],
+          assumptions: ["Specification schema remains stable."],
+          affectedSurfaces: ["core", "runtime"],
+          riskClassification: "medium",
+          workGovernanceRecommendation: {
+            posture: "orchestrate",
+            rationale: "Cross-package updates.",
+            workflowProfile: "verification-heavy",
+          },
+          proposedWorkItems: [{
+            id: "wi-2",
+            summary: "Validate schema projection.",
+            workflowProfile: "verification-heavy",
+            risk: "medium",
+            expectedEvidence: ["tests"],
+            verificationGates: ["bun test"],
+            dependencies: [],
+          }],
+          expectedEvidence: ["tests"],
+          verificationGates: ["bun test"],
+          managedAgentDelegationCandidates: ["reviewer"],
+          approvalBoundaries: ["Require approval before execute mode."],
+          rollbackNotes: "Revert contract changes.",
+          residualRisks: ["presentation drift"],
+          sourceSpecificationId: "spec_1",
+          clarificationRecordIds: ["clar_1"],
+          constitutionSnapshot: {
+            instructionProfileHash: "hash-1",
+            instructionProfileIds: ["sequel-engineering"],
+          },
+        },
+        durationMs: 1,
+        success: true,
+        output: "Plan submitted.",
+        resultSummary: "Plan submitted.",
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      executionMode: "plan",
+      sessionRegistry: makeMockSessionRegistry(session),
+      orchestrator,
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.sessionEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "specification_submitted",
+        specificationId: "spec_1",
+        status: "ready_for_plan",
+      }),
+      expect.objectContaining({
+        kind: "clarification_recorded",
+        specificationId: "spec_1",
+        clarificationId: "clar_1",
+        affectedSection: "authority",
+      }),
+    ]));
+  });
+
+  it("projects specification validation issue codes from submit_specification metadata", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Specification captured."),
+      inputTokens: 10,
+      outputTokens: 6,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolCallId: "tool-spec-draft",
+        toolName: "submit_specification",
+        input: {
+          specificationId: "spec_2",
+          title: "Draft spec",
+        },
+        durationMs: 1,
+        success: true,
+        output: "Specification submitted.",
+        resultSummary: "Specification submitted with blocking issues.",
+        metadata: {
+          operation: "submit_specification",
+          specificationId: "spec_2",
+          specificationStatus: "draft",
+          blockingIssueCodes: ["missing_non_goals", "vague_success_criteria"],
+          issues: [
+            { code: "missing_non_goals", field: "nonGoals", blocking: true },
+            { code: "vague_success_criteria", field: "successCriteria", blocking: true },
+          ],
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      executionMode: "plan",
+      sessionRegistry: makeMockSessionRegistry(session),
+      orchestrator,
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.sessionEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "specification_submitted",
+        specificationId: "spec_2",
+        status: "draft",
+        issueCodes: ["missing_non_goals", "vague_success_criteria"],
+        blockingIssueCodes: ["missing_non_goals", "vague_success_criteria"],
+      }),
+    ]));
+  });
+
+  it("does not record plan_submitted when submit_plan returns an error envelope", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Plan blocked."),
+      inputTokens: 8,
+      outputTokens: 6,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolCallId: "tool-plan-failed",
+        toolName: "submit_plan",
+        input: {
+          objective: "Invalid high-risk plan",
+          riskClassification: "high",
+          sourceSpecificationId: "spec_1",
+          workGovernanceRecommendation: {
+            posture: "orchestrate",
+            workflowProfile: "architecture-change",
+          },
+        },
+        durationMs: 1,
+        success: false,
+        output: "Plan plan_1 submitted with blocking validation issues.",
+        resultSummary: "Plan blocked.",
+        metadata: {
+          operation: "submit_plan",
+          planId: "plan_1",
+          planStatus: "draft",
+          blockingIssueCodes: ["missing_operator_decisions"],
+          analysisReportId: "analysis_report_2",
+          analysisStatus: "blocked",
+          analysisHighestSeverity: "critical",
+          analysisFindingCount: 1,
+          analysisBlockingFindingCount: 1,
+          analysisFindingIds: ["analysis_finding_9"],
+          analysisBlockingFindingIds: ["analysis_finding_9"],
+          analysisSummary: "1 critical finding blocks approval.",
+          sourceSpecificationId: "spec_1",
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      executionMode: "plan",
+      sessionRegistry: makeMockSessionRegistry(session),
+      orchestrator,
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.sessionEvents.some((event) => event.kind === "plan_submitted")).toBe(false);
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "plan_analysis_reported",
+      reportId: "analysis_report_2",
+      planId: "plan_1",
+      specificationId: "spec_1",
+      status: "blocked",
+      highestSeverity: "critical",
+      blockingFindingIds: ["analysis_finding_9"],
     }));
   });
 

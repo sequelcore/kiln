@@ -65,6 +65,8 @@ describe("session event envelope", () => {
       "user_message",
       "assistant_message",
       "assistant_delta",
+      "plan_analysis_reported",
+      "plan_approved",
       "provider_routed",
       "tool_call_started",
       "tool_call_completed",
@@ -118,16 +120,41 @@ describe("session event envelope", () => {
         deltaIndex: 0,
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({
-        kind: "provider_routed",
+        kind: "plan_analysis_reported",
         kilnSessionId: "kiln-session-1",
         sequence: 5,
+        reportId: "analysis_report_1",
+        planId: "plan_1",
+        specificationId: "spec_1",
+        status: "ready",
+        highestSeverity: "medium",
+        findingIds: ["analysis_finding_1"],
+        blockingFindingIds: [],
+        findingCount: 1,
+        summary: "No critical findings. Ready for approval.",
+      }, { generateEventId: () => `evt-${++idCounter}` }),
+      createSessionEvent({
+        kind: "plan_approved",
+        kilnSessionId: "kiln-session-1",
+        sequence: 6,
+        planId: "plan_1",
+        approvalId: "plan_approval_1",
+        planHash: "sha256:abc123",
+        approvedAt: "2026-05-11T12:00:00.000Z",
+        fromMode: "plan",
+        toMode: "execute",
+      }, { generateEventId: () => `evt-${++idCounter}` }),
+      createSessionEvent({
+        kind: "provider_routed",
+        kilnSessionId: "kiln-session-1",
+        sequence: 7,
         provider,
         reason: "latency policy",
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({
         kind: "tool_call_started",
         kilnSessionId: "kiln-session-1",
-        sequence: 6,
+        sequence: 8,
         turnId: "turn-1",
         toolCallId: "tool-1",
         toolName: "read_file",
@@ -136,7 +163,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "tool_call_completed",
         kilnSessionId: "kiln-session-1",
-        sequence: 7,
+        sequence: 9,
         turnId: "turn-1",
         toolCallId: "tool-1",
         toolName: "read_file",
@@ -147,7 +174,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "approval_requested",
         kilnSessionId: "kiln-session-1",
-        sequence: 8,
+        sequence: 10,
         approvalId: "approval-1",
         action: "write_file",
         justification: "modify core contract",
@@ -155,7 +182,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "approval_resolved",
         kilnSessionId: "kiln-session-1",
-        sequence: 9,
+        sequence: 11,
         approvalId: "approval-1",
         resolution: {
           decision: "approved",
@@ -166,7 +193,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "file_changed",
         kilnSessionId: "kiln-session-1",
-        sequence: 10,
+        sequence: 12,
         turnId: "turn-1",
         toolCallId: "tool-1",
         change: {
@@ -179,7 +206,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "cost_updated",
         kilnSessionId: "kiln-session-1",
-        sequence: 11,
+        sequence: 13,
         provider,
         usage,
         cost,
@@ -187,7 +214,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_requested",
         kilnSessionId: "kiln-session-1",
-        sequence: 12,
+        sequence: 14,
         turnId: "turn-1",
         invocationId: "inv-1",
         agentId: "agent-coder",
@@ -200,7 +227,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_started",
         kilnSessionId: "kiln-session-1",
-        sequence: 13,
+        sequence: 15,
         turnId: "turn-1",
         invocationId: "inv-1",
         agentId: "agent-coder",
@@ -213,7 +240,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_completed",
         kilnSessionId: "kiln-session-1",
-        sequence: 14,
+        sequence: 16,
         turnId: "turn-1",
         invocationId: "inv-1",
         agentId: "agent-coder",
@@ -228,7 +255,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_failed",
         kilnSessionId: "kiln-session-1",
-        sequence: 15,
+        sequence: 17,
         turnId: "turn-1",
         invocationId: "inv-2",
         agentId: "agent-reviewer",
@@ -241,7 +268,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_cancelled",
         kilnSessionId: "kiln-session-1",
-        sequence: 16,
+        sequence: 18,
         turnId: "turn-1",
         invocationId: "inv-3",
         agentId: "agent-planner",
@@ -253,7 +280,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "continuity_decided",
         kilnSessionId: "kiln-session-1",
-        sequence: 17,
+        sequence: 19,
         decision: "continue",
         reason: "await user follow-up",
         nextTurnId: "turn-2",
@@ -261,7 +288,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "error_recorded",
         kilnSessionId: "kiln-session-1",
-        sequence: 18,
+        sequence: 20,
         turnId: "turn-1",
         errorCode: "TOOL_TIMEOUT",
         message: "Tool timed out",
@@ -270,7 +297,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "turn_completed",
         kilnSessionId: "kiln-session-1",
-        sequence: 19,
+        sequence: 21,
         turnId: "turn-1",
         outcome: "completed",
         outputMessageId: "msg-assistant-1",

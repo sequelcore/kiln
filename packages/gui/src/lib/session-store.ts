@@ -6,6 +6,7 @@ import type {
   GuiProviderCatalogStatus,
   GuiProviderDiscoveryResult,
   GuiProviderReasoningEffort,
+  OperatorTurnRequestedAuthority,
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionSummary,
@@ -1371,6 +1372,7 @@ interface SessionStoreActions {
     text: string,
     options?: {
       reasoningEffort?: GuiProviderReasoningEffort;
+      requestedAuthority?: OperatorTurnRequestedAuthority;
       appName?: string;
       tenantId?: string;
     },
@@ -2739,6 +2741,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       executionMode: state.planMode ? "plan" : "execute",
       resumeSessionId: state.resumeTargetId ?? undefined,
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
+      ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
       ...(options?.appName ? { appName: options.appName } : {}),
       ...(options?.tenantId ? { tenantId: options.tenantId } : {}),
     });

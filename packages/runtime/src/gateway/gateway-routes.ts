@@ -226,6 +226,14 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             return;
           }
           if (frame.type === "execution_mode_transition") {
+            if (frame.toMode === "execute") {
+              ws.send(JSON.stringify({
+                type: "error",
+                code: "APP_GATEWAY_PLAN_APPROVAL_UNAVAILABLE",
+                message: "App Gateway attach mode cannot approve plan execution because it does not retain plan artifacts.",
+              } satisfies GuiInboundFrame));
+              return;
+            }
             ws.send(JSON.stringify({
               type: "execution_mode_transitioned",
               executionMode: frame.toMode,

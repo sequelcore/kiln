@@ -48,6 +48,13 @@ describe("TUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.size).toBe(0);
     expect(cfg.toolAuthority).toBeInstanceOf(Map);
     expect(cfg.toolAuthority?.size).toBe(0);
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "auto",
+      admittedAuthority: "fail_closed",
+      completeness: "authoritative",
+      toolCount: 0,
+    });
   });
 
   it("derives TUI authority status from fail-closed config", async () => {
@@ -70,8 +77,64 @@ describe("TUI authority forwarding", () => {
     expect(cfg.additionalTools?.some((tool) => tool.name === "glob")).toBe(true);
     expect(cfg.perCallCapabilities?.has("read")).toBe(true);
     expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      admittedAuthority: "destructive",
+      completeness: "authoritative",
+      toolCount: cfg.toolAllowlist?.size,
+    });
     expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "destructive",
+      completeness: "authoritative",
+    });
+  });
+
+  it("records explicit requested authority on execute-mode TUI turns", async () => {
+    const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "read_only",
+    );
+
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "read_only",
+      admittedAuthority: "read_only",
+    });
+    expect(cfg.toolAllowlist?.has("read")).toBe(true);
+    expect(cfg.toolAllowlist?.has("write")).toBe(false);
+    expect(cfg.toolAllowlist?.has("shell_command")).toBe(false);
+  });
+
+  it("rejects malformed requested authority instead of falling back to auto", async () => {
+    const { resolveTuiRequestedAuthority } = await import("../../src/gateway/tui-gateway.js");
+
+    expect(resolveTuiRequestedAuthority(undefined)).toBeUndefined();
+    expect(() => resolveTuiRequestedAuthority("invalid")).toThrow("Unknown requested authority 'invalid'.");
+    expect(() => resolveTuiRequestedAuthority(null)).toThrow("Unknown requested authority 'null'.");
+  });
+
+  it("keeps plan-mode authority semantics when destructive authority is requested", async () => {
+    const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "plan",
+      "destructive",
+    );
+
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "plan",
+      requestedAuthority: "planning",
+      admittedAuthority: "read_only",
       completeness: "authoritative",
     });
   });
@@ -139,6 +202,29 @@ describe("TUI authority forwarding", () => {
     expect(cfg.toolAuthority?.size).toBe(0);
     expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "fail_closed",
+      completeness: "authoritative",
+    });
+  });
+
+  it("prefers turn authority config for done-frame status over a destructive default config", async () => {
+    const {
+      buildTuiTurnPerCallConfig,
+      deriveTuiDoneAuthorityStatus,
+    } = await import("../../src/gateway/tui-gateway.js");
+
+    const doneTurnConfig = buildTuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "read_only",
+    );
+    const destructiveDefaultConfig = buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
+
+    expect(deriveTuiDoneAuthorityStatus(doneTurnConfig, destructiveDefaultConfig)).toEqual({
+      effective: "read_only",
       completeness: "authoritative",
     });
   });

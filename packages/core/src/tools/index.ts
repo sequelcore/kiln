@@ -224,6 +224,41 @@ export {
   TaskUpdateTool,
 } from "./infrastructure/task-state-tools.js";
 export type {
+  AnalysisFinding,
+  AnalysisFindingCategory,
+  AnalysisFindingSeverity,
+  AnalysisFindingStatus,
+  AnalysisReport,
+  AnalysisReportStatus,
+  AnalysisStateSnapshot,
+  AnalysisStateStoreOptions,
+} from "./infrastructure/analysis-state-store.js";
+export { AnalysisStateStore } from "./infrastructure/analysis-state-store.js";
+export type {
+  PlanRiskClassification,
+  PlanStateSnapshot,
+  PlanStateStoreOptions,
+  PlanSubmissionInput,
+  PlanValidationCode,
+  PlanValidationIssue,
+  SessionPlan,
+  SessionPlanWorkItemDraft,
+  WorkGovernancePosture,
+  WorkGovernanceRecommendation,
+  WorkflowProfile,
+} from "./infrastructure/plan-state-store.js";
+export { PlanStateStore } from "./infrastructure/plan-state-store.js";
+export type {
+  ClarificationRecord,
+  ConstitutionSnapshot,
+  SessionSpecification,
+  SpecificationStateSnapshot,
+  SpecificationStateStoreOptions,
+  SpecificationValidationCode,
+  SpecificationValidationIssue,
+} from "./infrastructure/specification-state-store.js";
+export { SpecificationStateStore } from "./infrastructure/specification-state-store.js";
+export type {
   OperatorElicitationRequest,
   OperatorElicitationResponder,
   OperatorElicitationResponse,

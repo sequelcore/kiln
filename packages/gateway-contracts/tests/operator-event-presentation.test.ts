@@ -10,27 +10,63 @@ describe("operator event presentation", () => {
     const submitted = presentOperatorEventPayload("plan_submitted", {
       planId: "plan-1",
       mode: "plan",
-      content: "1. Inspect contracts\n2. Add tests\n3. Implement shared execution mode",
+      objective: "Implement shared execution mode",
+      summary: "Implement shared execution mode",
+      workflowProfile: "architecture-change",
+      riskClassification: "high",
+      sourceSpecificationId: "spec_1",
+      proposedWorkItemCount: 3,
     });
     const approved = presentOperatorEventPayload("plan_approved", {
       planId: "plan-1",
+      approvalId: "plan_approval_1",
+      planHash: "sha256:abc123",
+      approvedAt: "2026-05-11T12:00:00.000Z",
       fromMode: "plan",
       toMode: "execute",
     });
+    const analysis = presentOperatorEventPayload("plan_analysis_reported", {
+      reportId: "analysis_report_1",
+      planId: "plan-1",
+      specificationId: "spec-1",
+      status: "blocked",
+      highestSeverity: "critical",
+      findingCount: 2,
+      blockingFindingIds: ["analysis_finding_1"],
+      summary: "1 critical finding blocks approval.",
+    });
 
     expect(submitted.title).toBe("Plan submitted");
-    expect(submitted.summary).toBe("1. Inspect contracts");
-    expect(submitted.compactText).toBe("1. Inspect contracts");
+    expect(submitted.summary).toBe("Implement shared execution mode");
+    expect(submitted.compactText).toBe("Implement shared execution mode");
     expect(submitted.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
     expect(submitted.details).toEqual([
       { label: "Plan", value: "plan-1" },
       { label: "Mode", value: "plan" },
+      { label: "Workflow", value: "architecture-change" },
+      { label: "Risk", value: "high" },
+      { label: "Source spec", value: "spec_1" },
+      { label: "Work items", value: "3" },
     ]);
-    expect(JSON.stringify(submitted)).not.toContain("\\\"content\\\"");
+    expect(JSON.stringify(submitted)).not.toContain("\\\"objective\\\"");
 
     expect(approved.title).toBe("Plan approved");
     expect(approved.summary).toBe("plan -> execute");
     expect(approved.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(approved.details).toContainEqual({ label: "Plan hash", value: "sha256:abc123" });
+
+    expect(analysis.title).toBe("Plan Analysis Reported");
+    expect(analysis.summary).toBe("blocked · 1 critical finding blocks approval.");
+    expect(analysis.tone).toBe("error");
+    expect(analysis.details).toEqual([
+      { label: "Report", value: "analysis_report_1" },
+      { label: "Plan", value: "plan-1" },
+      { label: "Specification", value: "spec-1" },
+      { label: "Status", value: "blocked" },
+      { label: "Highest severity", value: "critical" },
+      { label: "Findings", value: "2" },
+      { label: "Blocking findings", value: "analysis_finding_1" },
+    ]);
   });
 
   it("presents provider routing without exposing raw payload syntax", () => {

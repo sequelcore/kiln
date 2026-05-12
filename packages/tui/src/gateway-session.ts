@@ -10,6 +10,7 @@ import {
   operatorEventTargetsSurface,
   presentOperatorSessionEvent,
   type GuiProviderDiscoveryResult,
+  type OperatorTurnRequestedAuthority,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
@@ -273,6 +274,7 @@ export class GatewaySession implements SessionLike {
     prompt: string;
     cwd?: string;
     executionMode?: "execute" | "plan";
+    requestedAuthority?: OperatorTurnRequestedAuthority;
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   }): AsyncGenerator<SessionEventInternal> {
     // Wait for connection to be established
@@ -290,6 +292,7 @@ export class GatewaySession implements SessionLike {
       type: "message",
       content: opts.prompt,
       executionMode: opts.executionMode ?? (this._planMode ? "plan" : "execute"),
+      ...(opts.requestedAuthority ? { requestedAuthority: opts.requestedAuthority } : {}),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
     });
 

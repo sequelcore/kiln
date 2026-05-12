@@ -3,7 +3,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-tool-surface.js";
 import { ToolResourceRegistry } from "../../../src/tools/domain/tool-resource-registry.js";
+import { AnalysisStateStore } from "../../../src/tools/infrastructure/analysis-state-store.js";
 import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
+import { PlanStateStore } from "../../../src/tools/infrastructure/plan-state-store.js";
+import { SpecificationStateStore } from "../../../src/tools/infrastructure/specification-state-store.js";
 import { WorkItemStore } from "../../../src/work-governance/index.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 
@@ -141,6 +144,206 @@ describe("ToolResourceRegistry", () => {
     expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
       id: item.id,
       expectedEvidence: ["tests", "typecheck"],
+    });
+  });
+
+  it("exposes structured specifications and clarifications when a specification store is attached", async () => {
+    const specificationStateStore = new SpecificationStateStore();
+    const surface = createDefaultBuiltinToolSurface({ specificationStateStore });
+    const specification = specificationStateStore.upsertSpecification({
+      title: "Slice 1",
+      objective: "Implement structured specification intake.",
+      nonGoals: ["Do not execute implementation in plan mode."],
+      successCriteria: ["Plan mode accepts typed specification artifacts."],
+      actors: ["operator", "runtime"],
+      dataLifecycle: "Intake and validation occur during plan turns only.",
+      uxEdgeCases: ["Missing clarification responses"],
+      securityPrivacy: "No secrets in specification content.",
+      externalDependencies: ["none"],
+      completionSignals: ["Specification status is ready_for_plan."],
+      constitutionSnapshot: {
+        instructionProfileHash: "hash-1",
+        instructionProfileIds: ["sequel-engineering"],
+      },
+    });
+    const clarificationResult = specificationStateStore.recordClarification({
+      specificationId: specification.id,
+      question: "Should plan mode mutate files?",
+      answer: "No.",
+      affectedSection: "authority",
+      rationale: "Plan mode is read-only by contract.",
+    });
+    if ("error" in clarificationResult) {
+      throw new Error(clarificationResult.error);
+    }
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/specifications");
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/clarifications");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/specifications/{id}");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/clarifications/{specificationId}");
+
+    const snapshot = await surface.resources.read("kiln://session/specifications");
+    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+      specifications: [
+        {
+          id: specification.id,
+          title: "Slice 1",
+          status: "ready_for_plan",
+        },
+      ],
+    });
+
+    const clarifications = await surface.resources.read(`kiln://session/clarifications/${specification.id}`);
+    expect(JSON.parse(clarifications.contents[0]!.text)).toMatchObject({
+      specificationId: specification.id,
+      clarifications: [
+        {
+          affectedSection: "authority",
+          answer: "No.",
+        },
+      ],
+    });
+  });
+
+  it("exposes structured plans when a plan store is attached", async () => {
+    const planStateStore = new PlanStateStore();
+    const surface = createDefaultBuiltinToolSurface({ planStateStore });
+    const plan = planStateStore.submitPlan({
+      objective: "Implement structured plan submission contract.",
+      nonGoals: ["Do not execute implementation in plan mode."],
+      operatorDecisionsRequired: ["Approve escalation policy for high-risk slices."],
+      assumptions: ["Session-scoped plan artifacts are sufficient in Slice 2."],
+      affectedSurfaces: ["runtime", "gateway-contracts", "cli"],
+      riskClassification: "high",
+      workGovernanceRecommendation: {
+        posture: "orchestrate",
+        rationale: "Multi-file cross-surface behavior.",
+        workflowProfile: "architecture-change",
+      },
+      proposedWorkItems: [{
+        id: "wi-1",
+        summary: "Add typed plan schema and runtime validation.",
+        workflowProfile: "architecture-change",
+        risk: "high",
+        expectedEvidence: ["tests", "typecheck"],
+        verificationGates: ["bun test", "bun run typecheck"],
+        dependencies: [],
+      }],
+      expectedEvidence: ["tests", "typecheck", "review"],
+      verificationGates: ["bun test", "bun run typecheck"],
+      managedAgentDelegationCandidates: ["reviewer"],
+      approvalBoundaries: ["plan approval required before execute mode"],
+      rollbackNotes: "Keep plan event shape backward-compatible at projection level.",
+      residualRisks: ["Event consumers may require snapshot updates."],
+      sourceSpecificationId: "spec_1",
+      clarificationRecordIds: ["clar_1"],
+      constitutionSnapshot: {
+        instructionProfileHash: "hash-1",
+        instructionProfileIds: ["sequel-engineering"],
+      },
+    });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/plans");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/plans/{id}");
+
+    const snapshot = await surface.resources.read("kiln://session/plans");
+    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+      sequence: plan.sequence,
+      plans: [{ id: plan.id, status: "ready_for_approval" }],
+    });
+
+    const single = await surface.resources.read(`kiln://session/plans/${plan.id}`);
+    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+      id: plan.id,
+      riskClassification: "high",
+      sourceSpecificationId: "spec_1",
+    });
+  });
+
+  it("exposes analysis reports and findings when an analysis store is attached", async () => {
+    const analysisStateStore = new AnalysisStateStore();
+    const specificationStateStore = new SpecificationStateStore();
+    const planStateStore = new PlanStateStore();
+    const surface = createDefaultBuiltinToolSurface({
+      analysisStateStore,
+      specificationStateStore,
+      planStateStore,
+    });
+
+    const specification = specificationStateStore.upsertSpecification({
+      title: "Slice 3",
+      objective: "Introduce a plan/spec analysis gate.",
+      nonGoals: ["Do not start implementation before critical findings are resolved."],
+      successCriteria: ["Critical findings block approval."],
+      actors: ["operator"],
+      dataLifecycle: "Analysis reports are projected as read-only resources.",
+      uxEdgeCases: ["Stale findings after plan revisions"],
+      securityPrivacy: "No secrets in analysis findings.",
+      externalDependencies: ["none"],
+      completionSignals: ["analysis report emits canonical event"],
+      constitutionSnapshot: {
+        instructionProfileHash: "hash-3",
+        instructionProfileIds: ["sequel-engineering"],
+      },
+    });
+    const plan = planStateStore.submitPlan({
+      objective: "Add analysis model and runtime gate.",
+      nonGoals: ["Do not execute code changes in plan mode."],
+      operatorDecisionsRequired: ["Approve analysis findings before execution"],
+      assumptions: ["Plan/work-item linkage remains canonical."],
+      affectedSurfaces: ["core", "runtime"],
+      riskClassification: "high",
+      workGovernanceRecommendation: {
+        posture: "orchestrate",
+        rationale: "Cross-surface workflow contract.",
+        workflowProfile: "architecture-change",
+      },
+      proposedWorkItems: [{
+        id: "wi-1",
+        summary: "Add consistency analyzer",
+        workflowProfile: "architecture-change",
+        risk: "high",
+        expectedEvidence: ["tests"],
+        verificationGates: ["bun test"],
+        dependencies: [],
+      }],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+      managedAgentDelegationCandidates: [],
+      approvalBoundaries: ["Block approval on critical findings."],
+      rollbackNotes: "Revert analysis gate.",
+      residualRisks: ["none"],
+      sourceSpecificationId: specification.id,
+      clarificationRecordIds: [],
+      constitutionSnapshot: {
+        instructionProfileHash: "hash-3",
+        instructionProfileIds: ["sequel-engineering"],
+      },
+    });
+    const analysis = analysisStateStore.analyzePlan({ specification, plan });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/analysis-reports");
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/analysis-findings");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/analysis-reports/{id}");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/analysis-findings/{id}");
+
+    const reports = await surface.resources.read("kiln://session/analysis-reports");
+    expect(JSON.parse(reports.contents[0]!.text)).toMatchObject({
+      reports: [
+        {
+          id: analysis.report.id,
+          planId: plan.id,
+          specificationId: specification.id,
+        },
+      ],
+    });
+
+    const findingId = analysis.findings[0]?.id;
+    expect(findingId).toBeDefined();
+    const finding = await surface.resources.read(`kiln://session/analysis-findings/${findingId}`);
+    expect(JSON.parse(finding.contents[0]!.text)).toMatchObject({
+      id: findingId,
+      status: "open",
     });
   });
 

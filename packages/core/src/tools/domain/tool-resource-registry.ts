@@ -1,6 +1,9 @@
 import { KilnError } from "../../engine/errors.js";
 import type { ToolCatalogIndex } from "./tool-catalog.js";
 import type { MonitorRegistry } from "../infrastructure/monitor-tools.js";
+import type { AnalysisStateStore } from "../infrastructure/analysis-state-store.js";
+import type { PlanStateStore } from "../infrastructure/plan-state-store.js";
+import type { SpecificationStateStore } from "../infrastructure/specification-state-store.js";
 import type { TaskStateStore } from "../infrastructure/task-state-tools.js";
 import type { WorkItemStore } from "../../work-governance/index.js";
 import { createHash } from "node:crypto";
@@ -67,6 +70,9 @@ export interface ToolResourceProvider {
 export interface ToolResourceRegistryOptions {
   readonly catalog: ToolCatalogIndex;
   readonly taskStateStore: TaskStateStore;
+  readonly analysisStateStore?: AnalysisStateStore;
+  readonly planStateStore?: PlanStateStore;
+  readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly providers?: readonly ToolResourceProvider[];
@@ -75,6 +81,9 @@ export interface ToolResourceRegistryOptions {
 export class ToolResourceRegistry {
   private readonly catalog: ToolCatalogIndex;
   private readonly taskStateStore: TaskStateStore;
+  private readonly analysisStateStore?: AnalysisStateStore;
+  private readonly planStateStore?: PlanStateStore;
+  private readonly specificationStateStore?: SpecificationStateStore;
   private readonly workItemStore?: WorkItemStore;
   private readonly monitorRegistry: MonitorRegistry;
   private readonly providers: readonly ToolResourceProvider[];
@@ -82,6 +91,9 @@ export class ToolResourceRegistry {
   constructor(options: ToolResourceRegistryOptions) {
     this.catalog = options.catalog;
     this.taskStateStore = options.taskStateStore;
+    this.analysisStateStore = options.analysisStateStore;
+    this.planStateStore = options.planStateStore;
+    this.specificationStateStore = options.specificationStateStore;
     this.workItemStore = options.workItemStore;
     this.monitorRegistry = options.monitorRegistry;
     this.providers = options.providers ?? [];
@@ -113,6 +125,44 @@ export class ToolResourceRegistry {
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       },
+      ...(this.planStateStore ? [{
+        uri: "kiln://session/plans",
+        name: "session_plans",
+        title: "Session Plans",
+        description: "Read-only snapshot of structured plan artifacts.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
+      ...(this.analysisStateStore ? [{
+        uri: "kiln://session/analysis-reports",
+        name: "session_analysis_reports",
+        title: "Session Analysis Reports",
+        description: "Read-only snapshot of plan/spec consistency analysis reports.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }, {
+        uri: "kiln://session/analysis-findings",
+        name: "session_analysis_findings",
+        title: "Session Analysis Findings",
+        description: "Read-only snapshot of analysis findings and lifecycle status.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
+      ...(this.specificationStateStore ? [{
+        uri: "kiln://session/specifications",
+        name: "session_specifications",
+        title: "Session Specifications",
+        description: "Read-only snapshot of structured specifications and validation issues.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }, {
+        uri: "kiln://session/clarifications",
+        name: "session_clarifications",
+        title: "Session Clarifications",
+        description: "Read-only snapshot of specification clarification records.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
       ...(this.workItemStore ? [{
         uri: "kiln://session/work-items",
         name: "session_work_items",
@@ -151,6 +201,44 @@ export class ToolResourceRegistry {
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       },
+      ...(this.planStateStore ? [{
+        uriTemplate: "kiln://session/plans/{id}",
+        name: "session_plan",
+        title: "Session Plan",
+        description: "Read one structured plan artifact by id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
+      ...(this.analysisStateStore ? [{
+        uriTemplate: "kiln://session/analysis-reports/{id}",
+        name: "session_analysis_report",
+        title: "Session Analysis Report",
+        description: "Read one plan/spec consistency analysis report by id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }, {
+        uriTemplate: "kiln://session/analysis-findings/{id}",
+        name: "session_analysis_finding",
+        title: "Session Analysis Finding",
+        description: "Read one analysis finding by stable id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
+      ...(this.specificationStateStore ? [{
+        uriTemplate: "kiln://session/specifications/{id}",
+        name: "session_specification",
+        title: "Session Specification",
+        description: "Read one structured specification by id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }, {
+        uriTemplate: "kiln://session/clarifications/{specificationId}",
+        name: "session_specification_clarifications",
+        title: "Session Specification Clarifications",
+        description: "Read clarification records for one specification id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
       ...(this.workItemStore ? [{
         uriTemplate: "kiln://session/work-items/{id}",
         name: "session_work_item",
@@ -210,6 +298,76 @@ export class ToolResourceRegistry {
     if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "monitors") {
       return jsonResource(uri, {
         monitors: this.monitorRegistry.list(),
+      });
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "plans" && this.planStateStore) {
+      return jsonResource(uri, this.planStateStore.snapshot());
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "plans" && this.planStateStore) {
+      const id = parsed.path[1] ?? "";
+      const plan = this.planStateStore.getPlan(id);
+      if (!plan) {
+        throw resourceNotFound(uri);
+      }
+      return jsonResource(uri, plan);
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "analysis-reports" && this.analysisStateStore) {
+      return jsonResource(uri, {
+        reports: this.analysisStateStore.listReports(),
+      });
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "analysis-reports" && this.analysisStateStore) {
+      const id = parsed.path[1] ?? "";
+      const report = this.analysisStateStore.getReport(id);
+      if (!report) {
+        throw resourceNotFound(uri);
+      }
+      return jsonResource(uri, report);
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "analysis-findings" && this.analysisStateStore) {
+      return jsonResource(uri, {
+        findings: this.analysisStateStore.listFindings(),
+      });
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "analysis-findings" && this.analysisStateStore) {
+      const id = parsed.path[1] ?? "";
+      const finding = this.analysisStateStore.getFinding(id);
+      if (!finding) {
+        throw resourceNotFound(uri);
+      }
+      return jsonResource(uri, finding);
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "specifications" && this.specificationStateStore) {
+      return jsonResource(uri, this.specificationStateStore.snapshot());
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "specifications" && this.specificationStateStore) {
+      const id = parsed.path[1] ?? "";
+      const specification = this.specificationStateStore.getSpecification(id);
+      if (!specification) {
+        throw resourceNotFound(uri);
+      }
+      return jsonResource(uri, specification);
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "clarifications" && this.specificationStateStore) {
+      return jsonResource(uri, {
+        clarifications: this.specificationStateStore.listClarifications(),
+      });
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "clarifications" && this.specificationStateStore) {
+      const specificationId = parsed.path[1] ?? "";
+      return jsonResource(uri, {
+        specificationId,
+        clarifications: this.specificationStateStore.listClarifications(specificationId),
       });
     }
 

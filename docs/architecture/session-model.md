@@ -114,6 +114,12 @@ display, and audit context only. They must not be used as the approval decision
 key because a session can contain multiple approval gates across turns and
 surfaces.
 
+Plan approval is a specialized workflow approval. `plan_approved` records the
+approved `planId`, approval identity, immutable plan hash, approval timestamp,
+and `plan -> execute` transition. Execution-mode transition acknowledgements
+project the same identifiers so GUI, TUI, and CLI-backed consumers can render
+the same decision instead of trusting surface-local Plan button state.
+
 Managed child invocations use the same event stream. The
 `agent_invocation_requested`, `agent_invocation_started`,
 `agent_invocation_completed`, `agent_invocation_failed`, and
@@ -266,10 +272,15 @@ permissions, events, and presentation without introducing new consumer-specific
 flags. The only supported modes today are `execute` and `plan`.
 
 In plan mode the runtime narrows the tool surface to read-only capabilities and
-the runtime-owned `submit_plan` tool. Successful `submit_plan` calls append
-canonical `plan_submitted` events to the session event stream. Presentation of
-those events is owned by `@kilnai/gateway-contracts` so GUI, TUI, CLI, IDE, SDK,
-and remote operator surfaces project the same planning evidence.
+runtime-owned planning tools (`submit_specification`, `record_clarification`,
+`submit_plan`). `submit_plan` is a typed artifact contract linked to a source
+specification and clarification records, not free-form text. Successful
+planning-tool calls append canonical `specification_submitted`,
+`clarification_recorded`, `plan_submitted`, and `plan_analysis_reported` events
+to the session stream.
+Presentation of those events is owned by `@kilnai/gateway-contracts` so GUI,
+TUI, CLI, IDE, SDK, and remote operator surfaces project the same planning
+evidence.
 
 ## Consumer Scoping Rules
 
