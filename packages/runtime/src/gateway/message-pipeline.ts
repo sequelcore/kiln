@@ -51,7 +51,7 @@ import {
   type RuntimeTurnFileChange,
   type RuntimeTurnProviderValidation,
 } from "../session/runtime-turn-record.js";
-import { appendCanonicalTurnEvents } from "../session/runtime-session-event-ledger.js";
+import { appendCanonicalTurnEvents, type RuntimeTurnAuthorityMutationViolation } from "../session/runtime-session-event-ledger.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
@@ -805,6 +805,39 @@ function dangerousCommandOutcomeFromExecution(
     reasonCode,
     reason,
   };
+}
+
+function buildAuthorityMutationViolation(
+  effectiveTurnAuthority: PerCallToolConfig["effectiveTurnAuthority"] | undefined,
+  fileChanges: readonly RuntimeTurnFileChange[],
+): RuntimeTurnAuthorityMutationViolation | undefined {
+  if (!effectiveTurnAuthority || fileChanges.length === 0) {
+    return undefined;
+  }
+  if (!turnAuthorityDisallowsMutation(effectiveTurnAuthority)) {
+    return undefined;
+  }
+  return {
+    errorCode: "AUTHORITY_MUTATION_VIOLATION",
+    message: "Observed file changes outside admitted turn authority.",
+    details: {
+      executionMode: effectiveTurnAuthority.executionMode,
+      requestedAuthority: effectiveTurnAuthority.requestedAuthority,
+      admittedAuthority: effectiveTurnAuthority.admittedAuthority,
+      fileChangeCount: fileChanges.length,
+      paths: fileChanges.map((change) => change.path),
+    },
+  };
+}
+
+function turnAuthorityDisallowsMutation(
+  authority: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>,
+): boolean {
+  return authority.executionMode === "plan"
+    || authority.requestedAuthority === "planning"
+    || authority.requestedAuthority === "read_only"
+    || authority.admittedAuthority === "read_only"
+    || authority.admittedAuthority === "fail_closed";
 }
 
 interface AdmittedTurnContextProjectionInput {
@@ -1628,6 +1661,10 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   const analysisReports = executionMode === "plan"
     ? extractPlanAnalysisReports(result.toolExecutions)
     : [];
+  const authorityMutationViolation = buildAuthorityMutationViolation(
+    perCallConfig?.effectiveTurnAuthority,
+    mergedFileChanges,
+  );
 
   applyRuntimeTurnRecord({
     session,
@@ -1675,6 +1712,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     analysisReports,
     specificationSubmissions,
     clarificationRecords,
+    authorityMutationViolations: authorityMutationViolation ? [authorityMutationViolation] : undefined,
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
   });
 

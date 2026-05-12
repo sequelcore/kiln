@@ -34,6 +34,12 @@ interface RuntimeContinuitySnapshot {
   readonly fallbackLabel?: string;
 }
 
+export interface RuntimeTurnAuthorityMutationViolation {
+  readonly errorCode: string;
+  readonly message: string;
+  readonly details: Record<string, unknown>;
+}
+
 export interface AppendCanonicalTurnEventsInput {
   readonly session: RuntimeSession;
   readonly channel: string;
@@ -95,6 +101,7 @@ export interface AppendCanonicalTurnEventsInput {
     readonly clarificationId: string;
     readonly affectedSection: string;
   }[];
+  readonly authorityMutationViolations?: readonly RuntimeTurnAuthorityMutationViolation[];
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
 }
 
@@ -384,6 +391,21 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       specificationId: clarification.specificationId,
       clarificationId: clarification.clarificationId,
       affectedSection: clarification.affectedSection,
+      source: runtimeSource,
+      timestamp: input.turnCompletedAt,
+    }));
+  }
+
+  for (const violation of input.authorityMutationViolations ?? []) {
+    events.push(createSessionEvent<"error_recorded">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "error_recorded",
+      turnId,
+      errorCode: violation.errorCode,
+      message: violation.message,
+      retriable: false,
+      details: violation.details,
       source: runtimeSource,
       timestamp: input.turnCompletedAt,
     }));

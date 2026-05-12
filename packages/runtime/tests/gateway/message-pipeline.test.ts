@@ -1698,6 +1698,70 @@ describe("processAdmittedTurn", () => {
     expect(artifacts).toContain("File changed: C:/workspace/src/demo.txt");
   });
 
+  it("records an authority audit error when read-only turns report file changes", async () => {
+    const session = makeMockSession();
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("inspected"),
+        inputTokens: 9,
+        outputTokens: 4,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        toolExecutions: [{
+          toolName: "read_file",
+          durationMs: 12,
+          success: true,
+          resultSummary: "Read file",
+          fileChanges: [{ path: "src/should-not-change.ts", changeType: "modified", linesAdded: 1, linesRemoved: 0 }],
+        }],
+      } satisfies OrchestrateResult),
+      model: "claude-sonnet-4-20250514",
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      requestedAuthority: "read_only",
+      sessionRegistry,
+      perCallConfig: {
+        toolAllowlist: new Set(["read_file"]),
+        perCallCapabilities: new Map([[
+          "read_file",
+          {
+            name: "read_file",
+            description: "Read files",
+            schema: {},
+            tags: [],
+            annotations: { readOnly: true },
+          },
+        ]]),
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger).toContainEqual(expect.objectContaining({
+      kind: "error_recorded",
+      errorCode: "AUTHORITY_MUTATION_VIOLATION",
+      message: "Observed file changes outside admitted turn authority.",
+      retriable: false,
+      details: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        fileChangeCount: 1,
+        paths: ["src/should-not-change.ts"],
+      },
+    }));
+    expect(ledger).toContainEqual(expect.objectContaining({
+      kind: "file_changed",
+      change: expect.objectContaining({
+        path: "src/should-not-change.ts",
+      }),
+    }));
+  });
+
   it("persists dangerous-command outcomes into canonical turn artifacts", async () => {
     const session = makeMockSession();
     const orchestrator = {
