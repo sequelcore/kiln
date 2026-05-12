@@ -1090,6 +1090,7 @@ function wireOperatorTransport(
               outputTokens: output.outputTokens,
               routedProvider,
               routedModel,
+              routingRationale: output.routingDecision?.rationale,
               runtimeContinuity,
               authorityStatus: deriveGuiDoneAuthorityStatus(turnPerCallConfig),
             } satisfies GuiInboundFrame));
@@ -1437,6 +1438,7 @@ class GuiActivityStreamer {
                 model: routedEvent.model,
               },
               reason: routedEvent.reason,
+              routingRationale: routedEvent.rationale,
             },
           });
         }

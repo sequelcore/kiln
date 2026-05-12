@@ -6,6 +6,55 @@ import type { ExecutionBillingMode } from "../../agents/execution-identity.js";
 /** Routing tier describes how the model was selected */
 export type RoutingTier = "rule" | "complexity" | "cascade" | "default";
 
+export type ModelSelectionMode = "auto" | "manual_override";
+export type ModelRoutingReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ModelRoutingDiagnosticSeverity = "info" | "warning" | "error";
+
+export interface ModelRoutingDiagnostic {
+  readonly code: string;
+  readonly severity: ModelRoutingDiagnosticSeverity;
+  readonly message: string;
+  readonly provider?: string;
+  readonly model?: string;
+}
+
+export interface ModelRoutingRankingEvidence {
+  readonly source: string;
+  readonly task: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly rank: number;
+  readonly sampleSize?: number;
+  readonly confidence?: number;
+  readonly expiresAt?: string;
+}
+
+export interface ModelRoutingPolicyInputsUsed {
+  readonly tenantId: string;
+  readonly complexityClass: ComplexityClass;
+  readonly complexityScore: number;
+  readonly hasTools: boolean;
+  readonly toolCount: number;
+  readonly requiresStreaming: boolean;
+  readonly requestedReasoningEffort?: ModelRoutingReasoningEffort;
+  readonly task?: string;
+}
+
+export interface ModelRoutingRationale {
+  readonly selectedProvider: string;
+  readonly selectedModel: string;
+  readonly canonicalModel?: string;
+  readonly selectionMode: ModelSelectionMode;
+  readonly reasoningEffort?: ModelRoutingReasoningEffort;
+  readonly routingReason: string;
+  readonly confidence: number;
+  readonly routingTier: RoutingTier;
+  readonly inputsUsed: ModelRoutingPolicyInputsUsed;
+  readonly rankingEvidence: readonly ModelRoutingRankingEvidence[];
+  readonly diagnostics: readonly ModelRoutingDiagnostic[];
+  readonly overrideSource?: string;
+}
+
 /** Complexity class derived from complexity score */
 export type ComplexityClass = "trivial" | "simple" | "moderate" | "complex" | "expert";
 
@@ -48,6 +97,9 @@ export interface RoutingRequest {
   readonly toolCount: number;
   readonly requiresStreaming: boolean;
   readonly budgetRemainingCents?: number;
+  readonly requestedReasoningEffort?: ModelRoutingReasoningEffort;
+  readonly task?: string;
+  readonly rankingEvidence?: readonly ModelRoutingRankingEvidence[];
 }
 
 /** Output from the model router */
@@ -60,6 +112,9 @@ export interface RoutingDecision {
   readonly confidence: number;
   readonly routingTier: RoutingTier;
   readonly estimatedCostUsd?: number;
+  readonly selectionMode?: ModelSelectionMode;
+  readonly reasoningEffort?: ModelRoutingReasoningEffort;
+  readonly rationale?: ModelRoutingRationale;
 }
 
 /** Routing condition types for rules-based routing */

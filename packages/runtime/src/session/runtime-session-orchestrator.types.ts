@@ -1,4 +1,13 @@
-import type { ExecutionBillingMode, ProviderAdapter, ContentPart, ToolDefinition, ReasoningEffort, ToolCall } from "@kilnai/core";
+import type {
+  ExecutionBillingMode,
+  ModelRoutingRationale,
+  ModelRoutingRankingEvidence,
+  ProviderAdapter,
+  ContentPart,
+  ToolDefinition,
+  ReasoningEffort,
+  ToolCall,
+} from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import type { ContextAuditEntry } from "@kilnai/core";
@@ -91,6 +100,9 @@ export interface OrchestrateResult {
     readonly billingMode?: ExecutionBillingMode;
     readonly routingTier: string;
     readonly reasoning: string;
+    readonly selectionMode?: "auto" | "manual_override";
+    readonly reasoningEffort?: ReasoningEffort;
+    readonly rationale?: ModelRoutingRationale;
   };
 }
 
@@ -182,6 +194,17 @@ export interface EffectiveTurnAuthorityAdmissionContext {
   readonly workItemAuthority?: WorkItemAuthorityPolicyBound;
 }
 
+export interface ModelRoutingRouteCapabilities {
+  readonly supportedReasoningEfforts?: readonly ReasoningEffort[];
+}
+
+export interface ModelRoutingPolicyConfig {
+  readonly task?: string;
+  readonly rankingEvidence?: readonly ModelRoutingRankingEvidence[];
+  readonly routeCapabilities?: ReadonlyMap<string, ModelRoutingRouteCapabilities>;
+  readonly now?: Date;
+}
+
 export interface PerCallToolConfig {
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
@@ -195,10 +218,12 @@ export interface PerCallToolConfig {
     readonly model: string;
     readonly canonicalModel?: string;
     readonly billingMode?: ExecutionBillingMode;
+    readonly source?: string;
   };
   readonly reasoningEffort?: ReasoningEffort;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
+  readonly modelRoutingPolicy?: ModelRoutingPolicyConfig;
 }
 
 export type RuntimeToolCallMetadataResolver = (

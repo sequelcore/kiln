@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   GuiInboundFrame,
   GuiInteractiveUseSnapshot,
+  GuiModelRoutingRationale,
   GuiOutboundFrame,
   GuiProviderCatalogStatus,
   GuiProviderDiscoveryResult,
@@ -861,6 +862,7 @@ export interface Message {
   readonly streaming?: boolean;
   readonly routedProvider?: string;
   readonly routedModel?: string;
+  readonly routingRationale?: GuiModelRoutingRationale;
   readonly sessionEventMessageId?: string;
 }
 
@@ -2193,6 +2195,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               streaming: false,
               routedProvider: finalizedProvider,
               routedModel: finalizedModel,
+              routingRationale: frame.routingRationale,
             }
           : message
       ));
@@ -2213,6 +2216,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         streaming: false,
         routedProvider: finalizedProvider,
         routedModel: finalizedModel,
+        routingRationale: frame.routingRationale,
       };
       nextMessages = [
         ...nextMessages,
@@ -2241,6 +2245,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         details: {
           routedProvider: finalizedProvider,
           routedModel: finalizedModel,
+          routingRationale: frame.routingRationale,
           runtimeContinuity: frame.runtimeContinuity,
           authorityStatus: frame.authorityStatus,
           inputTokens: frame.inputTokens,

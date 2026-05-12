@@ -73,6 +73,83 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(result.routingDecision!.model).toBe("routed-model");
     expect(result.routingDecision!.routingTier).toBe("rule");
     expect(result.routingDecision!.reasoning).toBe("Test rule matched");
+    expect(result.routingDecision!.selectionMode).toBe("auto");
+    expect(result.routingDecision!.rationale).toMatchObject({
+      selectedProvider: "routed",
+      selectedModel: "routed-model",
+      selectionMode: "auto",
+      routingReason: "Test rule matched",
+    });
+  });
+
+  it("passes requested reasoning effort into routing policy inputs", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Effort-aware route",
+      confidence: 0.8,
+      routingTier: "rule",
+    });
+    const providerPool = new Map<string, ProviderAdapter>([["routed", routedProvider]]);
+
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "configured-model",
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+
+    const result = await orchestrator.processMessage(session, textParts("analyze the boundary\n```ts\nclass Boundary {}\n```"), undefined, undefined, {
+      reasoningEffort: "high",
+    });
+
+    expect(router.route).toHaveBeenCalledWith(expect.objectContaining({
+      requestedReasoningEffort: "high",
+    }));
+    expect(result.routingDecision?.reasoningEffort).toBe("high");
+    expect(result.routingDecision?.rationale.inputsUsed).toMatchObject({
+      requestedReasoningEffort: "high",
+      hasTools: false,
+      toolCount: 0,
+      tenantId: "default",
+      complexityClass: "simple",
+    });
+    expect(result.routingDecision?.rationale.inputsUsed.complexityScore).toBeGreaterThan(0.2);
+  });
+
+  it("fails closed before provider execution when selected route does not support requested reasoning effort", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Unsupported effort route",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+    const providerPool = new Map<string, ProviderAdapter>([["routed", routedProvider]]);
+
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, textParts("do hard work"), undefined, undefined, {
+      reasoningEffort: "xhigh",
+      modelRoutingPolicy: {
+        routeCapabilities: new Map([
+          ["routed/routed-model", {
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          }],
+        ]),
+      },
+    })).rejects.toThrow("Reasoning effort 'xhigh' is not supported by routed/routed-model");
+
+    expect(routedProvider.createMessage).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });
 
   it("injects routed execution identity when router-selected provider is applied", async () => {
@@ -194,6 +271,57 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(result.routingDecision).toBeDefined();
     expect(result.routingDecision!.provider).toBe("override");
     expect(result.routingDecision!.model).toBe("override-model");
+    expect(result.routingDecision!.selectionMode).toBe("manual_override");
+    expect(result.routingDecision!.rationale).toMatchObject({
+      selectedProvider: "override",
+      selectedModel: "override-model",
+      selectionMode: "manual_override",
+      overrideSource: "operator",
+      routingReason: "Explicit model override",
+    });
+  });
+
+  it("records stale ranking evidence as diagnostics without making it authoritative", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Rule still selects route",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+    const providerPool = new Map<string, ProviderAdapter>([["routed", routedProvider]]);
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+
+    const result = await orchestrator.processMessage(session, textParts("implement a backend change"), undefined, undefined, {
+      modelRoutingPolicy: {
+        task: "backend-coding",
+        rankingEvidence: [
+          {
+            source: "internal-eval",
+            task: "backend-coding",
+            provider: "routed",
+            model: "routed-model",
+            rank: 1,
+            sampleSize: 20,
+            confidence: 0.72,
+            expiresAt: "2020-01-01T00:00:00.000Z",
+          },
+        ],
+        now: new Date("2026-05-12T00:00:00.000Z"),
+      },
+    });
+
+    expect(result.routingDecision?.rationale.rankingEvidence).toEqual([]);
+    expect(result.routingDecision?.rationale.diagnostics).toContainEqual(expect.objectContaining({
+      code: "stale_ranking_evidence",
+      severity: "warning",
+    }));
   });
 
   it("uses modelOverride for execution identity and cost telemetry even without a provider pool", async () => {
@@ -352,6 +480,13 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       billingMode: "metered",
       routingTier: "rule",
       reasoning: "Budget saving rule",
+      selectionMode: "auto",
+      rationale: expect.objectContaining({
+        selectedProvider: "anthropic",
+        selectedModel: "claude-haiku-4-5-20251001",
+        selectionMode: "auto",
+        routingReason: "Budget saving rule",
+      }),
     });
   });
 

@@ -3,12 +3,16 @@ import type {
   ContentPart,
   ToolDefinition,
   RoutingDecision,
+  ComplexityScore,
+  ModelRoutingDiagnostic,
+  ModelRoutingRankingEvidence,
   Capability,
   ExecutionIdentity,
+  ReasoningEffort,
 } from "@kilnai/core";
 import { appendExecutionIdentity, extractText, resolveExecutionIdentity, scoreComplexity } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
-import type { OrchestratorDeps, PerCallToolConfig } from "./runtime-session-orchestrator.types.js";
+import type { ModelRoutingPolicyConfig, OrchestratorDeps, PerCallToolConfig } from "./runtime-session-orchestrator.types.js";
 
 export interface RuntimeSessionRoutingResolution {
   readonly effectiveProvider: ProviderAdapter;
@@ -30,21 +34,31 @@ export async function resolveRuntimeSessionRouting(
 ): Promise<RuntimeSessionRoutingResolution> {
   const hasBuiltins = (deps.builtinTools?.size ?? 0) > 0;
   const hasMcp = (deps.mcpClients?.length ?? 0) > 0;
+  const userText = extractText(userParts);
 
   let mergedTools = mergeAdditionalTools(baseTools, perCallConfig?.additionalTools);
   if (perCallConfig?.toolAllowlist) {
     mergedTools = mergedTools?.filter((tool) => perCallConfig.toolAllowlist?.has(tool.name));
   }
   const hasToolSurface = (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
+  let routingComplexity = scoreComplexity({
+    messageText: userText,
+    toolCount: mergedTools?.length ?? 0,
+    turnDepth: session.messageCount,
+  });
 
   if (deps.toolRAG && deps.capabilityMap && mergedTools && mergedTools.length > 30) {
     try {
-      const userText = extractText(userParts);
       const allCapabilities = Array.from(deps.capabilityMap.values());
       const selected = await deps.toolRAG.selectTools(userText, allCapabilities);
       if (selected.length > 0) {
         const selectedNames = new Set(selected.map((capability: Capability) => capability.name));
         mergedTools = mergedTools.filter((tool) => selectedNames.has(tool.name));
+        routingComplexity = scoreComplexity({
+          messageText: userText,
+          toolCount: mergedTools.length,
+          turnDepth: session.messageCount,
+        });
       }
     } catch {
       // Fail-open: use all tools if ToolRAG fails.
@@ -72,23 +86,26 @@ export async function resolveRuntimeSessionRouting(
       reasoning: "Explicit model override",
       confidence: 1.0,
       routingTier: "rule",
+      selectionMode: "manual_override",
     };
   } else if (deps.modelRouter) {
     try {
-      const userText = extractText(userParts);
-      const complexity = scoreComplexity({
-        messageText: userText,
-        toolCount: mergedTools?.length ?? 0,
-        turnDepth: session.messageCount,
-      });
       const decision = deps.modelRouter.route({
         tenantId: perCallConfig?.tenantId ?? "default",
-        complexity,
+        complexity: routingComplexity,
         hasTools: hasToolSurface,
         toolCount: mergedTools?.length ?? 0,
         requiresStreaming: false,
+        ...(perCallConfig?.reasoningEffort ? { requestedReasoningEffort: perCallConfig.reasoningEffort } : {}),
+        ...(perCallConfig?.modelRoutingPolicy?.task ? { task: perCallConfig.modelRoutingPolicy.task } : {}),
+        ...(perCallConfig?.modelRoutingPolicy?.rankingEvidence
+          ? { rankingEvidence: perCallConfig.modelRoutingPolicy.rankingEvidence }
+          : {}),
       });
-      routingDecision = decision;
+      routingDecision = {
+        ...decision,
+        selectionMode: "auto",
+      };
 
       const poolProvider = deps.providerPool?.get(decision.provider);
       if (poolProvider) {
@@ -111,6 +128,7 @@ export async function resolveRuntimeSessionRouting(
   });
 
   if (routingDecision) {
+    validateRequestedReasoningEffort(routingDecision, perCallConfig?.reasoningEffort, perCallConfig?.modelRoutingPolicy);
     const routingTargetIdentity = resolveExecutionIdentity({
       configuredProvider: routingDecision.provider,
       configuredModel: routingDecision.model,
@@ -121,6 +139,17 @@ export async function resolveRuntimeSessionRouting(
       ...routingDecision,
       canonicalModel: routingTargetIdentity?.canonicalModel ?? routingDecision.canonicalModel,
       billingMode: routingTargetIdentity?.billingMode ?? routingDecision.billingMode,
+    };
+    routingDecision = {
+      ...routingDecision,
+      reasoningEffort: perCallConfig?.reasoningEffort,
+      rationale: buildModelRoutingRationale(
+        routingDecision,
+        hasToolSurface,
+        mergedTools?.length ?? 0,
+        routingComplexity,
+        perCallConfig,
+      ),
     };
     emitModelRouted(session.id, routingDecision);
   }
@@ -141,6 +170,123 @@ export async function resolveRuntimeSessionRouting(
     executionIdentity,
     routingDecision,
   };
+}
+
+function buildModelRoutingRationale(
+  decision: RoutingDecision,
+  hasTools: boolean,
+  toolCount: number,
+  complexity: ComplexityScore,
+  perCallConfig: PerCallToolConfig | undefined,
+): NonNullable<RoutingDecision["rationale"]> {
+  const ranking = filterRankingEvidence(perCallConfig?.modelRoutingPolicy);
+  return {
+    selectedProvider: decision.provider,
+    selectedModel: decision.model,
+    canonicalModel: decision.canonicalModel,
+    selectionMode: decision.selectionMode ?? "auto",
+    reasoningEffort: perCallConfig?.reasoningEffort,
+    routingReason: decision.reasoning,
+    confidence: decision.confidence,
+    routingTier: decision.routingTier,
+    inputsUsed: {
+      tenantId: perCallConfig?.tenantId ?? "default",
+      complexityClass: complexity.class,
+      complexityScore: complexity.score,
+      hasTools,
+      toolCount,
+      requiresStreaming: false,
+      ...(perCallConfig?.reasoningEffort ? { requestedReasoningEffort: perCallConfig.reasoningEffort } : {}),
+      ...(perCallConfig?.modelRoutingPolicy?.task ? { task: perCallConfig.modelRoutingPolicy.task } : {}),
+    },
+    rankingEvidence: ranking.current,
+    diagnostics: [
+      ...ranking.diagnostics,
+      ...reasoningEffortDiagnostics(decision, perCallConfig?.reasoningEffort, perCallConfig?.modelRoutingPolicy),
+    ],
+    ...(decision.selectionMode === "manual_override"
+      ? { overrideSource: perCallConfig?.modelOverride?.source ?? "operator" }
+      : {}),
+  };
+}
+
+function validateRequestedReasoningEffort(
+  decision: RoutingDecision,
+  requested: ReasoningEffort | undefined,
+  policy: ModelRoutingPolicyConfig | undefined,
+): void {
+  if (!requested) {
+    return;
+  }
+  const supported = supportedReasoningEffortsFor(decision, policy);
+  if (!supported || supported.includes(requested)) {
+    return;
+  }
+  throw new Error(`Reasoning effort '${requested}' is not supported by ${decision.provider}/${decision.model}`);
+}
+
+function reasoningEffortDiagnostics(
+  decision: RoutingDecision,
+  requested: ReasoningEffort | undefined,
+  policy: ModelRoutingPolicyConfig | undefined,
+): NonNullable<RoutingDecision["rationale"]>["diagnostics"] {
+  if (!requested) {
+    return [];
+  }
+  const supported = supportedReasoningEffortsFor(decision, policy);
+  if (!supported) {
+    return [{
+      code: "reasoning_effort_unadvertised",
+      severity: "warning",
+      message: `Route ${decision.provider}/${decision.model} did not advertise reasoning effort support.`,
+      provider: decision.provider,
+      model: decision.model,
+    }];
+  }
+  return [{
+    code: "reasoning_effort_supported",
+    severity: "info",
+    message: `Route ${decision.provider}/${decision.model} supports requested reasoning effort '${requested}'.`,
+    provider: decision.provider,
+    model: decision.model,
+  }];
+}
+
+function supportedReasoningEffortsFor(
+  decision: RoutingDecision,
+  policy: ModelRoutingPolicyConfig | undefined,
+): readonly ReasoningEffort[] | undefined {
+  return policy?.routeCapabilities?.get(`${decision.provider}/${decision.model}`)?.supportedReasoningEfforts
+    ?? policy?.routeCapabilities?.get(decision.model)?.supportedReasoningEfforts;
+}
+
+function filterRankingEvidence(
+  policy: ModelRoutingPolicyConfig | undefined,
+): {
+  readonly current: NonNullable<RoutingDecision["rationale"]>["rankingEvidence"];
+  readonly diagnostics: NonNullable<RoutingDecision["rationale"]>["diagnostics"];
+} {
+  const evidence = policy?.rankingEvidence ?? [];
+  const now = policy?.now ?? new Date();
+  const current: ModelRoutingRankingEvidence[] = [];
+  const diagnostics: ModelRoutingDiagnostic[] = [];
+  for (const item of evidence) {
+    if (item.expiresAt) {
+      const expiresAt = Date.parse(item.expiresAt);
+      if (Number.isFinite(expiresAt) && expiresAt < now.getTime()) {
+        diagnostics.push({
+          code: "stale_ranking_evidence",
+          severity: "warning",
+          message: `Ranking evidence from ${item.source} for ${item.provider}/${item.model} expired at ${item.expiresAt}.`,
+          provider: item.provider,
+          model: item.model,
+        });
+        continue;
+      }
+    }
+    current.push(item);
+  }
+  return { current, diagnostics };
 }
 
 export function appendOperatorSurfaceToolDirective(

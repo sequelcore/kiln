@@ -535,6 +535,17 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ...(modelOverride ? { modelOverride } : {}),
     ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),
+    ...(profile && input.activeModelCapabilities?.supportedReasoningEfforts
+      ? {
+          modelRoutingPolicy: {
+            routeCapabilities: new Map([
+              [`${profile.provider}/${profile.model}`, {
+                supportedReasoningEfforts: input.activeModelCapabilities.supportedReasoningEfforts,
+              }],
+            ]),
+          },
+        }
+      : {}),
   };
 
   if (profile?.executionMode !== "kiln-executable") {

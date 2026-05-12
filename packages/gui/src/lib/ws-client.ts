@@ -128,6 +128,49 @@ const GuiAuthorityStatusSchema = z.object({
   completeness: z.enum(["authoritative", "partial"]),
 });
 
+const GuiModelRoutingDiagnosticSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["info", "warning", "error"]),
+  message: z.string(),
+  provider: z.string().optional(),
+  model: z.string().optional(),
+});
+
+const GuiModelRoutingRankingEvidenceSchema = z.object({
+  source: z.string(),
+  task: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  rank: z.number(),
+  sampleSize: z.number().optional(),
+  confidence: z.number().optional(),
+  expiresAt: z.string().optional(),
+});
+
+const GuiModelRoutingRationaleSchema = z.object({
+  selectedProvider: z.string(),
+  selectedModel: z.string(),
+  canonicalModel: z.string().optional(),
+  selectionMode: z.enum(["auto", "manual_override"]),
+  reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+  routingReason: z.string(),
+  confidence: z.number(),
+  routingTier: z.enum(["rule", "complexity", "cascade", "default"]),
+  inputsUsed: z.object({
+    tenantId: z.string(),
+    complexityClass: z.string(),
+    complexityScore: z.number(),
+    hasTools: z.boolean(),
+    toolCount: z.number(),
+    requiresStreaming: z.boolean(),
+    requestedReasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+    task: z.string().optional(),
+  }),
+  rankingEvidence: z.array(GuiModelRoutingRankingEvidenceSchema),
+  diagnostics: z.array(GuiModelRoutingDiagnosticSchema),
+  overrideSource: z.string().optional(),
+});
+
 const GuiInteractiveUseSnapshotSchema = z.object({
   target: z.enum(["browser", "computer"]),
   status: z.enum(["running", "succeeded", "failed"]),
@@ -233,6 +276,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     outputTokens: z.number(),
     routedProvider: z.string().optional(),
     routedModel: z.string().optional(),
+    routingRationale: GuiModelRoutingRationaleSchema.optional(),
     authorityStatus: GuiAuthorityStatusSchema.optional(),
     runtimeContinuity: z
       .object({

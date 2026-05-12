@@ -695,6 +695,10 @@ export interface AdmittedTurnResult {
     readonly provider: string;
     readonly model: string;
     readonly routingTier: string;
+    readonly reasoning?: string;
+    readonly selectionMode?: "auto" | "manual_override";
+    readonly reasoningEffort?: import("@kilnai/core").ReasoningEffort;
+    readonly rationale?: import("@kilnai/core").ModelRoutingRationale;
   };
   readonly limitReached?: { type: "tokens" | "turns" | "abuse"; value: number; max?: number };
   readonly groundingResult?: GroundingResult;
@@ -1809,6 +1813,9 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         selectedProvider: result.routingDecision.provider,
         selectedModel: result.routingDecision.model,
         routingTier: result.routingDecision.routingTier,
+        selectionMode: result.routingDecision.selectionMode,
+        reasoningEffort: result.routingDecision.reasoningEffort,
+        routingRationale: result.routingDecision.rationale,
         sessionId: session.id,
         schemaVersion: "1",
         traceId: trace.traceId,
@@ -1853,7 +1860,15 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       traceId: trace.traceId,
       activeAgentId: effectiveActiveAgentId,
       routingDecision: result.routingDecision
-        ? { provider: result.routingDecision.provider, model: result.routingDecision.model, routingTier: result.routingDecision.routingTier }
+        ? {
+            provider: result.routingDecision.provider,
+            model: result.routingDecision.model,
+            routingTier: result.routingDecision.routingTier,
+            reasoning: result.routingDecision.reasoning,
+            selectionMode: result.routingDecision.selectionMode,
+            reasoningEffort: result.routingDecision.reasoningEffort,
+            rationale: result.routingDecision.rationale,
+          }
         : undefined,
       groundingResult,
       runtimeContinuity: runtimeContinuityPresentation.runtimeContinuity,

@@ -1381,12 +1381,46 @@ describe("session-store provider selection", () => {
       outputTokens: 2,
       routedProvider: "claude",
       routedModel: "claude-sonnet-4-6",
+      routingRationale: {
+        selectedProvider: "claude",
+        selectedModel: "claude-sonnet-4-6",
+        selectionMode: "auto",
+        routingReason: "Rule matched",
+        confidence: 1,
+        routingTier: "rule",
+        inputsUsed: {
+          tenantId: "default",
+          complexityClass: "simple",
+          complexityScore: 0.2,
+          hasTools: false,
+          toolCount: 0,
+          requiresStreaming: false,
+        },
+        rankingEvidence: [],
+        diagnostics: [],
+      },
     });
 
     const state = useSessionStore.getState();
     expect(state.messages[0]?.role).toBe("assistant");
     expect(state.messages[0]?.routedProvider).toBe("claude");
     expect(state.messages[0]?.routedModel).toBe("claude-sonnet-4-6");
+    expect(state.messages[0]?.routingRationale).toMatchObject({
+      selectedProvider: "claude",
+      selectedModel: "claude-sonnet-4-6",
+      selectionMode: "auto",
+      routingReason: "Rule matched",
+    });
+    expect(state.timelineEntries.at(-1)).toMatchObject({
+      type: "event",
+      eventKind: "turn_completed",
+      details: {
+        routingRationale: {
+          selectionMode: "auto",
+          routingReason: "Rule matched",
+        },
+      },
+    });
   });
 
   it("routeMode transitions user -> responding -> user", () => {

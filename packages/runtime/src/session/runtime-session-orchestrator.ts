@@ -346,6 +346,9 @@ function toPublicRoutingDecision(
     readonly billingMode?: import("@kilnai/core").ExecutionBillingMode;
     readonly routingTier: string;
     readonly reasoning: string;
+    readonly selectionMode?: "auto" | "manual_override";
+    readonly reasoningEffort?: import("@kilnai/core").ReasoningEffort;
+    readonly rationale?: import("@kilnai/core").ModelRoutingRationale;
   } | undefined,
 ): OrchestrateResult["routingDecision"] {
   if (!routingDecision) {
@@ -358,5 +361,8 @@ function toPublicRoutingDecision(
     billingMode: routingDecision.billingMode,
     routingTier: routingDecision.routingTier,
     reasoning: routingDecision.reasoning,
+    selectionMode: routingDecision.selectionMode,
+    reasoningEffort: routingDecision.reasoningEffort,
+    rationale: routingDecision.rationale,
   };
 }

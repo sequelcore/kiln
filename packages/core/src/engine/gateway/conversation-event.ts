@@ -1,6 +1,12 @@
 // Conversation events emitted by the gateway to product backends
 // Fire-and-forget: same pattern as UsageReport in mode-b-config.ts
 
+import type {
+  ModelRoutingRationale,
+  ModelRoutingReasoningEffort,
+  ModelSelectionMode,
+} from "../domain/model-router.js";
+
 export type ConversationEventType =
   | "MESSAGE_RECEIVED"
   | "MESSAGE_SENT"
@@ -102,6 +108,12 @@ export interface ConversationEvent {
   readonly selectedProvider?: string;
   /** Model routing model -- present for MODEL_ROUTED */
   readonly selectedModel?: string;
+  /** Model selection mode -- present for MODEL_ROUTED */
+  readonly selectionMode?: ModelSelectionMode;
+  /** Reasoning effort used for the routed model -- present for MODEL_ROUTED when requested */
+  readonly reasoningEffort?: ModelRoutingReasoningEffort;
+  /** Auditable routing rationale -- present for MODEL_ROUTED when available */
+  readonly routingRationale?: ModelRoutingRationale;
   /** Model routing complexity score -- present for MODEL_ROUTED */
   readonly complexityScore?: number;
   /** Estimated cost in USD -- present for MODEL_ROUTED and COST_REPORT */

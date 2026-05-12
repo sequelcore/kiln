@@ -1222,6 +1222,31 @@ describe("startGuiGateway static mount", () => {
         sessionId: "session-1",
         sessionMode: "mode-a",
         traceId: "trace-1",
+        routingDecision: {
+          provider: "openai",
+          model: GPT4O,
+          routingTier: "rule",
+          reasoning: "GUI route selected",
+          selectionMode: "auto",
+          rationale: {
+            selectedProvider: "openai",
+            selectedModel: GPT4O,
+            selectionMode: "auto",
+            routingReason: "GUI route selected",
+            confidence: 1,
+            routingTier: "rule",
+            inputsUsed: {
+              tenantId: "default",
+              complexityClass: "simple",
+              complexityScore: 0.2,
+              hasTools: false,
+              toolCount: 0,
+              requiresStreaming: false,
+            },
+            rankingEvidence: [],
+            diagnostics: [],
+          },
+        },
       },
     } as never);
     vi.stubGlobal("Bun", {
@@ -1259,12 +1284,18 @@ describe("startGuiGateway static mount", () => {
         wsCtx,
       );
 
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string; routingRationale?: Record<string, unknown> });
 
       expect(outboundFrames).toContainEqual({ type: "thinking" });
       expect(outboundFrames).toContainEqual(expect.objectContaining({
         type: "done",
         content: "cached discovery admitted",
+        routingRationale: expect.objectContaining({
+          selectedProvider: "openai",
+          selectedModel: GPT4O,
+          selectionMode: "auto",
+          routingReason: "GUI route selected",
+        }),
       }));
       expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
       expect(processAdmittedTurn).toHaveBeenCalledTimes(1);

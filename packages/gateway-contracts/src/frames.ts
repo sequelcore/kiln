@@ -66,6 +66,49 @@ export interface GuiProviderModelRouteHealth {
   readonly cooldownUntil?: number;
 }
 
+export interface GuiModelRoutingDiagnostic {
+  readonly code: string;
+  readonly severity: "info" | "warning" | "error";
+  readonly message: string;
+  readonly provider?: string;
+  readonly model?: string;
+}
+
+export interface GuiModelRoutingRankingEvidence {
+  readonly source: string;
+  readonly task: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly rank: number;
+  readonly sampleSize?: number;
+  readonly confidence?: number;
+  readonly expiresAt?: string;
+}
+
+export interface GuiModelRoutingRationale {
+  readonly selectedProvider: string;
+  readonly selectedModel: string;
+  readonly canonicalModel?: string;
+  readonly selectionMode: "auto" | "manual_override";
+  readonly reasoningEffort?: GuiProviderReasoningEffort;
+  readonly routingReason: string;
+  readonly confidence: number;
+  readonly routingTier: "rule" | "complexity" | "cascade" | "default";
+  readonly inputsUsed: {
+    readonly tenantId: string;
+    readonly complexityClass: string;
+    readonly complexityScore: number;
+    readonly hasTools: boolean;
+    readonly toolCount: number;
+    readonly requiresStreaming: boolean;
+    readonly requestedReasoningEffort?: GuiProviderReasoningEffort;
+    readonly task?: string;
+  };
+  readonly rankingEvidence: readonly GuiModelRoutingRankingEvidence[];
+  readonly diagnostics: readonly GuiModelRoutingDiagnostic[];
+  readonly overrideSource?: string;
+}
+
 export interface GuiProviderDiscoveryResult {
   readonly provider: string;
   readonly available: boolean;
@@ -502,6 +545,7 @@ export type GuiInboundFrame =
       outputTokens: number;
       routedProvider?: string;
       routedModel?: string;
+      routingRationale?: GuiModelRoutingRationale;
       runtimeContinuity?: {
         strategy: string;
         feedbackLabel?: string;

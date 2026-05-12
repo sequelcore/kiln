@@ -80,6 +80,9 @@ export class RuntimeSessionExecutionTelemetry {
       billingMode: decision.billingMode,
       routingTier: decision.routingTier,
       reason: decision.reasoning,
+      selectionMode: decision.selectionMode,
+      reasoningEffort: decision.reasoningEffort,
+      rationale: decision.rationale,
       timestamp: new Date(),
       sessionId,
     };

@@ -39,6 +39,9 @@ export {
 export type {
   GuiProviderDescriptor,
   GuiProviderDiscoveryResult,
+  GuiModelRoutingDiagnostic,
+  GuiModelRoutingRationale,
+  GuiModelRoutingRankingEvidence,
   GuiProviderModelCapabilities,
   GuiProviderModelRouteHealth,
   GuiProviderReasoningEffort,
