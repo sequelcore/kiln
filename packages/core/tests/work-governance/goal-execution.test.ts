@@ -673,6 +673,65 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("generates goal closeout summary from linked work item evidence", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-closeout-summary",
+      summary: "Verify generated closeout summary.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests", "typecheck"],
+      verificationGates: ["bun test", "bun run typecheck"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-closeout-summary",
+      objective: "Generate closeout from evidence.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+
+    const completed = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests", "typecheck"],
+      verificationGateResults: [
+        { gate: "bun test", status: "passed", summary: "Focused tests passed." },
+        { gate: "bun run typecheck", status: "passed", summary: "Typecheck passed." },
+      ],
+    });
+
+    expect(completed.goal).toMatchObject({
+      status: "completed",
+      closeoutSummary: [
+        "Goal goal-closeout-summary completed from canonical evidence.",
+        "Work items: work-closeout-summary.",
+        "Evidence: tests, typecheck.",
+        "Passed gates: bun test, bun run typecheck.",
+        "Skipped gates: none.",
+        "Residual risk: none recorded.",
+      ].join("\n"),
+    });
+  });
+
   it("replays work item execution attempts from canonical session events", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

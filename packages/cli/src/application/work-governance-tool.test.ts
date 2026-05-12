@@ -328,6 +328,61 @@ describe("work-governance-tool", () => {
     expect(goalRunStore.get(goal.id)?.status).toBe("completed");
   });
 
+  it("returns generated goal closeout summary when final execution omits manual summary", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-generated-closeout",
+      summary: "Verify generated closeout summary.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests", "typecheck"],
+      verificationGates: ["bun test", "bun run typecheck"],
+      goalRunId: "goal-generated-closeout",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-generated-closeout",
+      objective: "Generate closeout from evidence.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+
+    await startTool?.execute({
+      name: "work_item.execution.start",
+      input: { goalRunId: goal.id },
+    });
+
+    const finished = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-generated-closeout:work-generated-closeout:attempt:1",
+        providedEvidence: ["tests", "typecheck"],
+        verificationGateResults: [
+          { gate: "bun test", status: "passed" },
+          { gate: "bun run typecheck", status: "passed" },
+        ],
+      },
+    });
+
+    expect(finished?.isError).toBe(false);
+    expect(finished?.output).toContain("Goal goal-generated-closeout completed from canonical evidence.");
+    expect(finished?.output).toContain("Evidence: tests, typecheck.");
+    expect(finished?.output).toContain("Passed gates: bun test, bun run typecheck.");
+  });
+
   it("blocks goal-bound execution finish until evidence and residual risk are present", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

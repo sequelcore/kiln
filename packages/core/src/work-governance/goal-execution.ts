@@ -284,7 +284,7 @@ function transitionGoalAfterCompletedItem(
   return {
     goal: input.goalRunStore.complete({
       id: goal.id,
-      closeoutSummary: input.closeoutSummary ?? `Goal ${goal.id} completed after work item ${input.workItemId}.`,
+      closeoutSummary: input.closeoutSummary ?? generateGoalCloseoutSummary(goal, input.workItemStore),
     }),
     missingGoalEvidence: [],
   };
@@ -308,6 +308,41 @@ function missingRequiredGoalEvidence(goal: GoalRun, workItemStore: WorkItemStore
     .filter((requirement) => requirement.required)
     .map((requirement) => requirement.id)
     .filter((id) => !provided.has(id));
+}
+
+function generateGoalCloseoutSummary(goal: GoalRun, workItemStore: WorkItemStore): string {
+  const items = goal.workItemIds.flatMap((id) => {
+    const item = workItemStore.get(id);
+    return item ? [item] : [];
+  });
+  const evidence = unique(items.flatMap((item) => [
+    ...item.providedEvidence,
+    ...(item.residualRisk ? ["residual-risk"] : []),
+  ]));
+  const gateResults = items.flatMap((item) => item.verificationGateResults);
+  const passedGates = unique(gateResults
+    .filter((result) => result.status === "passed")
+    .map((result) => result.gate));
+  const skippedGates = unique([
+    ...items.flatMap((item) => item.skippedVerificationGates),
+    ...gateResults
+      .filter((result) => result.status === "skipped")
+      .map((result) => result.gate),
+  ]);
+  const residualRisks = unique(items.flatMap((item) => item.residualRisk ? [item.residualRisk] : []));
+
+  return [
+    `Goal ${goal.id} completed from canonical evidence.`,
+    `Work items: ${formatList(items.map((item) => item.id))}.`,
+    `Evidence: ${formatList(evidence)}.`,
+    `Passed gates: ${formatList(passedGates)}.`,
+    `Skipped gates: ${formatList(skippedGates)}.`,
+    `Residual risk: ${residualRisks.length > 0 ? residualRisks.join("; ") : "none recorded"}.`,
+  ].join("\n");
+}
+
+function formatList(values: readonly string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
 }
 
 function resolveExecutionMode(
