@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GoalRun, WorkItem } from "@kilnai/core";
+import type { GoalRun, PlanSubmissionInput, WorkItem } from "@kilnai/core";
+import { PlanStateStore } from "@kilnai/core";
 import { goalCommand, loadGoalSnapshotFromTranscript } from "./goal.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 
@@ -86,6 +87,68 @@ describe("goal command", () => {
     expect(log.mock.calls[0]?.[0]).toContain("Execution mode: managed_delegation");
     expect(log.mock.calls[0]?.[0]).toContain("Required evidence: tests");
   });
+
+  it("approves a submitted plan by appending a canonical plan approval event", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    const planStateStore = new PlanStateStore({ now: () => Date.parse("2026-05-12T21:00:00.000Z") });
+    const plan = planStateStore.submitPlan(makePlanSubmissionInput({ planId: "plan-1" }));
+    await appendPlanSubmitted(transcriptStore, "session-1", plan);
+    await appendPlanAnalysisReady(transcriptStore, "session-1", {
+      sequence: 2,
+      planId: plan.id,
+    });
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await goalCommand(
+      { createRegistry: (() => undefined) as never },
+      "approve-plan",
+      ["plan-1", "--session", "session-1", "--approved-by", "ricardo"],
+      {
+        projectPath: root,
+        now: () => new Date("2026-05-12T22:00:00.000Z"),
+        eventId: () => "event-plan-approved",
+      },
+    );
+
+    const transcript = await transcriptStore.readTranscript("session-1");
+    expect(transcript.at(-1)).toMatchObject({
+      eventId: "event-plan-approved",
+      kilnSessionId: "session-1",
+      sequence: 3,
+      timestamp: "2026-05-12T22:00:00.000Z",
+      kind: "plan_approved",
+      payload: {
+        planId: "plan-1",
+        approvalId: "approval_1",
+        planHash: plan.contentHash,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-12T22:00:00.000Z",
+        residualRiskAcknowledged: false,
+        fromMode: "plan",
+        toMode: "execute",
+      },
+    });
+  });
+
+  it("blocks plan approval when the latest analysis report has blocking findings", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    const planStateStore = new PlanStateStore({ now: () => Date.parse("2026-05-12T21:00:00.000Z") });
+    const plan = planStateStore.submitPlan(makePlanSubmissionInput({ planId: "plan-1" }));
+    await appendPlanSubmitted(transcriptStore, "session-1", plan);
+    await appendPlanAnalysisBlocked(transcriptStore, "session-1", {
+      sequence: 2,
+      planId: plan.id,
+    });
+
+    await expect(goalCommand(
+      { createRegistry: (() => undefined) as never },
+      "approve-plan",
+      ["plan-1", "--session", "session-1"],
+      { projectPath: root },
+    )).rejects.toThrow("cannot be approved while blocking analysis findings remain open");
+  });
 });
 
 async function tempRoot(): Promise<string> {
@@ -125,6 +188,104 @@ async function appendWorkItemUpdated(
     payload: {
       workItem,
       operation: "update",
+    },
+  });
+}
+
+async function appendPlanSubmitted(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  plan: ReturnType<PlanStateStore["submitPlan"]>,
+): Promise<void> {
+  await transcriptStore.append(sessionId, {
+    eventId: `event-${plan.id}`,
+    kilnSessionId: sessionId,
+    sequence: plan.sequence,
+    timestamp: plan.createdAt,
+    kind: "plan_submitted",
+    source: { actor: "runtime", surface: "cli", component: "goal-command-test" },
+    payload: {
+      planId: plan.id,
+      planHash: plan.contentHash,
+      mode: "plan",
+      objective: plan.objective,
+      nonGoals: plan.nonGoals,
+      operatorDecisionsRequired: plan.operatorDecisionsRequired,
+      assumptions: plan.assumptions,
+      affectedSurfaces: plan.affectedSurfaces,
+      riskClassification: plan.riskClassification,
+      workflowProfile: plan.workGovernanceRecommendation.workflowProfile,
+      workGovernancePosture: plan.workGovernanceRecommendation.posture,
+      workGovernanceRationale: plan.workGovernanceRecommendation.rationale,
+      expectedEvidence: plan.expectedEvidence,
+      verificationGates: plan.verificationGates,
+      managedAgentDelegationCandidates: plan.managedAgentDelegationCandidates,
+      approvalBoundaries: plan.approvalBoundaries,
+      rollbackNotes: plan.rollbackNotes,
+      residualRisks: plan.residualRisks,
+      sourceSpecificationId: plan.sourceSpecificationId,
+      clarificationRecordIds: plan.clarificationRecordIds,
+      constitutionSnapshotHash: plan.constitutionSnapshot.instructionProfileHash,
+      constitutionSnapshotIds: plan.constitutionSnapshot.instructionProfileIds,
+      proposedWorkItemCount: plan.proposedWorkItems.length,
+      proposedWorkItems: plan.proposedWorkItems,
+      summary: plan.objective,
+    },
+  });
+}
+
+async function appendPlanAnalysisReady(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  input: { readonly sequence: number; readonly planId: string },
+): Promise<void> {
+  await appendPlanAnalysis(transcriptStore, sessionId, {
+    ...input,
+    status: "ready",
+    blockingFindingIds: [],
+  });
+}
+
+async function appendPlanAnalysisBlocked(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  input: { readonly sequence: number; readonly planId: string },
+): Promise<void> {
+  await appendPlanAnalysis(transcriptStore, sessionId, {
+    ...input,
+    status: "blocked",
+    blockingFindingIds: ["finding-1"],
+  });
+}
+
+async function appendPlanAnalysis(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  input: {
+    readonly sequence: number;
+    readonly planId: string;
+    readonly status: "ready" | "blocked";
+    readonly blockingFindingIds: readonly string[];
+  },
+): Promise<void> {
+  await transcriptStore.append(sessionId, {
+    eventId: `event-analysis-${input.sequence}`,
+    kilnSessionId: sessionId,
+    sequence: input.sequence,
+    timestamp: "2026-05-12T21:01:00.000Z",
+    kind: "plan_analysis_reported",
+    source: { actor: "runtime", surface: "cli", component: "goal-command-test" },
+    payload: {
+      reportId: `analysis-${input.sequence}`,
+      planId: input.planId,
+      specificationId: "spec-1",
+      status: input.status,
+      highestSeverity: input.status === "blocked" ? "critical" : "none",
+      findingIds: input.blockingFindingIds,
+      blockingFindingIds: input.blockingFindingIds,
+      findingCount: input.blockingFindingIds.length,
+      findings: [],
+      summary: input.status === "blocked" ? "Blocked." : "Ready.",
     },
   });
 }
@@ -183,5 +344,45 @@ function makeWorkItem(input: { readonly id: string }): WorkItem {
     createdAt: "2026-05-12T21:01:00.000Z",
     updatedAt: "2026-05-12T21:01:00.000Z",
     sequence: 2,
+  };
+}
+
+function makePlanSubmissionInput(input: { readonly planId: string }): PlanSubmissionInput {
+  return {
+    planId: input.planId,
+    objective: "Finish Slice 10 CLI goal commands.",
+    nonGoals: ["Do not implement SDK snapshots."],
+    operatorDecisionsRequired: [],
+    assumptions: ["Transcript contains the submitted plan."],
+    affectedSurfaces: ["cli"],
+    riskClassification: "medium",
+    workGovernanceRecommendation: {
+      posture: "orchestrate",
+      rationale: "CLI workflow surface work.",
+      workflowProfile: "ui-change",
+    },
+    proposedWorkItems: [
+      {
+        id: "work-1",
+        summary: "Implement CLI plan approval.",
+        workflowProfile: "ui-change",
+        risk: "medium",
+        expectedEvidence: ["tests"],
+        verificationGates: ["bun run --filter @kilnai/cli test"],
+        dependencies: [],
+      },
+    ],
+    expectedEvidence: ["tests"],
+    verificationGates: ["bun run --filter @kilnai/cli test"],
+    managedAgentDelegationCandidates: [],
+    approvalBoundaries: ["Approval only after analysis is ready."],
+    rollbackNotes: "Remove appended approval event before execution if needed.",
+    residualRisks: [],
+    sourceSpecificationId: "spec-1",
+    clarificationRecordIds: [],
+    constitutionSnapshot: {
+      instructionProfileHash: "sha256:constitution",
+      instructionProfileIds: ["sequel-engineering"],
+    },
   };
 }
