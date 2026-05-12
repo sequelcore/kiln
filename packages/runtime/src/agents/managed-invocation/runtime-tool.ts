@@ -9,6 +9,7 @@ import type {
   ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRecord,
   ManagedAgentProviderRoute,
+  ManagedAgentRequestedAuthority,
   ManagedAgentWorkingDirectory,
   ModelTaskSuitability,
   ModelTaskSuitabilityTask,
@@ -123,6 +124,7 @@ interface ManagedInvocationToolInput {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly routeId?: string;
   readonly providerRoute: ManagedAgentProviderRoute;
+  readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly task: string;
   readonly summary: string;
   readonly resourceUris?: readonly string[];
@@ -177,6 +179,12 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         },
         required: ["providerId"],
         additionalProperties: false,
+      },
+      requestedAuthority: {
+        type: "string",
+        enum: ["auto", "read_only", "audited", "destructive"],
+        default: "auto",
+        description: "Requested child authority. Use read_only for inspection-only children. Destructive authority is rejected until an explicit approval flow is available.",
       },
       task: {
         type: "string",
@@ -348,6 +356,7 @@ export function createManagedInvocationToolCallMetadataResolver(
       },
       adapterKind: route.adapter.descriptor.adapterKind,
       executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+      requestedAuthority: resolveManagedInvocationRequestedAuthority(parsed.input.requestedAuthority),
       authorityProfileId: profileDefaults.authorityProfileId,
       task: parsed.input.task,
       summary: parsed.input.summary,
@@ -426,6 +435,18 @@ async function executeManagedInvocationTool(
   if (!profileDefaults) {
     return errorResult(`Managed invocation route '${route.routeId}' does not allow profile '${parsed.input.profile}'.`);
   }
+  const requestedAuthority = resolveManagedInvocationRequestedAuthority(
+    parsed.input.requestedAuthority,
+    context.effectiveTurnAuthority?.requestedAuthority,
+  );
+  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.input.profile);
+  if (!authorityAdmission.ok) {
+    return errorResult(authorityAdmission.error, {
+      profile: parsed.input.profile,
+      requestedAuthority,
+      routeId: route.routeId,
+    });
+  }
 
   const contextResolution = await resolveInvocationContext(parsed.input, options);
   if (!contextResolution.ok) {
@@ -445,6 +466,7 @@ async function executeManagedInvocationTool(
     profile: parsed.input.profile,
     requestedBy: options.requestedBy ?? "assistant",
     requestSource: options.requestSource ?? "runtime-tool",
+    requestedAuthority,
     providerRoute: {
       providerId: route.providerId,
       surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
@@ -541,6 +563,7 @@ async function executeManagedInvocationTool(
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
         executionMode: request.executionMode,
+        requestedAuthority: request.requestedAuthority,
         authorityProfileId: request.authority.authorityProfileId,
         context: request.input.context,
         ...(request.input.handoff ? { handoffContract: request.input.handoff } : {}),
@@ -575,6 +598,7 @@ async function executeManagedInvocationTool(
       providerRoute: result.record.providerRoute,
       adapterKind: result.record.adapterKind,
       executionMode: result.record.executionMode,
+      requestedAuthority: request.requestedAuthority,
       authorityProfileId: result.record.authority.authorityProfileId,
       capabilitySnapshot: result.record.capabilitySnapshot,
       context: request.input.context,
@@ -1011,6 +1035,10 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
   const expectedEvidence = readTextArray(input.expectedEvidence);
   const requiredResultFields = readTextArray(input.requiredResultFields);
   const doneCriteria = readTextArray(input.doneCriteria);
+  const requestedAuthority = parseManagedInvocationRequestedAuthority(input.requestedAuthority);
+  if (!requestedAuthority.ok) {
+    return { ok: false, error: "managed_agent.invoke requestedAuthority is not supported." };
+  }
   const contextMode = parseContextMode(input.contextMode);
   if (!contextMode) {
     return { ok: false, error: "managed_agent.invoke contextMode is not supported." };
@@ -1029,6 +1057,7 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
         ...(readText(providerRoute?.model) ? { model: readText(providerRoute?.model) } : {}),
         ...(readText(providerRoute?.reasoningEffort) ? { reasoningEffort: readText(providerRoute?.reasoningEffort) } : {}),
       },
+      ...(requestedAuthority.value ? { requestedAuthority: requestedAuthority.value } : {}),
       task,
       summary: readText(input.summary) ?? task,
       ...(resourceUris && resourceUris.length > 0 ? { resourceUris } : {}),
@@ -1092,6 +1121,76 @@ function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | u
     return input;
   }
   return undefined;
+}
+
+function parseManagedInvocationRequestedAuthority(
+  input: unknown,
+): { readonly ok: true; readonly value?: ManagedAgentRequestedAuthority } | { readonly ok: false } {
+  if (input === undefined) {
+    return { ok: true };
+  }
+  if (input === "auto" || input === "read_only" || input === "audited" || input === "destructive") {
+    return { ok: true, value: input };
+  }
+  return { ok: false };
+}
+
+function resolveManagedInvocationRequestedAuthority(
+  input?: ManagedAgentRequestedAuthority,
+  parentRequestedAuthority?: "planning" | "auto" | "read_only" | "audited" | "destructive",
+): ManagedAgentRequestedAuthority {
+  const requested = input ?? "auto";
+  const inherited = normalizeParentRequestedAuthority(parentRequestedAuthority);
+  if (!inherited || inherited === "auto") {
+    return requested;
+  }
+  if (requested === "auto") {
+    return inherited;
+  }
+  return managedAuthorityRank(requested) <= managedAuthorityRank(inherited)
+    ? requested
+    : inherited;
+}
+
+function normalizeParentRequestedAuthority(
+  parentRequestedAuthority?: "planning" | "auto" | "read_only" | "audited" | "destructive",
+): ManagedAgentRequestedAuthority | undefined {
+  if (parentRequestedAuthority === "planning") {
+    return "read_only";
+  }
+  return parentRequestedAuthority;
+}
+
+function managedAuthorityRank(authority: ManagedAgentRequestedAuthority): number {
+  switch (authority) {
+    case "read_only":
+      return 1;
+    case "audited":
+      return 2;
+    case "auto":
+      return 3;
+    case "destructive":
+      return 4;
+  }
+}
+
+function validateManagedInvocationRequestedAuthority(
+  requestedAuthority: ManagedAgentRequestedAuthority,
+  profile: ManagedAgentAdmissionProfile,
+): { readonly ok: true } | { readonly ok: false; readonly error: string } {
+  if (requestedAuthority === "destructive") {
+    return {
+      ok: false,
+      error: "managed_agent.invoke destructive requested authority requires an approval flow before child invocation.",
+    };
+  }
+  if (requestedAuthority === "read_only" && profile !== "foundation-readonly-plan") {
+    return {
+      ok: false,
+      error: `managed_agent.invoke read_only requested authority cannot select managed profile '${profile}'.`,
+    };
+  }
+  return { ok: true };
 }
 
 function buildHandoffContract(input: ManagedInvocationToolInput): ManagedAgentInvocationHandoffContract | undefined {

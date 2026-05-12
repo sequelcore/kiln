@@ -210,7 +210,7 @@ function managedInvocationIdentity(
   source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
   request?: ManagedAgentInvocationRequest,
   capabilitySnapshot?: ManagedAgentCapabilitySnapshot,
-): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract"> {
+): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract"> {
   const invocationContext = "input" in source
     ? source.input.context
     : request?.input.context;
@@ -225,6 +225,11 @@ function managedInvocationIdentity(
     providerRoute: source.providerRoute,
     adapterKind: source.adapterKind,
     executionMode: source.executionMode,
+    ...(("requestedAuthority" in source && source.requestedAuthority)
+      ? { requestedAuthority: source.requestedAuthority }
+      : request?.requestedAuthority
+        ? { requestedAuthority: request.requestedAuthority }
+        : {}),
     authorityProfileId: source.authority.authorityProfileId,
     ...(snapshot ? { capabilitySnapshot: snapshot } : {}),
     ...(invocationContext ? { invocationContext } : {}),

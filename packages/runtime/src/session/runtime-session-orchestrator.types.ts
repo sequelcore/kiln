@@ -21,6 +21,7 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
   readonly toolCall: ToolCall;
   readonly sandbox?: unknown;
+  readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
 }
 
 export type RuntimeBuiltinToolExecutor = (

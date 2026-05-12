@@ -327,6 +327,7 @@ export interface OperatorManagedAgentInvocationEventPayload extends Record<strin
   readonly providerRoute?: OperatorManagedAgentProviderRoute;
   readonly adapterKind?: "direct" | "harness";
   readonly executionMode?: "direct-provider" | "local-harness" | "cli-harness" | "remote-harness";
+  readonly requestedAuthority?: "auto" | "read_only" | "audited" | "destructive";
   readonly authorityProfileId?: string;
   readonly capabilitySnapshot?: OperatorManagedAgentCapabilitySnapshot;
 }

@@ -205,6 +205,7 @@ export interface RuntimeSessionToolExecutionResult {
 
 export class RuntimeSessionToolExecutor {
   private currentSession: RuntimeSession | undefined;
+  private currentEffectiveTurnAuthority: PerCallToolConfig["effectiveTurnAuthority"] | undefined;
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -223,6 +224,7 @@ export class RuntimeSessionToolExecutor {
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
     this.currentSession = session;
+    this.currentEffectiveTurnAuthority = perCallConfig?.effectiveTurnAuthority;
     try {
     const resultParts: Array<{
       readonly type: "tool_result";
@@ -451,6 +453,7 @@ export class RuntimeSessionToolExecutor {
     return { resultParts, toolExecutions };
     } finally {
       this.currentSession = undefined;
+      this.currentEffectiveTurnAuthority = undefined;
     }
   }
 
@@ -882,7 +885,15 @@ export class RuntimeSessionToolExecutor {
   }
 
   private async executeTool(toolCall: ToolCall): Promise<unknown> {
-    const context = this.currentSession ? { session: this.currentSession, toolCall } : undefined;
+    const context = this.currentSession
+      ? {
+          session: this.currentSession,
+          toolCall,
+          ...(this.currentEffectiveTurnAuthority
+            ? { effectiveTurnAuthority: this.currentEffectiveTurnAuthority }
+            : {}),
+        }
+      : undefined;
     const callBuiltin = this.callBuiltinTools?.get(toolCall.name);
     if (callBuiltin) {
       return callBuiltin.length >= 2

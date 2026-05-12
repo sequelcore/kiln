@@ -7,6 +7,7 @@ import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineManagedAgentWriteAuthority,
   MemoryArtifactResourceStore,
   textParts,
 } from "@kilnai/core";
@@ -74,9 +75,9 @@ function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}):
   });
 }
 
-function makeAdapter(): ManagedAgentRuntimeAdapter {
+function makeAdapter(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): ManagedAgentRuntimeAdapter {
   return {
-    descriptor: makeDescriptor(),
+    descriptor: makeDescriptor(overrides),
     invoke: vi.fn(async ({ request, admission }: {
       readonly request: ManagedAgentInvocationRequest;
       readonly admission: {
@@ -280,6 +281,9 @@ describe("managed invocation runtime tool", () => {
       readonly properties?: {
         readonly routeId?: { readonly enum?: readonly string[] };
         readonly workItemId?: { readonly type?: string };
+        readonly requestedAuthority?: {
+          readonly enum?: readonly string[];
+        };
         readonly expectedEvidence?: {
           readonly items?: { readonly type?: string };
         };
@@ -333,6 +337,12 @@ describe("managed invocation runtime tool", () => {
       "tdd-guide",
     ]);
     expect(schema.properties?.workItemId?.type).toBe("string");
+    expect(schema.properties?.requestedAuthority?.enum).toEqual([
+      "auto",
+      "read_only",
+      "audited",
+      "destructive",
+    ]);
     expect(schema.properties?.expectedEvidence?.items?.type).toBe("string");
     expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator", "repo-review"]);
   });
@@ -441,6 +451,7 @@ describe("managed invocation runtime tool", () => {
       requiredResultFields: ["summary", "evidence", "residualRisk"],
       doneCriteria: ["Report the top contract risk and cite evidence."],
       residualRiskRequired: true,
+      requestedAuthority: "read_only",
     }, context) as {
       readonly output: string;
       readonly isError: boolean;
@@ -451,6 +462,7 @@ describe("managed invocation runtime tool", () => {
         readonly providerRoute?: Record<string, unknown>;
         readonly adapterKind?: string;
         readonly executionMode?: string;
+        readonly requestedAuthority?: string;
         readonly authorityProfileId?: string;
         readonly handoffContract?: Record<string, unknown>;
         readonly presentationIntent?: Record<string, unknown>;
@@ -470,6 +482,7 @@ describe("managed invocation runtime tool", () => {
         },
         adapterKind: "harness",
         executionMode: "cli-harness",
+        requestedAuthority: "read_only",
         authorityProfileId: "authority:opencode:readonly",
         handoffContract: {
           workItemId: "work-42",
@@ -499,6 +512,7 @@ describe("managed invocation runtime tool", () => {
       parentSessionId: "session-parent",
       parentTurnId: "session-parent:turn:1",
       profile: "foundation-readonly-plan",
+      requestedAuthority: "read_only",
       requestedBy: "assistant",
       requestSource: "runtime-tool",
       providerRoute: {
@@ -534,8 +548,12 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
       "agent_invocation_completed",
     ]);
+    expect(session.sessionEvents[0]).toMatchObject({
+      requestedAuthority: "read_only",
+    });
     expect(sessionEventSink.publish).toHaveBeenCalledWith(session.sessionEvents, context);
     expect(session.sessionEvents[2]).toMatchObject({
+      requestedAuthority: "read_only",
       handoffContract: {
         workItemId: "work-42",
         residualRiskRequired: true,
@@ -545,6 +563,148 @@ describe("managed invocation runtime tool", () => {
         childSessionId: result.metadata.childSessionId,
       },
     });
+  });
+
+  it("fails closed when a managed child requests destructive authority before approval flow support exists", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "destructive",
+      task: "Apply a destructive managed change.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("destructive requested authority requires an approval flow");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(session.sessionEvents).toEqual([]);
+  });
+
+  it("fails closed when inherited read-only authority selects a write-capable managed profile", async () => {
+    const adapter = makeAdapter({
+      supportedProfiles: ["foundation-readonly-plan", "foundation-propose-writes"],
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: false,
+        memoryProposalSupported: false,
+        rollbackEvidence: false,
+        cleanupEvidence: false,
+        scopeReduction: true,
+      },
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-propose-writes",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-propose-writes": {
+              authorityProfileId: "authority:opencode:propose-writes",
+              permissionProfile: "workspace-propose-writes",
+              allowedToolNames: ["read", "grep", "edit"],
+              writeAllowed: false,
+              networkAllowed: false,
+              workingDirectory: {
+                path: "C:/Proyectos/Sequel/kiln",
+                mode: "workspace-write",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+              writeAuthority: defineManagedAgentWriteAuthority({
+                profile: "foundation-propose-writes",
+                scope: {
+                  workspace: {
+                    mode: "propose",
+                    allowedPaths: ["C:/Proyectos/Sequel/kiln"],
+                    deniedPaths: [],
+                  },
+                  memory: {
+                    mode: "none",
+                    operations: [],
+                  },
+                  artifacts: {
+                    mode: "none",
+                    resourceUris: [],
+                    retention: "none",
+                  },
+                  tools: {
+                    allowedToolNames: ["edit"],
+                    deniedToolNames: [],
+                  },
+                },
+                approval: {
+                  mode: "required-before-apply",
+                  evidenceRequired: true,
+                },
+              }),
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+      effectiveTurnAuthority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "parent turn admitted read-only authority",
+        completeness: "authoritative",
+        toolCount: 1,
+        deniedToolCount: 0,
+        sandboxProjection: "read_only",
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-propose-writes",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Prepare a write proposal.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("read_only requested authority cannot select managed profile 'foundation-propose-writes'");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(session.sessionEvents).toEqual([]);
   });
 
   it("admits requested agent profile and skills through the configured context resolver", async () => {

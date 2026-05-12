@@ -40,6 +40,15 @@ export const MANAGED_AGENT_EXECUTION_MODES = [
 
 export type ManagedAgentExecutionMode = typeof MANAGED_AGENT_EXECUTION_MODES[number];
 
+export const MANAGED_AGENT_REQUESTED_AUTHORITIES = [
+  "auto",
+  "read_only",
+  "audited",
+  "destructive",
+] as const;
+
+export type ManagedAgentRequestedAuthority = typeof MANAGED_AGENT_REQUESTED_AUTHORITIES[number];
+
 export type ManagedAgentUnsupportedFieldPolicy = "reject" | "ignore-with-audit" | "unsupported";
 
 export type ManagedAgentLifecycleState =
@@ -134,6 +143,7 @@ export interface ManagedAgentInvocationRequest {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly requestedBy: string;
   readonly requestSource: string;
+  readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly providerRoute: ManagedAgentProviderRoute;
   readonly adapterKind: ManagedAgentAdapterKind;
   readonly executionMode: ManagedAgentExecutionMode;
@@ -325,6 +335,7 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
     profile: requireAdmissionProfile(input.profile),
     requestedBy: requireText(input.requestedBy, "Managed invocation requester is required"),
     requestSource: requireText(input.requestSource, "Managed invocation request source is required"),
+    requestedAuthority: requireRequestedAuthority(input.requestedAuthority ?? "auto"),
     providerRoute: requireProviderRoute(input.providerRoute),
     adapterKind: requireAdapterKind(input.adapterKind),
     executionMode: requireExecutionMode(input.executionMode),
@@ -549,6 +560,7 @@ function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapab
   }
   if (!MANAGED_AGENT_ADAPTER_KINDS.includes(request.adapterKind)) missingCapabilities.push("request.adapterKind");
   if (!MANAGED_AGENT_EXECUTION_MODES.includes(request.executionMode)) missingCapabilities.push("request.executionMode");
+  collectRequestedAuthorityGaps(request, missingCapabilities);
   if (!request.authority) {
     missingCapabilities.push("request.authority");
     return;
@@ -579,6 +591,19 @@ function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapab
   }
   if (!request.authority.memoryScope?.scope) {
     missingCapabilities.push("request.authority.memoryScope");
+  }
+}
+
+function collectRequestedAuthorityGaps(request: ManagedAgentInvocationRequest, missingCapabilities: string[]): void {
+  if (!MANAGED_AGENT_REQUESTED_AUTHORITIES.includes((request.requestedAuthority ?? "auto") as ManagedAgentRequestedAuthority)) {
+    missingCapabilities.push("request.requestedAuthority");
+    return;
+  }
+  if (request.requestedAuthority === "destructive") {
+    missingCapabilities.push("request.requestedAuthority.destructiveApprovalFlow");
+  }
+  if (request.requestedAuthority === "read_only" && request.profile !== "foundation-readonly-plan") {
+    missingCapabilities.push("request.requestedAuthority.readOnlyProfile");
   }
 }
 
@@ -804,6 +829,13 @@ function requireAdapterKind(value: ManagedAgentAdapterKind): ManagedAgentAdapter
 function requireExecutionMode(value: ManagedAgentExecutionMode): ManagedAgentExecutionMode {
   if (!MANAGED_AGENT_EXECUTION_MODES.includes(value)) {
     throw new Error(`Unsupported managed invocation execution mode: ${value as string}`);
+  }
+  return value;
+}
+
+function requireRequestedAuthority(value: ManagedAgentRequestedAuthority): ManagedAgentRequestedAuthority {
+  if (!MANAGED_AGENT_REQUESTED_AUTHORITIES.includes(value)) {
+    throw new Error(`Unsupported managed invocation requested authority: ${value as string}`);
   }
   return value;
 }

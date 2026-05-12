@@ -8,6 +8,7 @@ import type {
   ManagedAgentInvocationHandoffContract,
   ManagedAgentExecutionMode,
   ManagedAgentProviderRoute,
+  ManagedAgentRequestedAuthority,
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
@@ -325,6 +326,7 @@ export interface SessionAgentInvocationIdentity {
   readonly parentSessionId?: string;
   readonly requestedBy?: string;
   readonly requestSource?: string;
+  readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly profile?: ManagedAgentAdmissionProfile;
   readonly providerRoute?: ManagedAgentProviderRoute;
   readonly adapterKind?: ManagedAgentAdapterKind;
