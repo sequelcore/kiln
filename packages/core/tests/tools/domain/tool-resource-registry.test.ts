@@ -7,7 +7,7 @@ import { AnalysisStateStore } from "../../../src/tools/infrastructure/analysis-s
 import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 import { PlanStateStore } from "../../../src/tools/infrastructure/plan-state-store.js";
 import { SpecificationStateStore } from "../../../src/tools/infrastructure/specification-state-store.js";
-import { GoalRunStore, WorkItemStore } from "../../../src/work-governance/index.js";
+import { GoalRunStore, startGoalExecutionAttempt, WorkItemStore } from "../../../src/work-governance/index.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 
 describe("ToolResourceRegistry", () => {
@@ -114,8 +114,9 @@ describe("ToolResourceRegistry", () => {
   });
 
   it("exposes governed work items when a session work item store is attached", async () => {
-    const workItemStore = new WorkItemStore();
-    const surface = createDefaultBuiltinToolSurface({ workItemStore });
+    const goalRunStore = new GoalRunStore({ now: () => "2026-05-12T20:00:00.000Z" });
+    const workItemStore = new WorkItemStore({ now: () => "2026-05-12T20:00:00.000Z" });
+    const surface = createDefaultBuiltinToolSurface({ goalRunStore, workItemStore });
     const item = workItemStore.upsert({
       summary: "Verify runtime work evidence",
       workflowProfile: "verification-heavy",
@@ -127,6 +128,17 @@ describe("ToolResourceRegistry", () => {
       planHash: "sha256:plan",
       goalRunId: "goal-1",
       sourceWorkItemId: "draft-1",
+      pauseRequirements: [
+        {
+          id: "operator-input-1",
+          kind: "operator_input",
+          summary: "Confirm test credentials are available.",
+          status: "resolved",
+          resolvedBy: "operator",
+          resolvedAt: "2026-05-12T20:00:00.000Z",
+          resolution: "Credentials are available.",
+        },
+      ],
       routingRecommendation: {
         routeId: "codex-worker",
         agentProfile: "coder",
@@ -135,13 +147,40 @@ describe("ToolResourceRegistry", () => {
         rationale: "Derived from approved plan.",
       },
     });
+    const goal = goalRunStore.create({
+      id: "goal-1",
+      objective: "Verify runtime work evidence.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      planHash: "sha256:plan",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan permits audited execution.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+      managedInvocationId: "invocation-1",
+      summary: "Run managed verification.",
+    });
 
-    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/work-items");
+    expect(surface.resources.list()).toContainEqual(expect.objectContaining({
+      uri: "kiln://session/work-items",
+      description: expect.stringContaining("execution attempts"),
+    }));
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/work-items/{id}");
 
     const snapshot = await surface.resources.read("kiln://session/work-items");
     expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
-      sequence: item.sequence,
+      sequence: started.item.sequence,
       items: [
         {
           id: item.id,
@@ -150,6 +189,20 @@ describe("ToolResourceRegistry", () => {
           planId: "plan-1",
           goalRunId: "goal-1",
           sourceWorkItemId: "draft-1",
+          pauseRequirements: [
+            expect.objectContaining({
+              id: "operator-input-1",
+              status: "resolved",
+            }),
+          ],
+          executionAttempts: [
+            expect.objectContaining({
+              id: started.attempt.id,
+              status: "started",
+              executionMode: "managed_delegation",
+              managedInvocationId: "invocation-1",
+            }),
+          ],
         },
       ],
     });
@@ -159,6 +212,12 @@ describe("ToolResourceRegistry", () => {
       id: item.id,
       expectedEvidence: ["tests", "typecheck"],
       planHash: "sha256:plan",
+      executionAttempts: [
+        expect.objectContaining({
+          id: started.attempt.id,
+          managedInvocationId: "invocation-1",
+        }),
+      ],
       routingRecommendation: {
         routeId: "codex-worker",
         reasoningEffort: "high",

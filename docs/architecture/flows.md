@@ -199,6 +199,42 @@ retrieval.
   evidence gates are satisfied.
 - Model self-confidence does not satisfy verification gates.
 
+## Goal Execution
+
+**Trigger:** an approved goal run has materialized work items and the operator
+or runtime requests the next governed execution step.
+
+**Stages:**
+
+1. select the next ready work item from the goal order
+2. pause when dependencies, pause requirements, credentials, approval, or
+   operator input are unresolved
+3. choose direct execution or managed delegation from the governed assessment
+   and route hints
+4. start an execution attempt with `work_item.execution.start`
+5. for managed delegation, require a recorded `managedInvocationId` before the
+   attempt can start
+6. collect evidence and residual-risk closeout
+7. finish the attempt with `work_item.execution.finish`
+8. update the goal phase or terminal state
+9. project the attempt through canonical events and session resources
+
+**Gates:**
+
+- work item must belong to the goal
+- dependencies must be completed
+- pending pause requirements must be resolved
+- managed delegation must be linked to a managed invocation id
+- completion requires expected evidence and residual-risk closeout where
+  required
+
+**State transitions:** work-item status, execution attempt history, goal
+current phase, terminal goal status, and session work-item resources.
+
+**Fail-closed behavior:** missing dependencies, unresolved pause requirements,
+missing managed invocation id, missing evidence, or missing residual-risk
+closeout pauses or blocks execution instead of advancing the goal.
+
 ## Tool Execution
 
 **Trigger:** model emits a tool-use block.

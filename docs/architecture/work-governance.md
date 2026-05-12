@@ -168,6 +168,8 @@ prose-only plans:
 - expected evidence
 - verification gates
 - dependencies
+- pause requirements
+- execution attempts
 - residual risk
 - lifecycle status
 
@@ -177,11 +179,15 @@ same work contract without each surface inventing its own planning model.
 Work item state is part of the session evidence plane:
 
 - `work_item.update` and `work_item.complete` return typed tool metadata.
+- `work_item.execution.start` and `work_item.execution.finish` record
+  execution attempts instead of relying on transient model memory.
 - The runtime ledger projects that metadata into canonical
-  `work_item_updated` session events.
+  `work_item_updated`, `work_item_execution_started`, and
+  `work_item_execution_finished` session events.
 - The session resource plane exposes the current snapshot at
   `kiln://session/work-items` and individual items at
-  `kiln://session/work-items/{id}`.
+  `kiln://session/work-items/{id}`, including execution attempts, pause
+  requirements, evidence, and residual-risk state.
 - GUI and TUI render work items from canonical events and shared operator
   presentation contracts.
 - Persisted transcripts replay the work-item lifecycle without requiring
@@ -241,6 +247,11 @@ themselves; authority still comes from the managed invocation profile and route.
 The parent remains accountable for integration and closeout. A child completion
 is not the same as task completion unless the required evidence gates are
 satisfied.
+Managed-delegation work items do not start until the execution attempt is linked
+to a recorded managed invocation id. If that id is missing,
+`work_item.execution.start` pauses with an actionable `managed_agent.invoke`
+request; after the child returns, the parent resumes the same work item with
+the recorded invocation id.
 
 ## Formal Verification Candidates
 

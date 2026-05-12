@@ -361,6 +361,14 @@ write evidence. GUI, TUI, CLI, SDK, and future operator surfaces must derive
 managed invocation state from these canonical events rather than maintaining
 local managed-agent state.
 
+When a managed invocation is used to satisfy a governed work item, the parent
+work item records the child handoff through `work_item.execution.start` by
+storing the `managedInvocationId` on the execution attempt. The same attempt is
+projected through `work_item_execution_started` and
+`work_item_execution_finished` events and through
+`kiln://session/work-items`, so replay and operator surfaces can connect child
+evidence to the parent work item without parsing prose.
+
 `managed_agent.invoke` tool results also emit a validated presentation intent
 for operator-facing route evidence. The first supported intent is a
 `comparison_table` row containing route id, provider, model, profile, context
