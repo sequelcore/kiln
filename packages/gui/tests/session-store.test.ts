@@ -1106,6 +1106,182 @@ describe("session-store", () => {
     ]));
   });
 
+  it("projects plan, goal, and materialization lifecycle events into the GUI timeline", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-plan-submitted",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-05-12T21:00:00.000Z",
+      kind: "plan_submitted",
+      payload: {
+        planId: "plan-1",
+        mode: "plan",
+        objective: "Implement operator workflow previews",
+        summary: "Implement operator workflow previews",
+        workflowProfile: "ui-change",
+        riskClassification: "medium",
+        sourceSpecificationId: "spec-1",
+        proposedWorkItemCount: 2,
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-goal-created",
+      kilnSessionId: "session-live",
+      sequence: 2,
+      timestamp: "2026-05-12T21:01:00.000Z",
+      kind: "goal.created",
+      payload: {
+        goal: {
+          id: "goal-1",
+          objective: "Implement operator workflow previews",
+          planId: "plan-1",
+          status: "active",
+          workItemIds: ["work-1", "work-2"],
+          authorityEnvelope: {
+            maximumAuthority: "audited",
+            escalationPolicy: "approval_required",
+          },
+          routePolicy: {
+            workflowProfile: "ui-change",
+          },
+        },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-materialized",
+      kilnSessionId: "session-live",
+      sequence: 3,
+      timestamp: "2026-05-12T21:02:00.000Z",
+      kind: "work_items.materialized",
+      payload: {
+        materialization: {
+          id: "mat-1",
+          planId: "plan-1",
+          planHash: "sha256:plan",
+          approvalId: "approval-1",
+          goalRunId: "goal-1",
+          workItemIds: ["work-1", "work-2"],
+          createdWorkItemIds: ["work-1", "work-2"],
+          reusedWorkItemIds: [],
+        },
+      },
+    });
+
+    expect(useSessionStore.getState().timelineEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "event",
+        eventKind: "plan_submitted",
+        title: "Plan submitted",
+        summary: "Implement operator workflow previews",
+      }),
+      expect.objectContaining({
+        type: "event",
+        eventKind: "goal.created",
+        title: "Goal created",
+        summary: "active · Implement operator workflow previews",
+      }),
+      expect.objectContaining({
+        type: "event",
+        eventKind: "work_items.materialized",
+        title: "Work items materialized",
+        summary: "2 work items · plan plan-1",
+      }),
+    ]));
+  });
+
+  it("loads plan, goal, and materialization lifecycle events from selected session detail", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-workflow",
+      meta: {
+        kilnSessionId: "session-workflow",
+        title: "Workflow preview",
+        task: "Workflow preview",
+        startedAt: "2026-05-12T21:00:00.000Z",
+      },
+      events: [
+        {
+          eventId: "evt-plan-submitted",
+          kilnSessionId: "session-workflow",
+          sequence: 1,
+          timestamp: "2026-05-12T21:00:00.000Z",
+          kind: "plan_submitted",
+          payload: {
+            planId: "plan-1",
+            mode: "plan",
+            objective: "Implement operator workflow previews",
+            summary: "Implement operator workflow previews",
+            workflowProfile: "ui-change",
+            riskClassification: "medium",
+            sourceSpecificationId: "spec-1",
+            proposedWorkItemCount: 2,
+          },
+        },
+        {
+          eventId: "evt-goal-created",
+          kilnSessionId: "session-workflow",
+          sequence: 2,
+          timestamp: "2026-05-12T21:01:00.000Z",
+          kind: "goal.created",
+          payload: {
+            goal: {
+              id: "goal-1",
+              objective: "Implement operator workflow previews",
+              planId: "plan-1",
+              status: "active",
+              workItemIds: ["work-1", "work-2"],
+              authorityEnvelope: {
+                maximumAuthority: "audited",
+                escalationPolicy: "approval_required",
+              },
+              routePolicy: {
+                workflowProfile: "ui-change",
+              },
+            },
+          },
+        },
+        {
+          eventId: "evt-materialized",
+          kilnSessionId: "session-workflow",
+          sequence: 3,
+          timestamp: "2026-05-12T21:02:00.000Z",
+          kind: "work_items.materialized",
+          payload: {
+            materialization: {
+              id: "mat-1",
+              planId: "plan-1",
+              planHash: "sha256:plan",
+              approvalId: "approval-1",
+              goalRunId: "goal-1",
+              workItemIds: ["work-1", "work-2"],
+              createdWorkItemIds: ["work-1", "work-2"],
+              reusedWorkItemIds: [],
+            },
+          },
+        },
+      ],
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBe("session-workflow");
+    expect(state.timelineEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "event",
+        eventKind: "plan_submitted",
+        title: "Plan submitted",
+      }),
+      expect.objectContaining({
+        type: "event",
+        eventKind: "goal.created",
+        title: "Goal created",
+      }),
+      expect.objectContaining({
+        type: "event",
+        eventKind: "work_items.materialized",
+        title: "Work items materialized",
+      }),
+    ]));
+  });
+
   it("stores runtime continuity per finalized provider and reconciles done-token fallback", () => {
     useSessionStore.setState({
       activeProvider: "claude",

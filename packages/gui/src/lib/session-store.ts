@@ -391,6 +391,18 @@ function isWorkItemTimelineEventKind(kind: OperatorSessionEventKind): boolean {
     || kind === "work_item_execution_finished";
 }
 
+function isWorkflowLifecycleTimelineEventKind(kind: OperatorSessionEventKind): boolean {
+  return kind === "plan_submitted"
+    || kind === "plan_analysis_reported"
+    || kind === "plan_approved"
+    || kind === "goal.created"
+    || kind === "goal.updated"
+    || kind === "goal.completed"
+    || kind === "goal.failed"
+    || kind === "goal.cancelled"
+    || kind === "work_items.materialized";
+}
+
 function mergeWorkItemEntry(previous: WorkItemEntry | undefined, next: WorkItemEntry): WorkItemEntry {
   return {
     ...next,
@@ -732,6 +744,18 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       continue;
     }
 
+    if (isWorkflowLifecycleTimelineEventKind(event.kind)) {
+      timelineEntries.push(workflowLifecycleTimelineEntry({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        kind: event.kind,
+        payload,
+        timestamp: event.timestamp,
+        sequence: event.sequence,
+        turnId: event.turnId,
+      }));
+      continue;
+    }
+
     if (event.kind === "agent_invocation_requested") {
       timelineEntries.push({
         id: `${detail.id}:timeline:${event.sequence}`,
@@ -1009,6 +1033,30 @@ function ensureLiveAssistantAnchor(
 
 function timelineTurnId(event: GuiSessionEvent): { readonly turnId?: string } {
   return event.turnId ? { turnId: event.turnId } : {};
+}
+
+function workflowLifecycleTimelineEntry(input: {
+  readonly id: string;
+  readonly kind: OperatorSessionEventKind;
+  readonly payload: Record<string, unknown>;
+  readonly timestamp: string;
+  readonly sequence?: number;
+  readonly turnId?: string;
+}): TimelineEventEntry {
+  const presentation = presentOperatorEventPayload(input.kind, input.payload);
+  return {
+    id: input.id,
+    type: "event",
+    eventKind: input.kind,
+    createdAt: input.timestamp,
+    ...(input.sequence !== undefined ? { sequence: input.sequence } : {}),
+    ...(input.turnId ? { turnId: input.turnId } : {}),
+    title: presentation.title,
+    summary: presentation.summary,
+    tone: presentation.tone,
+    presentationDetails: presentation.details,
+    details: input.payload,
+  };
 }
 
 function toolNameFromDetails(details: unknown, fallbackTitle: string, fallbackToolName?: string): string {
@@ -1955,6 +2003,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             presentationDetails: presentation.details,
             details: payload,
           },
+        ],
+      });
+      return;
+    }
+
+    if (isWorkflowLifecycleTimelineEventKind(event.kind)) {
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          workflowLifecycleTimelineEntry({
+            id: `timeline:${event.eventId}`,
+            kind: event.kind,
+            payload,
+            timestamp: event.timestamp,
+            sequence: event.sequence,
+            turnId: event.turnId,
+          }),
         ],
       });
       return;
