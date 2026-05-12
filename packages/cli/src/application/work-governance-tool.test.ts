@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WorkItemStore } from "@kilnai/core";
+import { GoalRunStore, WorkItemStore } from "@kilnai/core";
 import { assessWorkGovernance } from "./work-governance-policy.js";
 import { createWorkGovernanceTools, WorkGovernanceAssessTool } from "./work-governance-tool.js";
 
@@ -171,4 +171,139 @@ describe("work-governance-tool", () => {
       workflowProfile: "managed-agent-change",
     });
   });
+
+  it("starts and finishes goal-bound work item execution attempts through tools", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-execute",
+      summary: "Execute governed work.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+      goalRunId: "goal-execute",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-execute",
+      objective: "Execute approved work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+
+    const started = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        summary: "Start direct execution.",
+      },
+    });
+    expect(started?.isError).toBe(false);
+    expect(started?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "execution_started",
+      id: item.id,
+      status: "in_progress",
+      attempt: {
+        id: "goal-execute:work-execute:attempt:1",
+        executionMode: "direct",
+        status: "started",
+      },
+    });
+
+    const finished = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-execute:work-execute:attempt:1",
+        providedEvidence: ["tests"],
+        summary: "Finished with tests.",
+        closeoutSummary: "Goal execution finished.",
+      },
+    });
+
+    expect(finished?.isError).toBe(false);
+    expect(finished?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "execution_finished",
+      id: item.id,
+      status: "completed",
+      attempt: {
+        id: "goal-execute:work-execute:attempt:1",
+        status: "completed",
+        providedEvidence: ["tests"],
+      },
+      missingEvidence: [],
+      missingResidualRisk: false,
+    });
+    expect(goalRunStore.get(goal.id)?.status).toBe("completed");
+  });
+
+  it("does not start an explicit work item before earlier dependencies are complete", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const first = workItemStore.upsert({
+      id: "work-first",
+      summary: "First work.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+      goalRunId: "goal-ordered",
+    });
+    const second = workItemStore.upsert({
+      id: "work-second",
+      summary: "Second work.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+      dependencies: [first.id],
+      goalRunId: "goal-ordered",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-ordered",
+      objective: "Execute ordered work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [first.id, second.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const blocked = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        workItemId: second.id,
+      },
+    });
+
+    expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("Explicit work item is not the next ready item");
+    expect(workItemStore.get(second.id)?.status).toBe("pending");
+  });
 });
+
+function fixedNow(): string {
+  return "2026-05-12T20:00:00.000Z";
+}

@@ -1,5 +1,12 @@
 import type { DevTool, ToolInput, ToolResult, WorkItemStatus } from "@kilnai/core";
-import { WorkItemStore, workItemToolMetadata } from "@kilnai/core";
+import {
+  finishGoalExecutionAttempt,
+  GoalRunStore,
+  selectNextGoalExecutionStep,
+  startGoalExecutionAttempt,
+  WorkItemStore,
+  workItemToolMetadata,
+} from "@kilnai/core";
 import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceEvidence,
@@ -44,18 +51,23 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
 ];
 
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
-
 export function createWorkGovernanceTools(
   config: KilnWorkGovernanceConfig | undefined,
-  options: { readonly workItemStore?: WorkItemStore } = {},
+  options: {
+    readonly workItemStore?: WorkItemStore;
+    readonly goalRunStore?: GoalRunStore;
+  } = {},
 ): readonly DevTool[] {
   const store = options.workItemStore ?? new WorkItemStore();
+  const goalRunStore = options.goalRunStore ?? new GoalRunStore();
   return [
     new WorkGovernanceAssessTool(config),
     new WorkProfileListTool(),
     new WorkItemUpdateTool(config, store),
     new WorkItemListTool(store),
     new WorkItemCompleteTool(store),
+    new WorkItemExecutionStartTool(goalRunStore, store),
+    new WorkItemExecutionFinishTool(goalRunStore, store),
   ];
 }
 
@@ -445,6 +457,219 @@ export class WorkItemCompleteTool implements DevTool {
       }),
       isError: false,
     };
+  }
+}
+
+export class WorkItemExecutionStartTool implements DevTool {
+  readonly name = "work_item.execution.start";
+
+  readonly description = [
+    "Start the next ready work item execution attempt for a goal.",
+    "Selects the next ready pending item when workItemId is omitted and pauses instead of advancing when dependencies or state block execution.",
+  ].join(" ");
+
+  readonly annotations = {
+    readOnly: false,
+    idempotent: false,
+  };
+
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      goalRunId: { type: "string", minLength: 1, description: "Goal run id." },
+      workItemId: { type: "string", description: "Optional explicit work item id. Omit to select the next ready item." },
+      summary: { type: "string", description: "Attempt summary." },
+      managedInvocationId: { type: "string", description: "Managed child invocation id when delegation has already been requested." },
+      governanceRecommendation: {
+        enum: ["direct", "orchestrate"],
+        description: "Optional work_governance.assess recommendation used for ready-item selection.",
+      },
+      governanceReasons: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional work_governance.assess reasons.",
+      },
+      requiredEvidence: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional evidence required by governance assessment.",
+      },
+    },
+    required: ["goalRunId"],
+    additionalProperties: false,
+  };
+
+  constructor(
+    private readonly goalRunStore: GoalRunStore,
+    private readonly workItemStore: WorkItemStore,
+  ) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const goalRunId = readText(input.input.goalRunId);
+    if (!goalRunId) {
+      return { output: 'Invalid input: "goalRunId" must be a non-empty string', isError: true };
+    }
+    const goal = this.goalRunStore.get(goalRunId);
+    if (!goal) {
+      return { output: `Goal not found: ${goalRunId}`, isError: true };
+    }
+
+    const explicitWorkItemId = readText(input.input.workItemId);
+    const selected = explicitWorkItemId
+      ? this.workItemStore.get(explicitWorkItemId)
+      : undefined;
+    const step = selectNextGoalExecutionStep({
+      goalRun: goal,
+      workItems: this.workItemStore.snapshot().items,
+      governanceAssessment: {
+        recommendation: input.input.governanceRecommendation === "orchestrate" ? "orchestrate" : "direct",
+        reasons: readTextArray(input.input.governanceReasons),
+        requiredEvidence: readTextArray(input.input.requiredEvidence),
+      },
+    });
+
+    if (step.status !== "ready") {
+      return {
+        output: JSON.stringify({ status: "paused", step }, null, 2),
+        isError: true,
+      };
+    }
+    if (explicitWorkItemId && !selected) {
+      return { output: `Work item not found: ${explicitWorkItemId}`, isError: true };
+    }
+    if (explicitWorkItemId && step.workItemId !== explicitWorkItemId) {
+      return {
+        output: JSON.stringify({
+          status: "paused",
+          reason: "Explicit work item is not the next ready item for this goal.",
+          readyWorkItemId: step.workItemId,
+          requestedWorkItemId: explicitWorkItemId,
+        }, null, 2),
+        isError: true,
+      };
+    }
+
+    try {
+      const started = startGoalExecutionAttempt({
+        goalRunStore: this.goalRunStore,
+        workItemStore: this.workItemStore,
+        goalRunId,
+        workItemId: step.workItemId,
+        executionMode: step.executionMode,
+        summary: readText(input.input.summary),
+        managedInvocationId: readText(input.input.managedInvocationId),
+      });
+      return {
+        output: JSON.stringify({
+          status: "started",
+          goal: started.goal,
+          item: started.item,
+          attempt: started.attempt,
+        }, null, 2),
+        metadata: workItemToolMetadata("work_item.execution.start", {
+          operation: "execution_started",
+          id: started.item.id,
+          status: started.item.status,
+          item: started.item,
+          attempt: started.attempt,
+          sequence: started.item.sequence,
+        }),
+        isError: false,
+      };
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true };
+    }
+  }
+}
+
+export class WorkItemExecutionFinishTool implements DevTool {
+  readonly name = "work_item.execution.finish";
+
+  readonly description = [
+    "Finish a work item execution attempt with evidence and residual-risk closeout.",
+    "Blocks the item when expected evidence is missing and updates the owning goal state.",
+  ].join(" ");
+
+  readonly annotations = {
+    readOnly: false,
+    idempotent: false,
+  };
+
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      goalRunId: { type: "string", minLength: 1, description: "Goal run id." },
+      workItemId: { type: "string", minLength: 1, description: "Work item id." },
+      attemptId: { type: "string", minLength: 1, description: "Execution attempt id." },
+      providedEvidence: {
+        type: "array",
+        items: { enum: EVIDENCE },
+        description: "Evidence produced by the attempt.",
+      },
+      residualRisk: { type: "string", description: "Residual-risk closeout." },
+      summary: { type: "string", description: "Attempt result summary." },
+      closeoutSummary: { type: "string", description: "Goal closeout summary if this attempt completes the final work item." },
+    },
+    required: ["goalRunId", "workItemId", "attemptId"],
+    additionalProperties: false,
+  };
+
+  constructor(
+    private readonly goalRunStore: GoalRunStore,
+    private readonly workItemStore: WorkItemStore,
+  ) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const goalRunId = readText(input.input.goalRunId);
+    const workItemId = readText(input.input.workItemId);
+    const attemptId = readText(input.input.attemptId);
+    if (!goalRunId || !workItemId || !attemptId) {
+      return {
+        output: 'Invalid input: "goalRunId", "workItemId", and "attemptId" must be non-empty strings',
+        isError: true,
+      };
+    }
+
+    try {
+      const finished = finishGoalExecutionAttempt({
+        goalRunStore: this.goalRunStore,
+        workItemStore: this.workItemStore,
+        goalRunId,
+        workItemId,
+        attemptId,
+        providedEvidence: readEvidence(input.input.providedEvidence),
+        residualRisk: readText(input.input.residualRisk),
+        summary: readText(input.input.summary),
+        closeoutSummary: readText(input.input.closeoutSummary),
+      });
+      const missing = [
+        ...finished.missingEvidence,
+        ...(finished.missingResidualRisk ? ["residual-risk closeout"] : []),
+      ];
+      return {
+        output: JSON.stringify({
+          status: missing.length > 0 ? "blocked" : "completed",
+          missing,
+          goal: finished.goal,
+          item: finished.item,
+          attempt: finished.attempt,
+        }, null, 2),
+        metadata: workItemToolMetadata("work_item.execution.finish", {
+          operation: "execution_finished",
+          id: finished.item.id,
+          status: finished.item.status,
+          item: finished.item,
+          attempt: finished.attempt,
+          missingEvidence: finished.missingEvidence,
+          missingResidualRisk: finished.missingResidualRisk,
+          sequence: finished.item.sequence,
+          ...(missing.length > 0 ? { errorCode: "missing_evidence" } : {}),
+        }),
+        isError: missing.length > 0,
+      };
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true };
+    }
   }
 }
 

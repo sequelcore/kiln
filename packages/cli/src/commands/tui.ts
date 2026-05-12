@@ -58,6 +58,7 @@ import {
   type GuiProviderDiscoveryResult,
 } from "@kilnai/gateway-contracts";
 import {
+  GoalRunStore,
   WorkItemStore,
   createSessionBuiltinToolOptions,
   extractText,
@@ -1068,6 +1069,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const workItemStore = new WorkItemStore();
+  const goalRunStore = new GoalRunStore();
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
@@ -1080,10 +1082,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
     workItemStore,
+    goalRunStore,
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore }),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

@@ -63,6 +63,7 @@ import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
+  GoalRunStore,
   WorkItemStore,
   createSessionBuiltinToolOptions,
   type CanonicalSessionEventKind,
@@ -604,13 +605,15 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       },
     });
   const workItemStore = new WorkItemStore();
+  const goalRunStore = new GoalRunStore();
   const builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
     workItemStore,
+    goalRunStore,
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore }),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);

@@ -1,4 +1,4 @@
-import type { WorkItem, WorkItemStatus } from "../../work-governance/index.js";
+import type { WorkItem, WorkItemExecutionAttempt, WorkItemStatus } from "../../work-governance/index.js";
 
 export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
@@ -29,7 +29,12 @@ export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
 export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
 export type TaskStateToolName = "task_list" | "task_update";
-export type WorkItemToolName = "work_item.update" | "work_item.list" | "work_item.complete";
+export type WorkItemToolName =
+  | "work_item.update"
+  | "work_item.list"
+  | "work_item.complete"
+  | "work_item.execution.start"
+  | "work_item.execution.finish";
 export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
@@ -98,7 +103,7 @@ export type MonitorToolOperation = "start" | "read" | "stop" | "list";
 export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
-export type WorkItemToolOperation = "update" | "list" | "complete";
+export type WorkItemToolOperation = "update" | "list" | "complete" | "execution_started" | "execution_finished";
 export type ElicitationToolOperation = "elicit";
 export type MemoryToolOperation = "save";
 export type ResourceToolOperation = "list" | "list_templates" | "read";
@@ -399,6 +404,7 @@ export interface WorkItemToolResultMetadata<TToolName extends WorkItemToolName =
   readonly id?: string;
   readonly status?: WorkItemStatus;
   readonly item?: WorkItem;
+  readonly attempt?: WorkItemExecutionAttempt;
   readonly items?: readonly WorkItem[];
   readonly itemCount?: number;
   readonly missingEvidence?: readonly string[];

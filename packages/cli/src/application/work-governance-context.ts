@@ -26,6 +26,7 @@ export function buildWorkGovernanceContext(config: KilnWorkGovernanceConfig | un
     "- Direct execution is allowed only for local, low-risk work inside the configured direct-execution envelope.",
     "- Non-trivial work should be decomposed, delegated to configured managed agents when available, verified, and closed with evidence.",
     "- Use work_profile.list and work_item.update/list/complete to track broad work and fail closed on missing evidence.",
+    "- Use work_item.execution.start/finish for approved goal-bound work so attempt history, evidence, and residual risk are recorded.",
     "- When delegating a work item with managed_agent.invoke, pass the work item id, expected evidence, result fields, done criteria, role intent, and residual-risk requirement.",
     "- Model self-confidence is not evidence; executable checks, browser QA, formal proof, managed-agent review, and residual-risk reporting are stronger evidence.",
   ].filter((line): line is string => line !== undefined);
