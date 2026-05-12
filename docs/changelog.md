@@ -660,6 +660,16 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
   plan-mode mutation filtering, unresolved-spec blocking, rendered fallback
   parity, resource projection, and canonical event replay.
 
+### feat(runtime): close Slice 3 plan/spec analysis gate
+- Analysis findings now include `blocked`, `closed`, and `superseded`
+  lifecycle states in addition to open findings.
+- `plan_analysis_reported` events now carry replayable finding details, not
+  only ids and counts.
+- Plan approval now fails closed when the selected plan has no analysis report
+  or when the latest report contains blocking findings.
+- Added focused core and runtime tests for evidence mismatch detection,
+  finding lifecycle history, canonical event replay, and approval blocking.
+
 ### feat(runtime): shared plan and execute modes
 - Replaced GUI/TUI wire-level `planMode` and `exec` transition frames with the
   shared `executionMode: "plan" | "execute"` contract.

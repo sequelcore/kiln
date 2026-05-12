@@ -82,6 +82,16 @@ describe("runtime specification session events", () => {
         findingIds: ["analysis_finding_1"],
         blockingFindingIds: ["analysis_finding_1"],
         findingCount: 1,
+        findings: [{
+          id: "analysis_finding_1",
+          fingerprint: "fingerprint-1",
+          category: "constitution_conflict",
+          severity: "critical",
+          title: "Constitution Snapshot Mismatch",
+          detail: "Plan and specification instruction-profile hashes differ.",
+          references: ["specification:spec_1", "plan:plan_1"],
+          status: "blocked",
+        }],
         summary: "1 critical finding blocks approval.",
       }],
     });
@@ -93,6 +103,11 @@ describe("runtime specification session events", () => {
         planId: "plan_1",
         specificationId: "spec_1",
         status: "blocked",
+        findings: [expect.objectContaining({
+          id: "analysis_finding_1",
+          status: "blocked",
+          category: "constitution_conflict",
+        })],
       }),
     ]));
   });

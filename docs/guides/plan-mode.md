@@ -129,10 +129,17 @@ The analyzer emits durable findings with stable ids and severity levels:
 
 Current finding categories include duplication, ambiguity,
 underspecification, constitution conflict, coverage gaps, task/order
-inconsistency, and terminology drift.
+inconsistency, terminology drift, and evidence mismatch.
 
-If any `critical` findings remain open, plan submission fails closed for
-approval/implementation transition.
+Findings have a lifecycle status: `open`, `blocked`, `closed`, or
+`superseded`. Critical findings are marked `blocked`; plan submission returns a
+blocked analysis result, and approval/execution transition fails closed until a
+later analysis report resolves those blocking findings. Approval also fails
+closed when the selected plan has no analysis report.
+
+Canonical `plan_analysis_reported` events include replayable finding details,
+not only finding ids, so analysis reports can be recovered from the session
+stream without provider-native state.
 
 Specification and clarification state is projected through canonical resources:
 

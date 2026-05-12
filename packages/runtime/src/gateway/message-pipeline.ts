@@ -22,6 +22,7 @@ import type {
   RetrievalPipeline,
   Capability,
   AuthorityDescriptor,
+  CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanWorkItemDraft,
 } from "@kilnai/core";
 import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
@@ -370,6 +371,7 @@ function extractPlanAnalysisReports(
   readonly findingIds: readonly string[];
   readonly blockingFindingIds: readonly string[];
   readonly findingCount: number;
+  readonly findings: readonly CanonicalPlanAnalysisFindingDraft[];
   readonly summary: string;
 }[] {
   return (toolExecutions ?? [])
@@ -398,6 +400,7 @@ function extractPlanAnalysisReports(
       }
       const findingIds = extractStringArray(metadata?.analysisFindingIds);
       const blockingFindingIds = extractStringArray(metadata?.analysisBlockingFindingIds);
+      const findings = extractAnalysisFindings(metadata?.analysisFindings);
       const findingCount = typeof metadata?.analysisFindingCount === "number" ? metadata.analysisFindingCount : findingIds.length;
       const summary = typeof metadata?.analysisSummary === "string"
         ? metadata.analysisSummary.trim()
@@ -411,6 +414,7 @@ function extractPlanAnalysisReports(
         findingIds,
         blockingFindingIds,
         findingCount,
+        findings,
         summary,
       };
     })
@@ -423,8 +427,51 @@ function extractPlanAnalysisReports(
       readonly findingIds: readonly string[];
       readonly blockingFindingIds: readonly string[];
       readonly findingCount: number;
+      readonly findings: readonly CanonicalPlanAnalysisFindingDraft[];
       readonly summary: string;
     } => report !== null);
+}
+
+function extractAnalysisFindings(value: unknown): readonly CanonicalPlanAnalysisFindingDraft[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const findings: CanonicalPlanAnalysisFindingDraft[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const id = readNonEmptyString(record.id);
+    const fingerprint = readNonEmptyString(record.fingerprint);
+    const category = record.category;
+    const severity = record.severity;
+    const title = readNonEmptyString(record.title);
+    const detail = readNonEmptyString(record.detail);
+    const status = record.status;
+    if (
+      !id
+      || !fingerprint
+      || !isAnalysisFindingCategory(category)
+      || !isAnalysisFindingSeverity(severity)
+      || !title
+      || !detail
+      || !isAnalysisFindingStatus(status)
+    ) {
+      continue;
+    }
+    findings.push({
+      id,
+      fingerprint,
+      category,
+      severity,
+      title,
+      detail,
+      references: extractStringArray(record.references),
+      status,
+    });
+  }
+  return findings;
 }
 
 function extractClarificationRecords(
@@ -527,6 +574,25 @@ function readNonEmptyString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isAnalysisFindingCategory(value: unknown): value is CanonicalPlanAnalysisFindingDraft["category"] {
+  return value === "duplication"
+    || value === "ambiguity"
+    || value === "underspecification"
+    || value === "constitution_conflict"
+    || value === "coverage_gap"
+    || value === "task_order_inconsistency"
+    || value === "terminology_drift"
+    || value === "evidence_mismatch";
+}
+
+function isAnalysisFindingSeverity(value: unknown): value is CanonicalPlanAnalysisFindingDraft["severity"] {
+  return value === "critical" || value === "high" || value === "medium" || value === "low";
+}
+
+function isAnalysisFindingStatus(value: unknown): value is CanonicalPlanAnalysisFindingDraft["status"] {
+  return value === "open" || value === "superseded" || value === "closed" || value === "blocked";
 }
 
 function extractIssueCodes(value: unknown): readonly string[] {

@@ -701,6 +701,7 @@ export type {
   CanonicalClarificationRecordedEvent,
   CanonicalPlanWorkItemDraft,
   CanonicalPlanSubmittedEvent,
+  CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanAnalysisReportedEvent,
   CanonicalPlanApprovedEvent,
   CanonicalProviderRoutedEvent,

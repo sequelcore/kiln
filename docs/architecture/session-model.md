@@ -280,7 +280,12 @@ full governed artifact, including each proposed work item, so a replayed
 session can recover the same structured fallback plan without provider-native
 state. Successful planning-tool calls append canonical
 `specification_submitted`, `clarification_recorded`, `plan_submitted`, and
-`plan_analysis_reported` events to the session stream.
+`plan_analysis_reported` events to the session stream. Analysis events carry
+the report status plus replayable finding details, including lifecycle status,
+so approval and reconnecting surfaces can distinguish open, blocked, closed,
+and superseded findings without consulting provider-native state. Execution
+approval requires a latest analysis report for the selected plan and fails
+closed while that report has blocking findings.
 Clarification records are not parallel notes: for recognized affected sections,
 runtime merges the answer back into the canonical specification, recomputes
 validation status, rejects contradictory repeated answers, and keeps planning

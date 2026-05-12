@@ -50,6 +50,44 @@ export async function approvePlanExecutionTransition(input: {
     };
   }
 
+  const plan = input.planId
+    ? surface.planStateStore.getPlan(input.planId)
+    : surface.planStateStore.latestPlan();
+  if (!plan) {
+    return {
+      ok: false,
+      code: "PLAN_APPROVAL_NO_PLAN_ARTIFACT",
+      message: input.planId
+        ? `No plan artifact found for '${input.planId}'.`
+        : "No plan artifact is available for execution approval.",
+    };
+  }
+  if (plan.status !== "ready_for_approval") {
+    return {
+      ok: false,
+      code: "PLAN_APPROVAL_PLAN_NOT_READY_FOR_APPROVAL",
+      message: `Plan ${plan.id} is not ready for approval.`,
+    };
+  }
+
+  const latestAnalysisReport = surface.analysisStateStore?.listReports()
+    .filter((report) => report.planId === plan.id)
+    .at(-1);
+  if (!latestAnalysisReport) {
+    return {
+      ok: false,
+      code: "PLAN_APPROVAL_ANALYSIS_REQUIRED",
+      message: `Plan ${plan.id} cannot be approved until a plan/spec analysis report exists.`,
+    };
+  }
+  if (latestAnalysisReport.status === "blocked" || latestAnalysisReport.blockingFindingIds.length > 0) {
+    return {
+      ok: false,
+      code: "PLAN_APPROVAL_ANALYSIS_BLOCKED",
+      message: `Plan ${plan.id} cannot be approved while blocking analysis findings remain open: ${latestAnalysisReport.blockingFindingIds.join(", ")}.`,
+    };
+  }
+
   const approvalResult = surface.planStateStore.approvePlan(input.planId);
   if (!approvalResult.success) {
     return {

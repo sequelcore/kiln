@@ -1,6 +1,7 @@
 import type {
   ApprovalReceivedEvent,
   ApprovalRequestedEvent,
+  CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanWorkItemDraft,
   CanonicalSessionEvent,
   CostUpdateEvent,
@@ -76,6 +77,7 @@ export interface AppendCanonicalTurnEventsInput {
     readonly findingIds: readonly string[];
     readonly blockingFindingIds: readonly string[];
     readonly findingCount: number;
+    readonly findings: readonly CanonicalPlanAnalysisFindingDraft[];
     readonly summary: string;
   }[];
   readonly specificationSubmissions?: readonly {
@@ -344,6 +346,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       findingIds: report.findingIds,
       blockingFindingIds: report.blockingFindingIds,
       findingCount: report.findingCount,
+      findings: report.findings,
       summary: report.summary,
       source: runtimeSource,
       timestamp: input.turnCompletedAt,

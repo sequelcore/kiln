@@ -210,7 +210,27 @@ export interface CanonicalPlanAnalysisReportedEvent extends SessionEventEnvelope
   readonly findingIds: readonly string[];
   readonly blockingFindingIds: readonly string[];
   readonly findingCount: number;
+  readonly findings: readonly CanonicalPlanAnalysisFindingDraft[];
   readonly summary: string;
+}
+
+export interface CanonicalPlanAnalysisFindingDraft {
+  readonly id: string;
+  readonly fingerprint: string;
+  readonly category:
+    | "duplication"
+    | "ambiguity"
+    | "underspecification"
+    | "constitution_conflict"
+    | "coverage_gap"
+    | "task_order_inconsistency"
+    | "terminology_drift"
+    | "evidence_mismatch";
+  readonly severity: "critical" | "high" | "medium" | "low";
+  readonly title: string;
+  readonly detail: string;
+  readonly references: readonly string[];
+  readonly status: "open" | "superseded" | "closed" | "blocked";
 }
 
 export interface CanonicalProviderRoutedEvent extends SessionEventEnvelope<"provider_routed"> {

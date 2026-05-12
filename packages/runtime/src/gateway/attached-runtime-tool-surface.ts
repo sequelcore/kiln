@@ -1101,6 +1101,7 @@ async function executeSubmitPlan(
     analysisBlockingFindingCount: analysisResult.report.blockingFindingIds.length,
     analysisFindingIds: analysisResult.report.findingIds,
     analysisBlockingFindingIds: analysisResult.report.blockingFindingIds,
+    analysisFindings: analysisResult.findings,
     analysisSummary: analysisResult.report.summary,
   };
   const renderedPlan = renderPlanArtifact(plan);

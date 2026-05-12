@@ -10,10 +10,11 @@ export type AnalysisFindingCategory =
   | "constitution_conflict"
   | "coverage_gap"
   | "task_order_inconsistency"
-  | "terminology_drift";
+  | "terminology_drift"
+  | "evidence_mismatch";
 
 export type AnalysisFindingSeverity = "critical" | "high" | "medium" | "low";
-export type AnalysisFindingStatus = "open" | "superseded";
+export type AnalysisFindingStatus = "open" | "superseded" | "closed" | "blocked";
 export type AnalysisReportStatus = "blocked" | "ready";
 
 export interface AnalysisFinding {
@@ -99,10 +100,13 @@ export class AnalysisStateStore {
     this.sequence += 1;
     const reportId = this.allocateReportId();
     const activeFingerprints = new Set<string>();
+    const activeCategories = new Set<AnalysisFindingCategory>();
 
     for (const draft of drafts) {
       const fingerprint = fingerprintFinding(input.specification.id, draft);
       activeFingerprints.add(fingerprint);
+      activeCategories.add(draft.category);
+      const activeStatus: AnalysisFindingStatus = draft.severity === "critical" ? "blocked" : "open";
       const existingId = this.findingIdsByFingerprint.get(fingerprint);
       if (existingId) {
         const existing = this.findings.get(existingId);
@@ -110,7 +114,7 @@ export class AnalysisStateStore {
           const updated: AnalysisFinding = {
             ...existing,
             references: [...new Set([...existing.references, ...draft.references])],
-            status: "open",
+            status: activeStatus,
             lastSeenAt: timestamp,
             lastSeenSequence: this.sequence,
             supersededByReportId: undefined,
@@ -129,7 +133,7 @@ export class AnalysisStateStore {
         title: draft.title,
         detail: draft.detail,
         references: draft.references,
-        status: "open",
+        status: activeStatus,
         firstSeenAt: timestamp,
         lastSeenAt: timestamp,
         firstSeenSequence: this.sequence,
@@ -142,7 +146,7 @@ export class AnalysisStateStore {
     }
 
     const staleOpenFindings = this.listFindings().filter((candidate) => {
-      if (candidate.status !== "open") {
+      if (candidate.status !== "open" && candidate.status !== "blocked") {
         return false;
       }
       if (!candidate.references.includes(`specification:${input.specification.id}`)) {
@@ -152,9 +156,10 @@ export class AnalysisStateStore {
     });
     const supersededFindingIds: string[] = [];
     for (const stale of staleOpenFindings) {
+      const status: AnalysisFindingStatus = activeCategories.has(stale.category) ? "superseded" : "closed";
       this.findings.set(stale.id, {
         ...stale,
-        status: "superseded",
+        status,
         lastSeenAt: timestamp,
         lastSeenSequence: this.sequence,
         supersededByReportId: reportId,
@@ -163,7 +168,7 @@ export class AnalysisStateStore {
     }
 
     const blockingFindingIds = findings
-      .filter((finding) => finding.severity === "critical")
+      .filter((finding) => finding.status === "blocked")
       .map((finding) => finding.id);
     const highestSeverity = resolveHighestSeverity(findings);
     const report: AnalysisReport = {
@@ -340,6 +345,22 @@ function collectFindings(specification: SessionSpecification, plan: SessionPlan)
         `No proposed work item appears to cover success criterion: '${criterion}'.`,
       );
     }
+  }
+
+  const workItemEvidence = new Set(
+    plan.proposedWorkItems.flatMap((item) => item.expectedEvidence.map(normalizeText)).filter(Boolean),
+  );
+  const missingEvidence = plan.expectedEvidence.filter((evidence) => {
+    const normalized = normalizeText(evidence);
+    return normalized && !workItemEvidence.has(normalized);
+  });
+  if (missingEvidence.length > 0) {
+    add(
+      "evidence_mismatch",
+      "high",
+      "Plan Evidence Lacks Work Item Coverage",
+      `Plan-level evidence is not covered by proposed work items: ${missingEvidence.join(", ")}.`,
+    );
   }
 
   for (const actor of specification.actors) {

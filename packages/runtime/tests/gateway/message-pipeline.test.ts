@@ -286,6 +286,16 @@ describe("processAdmittedTurn", () => {
             analysisBlockingFindingCount: 0,
             analysisFindingIds: ["analysis_finding_1"],
             analysisBlockingFindingIds: [],
+            analysisFindings: [{
+              id: "analysis_finding_1",
+              fingerprint: "fingerprint-1",
+              category: "terminology_drift",
+              severity: "low",
+              title: "Actor Terminology Drift",
+              detail: "Actor is not referenced in the plan.",
+              references: ["specification:spec_1", "plan:tool-plan"],
+              status: "open",
+            }],
             analysisSummary: "No critical findings. Ready for approval.",
             sourceSpecificationId: "spec_1",
           },
@@ -301,6 +311,16 @@ describe("processAdmittedTurn", () => {
           analysisBlockingFindingCount: 0,
           analysisFindingIds: ["analysis_finding_1"],
           analysisBlockingFindingIds: [],
+          analysisFindings: [{
+            id: "analysis_finding_1",
+            fingerprint: "fingerprint-1",
+            category: "terminology_drift",
+            severity: "low",
+            title: "Actor Terminology Drift",
+            detail: "Actor is not referenced in the plan.",
+            references: ["specification:spec_1", "plan:tool-plan"],
+            status: "open",
+          }],
           analysisSummary: "No critical findings. Ready for approval.",
           sourceSpecificationId: "spec_1",
         },
@@ -339,6 +359,11 @@ describe("processAdmittedTurn", () => {
       specificationId: "spec_1",
       status: "ready",
       highestSeverity: "low",
+      findings: [expect.objectContaining({
+        id: "analysis_finding_1",
+        category: "terminology_drift",
+        status: "open",
+      })],
     }));
   });
 

@@ -131,6 +131,16 @@ describe("session event envelope", () => {
         findingIds: ["analysis_finding_1"],
         blockingFindingIds: [],
         findingCount: 1,
+        findings: [{
+          id: "analysis_finding_1",
+          fingerprint: "fingerprint-1",
+          category: "terminology_drift",
+          severity: "medium",
+          title: "Actor Terminology Drift",
+          detail: "Actor is not referenced in the plan.",
+          references: ["specification:spec_1", "plan:plan_1"],
+          status: "open",
+        }],
         summary: "No critical findings. Ready for approval.",
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({

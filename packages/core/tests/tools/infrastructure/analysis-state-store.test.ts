@@ -36,7 +36,7 @@ describe("analysis state store", () => {
     expect(finding?.status).toBe("open");
   });
 
-  it("notifies per-finding resources when findings are superseded", () => {
+  it("notifies per-finding resources when findings are closed by a clean revision", () => {
     const notifications: string[] = [];
     const store = new AnalysisStateStore({
       now: () => 1_800_000_000_000,
@@ -71,9 +71,40 @@ describe("analysis state store", () => {
 
     expect(second.report.findingIds).toHaveLength(0);
     const finding = store.getFinding(findingId);
-    expect(finding?.status).toBe("superseded");
+    expect(finding?.status).toBe("closed");
     expect(finding?.supersededByReportId).toBe(second.report.id);
     expect(notifications).toContain(`kiln://session/analysis-findings/${findingId}`);
+  });
+
+  it("supersedes changed findings without losing the original history", () => {
+    const store = new AnalysisStateStore({ now: () => 1_800_000_000_000 });
+    const first = store.analyzePlan({
+      specification: baseSpecification({
+        successCriteria: ["First requirement coverage"],
+      }),
+      plan: basePlan({
+        id: "plan-1",
+        proposedWorkItems: [workItem({ id: "wi-1", summary: "Unrelated implementation task." })],
+      }),
+    });
+    const originalFindingId = first.report.findingIds[0]!;
+
+    const second = store.analyzePlan({
+      specification: baseSpecification({
+        successCriteria: ["Second requirement coverage"],
+      }),
+      plan: basePlan({
+        id: "plan-2",
+        proposedWorkItems: [workItem({ id: "wi-1", summary: "Unrelated implementation task." })],
+      }),
+    });
+
+    expect(second.report.findingIds).toHaveLength(1);
+    expect(second.report.findingIds[0]).not.toBe(originalFindingId);
+    expect(store.getFinding(originalFindingId)).toMatchObject({
+      status: "superseded",
+      supersededByReportId: second.report.id,
+    });
   });
 
   it("flags dependency cycles as critical task-order inconsistencies", () => {
@@ -95,12 +126,37 @@ describe("analysis state store", () => {
     expect(cycleFinding).toMatchObject<Partial<AnalysisFinding>>({
       category: "task_order_inconsistency",
       severity: "critical",
+      status: "blocked",
     });
     expect(cycleFinding?.detail).toContain("a -> b -> a");
   });
+
+  it("reports plan-level evidence that is not covered by proposed work items", () => {
+    const store = new AnalysisStateStore({ now: () => 1_800_000_000_000 });
+    const result = store.analyzePlan({
+      specification: baseSpecification(),
+      plan: basePlan({
+        expectedEvidence: ["typecheck"],
+        proposedWorkItems: [
+          workItem({
+            id: "wi-1",
+            summary: "Criterion token coverage implementation.",
+            expectedEvidence: ["unit tests"],
+          }),
+        ],
+      }),
+    });
+
+    expect(result.findings).toContainEqual(expect.objectContaining({
+      category: "evidence_mismatch",
+      severity: "high",
+      title: "Plan Evidence Lacks Work Item Coverage",
+      status: "open",
+    }));
+  });
 });
 
-function baseSpecification(): SessionSpecification {
+function baseSpecification(overrides: Partial<SessionSpecification> = {}): SessionSpecification {
   return {
     id: "spec-1",
     title: "Test specification",
@@ -123,6 +179,7 @@ function baseSpecification(): SessionSpecification {
     createdAt: "2026-05-09T00:00:00.000Z",
     updatedAt: "2026-05-09T00:00:00.000Z",
     sequence: 1,
+    ...overrides,
   };
 }
 
@@ -141,7 +198,7 @@ function basePlan(overrides: Partial<SessionPlan> = {}): SessionPlan {
       workflowProfile: "architecture-change",
     },
     proposedWorkItems: [workItem({ id: "wi-1", summary: "Criterion token coverage implementation." })],
-    expectedEvidence: ["tests", "typecheck"],
+    expectedEvidence: ["tests"],
     verificationGates: ["bun test", "bun run typecheck"],
     managedAgentDelegationCandidates: [],
     approvalBoundaries: ["Operator approval before execute transition."],

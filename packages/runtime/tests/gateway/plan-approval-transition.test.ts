@@ -16,6 +16,7 @@ describe("approvePlanExecutionTransition", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
     const plan = surface.planStateStore?.submitPlan(basePlanInput());
     expect(plan).toBeDefined();
+    submitReadyAnalysis(surface, plan?.id);
 
     const result = await approvePlanExecutionTransition({
       surfaces: [surface],
@@ -45,6 +46,77 @@ describe("approvePlanExecutionTransition", () => {
       toMode: "execute",
     });
     await expect(registry.getById(session.id).then((stored) => stored?.sessionEvents.at(-1)?.kind)).resolves.toBe("plan_approved");
+  });
+
+  it("fails closed when the selected plan has no analysis report", async () => {
+    const registry = new SessionRegistry();
+    await registry.getOrCreate({
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      systemPrompt: "You are a helpful assistant.",
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
+    surface.planStateStore?.submitPlan(basePlanInput());
+
+    const result = await approvePlanExecutionTransition({
+      surfaces: [surface],
+      sessionRegistry: registry,
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      sourceSurface: "gui",
+      component: "gui-gateway",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "PLAN_APPROVAL_ANALYSIS_REQUIRED",
+    });
+  });
+
+  it("fails closed when the latest analysis report has blocking findings", async () => {
+    const registry = new SessionRegistry();
+    const session = await registry.getOrCreate({
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      systemPrompt: "You are a helpful assistant.",
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
+    const plan = surface.planStateStore?.submitPlan({
+      ...basePlanInput(),
+      proposedWorkItems: [
+        {
+          id: "wi-1",
+          summary: "Wire plan approval transition.",
+          workflowProfile: "verification-heavy",
+          risk: "medium",
+          expectedEvidence: ["runtime tests"],
+          verificationGates: ["bun run --filter @kilnai/runtime test"],
+          dependencies: ["missing-work-item"],
+        },
+      ],
+    });
+    expect(plan).toBeDefined();
+    submitReadyAnalysis(surface, plan?.id);
+
+    const result = await approvePlanExecutionTransition({
+      surfaces: [surface],
+      sessionRegistry: registry,
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      sourceSurface: "gui",
+      component: "gui-gateway",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "PLAN_APPROVAL_ANALYSIS_BLOCKED",
+    });
+    expect(surface.planStateStore?.getPlan(plan!.id)?.approval).toBeUndefined();
+    expect(session.sessionEvents).toHaveLength(0);
   });
 
   it("fails closed for malformed plans", async () => {
@@ -137,4 +209,30 @@ function basePlanInput(): PlanSubmissionInput {
       instructionProfileIds: ["sequel-engineering"],
     },
   };
+}
+
+function submitReadyAnalysis(
+  surface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>,
+  planId: string | undefined,
+): void {
+  const plan = planId ? surface.planStateStore?.getPlan(planId) : undefined;
+  expect(plan).toBeDefined();
+  const specification = surface.specificationStateStore?.upsertSpecification({
+    title: "Plan approval analysis gate",
+    objective: "Approve Slice 4 execution.",
+    nonGoals: ["Do not implement goal runs."],
+    successCriteria: ["Wire plan approval transition."],
+    actors: [],
+    dataLifecycle: "Session-scoped analysis reports.",
+    uxEdgeCases: [],
+    securityPrivacy: "No secrets.",
+    externalDependencies: [],
+    completionSignals: ["Runtime tests pass."],
+    constitutionSnapshot: {
+      instructionProfileHash: "profile-hash",
+      instructionProfileIds: ["sequel-engineering"],
+    },
+  });
+  expect(specification).toBeDefined();
+  surface.analysisStateStore?.analyzePlan({ specification: specification!, plan: plan! });
 }

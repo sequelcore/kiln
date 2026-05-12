@@ -1,39 +1,49 @@
-# Slice 2 Closure Plan
+# Slice 3 Closure Plan
 
-Objective: close Slice 2 of `docs/roadmap/00.5-plan-goal-workflow-control.md`
-by making submitted plans fully structured, event-replayable, and renderable
-from canonical data before Slice 3 advances.
+Objective: close Slice 3 of `docs/roadmap/00.5-plan-goal-workflow-control.md`
+by making plan/spec analysis block approval, preserve finding lifecycle
+history, and replay analysis details from canonical session events before Slice
+4 advances.
 
 Scope:
 
-- `packages/core/src/tools/infrastructure/plan-state-store.ts`
-- `packages/core/tests/tools/infrastructure/plan-state-store.test.ts`
+- `packages/core/src/tools/infrastructure/analysis-state-store.ts`
+- `packages/core/tests/tools/infrastructure/analysis-state-store.test.ts`
 - `packages/core/src/events/session-event.ts`
+- `packages/core/src/events/index.ts`
+- `packages/core/tests/events/session-event.test.ts`
 - `packages/runtime/src/session/runtime-session-event-ledger.ts`
 - `packages/runtime/src/gateway/message-pipeline.ts`
 - `packages/runtime/src/gateway/attached-runtime-tool-surface.ts`
+- `packages/runtime/src/gateway/plan-approval-transition.ts`
+- `packages/runtime/tests/session/runtime-session-specification-events.test.ts`
 - `packages/runtime/tests/gateway/message-pipeline.test.ts`
-- `packages/runtime/tests/gateway/attached-runtime-tool-surface.test.ts`
+- `packages/runtime/tests/gateway/plan-approval-transition.test.ts`
 - `docs/guides/plan-mode.md`
 - `docs/architecture/session-model.md`
+- `docs/changelog.md`
 - `docs/roadmap/00.5-plan-goal-workflow-control.md`
 
 Work items:
 
-1. Add focused tests proving high-control plans fail closed without operator
-   decisions, approval boundaries, rollback notes, and residual risks.
-2. Add runtime tests proving successful `submit_plan` output and metadata carry
-   the same structured plan content as the stored resource.
-3. Add session event tests proving `plan_submitted` preserves proposed work
-   items, not just a count, so fallback surfaces can replay the canonical plan.
-4. Implement only the missing event/output projection needed for those tests.
-5. Update canonical docs and mark Slice 2 complete only after verification.
+1. Add analyzer tests for blocked, closed, and superseded finding lifecycle
+   states plus evidence mismatch detection.
+2. Add approval-transition tests proving execution approval fails without a
+   plan analysis report and while blocking findings remain.
+3. Add canonical event tests proving `plan_analysis_reported` carries
+   replayable finding details.
+4. Implement only the missing analyzer, event, metadata, and approval-gate
+   behavior needed for those tests.
+5. Update canonical docs and mark Slice 3 complete only after verification.
 
 Verification:
 
-- `bun test packages/core/tests/tools/infrastructure/plan-state-store.test.ts`
-- `bun test packages/runtime/tests/gateway/attached-runtime-tool-surface.test.ts`
+- `bun test packages/core/tests/tools/infrastructure/analysis-state-store.test.ts`
+- `bun test packages/runtime/tests/gateway/plan-approval-transition.test.ts`
 - `bun test packages/runtime/tests/gateway/message-pipeline.test.ts`
+- `bun test packages/runtime/tests/gateway/attached-runtime-tool-surface.test.ts`
+- `bun test packages/runtime/tests/session/runtime-session-specification-events.test.ts`
+- `bun test packages/core/tests/events/session-event.test.ts`
 - `bun run --filter @kilnai/core build`
 - `bun run --filter @kilnai/runtime build`
 - `bun run typecheck`
