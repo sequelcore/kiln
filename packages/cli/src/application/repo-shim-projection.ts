@@ -15,6 +15,10 @@ import {
   readProjectContextMarkdown,
   type ProjectContextEvidence,
 } from "./project-context.js";
+import {
+  buildWorkflowSnapshotExport,
+  type WorkflowSnapshotExport,
+} from "./workflow-snapshot-export.js";
 
 const GENERATOR_VERSION = "repo-shims-v1";
 const SIGNATURE = "kiln:repo-shim:v1";
@@ -38,6 +42,7 @@ export interface RepoShimProjectionTargetResult {
 export interface RepoShimProjectionResult {
   readonly written: boolean;
   readonly targets: readonly RepoShimProjectionTargetResult[];
+  readonly workflowSnapshot?: WorkflowSnapshotExport;
   readonly errors: readonly string[];
 }
 
@@ -74,6 +79,7 @@ export async function writeRepoShimProjections(
   options: RepoShimProjectionOptions = {},
 ): Promise<RepoShimProjectionResult> {
   const results: RepoShimProjectionTargetResult[] = [];
+  let workflowSnapshot: WorkflowSnapshotExport | undefined;
 
   try {
     const agents = await loadAgentDefinitions(projectPath);
@@ -98,6 +104,13 @@ export async function writeRepoShimProjections(
         force: options.force ?? false,
       }));
     }
+    workflowSnapshot = buildWorkflowSnapshotExport({
+      generatedAt: new Date().toISOString(),
+      generatedFiles: TARGETS.map((target) => target.filename),
+      projectContext: repoContext,
+      instructionProfiles,
+      kilnConfig: kilnYaml,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -111,6 +124,7 @@ export async function writeRepoShimProjections(
   return {
     written: errors.length === 0 && results.some((result) => result.written),
     targets: results,
+    workflowSnapshot,
     errors,
   };
 }
