@@ -251,6 +251,78 @@ describe("work-governance-tool", () => {
     expect(goalRunStore.get(goal.id)?.status).toBe("completed");
   });
 
+  it("blocks goal-bound execution finish until evidence and residual risk are present", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-blocked-finish",
+      summary: "Verify governed closeout.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests", "typecheck", "residual-risk"],
+      verificationGates: ["bun test", "bun run typecheck"],
+      goalRunId: "goal-blocked-finish",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-blocked-finish",
+      objective: "Execute closeout-gated work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+
+    const started = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        summary: "Start closeout-gated execution.",
+      },
+    });
+    expect(started?.isError).toBe(false);
+
+    const blocked = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-blocked-finish:work-blocked-finish:attempt:1",
+        providedEvidence: ["tests"],
+        summary: "Only tests completed.",
+      },
+    });
+
+    expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain('"status": "blocked"');
+    expect(blocked?.output).toContain("typecheck");
+    expect(blocked?.output).toContain("residual-risk closeout");
+    expect(blocked?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "execution_finished",
+      id: item.id,
+      status: "blocked",
+      missingEvidence: ["typecheck", "residual-risk"],
+      missingResidualRisk: true,
+      errorCode: "missing_evidence",
+      attempt: {
+        id: "goal-blocked-finish:work-blocked-finish:attempt:1",
+        status: "blocked",
+        providedEvidence: ["tests"],
+      },
+    });
+    expect(workItemStore.get(item.id)?.status).toBe("blocked");
+    expect(goalRunStore.get(goal.id)?.currentPhase).toBe("paused:work-blocked-finish");
+  });
+
   it("does not start an explicit work item before earlier dependencies are complete", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

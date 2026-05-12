@@ -122,6 +122,9 @@ surfaces:
 - `work_item.complete`
   Attempts closeout and fails closed when required evidence or residual-risk
   reporting is missing.
+- `work_item.execution.start` / `work_item.execution.finish`
+  Records goal-bound execution attempts. Finish fails closed into a blocked
+  work-item state when expected evidence or residual-risk closeout is missing.
 - `submit_plan`
   Submits a structured governed plan artifact (objective, risk/workflow profile,
   work items, evidence gates, and spec/clarification linkage) during plan-mode
