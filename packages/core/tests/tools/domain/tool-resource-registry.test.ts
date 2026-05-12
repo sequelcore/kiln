@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-tool-surface.js";
 import { ToolResourceRegistry } from "../../../src/tools/domain/tool-resource-registry.js";
 import { AnalysisStateStore } from "../../../src/tools/infrastructure/analysis-state-store.js";
+import { AuthorityStateStore } from "../../../src/tools/infrastructure/authority-state-store.js";
 import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 import { PlanStateStore } from "../../../src/tools/infrastructure/plan-state-store.js";
 import { SpecificationStateStore } from "../../../src/tools/infrastructure/specification-state-store.js";
@@ -267,6 +268,70 @@ describe("ToolResourceRegistry", () => {
       authorityEnvelope: {
         maximumAuthority: "audited",
         escalationPolicy: "approval_required",
+      },
+    });
+  });
+
+  it("exposes effective authority snapshots when a session authority store is attached", async () => {
+    const authorityStateStore = new AuthorityStateStore({
+      now: () => "2026-05-12T22:30:00.000Z",
+    });
+    const surface = createDefaultBuiltinToolSurface({ authorityStateStore });
+    const authority = authorityStateStore.record({
+      turnId: "session-1:turn:1",
+      source: "gui",
+      authority: {
+        executionMode: "execute",
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        sourcePolicy: "runtime_surface_projection",
+        reason: "Operator requested read-only authority.",
+        completeness: "authoritative",
+        toolCount: 6,
+        deniedToolCount: 3,
+        sandboxProjection: "read_only",
+        policyInputs: [
+          {
+            source: "requested_authority",
+            status: "applied",
+            requestedAuthority: "read_only",
+            reason: "Operator requested read_only authority.",
+          },
+        ],
+      },
+    });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/authority");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/authority/{id}");
+
+    const snapshot = await surface.resources.read("kiln://session/authority");
+    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+      sequence: authority.sequence,
+      latest: {
+        id: authority.id,
+        turnId: "session-1:turn:1",
+        source: "gui",
+        authority: {
+          requestedAuthority: "read_only",
+          admittedAuthority: "read_only",
+          toolCount: 6,
+          deniedToolCount: 3,
+        },
+      },
+      authorities: [
+        {
+          id: authority.id,
+          recordedAt: "2026-05-12T22:30:00.000Z",
+        },
+      ],
+    });
+
+    const single = await surface.resources.read(`kiln://session/authority/${authority.id}`);
+    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+      id: authority.id,
+      authority: {
+        executionMode: "execute",
+        sourcePolicy: "runtime_surface_projection",
       },
     });
   });

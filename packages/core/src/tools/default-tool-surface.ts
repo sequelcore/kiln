@@ -19,6 +19,10 @@ import {
   type AnalysisStateStoreOptions,
 } from "./infrastructure/analysis-state-store.js";
 import {
+  AuthorityStateStore,
+  type AuthorityStateStoreOptions,
+} from "./infrastructure/authority-state-store.js";
+import {
   ArtifactResourceProvider,
   MemoryArtifactResourceStore,
   type ArtifactResourceStore,
@@ -113,6 +117,8 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly taskStateStore?: TaskStateStore;
   readonly analysisState?: AnalysisStateStoreOptions;
   readonly analysisStateStore?: AnalysisStateStore;
+  readonly authorityState?: AuthorityStateStoreOptions;
+  readonly authorityStateStore?: AuthorityStateStore;
   readonly planState?: PlanStateStoreOptions;
   readonly planStateStore?: PlanStateStore;
   readonly specificationState?: SpecificationStateStoreOptions;
@@ -176,6 +182,7 @@ export interface DefaultBuiltinToolSurface {
   readonly monitorRegistry: MonitorRegistry;
   readonly taskStateStore: TaskStateStore;
   readonly analysisStateStore?: AnalysisStateStore;
+  readonly authorityStateStore?: AuthorityStateStore;
   readonly planStateStore?: PlanStateStore;
   readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
@@ -201,6 +208,11 @@ export function createSessionBuiltinToolOptions(
     resourceNotifications,
   });
   analysisStateStore.setResourceChangeNotifier(resourceNotifications);
+  const authorityStateStore = options.authorityStateStore ?? new AuthorityStateStore({
+    ...options.authorityState,
+    resourceNotifications,
+  });
+  authorityStateStore.setResourceChangeNotifier(resourceNotifications);
   const planStateStore = options.planStateStore ?? new PlanStateStore({
     ...options.planState,
     resourceNotifications,
@@ -224,6 +236,7 @@ export function createSessionBuiltinToolOptions(
     monitorRegistry,
     taskStateStore,
     analysisStateStore,
+    authorityStateStore,
     planStateStore,
     specificationStateStore,
     ...(workItemStore ? { workItemStore } : {}),
@@ -337,6 +350,14 @@ export function createDefaultBuiltinToolSurface(
       })
       : undefined);
   options.analysisStateStore?.setResourceChangeNotifier(resourceNotifications);
+  const authorityStateStore = options.authorityStateStore
+    ?? (options.authorityState
+      ? new AuthorityStateStore({
+        ...options.authorityState,
+        resourceNotifications,
+      })
+      : undefined);
+  options.authorityStateStore?.setResourceChangeNotifier(resourceNotifications);
   const planStateStore = options.planStateStore
     ?? (options.planState
       ? new PlanStateStore({
@@ -365,6 +386,7 @@ export function createDefaultBuiltinToolSurface(
     monitorRegistry,
     taskStateStore,
     ...(analysisStateStore ? { analysisStateStore } : {}),
+    ...(authorityStateStore ? { authorityStateStore } : {}),
     ...(planStateStore ? { planStateStore } : {}),
     ...(specificationStateStore ? { specificationStateStore } : {}),
     ...(workItemStore ? { workItemStore } : {}),
@@ -384,6 +406,7 @@ export function createDefaultBuiltinToolSurface(
     monitorRegistry,
     taskStateStore,
     ...(analysisStateStore ? { analysisStateStore } : {}),
+    ...(authorityStateStore ? { authorityStateStore } : {}),
     ...(planStateStore ? { planStateStore } : {}),
     ...(specificationStateStore ? { specificationStateStore } : {}),
     ...(workItemStore ? { workItemStore } : {}),
@@ -410,6 +433,7 @@ export function createDefaultBuiltinToolSurface(
     monitorRegistry,
     taskStateStore,
     ...(analysisStateStore ? { analysisStateStore } : {}),
+    ...(authorityStateStore ? { authorityStateStore } : {}),
     ...(planStateStore ? { planStateStore } : {}),
     ...(specificationStateStore ? { specificationStateStore } : {}),
     workItemStore,

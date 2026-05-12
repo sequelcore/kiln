@@ -606,6 +606,47 @@ describe("attached runtime builtin tool surface", () => {
     expect(config.effectiveTurnAuthority?.deniedToolCount).toBe(deniedToolCount);
   });
 
+  it("records effective authority snapshots into attached runtime resources", async () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions(),
+    });
+
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: runtimeSurface,
+      requestedAuthority: "read_only",
+    });
+
+    expect(config.effectiveTurnAuthority).toMatchObject({
+      requestedAuthority: "read_only",
+      admittedAuthority: "read_only",
+    });
+    expect(runtimeSurface.listResources().map((resource) => resource.uri)).toContain("kiln://session/authority");
+
+    const snapshot = await runtimeSurface.readResource("kiln://session/authority");
+    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+      latest: {
+        source: "runtime",
+        authority: {
+          requestedAuthority: "read_only",
+          admittedAuthority: "read_only",
+          sourcePolicy: "runtime_surface_projection",
+        },
+      },
+      authorities: [
+        {
+          authority: {
+            toolCount: config.effectiveTurnAuthority?.toolCount,
+            deniedToolCount: config.effectiveTurnAuthority?.deniedToolCount,
+          },
+        },
+      ],
+    });
+  });
+
   it("isolates default plan-mode state stores across runtime surface instances", async () => {
     const firstSurface = createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
     const secondSurface = createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });

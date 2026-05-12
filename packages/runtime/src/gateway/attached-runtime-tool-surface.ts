@@ -1,5 +1,6 @@
 import type {
   AnalysisStateStore,
+  AuthorityStateStore,
   AuthorityDescriptor,
   Capability,
   DefaultBuiltinToolSurface,
@@ -57,6 +58,7 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
   readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>;
   readonly analysisStateStore?: AnalysisStateStore;
+  readonly authorityStateStore?: AuthorityStateStore;
   readonly planStateStore?: PlanStateStore;
   readonly specificationStateStore?: SpecificationStateStore;
   listResources(): readonly ToolResourceDisplayDescriptor[];
@@ -488,6 +490,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     toolAuthority,
     toolCallMetadata,
     analysisStateStore: baseSurface.analysisStateStore,
+    authorityStateStore: baseSurface.authorityStateStore,
     planStateStore: baseSurface.planStateStore,
     specificationStateStore: baseSurface.specificationStateStore,
     listResources: baseSurface.listResources,
@@ -656,6 +659,7 @@ function buildRuntimeSurface(
   options: { readonly requireSessionStores?: boolean } = {},
 ): AttachedRuntimeBuiltinToolSurface {
   const analysisStateStore = coreSurface.analysisStateStore;
+  const authorityStateStore = coreSurface.authorityStateStore;
   const planStateStore = coreSurface.planStateStore;
   const specificationStateStore = coreSurface.specificationStateStore;
   if (options.requireSessionStores && (!analysisStateStore || !planStateStore || !specificationStateStore)) {
@@ -668,6 +672,7 @@ function buildRuntimeSurface(
     toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
     toolCallMetadata: new Map(),
     analysisStateStore,
+    authorityStateStore,
     planStateStore,
     specificationStateStore,
     listResources: () => coreSurface.resources.list().map(projectToolResourceDescriptor),
@@ -727,7 +732,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       toolAllowlist: new Set<string>(),
       toolAuthority: new Map(),
     };
-    return projectEffectiveTurnAuthorityPerCallConfig({
+    return recordRuntimeAuthoritySnapshot(input.builtinToolSurface, projectEffectiveTurnAuthorityPerCallConfig({
       config: failClosedConfig,
       executionMode,
       sourcePolicy: "provider_profile_gate",
@@ -736,7 +741,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
         : "Provider/model authority input is unresolved; execution profile unavailable.",
       sandboxProjection: "none",
       requestedAuthority,
-    })!;
+    })!);
   }
 
   const builtinToolSurface = input.builtinToolSurface
@@ -749,14 +754,14 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       && builtinToolSurface.specificationStateStore
       ? builtinToolSurface
       : createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
-    return projectEffectiveTurnAuthorityPerCallConfig({
+    return recordRuntimeAuthoritySnapshot(planSurface, projectEffectiveTurnAuthorityPerCallConfig({
       config: buildPlanModePerCallConfig(config, planSurface),
       executionMode,
       sourcePolicy: "plan_mode_projection",
       reason: "Plan mode narrows the runtime surface to planning and read-only tools.",
       sandboxProjection: "read_only",
       requestedAuthority,
-    })!;
+    })!);
   }
   const executeConfig: PerCallToolConfig = {
     ...config,
@@ -766,14 +771,27 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     additionalTools: builtinToolSurface.toolDefinitions,
     perCallCapabilities: builtinToolSurface.capabilities,
   };
-  return projectEffectiveTurnAuthorityPerCallConfig({
+  return recordRuntimeAuthoritySnapshot(builtinToolSurface, projectEffectiveTurnAuthorityPerCallConfig({
     config: executeConfig,
     executionMode,
     sourcePolicy: "runtime_surface_projection",
     reason: "Authority admitted from the attached runtime allowlist and toolAuthority map.",
     sandboxProjection: "workspace_write",
     requestedAuthority,
-  })!;
+  })!);
+}
+
+function recordRuntimeAuthoritySnapshot(
+  surface: AttachedRuntimeBuiltinToolSurface | undefined,
+  config: PerCallToolConfig,
+): PerCallToolConfig {
+  if (config.effectiveTurnAuthority) {
+    surface?.authorityStateStore?.record({
+      source: "runtime",
+      authority: config.effectiveTurnAuthority,
+    });
+  }
+  return config;
 }
 
 export function resolveAttachedRuntimeToolCallMetadata(

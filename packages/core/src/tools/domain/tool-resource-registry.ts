@@ -2,6 +2,7 @@ import { KilnError } from "../../engine/errors.js";
 import type { ToolCatalogIndex } from "./tool-catalog.js";
 import type { MonitorRegistry } from "../infrastructure/monitor-tools.js";
 import type { AnalysisStateStore } from "../infrastructure/analysis-state-store.js";
+import type { AuthorityStateStore } from "../infrastructure/authority-state-store.js";
 import type { PlanStateStore } from "../infrastructure/plan-state-store.js";
 import type { SpecificationStateStore } from "../infrastructure/specification-state-store.js";
 import type { TaskStateStore } from "../infrastructure/task-state-tools.js";
@@ -71,6 +72,7 @@ export interface ToolResourceRegistryOptions {
   readonly catalog: ToolCatalogIndex;
   readonly taskStateStore: TaskStateStore;
   readonly analysisStateStore?: AnalysisStateStore;
+  readonly authorityStateStore?: AuthorityStateStore;
   readonly planStateStore?: PlanStateStore;
   readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
@@ -83,6 +85,7 @@ export class ToolResourceRegistry {
   private readonly catalog: ToolCatalogIndex;
   private readonly taskStateStore: TaskStateStore;
   private readonly analysisStateStore?: AnalysisStateStore;
+  private readonly authorityStateStore?: AuthorityStateStore;
   private readonly planStateStore?: PlanStateStore;
   private readonly specificationStateStore?: SpecificationStateStore;
   private readonly workItemStore?: WorkItemStore;
@@ -94,6 +97,7 @@ export class ToolResourceRegistry {
     this.catalog = options.catalog;
     this.taskStateStore = options.taskStateStore;
     this.analysisStateStore = options.analysisStateStore;
+    this.authorityStateStore = options.authorityStateStore;
     this.planStateStore = options.planStateStore;
     this.specificationStateStore = options.specificationStateStore;
     this.workItemStore = options.workItemStore;
@@ -148,6 +152,14 @@ export class ToolResourceRegistry {
         name: "session_analysis_findings",
         title: "Session Analysis Findings",
         description: "Read-only snapshot of analysis findings and lifecycle status.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
+      ...(this.authorityStateStore ? [{
+        uri: "kiln://session/authority",
+        name: "session_authority",
+        title: "Session Authority",
+        description: "Read-only snapshot of effective turn authority decisions for this session.",
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       }] : []),
@@ -232,6 +244,14 @@ export class ToolResourceRegistry {
         name: "session_analysis_finding",
         title: "Session Analysis Finding",
         description: "Read one analysis finding by stable id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
+      ...(this.authorityStateStore ? [{
+        uriTemplate: "kiln://session/authority/{id}",
+        name: "session_authority_snapshot",
+        title: "Session Authority Snapshot",
+        description: "Read one effective turn authority snapshot by id.",
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       }] : []),
@@ -352,6 +372,19 @@ export class ToolResourceRegistry {
       return jsonResource(uri, {
         findings: this.analysisStateStore.listFindings(),
       });
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "authority" && this.authorityStateStore) {
+      return jsonResource(uri, this.authorityStateStore.snapshot());
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "authority" && this.authorityStateStore) {
+      const id = parsed.path[1] ?? "";
+      const authority = this.authorityStateStore.get(id);
+      if (!authority) {
+        throw resourceNotFound(uri);
+      }
+      return jsonResource(uri, authority);
     }
 
     if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "analysis-findings" && this.analysisStateStore) {

@@ -235,6 +235,21 @@ export type {
 } from "./infrastructure/analysis-state-store.js";
 export { AnalysisStateStore } from "./infrastructure/analysis-state-store.js";
 export type {
+  AuthorityStateRecord,
+  AuthorityStateRecordInput,
+  AuthorityStateSnapshot,
+  AuthorityStateStoreOptions,
+  EffectiveTurnAuthorityCompleteness,
+  EffectiveTurnAuthorityLevel,
+  EffectiveTurnAuthorityPolicyInput,
+  EffectiveTurnAuthorityPolicyInputSource,
+  EffectiveTurnAuthorityPolicyInputStatus,
+  EffectiveTurnAuthoritySandboxProjection,
+  EffectiveTurnAuthoritySnapshot,
+  EffectiveTurnAuthoritySourcePolicy,
+} from "./infrastructure/authority-state-store.js";
+export { AuthorityStateStore } from "./infrastructure/authority-state-store.js";
+export type {
   PlanRiskClassification,
   PlanStateSnapshot,
   PlanStateStoreOptions,

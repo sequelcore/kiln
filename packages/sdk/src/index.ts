@@ -40,6 +40,11 @@ export {
 } from "@kilnai/gateway-contracts";
 
 export type {
+  AuthorityStateRecord,
+  AuthorityStateSnapshot,
+  EffectiveTurnAuthoritySnapshot,
+  GoalRunSnapshot,
+  PlanStateSnapshot,
   ToolResourceContent,
   ToolResourceDescriptor,
   ToolResourceDisplayDescriptor,
@@ -47,4 +52,5 @@ export type {
   ToolResourcePage,
   ToolResourceReadResult,
   ToolResourceTemplateDescriptor,
+  WorkItemSnapshot,
 } from "@kilnai/core";
