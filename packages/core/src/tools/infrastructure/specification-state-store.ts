@@ -188,9 +188,17 @@ export class SpecificationStateStore {
     };
     this.sequence += 1;
     this.clarifications.set(clarification.id, clarification);
+    const mergedSpecification = mergeClarificationAnswer(specification, {
+      affectedSection: input.affectedSection,
+      answer: input.answer,
+    });
+    const issues = validateSpecificationInput(mergedSpecification);
+    const status = issues.some((issue) => issue.blocking) ? "draft" : "ready_for_plan";
     const updatedSpecification: SessionSpecification = {
-      ...specification,
-      clarificationIds: uniqueText([...specification.clarificationIds, clarification.id]),
+      ...mergedSpecification,
+      clarificationIds: uniqueText([...mergedSpecification.clarificationIds, clarification.id]),
+      issues,
+      status,
       updatedAt: this.timestamp(),
       sequence: this.sequence,
     };
@@ -354,6 +362,77 @@ function containsAmbiguousLanguage(value: string): boolean {
   }
   const tokens = ["maybe", "probably", "possibly", "etc", "tbd", "later"];
   return tokens.some((token) => normalized.includes(token));
+}
+
+function mergeClarificationAnswer(
+  specification: SessionSpecification,
+  input: {
+    readonly affectedSection: string;
+    readonly answer: string;
+  },
+): SessionSpecification {
+  const section = normalizeSection(input.affectedSection);
+  const answer = input.answer.trim();
+  if (answer.length === 0) {
+    return specification;
+  }
+
+  switch (section) {
+    case "objective":
+      return shouldReplaceText(specification.objective)
+        ? { ...specification, objective: answer }
+        : specification;
+    case "nongoals":
+      return { ...specification, nonGoals: mergeTextList(specification.nonGoals, answer) };
+    case "successcriteria":
+      return {
+        ...specification,
+        successCriteria: mergeTextList(
+          specification.successCriteria.filter((criterion) => !containsAmbiguousLanguage(criterion)),
+          answer,
+        ),
+      };
+    case "actors":
+      return { ...specification, actors: mergeTextList(specification.actors, answer) };
+    case "datalifecycle":
+      return shouldReplaceText(specification.dataLifecycle)
+        ? { ...specification, dataLifecycle: answer }
+        : specification;
+    case "uxedgecases":
+      return { ...specification, uxEdgeCases: mergeTextList(specification.uxEdgeCases, answer) };
+    case "securityprivacy":
+      return shouldReplaceText(specification.securityPrivacy)
+        ? { ...specification, securityPrivacy: answer }
+        : specification;
+    case "externaldependencies":
+      return { ...specification, externalDependencies: mergeTextList(specification.externalDependencies, answer) };
+    case "completionsignals":
+      return { ...specification, completionSignals: mergeTextList(specification.completionSignals, answer) };
+    default:
+      return specification;
+  }
+}
+
+function shouldReplaceText(value: string): boolean {
+  return value.trim().length === 0 || containsAmbiguousLanguage(value);
+}
+
+function mergeTextList(existing: readonly string[], answer: string): readonly string[] {
+  return uniqueText([
+    ...existing,
+    ...parseClarificationList(answer),
+  ]);
+}
+
+function parseClarificationList(answer: string): readonly string[] {
+  return answer
+    .split(/\r?\n|;/)
+    .map((item) => item.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").trim())
+    .filter((item) => item.length > 0);
+}
+
+function normalizeSection(value: string): string {
+  return normalizeKey(value).replace(/[^a-z0-9]/g, "");
 }
 
 function uniqueText(values: readonly string[]): readonly string[] {

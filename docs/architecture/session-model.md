@@ -274,10 +274,17 @@ flags. The only supported modes today are `execute` and `plan`.
 In plan mode the runtime narrows the tool surface to read-only capabilities and
 runtime-owned planning tools (`submit_specification`, `record_clarification`,
 `submit_plan`). `submit_plan` is a typed artifact contract linked to a source
-specification and clarification records, not free-form text. Successful
-planning-tool calls append canonical `specification_submitted`,
-`clarification_recorded`, `plan_submitted`, and `plan_analysis_reported` events
-to the session stream.
+specification and clarification records, not free-form text. Its successful
+result, resource projection, and canonical `plan_submitted` event carry the
+full governed artifact, including each proposed work item, so a replayed
+session can recover the same structured fallback plan without provider-native
+state. Successful planning-tool calls append canonical
+`specification_submitted`, `clarification_recorded`, `plan_submitted`, and
+`plan_analysis_reported` events to the session stream.
+Clarification records are not parallel notes: for recognized affected sections,
+runtime merges the answer back into the canonical specification, recomputes
+validation status, rejects contradictory repeated answers, and keeps planning
+closed while required fields remain unresolved.
 Presentation of those events is owned by `@kilnai/gateway-contracts` so GUI,
 TUI, CLI, IDE, SDK, and remote operator surfaces project the same planning
 evidence.

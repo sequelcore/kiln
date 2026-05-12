@@ -1,6 +1,7 @@
 import type {
   ApprovalReceivedEvent,
   ApprovalRequestedEvent,
+  CanonicalPlanWorkItemDraft,
   CanonicalSessionEvent,
   CostUpdateEvent,
   ErrorEvent,
@@ -63,6 +64,7 @@ export interface AppendCanonicalTurnEventsInput {
     readonly clarificationRecordIds: readonly string[];
     readonly constitutionSnapshotHash: string;
     readonly proposedWorkItemCount: number;
+    readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
     readonly summary: string;
   }[];
   readonly analysisReports?: readonly {
@@ -321,6 +323,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       clarificationRecordIds: submission.clarificationRecordIds,
       constitutionSnapshotHash: submission.constitutionSnapshotHash,
       proposedWorkItemCount: submission.proposedWorkItemCount,
+      proposedWorkItems: submission.proposedWorkItems,
       summary: submission.summary,
       source: runtimeSource,
       timestamp: input.turnCompletedAt,

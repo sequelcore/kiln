@@ -12,7 +12,7 @@ import type {
   SpecificationStateStore,
   ToolResultContentPart,
 } from "@kilnai/core";
-import type { PlanStateStore, WorkflowProfile } from "@kilnai/core";
+import type { PlanStateStore, SessionPlan, WorkflowProfile } from "@kilnai/core";
 import {
   createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
@@ -1103,6 +1103,7 @@ async function executeSubmitPlan(
     analysisBlockingFindingIds: analysisResult.report.blockingFindingIds,
     analysisSummary: analysisResult.report.summary,
   };
+  const renderedPlan = renderPlanArtifact(plan);
   const commonMetadata = {
     toolName: SUBMIT_PLAN_TOOL.name,
     operation: "submit_plan",
@@ -1127,8 +1128,10 @@ async function executeSubmitPlan(
     clarificationRecordIds: plan.clarificationRecordIds,
     constitutionSnapshotHash: plan.constitutionSnapshot.instructionProfileHash,
     proposedWorkItemCount: plan.proposedWorkItems.length,
+    proposedWorkItems: plan.proposedWorkItems,
     clarificationRecordCount: plan.clarificationRecordIds.length,
     summary: plan.objective,
+    renderedPlan,
     ...analysisMetadata,
   };
 
@@ -1141,10 +1144,41 @@ async function executeSubmitPlan(
   }
 
   return {
-    output: `Plan ${plan.id} submitted and ready for approval.`,
+    output: renderedPlan,
     isError: false,
     metadata: commonMetadata,
   };
+}
+
+function renderPlanArtifact(plan: SessionPlan): string {
+  const lines = [
+    plan.objective,
+    `- risk: ${plan.riskClassification}`,
+    `- posture: ${plan.workGovernanceRecommendation.posture}`,
+    `- workflow: ${plan.workGovernanceRecommendation.workflowProfile}`,
+    `- governance rationale: ${plan.workGovernanceRecommendation.rationale}`,
+    `- source specification: ${plan.sourceSpecificationId}`,
+    ...plan.clarificationRecordIds.map((clarification) => `- clarification: ${clarification}`),
+    ...plan.affectedSurfaces.map((surface) => `- affected surface: ${surface}`),
+    ...plan.nonGoals.map((goal) => `- non-goal: ${goal}`),
+    ...plan.assumptions.map((assumption) => `- assumption: ${assumption}`),
+    ...plan.operatorDecisionsRequired.map((decision) => `- decision: ${decision}`),
+    ...plan.expectedEvidence.map((evidence) => `- evidence: ${evidence}`),
+    ...plan.verificationGates.map((gate) => `- gate: ${gate}`),
+    ...plan.managedAgentDelegationCandidates.map((candidate) => `- delegation candidate: ${candidate}`),
+    ...plan.approvalBoundaries.map((boundary) => `- approval boundary: ${boundary}`),
+    plan.rollbackNotes ? `- rollback: ${plan.rollbackNotes}` : undefined,
+    ...plan.residualRisks.map((risk) => `- residual risk: ${risk}`),
+    ...plan.proposedWorkItems.flatMap((item) => [
+      `- work item ${item.id}: ${item.summary}`,
+      `  workflow: ${item.workflowProfile}`,
+      `  risk: ${item.risk}`,
+      ...item.expectedEvidence.map((evidence) => `  evidence: ${evidence}`),
+      ...item.verificationGates.map((gate) => `  gate: ${gate}`),
+      ...item.dependencies.map((dependency) => `  depends on: ${dependency}`),
+    ]),
+  ];
+  return lines.filter((line): line is string => Boolean(line)).join("\n");
 }
 
 async function executeSubmitSpecification(

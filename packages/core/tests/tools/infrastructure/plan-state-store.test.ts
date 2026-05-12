@@ -79,6 +79,48 @@ describe("plan state store", () => {
     });
   });
 
+  it("applies high-control validation by risk and workflow profile", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+
+    const highRiskDraft = store.submitPlan({
+      ...baseInput(),
+      riskClassification: "critical",
+      workGovernanceRecommendation: {
+        posture: "orchestrate",
+        rationale: "Critical workflow-control change.",
+        workflowProfile: "architecture-change",
+      },
+      operatorDecisionsRequired: [],
+      approvalBoundaries: [],
+      rollbackNotes: "",
+      residualRisks: [],
+    });
+
+    expect(highRiskDraft.status).toBe("draft");
+    expect(highRiskDraft.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      "missing_operator_decisions",
+      "high_risk_approval_boundaries",
+      "high_risk_rollback_notes",
+      "high_risk_residual_risks",
+    ]));
+
+    const lowRiskReady = store.submitPlan(baseInput({
+      riskClassification: "low",
+      workGovernanceRecommendation: {
+        posture: "direct",
+        rationale: "Single low-risk documentation correction.",
+        workflowProfile: "small-fix",
+      },
+      operatorDecisionsRequired: [],
+      approvalBoundaries: [],
+      rollbackNotes: "",
+      residualRisks: [],
+    }));
+
+    expect(lowRiskReady.status).toBe("ready_for_approval");
+    expect(lowRiskReady.issues).toEqual([]);
+  });
+
   it("revisions and rejection keep one plan id without duplication", () => {
     const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
     const first = store.submitPlan(baseInput());

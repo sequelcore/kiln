@@ -22,6 +22,7 @@ import type {
   RetrievalPipeline,
   Capability,
   AuthorityDescriptor,
+  CanonicalPlanWorkItemDraft,
 } from "@kilnai/core";
 import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
@@ -190,6 +191,7 @@ function extractPlanSubmissions(
   readonly clarificationRecordIds: readonly string[];
   readonly constitutionSnapshotHash: string;
   readonly proposedWorkItemCount: number;
+  readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
   readonly summary: string;
 }[] {
   return (toolExecutions ?? [])
@@ -237,6 +239,10 @@ function extractPlanSubmissions(
       const verificationGates = extractStringArray(metadata?.verificationGates).length > 0
         ? extractStringArray(metadata?.verificationGates)
         : extractStringArray(execution.input?.verificationGates);
+      const metadataWorkItems = extractPlanWorkItems(metadata?.proposedWorkItems);
+      const proposedWorkItems = metadataWorkItems.length > 0
+        ? metadataWorkItems
+        : extractPlanWorkItems(execution.input?.proposedWorkItems);
       return {
         planId: metadataPlanId || execution.toolCallId || `plan:${execution.durationMs}`,
         mode: "plan",
@@ -269,7 +275,8 @@ function extractPlanSubmissions(
         constitutionSnapshotHash: typeof metadata?.constitutionSnapshotHash === "string"
           ? metadata.constitutionSnapshotHash.trim()
           : extractConstitutionSnapshotHash(execution.input?.constitutionSnapshot),
-        proposedWorkItemCount: metadataWorkItemCount ?? extractProposedWorkItemCount(execution.input?.proposedWorkItems),
+        proposedWorkItemCount: metadataWorkItemCount ?? proposedWorkItems.length,
+        proposedWorkItems,
         summary: metadataSummary || [
           objective,
           nonGoals[0] ? `first non-goal: ${nonGoals[0]}` : undefined,
@@ -298,6 +305,7 @@ function extractPlanSubmissions(
       readonly clarificationRecordIds: readonly string[];
       readonly constitutionSnapshotHash: string;
       readonly proposedWorkItemCount: number;
+      readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
       readonly summary: string;
     } => submission !== null);
 }
@@ -478,11 +486,47 @@ function extractConstitutionSnapshotHash(value: unknown): string {
     : "";
 }
 
-function extractProposedWorkItemCount(value: unknown): number {
+function extractPlanWorkItems(value: unknown): readonly CanonicalPlanWorkItemDraft[] {
   if (!Array.isArray(value)) {
-    return 0;
+    return [];
   }
-  return value.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)).length;
+  const items: CanonicalPlanWorkItemDraft[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const id = readNonEmptyString(record.id);
+    const summary = readNonEmptyString(record.summary);
+    const workflowProfile = readNonEmptyString(record.workflowProfile);
+    const risk = record.risk;
+    if (
+      !id
+      || !summary
+      || !workflowProfile
+      || (risk !== "low" && risk !== "medium" && risk !== "high" && risk !== "critical")
+    ) {
+      continue;
+    }
+    items.push({
+      id,
+      summary,
+      workflowProfile,
+      risk,
+      expectedEvidence: extractStringArray(record.expectedEvidence),
+      verificationGates: extractStringArray(record.verificationGates),
+      dependencies: extractStringArray(record.dependencies),
+    });
+  }
+  return items;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function extractIssueCodes(value: unknown): readonly string[] {

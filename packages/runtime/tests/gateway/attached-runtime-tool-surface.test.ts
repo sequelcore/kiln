@@ -48,6 +48,46 @@ function countDeniedTools(
   return denied;
 }
 
+function sliceOnePlanPayload(
+  sourceSpecificationId: string | undefined,
+  clarificationRecordIds: readonly string[] = [],
+): Record<string, unknown> {
+  return {
+    objective: "Deliver canonical structured specification intake for operator planning.",
+    nonGoals: ["Do not implement goal execution."],
+    operatorDecisionsRequired: ["Approve execution only after specification intake is complete."],
+    assumptions: ["Specification artifacts are session-scoped."],
+    affectedSurfaces: ["runtime", "core"],
+    riskClassification: "medium",
+    workGovernanceRecommendation: {
+      posture: "orchestrate",
+      rationale: "Specification intake controls planning admission.",
+      workflowProfile: "verification-heavy",
+    },
+    proposedWorkItems: [{
+      id: "wi-1",
+      summary: "Implement specification resources replay from session state for operator planning.",
+      workflowProfile: "verification-heavy",
+      risk: "medium",
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+      dependencies: [],
+    }],
+    expectedEvidence: ["tests"],
+    verificationGates: ["bun test"],
+    managedAgentDelegationCandidates: [],
+    approvalBoundaries: ["No execute transition before plan approval."],
+    rollbackNotes: "Revert specification intake changes.",
+    residualRisks: ["none"],
+    sourceSpecificationId,
+    clarificationRecordIds,
+    constitutionSnapshot: {
+      instructionProfileHash: "hash-slice-1",
+      instructionProfileIds: ["sequel-engineering"],
+    },
+  };
+}
+
 describe("attached runtime builtin tool surface", () => {
   it("projects default runtime tools from the canonical core builtin surface", () => {
     const coreSurface = createDefaultBuiltinToolSurface();
@@ -751,6 +791,94 @@ describe("attached runtime builtin tool surface", () => {
     });
   });
 
+  it("keeps planning closed until clarifications resolve required specification fields", async () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      executionMode: "plan",
+      builtinToolOptions: createSessionBuiltinToolOptions(),
+    });
+    const submitSpecification = runtimeSurface.callBuiltinTools.get("submit_specification");
+    const recordClarification = runtimeSurface.callBuiltinTools.get("record_clarification");
+    const submitPlan = runtimeSurface.callBuiltinTools.get("submit_plan");
+
+    const draftSpec = await submitSpecification?.({
+      title: "Slice 1 intake",
+      objective: "TBD",
+      nonGoals: [],
+      successCriteria: ["Maybe replay resources later."],
+      actors: [],
+      dataLifecycle: "TBD",
+      uxEdgeCases: [],
+      securityPrivacy: "TBD",
+      externalDependencies: [],
+      completionSignals: [],
+      constitutionSnapshot: {
+        instructionProfileHash: "hash-slice-1",
+        instructionProfileIds: ["sequel-engineering"],
+      },
+    }) as { readonly isError?: boolean; readonly metadata?: Record<string, unknown> } | undefined;
+
+    expect(draftSpec?.isError).toBe(false);
+    expect(draftSpec?.metadata).toMatchObject({
+      operation: "submit_specification",
+      specificationStatus: "draft",
+      blockingIssueCodes: [
+        "ambiguity",
+        "missing_non_goals",
+        "vague_success_criteria",
+        "undefined_actors",
+        "unclear_data_lifecycle",
+        "security_privacy_posture",
+        "completion_signals",
+      ],
+    });
+    const specificationId = typeof draftSpec?.metadata?.specificationId === "string"
+      ? draftSpec.metadata.specificationId
+      : undefined;
+
+    await expect(submitPlan?.(sliceOnePlanPayload(specificationId))).resolves.toMatchObject({
+      isError: true,
+      metadata: {
+        operation: "submit_plan",
+        reason: "blocking_specification_issues",
+        specificationId,
+      },
+    });
+
+    const clarificationIds: string[] = [];
+    for (const clarification of [
+      ["What objective is in scope?", "Deliver canonical structured specification intake.", "objective"],
+      ["What is out of scope?", "Do not implement goal execution.", "nonGoals"],
+      ["What proves completion?", "Specification resources replay from session state.", "successCriteria"],
+      ["Who uses this?", "operator", "actors"],
+      ["How is data scoped?", "Session-scoped specification and clarification resources only.", "dataLifecycle"],
+      ["What is the security posture?", "No secrets are stored in specification artifacts.", "securityPrivacy"],
+      ["What external dependencies exist?", "none", "externalDependencies"],
+      ["What is the closeout signal?", "Focused tests and docs confirm Slice 1 behavior.", "completionSignals"],
+    ] as const) {
+      const result = await recordClarification?.({
+        specificationId,
+        question: clarification[0],
+        answer: clarification[1],
+        affectedSection: clarification[2],
+        rationale: "Resolve required Slice 1 specification intake before planning.",
+      }) as { readonly isError?: boolean; readonly metadata?: Record<string, unknown> } | undefined;
+      expect(result?.isError).toBe(false);
+      if (typeof result?.metadata?.clarificationId === "string") {
+        clarificationIds.push(result.metadata.clarificationId);
+      }
+    }
+
+    await expect(submitPlan?.(sliceOnePlanPayload(specificationId, clarificationIds))).resolves.toMatchObject({
+      isError: false,
+      metadata: {
+        operation: "submit_plan",
+        sourceSpecificationId: specificationId,
+        sourceSpecificationStatus: "ready_for_plan",
+        analysisStatus: "ready",
+      },
+    });
+  });
+
   it("submits structured plans only when linked specification state is valid", async () => {
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       executionMode: "plan",
@@ -836,7 +964,24 @@ describe("attached runtime builtin tool surface", () => {
       sourceSpecificationId: specificationId,
       riskClassification: "high",
       workflowProfile: "architecture-change",
+      proposedWorkItems: [{
+        id: "wi-1",
+        summary: "Add structured plan schema and validation.",
+        workflowProfile: "architecture-change",
+        risk: "high",
+      }],
     });
+    expect(planResult?.output).toContain("Ship typed plan submission contract.");
+    expect(planResult?.output).toContain("- source specification: spec_1");
+    expect(planResult?.output).toContain("- work item wi-1: Add structured plan schema and validation.");
+
+    const plans = await runtimeSurface.readResource("kiln://session/plans") as {
+      readonly contents: readonly { readonly text?: string }[];
+    };
+    const plansPayload = JSON.parse(plans.contents[0]?.text ?? "{}") as {
+      readonly plans?: readonly { readonly id?: string; readonly proposedWorkItems?: readonly Record<string, unknown>[] }[];
+    };
+    expect(plansPayload.plans?.[0]?.proposedWorkItems).toEqual(planResult?.metadata?.proposedWorkItems);
 
     const invalidPlanResult = await submitPlan?.({
       objective: "Invalid high-risk plan.",

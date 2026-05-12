@@ -157,6 +157,16 @@ export interface CanonicalClarificationRecordedEvent extends SessionEventEnvelop
   readonly affectedSection: string;
 }
 
+export interface CanonicalPlanWorkItemDraft {
+  readonly id: string;
+  readonly summary: string;
+  readonly workflowProfile: string;
+  readonly risk: "low" | "medium" | "high" | "critical";
+  readonly expectedEvidence: readonly string[];
+  readonly verificationGates: readonly string[];
+  readonly dependencies: readonly string[];
+}
+
 export interface CanonicalPlanSubmittedEvent extends SessionEventEnvelope<"plan_submitted"> {
   readonly planId: string;
   readonly mode: "plan";
@@ -178,6 +188,7 @@ export interface CanonicalPlanSubmittedEvent extends SessionEventEnvelope<"plan_
   readonly clarificationRecordIds: readonly string[];
   readonly constitutionSnapshotHash: string;
   readonly proposedWorkItemCount: number;
+  readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
   readonly summary: string;
 }
 

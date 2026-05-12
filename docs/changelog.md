@@ -639,6 +639,27 @@ Six sub-phases implementing biologically-grounded multi-agent coordination:
 
 ## Unreleased -- Execution Mode Contract
 
+### feat(runtime): close Slice 1 structured specification intake
+- Clarification records now merge answers into recognized specification
+  sections and recompute validation status instead of acting as detached notes.
+- Repeated identical clarification answers are idempotent; contradictory
+  answers for the same question and affected section are rejected.
+- `submit_plan` remains fail-closed while required specification fields have
+  blocking validation issues and admits planning only after clarifications or a
+  revised specification resolve them.
+- Added focused core and runtime tests for Slice 1 validation taxonomy,
+  clarification merge behavior, and missing-field planning admission.
+
+### feat(runtime): close Slice 2 structured plan contract
+- `submit_plan` now returns deterministic structured fallback output rendered
+  from the governed plan artifact instead of terse status text.
+- Successful plan submissions persist full `proposedWorkItems` data through
+  tool metadata, `kiln://session/plans` resources, and canonical
+  `plan_submitted` events for replay without provider-native state.
+- Added focused core and runtime tests for risk/profile validation,
+  plan-mode mutation filtering, unresolved-spec blocking, rendered fallback
+  parity, resource projection, and canonical event replay.
+
 ### feat(runtime): shared plan and execute modes
 - Replaced GUI/TUI wire-level `planMode` and `exec` transition frames with the
   shared `executionMode: "plan" | "execute"` contract.

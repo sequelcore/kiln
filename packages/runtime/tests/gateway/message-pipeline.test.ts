@@ -322,6 +322,15 @@ describe("processAdmittedTurn", () => {
       riskClassification: "high",
       workflowProfile: "architecture-change",
       sourceSpecificationId: "spec_1",
+      proposedWorkItems: [{
+        id: "wi-1",
+        summary: "Add typed contract.",
+        workflowProfile: "architecture-change",
+        risk: "high",
+        expectedEvidence: ["tests"],
+        verificationGates: ["bun test"],
+        dependencies: [],
+      }],
     }));
     expect(session.sessionEvents).toContainEqual(expect.objectContaining({
       kind: "plan_analysis_reported",
@@ -1777,12 +1786,9 @@ describe("processAdmittedTurn", () => {
       eventBus,
     } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
-    vi.useFakeTimers();
-    vi.setSystemTime(startedAt);
 
     const result = await processInboundMessage(makeBaseContext({ orchestrator, sessionRegistry }));
 
-    vi.useRealTimers();
     expect(result.ok).toBe(true);
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
     expect(ledger.map((event) => event.kind)).toEqual([

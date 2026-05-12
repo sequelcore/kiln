@@ -68,13 +68,19 @@ Planning now requires structured specification intake before plan acceptance.
 - completion signals
 - constitution/instruction-profile snapshot
 
-`record_clarification` appends clarification records with question, answer,
-affected section, and rationale. Conflicting clarification answers for the same
-question+section are rejected.
+`record_clarification` records clarification answers with question, answer,
+affected section, and rationale. For known specification sections, the answer is
+also merged back into the canonical specification and validation is recomputed.
+Ambiguous scalar fields such as objective, data lifecycle, and security/privacy
+are replaced by the clarified answer. List sections such as non-goals, success
+criteria, actors, external dependencies, and completion signals append
+deduplicated clarified items. Conflicting clarification answers for the same
+question+section are rejected, and repeated identical answers are idempotent.
 
 Runtime validation classifies ambiguity and missing required sections as
 blocking issues. `submit_plan` fails closed while blocking specification issues
-remain unresolved.
+remain unresolved, then admits planning only after clarifications or a revised
+specification resolve every required field.
 
 ## Structured Plan Contract
 
@@ -97,6 +103,18 @@ High-control plans (for example high/critical risk or architecture-class
 workflow profiles) require additional fields such as operator decisions,
 approval boundaries, rollback notes, and residual risks. Missing required
 fields fail validation.
+
+Successful submissions persist the full structured artifact across the tool
+result metadata, `kiln://session/plans` resources, and canonical
+`plan_submitted` session events. Those projections include each
+`proposedWorkItems` entry, not just a count, so replay does not depend on
+provider-native state.
+
+The user-facing `submit_plan` output is a deterministic structured fallback
+rendered from the same artifact. CLI, TUI, GUI, SDK, and remote-operator
+surfaces can therefore render the objective, source specification, governance
+fields, proposed work items, evidence, verification gates, approval
+boundaries, rollback, and residual risks from one canonical plan contract.
 
 ## Analysis Gate
 
