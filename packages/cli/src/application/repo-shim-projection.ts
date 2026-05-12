@@ -43,6 +43,14 @@ export interface RepoShimProjectionResult {
   readonly written: boolean;
   readonly targets: readonly RepoShimProjectionTargetResult[];
   readonly workflowSnapshot?: WorkflowSnapshotExport;
+  readonly workflowSnapshotManifest?: WorkflowSnapshotManifestResult;
+  readonly errors: readonly string[];
+}
+
+export interface WorkflowSnapshotManifestResult {
+  readonly path: string;
+  readonly written: boolean;
+  readonly status: "written" | "unchanged";
   readonly errors: readonly string[];
 }
 
@@ -80,6 +88,7 @@ export async function writeRepoShimProjections(
 ): Promise<RepoShimProjectionResult> {
   const results: RepoShimProjectionTargetResult[] = [];
   let workflowSnapshot: WorkflowSnapshotExport | undefined;
+  let workflowSnapshotManifest: WorkflowSnapshotManifestResult | undefined;
 
   try {
     const agents = await loadAgentDefinitions(projectPath);
@@ -121,10 +130,16 @@ export async function writeRepoShimProjections(
   }
 
   const errors = results.flatMap((result) => [...result.errors]);
+  if (errors.length === 0 && workflowSnapshot) {
+    workflowSnapshotManifest = writeWorkflowSnapshotManifest(projectPath, workflowSnapshot);
+  }
   return {
-    written: errors.length === 0 && results.some((result) => result.written),
+    written: errors.length === 0 && (
+      results.some((result) => result.written) || (workflowSnapshotManifest?.written ?? false)
+    ),
     targets: results,
     workflowSnapshot,
+    workflowSnapshotManifest,
     errors,
   };
 }
@@ -484,6 +499,42 @@ function backupExistingShim(projectPath: string, filename: string, content: stri
   mkdirSync(backupDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   writeFileSync(join(backupDir, `${filename}.${timestamp}.bak`), content, "utf-8");
+}
+
+function writeWorkflowSnapshotManifest(
+  projectPath: string,
+  workflowSnapshot: WorkflowSnapshotExport,
+): WorkflowSnapshotManifestResult {
+  const manifestPath = join(projectPath, ".kiln", "projections", "workflow-snapshot-manifest.json");
+  const existing = existsSync(manifestPath) ? readFileSync(manifestPath, "utf-8") : null;
+  const existingHash = existing ? readManifestHash(existing) : null;
+
+  if (existingHash === workflowSnapshot.manifest.hash) {
+    return {
+      path: manifestPath,
+      written: false,
+      status: "unchanged",
+      errors: [],
+    };
+  }
+
+  mkdirSync(join(projectPath, ".kiln", "projections"), { recursive: true });
+  writeFileSync(manifestPath, `${JSON.stringify(workflowSnapshot.manifest, null, 2)}\n`, "utf-8");
+  return {
+    path: manifestPath,
+    written: true,
+    status: "written",
+    errors: [],
+  };
+}
+
+function readManifestHash(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as { hash?: unknown };
+    return typeof parsed.hash === "string" ? parsed.hash : null;
+  } catch {
+    return null;
+  }
 }
 
 function hashText(value: string): string {
