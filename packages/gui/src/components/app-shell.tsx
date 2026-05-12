@@ -25,6 +25,7 @@ import { ChangedFilesPanel } from "./changed-files-panel.js";
 import { ApprovalsPanel } from "./approvals-panel.js";
 import { ActivityLogPanel } from "./activity-log-panel.js";
 import { WorkItemsPanel } from "./work-items-panel.js";
+import { WorkflowOverviewPanel } from "./workflow-overview-panel.js";
 import { ChatWorkbench } from "./chat-workbench.js";
 import { Transcript } from "./transcript.js";
 import { Composer } from "./composer.js";
@@ -1600,8 +1601,13 @@ export function AppShell() {
               )}
             />
           ) : workbenchSurface === "work" ? (
-            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-              <WorkItemsPanel items={workItems} />
+            <div className="grid min-h-0 flex-1 grid-rows-[minmax(16rem,0.9fr)_minmax(18rem,1.1fr)] overflow-hidden bg-workspace-viewer lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] lg:grid-rows-1">
+              <div className="min-h-0 overflow-hidden border-b border-border/70 lg:border-b-0 lg:border-r">
+                <WorkflowOverviewPanel entries={timelineEntries} />
+              </div>
+              <div className="min-h-0 overflow-hidden">
+                <WorkItemsPanel items={workItems} />
+              </div>
             </div>
           ) : workbenchSurface === "activity" ? (
             <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
