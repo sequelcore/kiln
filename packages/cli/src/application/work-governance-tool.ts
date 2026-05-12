@@ -481,6 +481,7 @@ export class WorkItemCompleteTool implements DevTool {
 
     const missing = [
       ...completion.missingEvidence,
+      ...completion.missingVerificationGates.map((gate) => `missing gate: ${gate}`),
       ...completion.failedVerificationGates.map((gate) => `failed gate: ${gate}`),
       ...(completion.missingResidualRisk ? ["residual-risk closeout"] : []),
     ];
@@ -497,6 +498,7 @@ export class WorkItemCompleteTool implements DevTool {
           status: completion.item.status,
           item: completion.item,
           missingEvidence: completion.missingEvidence,
+          missingVerificationGates: completion.missingVerificationGates,
           failedVerificationGates: completion.failedVerificationGates,
           missingResidualRisk: completion.missingResidualRisk,
           sequence: completion.item.sequence,
@@ -517,6 +519,7 @@ export class WorkItemCompleteTool implements DevTool {
         status: completion.item.status,
         item: completion.item,
         missingEvidence: completion.missingEvidence,
+        missingVerificationGates: completion.missingVerificationGates,
         failedVerificationGates: completion.failedVerificationGates,
         missingResidualRisk: completion.missingResidualRisk,
         sequence: completion.item.sequence,
@@ -759,6 +762,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
       const missing = [
         ...finished.missingEvidence,
         ...finished.missingGoalEvidence,
+        ...finished.missingVerificationGates.map((gate) => `missing gate: ${gate}`),
         ...finished.failedVerificationGates.map((gate) => `failed gate: ${gate}`),
         ...(finished.missingResidualRisk ? ["residual-risk closeout"] : []),
       ];
@@ -778,6 +782,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
           attempt: finished.attempt,
           missingEvidence: finished.missingEvidence,
           missingGoalEvidence: finished.missingGoalEvidence,
+          missingVerificationGates: finished.missingVerificationGates,
           failedVerificationGates: finished.failedVerificationGates,
           missingResidualRisk: finished.missingResidualRisk,
           sequence: finished.item.sequence,

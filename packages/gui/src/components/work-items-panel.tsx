@@ -59,6 +59,7 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
           const missing = [
             ...(item.missingEvidence ?? []),
             ...(item.missingGoalEvidence ?? []),
+            ...(item.missingVerificationGates ?? []).map((gate) => `missing gate: ${gate}`),
             ...(item.failedVerificationGates ?? []).map((gate) => `failed gate: ${gate}`),
             ...(item.missingResidualRisk ? ["residual-risk"] : []),
           ];

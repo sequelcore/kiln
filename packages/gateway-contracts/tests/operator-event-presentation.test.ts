@@ -187,6 +187,7 @@ describe("operator event presentation", () => {
       },
       missingEvidence: [],
       missingGoalEvidence: ["typecheck"],
+      missingVerificationGates: ["adversarial managed-agent review"],
       failedVerificationGates: ["bun run typecheck"],
       missingResidualRisk: false,
     });
@@ -204,6 +205,10 @@ describe("operator event presentation", () => {
       tone: "warning",
     });
     expect(finished.details).toContainEqual({ label: "Missing goal evidence", value: "typecheck" });
+    expect(finished.details).toContainEqual({
+      label: "Missing verification gates",
+      value: "adversarial managed-agent review",
+    });
     expect(finished.details).toContainEqual({ label: "Failed verification gates", value: "bun run typecheck" });
   });
 

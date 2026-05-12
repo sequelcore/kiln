@@ -353,6 +353,7 @@ export interface CanonicalWorkItemUpdatedEvent extends SessionEventEnvelope<"wor
   readonly operation: "update" | "complete";
   readonly missingEvidence?: readonly string[];
   readonly missingGoalEvidence?: readonly string[];
+  readonly missingVerificationGates?: readonly string[];
   readonly failedVerificationGates?: readonly string[];
   readonly missingResidualRisk?: boolean;
   readonly toolCallId?: string;
@@ -369,6 +370,7 @@ export interface CanonicalWorkItemExecutionFinishedEvent extends SessionEventEnv
   readonly attempt: WorkItemExecutionAttempt;
   readonly missingEvidence: readonly string[];
   readonly missingGoalEvidence: readonly string[];
+  readonly missingVerificationGates: readonly string[];
   readonly failedVerificationGates: readonly string[];
   readonly missingResidualRisk: boolean;
   readonly toolCallId?: string;

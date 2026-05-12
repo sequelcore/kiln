@@ -105,6 +105,7 @@ export interface WorkItemCompletionInput {
 export interface WorkItemCompletionResult {
   readonly item: WorkItem;
   readonly missingEvidence: readonly string[];
+  readonly missingVerificationGates: readonly string[];
   readonly missingResidualRisk: boolean;
   readonly failedVerificationGates: readonly string[];
 }
@@ -247,10 +248,14 @@ export class WorkItemStore {
         .map((result) => result.gate),
     ]);
     const failedVerificationGates = failedGates(verificationGateResults);
+    const missingVerificationGates = missingRequiredVerificationGates(existing, verificationGateResults, allSkippedVerificationGates);
     const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
     const residualRisk = input.residualRisk ?? existing.residualRisk;
     const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
-    const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk && failedVerificationGates.length === 0
+    const status: WorkItemStatus = missingEvidence.length === 0
+      && missingVerificationGates.length === 0
+      && !missingResidualRisk
+      && failedVerificationGates.length === 0
       ? "completed"
       : "blocked";
 
@@ -266,6 +271,7 @@ export class WorkItemStore {
     return {
       item,
       missingEvidence,
+      missingVerificationGates,
       missingResidualRisk,
       failedVerificationGates,
     };
@@ -331,10 +337,14 @@ export class WorkItemStore {
         .map((result) => result.gate),
     ]);
     const failedVerificationGates = failedGates(verificationGateResults);
+    const missingVerificationGates = missingRequiredVerificationGates(existing, verificationGateResults, allSkippedVerificationGates);
     const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
     const residualRisk = input.residualRisk ?? existing.residualRisk ?? attempt.residualRisk;
     const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
-    const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk && failedVerificationGates.length === 0
+    const status: WorkItemStatus = missingEvidence.length === 0
+      && missingVerificationGates.length === 0
+      && !missingResidualRisk
+      && failedVerificationGates.length === 0
       ? "completed"
       : "blocked";
     const completedAttempt: WorkItemExecutionAttempt = {
@@ -363,6 +373,7 @@ export class WorkItemStore {
       item,
       attempt: completedAttempt,
       missingEvidence,
+      missingVerificationGates,
       missingResidualRisk,
       failedVerificationGates,
     };
@@ -413,6 +424,30 @@ function failedGates(results: readonly VerificationGateResult[]): readonly strin
   return results
     .filter((result) => result.status === "failed")
     .map((result) => result.gate);
+}
+
+function missingRequiredVerificationGates(
+  item: WorkItem,
+  results: readonly VerificationGateResult[],
+  skippedVerificationGates: readonly string[],
+): readonly string[] {
+  if (!item.expectedEvidence.includes("managed-agent-review")) {
+    return [];
+  }
+  const satisfied = new Set([
+    ...results
+      .filter((result) => result.status === "passed" || result.status === "skipped")
+      .map((result) => result.gate),
+    ...skippedVerificationGates,
+  ]);
+  return item.verificationGates
+    .filter(isReviewVerificationGate)
+    .filter((gate) => !satisfied.has(gate));
+}
+
+function isReviewVerificationGate(gate: string): boolean {
+  const normalized = gate.toLowerCase();
+  return normalized.includes("review") || normalized.includes("ddd");
 }
 
 function mergeVerificationGateResults(

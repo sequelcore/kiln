@@ -614,6 +614,73 @@ describe("work-governance-tool", () => {
     expect(goalRunStore.get(goal.id)?.currentPhase).toBe("paused:work-gate-results");
   });
 
+  it("blocks risky profile closeout until reviewer gates pass", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-review-gate",
+        summary: "Verify managed-agent review closeout.",
+        workflowProfile: "managed-agent-change",
+        triggers: ["managed-agents"],
+        goalRunId: "goal-review-gate",
+      },
+    });
+    expect(created?.isError).toBe(false);
+    const item = workItemStore.get("work-review-gate");
+    expect(item?.verificationGates).toContain("adversarial managed-agent review");
+    const goal = goalRunStore.create({
+      id: "goal-review-gate",
+      objective: "Execute risky profile work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: ["work-review-gate"],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+
+    await startTool?.execute({
+      name: "work_item.execution.start",
+      input: { goalRunId: goal.id },
+    });
+
+    const blocked = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: "work-review-gate",
+        attemptId: "goal-review-gate:work-review-gate:attempt:1",
+        providedEvidence: item?.expectedEvidence ?? [],
+        verificationGateResults: [
+          { gate: "managed child live or simulated evidence", status: "passed" },
+          { gate: "route/provider identity check", status: "passed" },
+          { gate: "typecheck/build", status: "passed" },
+        ],
+      },
+    });
+
+    expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("missing gate: adversarial managed-agent review");
+    expect(blocked?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "execution_finished",
+      status: "blocked",
+      missingVerificationGates: ["adversarial managed-agent review"],
+      errorCode: "missing_evidence",
+    });
+  });
+
   it("does not start an explicit work item before earlier dependencies are complete", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

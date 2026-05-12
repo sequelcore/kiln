@@ -449,6 +449,87 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("blocks risky profile closeout until reviewer gate evidence has a passed gate result", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-review-gate",
+      summary: "Verify managed-agent review closeout.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review", "tests", "typecheck"],
+      verificationGates: ["adversarial managed-agent review", "bun test", "bun run typecheck"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-review-gate",
+      objective: "Execute risky profile work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["managed-agent-review", "tests", "typecheck"],
+      verificationGateResults: [
+        { gate: "bun test", status: "passed" },
+        { gate: "bun run typecheck", status: "passed" },
+      ],
+    });
+
+    expect(blocked).toMatchObject({
+      missingEvidence: [],
+      missingVerificationGates: ["adversarial managed-agent review"],
+      item: {
+        status: "blocked",
+      },
+      attempt: {
+        status: "blocked",
+      },
+    });
+
+    const completed = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      verificationGateResults: [
+        { gate: "adversarial managed-agent review", status: "passed", summary: "No blocking managed-agent risks." },
+      ],
+      closeoutSummary: "Risky profile review passed.",
+    });
+
+    expect(completed).toMatchObject({
+      missingVerificationGates: [],
+      item: {
+        status: "completed",
+      },
+      goal: {
+        status: "completed",
+        closeoutSummary: "Risky profile review passed.",
+      },
+    });
+  });
+
   it("blocks goal completion when required goal evidence is missing from linked work items", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
@@ -566,6 +647,8 @@ describe("goal execution loop", () => {
         attempt: finished.attempt,
         missingEvidence: [],
         missingGoalEvidence: [],
+        missingVerificationGates: [],
+        failedVerificationGates: [],
         missingResidualRisk: false,
       }),
     ]);

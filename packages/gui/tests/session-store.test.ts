@@ -1177,6 +1177,7 @@ describe("session-store", () => {
         },
         missingEvidence: [],
         missingGoalEvidence: ["typecheck"],
+        missingVerificationGates: ["adversarial managed-agent review"],
         failedVerificationGates: ["bun run typecheck"],
         missingResidualRisk: false,
       },
@@ -1204,6 +1205,7 @@ describe("session-store", () => {
           }),
         ],
         missingGoalEvidence: ["typecheck"],
+        missingVerificationGates: ["adversarial managed-agent review"],
         failedVerificationGates: ["bun run typecheck"],
       }),
     ]);

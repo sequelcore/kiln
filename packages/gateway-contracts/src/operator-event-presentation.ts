@@ -1406,10 +1406,12 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
     ? payload.missingEvidence.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
     : [];
   const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
+  const missingVerificationGates = readStringList(payload.missingVerificationGates);
   const failedVerificationGates = readStringList(payload.failedVerificationGates);
   const missingResidualRisk = payload.missingResidualRisk === true;
   const hasMissingCloseout = missingEvidence.length > 0
     || missingGoalEvidence.length > 0
+    || missingVerificationGates.length > 0
     || failedVerificationGates.length > 0
     || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
@@ -1424,6 +1426,7 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   addItem(details, "Provided evidence", Array.isArray(item?.providedEvidence) ? item.providedEvidence.join(", ") : undefined);
   addItem(details, "Missing evidence", missingEvidence.join(", "));
   addItem(details, "Missing goal evidence", missingGoalEvidence.join(", "));
+  addItem(details, "Missing verification gates", missingVerificationGates.join(", "));
   addItem(details, "Failed verification gates", failedVerificationGates.join(", "));
   addItem(details, "Missing residual risk", missingResidualRisk);
 
@@ -1454,10 +1457,12 @@ function workItemExecutionPresentation(
   const executionMode = readString(attempt?.executionMode) ?? "unknown";
   const missingEvidence = readStringList(payload.missingEvidence);
   const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
+  const missingVerificationGates = readStringList(payload.missingVerificationGates);
   const failedVerificationGates = readStringList(payload.failedVerificationGates);
   const missingResidualRisk = payload.missingResidualRisk === true;
   const hasMissingCloseout = missingEvidence.length > 0
     || missingGoalEvidence.length > 0
+    || missingVerificationGates.length > 0
     || failedVerificationGates.length > 0
     || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
@@ -1470,6 +1475,7 @@ function workItemExecutionPresentation(
   addItem(details, "Completed", attempt?.completedAt);
   addItem(details, "Missing evidence", missingEvidence.join(", "));
   addItem(details, "Missing goal evidence", missingGoalEvidence.join(", "));
+  addItem(details, "Missing verification gates", missingVerificationGates.join(", "));
   addItem(details, "Failed verification gates", failedVerificationGates.join(", "));
   addItem(details, "Missing residual risk", missingResidualRisk);
 

@@ -89,6 +89,7 @@ export interface FinishGoalExecutionAttemptInput {
 
 export interface GoalExecutionAttemptFinish extends GoalExecutionAttemptTransition {
   readonly missingEvidence: readonly string[];
+  readonly missingVerificationGates: readonly string[];
   readonly missingResidualRisk: boolean;
   readonly failedVerificationGates: readonly string[];
   readonly missingGoalEvidence: readonly string[];
@@ -242,6 +243,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     item: completed.item,
     attempt: completed.attempt,
     missingEvidence: completed.missingEvidence,
+    missingVerificationGates: completed.missingVerificationGates,
     missingResidualRisk: completed.missingResidualRisk,
     failedVerificationGates: completed.failedVerificationGates,
     missingGoalEvidence: goalCloseout.missingGoalEvidence,

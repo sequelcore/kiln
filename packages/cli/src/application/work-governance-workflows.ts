@@ -56,7 +56,11 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
   },
   "managed-agent-change": {
-    "managed-agent-review": ["managed child live or simulated evidence", "route/provider identity check"],
+    "managed-agent-review": [
+      "managed child live or simulated evidence",
+      "route/provider identity check",
+      "adversarial managed-agent review",
+    ],
     typecheck: ["typecheck/build"],
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
   },
@@ -127,7 +131,12 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     recommendedAgentProfiles: ["scout", "architect", "adversarial-reviewer", "reviewer"],
     defaultAuthorityProfile: "foundation-readonly-plan",
     requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
-    verificationGates: ["managed child live or simulated evidence", "route/provider identity check", "typecheck/build"],
+    verificationGates: [
+      "managed child live or simulated evidence",
+      "route/provider identity check",
+      "adversarial managed-agent review",
+      "typecheck/build",
+    ],
   },
   {
     id: "config-change",
