@@ -18,6 +18,7 @@ import type {
   MemoryScopeKind,
   ReasoningEffort,
 } from "@kilnai/core";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export type CostTrackingMode =
   | "native"
@@ -203,6 +204,7 @@ export interface SessionRunOptions {
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
   readonly reasoningEffort?: ReasoningEffort;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly env?: Record<string, string>;
   readonly abortSignal?: AbortSignal;
 }

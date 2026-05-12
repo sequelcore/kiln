@@ -3,6 +3,7 @@
  * @module @kilnai/tui
  */
 
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type { MessageRole } from "./types.js";
 
 /** Message structure for TUI chat history. */
@@ -16,6 +17,7 @@ export interface Message {
 /** Possible TUI status values. */
 export type TuiStatus = "idle" | "running" | "error";
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type TuiRequestedAuthority = OperatorTurnRequestedAuthority;
 
 /**
  * Reactive state container holding all TUI application state.
@@ -38,6 +40,7 @@ export interface ReactiveState {
   currentProvider: string;
   currentModel: string;
   currentReasoningEffort?: ReasoningEffort;
+  currentRequestedAuthority: TuiRequestedAuthority;
   supportedReasoningEfforts: ReasoningEffort[];
   respondingProvider?: string;
   respondingModel?: string;
@@ -185,6 +188,7 @@ export function createReactiveState(): ReactiveState {
     currentProvider: "claude",
     currentModel: "",
     currentReasoningEffort: undefined,
+    currentRequestedAuthority: "auto",
     supportedReasoningEfforts: [],
     respondingProvider: undefined,
     respondingModel: undefined,

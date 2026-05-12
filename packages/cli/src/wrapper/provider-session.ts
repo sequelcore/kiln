@@ -9,6 +9,7 @@ import {
   resolveExecutionIdentity,
   textPart,
   type AgentMessage,
+  type AuthorityDescriptor,
   type Capability,
   type DirectProviderExecutionMode,
   type DirectProviderId,
@@ -25,7 +26,9 @@ import {
   type ManagedInvocationToolOptions,
   type OperatorSurfaceController,
   type OrchestrateResult,
+  type PerCallToolConfig,
 } from "@kilnai/runtime";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type {
   IKilnSession,
   KilnPermissionPolicy,
@@ -43,6 +46,7 @@ export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly task: string;
   readonly systemPrompt?: string;
   readonly cwd?: string;
@@ -80,6 +84,59 @@ function getDefaultBillingMode(
     return profile.defaultBillingMode;
   }
   return provider === "ollama" || provider === "lmstudio" ? "free" : "metered";
+}
+
+function filterCapabilityMap(
+  capabilities: ReadonlyMap<string, Capability>,
+  allowlist: ReadonlySet<string>,
+): ReadonlyMap<string, Capability> {
+  const filtered = new Map<string, Capability>();
+  for (const [name, capability] of capabilities.entries()) {
+    if (allowlist.has(name)) {
+      filtered.set(name, capability);
+    }
+  }
+  return filtered;
+}
+
+function authorityDescriptorFromCapability(
+  toolName: string,
+  capability: Capability | undefined,
+): AuthorityDescriptor | undefined {
+  const annotations = capability?.annotations;
+  if (!annotations) {
+    return undefined;
+  }
+  if (annotations?.destructive) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: true,
+      reason: `Destructive tool "${toolName}" requires approval`,
+    };
+  }
+  if (annotations?.readOnly) {
+    return {
+      level: 1,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Read-only tool, auto-execute",
+    };
+  }
+  if (annotations?.idempotent) {
+    return {
+      level: 2,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Audited execution",
+    };
+  }
+  return {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
+  };
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
@@ -385,6 +442,68 @@ export class ProviderSession implements IKilnSession {
     yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };
   }
 
+  private buildPerCallConfig(
+    reasoningEffort: ReasoningEffort | undefined,
+    requestedAuthority: OperatorTurnRequestedAuthority | undefined,
+  ): PerCallToolConfig {
+    if (!requestedAuthority || requestedAuthority === "auto") {
+      return {
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(requestedAuthority ? {
+          effectiveTurnAuthority: {
+            executionMode: "execute",
+            requestedAuthority,
+            admittedAuthority: "unknown",
+            sourcePolicy: "runtime_surface_projection",
+            reason: "cli direct-provider requested turn authority",
+            completeness: "partial",
+            toolCount: this.toolDefinitions.length,
+            deniedToolCount: 0,
+          },
+        } : {}),
+      };
+    }
+
+    const admittedToolNames = new Set<string>();
+    const toolAuthority = new Map<string, AuthorityDescriptor>();
+    for (const tool of this.toolDefinitions) {
+      const capability = this.capabilityMap.get(tool.name);
+      const authority = authorityDescriptorFromCapability(tool.name, capability);
+      if (!authority || !authority.allowed || authority.requiresApproval) {
+        continue;
+      }
+      if (requestedAuthority === "read_only") {
+        if (capability?.annotations?.readOnly === true && authority.level <= 1) {
+          admittedToolNames.add(tool.name);
+          toolAuthority.set(tool.name, authority);
+        }
+        continue;
+      }
+      if (authority.level <= 2) {
+        admittedToolNames.add(tool.name);
+        toolAuthority.set(tool.name, authority);
+      }
+    }
+
+    return {
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+      toolAllowlist: admittedToolNames,
+      toolAuthority,
+      additionalTools: this.toolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
+      perCallCapabilities: filterCapabilityMap(this.capabilityMap, admittedToolNames),
+      effectiveTurnAuthority: {
+        executionMode: "execute",
+        requestedAuthority,
+        admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority,
+        sourcePolicy: "runtime_surface_projection",
+        reason: "cli direct-provider requested turn authority",
+        completeness: "authoritative",
+        toolCount: admittedToolNames.size,
+        deniedToolCount: Math.max(0, this.toolDefinitions.length - admittedToolNames.size),
+      },
+    };
+  }
+
   private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<SessionEvent> {
     const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
 
@@ -445,12 +564,13 @@ export class ProviderSession implements IKilnSession {
     let result: OrchestrateResult | undefined;
     let processError: unknown;
     let processSettled = false;
+    const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
     const processPromise = orchestrator.processMessage(
       cliSession,
       promptParts,
       undefined,
       undefined,
-      { reasoningEffort: options.reasoningEffort ?? this.config.reasoningEffort },
+      this.buildPerCallConfig(options.reasoningEffort ?? this.config.reasoningEffort, requestedAuthority),
     ).then((nextResult) => {
       result = nextResult;
     }).catch((err: unknown) => {

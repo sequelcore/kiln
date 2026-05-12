@@ -294,6 +294,51 @@ describe("run command", () => {
         }),
       );
     });
+
+    it("forwards supported --authority values to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "openai",
+        "--authority",
+        "audited",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "openai",
+          requestedAuthority: "audited",
+        }),
+      );
+    });
+
+    it("rejects destructive --authority until elevation approval exists", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "openai",
+        "--authority",
+        "destructive",
+      ];
+
+      await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow(
+        "Unknown requested authority 'destructive'. Use auto, read_only, or audited.",
+      );
+      expect(runCommandMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("help output", () => {

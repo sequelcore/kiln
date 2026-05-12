@@ -32,6 +32,9 @@ export async function resolveRuntimeSessionRouting(
   const hasMcp = (deps.mcpClients?.length ?? 0) > 0;
 
   let mergedTools = mergeAdditionalTools(baseTools, perCallConfig?.additionalTools);
+  if (perCallConfig?.toolAllowlist) {
+    mergedTools = mergedTools?.filter((tool) => perCallConfig.toolAllowlist?.has(tool.name));
+  }
   const hasToolSurface = (mergedTools?.length ?? 0) > 0 && (hasBuiltins || hasMcp);
 
   if (deps.toolRAG && deps.capabilityMap && mergedTools && mergedTools.length > 30) {

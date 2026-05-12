@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { ContentPart } from "@kilnai/core";
 import { useKilnContext } from "./provider.js";
 import { buildUserMessage } from "./build-user-message.js";
-import type { ChatMessage, ChatOptions, UseChatReturn } from "./types.js";
+import type { ChatMessage, ChatOptions, ChatSendOptions, UseChatReturn } from "./types.js";
 
 export function useKilnChat(options?: ChatOptions): UseChatReturn {
   const { client, config } = useKilnContext();
@@ -14,7 +14,7 @@ export function useKilnChat(options?: ChatOptions): UseChatReturn {
   const appName = options?.appName ?? config.appName ?? "default";
 
   const send = useCallback(
-    async (content: string | ContentPart[]) => {
+    async (content: string | ContentPart[], sendOptions?: ChatSendOptions) => {
       const userMsg = buildUserMessage(content, String(++idCounter.current));
 
       setMessages((prev) => [...prev, userMsg]);
@@ -30,6 +30,10 @@ export function useKilnChat(options?: ChatOptions): UseChatReturn {
         };
         if (userMsg.parts) {
           body.parts = userMsg.parts;
+        }
+        const requestedAuthority = sendOptions?.requestedAuthority ?? options?.requestedAuthority;
+        if (requestedAuthority) {
+          body.requestedAuthority = requestedAuthority;
         }
 
         const res = await client.post<{ response: string }>(`/apps/${appName}/message`, body);
@@ -49,7 +53,7 @@ export function useKilnChat(options?: ChatOptions): UseChatReturn {
         setIsLoading(false);
       }
     },
-    [client, appName, config.userId, options?.sessionId],
+    [client, appName, config.userId, options?.sessionId, options?.requestedAuthority],
   );
 
   const clearMessages = useCallback(() => {

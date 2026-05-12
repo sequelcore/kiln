@@ -79,12 +79,14 @@ import {
   getProjectContextArtifactCache,
 } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export interface RunFlags {
   readonly apiKey?: string;
   readonly provider?: string;
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly agent?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
@@ -456,6 +458,14 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       : { ...candidate, model: resolvedAgent.model }
   ));
   const preferredProvider = configuredRouteCandidates[0]?.provider;
+  if (
+    flags.requestedAuthority
+    && flags.requestedAuthority !== "auto"
+    && (!preferredProvider || !isDirectApiProvider(preferredProvider))
+  ) {
+    console.error("--authority is only supported for direct API providers in CLI run. Use --plan for harness read-only planning.");
+    process.exit(1);
+  }
   const effectiveModel = configuredRouteCandidates[0]?.model
     ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig))
     ?? resolvedAgent?.model;
@@ -634,6 +644,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     managedInvocation,
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
+    requestedAuthority: flags.requestedAuthority,
   };
 
   const sessionHooks = new SessionHooks(appConfig.kilnYaml?.hooks, {

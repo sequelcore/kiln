@@ -20,6 +20,8 @@ import type {
   ToolResultEvent,
   TenantConfig,
   RetrievalPipeline,
+  Capability,
+  AuthorityDescriptor,
 } from "@kilnai/core";
 import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
@@ -51,7 +53,7 @@ import { appendCanonicalTurnEvents } from "../session/runtime-session-event-ledg
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
-import type { OperatorExecutionMode } from "@kilnai/gateway-contracts";
+import type { OperatorExecutionMode, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type { RuntimeSession } from "../session/runtime-session.js";
 
 type EgressDestination = "webhook";
@@ -79,6 +81,7 @@ export interface AdmittedTurnContext {
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
   readonly channel: string;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly idleTimeoutMs?: number;
   readonly recalledMemory?: string;
   readonly knowledgeContext?: string;
@@ -559,6 +562,7 @@ export interface AdmittedTurnResult {
     readonly selectionReason?: string;
   };
   readonly contextAudit?: RuntimeContextAudit;
+  readonly effectiveTurnAuthority?: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>;
 }
 
 export interface BudgetDeniedResult {
@@ -855,6 +859,128 @@ export function appendCoordinationProviderFailureAudit(
       reason: failureReason,
     }],
   } satisfies RuntimeContextAudit;
+}
+
+function projectRequestedAuthorityPerCallConfig(
+  config: PerCallToolConfig | undefined,
+  executionMode: OperatorExecutionMode,
+  requestedAuthority: OperatorTurnRequestedAuthority | undefined,
+  reason: string,
+): PerCallToolConfig | undefined {
+  const effectiveRequestedAuthority = executionMode === "plan" ? "planning" : requestedAuthority;
+  if (!effectiveRequestedAuthority) {
+    return config;
+  }
+
+  if (
+    effectiveRequestedAuthority === "planning"
+    || effectiveRequestedAuthority === "auto"
+  ) {
+    return {
+      ...config,
+      effectiveTurnAuthority: {
+        executionMode,
+        requestedAuthority: effectiveRequestedAuthority,
+        admittedAuthority: "unknown",
+        sourcePolicy: "runtime_surface_projection",
+        reason,
+        completeness: "partial",
+        toolCount: config?.toolAllowlist?.size ?? config?.additionalTools?.length ?? 0,
+        deniedToolCount: 0,
+      },
+    };
+  }
+
+  const candidateNames = config?.toolAllowlist
+    ? new Set(config.toolAllowlist)
+    : new Set((config?.additionalTools ?? []).map((tool) => tool.name));
+  const admittedToolNames = new Set<string>();
+  const toolAuthority = new Map<string, AuthorityDescriptor>();
+
+  for (const toolName of candidateNames) {
+    const capability = config?.perCallCapabilities?.get(toolName);
+    const authority = config?.toolAuthority?.get(toolName) ?? authorityDescriptorFromCapability(toolName, capability);
+    if (!authority || !authority.allowed || authority.requiresApproval) {
+      continue;
+    }
+    if (effectiveRequestedAuthority === "read_only") {
+      if (capability?.annotations?.readOnly === true && authority.level <= 1) {
+        admittedToolNames.add(toolName);
+        toolAuthority.set(toolName, authority);
+      }
+      continue;
+    }
+    if (authority.level <= 2) {
+      admittedToolNames.add(toolName);
+      toolAuthority.set(toolName, authority);
+    }
+  }
+
+  return {
+    ...config,
+    toolAllowlist: admittedToolNames,
+    toolAuthority,
+    additionalTools: (config?.additionalTools ?? []).filter((tool) => admittedToolNames.has(tool.name)),
+    perCallCapabilities: filterCapabilityMap(config?.perCallCapabilities, admittedToolNames),
+    effectiveTurnAuthority: {
+      executionMode,
+      requestedAuthority: effectiveRequestedAuthority,
+      admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : effectiveRequestedAuthority,
+      sourcePolicy: "runtime_surface_projection",
+      reason,
+      completeness: "authoritative",
+      toolCount: admittedToolNames.size,
+      deniedToolCount: Math.max(0, candidateNames.size - admittedToolNames.size),
+    },
+  };
+}
+
+function filterCapabilityMap(
+  capabilities: ReadonlyMap<string, Capability> | undefined,
+  allowlist: ReadonlySet<string>,
+): ReadonlyMap<string, Capability> | undefined {
+  if (!capabilities) {
+    return undefined;
+  }
+  const filtered = new Map<string, Capability>();
+  for (const [name, capability] of capabilities.entries()) {
+    if (allowlist.has(name)) {
+      filtered.set(name, capability);
+    }
+  }
+  return filtered;
+}
+
+function authorityDescriptorFromCapability(
+  toolName: string,
+  capability: Capability | undefined,
+): AuthorityDescriptor | undefined {
+  const annotations = capability?.annotations;
+  if (!annotations) {
+    return undefined;
+  }
+  if (annotations.destructive) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: true,
+      reason: `Destructive tool "${toolName}" requires approval`,
+    };
+  }
+  if (annotations.readOnly) {
+    return {
+      level: 1,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Read-only tool, auto-execute",
+    };
+  }
+  return {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
+  };
 }
 
 export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<ProcessResult> {
@@ -1184,7 +1310,12 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     coordinationContext.failureReason,
   );
 
-  const perCallConfig = effectivePerCallConfig;
+  const perCallConfig = projectRequestedAuthorityPerCallConfig(
+    effectivePerCallConfig,
+    executionMode,
+    ctx.requestedAuthority,
+    "gateway admitted turn requested authority",
+  );
 
   // Capture real approval state transitions for this turn from runtime events.
   const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
@@ -1649,6 +1780,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       groundingResult,
       runtimeContinuity: runtimeContinuityPresentation.runtimeContinuity,
       contextAudit: projectedContextAudit,
+      effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
     },
   };
 }

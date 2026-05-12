@@ -76,6 +76,22 @@ describe("createProviderAdapterRoutes", () => {
       expect(body.outputTokens).toBe(50);
     });
 
+    it("rejects destructive requestedAuthority until elevation approval exists", async () => {
+      const runtime = makeRuntime();
+      const app = createProviderAdapterRoutes(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello", userId: "user-1", requestedAuthority: "destructive" }),
+      });
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "requestedAuthority must be auto, read_only, or audited",
+      });
+    });
+
     it("creates session for new user", async () => {
       const runtime = makeRuntime();
       const app = createProviderAdapterRoutes(runtime);
@@ -346,7 +362,7 @@ describe("createProviderAdapterRoutes", () => {
       const res = await app.request("/message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "hello tenant", userId: "user-tenant" }),
+        body: JSON.stringify({ message: "hello tenant", userId: "user-tenant", requestedAuthority: "audited" }),
       });
 
       expect(res.status).toBe(200);
@@ -356,6 +372,7 @@ describe("createProviderAdapterRoutes", () => {
       expect(forwarded.tenant).toEqual(runtime.tenant);
       expect(forwarded.knowledgePipeline).toBe(knowledgePipeline);
       expect(forwarded.knowledgeMode).toBe("auto");
+      expect(forwarded.requestedAuthority).toBe("audited");
       expect(forwarded.callBuiltinTools).toBeUndefined();
       expect(forwarded.perCallConfig).toBeUndefined();
 

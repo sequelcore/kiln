@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ContentPart, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
+import type { AuthorityDescriptor, Capability, ContentPart, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { textParts, extractText, hasModality } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
@@ -12,6 +12,7 @@ import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -145,6 +146,13 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
             }
 
             if (parsed.type === "message") {
+              if (!isRequestedAuthority(parsed.requestedAuthority)) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: "requestedAuthority must be auto, read_only, or audited",
+                }));
+                return;
+              }
               const trace = new TraceContext();
               trace.log("ws", "Message received", { tenantId: tenant.tenantId, userId });
 
@@ -281,14 +289,14 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   config.orchestrator.registerTools(tenantToolCtx.toolDefinitions);
                 }
 
-                const perCallConfig: PerCallToolConfig = {
+                const perCallConfig = projectRequestedAuthorityPerCallConfig({
                   toolAllowlist: tenantToolCtx.toolAllowlist,
                   rateLimiter: tenantToolCtx.rateLimiter,
                   tenantId: tenant.tenantId,
                   toolAuthority: tenantToolCtx.toolAuthority,
                   additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
                   perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
-                };
+                }, parsed.requestedAuthority);
 
                 const result = await config.orchestrator.processMessage(
                   session,
@@ -448,4 +456,125 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
   );
 
   return app;
+}
+
+function projectRequestedAuthorityPerCallConfig(
+  config: PerCallToolConfig,
+  requestedAuthority: OperatorTurnRequestedAuthority | undefined,
+): PerCallToolConfig {
+  if (!requestedAuthority || requestedAuthority === "auto") {
+    return requestedAuthority
+      ? {
+        ...config,
+        effectiveTurnAuthority: {
+          executionMode: "execute",
+          requestedAuthority,
+          admittedAuthority: "unknown",
+          sourcePolicy: "runtime_surface_projection",
+          reason: "websocket tenant message requested turn authority",
+          completeness: "partial",
+          toolCount: config.toolAllowlist?.size ?? config.additionalTools?.length ?? 0,
+          deniedToolCount: 0,
+        },
+      }
+      : config;
+  }
+
+  const candidateNames = config.toolAllowlist
+    ? new Set(config.toolAllowlist)
+    : new Set((config.additionalTools ?? []).map((tool) => tool.name));
+  const admittedToolNames = new Set<string>();
+  const toolAuthority = new Map<string, AuthorityDescriptor>();
+
+  for (const toolName of candidateNames) {
+    const capability = config.perCallCapabilities?.get(toolName);
+    const authority = config.toolAuthority?.get(toolName) ?? authorityDescriptorFromCapability(toolName, capability);
+    if (!authority || !authority.allowed || authority.requiresApproval) {
+      continue;
+    }
+    if (requestedAuthority === "read_only") {
+      if (capability?.annotations?.readOnly === true && authority.level <= 1) {
+        admittedToolNames.add(toolName);
+        toolAuthority.set(toolName, authority);
+      }
+      continue;
+    }
+    if (authority.level <= 2) {
+      admittedToolNames.add(toolName);
+      toolAuthority.set(toolName, authority);
+    }
+  }
+
+  return {
+    ...config,
+    toolAllowlist: admittedToolNames,
+    toolAuthority,
+    additionalTools: (config.additionalTools ?? []).filter((tool) => admittedToolNames.has(tool.name)),
+    perCallCapabilities: filterCapabilityMap(config.perCallCapabilities, admittedToolNames),
+    effectiveTurnAuthority: {
+      executionMode: "execute",
+      requestedAuthority,
+      admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority,
+      sourcePolicy: "runtime_surface_projection",
+      reason: "websocket tenant message requested turn authority",
+      completeness: "authoritative",
+      toolCount: admittedToolNames.size,
+      deniedToolCount: Math.max(0, candidateNames.size - admittedToolNames.size),
+    },
+  };
+}
+
+function filterCapabilityMap(
+  capabilities: ReadonlyMap<string, Capability> | undefined,
+  allowlist: ReadonlySet<string>,
+): ReadonlyMap<string, Capability> | undefined {
+  if (!capabilities) {
+    return undefined;
+  }
+  const filtered = new Map<string, Capability>();
+  for (const [name, capability] of capabilities.entries()) {
+    if (allowlist.has(name)) {
+      filtered.set(name, capability);
+    }
+  }
+  return filtered;
+}
+
+function authorityDescriptorFromCapability(
+  toolName: string,
+  capability: Capability | undefined,
+): AuthorityDescriptor | undefined {
+  const annotations = capability?.annotations;
+  if (!annotations) {
+    return undefined;
+  }
+  if (annotations.destructive) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: true,
+      reason: `Destructive tool "${toolName}" requires approval`,
+    };
+  }
+  if (annotations.readOnly) {
+    return {
+      level: 1,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Read-only tool, auto-execute",
+    };
+  }
+  return {
+    level: 2,
+    allowed: true,
+    requiresApproval: false,
+    reason: "Audited execution",
+  };
+}
+
+function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAuthority | undefined {
+  return value === undefined
+    || value === "auto"
+    || value === "read_only"
+    || value === "audited";
 }

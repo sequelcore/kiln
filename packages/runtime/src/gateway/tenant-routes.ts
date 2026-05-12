@@ -10,6 +10,7 @@ import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processAdmittedTurn } from "./message-pipeline.js";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
@@ -31,6 +32,7 @@ interface TenantMessageRequest {
   readonly userId: string;
   readonly tenantId: string;
   readonly plan?: string;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
 }
 
 export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
@@ -60,6 +62,9 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
     }
     if (!body.tenantId || typeof body.tenantId !== "string") {
       return c.json({ error: "tenantId is required" }, 400);
+    }
+    if (!isRequestedAuthority(body.requestedAuthority)) {
+      return c.json({ error: "requestedAuthority must be auto, read_only, or audited" }, 400);
     }
 
     // Resolve tenant
@@ -91,6 +96,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       groundingDeps: runtime.groundingDeps,
       contextArtifactCache: runtime.contextArtifactCache,
       coordinationContextProvider: runtime.coordinationContextProvider,
+      requestedAuthority: body.requestedAuthority,
     });
 
     if (!processResult.ok) {
@@ -137,4 +143,11 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
   });
 
   return app;
+}
+
+function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAuthority | undefined {
+  return value === undefined
+    || value === "auto"
+    || value === "read_only"
+    || value === "audited";
 }

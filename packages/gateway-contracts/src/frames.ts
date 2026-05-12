@@ -43,7 +43,7 @@ export type GuiProviderCatalogStatus = "pending" | "refreshing" | "ready" | "err
 export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type OperatorExecutionMode = "execute" | "plan";
-export type OperatorTurnRequestedAuthority = "auto" | "read_only" | "audited" | "destructive";
+export type OperatorTurnRequestedAuthority = "auto" | "read_only" | "audited";
 
 export interface GuiProviderModelCapabilities {
   readonly supportsFunctionTools?: boolean;

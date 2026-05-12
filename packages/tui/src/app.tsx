@@ -15,6 +15,7 @@ import {
   type GuiProviderDiscoveryResult,
   type KilnConfigSetupAction,
   type KilnConfigSetupSnapshot,
+  type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { Message, ReasoningEffort, ResumeSidebarInfo, SessionListItem } from "./state.js";
@@ -54,6 +55,17 @@ export interface ProviderDisplayInfo {
 
 /** Spinner frames for thinking indicator. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+type RequestableTurnAuthority = OperatorTurnRequestedAuthority;
+const TURN_AUTHORITY_OPTIONS: readonly RequestableTurnAuthority[] = [
+  "auto",
+  "read_only",
+  "audited",
+];
+const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
+  auto: "auto",
+  read_only: "read only",
+  audited: "audited",
+};
 
 export async function startTui(
   createSession: () => Promise<SessionLike>,
@@ -170,6 +182,7 @@ export async function startTui(
     { id: "theme", trigger: "theme", title: "Change theme", description: "Switch color theme", type: "builtin" as const },
     { id: "provider", trigger: "provider", title: "Change provider", description: "Switch AI provider", type: "builtin" as const },
     { id: "effort", trigger: "effort", title: "Change effort", description: "Cycle reasoning effort", type: "builtin" as const },
+    { id: "authority", trigger: "authority", title: "Change authority", description: "Cycle turn authority", type: "builtin" as const },
     { id: "resume", trigger: "resume", title: "Resume session", description: "Browse and resume previous sessions", type: "builtin" as const },
     { id: "setup", trigger: "setup", title: "Setup status", description: "Show config and projection status", type: "builtin" as const },
   ];
@@ -290,6 +303,11 @@ export async function startTui(
         return;
       }
 
+      if (text === "/authority") {
+        cycleRequestedAuthority();
+        return;
+      }
+
       void sendMessage(
         {
           renderer,
@@ -358,6 +376,17 @@ export async function startTui(
     update(state, "currentReasoningEffort", nextEffort);
     renderSidebarProvider(state, currentTheme, ui, domain);
     ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Reasoning effort: ${nextEffort}`)}`;
+  }
+
+  function cycleRequestedAuthority(): void {
+    const currentIndex = TURN_AUTHORITY_OPTIONS.indexOf(state.currentRequestedAuthority);
+    const nextAuthority = TURN_AUTHORITY_OPTIONS[
+      (currentIndex + 1) % TURN_AUTHORITY_OPTIONS.length
+    ];
+    if (!nextAuthority) return;
+    update(state, "currentRequestedAuthority", nextAuthority);
+    renderSidebarProvider(state, currentTheme, ui, domain);
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Authority: ${TURN_AUTHORITY_LABELS[nextAuthority]}`)}`;
   }
 
   renderSidebarCost(state, currentTheme, ui);
@@ -1560,7 +1589,7 @@ export async function startTui(
       }
 
       // Process slash commands (must check before session resume check)
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/resume" || inputText === "/plan" || inputText === "/setup") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/authority" || inputText === "/resume" || inputText === "/plan" || inputText === "/setup") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1604,6 +1633,11 @@ export async function startTui(
 
           if (inputText === "/effort") {
             cycleReasoningEffort();
+            return;
+          }
+
+          if (inputText === "/authority") {
+            cycleRequestedAuthority();
             return;
           }
 

@@ -10,6 +10,7 @@ const harness = vi.hoisted(() => ({
   ui: null as { commandBarStatus: { content: string } } | null,
   switchProvider: vi.fn(),
   authenticateProvider: vi.fn(),
+  sendMessage: vi.fn(),
 }));
 
 vi.mock("../src/state.js", async () => {
@@ -37,7 +38,7 @@ vi.mock("@kilnai/core", () => ({
 }));
 
 vi.mock("../src/handlers.js", () => ({
-  sendMessage: () => undefined,
+  sendMessage: (...args: unknown[]) => harness.sendMessage(...args),
 }));
 
 vi.mock("../src/render.js", () => ({
@@ -285,6 +286,42 @@ describe("TUI provider picker", () => {
     harness.state = null;
     harness.ui = null;
     harness.authenticateProvider.mockReset();
+    harness.sendMessage.mockReset();
+  });
+
+  it("cycles requested turn authority and exposes it to the next sent turn", async () => {
+    const createSession = vi.fn(async () => ({
+      run: async function* () {},
+      dispose: vi.fn(),
+    }));
+
+    const startPromise = startTui(
+      createSession,
+      [
+        { id: "claude", group: "subscription", models: ["claude-sonnet-4-6"], free: false },
+      ],
+      "claude",
+      "kiln",
+      TEST_THEME,
+    );
+
+    try {
+      await waitForTuiReady();
+      emitText("/authority");
+      emitKey("\r", "return");
+      await flushUi();
+      emitText("hello");
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(harness.state?.currentRequestedAuthority).toBe("read_only");
+      expect(harness.ui?.commandBarStatus.content).toContain("Authority: read only");
+      expect(harness.sendMessage).toHaveBeenCalledOnce();
+      expect((harness.sendMessage.mock.calls[0]?.[0] as { state: ReactiveState }).state.currentRequestedAuthority).toBe("read_only");
+    } finally {
+      harness.renderer?.destroy();
+      void startPromise.catch(() => undefined);
+    }
   });
 
   afterEach(() => {

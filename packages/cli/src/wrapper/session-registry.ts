@@ -29,6 +29,7 @@ import { ProviderSession } from "./provider-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
 export type DirectApiProviderId =
@@ -149,6 +150,7 @@ export interface ProviderCreateConfig {
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly resumeSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly ephemeral?: boolean;
@@ -985,6 +987,7 @@ function createDirectProviderSession(
   return new ProviderSession({
     provider,
     model: config.model,
+    requestedAuthority: config.requestedAuthority,
     task: config.task,
     systemPrompt: config.systemPrompt,
     cwd: config.cwd,

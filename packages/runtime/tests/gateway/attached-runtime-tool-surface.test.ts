@@ -257,7 +257,7 @@ describe("attached runtime builtin tool surface", () => {
     expect(allowlist.size).toBeLessThan(Array.from(baseline.toolAllowlist ?? []).length);
   });
 
-  it("keeps plan-mode requestedAuthority as planning even when execute-mode escalation is requested", () => {
+  it("keeps plan-mode requestedAuthority as planning even when execute-mode audited authority is requested", () => {
     const config = buildAttachedRuntimePerCallToolConfig({
       tenantId: "tenant-1",
       activeProvider: "codex-oauth",
@@ -265,7 +265,7 @@ describe("attached runtime builtin tool surface", () => {
       activeModelCapabilities: { supportsFunctionTools: true },
       builtinToolSurface: createAttachedRuntimeBuiltinToolSurface(),
       executionMode: "plan",
-      requestedAuthority: "destructive",
+      requestedAuthority: "audited",
     });
 
     expect(config.effectiveTurnAuthority).toMatchObject({

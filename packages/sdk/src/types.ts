@@ -2,6 +2,7 @@ import type { ContentPart } from "@kilnai/core";
 import type {
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
+  OperatorTurnRequestedAuthority,
   OperatorSessionEvent,
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
@@ -27,6 +28,11 @@ export interface ChatMessage {
 export interface ChatOptions {
   readonly appName?: string;
   readonly sessionId?: string;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+}
+
+export interface ChatSendOptions {
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
 }
 
 /** Visitor identity for the identify frame */
@@ -39,7 +45,7 @@ export interface VisitorInfo {
 
 export interface UseChatReturn {
   readonly messages: readonly ChatMessage[];
-  send(content: string | ContentPart[]): Promise<void>;
+  send(content: string | ContentPart[], options?: ChatSendOptions): Promise<void>;
   /** Send visitor identity to the gateway (WebSocket only, no-op for REST) */
   identify?(visitor: VisitorInfo): void;
   readonly isLoading: boolean;
@@ -74,6 +80,7 @@ export type {
   KilnConfigStatusSnapshot,
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
+  OperatorTurnRequestedAuthority,
   OperatorSessionEvent,
 };
 
@@ -82,6 +89,7 @@ export interface WsChatRequest {
   readonly type: "message";
   readonly content: string;
   readonly parts?: readonly ContentPart[];
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
 }
 
 /** WebSocket chat response frame (server -> client) */

@@ -133,6 +133,38 @@ describe("useKilnChat", () => {
     expect(body.parts).toEqual(parts);
   });
 
+  it("send() posts requestedAuthority from per-send options", async () => {
+    mockFetch({ response: "ok" });
+
+    const { result } = renderHook(() => useKilnChat(), {
+      wrapper: createWrapper(config),
+    });
+
+    await act(async () => {
+      await result.current.send("just text", { requestedAuthority: "audited" });
+    });
+
+    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse(fetchCall[1].body as string);
+    expect(body.requestedAuthority).toBe("audited");
+  });
+
+  it("send() posts requestedAuthority from hook options", async () => {
+    mockFetch({ response: "ok" });
+
+    const { result } = renderHook(() => useKilnChat({ requestedAuthority: "read_only" }), {
+      wrapper: createWrapper(config),
+    });
+
+    await act(async () => {
+      await result.current.send("just text");
+    });
+
+    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse(fetchCall[1].body as string);
+    expect(body.requestedAuthority).toBe("read_only");
+  });
+
   it("send() does not include parts in request body for string content", async () => {
     mockFetch({ response: "ok" });
 

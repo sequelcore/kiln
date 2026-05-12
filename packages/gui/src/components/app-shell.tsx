@@ -9,6 +9,7 @@ import {
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
   type GuiProviderReasoningEffort,
+  type OperatorTurnRequestedAuthority,
   type OperatorWorkspaceFileSnapshot,
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
@@ -82,6 +83,17 @@ const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
   medium: "Medium",
   high: "High",
   xhigh: "XHigh",
+};
+type RequestableTurnAuthority = OperatorTurnRequestedAuthority;
+const TURN_AUTHORITY_OPTIONS: readonly RequestableTurnAuthority[] = [
+  "auto",
+  "read_only",
+  "audited",
+];
+const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
+  auto: "Auto",
+  read_only: "Read only",
+  audited: "Audited",
 };
 const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
@@ -438,6 +450,35 @@ function ReasoningEffortControl(props: {
   );
 }
 
+function TurnAuthorityControl(props: {
+  readonly value: RequestableTurnAuthority;
+  readonly onChange: (value: RequestableTurnAuthority) => void;
+}) {
+  return (
+    <Select
+      value={props.value}
+      onValueChange={(value) => {
+        if (TURN_AUTHORITY_OPTIONS.includes(value as RequestableTurnAuthority)) {
+          props.onChange(value as RequestableTurnAuthority);
+        }
+      }}
+    >
+      <SelectTrigger size="sm" aria-label="Turn authority" className="min-w-28">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectGroup>
+          {TURN_AUTHORITY_OPTIONS.map((authority) => (
+            <SelectItem key={authority} value={authority}>
+              {TURN_AUTHORITY_LABELS[authority]}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
 function AppGatewayTargetSelector(props: {
   readonly apps: readonly GuiAppDescriptor[];
   readonly selectedAppName: string | null;
@@ -523,6 +564,7 @@ export function AppShell() {
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("workspace");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
+  const [requestedAuthority, setRequestedAuthority] = useState<RequestableTurnAuthority>("auto");
   const [selectedAppName, setSelectedAppName] = useState<string | null>(null);
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
   const [workspaceDocuments, setWorkspaceDocuments] = useState<readonly OperatorWorkspaceFileSnapshot[]>([]);
@@ -1515,9 +1557,16 @@ export function AppShell() {
                 onChange={setReasoningEffort}
               />
             ) : null}
+            authorityControl={(
+              <TurnAuthorityControl
+                value={requestedAuthority}
+                onChange={setRequestedAuthority}
+              />
+            )}
             onSubmit={(text) => {
               sendMessage(text, {
                 ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+                requestedAuthority,
                 ...(selectedAppName ? { appName: selectedAppName } : {}),
                 ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
               });

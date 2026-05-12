@@ -101,6 +101,26 @@ describe("useKilnWsChat", () => {
     expect(result.current.messages[0].content).toBe("hello");
   });
 
+  it("sends requestedAuthority in the message frame", async () => {
+    const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
+    const ws = MockWebSocket.instances[0];
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      ws.readyState = WebSocket.OPEN;
+    });
+
+    await act(async () => {
+      await result.current.send("hello", { requestedAuthority: "audited" });
+    });
+
+    expect(JSON.parse(ws.send.mock.calls[0]?.[0] as string)).toEqual({
+      type: "message",
+      content: "hello",
+      requestedAuthority: "audited",
+    });
+  });
+
   it("sets isLoading true on send, false on done frame", async () => {
     const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
     const ws = MockWebSocket.instances[0];

@@ -5,6 +5,25 @@ import pkg from "../package.json" with { type: "json" };
 import { migrateConfigJson } from "./kiln-yaml.js";
 import type { KilnAppConfig } from "./config.js";
 import type { ReasoningEffort } from "@kilnai/core";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+
+type RunArgFlags = {
+  apiKey?: string;
+  provider?: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  requestedAuthority?: OperatorTurnRequestedAuthority;
+  agent?: string;
+  isolate?: boolean;
+  plan?: boolean;
+  ephemeral?: boolean;
+  profile?: string;
+  skipGitRepoCheck?: boolean;
+  outputSchema?: string;
+  addDir?: string;
+  localProvider?: string;
+  workers?: number;
+};
 
 // Re-export types and config
 export type { KilnAppConfig, SystemPromptOptions } from "./config.js";
@@ -61,6 +80,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama, lmstudio)");
     console.log("  --model      Model override for the selected provider");
     console.log("  --effort     Reasoning effort override (minimal, low, medium, high, xhigh)");
+    console.log("  --authority  Requested turn authority (auto, read_only, audited)");
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --gui-port   GUI dev server port override (gui command)");
@@ -350,8 +370,8 @@ function parseOpenFlag(args: readonly string[]): boolean {
   return true;
 }
 
-function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiKey?: string; provider?: string; model?: string; reasoningEffort?: ReasoningEffort; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } } {
-  const flags: { apiKey?: string; provider?: string; model?: string; reasoningEffort?: ReasoningEffort; agent?: string; isolate?: boolean; plan?: boolean; ephemeral?: boolean; profile?: string; skipGitRepoCheck?: boolean; outputSchema?: string; addDir?: string; localProvider?: string; workers?: number } = {};
+function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArgFlags } {
+  const flags: RunArgFlags = {};
   const taskParts: string[] = [];
   let i = 0;
   while (i < rawArgs.length) {
@@ -367,6 +387,9 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
       i += 2;
     } else if ((arg === "--effort" || arg === "--reasoning-effort") && i + 1 < rawArgs.length) {
       flags.reasoningEffort = parseReasoningEffort(rawArgs[i + 1]);
+      i += 2;
+    } else if ((arg === "--authority" || arg === "--requested-authority") && i + 1 < rawArgs.length) {
+      flags.requestedAuthority = parseRequestedAuthority(rawArgs[i + 1]);
       i += 2;
     } else if (arg === "--agent" && i + 1 < rawArgs.length) {
       flags.agent = rawArgs[i + 1];
@@ -405,6 +428,18 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: { apiK
     }
   }
   return { task: taskParts.join(" "), flags };
+}
+
+function parseRequestedAuthority(value: string | undefined): OperatorTurnRequestedAuthority {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "auto"
+    || normalized === "read_only"
+    || normalized === "audited"
+  ) {
+    return normalized;
+  }
+  throw new Error(`Unknown requested authority '${value}'. Use auto, read_only, or audited.`);
 }
 
 function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {

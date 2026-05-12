@@ -94,7 +94,7 @@ function sentMessageFrame(ws: MockWebSocket): {
   type: "message";
   content: string;
   executionMode?: "execute" | "plan";
-  requestedAuthority?: "auto" | "read_only" | "audited" | "destructive";
+  requestedAuthority?: "auto" | "read_only" | "audited";
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
 } {
   const messageCall = ws.send.mock.calls.find(([payload]) => {
@@ -106,7 +106,7 @@ function sentMessageFrame(ws: MockWebSocket): {
     type: "message";
     content: string;
     executionMode?: "execute" | "plan";
-    requestedAuthority?: "auto" | "read_only" | "audited" | "destructive";
+    requestedAuthority?: "auto" | "read_only" | "audited";
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   };
 }

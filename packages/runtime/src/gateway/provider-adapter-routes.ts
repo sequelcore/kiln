@@ -3,6 +3,7 @@
 
 import { Hono } from "hono";
 import type { ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache } from "@kilnai/core";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { textParts, extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
@@ -36,6 +37,7 @@ interface MessageRequest {
   readonly message?: string;
   readonly parts?: readonly ContentPart[];
   readonly userId: string;
+  readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly plan?: string;
   readonly context?: Record<string, string>;
 }
@@ -65,6 +67,9 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
     }
     if (!body.userId || typeof body.userId !== "string") {
       return c.json({ error: "userId is required" }, 400);
+    }
+    if (!isRequestedAuthority(body.requestedAuthority)) {
+      return c.json({ error: "requestedAuthority must be auto, read_only, or audited" }, 400);
     }
 
     // Validate optional context: must be a plain non-array object with string values
@@ -105,6 +110,7 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         userParts,
         billing: runtime.billing,
         channel: "api",
+        requestedAuthority: body.requestedAuthority,
         userContext,
         knowledgePipeline: runtime.knowledgePipeline,
         knowledgeMode: runtime.knowledgeMode,
@@ -159,4 +165,11 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
   });
 
   return app;
+}
+
+function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAuthority | undefined {
+  return value === undefined
+    || value === "auto"
+    || value === "read_only"
+    || value === "audited";
 }

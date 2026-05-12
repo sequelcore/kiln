@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContentPart } from "@kilnai/core";
 import { useKilnContext } from "./provider.js";
 import { buildUserMessage } from "./build-user-message.js";
-import type { ChatMessage, ChatOptions, UseChatReturn, VisitorInfo, WsChatFrame } from "./types.js";
+import type { ChatMessage, ChatOptions, ChatSendOptions, UseChatReturn, VisitorInfo, WsChatFrame } from "./types.js";
 
 export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
   const { config } = useKilnContext();
@@ -63,7 +63,7 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
 
   // deps: [] is correct -- wsRef and idCounter are stable refs
   const send = useCallback(
-    async (content: string | ContentPart[]) => {
+    async (content: string | ContentPart[], sendOptions?: ChatSendOptions) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setError(new Error("WebSocket not connected"));
@@ -80,9 +80,12 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
         type: "message",
         content: userMsg.content,
         ...(userMsg.parts ? { parts: userMsg.parts } : {}),
+        ...((sendOptions?.requestedAuthority ?? options?.requestedAuthority) ? {
+          requestedAuthority: sendOptions?.requestedAuthority ?? options?.requestedAuthority,
+        } : {}),
       }));
     },
-    [],
+    [options?.requestedAuthority],
   );
 
   const identify = useCallback((visitor: VisitorInfo) => {

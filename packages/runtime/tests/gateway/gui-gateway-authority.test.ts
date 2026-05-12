@@ -147,10 +147,11 @@ describe("GUI authority forwarding", () => {
 
     expect(resolveGuiRequestedAuthority(undefined)).toBeUndefined();
     expect(() => resolveGuiRequestedAuthority("invalid")).toThrow("Unknown requested authority 'invalid'.");
+    expect(() => resolveGuiRequestedAuthority("destructive")).toThrow("Unknown requested authority 'destructive'.");
     expect(() => resolveGuiRequestedAuthority(null)).toThrow("Unknown requested authority 'null'.");
   });
 
-  it("keeps plan-mode authority semantics when destructive authority is requested", async () => {
+  it("keeps plan-mode authority semantics when audited authority is requested", async () => {
     const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const cfg = buildGuiTurnPerCallConfig(
       "codex-oauth",
@@ -159,7 +160,7 @@ describe("GUI authority forwarding", () => {
       undefined,
       undefined,
       "plan",
-      "destructive",
+      "audited",
     );
 
     expect(cfg.effectiveTurnAuthority).toMatchObject({

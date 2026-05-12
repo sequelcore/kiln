@@ -55,6 +55,7 @@ import type {
   GuiAppDescriptor,
   GuiSessionDetail,
   GuiSessionSummary,
+  OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import {
   appendCoordinationProviderFailureAudit,
@@ -390,7 +391,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             upgradeWebSocket: config.upgradeWebSocket,
             validateToken: config.validateToken,
             apiKey: runtime.apiKey,
-            processMessage: async (userId, parts) => {
+            processMessage: async (userId, parts, options) => {
               const session = await runtime.sessionRegistry.getOrCreate({
                 appName: loadedApp.name,
                 tenantId: "_default",
@@ -420,7 +421,31 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                   coordinationContext.failureReason,
                 ),
               };
-              return runtime.orchestrator.processMessage(session, parts, projectedTurnContext);
+              return runtime.orchestrator.processMessage(
+                session,
+                parts,
+                projectedTurnContext,
+                undefined,
+                options?.requestedAuthority ? {
+                  ...((options.requestedAuthority !== "auto") ? {
+                    toolAllowlist: new Set<string>(),
+                  } : {}),
+                  effectiveTurnAuthority: {
+                    executionMode: "execute",
+                    requestedAuthority: options.requestedAuthority,
+                    admittedAuthority: options.requestedAuthority !== "auto"
+                      ? "fail_closed"
+                      : "unknown",
+                    sourcePolicy: "runtime_surface_projection",
+                    reason: "provider-adapter websocket requested turn authority before full min-policy admission",
+                    completeness: options.requestedAuthority !== "auto"
+                      ? "authoritative"
+                      : "partial",
+                    toolCount: 0,
+                    deniedToolCount: 0,
+                  },
+                } : undefined,
+              );
             },
           });
           app.route(`/apps/${loadedApp.name}`, wsApp);
@@ -682,11 +707,18 @@ async function processAppGatewayGuiMessage(
     return;
   }
 
-  ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
   const content = frame.content.trim();
   const sessionId = typeof frame.resumeSessionId === "string" && frame.resumeSessionId.trim()
     ? frame.resumeSessionId.trim()
     : undefined;
+  if (!isRequestedAuthority(frame.requestedAuthority)) {
+    ws.send(JSON.stringify({
+      type: "error",
+      message: "requestedAuthority must be auto, read_only, or audited",
+    } satisfies GuiInboundFrame));
+    return;
+  }
+  ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
 
   try {
     const processResult = selectedRuntime.kind === "provider-adapter"
@@ -710,8 +742,9 @@ async function processAppGatewayGuiMessage(
         groundingDeps: selectedRuntime.runtime.groundingDeps,
         contextArtifactCache: selectedRuntime.runtime.contextArtifactCache,
         coordinationContextProvider: selectedRuntime.runtime.coordinationContextProvider,
+        requestedAuthority: frame.requestedAuthority,
       })
-      : await processTenantAppGatewayGuiTurn(selectedRuntime, content, sessionId);
+      : await processTenantAppGatewayGuiTurn(selectedRuntime, content, sessionId, frame.requestedAuthority);
 
     if (!processResult.ok) {
       ws.send(JSON.stringify({
@@ -731,7 +764,7 @@ async function processAppGatewayGuiMessage(
       ...(result.routingDecision?.provider ? { routedProvider: result.routingDecision.provider } : {}),
       ...(result.routingDecision?.model ? { routedModel: result.routingDecision.model } : {}),
       runtimeContinuity: result.runtimeContinuity ?? { strategy: "none" },
-      authorityStatus: { effective: "unknown", completeness: "partial" },
+      authorityStatus: deriveAppGatewayGuiAuthorityStatus(result.effectiveTurnAuthority),
     } satisfies GuiInboundFrame));
   } catch (error) {
     ws.send(JSON.stringify({
@@ -745,6 +778,7 @@ async function processTenantAppGatewayGuiTurn(
   selection: Extract<AppGatewayGuiRuntimeSelection, { kind: "tenant" }>,
   content: string,
   sessionId?: string,
+  requestedAuthority?: OperatorTurnRequestedAuthority,
 ): ReturnType<typeof processAdmittedTurn> {
   const tenant = selection.runtime.tenantRegistry.get(selection.tenantId);
   if (!tenant || tenant.appName !== selection.runtime.appName) {
@@ -773,7 +807,29 @@ async function processTenantAppGatewayGuiTurn(
     groundingDeps: selection.runtime.groundingDeps,
     contextArtifactCache: selection.runtime.contextArtifactCache,
     coordinationContextProvider: selection.runtime.coordinationContextProvider,
+    requestedAuthority,
   });
+}
+
+type AppGatewayGuiAuthorityStatus = NonNullable<Extract<GuiInboundFrame, { type: "done" }>["authorityStatus"]>;
+
+function deriveAppGatewayGuiAuthorityStatus(
+  effectiveTurnAuthority: NonNullable<import("../session/runtime-session-orchestrator.js").PerCallToolConfig["effectiveTurnAuthority"]> | undefined,
+): AppGatewayGuiAuthorityStatus {
+  if (!effectiveTurnAuthority) {
+    return { effective: "unknown", completeness: "partial" };
+  }
+  return {
+    effective: effectiveTurnAuthority.admittedAuthority,
+    completeness: effectiveTurnAuthority.completeness,
+  };
+}
+
+function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAuthority | undefined {
+  return value === undefined
+    || value === "auto"
+    || value === "read_only"
+    || value === "audited";
 }
 
 function parseGuiOutboundFrame(data: unknown): GuiOutboundFrame | null {

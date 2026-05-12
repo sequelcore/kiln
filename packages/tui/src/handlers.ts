@@ -585,6 +585,7 @@ export async function sendMessage(
     for await (const event of session.run({
       prompt: text,
       executionMode: ctx.state.planMode ? "plan" : "execute",
+      requestedAuthority: ctx.state.currentRequestedAuthority,
       reasoningEffort: ctx.state.currentReasoningEffort,
     })) {
       switch (event.type) {

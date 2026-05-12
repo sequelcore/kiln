@@ -17,6 +17,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
       resumeTargetId={null}
       providerControl={<button type="button">Claude Sonnet 4</button>}
       reasoningControl={<select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>}
+      authorityControl={<select aria-label="Turn authority" defaultValue="auto"><option value="auto">Auto</option></select>}
       commandMenu={{
         open: false,
         query: "",
@@ -140,7 +141,7 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
   });
 
-  it("keeps model, effort, plan, and send controls inside the input surface", () => {
+  it("keeps model, effort, authority, plan, and send controls inside the input surface", () => {
     renderComposer();
 
     const textarea = screen.getByLabelText("Message");
@@ -149,6 +150,7 @@ describe("Composer", () => {
     expect(inputSurface).not.toBeNull();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByLabelText("Turn authority")).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Send message" })).toBeInTheDocument();
   });

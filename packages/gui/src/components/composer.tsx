@@ -21,6 +21,7 @@ interface ComposerProps {
   readonly resumeTargetId: string | null;
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
+  readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly onSubmit: (text: string) => void;
   readonly onEmptySubmit: () => void;
@@ -100,12 +101,13 @@ export function Composer(props: ComposerProps) {
             placeholder="Message Kiln"
           />
           <div className="flex min-h-10 flex-wrap items-center gap-2 border-t border-border/55 bg-background/55 px-2.5 py-1.5">
-            {props.providerControl || props.reasoningControl ? (
+            {props.providerControl || props.reasoningControl || props.authorityControl ? (
               <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:flex-none">
                 {props.providerControl ? (
                   <div className="min-w-0 max-w-[min(100%,22rem)]">{props.providerControl}</div>
                 ) : null}
                 {props.reasoningControl}
+                {props.authorityControl}
               </div>
             ) : null}
             <Button

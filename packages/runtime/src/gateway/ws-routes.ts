@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
 import type { ContentPart, IncomingMessage } from "@kilnai/core";
+import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { textParts, extractText } from "@kilnai/core";
 
 export interface WsRoutesConfig {
@@ -9,7 +10,9 @@ export interface WsRoutesConfig {
   readonly upgradeWebSocket: UpgradeWebSocket;
   readonly validateToken?: (token: string) => { valid: boolean; userId?: string };
   readonly apiKey?: string;
-  readonly processMessage?: (userId: string, parts: readonly ContentPart[]) => Promise<{
+  readonly processMessage?: (userId: string, parts: readonly ContentPart[], options?: {
+    readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+  }) => Promise<{
     parts: readonly ContentPart[];
     inputTokens: number;
     outputTokens: number;
@@ -69,12 +72,21 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
 
             // Handle chat message frames via orchestrator
             if (parsed.type === "message" && config.processMessage) {
+              if (!isRequestedAuthority(parsed.requestedAuthority)) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: "requestedAuthority must be auto, read_only, or audited",
+                }));
+                return;
+              }
               const userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
 
               try {
-                const result = await config.processMessage(userId, userParts);
+                const result = await config.processMessage(userId, userParts, {
+                  requestedAuthority: parsed.requestedAuthority,
+                });
                 ws.send(JSON.stringify({
                   type: "done",
                   content: extractText(result.parts),
@@ -102,4 +114,11 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
   );
 
   return app;
+}
+
+function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAuthority | undefined {
+  return value === undefined
+    || value === "auto"
+    || value === "read_only"
+    || value === "audited";
 }

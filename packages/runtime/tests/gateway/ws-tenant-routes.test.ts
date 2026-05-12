@@ -7,7 +7,7 @@ import type { UpgradeWebSocket } from "hono/ws";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
 import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
-import type { TenantConfig } from "@kilnai/core";
+import type { Capability, TenantConfig, ToolDefinition } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
@@ -30,6 +30,18 @@ vi.mock("../../src/tenant/agent-resolver.js", () => ({
 
 const TEST_APP = "kilvo";
 const WIDGET_ID = "widget-uuid-abc";
+
+function makeToolDefinition(name: string): ToolDefinition {
+  return {
+    name,
+    description: `${name} tool`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    tags: new Set(["test"]),
+  };
+}
 
 function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
   return {
@@ -157,6 +169,7 @@ describe("createWsTenantRoutes", () => {
 
     mockOrchestrator = {
       model: "claude-sonnet-4-6",
+      registerTools: vi.fn(),
       processMessage: vi.fn().mockResolvedValue({
         parts: textParts("Hello from agent"),
         inputTokens: 10,
@@ -421,6 +434,120 @@ describe("createWsTenantRoutes", () => {
       }));
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
       expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+    });
+
+    it("narrows tenant tools before provider invocation when read-only authority is requested", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      const toolDefinitions: ToolDefinition[] = [
+        makeToolDefinition("read_tool"),
+        makeToolDefinition("write_tool"),
+      ];
+      const capabilities = new Map<string, Capability>([
+        ["read_tool", { name: "read_tool", description: "read", annotations: { readOnly: true } }],
+        ["write_tool", { name: "write_tool", description: "write", annotations: { idempotent: true } }],
+      ]);
+      mockedResolveAgentContextAsync.mockResolvedValue({
+        systemPrompt: "Mock system prompt",
+        activeAgentId: undefined,
+        tenantToolContext: {
+          callBuiltinTools: new Map(),
+          toolDefinitions,
+          capabilities,
+          toolAuthority: new Map(),
+          toolAllowlist: new Set(["read_tool", "write_tool"]),
+          rateLimiter: undefined,
+          maxToolRounds: undefined,
+        },
+        isHandoff: false,
+        pingPongBlocked: false,
+      });
+
+      createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
+
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "authority check", requestedAuthority: "read_only" }) }),
+        wsCtx,
+      );
+
+      const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
+      expect(Array.from(perCallConfig?.toolAllowlist ?? [])).toEqual(["read_tool"]);
+      expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toEqual(["read_tool"]);
+      expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
+        requestedAuthority: "read_only",
+        admittedAuthority: "read_only",
+        completeness: "authoritative",
+        deniedToolCount: 1,
+      }));
+    });
+
+    it("fails closed when audited authority is requested for tenant tools without authority metadata", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      const toolDefinitions: ToolDefinition[] = [
+        makeToolDefinition("unknown_tool"),
+      ];
+      mockedResolveAgentContextAsync.mockResolvedValue({
+        systemPrompt: "Mock system prompt",
+        activeAgentId: undefined,
+        tenantToolContext: {
+          callBuiltinTools: new Map(),
+          toolDefinitions,
+          capabilities: new Map(),
+          toolAuthority: new Map(),
+          toolAllowlist: new Set(["unknown_tool"]),
+          rateLimiter: undefined,
+          maxToolRounds: undefined,
+        },
+        isHandoff: false,
+        pingPongBlocked: false,
+      });
+
+      createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
+
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "authority check", requestedAuthority: "audited" }) }),
+        wsCtx,
+      );
+
+      const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
+      expect(Array.from(perCallConfig?.toolAllowlist ?? [])).toEqual([]);
+      expect(perCallConfig?.additionalTools).toEqual([]);
+      expect(Array.from(perCallConfig?.perCallCapabilities?.keys() ?? [])).toEqual([]);
+      expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
+        requestedAuthority: "audited",
+        admittedAuthority: "fail_closed",
+        completeness: "authoritative",
+        toolCount: 0,
+        deniedToolCount: 1,
+      }));
+    });
+
+    it("rejects destructive requestedAuthority before tenant message processing", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+
+      createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "authority check", requestedAuthority: "destructive" }) }),
+        wsCtx,
+      );
+
+      expect(mockOrchestrator.processMessage).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
+        type: "error",
+        message: "requestedAuthority must be auto, read_only, or audited",
+      });
     });
 
     it("projects coordination provider candidates into tenant WebSocket governed context", async () => {

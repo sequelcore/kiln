@@ -144,7 +144,7 @@ export function initUI(
       const text = inputTextarea.plainText.trim();
       if (text && state.status !== "running" && !state.themePickerOpen) {
         inputTextarea.clear();
-        if (text === "/clear" || text === "/theme" || text === "/provider" || text === "/resume" || text === "/exec") {
+        if (text === "/clear" || text === "/theme" || text === "/provider" || text === "/effort" || text === "/authority" || text === "/resume" || text === "/plan" || text === "/exec" || text === "/setup") {
           return;
         }
         onSubmit(text);

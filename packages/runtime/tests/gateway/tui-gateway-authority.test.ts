@@ -116,10 +116,11 @@ describe("TUI authority forwarding", () => {
 
     expect(resolveTuiRequestedAuthority(undefined)).toBeUndefined();
     expect(() => resolveTuiRequestedAuthority("invalid")).toThrow("Unknown requested authority 'invalid'.");
+    expect(() => resolveTuiRequestedAuthority("destructive")).toThrow("Unknown requested authority 'destructive'.");
     expect(() => resolveTuiRequestedAuthority(null)).toThrow("Unknown requested authority 'null'.");
   });
 
-  it("keeps plan-mode authority semantics when destructive authority is requested", async () => {
+  it("keeps plan-mode authority semantics when audited authority is requested", async () => {
     const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiTurnPerCallConfig(
       "codex-oauth",
@@ -128,7 +129,7 @@ describe("TUI authority forwarding", () => {
       undefined,
       undefined,
       "plan",
-      "destructive",
+      "audited",
     );
 
     expect(cfg.effectiveTurnAuthority).toMatchObject({

@@ -285,7 +285,7 @@ describe("createTenantRoutes", () => {
       expect(usageBody.tokens).toBe(150); // 100 input + 50 output
     });
 
-    it("forwards tenant into processAdmittedTurn and keeps tenant tool assembly out of the route", async () => {
+    it("forwards tenant and requestedAuthority into processAdmittedTurn and keeps tenant tool assembly out of the route", async () => {
       vi.resetModules();
 
       const processAdmittedTurnMock = vi.fn().mockResolvedValue({
@@ -316,7 +316,7 @@ describe("createTenantRoutes", () => {
       const res = await app.request("/message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant" }),
+        body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant", requestedAuthority: "audited" }),
       });
 
       expect(res.status).toBe(200);
@@ -328,9 +328,27 @@ describe("createTenantRoutes", () => {
       expect(forwarded.systemPrompt).toBeUndefined();
       expect(forwarded.callBuiltinTools).toBeUndefined();
       expect(forwarded.perCallConfig).toBeUndefined();
+      expect(forwarded.requestedAuthority).toBe("audited");
 
       vi.doUnmock("../../src/gateway/message-pipeline.js");
       vi.resetModules();
+    });
+
+    it("rejects destructive requestedAuthority before tenant REST message processing", async () => {
+      const runtime = makeRuntime();
+      runtime.tenantRegistry.create(makeTenantConfig());
+      const app = createTenantRoutes(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant", requestedAuthority: "destructive" }),
+      });
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "requestedAuthority must be auto, read_only, or audited",
+      });
     });
   });
 

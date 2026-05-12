@@ -202,7 +202,57 @@ describe("createWsRoutes", () => {
         wsCtx,
       );
 
-      expect(processMessage).toHaveBeenCalledWith("user-1", textParts("hello"));
+      expect(processMessage).toHaveBeenCalledWith("user-1", textParts("hello"), {
+        requestedAuthority: undefined,
+      });
+    });
+
+    it("passes requestedAuthority through message-frame options", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("response"),
+        inputTokens: 10,
+        outputTokens: 20,
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, wsCtx } = simulateConnection({ userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "hello", requestedAuthority: "audited" }) }),
+        wsCtx,
+      );
+
+      expect(processMessage).toHaveBeenCalledWith("user-1", textParts("hello"), {
+        requestedAuthority: "audited",
+      });
+    });
+
+    it("rejects destructive requestedAuthority before processMessage", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("response"),
+        inputTokens: 10,
+        outputTokens: 20,
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "hello", requestedAuthority: "destructive" }) }),
+        wsCtx,
+      );
+
+      expect(processMessage).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
+        type: "error",
+        message: "requestedAuthority must be auto, read_only, or audited",
+      });
     });
 
     it("sends done frame with response content", async () => {
@@ -254,7 +304,9 @@ describe("createWsRoutes", () => {
         wsCtx,
       );
 
-      expect(processMessage).toHaveBeenCalledWith("user-3", userParts);
+      expect(processMessage).toHaveBeenCalledWith("user-3", userParts, {
+        requestedAuthority: undefined,
+      });
     });
 
     it("sends error frame when processMessage throws", async () => {

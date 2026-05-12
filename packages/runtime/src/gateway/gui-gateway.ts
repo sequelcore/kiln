@@ -1148,7 +1148,7 @@ export function resolveGuiRequestedAuthority(value: unknown): OperatorTurnReques
   if (value === undefined) {
     return undefined;
   }
-  if (value === "auto" || value === "read_only" || value === "audited" || value === "destructive") {
+  if (value === "auto" || value === "read_only" || value === "audited") {
     return value;
   }
   throw new Error(`Unknown requested authority '${String(value)}'.`);
