@@ -19,11 +19,24 @@ export {
   reconstructGoalRunsFromSessionEvents,
 } from "./goal-run.js";
 export type {
+  WorkItemMaterialization,
+  WorkItemMaterializationInput,
+  WorkItemMaterializationResult,
+  WorkItemMaterializationSnapshot,
+} from "./work-item-materializer.js";
+export {
+  materializeApprovedPlanWorkItems,
+  reconstructWorkItemMaterializationsFromSessionEvents,
+} from "./work-item-materializer.js";
+export type {
   WorkItem,
   WorkItemCompletionInput,
+  WorkItemRecommendedReasoningEffort,
   WorkItemCompletionResult,
   WorkItemResourceChangeNotifier,
+  WorkItemRoutingRecommendation,
   WorkItemSnapshot,
+  WorkItemStoreOptions,
   WorkItemStatus,
   WorkItemUpsertInput,
 } from "./work-item.js";

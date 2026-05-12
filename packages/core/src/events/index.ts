@@ -709,6 +709,7 @@ export type {
   CanonicalGoalCompletedEvent,
   CanonicalGoalFailedEvent,
   CanonicalGoalCancelledEvent,
+  CanonicalWorkItemsMaterializedEvent,
   CanonicalProviderRoutedEvent,
   CanonicalToolCallStartedEvent,
   CanonicalToolCallCompletedEvent,

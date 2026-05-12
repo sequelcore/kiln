@@ -123,6 +123,17 @@ describe("ToolResourceRegistry", () => {
       expectedEvidence: ["tests", "typecheck"],
       providedEvidence: ["tests"],
       verificationGates: ["bun run typecheck"],
+      planId: "plan-1",
+      planHash: "sha256:plan",
+      goalRunId: "goal-1",
+      sourceWorkItemId: "draft-1",
+      routingRecommendation: {
+        routeId: "codex-worker",
+        agentProfile: "coder",
+        reasoningEffort: "high",
+        modelTaskSuitability: "verification-heavy:high",
+        rationale: "Derived from approved plan.",
+      },
     });
 
     expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/work-items");
@@ -136,6 +147,9 @@ describe("ToolResourceRegistry", () => {
           id: item.id,
           summary: "Verify runtime work evidence",
           providedEvidence: ["tests"],
+          planId: "plan-1",
+          goalRunId: "goal-1",
+          sourceWorkItemId: "draft-1",
         },
       ],
     });
@@ -144,6 +158,11 @@ describe("ToolResourceRegistry", () => {
     expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
       id: item.id,
       expectedEvidence: ["tests", "typecheck"],
+      planHash: "sha256:plan",
+      routingRecommendation: {
+        routeId: "codex-worker",
+        reasoningEffort: "high",
+      },
     });
   });
 

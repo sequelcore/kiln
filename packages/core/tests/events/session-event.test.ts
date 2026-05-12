@@ -7,7 +7,7 @@ import type {
   SessionProviderIdentity,
   SessionTokenUsage,
 } from "../../src/events/index.js";
-import type { GoalRun } from "../../src/work-governance/index.js";
+import type { GoalRun, WorkItemMaterialization } from "../../src/work-governance/index.js";
 
 describe("session event envelope", () => {
   it("fills eventId and timestamp with deterministic injection", () => {
@@ -77,6 +77,19 @@ describe("session event envelope", () => {
       updatedAt: "2026-05-12T18:00:00.000Z",
       sequence: 1,
     };
+    const materialization: WorkItemMaterialization = {
+      id: "mat-1",
+      planId: "plan_1",
+      planHash: "sha256:abc123",
+      approvalId: "plan_approval_1",
+      goalRunId: "goal-1",
+      sourceWorkItemIds: ["wi-source-1"],
+      workItemIds: ["wi-1"],
+      createdWorkItemIds: ["wi-1"],
+      reusedWorkItemIds: [],
+      createdAt: "2026-05-12T18:05:00.000Z",
+      sequence: 1,
+    };
 
     let idCounter = 0;
     const kinds: readonly CanonicalSessionEventKind[] = [
@@ -105,6 +118,7 @@ describe("session event envelope", () => {
       "agent_invocation_cancelled",
       "continuity_decided",
       "error_recorded",
+      "work_items.materialized",
       "turn_completed",
     ];
 
@@ -367,9 +381,15 @@ describe("session event envelope", () => {
         retriable: true,
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({
-        kind: "turn_completed",
+        kind: "work_items.materialized",
         kilnSessionId: "kiln-session-1",
         sequence: 26,
+        materialization,
+      }, { generateEventId: () => `evt-${++idCounter}` }),
+      createSessionEvent({
+        kind: "turn_completed",
+        kilnSessionId: "kiln-session-1",
+        sequence: 27,
         turnId: "turn-1",
         outcome: "completed",
         outputMessageId: "msg-assistant-1",

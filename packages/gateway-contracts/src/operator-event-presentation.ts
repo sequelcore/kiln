@@ -1475,6 +1475,31 @@ function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string
   };
 }
 
+function workItemsMaterializedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const materialization = asRecord(payload.materialization);
+  const workItemIds = readStringList(materialization?.workItemIds);
+  const created = readStringList(materialization?.createdWorkItemIds);
+  const reused = readStringList(materialization?.reusedWorkItemIds);
+  const summary = `${workItemIds.length} work items · plan ${readString(materialization?.planId) ?? "unknown"}`;
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Materialization", materialization?.id);
+  addItem(details, "Plan", materialization?.planId);
+  addItem(details, "Plan hash", materialization?.planHash);
+  addItem(details, "Approval", materialization?.approvalId);
+  addItem(details, "Goal", materialization?.goalRunId);
+  addItem(details, "Work items", workItemIds.join(", "));
+  addItem(details, "Created", created.join(", "));
+  addItem(details, "Reused", reused.join(", "));
+  return {
+    title: "Work items materialized",
+    summary,
+    compactText: summary,
+    tone: "success",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+  };
+}
+
 export function operatorEventTargetsSurface(
   presentation: Pick<OperatorEventPresentation, "surfaces">,
   surface: OperatorEventSurface,
@@ -1513,6 +1538,8 @@ export function presentOperatorEventPayload(
     case "goal.failed":
     case "goal.cancelled":
       return goalPresentation(kind, payload);
+    case "work_items.materialized":
+      return workItemsMaterializedPresentation(payload);
     case "work_item_updated":
       return workItemPresentation(payload);
     case "approval_requested":

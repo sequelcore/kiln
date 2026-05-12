@@ -170,6 +170,7 @@ const GuiSessionEventSchema = z.object({
     "goal.completed",
     "goal.failed",
     "goal.cancelled",
+    "work_items.materialized",
     "provider_routed",
     "tool_call_started",
     "tool_call_completed",

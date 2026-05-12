@@ -1,5 +1,15 @@
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
+export type WorkItemRecommendedReasoningEffort = "low" | "medium" | "high";
+
+export interface WorkItemRoutingRecommendation {
+  readonly routeId?: string;
+  readonly agentProfile?: string;
+  readonly reasoningEffort: WorkItemRecommendedReasoningEffort;
+  readonly modelTaskSuitability: string;
+  readonly rationale: string;
+}
+
 export interface WorkItemUpsertInput {
   readonly id?: string;
   readonly summary: string;
@@ -16,6 +26,11 @@ export interface WorkItemUpsertInput {
   readonly verificationGates: readonly string[];
   readonly dependencies?: readonly string[];
   readonly residualRisk?: string;
+  readonly planId?: string;
+  readonly planHash?: string;
+  readonly goalRunId?: string;
+  readonly sourceWorkItemId?: string;
+  readonly routingRecommendation?: WorkItemRoutingRecommendation;
 }
 
 export interface WorkItem extends WorkItemUpsertInput {
@@ -50,13 +65,20 @@ export interface WorkItemResourceChangeNotifier {
   notifyResourceUpdated(uri: string): void;
 }
 
+export interface WorkItemStoreOptions {
+  readonly resourceNotifications?: WorkItemResourceChangeNotifier;
+  readonly now?: () => string;
+}
+
 export class WorkItemStore {
   private readonly items = new Map<string, WorkItem>();
+  private readonly now: () => string;
   private sequence = 0;
   private resourceNotifications?: WorkItemResourceChangeNotifier;
 
-  constructor(options: { readonly resourceNotifications?: WorkItemResourceChangeNotifier } = {}) {
+  constructor(options: WorkItemStoreOptions = {}) {
     this.resourceNotifications = options.resourceNotifications;
+    this.now = options.now ?? (() => new Date().toISOString());
   }
 
   setResourceChangeNotifier(resourceNotifications: WorkItemResourceChangeNotifier): void {
@@ -64,7 +86,7 @@ export class WorkItemStore {
   }
 
   upsert(input: WorkItemUpsertInput): WorkItem {
-    const now = new Date().toISOString();
+    const now = this.now();
     const existing = input.id ? this.items.get(input.id) : undefined;
     const id = input.id ?? `work-${this.sequence + 1}`;
     const item: WorkItem = {
@@ -83,6 +105,11 @@ export class WorkItemStore {
       verificationGates: unique(input.verificationGates),
       dependencies: unique(input.dependencies ?? existing?.dependencies ?? []),
       residualRisk: input.residualRisk ?? existing?.residualRisk,
+      planId: input.planId ?? existing?.planId,
+      planHash: input.planHash ?? existing?.planHash,
+      goalRunId: input.goalRunId ?? existing?.goalRunId,
+      sourceWorkItemId: input.sourceWorkItemId ?? existing?.sourceWorkItemId,
+      routingRecommendation: input.routingRecommendation ?? existing?.routingRecommendation,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       sequence: ++this.sequence,
@@ -95,6 +122,10 @@ export class WorkItemStore {
   list(status?: WorkItemStatus): readonly WorkItem[] {
     const items = [...this.items.values()].sort((left, right) => left.sequence - right.sequence);
     return status ? items.filter((item) => item.status === status) : items;
+  }
+
+  get(id: string): WorkItem | undefined {
+    return this.items.get(id);
   }
 
   snapshot(status?: WorkItemStatus): WorkItemSnapshot {

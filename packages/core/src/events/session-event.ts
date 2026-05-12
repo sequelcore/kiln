@@ -12,7 +12,7 @@ import type {
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
-import type { GoalRun, WorkItem } from "../work-governance/index.js";
+import type { GoalRun, WorkItem, WorkItemMaterialization } from "../work-governance/index.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -29,6 +29,7 @@ export type CanonicalSessionEventKind =
   | "goal.completed"
   | "goal.failed"
   | "goal.cancelled"
+  | "work_items.materialized"
   | "provider_routed"
   | "tool_call_started"
   | "tool_call_completed"
@@ -236,6 +237,10 @@ export interface CanonicalGoalCancelledEvent extends SessionEventEnvelope<"goal.
   readonly goal: GoalRun;
   readonly reason: string;
   readonly cancelledBy?: string;
+}
+
+export interface CanonicalWorkItemsMaterializedEvent extends SessionEventEnvelope<"work_items.materialized"> {
+  readonly materialization: WorkItemMaterialization;
 }
 
 export interface CanonicalPlanAnalysisReportedEvent extends SessionEventEnvelope<"plan_analysis_reported"> {
@@ -484,6 +489,7 @@ export interface CanonicalSessionEventMap {
   "goal.completed": CanonicalGoalCompletedEvent;
   "goal.failed": CanonicalGoalFailedEvent;
   "goal.cancelled": CanonicalGoalCancelledEvent;
+  "work_items.materialized": CanonicalWorkItemsMaterializedEvent;
   provider_routed: CanonicalProviderRoutedEvent;
   tool_call_started: CanonicalToolCallStartedEvent;
   tool_call_completed: CanonicalToolCallCompletedEvent;

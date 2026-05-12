@@ -541,9 +541,43 @@ describe("GuiWsClient", () => {
           json: {
             type: "session_event",
             event: {
-              eventId: "evt-config-change",
+              eventId: "evt-materialized",
               kilnSessionId: "sess-1",
               sequence: 4,
+              timestamp: "2026-05-12T18:05:00.000Z",
+              kind: "work_items.materialized",
+              payload: {
+                materialization: {
+                  id: "mat-1",
+                  workItemIds: ["wi-1"],
+                },
+              },
+            },
+          },
+          expected: {
+            type: "session_event",
+            event: {
+              eventId: "evt-materialized",
+              kilnSessionId: "sess-1",
+              sequence: 4,
+              timestamp: "2026-05-12T18:05:00.000Z",
+              kind: "work_items.materialized",
+              payload: {
+                materialization: {
+                  id: "mat-1",
+                  workItemIds: ["wi-1"],
+                },
+              },
+            },
+          },
+        },
+        {
+          json: {
+            type: "session_event",
+            event: {
+              eventId: "evt-config-change",
+              kilnSessionId: "sess-1",
+              sequence: 5,
               timestamp: "2026-05-08T23:10:30.000Z",
               kind: "config_change_applied",
               payload: {
@@ -557,7 +591,7 @@ describe("GuiWsClient", () => {
             event: {
               eventId: "evt-config-change",
               kilnSessionId: "sess-1",
-              sequence: 4,
+              sequence: 5,
               timestamp: "2026-05-08T23:10:30.000Z",
               kind: "config_change_applied",
               payload: {

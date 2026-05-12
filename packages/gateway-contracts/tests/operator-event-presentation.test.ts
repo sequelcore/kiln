@@ -124,6 +124,36 @@ describe("operator event presentation", () => {
     ]);
   });
 
+  it("presents work-item materialization as an operator-visible checkpoint", () => {
+    const presentation = presentOperatorEventPayload("work_items.materialized", {
+      materialization: {
+        id: "mat-1",
+        planId: "plan-1",
+        planHash: "sha256:plan",
+        approvalId: "approval-1",
+        goalRunId: "goal-1",
+        workItemIds: ["wi-1", "wi-2"],
+        createdWorkItemIds: ["wi-1"],
+        reusedWorkItemIds: ["wi-2"],
+      },
+    });
+
+    expect(presentation.title).toBe("Work items materialized");
+    expect(presentation.summary).toBe("2 work items · plan plan-1");
+    expect(presentation.tone).toBe("success");
+    expect(presentation.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(presentation.details).toEqual([
+      { label: "Materialization", value: "mat-1" },
+      { label: "Plan", value: "plan-1" },
+      { label: "Plan hash", value: "sha256:plan" },
+      { label: "Approval", value: "approval-1" },
+      { label: "Goal", value: "goal-1" },
+      { label: "Work items", value: "wi-1, wi-2" },
+      { label: "Created", value: "wi-1" },
+      { label: "Reused", value: "wi-2" },
+    ]);
+  });
+
   it("presents turn completion nested data as operator detail rows", () => {
     const presentation = presentOperatorEventPayload("turn_completed", {
       routedProvider: "codex-oauth",
