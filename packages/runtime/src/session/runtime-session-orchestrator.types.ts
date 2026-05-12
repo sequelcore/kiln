@@ -22,6 +22,9 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly toolCall: ToolCall;
   readonly sandbox?: unknown;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
+  readonly requestApproval?: (
+    description: string,
+  ) => Promise<{ approved: boolean; reason?: string }>;
 }
 
 export type RuntimeBuiltinToolExecutor = (

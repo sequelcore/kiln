@@ -51,6 +51,11 @@ export type ManagedAgentRequestedAuthority = typeof MANAGED_AGENT_REQUESTED_AUTH
 
 export type ManagedAgentUnsupportedFieldPolicy = "reject" | "ignore-with-audit" | "unsupported";
 
+export interface ManagedAgentAuthorityApproval {
+  readonly approved: true;
+  readonly reason?: string;
+}
+
 export type ManagedAgentLifecycleState =
   | "requested"
   | "denied"
@@ -144,6 +149,7 @@ export interface ManagedAgentInvocationRequest {
   readonly requestedBy: string;
   readonly requestSource: string;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
+  readonly authorityApproval?: ManagedAgentAuthorityApproval;
   readonly providerRoute: ManagedAgentProviderRoute;
   readonly adapterKind: ManagedAgentAdapterKind;
   readonly executionMode: ManagedAgentExecutionMode;
@@ -336,6 +342,7 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
     requestedBy: requireText(input.requestedBy, "Managed invocation requester is required"),
     requestSource: requireText(input.requestSource, "Managed invocation request source is required"),
     requestedAuthority: requireRequestedAuthority(input.requestedAuthority ?? "auto"),
+    ...(input.authorityApproval !== undefined ? { authorityApproval: requireAuthorityApproval(input.authorityApproval) } : {}),
     providerRoute: requireProviderRoute(input.providerRoute),
     adapterKind: requireAdapterKind(input.adapterKind),
     executionMode: requireExecutionMode(input.executionMode),
@@ -600,7 +607,9 @@ function collectRequestedAuthorityGaps(request: ManagedAgentInvocationRequest, m
     return;
   }
   if (request.requestedAuthority === "destructive") {
-    missingCapabilities.push("request.requestedAuthority.destructiveApprovalFlow");
+    if (request.authorityApproval?.approved !== true) {
+      missingCapabilities.push("request.requestedAuthority.destructiveApprovalFlow");
+    }
   }
   if (request.requestedAuthority === "read_only" && request.profile !== "foundation-readonly-plan") {
     missingCapabilities.push("request.requestedAuthority.readOnlyProfile");
@@ -704,6 +713,16 @@ function collectDescriptorGaps(descriptor: ManagedAgentAdapterDescriptor, missin
   if (descriptor.memoryContext?.governedAdmission !== true) missingCapabilities.push("memoryContext.governedAdmission");
   if (descriptor.unsupportedFieldPolicy !== "reject") missingCapabilities.push("unsupportedFieldPolicy.reject");
   if (descriptor.cleanup?.supported !== true) missingCapabilities.push("cleanup.supported");
+}
+
+function requireAuthorityApproval(input: ManagedAgentAuthorityApproval): ManagedAgentAuthorityApproval {
+  if (input.approved !== true) {
+    throw new Error("Managed invocation destructive authority approval is required");
+  }
+  return {
+    approved: true,
+    ...(hasText(input.reason) ? { reason: input.reason } : {}),
+  };
 }
 
 function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuthorityProfile {

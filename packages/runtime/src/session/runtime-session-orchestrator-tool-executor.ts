@@ -885,10 +885,12 @@ export class RuntimeSessionToolExecutor {
   }
 
   private async executeTool(toolCall: ToolCall): Promise<unknown> {
-    const context = this.currentSession
+    const session = this.currentSession;
+    const context = session
       ? {
-          session: this.currentSession,
+          session,
           toolCall,
+          requestApproval: (description: string) => this.requestApproval(session.id, description),
           ...(this.currentEffectiveTurnAuthority
             ? { effectiveTurnAuthority: this.currentEffectiveTurnAuthority }
             : {}),

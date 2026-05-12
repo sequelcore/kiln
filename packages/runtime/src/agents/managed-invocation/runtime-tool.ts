@@ -2,6 +2,7 @@ import type {
   ArtifactResourceStore,
   Capability,
   ManagedAgentAdmissionProfile,
+  ManagedAgentAuthorityApproval,
   ManagedAgentAuthorityProfile,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
@@ -458,6 +459,19 @@ async function executeManagedInvocationTool(
 
   const invocationId = buildInvocationId(context.session.id, context.session.userTurnCount, context.toolCall.id);
   const handoffContract = buildHandoffContract(parsed.input);
+  const authorityApproval = await requestManagedInvocationAuthorityApproval({
+    requestedAuthority,
+    routeId: route.routeId,
+    profile: parsed.input.profile,
+    context,
+  });
+  if (!authorityApproval.ok) {
+    return errorResult(authorityApproval.error, {
+      profile: parsed.input.profile,
+      requestedAuthority,
+      routeId: route.routeId,
+    });
+  }
   const request = defineManagedAgentInvocationRequest({
     invocationId,
     agentId: `${route.routeId}:${parsed.input.profile}`,
@@ -467,6 +481,7 @@ async function executeManagedInvocationTool(
     requestedBy: options.requestedBy ?? "assistant",
     requestSource: options.requestSource ?? "runtime-tool",
     requestedAuthority,
+    ...(authorityApproval.authorityApproval ? { authorityApproval: authorityApproval.authorityApproval } : {}),
     providerRoute: {
       providerId: route.providerId,
       surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
@@ -1178,12 +1193,6 @@ function validateManagedInvocationRequestedAuthority(
   requestedAuthority: ManagedAgentRequestedAuthority,
   profile: ManagedAgentAdmissionProfile,
 ): { readonly ok: true } | { readonly ok: false; readonly error: string } {
-  if (requestedAuthority === "destructive") {
-    return {
-      ok: false,
-      error: "managed_agent.invoke destructive requested authority requires an approval flow before child invocation.",
-    };
-  }
   if (requestedAuthority === "read_only" && profile !== "foundation-readonly-plan") {
     return {
       ok: false,
@@ -1191,6 +1200,42 @@ function validateManagedInvocationRequestedAuthority(
     };
   }
   return { ok: true };
+}
+
+async function requestManagedInvocationAuthorityApproval(input: {
+  readonly requestedAuthority: ManagedAgentRequestedAuthority;
+  readonly routeId: string;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly context: RuntimeBuiltinToolExecutionContext;
+}): Promise<
+  | { readonly ok: true; readonly authorityApproval?: ManagedAgentAuthorityApproval }
+  | { readonly ok: false; readonly error: string }
+> {
+  if (input.requestedAuthority !== "destructive") {
+    return { ok: true };
+  }
+  if (!input.context.requestApproval) {
+    return {
+      ok: false,
+      error: "managed_agent.invoke destructive requested authority requires an approval flow before child invocation.",
+    };
+  }
+
+  const description = `managed_agent.invoke requests destructive authority for route '${input.routeId}' and profile '${input.profile}'.`;
+  const approval = await input.context.requestApproval(description);
+  if (!approval.approved) {
+    return {
+      ok: false,
+      error: `managed_agent.invoke destructive requested authority denied: ${approval.reason ?? "approval denied"}`,
+    };
+  }
+  return {
+    ok: true,
+    authorityApproval: {
+      approved: true,
+      ...(approval.reason ? { reason: approval.reason } : {}),
+    },
+  };
 }
 
 function buildHandoffContract(input: ManagedInvocationToolInput): ManagedAgentInvocationHandoffContract | undefined {

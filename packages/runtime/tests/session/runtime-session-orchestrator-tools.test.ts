@@ -313,6 +313,38 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(toolFn).toHaveBeenCalledTimes(1);
     });
 
+    it("passes the approval callback into builtin tool execution context", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const toolFn = vi.fn(async (_input, context) => {
+        const approval = await context?.requestApproval?.("Managed child requested destructive authority");
+        return approval?.approved ? "approved by operator" : "approval missing";
+      });
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
+      });
+
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+
+      const pending = orchestrator.processMessage(makeSession(), textParts("delegate destructive work"));
+
+      await vi.waitFor(() => {
+        expect(approvalRequested).toHaveBeenCalledTimes(1);
+      });
+
+      const approvalEvent = approvalRequested.mock.calls[0]?.[0] as ApprovalRequestedEvent;
+      expect(approvalEvent.description).toBe("Managed child requested destructive authority");
+      orchestrator.continue(approvalEvent.approvalId);
+      await pending;
+
+      expect(toolFn).toHaveBeenCalledTimes(1);
+    });
+
     it("waits for approval and skips tool execution when rejected", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);

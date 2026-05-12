@@ -105,6 +105,37 @@ describe("managed agent admission policy", () => {
     });
   });
 
+  it("admits destructive requested authority only with approval evidence", () => {
+    const denied = evaluateManagedAgentAdmission(
+      defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        requestedAuthority: "destructive",
+      }),
+      makeDescriptor(),
+    );
+    const admitted = evaluateManagedAgentAdmission(
+      defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        requestedAuthority: "destructive",
+        authorityApproval: {
+          approved: true,
+          reason: "operator approved destructive child authority",
+        },
+      }),
+      makeDescriptor(),
+    );
+
+    expect(denied).toMatchObject({
+      status: "denied",
+      missingCapabilities: ["request.requestedAuthority.destructiveApprovalFlow"],
+    });
+    expect(admitted).toMatchObject({
+      status: "admitted",
+      invocationId: "invocation-1",
+      profile: "foundation-readonly-plan",
+    });
+  });
+
   it.each([
     ["provider route", (request: ManagedAgentInvocationRequest) => ({ ...request, providerRoute: undefined })],
     ["adapter kind", (request: ManagedAgentInvocationRequest) => ({ ...request, adapterKind: undefined })],

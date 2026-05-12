@@ -565,7 +565,63 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
-  it("fails closed when a managed child requests destructive authority before approval flow support exists", async () => {
+  it("waits for approval before invoking a managed child with destructive authority", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    let resolveApproval!: (decision: { readonly approved: boolean; readonly reason?: string }) => void;
+    const requestApproval = vi.fn(() =>
+      new Promise<{ readonly approved: boolean; readonly reason?: string }>((resolve) => {
+        resolveApproval = resolve;
+      })
+    );
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+      requestApproval,
+    };
+
+    const pending = surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "destructive",
+      task: "Apply a destructive managed change.",
+    }, context) as Promise<{
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly requestedAuthority?: string;
+      };
+    }>;
+
+    await vi.waitFor(() => {
+      expect(requestApproval).toHaveBeenCalledTimes(1);
+    });
+    expect(requestApproval).toHaveBeenCalledWith(
+      "managed_agent.invoke requests destructive authority for route 'opencode-readonly' and profile 'foundation-readonly-plan'.",
+    );
+    expect(adapter.invoke).not.toHaveBeenCalled();
+
+    resolveApproval({ approved: true, reason: "operator approved destructive child authority" });
+    const result = await pending;
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("Child review completed.");
+    expect(result.metadata.requestedAuthority).toBe("destructive");
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
+      requestedAuthority: "destructive",
+    });
+  });
+
+  it("fails closed when a managed child requests destructive authority without an approval flow", async () => {
     const adapter = makeAdapter();
     const surface = makeSurface(adapter);
     const session = makeSession();
