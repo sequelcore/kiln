@@ -61,4 +61,5 @@ export type {
   WorkItemStatus,
   WorkItemUpsertInput,
 } from "./work-item.js";
+export { reconstructWorkItemsFromSessionEvents } from "./work-item.js";
 export { WorkItemStore } from "./work-item.js";

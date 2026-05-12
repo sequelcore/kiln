@@ -226,6 +226,8 @@ const GuiSessionEventSchema = z.object({
     "file_changed",
     "cost_updated",
     "work_item_updated",
+    "work_item_execution_started",
+    "work_item_execution_finished",
     "agent_invocation_requested",
     "agent_invocation_started",
     "agent_invocation_completed",

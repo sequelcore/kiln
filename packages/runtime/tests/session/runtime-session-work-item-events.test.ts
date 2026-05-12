@@ -80,4 +80,137 @@ describe("runtime work item session events", () => {
       }),
     ]));
   });
+
+  it("projects work item execution attempt metadata into canonical session events", () => {
+    const session = new RuntimeSession({
+      appName: "kiln",
+      tenantId: "test-tenant",
+      userId: "operator",
+      systemPrompt: "test",
+    });
+    session.addUserMessage(textParts("Execute the next work item"));
+
+    const timestamp = new Date("2026-05-12T20:00:00.000Z");
+    const workItem = {
+      id: "work-1",
+      summary: "Verify goal execution.",
+      status: "in_progress",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      providedEvidence: [],
+      verificationGates: ["bun test"],
+      dependencies: [],
+      executionAttempts: [{
+        id: "goal-1:work-1:attempt:1",
+        workItemId: "work-1",
+        goalRunId: "goal-1",
+        status: "started",
+        executionMode: "direct",
+        startedAt: "2026-05-12T20:00:00.000Z",
+        providedEvidence: [],
+        missingEvidence: [],
+        missingResidualRisk: false,
+      }],
+      createdAt: "2026-05-12T20:00:00.000Z",
+      updatedAt: "2026-05-12T20:00:00.000Z",
+      sequence: 2,
+    };
+    const finishedWorkItem = {
+      ...workItem,
+      status: "completed",
+      providedEvidence: ["tests"],
+      executionAttempts: [{
+        ...workItem.executionAttempts[0]!,
+        status: "completed",
+        completedAt: "2026-05-12T20:01:00.000Z",
+        providedEvidence: ["tests"],
+      }],
+      updatedAt: "2026-05-12T20:01:00.000Z",
+      sequence: 3,
+    };
+
+    const events = appendCanonicalTurnEvents({
+      session,
+      channel: "gui",
+      userMessageContent: "Execute the next work item",
+      assistantMessageContent: "Work item executed.",
+      queued: false,
+      turnStartedAt: timestamp,
+      turnCompletedAt: timestamp,
+      continuity: { strategy: "new-session" },
+      runtimeEvents: [
+        {
+          type: "tool_called",
+          sessionId: session.id,
+          timestamp,
+          toolName: "work_item.execution.start",
+          toolInput: { id: "work-1" },
+        },
+        {
+          type: "tool_result",
+          sessionId: session.id,
+          timestamp,
+          toolName: "work_item.execution.start",
+          durationMs: 8,
+          success: true,
+          output: "{}",
+          metadata: {
+            kind: "work_item",
+            operation: "execution_started",
+            item: workItem,
+            attempt: workItem.executionAttempts[0],
+          },
+        },
+        {
+          type: "tool_called",
+          sessionId: session.id,
+          timestamp,
+          toolName: "work_item.execution.finish",
+          toolInput: { id: "work-1" },
+        },
+        {
+          type: "tool_result",
+          sessionId: session.id,
+          timestamp,
+          toolName: "work_item.execution.finish",
+          durationMs: 9,
+          success: true,
+          output: "{}",
+          metadata: {
+            kind: "work_item",
+            operation: "execution_finished",
+            item: finishedWorkItem,
+            attempt: finishedWorkItem.executionAttempts[0],
+            missingEvidence: [],
+            missingResidualRisk: false,
+          },
+        },
+      ],
+    });
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "work_item_execution_started",
+        workItem: expect.objectContaining({ id: "work-1" }),
+        attempt: expect.objectContaining({
+          id: "goal-1:work-1:attempt:1",
+          status: "started",
+        }),
+      }),
+      expect.objectContaining({
+        kind: "work_item_execution_finished",
+        workItem: expect.objectContaining({
+          id: "work-1",
+          status: "completed",
+        }),
+        attempt: expect.objectContaining({
+          id: "goal-1:work-1:attempt:1",
+          status: "completed",
+        }),
+        missingEvidence: [],
+        missingResidualRisk: false,
+      }),
+    ]));
+  });
 });

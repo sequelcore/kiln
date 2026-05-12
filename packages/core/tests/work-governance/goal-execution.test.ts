@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   finishGoalExecutionAttempt,
   GoalRunStore,
+  reconstructWorkItemsFromSessionEvents,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
   WorkItemStore,
 } from "../../src/work-governance/index.js";
+import { createSessionEvent } from "../../src/events/index.js";
 
 describe("goal execution loop", () => {
   it("selects the first ready pending work item and derives managed delegation from governance assessment", () => {
@@ -186,6 +188,85 @@ describe("goal execution loop", () => {
       ],
     });
     expect(blocked.goal.currentPhase).toBe("paused:work-verify");
+  });
+
+  it("replays work item execution attempts from canonical session events", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-replay",
+      summary: "Replay attempt state.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-replay",
+      objective: "Replay execution.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+    const finished = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+      closeoutSummary: "Replay done.",
+    });
+
+    const snapshot = reconstructWorkItemsFromSessionEvents([
+      createSessionEvent({
+        kind: "work_item_execution_started",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        workItem: started.item,
+        attempt: started.attempt,
+      }),
+      createSessionEvent({
+        kind: "work_item_execution_finished",
+        kilnSessionId: "session-1",
+        sequence: 2,
+        workItem: finished.item,
+        attempt: finished.attempt,
+        missingEvidence: [],
+        missingResidualRisk: false,
+      }),
+    ]);
+
+    expect(snapshot).toMatchObject({
+      sequence: finished.item.sequence,
+      items: [
+        expect.objectContaining({
+          id: "work-replay",
+          status: "completed",
+          executionAttempts: [
+            expect.objectContaining({
+              id: started.attempt.id,
+              status: "completed",
+              providedEvidence: ["tests"],
+            }),
+          ],
+        }),
+      ],
+    });
   });
 });
 

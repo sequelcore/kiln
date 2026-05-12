@@ -11,6 +11,7 @@ import type {
   SessionProviderIdentity,
   SessionToolStatus,
   WorkItem,
+  WorkItemExecutionAttempt,
   ToolCalledEvent,
   ToolResultEvent,
 } from "@kilnai/core";
@@ -474,22 +475,50 @@ function projectWorkItemEvents(input: {
   if (!isWorkItemToolMetadata(metadata)) {
     return [];
   }
-  if (metadata.operation !== "update" && metadata.operation !== "complete") {
-    return [];
+  if (metadata.operation === "update" || metadata.operation === "complete") {
+    return [createSessionEvent<"work_item_updated">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence(),
+      kind: "work_item_updated",
+      turnId: input.turnId,
+      toolCallId: input.toolCallId,
+      workItem: metadata.item,
+      operation: metadata.operation,
+      missingEvidence: readStringArray(metadata.missingEvidence),
+      missingResidualRisk: metadata.missingResidualRisk === true,
+      source: input.source,
+      timestamp: input.runtimeEvent.timestamp,
+    })];
   }
-  return [createSessionEvent<"work_item_updated">({
-    kilnSessionId: input.sessionId,
-    sequence: input.sequence(),
-    kind: "work_item_updated",
-    turnId: input.turnId,
-    toolCallId: input.toolCallId,
-    workItem: metadata.item,
-    operation: metadata.operation,
-    missingEvidence: readStringArray(metadata.missingEvidence),
-    missingResidualRisk: metadata.missingResidualRisk === true,
-    source: input.source,
-    timestamp: input.runtimeEvent.timestamp,
-  })];
+  if (metadata.operation === "execution_started" && metadata.attempt) {
+    return [createSessionEvent<"work_item_execution_started">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence(),
+      kind: "work_item_execution_started",
+      turnId: input.turnId,
+      toolCallId: input.toolCallId,
+      workItem: metadata.item,
+      attempt: metadata.attempt,
+      source: input.source,
+      timestamp: input.runtimeEvent.timestamp,
+    })];
+  }
+  if (metadata.operation === "execution_finished" && metadata.attempt) {
+    return [createSessionEvent<"work_item_execution_finished">({
+      kilnSessionId: input.sessionId,
+      sequence: input.sequence(),
+      kind: "work_item_execution_finished",
+      turnId: input.turnId,
+      toolCallId: input.toolCallId,
+      workItem: metadata.item,
+      attempt: metadata.attempt,
+      missingEvidence: readStringArray(metadata.missingEvidence),
+      missingResidualRisk: metadata.missingResidualRisk === true,
+      source: input.source,
+      timestamp: input.runtimeEvent.timestamp,
+    })];
+  }
+  return [];
 }
 
 function projectConfigMutationEvents(input: {
@@ -557,8 +586,9 @@ function projectConfigMutationEvents(input: {
 
 function isWorkItemToolMetadata(value: unknown): value is {
   readonly kind: "work_item";
-  readonly operation: "update" | "list" | "complete";
+  readonly operation: "update" | "list" | "complete" | "execution_started" | "execution_finished";
   readonly item: WorkItem;
+  readonly attempt?: WorkItemExecutionAttempt;
   readonly missingEvidence?: unknown;
   readonly missingResidualRisk?: unknown;
 } {
@@ -567,8 +597,19 @@ function isWorkItemToolMetadata(value: unknown): value is {
   }
   const candidate = value as Record<string, unknown>;
   return candidate.kind === "work_item"
-    && (candidate.operation === "update" || candidate.operation === "list" || candidate.operation === "complete")
-    && isWorkItem(candidate.item);
+    && (
+      candidate.operation === "update"
+      || candidate.operation === "list"
+      || candidate.operation === "complete"
+      || candidate.operation === "execution_started"
+      || candidate.operation === "execution_finished"
+    )
+    && isWorkItem(candidate.item)
+    && (
+      candidate.operation === "execution_started" || candidate.operation === "execution_finished"
+        ? isWorkItemExecutionAttempt(candidate.attempt)
+        : true
+    );
 }
 
 function isWorkItem(value: unknown): value is WorkItem {
@@ -587,6 +628,22 @@ function isWorkItem(value: unknown): value is WorkItem {
     && typeof candidate.createdAt === "string"
     && typeof candidate.updatedAt === "string"
     && typeof candidate.sequence === "number";
+}
+
+function isWorkItemExecutionAttempt(value: unknown): value is WorkItemExecutionAttempt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.id === "string"
+    && typeof candidate.workItemId === "string"
+    && typeof candidate.goalRunId === "string"
+    && typeof candidate.status === "string"
+    && typeof candidate.executionMode === "string"
+    && typeof candidate.startedAt === "string"
+    && Array.isArray(candidate.providedEvidence)
+    && Array.isArray(candidate.missingEvidence)
+    && typeof candidate.missingResidualRisk === "boolean";
 }
 
 function parseJsonRecord(value: string | undefined): Record<string, unknown> | null {

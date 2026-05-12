@@ -1,3 +1,5 @@
+import { compareSessionEvents, type CanonicalSessionEvent } from "../events/session-event.js";
+
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
 export type WorkItemRecommendedReasoningEffort = "low" | "medium" | "high";
@@ -288,6 +290,30 @@ export class WorkItemStore {
     this.resourceNotifications?.notifyResourceUpdated("kiln://session/work-items");
     this.resourceNotifications?.notifyResourceUpdated(`kiln://session/work-items/${encodeURIComponent(id)}`);
   }
+}
+
+export function reconstructWorkItemsFromSessionEvents(
+  events: readonly CanonicalSessionEvent[],
+): WorkItemSnapshot {
+  const items = new Map<string, WorkItem>();
+  let sequence = 0;
+  for (const event of [...events].sort(compareSessionEvents)) {
+    if (
+      event.kind !== "work_item_updated"
+      && event.kind !== "work_item_execution_started"
+      && event.kind !== "work_item_execution_finished"
+    ) {
+      continue;
+    }
+    items.set(event.workItem.id, event.workItem);
+    sequence = Math.max(sequence, event.workItem.sequence);
+  }
+  const ordered = [...items.values()].sort((left, right) => left.sequence - right.sequence);
+  return {
+    items: ordered,
+    updatedAt: ordered.at(-1)?.updatedAt,
+    sequence,
+  };
 }
 
 function unique<T extends string>(values: readonly T[]): readonly T[] {

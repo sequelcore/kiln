@@ -12,7 +12,7 @@ import type {
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
-import type { GoalRun, WorkItem, WorkItemMaterialization } from "../work-governance/index.js";
+import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -42,6 +42,8 @@ export type CanonicalSessionEventKind =
   | "file_changed"
   | "cost_updated"
   | "work_item_updated"
+  | "work_item_execution_started"
+  | "work_item_execution_finished"
   | "agent_invocation_requested"
   | "agent_invocation_started"
   | "agent_invocation_completed"
@@ -354,6 +356,20 @@ export interface CanonicalWorkItemUpdatedEvent extends SessionEventEnvelope<"wor
   readonly toolCallId?: string;
 }
 
+export interface CanonicalWorkItemExecutionStartedEvent extends SessionEventEnvelope<"work_item_execution_started"> {
+  readonly workItem: WorkItem;
+  readonly attempt: WorkItemExecutionAttempt;
+  readonly toolCallId?: string;
+}
+
+export interface CanonicalWorkItemExecutionFinishedEvent extends SessionEventEnvelope<"work_item_execution_finished"> {
+  readonly workItem: WorkItem;
+  readonly attempt: WorkItemExecutionAttempt;
+  readonly missingEvidence: readonly string[];
+  readonly missingResidualRisk: boolean;
+  readonly toolCallId?: string;
+}
+
 export interface SessionAgentInvocationIdentity {
   readonly invocationId: string;
   readonly agentId: string;
@@ -502,6 +518,8 @@ export interface CanonicalSessionEventMap {
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
   work_item_updated: CanonicalWorkItemUpdatedEvent;
+  work_item_execution_started: CanonicalWorkItemExecutionStartedEvent;
+  work_item_execution_finished: CanonicalWorkItemExecutionFinishedEvent;
   agent_invocation_requested: CanonicalAgentInvocationRequestedEvent;
   agent_invocation_started: CanonicalAgentInvocationStartedEvent;
   agent_invocation_completed: CanonicalAgentInvocationCompletedEvent;

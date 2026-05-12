@@ -7,7 +7,7 @@ import type {
   SessionProviderIdentity,
   SessionTokenUsage,
 } from "../../src/events/index.js";
-import type { GoalRun, WorkItemMaterialization } from "../../src/work-governance/index.js";
+import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../../src/work-governance/index.js";
 
 describe("session event envelope", () => {
   it("fills eventId and timestamp with deterministic injection", () => {
@@ -90,6 +90,46 @@ describe("session event envelope", () => {
       createdAt: "2026-05-12T18:05:00.000Z",
       sequence: 1,
     };
+    const workItemAttempt: WorkItemExecutionAttempt = {
+      id: "goal-1:wi-1:attempt:1",
+      workItemId: "wi-1",
+      goalRunId: "goal-1",
+      status: "started",
+      executionMode: "direct",
+      startedAt: "2026-05-12T18:10:00.000Z",
+      providedEvidence: [],
+      missingEvidence: [],
+      missingResidualRisk: false,
+    };
+    const workItem: WorkItem = {
+      id: "wi-1",
+      summary: "Verify canonical attempt events.",
+      status: "in_progress",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      providedEvidence: [],
+      verificationGates: ["bun test"],
+      dependencies: [],
+      executionAttempts: [workItemAttempt],
+      createdAt: "2026-05-12T18:05:00.000Z",
+      updatedAt: "2026-05-12T18:10:00.000Z",
+      sequence: 2,
+    };
+    const finishedAttempt: WorkItemExecutionAttempt = {
+      ...workItemAttempt,
+      status: "completed",
+      completedAt: "2026-05-12T18:12:00.000Z",
+      providedEvidence: ["tests"],
+    };
+    const finishedWorkItem: WorkItem = {
+      ...workItem,
+      status: "completed",
+      providedEvidence: ["tests"],
+      executionAttempts: [finishedAttempt],
+      updatedAt: "2026-05-12T18:12:00.000Z",
+      sequence: 3,
+    };
 
     let idCounter = 0;
     const kinds: readonly CanonicalSessionEventKind[] = [
@@ -111,6 +151,8 @@ describe("session event envelope", () => {
       "approval_resolved",
       "file_changed",
       "cost_updated",
+      "work_item_execution_started",
+      "work_item_execution_finished",
       "agent_invocation_requested",
       "agent_invocation_started",
       "agent_invocation_completed",
@@ -298,9 +340,29 @@ describe("session event envelope", () => {
         cost,
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({
-        kind: "agent_invocation_requested",
+        kind: "work_item_execution_started",
         kilnSessionId: "kiln-session-1",
         sequence: 19,
+        turnId: "turn-1",
+        toolCallId: "tool-2",
+        workItem,
+        attempt: workItemAttempt,
+      }, { generateEventId: () => `evt-${++idCounter}` }),
+      createSessionEvent({
+        kind: "work_item_execution_finished",
+        kilnSessionId: "kiln-session-1",
+        sequence: 20,
+        turnId: "turn-1",
+        toolCallId: "tool-3",
+        workItem: finishedWorkItem,
+        attempt: finishedAttempt,
+        missingEvidence: [],
+        missingResidualRisk: false,
+      }, { generateEventId: () => `evt-${++idCounter}` }),
+      createSessionEvent({
+        kind: "agent_invocation_requested",
+        kilnSessionId: "kiln-session-1",
+        sequence: 21,
         turnId: "turn-1",
         invocationId: "inv-1",
         agentId: "agent-coder",
@@ -313,7 +375,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_started",
         kilnSessionId: "kiln-session-1",
-        sequence: 20,
+        sequence: 22,
         turnId: "turn-1",
         invocationId: "inv-1",
         agentId: "agent-coder",
@@ -326,7 +388,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_completed",
         kilnSessionId: "kiln-session-1",
-        sequence: 21,
+        sequence: 23,
         turnId: "turn-1",
         invocationId: "inv-1",
         agentId: "agent-coder",
@@ -341,7 +403,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_failed",
         kilnSessionId: "kiln-session-1",
-        sequence: 22,
+        sequence: 24,
         turnId: "turn-1",
         invocationId: "inv-2",
         agentId: "agent-reviewer",
@@ -354,7 +416,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "agent_invocation_cancelled",
         kilnSessionId: "kiln-session-1",
-        sequence: 23,
+        sequence: 25,
         turnId: "turn-1",
         invocationId: "inv-3",
         agentId: "agent-planner",
@@ -366,7 +428,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "continuity_decided",
         kilnSessionId: "kiln-session-1",
-        sequence: 24,
+        sequence: 26,
         decision: "continue",
         reason: "await user follow-up",
         nextTurnId: "turn-2",
@@ -374,7 +436,7 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "error_recorded",
         kilnSessionId: "kiln-session-1",
-        sequence: 25,
+        sequence: 27,
         turnId: "turn-1",
         errorCode: "TOOL_TIMEOUT",
         message: "Tool timed out",
@@ -383,13 +445,13 @@ describe("session event envelope", () => {
       createSessionEvent({
         kind: "work_items.materialized",
         kilnSessionId: "kiln-session-1",
-        sequence: 26,
+        sequence: 28,
         materialization,
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({
         kind: "turn_completed",
         kilnSessionId: "kiln-session-1",
-        sequence: 27,
+        sequence: 29,
         turnId: "turn-1",
         outcome: "completed",
         outputMessageId: "msg-assistant-1",
