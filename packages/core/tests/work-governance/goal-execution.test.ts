@@ -120,6 +120,84 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("pauses on unresolved work item requirements and resumes after they are resolved", () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-needs-input",
+      summary: "Execute work after operator confirmation.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+      pauseRequirements: [
+        {
+          id: "operator-confirmation",
+          kind: "operator_input",
+          summary: "Confirm whether Slice 9 should continue.",
+          status: "pending",
+        },
+      ],
+    });
+    const goal = new GoalRunStore({ now: fixedNow }).create({
+      id: "goal-needs-input",
+      objective: "Execute approved plan.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+
+    const paused = selectNextGoalExecutionStep({
+      goalRun: goal,
+      workItems: workItemStore.snapshot().items,
+    });
+
+    expect(paused).toMatchObject({
+      status: "paused",
+      reasonCode: "pause_requirements_unresolved",
+      blockingWorkItemIds: [item.id],
+      pendingPauseRequirements: [
+        {
+          id: "operator-confirmation",
+          kind: "operator_input",
+          status: "pending",
+        },
+      ],
+    });
+
+    workItemStore.upsert({
+      ...item,
+      pauseRequirements: [
+        {
+          id: "operator-confirmation",
+          kind: "operator_input",
+          summary: "Confirm whether Slice 9 should continue.",
+          status: "resolved",
+          resolvedBy: "operator",
+          resolvedAt: "2026-05-12T20:00:00.000Z",
+          resolution: "Continue Slice 9.",
+        },
+      ],
+    });
+
+    const ready = selectNextGoalExecutionStep({
+      goalRun: goal,
+      workItems: workItemStore.snapshot().items,
+    });
+
+    expect(ready).toMatchObject({
+      status: "ready",
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+  });
+
   it("records execution attempts and blocks completion until required evidence and residual risk are present", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

@@ -1,4 +1,12 @@
-import type { DevTool, ToolInput, ToolResult, WorkItemStatus } from "@kilnai/core";
+import type {
+  DevTool,
+  ToolInput,
+  ToolResult,
+  WorkItemPauseRequirement,
+  WorkItemPauseRequirementKind,
+  WorkItemPauseRequirementStatus,
+  WorkItemStatus,
+} from "@kilnai/core";
 import {
   finishGoalExecutionAttempt,
   GoalRunStore,
@@ -52,6 +60,13 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
 ];
 
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
+const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[] = [
+  "operator_input",
+  "credentials",
+  "approval",
+  "authority_elevation",
+];
+const WORK_ITEM_PAUSE_REQUIREMENT_STATUSES: readonly WorkItemPauseRequirementStatus[] = ["pending", "resolved"];
 const MANAGED_INVOCATION_PROFILES = [
   "foundation-readonly-plan",
   "foundation-propose-writes",
@@ -274,6 +289,24 @@ export class WorkItemUpdateTool implements DevTool {
         description: "Optional work item ids that must complete first.",
       },
       residualRisk: { type: "string", description: "Known residual risk, if already available." },
+      pauseRequirements: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", minLength: 1 },
+            kind: { enum: WORK_ITEM_PAUSE_REQUIREMENT_KINDS },
+            summary: { type: "string", minLength: 1 },
+            status: { enum: WORK_ITEM_PAUSE_REQUIREMENT_STATUSES },
+            resolvedBy: { type: "string" },
+            resolvedAt: { type: "string" },
+            resolution: { type: "string" },
+          },
+          required: ["id", "kind", "summary", "status"],
+          additionalProperties: false,
+        },
+        description: "Optional unresolved or resolved requirements that must be cleared before execution can start.",
+      },
     },
     required: ["summary"],
     additionalProperties: false,
@@ -312,6 +345,10 @@ export class WorkItemUpdateTool implements DevTool {
       ...workflowProfile.verificationGates,
       ...readTextArray(input.input.verificationGates),
     ]);
+    const pauseRequirements = readPauseRequirements(input.input.pauseRequirements);
+    if (!pauseRequirements.ok) {
+      return { output: `Invalid input: ${pauseRequirements.message}`, isError: true };
+    }
 
     const item = this.store.upsert({
       id: readText(input.input.id),
@@ -329,6 +366,7 @@ export class WorkItemUpdateTool implements DevTool {
       verificationGates,
       dependencies: readTextArray(input.input.dependencies),
       residualRisk: readText(input.input.residualRisk),
+      pauseRequirements: pauseRequirements.requirements,
     });
 
     return {
@@ -840,6 +878,56 @@ function isTrigger(value: unknown): value is KilnWorkGovernanceTrigger {
 
 function readStatus(value: unknown): WorkItemStatus | undefined {
   return WORK_ITEM_STATUSES.includes(value as WorkItemStatus) ? value as WorkItemStatus : undefined;
+}
+
+function readPauseRequirements(value: unknown):
+  | { readonly ok: true; readonly requirements?: readonly WorkItemPauseRequirement[] }
+  | { readonly ok: false; readonly message: string } {
+  if (value === undefined) {
+    return { ok: true };
+  }
+  if (!Array.isArray(value)) {
+    return { ok: false, message: '"pauseRequirements" must be an array' };
+  }
+  const requirements: WorkItemPauseRequirement[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return { ok: false, message: '"pauseRequirements" entries must be objects' };
+    }
+    const record = candidate as Record<string, unknown>;
+    const id = readText(record.id);
+    const summary = readText(record.summary);
+    const kind = readPauseRequirementKind(record.kind);
+    const status = readPauseRequirementStatus(record.status);
+    if (!id || !summary || !kind || !status) {
+      return {
+        ok: false,
+        message: '"pauseRequirements" entries require id, kind, summary, and status',
+      };
+    }
+    requirements.push({
+      id,
+      kind,
+      summary,
+      status,
+      ...(readText(record.resolvedBy) ? { resolvedBy: readText(record.resolvedBy) } : {}),
+      ...(readText(record.resolvedAt) ? { resolvedAt: readText(record.resolvedAt) } : {}),
+      ...(readText(record.resolution) ? { resolution: readText(record.resolution) } : {}),
+    });
+  }
+  return { ok: true, requirements };
+}
+
+function readPauseRequirementKind(value: unknown): WorkItemPauseRequirementKind | undefined {
+  return WORK_ITEM_PAUSE_REQUIREMENT_KINDS.includes(value as WorkItemPauseRequirementKind)
+    ? value as WorkItemPauseRequirementKind
+    : undefined;
+}
+
+function readPauseRequirementStatus(value: unknown): WorkItemPauseRequirementStatus | undefined {
+  return WORK_ITEM_PAUSE_REQUIREMENT_STATUSES.includes(value as WorkItemPauseRequirementStatus)
+    ? value as WorkItemPauseRequirementStatus
+    : undefined;
 }
 
 function readTriggers(value: unknown): readonly KilnWorkGovernanceTrigger[] {

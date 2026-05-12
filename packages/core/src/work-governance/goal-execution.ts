@@ -7,6 +7,7 @@ import type {
   WorkItem,
   WorkItemExecutionAttempt,
   WorkItemExecutionMode,
+  WorkItemPauseRequirement,
   WorkItemStore,
 } from "./work-item.js";
 
@@ -33,6 +34,7 @@ export type GoalExecutionStep =
       | "goal_terminal"
       | "missing_work_items"
       | "dependencies_incomplete"
+      | "pause_requirements_unresolved"
       | "work_item_in_progress"
       | "work_item_blocked"
       | "no_ready_work_item";
@@ -40,6 +42,7 @@ export type GoalExecutionStep =
     readonly blockingWorkItemIds: readonly string[];
     readonly incompleteDependencyIds: readonly string[];
     readonly missingWorkItemIds: readonly string[];
+    readonly pendingPauseRequirements: readonly WorkItemPauseRequirement[];
   }
   | {
     readonly status: "complete";
@@ -126,6 +129,18 @@ export function selectNextGoalExecutionStep(input: SelectNextGoalExecutionStepIn
       }
       continue;
     }
+    const pendingPauseRequirements = item.pauseRequirements?.filter((requirement) => requirement.status === "pending") ?? [];
+    if (pendingPauseRequirements.length > 0) {
+      return paused(
+        goal,
+        "pause_requirements_unresolved",
+        `Work item ${item.id} has unresolved pause requirements.`,
+        [item.id],
+        [],
+        [],
+        pendingPauseRequirements,
+      );
+    }
 
     const executionMode = resolveExecutionMode(goal, item, input.governanceAssessment);
     return {
@@ -167,6 +182,11 @@ export function selectNextGoalExecutionStep(input: SelectNextGoalExecutionStepIn
 export function startGoalExecutionAttempt(input: StartGoalExecutionAttemptInput): GoalExecutionAttemptTransition {
   const goal = requireActiveGoal(input.goalRunStore, input.goalRunId);
   assertGoalContainsWorkItem(goal, input.workItemId);
+  const item = input.workItemStore.get(input.workItemId);
+  const pendingPauseRequirements = item?.pauseRequirements?.filter((requirement) => requirement.status === "pending") ?? [];
+  if (pendingPauseRequirements.length > 0) {
+    throw new Error(`Work item ${input.workItemId} has unresolved pause requirements.`);
+  }
   const started = input.workItemStore.startExecutionAttempt({
     id: input.workItemId,
     goalRunId: goal.id,
@@ -277,6 +297,7 @@ function paused(
   blockingWorkItemIds: readonly string[],
   incompleteDependencyIds: readonly string[],
   missingWorkItemIds: readonly string[],
+  pendingPauseRequirements: readonly WorkItemPauseRequirement[] = [],
 ): GoalExecutionStep {
   return {
     status: "paused",
@@ -286,6 +307,7 @@ function paused(
     blockingWorkItemIds,
     incompleteDependencyIds,
     missingWorkItemIds,
+    pendingPauseRequirements,
   };
 }
 

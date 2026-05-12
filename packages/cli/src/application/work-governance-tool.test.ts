@@ -303,6 +303,96 @@ describe("work-governance-tool", () => {
     expect(workItemStore.get(second.id)?.status).toBe("pending");
   });
 
+  it("pauses execution on unresolved work item requirements and resumes after update resolves them", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-paused",
+        summary: "Execute after credentials are available.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        expectedEvidence: ["tests"],
+        pauseRequirements: [
+          {
+            id: "credential-access",
+            kind: "credentials",
+            summary: "Provide test service credentials.",
+            status: "pending",
+          },
+        ],
+      },
+    });
+    expect(created?.isError).toBe(false);
+    goalRunStore.create({
+      id: "goal-paused-requirement",
+      objective: "Execute approved work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: ["work-paused"],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+
+    const paused = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: "goal-paused-requirement",
+      },
+    });
+
+    expect(paused?.isError).toBe(true);
+    expect(paused?.output).toContain("pause_requirements_unresolved");
+    expect(paused?.output).toContain("credential-access");
+    expect(workItemStore.get("work-paused")?.status).toBe("pending");
+
+    const resolved = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-paused",
+        summary: "Execute after credentials are available.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        expectedEvidence: ["tests"],
+        pauseRequirements: [
+          {
+            id: "credential-access",
+            kind: "credentials",
+            summary: "Provide test service credentials.",
+            status: "resolved",
+            resolvedBy: "operator",
+            resolvedAt: "2026-05-12T20:00:00.000Z",
+            resolution: "Credentials supplied through approved channel.",
+          },
+        ],
+      },
+    });
+    expect(resolved?.isError).toBe(false);
+
+    const started = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: "goal-paused-requirement",
+      },
+    });
+
+    expect(started?.isError).toBe(false);
+    expect(started?.metadata).toMatchObject({
+      operation: "execution_started",
+      id: "work-paused",
+      status: "in_progress",
+    });
+  });
+
   it("requires a managed invocation id before starting managed-delegation execution", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

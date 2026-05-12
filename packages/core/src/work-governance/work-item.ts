@@ -14,6 +14,18 @@ export interface WorkItemRoutingRecommendation {
 
 export type WorkItemExecutionMode = "direct" | "managed_delegation";
 export type WorkItemExecutionAttemptStatus = "started" | "completed" | "blocked" | "failed" | "cancelled";
+export type WorkItemPauseRequirementKind = "operator_input" | "credentials" | "approval" | "authority_elevation";
+export type WorkItemPauseRequirementStatus = "pending" | "resolved";
+
+export interface WorkItemPauseRequirement {
+  readonly id: string;
+  readonly kind: WorkItemPauseRequirementKind;
+  readonly summary: string;
+  readonly status: WorkItemPauseRequirementStatus;
+  readonly resolvedBy?: string;
+  readonly resolvedAt?: string;
+  readonly resolution?: string;
+}
 
 export interface WorkItemExecutionAttempt {
   readonly id: string;
@@ -47,6 +59,7 @@ export interface WorkItemUpsertInput {
   readonly verificationGates: readonly string[];
   readonly dependencies?: readonly string[];
   readonly residualRisk?: string;
+  readonly pauseRequirements?: readonly WorkItemPauseRequirement[];
   readonly planId?: string;
   readonly planHash?: string;
   readonly goalRunId?: string;
@@ -153,6 +166,7 @@ export class WorkItemStore {
       verificationGates: unique(input.verificationGates),
       dependencies: unique(input.dependencies ?? existing?.dependencies ?? []),
       residualRisk: input.residualRisk ?? existing?.residualRisk,
+      pauseRequirements: normalizePauseRequirements(input.pauseRequirements ?? existing?.pauseRequirements ?? []),
       planId: input.planId ?? existing?.planId,
       planHash: input.planHash ?? existing?.planHash,
       goalRunId: input.goalRunId ?? existing?.goalRunId,
@@ -318,4 +332,17 @@ export function reconstructWorkItemsFromSessionEvents(
 
 function unique<T extends string>(values: readonly T[]): readonly T[] {
   return [...new Set(values)];
+}
+
+function normalizePauseRequirements(
+  requirements: readonly WorkItemPauseRequirement[],
+): readonly WorkItemPauseRequirement[] {
+  const byId = new Map<string, WorkItemPauseRequirement>();
+  for (const requirement of requirements) {
+    if (byId.has(requirement.id)) {
+      continue;
+    }
+    byId.set(requirement.id, requirement);
+  }
+  return [...byId.values()];
 }
