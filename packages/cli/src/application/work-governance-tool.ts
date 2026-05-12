@@ -7,6 +7,7 @@ import {
   WorkItemStore,
   workItemToolMetadata,
 } from "@kilnai/core";
+import type { GoalExecutionStep, GoalRun } from "@kilnai/core";
 import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceEvidence,
@@ -51,6 +52,17 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
 ];
 
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
+const MANAGED_INVOCATION_PROFILES = [
+  "foundation-readonly-plan",
+  "foundation-propose-writes",
+  "foundation-apply-approved-writes",
+  "foundation-memory-write-proposals",
+] as const;
+const MANAGED_INVOCATION_AUTHORITIES = ["auto", "read_only", "audited", "destructive"] as const;
+type ManagedInvocationProfile = typeof MANAGED_INVOCATION_PROFILES[number];
+type ManagedInvocationAuthority = typeof MANAGED_INVOCATION_AUTHORITIES[number];
+type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
+
 export function createWorkGovernanceTools(
   config: KilnWorkGovernanceConfig | undefined,
   options: {
@@ -480,6 +492,26 @@ export class WorkItemExecutionStartTool implements DevTool {
       workItemId: { type: "string", description: "Optional explicit work item id. Omit to select the next ready item." },
       summary: { type: "string", description: "Attempt summary." },
       managedInvocationId: { type: "string", description: "Managed child invocation id when delegation has already been requested." },
+      managedProviderId: {
+        type: "string",
+        description: "Configured managed provider id to include in the suggested managed_agent.invoke request.",
+      },
+      managedModel: {
+        type: "string",
+        description: "Optional configured managed model to include in the suggested managed_agent.invoke request.",
+      },
+      managedReasoningEffort: {
+        type: "string",
+        description: "Optional reasoning effort to include in the suggested managed_agent.invoke request.",
+      },
+      managedProfile: {
+        enum: MANAGED_INVOCATION_PROFILES,
+        description: "Managed invocation authority profile to include in the suggested managed_agent.invoke request.",
+      },
+      requestedAuthority: {
+        enum: MANAGED_INVOCATION_AUTHORITIES,
+        description: "Requested child authority to include in the suggested managed_agent.invoke request.",
+      },
       governanceRecommendation: {
         enum: ["direct", "orchestrate"],
         description: "Optional work_governance.assess recommendation used for ready-item selection.",
@@ -550,16 +582,20 @@ export class WorkItemExecutionStartTool implements DevTool {
     }
     const managedInvocationId = readText(input.input.managedInvocationId);
     if (step.executionMode === "managed_delegation" && !managedInvocationId) {
+      const managedInvocation = buildManagedInvocationRequest(goal, step, input.input);
       return {
         output: JSON.stringify({
           status: "paused",
           reason: "managedInvocationId is required before starting managed-delegation execution.",
           workItemId: step.workItemId,
-          routeId: step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goal.routePolicy.preferredRouteId,
-          agentProfile: step.workItem.assignedAgentProfile
-            ?? step.workItem.routingRecommendation?.agentProfile
-            ?? goal.routePolicy.managedAgentProfile,
+          routeId: managedInvocation.routeId,
+          agentProfile: managedInvocation.agentProfile,
           requiredEvidence: step.requiredEvidence,
+          nextTool: "managed_agent.invoke",
+          managedInvocationRequest: managedInvocation.request,
+          ...(managedInvocation.missingFields.length > 0
+            ? { missingManagedInvocationFields: managedInvocation.missingFields }
+            : {}),
         }, null, 2),
         isError: true,
       };
@@ -687,6 +723,111 @@ export class WorkItemExecutionFinishTool implements DevTool {
       return { output: error instanceof Error ? error.message : String(error), isError: true };
     }
   }
+}
+
+function buildManagedInvocationRequest(
+  goal: GoalRun,
+  step: ReadyGoalExecutionStep,
+  input: Record<string, unknown>,
+): {
+  readonly routeId?: string;
+  readonly agentProfile?: string;
+  readonly missingFields: readonly string[];
+  readonly request: Record<string, unknown>;
+} {
+  const routeId = step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goal.routePolicy.preferredRouteId;
+  const agentProfile = step.workItem.assignedAgentProfile
+    ?? step.workItem.routingRecommendation?.agentProfile
+    ?? goal.routePolicy.managedAgentProfile;
+  const providerId = readText(input.managedProviderId);
+  const model = readText(input.managedModel);
+  const reasoningEffort = readText(input.managedReasoningEffort)
+    ?? step.workItem.routingRecommendation?.reasoningEffort;
+  const expectedEvidence = step.requiredEvidence;
+  const residualRiskRequired = expectedEvidence.includes("residual-risk");
+  const request: Record<string, unknown> = {
+    profile: readManagedInvocationProfile(input.managedProfile)
+      ?? readManagedInvocationProfile(step.workItem.authorityProfile)
+      ?? "foundation-readonly-plan",
+    ...(routeId ? { routeId } : {}),
+    ...(providerId
+      ? {
+        providerRoute: {
+          providerId,
+          ...(model ? { model } : {}),
+          ...(reasoningEffort ? { reasoningEffort } : {}),
+        },
+      }
+      : {}),
+    requestedAuthority: readManagedInvocationAuthority(input.requestedAuthority)
+      ?? readManagedInvocationAuthority(step.workItem.authorityProfile)
+      ?? goal.authorityEnvelope.maximumAuthority,
+    task: formatManagedInvocationTask(goal, step),
+    summary: step.workItem.summary,
+    workItemId: step.workItemId,
+    ...(agentProfile ? { agentProfile } : {}),
+    roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
+    expectedEvidence,
+    requiredResultFields: managedInvocationResultFields(expectedEvidence),
+    doneCriteria: managedInvocationDoneCriteria(step),
+    residualRiskRequired,
+  };
+
+  return {
+    routeId,
+    agentProfile,
+    missingFields: providerId ? [] : ["providerRoute.providerId"],
+    request,
+  };
+}
+
+function formatManagedInvocationTask(goal: GoalRun, step: ReadyGoalExecutionStep): string {
+  const lines = [
+    step.workItem.summary,
+    `Goal: ${goal.objective}`,
+    `Work item id: ${step.workItemId}`,
+  ];
+  if (step.requiredEvidence.length > 0) {
+    lines.push(`Produce evidence: ${step.requiredEvidence.join(", ")}.`);
+  }
+  if (step.workItem.verificationGates.length > 0) {
+    lines.push(`Verification gates: ${step.workItem.verificationGates.join("; ")}.`);
+  }
+  lines.push("Return a concise handoff with summary, evidence, checks, and residual risk when required.");
+  return lines.join("\n");
+}
+
+function managedInvocationResultFields(expectedEvidence: readonly string[]): readonly string[] {
+  return uniqueText([
+    "summary",
+    "evidence",
+    "checks",
+    ...(expectedEvidence.includes("residual-risk") ? ["residualRisk"] : []),
+  ]);
+}
+
+function managedInvocationDoneCriteria(step: ReadyGoalExecutionStep): readonly string[] {
+  return uniqueText([
+    ...step.workItem.verificationGates,
+    ...(step.requiredEvidence.length > 0
+      ? [`Produce required evidence: ${step.requiredEvidence.join(", ")}.`]
+      : []),
+    ...(step.requiredEvidence.includes("residual-risk")
+      ? ["Document residual risk before closeout."]
+      : []),
+  ]);
+}
+
+function readManagedInvocationProfile(value: unknown): ManagedInvocationProfile | undefined {
+  return MANAGED_INVOCATION_PROFILES.includes(value as ManagedInvocationProfile)
+    ? value as ManagedInvocationProfile
+    : undefined;
+}
+
+function readManagedInvocationAuthority(value: unknown): ManagedInvocationAuthority | undefined {
+  return MANAGED_INVOCATION_AUTHORITIES.includes(value as ManagedInvocationAuthority)
+    ? value as ManagedInvocationAuthority
+    : undefined;
 }
 
 function isRisk(value: unknown): value is KilnWorkGovernanceRisk {

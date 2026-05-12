@@ -27,6 +27,7 @@ describe("work-governance-context", () => {
     expect(candidate?.content).toContain("Default posture: orchestrate");
     expect(candidate?.content).toContain("Require orchestration/delegation for: architecture, managed-agents");
     expect(candidate?.content).toContain("work_profile.list and work_item.update/list/complete");
+    expect(candidate?.content).toContain("use its managedInvocationRequest with managed_agent.invoke");
     expect(candidate?.content).toContain("Model self-confidence is not evidence");
   });
 

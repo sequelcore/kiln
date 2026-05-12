@@ -316,6 +316,7 @@ describe("work-governance-tool", () => {
       goalRunId: "goal-managed",
       routeId: "opencode-readonly",
       assignedAgentProfile: "coder",
+      authorityProfile: "foundation-propose-writes",
     });
     const goal = goalRunStore.create({
       id: "goal-managed",
@@ -343,11 +344,53 @@ describe("work-governance-tool", () => {
       input: {
         goalRunId: goal.id,
         governanceRecommendation: "orchestrate",
+        managedProviderId: "opencode",
+        managedModel: "opencode-default-model",
       },
     });
 
     expect(missingInvocation?.isError).toBe(true);
     expect(missingInvocation?.output).toContain("managedInvocationId is required");
+    const missingInvocationOutput = JSON.parse(missingInvocation?.output ?? "{}") as {
+      readonly nextTool?: string;
+      readonly managedInvocationRequest?: {
+        readonly profile?: string;
+        readonly routeId?: string;
+        readonly providerRoute?: {
+          readonly providerId?: string;
+          readonly model?: string;
+        };
+        readonly requestedAuthority?: string;
+        readonly task?: string;
+        readonly summary?: string;
+        readonly workItemId?: string;
+        readonly agentProfile?: string;
+        readonly roleIntent?: string;
+        readonly expectedEvidence?: readonly string[];
+        readonly requiredResultFields?: readonly string[];
+        readonly doneCriteria?: readonly string[];
+        readonly residualRiskRequired?: boolean;
+      };
+    };
+    expect(missingInvocationOutput.nextTool).toBe("managed_agent.invoke");
+    expect(missingInvocationOutput.managedInvocationRequest).toMatchObject({
+      profile: "foundation-propose-writes",
+      routeId: "opencode-readonly",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "audited",
+      summary: "Execute delegated work.",
+      workItemId: "work-managed",
+      agentProfile: "coder",
+      roleIntent: "Execute governed work item work-managed for goal goal-managed.",
+      expectedEvidence: ["managed-agent-review"],
+      requiredResultFields: ["summary", "evidence", "checks"],
+      doneCriteria: ["review child handoff", "Produce required evidence: managed-agent-review."],
+      residualRiskRequired: false,
+    });
+    expect(missingInvocationOutput.managedInvocationRequest?.task).toContain("Execute delegated work.");
     expect(workItemStore.get(item.id)?.status).toBe("pending");
 
     const started = await startTool?.execute({
