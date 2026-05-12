@@ -548,6 +548,22 @@ export class WorkItemExecutionStartTool implements DevTool {
         isError: true,
       };
     }
+    const managedInvocationId = readText(input.input.managedInvocationId);
+    if (step.executionMode === "managed_delegation" && !managedInvocationId) {
+      return {
+        output: JSON.stringify({
+          status: "paused",
+          reason: "managedInvocationId is required before starting managed-delegation execution.",
+          workItemId: step.workItemId,
+          routeId: step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goal.routePolicy.preferredRouteId,
+          agentProfile: step.workItem.assignedAgentProfile
+            ?? step.workItem.routingRecommendation?.agentProfile
+            ?? goal.routePolicy.managedAgentProfile,
+          requiredEvidence: step.requiredEvidence,
+        }, null, 2),
+        isError: true,
+      };
+    }
 
     try {
       const started = startGoalExecutionAttempt({
@@ -557,7 +573,7 @@ export class WorkItemExecutionStartTool implements DevTool {
         workItemId: step.workItemId,
         executionMode: step.executionMode,
         summary: readText(input.input.summary),
-        managedInvocationId: readText(input.input.managedInvocationId),
+        managedInvocationId,
       });
       return {
         output: JSON.stringify({

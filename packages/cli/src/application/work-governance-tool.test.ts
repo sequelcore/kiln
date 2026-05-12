@@ -302,6 +302,72 @@ describe("work-governance-tool", () => {
     expect(blocked?.output).toContain("Explicit work item is not the next ready item");
     expect(workItemStore.get(second.id)?.status).toBe("pending");
   });
+
+  it("requires a managed invocation id before starting managed-delegation execution", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed",
+      summary: "Execute delegated work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: ["review child handoff"],
+      goalRunId: "goal-managed",
+      routeId: "opencode-readonly",
+      assignedAgentProfile: "coder",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed",
+      objective: "Execute delegated work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: {
+        workflowProfile: "managed-agent-change",
+        preferredRouteId: "opencode-readonly",
+        managedAgentProfile: "coder",
+      },
+      evidenceRequirements: [],
+    });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const missingInvocation = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+      },
+    });
+
+    expect(missingInvocation?.isError).toBe(true);
+    expect(missingInvocation?.output).toContain("managedInvocationId is required");
+    expect(workItemStore.get(item.id)?.status).toBe("pending");
+
+    const started = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+        managedInvocationId: "invocation-managed-1",
+      },
+    });
+
+    expect(started?.isError).toBe(false);
+    expect(started?.metadata).toMatchObject({
+      operation: "execution_started",
+      attempt: {
+        executionMode: "managed_delegation",
+        managedInvocationId: "invocation-managed-1",
+      },
+    });
+  });
 });
 
 function fixedNow(): string {
