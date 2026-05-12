@@ -99,6 +99,7 @@ describe("session event envelope", () => {
       startedAt: "2026-05-12T18:10:00.000Z",
       providedEvidence: [],
       missingEvidence: [],
+      skippedVerificationGates: [],
       missingResidualRisk: false,
     };
     const workItem: WorkItem = {
@@ -357,6 +358,7 @@ describe("session event envelope", () => {
         workItem: finishedWorkItem,
         attempt: finishedAttempt,
         missingEvidence: [],
+        missingGoalEvidence: [],
         missingResidualRisk: false,
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({

@@ -88,6 +88,7 @@ export interface FinishGoalExecutionAttemptInput {
 export interface GoalExecutionAttemptFinish extends GoalExecutionAttemptTransition {
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
+  readonly missingGoalEvidence: readonly string[];
 }
 
 export function selectNextGoalExecutionStep(input: SelectNextGoalExecutionStepInput): GoalExecutionStep {
@@ -223,39 +224,83 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
   if (!completed) {
     throw new Error(`Work item ${input.workItemId} attempt ${input.attemptId} was not found.`);
   }
-  const goalAfterAttempt = completed.item.status === "completed"
+  const goalCloseout = completed.item.status === "completed"
     ? transitionGoalAfterCompletedItem(input, goal)
-    : input.goalRunStore.update({
-        id: goal.id,
-        currentPhase: `paused:${input.workItemId}`,
-      });
+    : {
+        goal: input.goalRunStore.update({
+          id: goal.id,
+          currentPhase: `paused:${input.workItemId}`,
+        }),
+        missingGoalEvidence: [],
+      };
   return {
-    goal: goalAfterAttempt,
+    goal: goalCloseout.goal,
     item: completed.item,
     attempt: completed.attempt,
     missingEvidence: completed.missingEvidence,
     missingResidualRisk: completed.missingResidualRisk,
+    missingGoalEvidence: goalCloseout.missingGoalEvidence,
   };
 }
 
 function transitionGoalAfterCompletedItem(
   input: FinishGoalExecutionAttemptInput,
   goal: GoalRun,
-): GoalRun {
+): {
+  readonly goal: GoalRun;
+  readonly missingGoalEvidence: readonly string[];
+} {
   const allCompleted = goal.workItemIds.every((id) => {
     const item = input.workItemStore.get(id);
     return item?.status === "completed";
   });
-  if (allCompleted) {
-    return input.goalRunStore.complete({
+  if (!allCompleted) {
+    return {
+      goal: input.goalRunStore.update({
+        id: goal.id,
+        currentPhase: `completed:${input.workItemId}`,
+      }),
+      missingGoalEvidence: [],
+    };
+  }
+
+  const missingGoalEvidence = missingRequiredGoalEvidence(goal, input.workItemStore);
+  if (missingGoalEvidence.length > 0) {
+    return {
+      goal: input.goalRunStore.update({
+        id: goal.id,
+        currentPhase: "paused:goal-closeout",
+      }),
+      missingGoalEvidence,
+    };
+  }
+  return {
+    goal: input.goalRunStore.complete({
       id: goal.id,
       closeoutSummary: input.closeoutSummary ?? `Goal ${goal.id} completed after work item ${input.workItemId}.`,
-    });
+    }),
+    missingGoalEvidence: [],
+  };
+}
+
+function missingRequiredGoalEvidence(goal: GoalRun, workItemStore: WorkItemStore): readonly string[] {
+  const provided = new Set<string>();
+  for (const id of goal.workItemIds) {
+    const item = workItemStore.get(id);
+    if (!item) {
+      continue;
+    }
+    for (const evidence of item.providedEvidence) {
+      provided.add(evidence);
+    }
+    if (item.residualRisk) {
+      provided.add("residual-risk");
+    }
   }
-  return input.goalRunStore.update({
-    id: goal.id,
-    currentPhase: `completed:${input.workItemId}`,
-  });
+  return goal.evidenceRequirements
+    .filter((requirement) => requirement.required)
+    .map((requirement) => requirement.id)
+    .filter((id) => !provided.has(id));
 }
 
 function resolveExecutionMode(

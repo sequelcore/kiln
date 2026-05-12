@@ -746,6 +746,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
       });
       const missing = [
         ...finished.missingEvidence,
+        ...finished.missingGoalEvidence,
         ...(finished.missingResidualRisk ? ["residual-risk closeout"] : []),
       ];
       return {
@@ -763,6 +764,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
           item: finished.item,
           attempt: finished.attempt,
           missingEvidence: finished.missingEvidence,
+          missingGoalEvidence: finished.missingGoalEvidence,
           missingResidualRisk: finished.missingResidualRisk,
           sequence: finished.item.sequence,
           ...(missing.length > 0 ? { errorCode: "missing_evidence" } : {}),

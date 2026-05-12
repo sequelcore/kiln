@@ -1114,6 +1114,7 @@ describe("session-store", () => {
               startedAt: "2026-05-12T20:01:00.000Z",
               providedEvidence: [],
               missingEvidence: [],
+              skippedVerificationGates: [],
               missingResidualRisk: false,
             },
           ],
@@ -1128,13 +1129,59 @@ describe("session-store", () => {
         },
       },
     });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-work-finished",
+      kilnSessionId: "session-live",
+      sequence: 3,
+      timestamp: "2026-05-12T20:02:00.000Z",
+      kind: "work_item_execution_finished",
+      payload: {
+        workItem: {
+          id: "work-1",
+          summary: "Run Slice 9 verification",
+          status: "completed",
+          workflowProfile: "verification-heavy",
+          expectedEvidence: ["tests"],
+          providedEvidence: ["tests"],
+          verificationGates: ["bun test"],
+          executionAttempts: [
+            {
+              id: "goal-1:work-1:attempt:1",
+              workItemId: "work-1",
+              goalRunId: "goal-1",
+              status: "completed",
+              executionMode: "managed_delegation",
+              managedInvocationId: "invocation-1",
+              startedAt: "2026-05-12T20:01:00.000Z",
+              completedAt: "2026-05-12T20:02:00.000Z",
+              providedEvidence: ["tests"],
+              missingEvidence: [],
+              skippedVerificationGates: [],
+              missingResidualRisk: false,
+            },
+          ],
+          updatedAt: "2026-05-12T20:02:00.000Z",
+        },
+        attempt: {
+          id: "goal-1:work-1:attempt:1",
+          status: "completed",
+          executionMode: "managed_delegation",
+          managedInvocationId: "invocation-1",
+          startedAt: "2026-05-12T20:01:00.000Z",
+          completedAt: "2026-05-12T20:02:00.000Z",
+        },
+        missingEvidence: [],
+        missingGoalEvidence: ["typecheck"],
+        missingResidualRisk: false,
+      },
+    });
 
     const items = deriveWorkItems(useSessionStore.getState().timelineEntries);
 
     expect(items).toEqual([
       expect.objectContaining({
         id: "work-1",
-        status: "in_progress",
+        status: "completed",
         pauseRequirements: [
           expect.objectContaining({
             id: "approval-1",
@@ -1146,10 +1193,11 @@ describe("session-store", () => {
           expect.objectContaining({
             id: "goal-1:work-1:attempt:1",
             executionMode: "managed_delegation",
-            status: "started",
+            status: "completed",
             managedInvocationId: "invocation-1",
           }),
         ],
+        missingGoalEvidence: ["typecheck"],
       }),
     ]);
     expect(useSessionStore.getState().timelineEntries).toEqual(expect.arrayContaining([
@@ -1157,6 +1205,11 @@ describe("session-store", () => {
         type: "event",
         eventKind: "work_item_execution_started",
         title: "Work item execution started",
+      }),
+      expect.objectContaining({
+        type: "event",
+        eventKind: "work_item_execution_finished",
+        title: "Work item execution completed",
       }),
     ]));
   });

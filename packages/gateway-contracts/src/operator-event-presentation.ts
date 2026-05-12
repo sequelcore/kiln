@@ -1405,7 +1405,9 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   const missingEvidence = Array.isArray(payload.missingEvidence)
     ? payload.missingEvidence.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
     : [];
+  const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
   const missingResidualRisk = payload.missingResidualRisk === true;
+  const hasMissingCloseout = missingEvidence.length > 0 || missingGoalEvidence.length > 0 || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Work item", item?.id);
   addItem(details, "Status", status);
@@ -1417,13 +1419,16 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   addItem(details, "Expected evidence", Array.isArray(item?.expectedEvidence) ? item.expectedEvidence.join(", ") : undefined);
   addItem(details, "Provided evidence", Array.isArray(item?.providedEvidence) ? item.providedEvidence.join(", ") : undefined);
   addItem(details, "Missing evidence", missingEvidence.join(", "));
+  addItem(details, "Missing goal evidence", missingGoalEvidence.join(", "));
   addItem(details, "Missing residual risk", missingResidualRisk);
 
   return {
     title: status === "completed" ? "Work item completed" : "Work item updated",
     summary: `${status} · ${summary}`,
     compactText: `${operation}: ${status} · ${summary}`,
-    tone: status === "completed"
+    tone: hasMissingCloseout
+      ? "warning"
+      : status === "completed"
       ? "success"
       : status === "blocked"
         ? "warning"
@@ -1443,7 +1448,9 @@ function workItemExecutionPresentation(
   const status = readString(attempt?.status) ?? readString(item?.status) ?? "unknown";
   const executionMode = readString(attempt?.executionMode) ?? "unknown";
   const missingEvidence = readStringList(payload.missingEvidence);
+  const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
   const missingResidualRisk = payload.missingResidualRisk === true;
+  const hasMissingCloseout = missingEvidence.length > 0 || missingGoalEvidence.length > 0 || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Work item", item?.id);
   addItem(details, "Attempt", attempt?.id);
@@ -1453,6 +1460,7 @@ function workItemExecutionPresentation(
   addItem(details, "Started", attempt?.startedAt);
   addItem(details, "Completed", attempt?.completedAt);
   addItem(details, "Missing evidence", missingEvidence.join(", "));
+  addItem(details, "Missing goal evidence", missingGoalEvidence.join(", "));
   addItem(details, "Missing residual risk", missingResidualRisk);
 
   return {
@@ -1463,7 +1471,9 @@ function workItemExecutionPresentation(
         : "Work item execution finished",
     summary: `${status} · ${executionMode} · ${summary}`,
     compactText: `${status} · ${executionMode} · ${summary}`,
-    tone: status === "started"
+    tone: hasMissingCloseout
+      ? "warning"
+      : status === "started"
       ? "running"
       : status === "completed"
         ? "success"

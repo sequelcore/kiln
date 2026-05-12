@@ -186,6 +186,7 @@ describe("operator event presentation", () => {
         completedAt: "2026-05-12T20:05:00.000Z",
       },
       missingEvidence: [],
+      missingGoalEvidence: ["typecheck"],
       missingResidualRisk: false,
     });
 
@@ -199,8 +200,9 @@ describe("operator event presentation", () => {
     expect(finished).toMatchObject({
       title: "Work item execution completed",
       summary: "completed · managed_delegation · Run Slice 9 verification",
-      tone: "success",
+      tone: "warning",
     });
+    expect(finished.details).toContainEqual({ label: "Missing goal evidence", value: "typecheck" });
   });
 
   it("presents turn completion nested data as operator detail rows", () => {

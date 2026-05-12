@@ -485,6 +485,7 @@ function projectWorkItemEvents(input: {
       workItem: metadata.item,
       operation: metadata.operation,
       missingEvidence: readStringArray(metadata.missingEvidence),
+      missingGoalEvidence: readStringArray(metadata.missingGoalEvidence),
       missingResidualRisk: metadata.missingResidualRisk === true,
       source: input.source,
       timestamp: input.runtimeEvent.timestamp,
@@ -513,6 +514,7 @@ function projectWorkItemEvents(input: {
       workItem: metadata.item,
       attempt: metadata.attempt,
       missingEvidence: readStringArray(metadata.missingEvidence),
+      missingGoalEvidence: readStringArray(metadata.missingGoalEvidence),
       missingResidualRisk: metadata.missingResidualRisk === true,
       source: input.source,
       timestamp: input.runtimeEvent.timestamp,
@@ -590,6 +592,7 @@ function isWorkItemToolMetadata(value: unknown): value is {
   readonly item: WorkItem;
   readonly attempt?: WorkItemExecutionAttempt;
   readonly missingEvidence?: unknown;
+  readonly missingGoalEvidence?: unknown;
   readonly missingResidualRisk?: unknown;
 } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

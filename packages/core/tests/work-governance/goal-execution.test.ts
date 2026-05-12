@@ -353,6 +353,65 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("blocks goal completion when required goal evidence is missing from linked work items", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-goal-evidence",
+      summary: "Complete item evidence only.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-evidence-closeout",
+      objective: "Close only with goal-level evidence.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [
+        { id: "tests", description: "Focused tests pass.", required: true },
+        { id: "typecheck", description: "Typecheck passes.", required: true },
+      ],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+      closeoutSummary: "Should not close without typecheck.",
+    });
+
+    expect(blocked).toMatchObject({
+      missingEvidence: [],
+      missingGoalEvidence: ["typecheck"],
+      goal: {
+        status: "active",
+        currentPhase: "paused:goal-closeout",
+      },
+      item: {
+        status: "completed",
+      },
+    });
+  });
+
   it("replays work item execution attempts from canonical session events", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
@@ -410,6 +469,7 @@ describe("goal execution loop", () => {
         workItem: finished.item,
         attempt: finished.attempt,
         missingEvidence: [],
+        missingGoalEvidence: [],
         missingResidualRisk: false,
       }),
     ]);

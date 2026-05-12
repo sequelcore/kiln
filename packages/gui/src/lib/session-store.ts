@@ -67,6 +67,7 @@ export interface WorkItemEntry {
   readonly pauseRequirements?: readonly WorkItemPauseRequirementEntry[];
   readonly executionAttempts?: readonly WorkItemExecutionAttemptEntry[];
   readonly missingEvidence?: readonly string[];
+  readonly missingGoalEvidence?: readonly string[];
   readonly missingResidualRisk?: boolean;
   readonly updatedAt: string;
 }
@@ -342,6 +343,7 @@ function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | 
     pauseRequirements: readWorkItemPauseRequirements(item.pauseRequirements),
     executionAttempts: readWorkItemExecutionAttempts(item.executionAttempts),
     missingEvidence: readStringArray(payload.missingEvidence),
+    missingGoalEvidence: readStringArray(payload.missingGoalEvidence),
     missingResidualRisk: payload.missingResidualRisk === true,
     updatedAt: readString(item.updatedAt) ?? nowIso(),
   };

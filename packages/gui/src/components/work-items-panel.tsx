@@ -58,6 +58,7 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
         {props.items.map((item) => {
           const missing = [
             ...(item.missingEvidence ?? []),
+            ...(item.missingGoalEvidence ?? []),
             ...(item.missingResidualRisk ? ["residual-risk"] : []),
           ];
           const pendingRequirements = item.pauseRequirements?.filter((requirement) => requirement.status === "pending") ?? [];
