@@ -89,6 +89,48 @@ describe("WorkflowOverviewPanel", () => {
     expect(screen.getByText("2 materialized")).toBeInTheDocument();
   });
 
+  it("renders admitted authority and route rationale from canonical turn completion details", () => {
+    const entries: TimelineEntry[] = [
+      {
+        id: "timeline-turn",
+        type: "event",
+        eventKind: "turn_completed",
+        createdAt: "2026-05-12T21:03:00.000Z",
+        sequence: 4,
+        title: "Turn completed",
+        summary: "claude · claude-sonnet-4-6",
+        tone: "success",
+        details: {
+          routedProvider: "claude",
+          routedModel: "claude-sonnet-4-6",
+          routingRationale: {
+            selectedProvider: "claude",
+            selectedModel: "claude-sonnet-4-6",
+            selectionMode: "auto",
+            routingReason: "Rule matched ui-change route",
+            routingTier: "rule",
+            requestedReasoningEffort: "high",
+          },
+          authorityStatus: {
+            effective: "read_only",
+            completeness: "authoritative",
+          },
+        },
+      },
+    ];
+
+    render(<WorkflowOverviewPanel entries={entries} />);
+
+    expect(screen.getByText("Authority and route")).toBeInTheDocument();
+    expect(screen.getByText("claude-sonnet-4-6")).toBeInTheDocument();
+    expect(screen.getByText("auto selection")).toBeInTheDocument();
+    expect(screen.getByText("rule route")).toBeInTheDocument();
+    expect(screen.getByText("read only authority")).toBeInTheDocument();
+    expect(screen.getByText("authoritative")).toBeInTheDocument();
+    expect(screen.getByText("Rule matched ui-change route")).toBeInTheDocument();
+    expect(screen.getByText("high")).toBeInTheDocument();
+  });
+
   it("renders an empty workflow state without local-only placeholders", () => {
     render(<WorkflowOverviewPanel entries={[]} />);
 

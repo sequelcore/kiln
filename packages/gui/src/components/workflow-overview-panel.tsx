@@ -37,6 +37,17 @@ interface WorkflowMaterializationPreview {
   readonly reusedCount: number;
 }
 
+interface WorkflowRoutePreview {
+  readonly provider?: string;
+  readonly model?: string;
+  readonly selectionMode?: string;
+  readonly routingReason?: string;
+  readonly routingTier?: string;
+  readonly authority?: string;
+  readonly authorityCompleteness?: string;
+  readonly reasoningEffort?: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -55,6 +66,10 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function readRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
 function badgeTone(value: string): string {
   if (value === "approved" || value === "completed") return "border-emerald-500/35 bg-emerald-500/10 text-emerald-300";
   if (value === "analysis-blocked" || value === "blocked" || value === "failed") return "border-amber-500/35 bg-amber-500/10 text-amber-300";
@@ -70,14 +85,45 @@ function latestWorkflowPreview(entries: readonly TimelineEntry[]): {
   readonly plan?: WorkflowPlanPreview;
   readonly goal?: WorkflowGoalPreview;
   readonly materialization?: WorkflowMaterializationPreview;
+  readonly route?: WorkflowRoutePreview;
 } {
   let plan: WorkflowPlanPreview | undefined;
   let goal: WorkflowGoalPreview | undefined;
   let materialization: WorkflowMaterializationPreview | undefined;
+  let route: WorkflowRoutePreview | undefined;
 
   for (const entry of entries) {
     if (entry.type !== "event") continue;
     const details = isRecord(entry.details) ? entry.details : {};
+
+    if (entry.eventKind === "provider_routed") {
+      const provider = readRecord(details.provider);
+      route = {
+        ...route,
+        provider: readString(provider.provider) ?? route?.provider,
+        model: readString(provider.model) ?? route?.model,
+        routingReason: readString(details.reason) ?? route?.routingReason,
+      };
+      continue;
+    }
+
+    if (entry.eventKind === "turn_completed") {
+      const routingRationale = readRecord(details.routingRationale);
+      const authorityStatus = readRecord(details.authorityStatus);
+      route = {
+        provider: readString(details.routedProvider) ?? readString(routingRationale.selectedProvider) ?? route?.provider,
+        model: readString(details.routedModel) ?? readString(routingRationale.selectedModel) ?? route?.model,
+        selectionMode: readString(routingRationale.selectionMode) ?? route?.selectionMode,
+        routingReason: readString(routingRationale.routingReason) ?? route?.routingReason,
+        routingTier: readString(routingRationale.routingTier) ?? route?.routingTier,
+        authority: readString(authorityStatus.effective) ?? route?.authority,
+        authorityCompleteness: readString(authorityStatus.completeness) ?? route?.authorityCompleteness,
+        reasoningEffort: readString(routingRationale.requestedReasoningEffort)
+          ?? readString(routingRationale.reasoningEffort)
+          ?? route?.reasoningEffort,
+      };
+      continue;
+    }
 
     if (entry.eventKind === "plan_submitted") {
       const id = readString(details.planId);
@@ -165,7 +211,7 @@ function latestWorkflowPreview(entries: readonly TimelineEntry[]): {
     }
   }
 
-  return { plan, goal, materialization };
+  return { plan, goal, materialization, route };
 }
 
 function MetricRow(props: { readonly label: string; readonly value?: string | number }) {
@@ -179,8 +225,8 @@ function MetricRow(props: { readonly label: string; readonly value?: string | nu
 }
 
 export function WorkflowOverviewPanel(props: WorkflowOverviewPanelProps) {
-  const { plan, goal, materialization } = latestWorkflowPreview(props.entries);
-  const hasWorkflow = Boolean(plan || goal || materialization);
+  const { plan, goal, materialization, route } = latestWorkflowPreview(props.entries);
+  const hasWorkflow = Boolean(plan || goal || materialization || route);
 
   if (!hasWorkflow) {
     return (
@@ -267,6 +313,36 @@ export function WorkflowOverviewPanel(props: WorkflowOverviewPanelProps) {
               <MetricRow label="Goal" value={materialization.goalRunId} />
               <MetricRow label="Plan" value={materialization.planId} />
               <MetricRow label="Approval" value={materialization.approvalId} />
+            </div>
+          </article>
+        ) : null}
+
+        {route ? (
+          <article className="px-5 py-4">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Authority and route</p>
+                {route.routingReason ? (
+                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">{route.routingReason}</p>
+                ) : (
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">Latest canonical turn route and admitted authority.</p>
+                )}
+              </div>
+              {route.authority ? (
+                <Badge variant="outline" className={cn("shrink-0", badgeTone(route.authority))}>
+                  {normalizeLabel(route.authority)} authority
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {route.selectionMode ? <Badge variant="secondary" className="font-mono text-[10px]">{normalizeLabel(route.selectionMode)} selection</Badge> : null}
+              {route.routingTier ? <Badge variant="outline" className="font-mono text-[10px]">{normalizeLabel(route.routingTier)} route</Badge> : null}
+              {route.authorityCompleteness ? <Badge variant="outline" className="font-mono text-[10px]">{normalizeLabel(route.authorityCompleteness)}</Badge> : null}
+            </div>
+            <div className="mt-3">
+              <MetricRow label="Provider" value={route.provider} />
+              <MetricRow label="Model" value={route.model} />
+              <MetricRow label="Reasoning" value={route.reasoningEffort} />
             </div>
           </article>
         ) : null}
