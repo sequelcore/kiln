@@ -7,7 +7,7 @@ import { AnalysisStateStore } from "../../../src/tools/infrastructure/analysis-s
 import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 import { PlanStateStore } from "../../../src/tools/infrastructure/plan-state-store.js";
 import { SpecificationStateStore } from "../../../src/tools/infrastructure/specification-state-store.js";
-import { WorkItemStore } from "../../../src/work-governance/index.js";
+import { GoalRunStore, WorkItemStore } from "../../../src/work-governance/index.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 
 describe("ToolResourceRegistry", () => {
@@ -144,6 +144,52 @@ describe("ToolResourceRegistry", () => {
     expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
       id: item.id,
       expectedEvidence: ["tests", "typecheck"],
+    });
+  });
+
+  it("exposes goal runs when a session goal-run store is attached", async () => {
+    const goalRunStore = new GoalRunStore({ now: () => "2026-05-12T18:00:00.000Z" });
+    const surface = createDefaultBuiltinToolSurface({ goalRunStore });
+    const goal = goalRunStore.create({
+      id: "goal-1",
+      objective: "Execute approved plan.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: ["wi-1"],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Plan permits audited execution.",
+      },
+      routePolicy: { workflowProfile: "architecture-change" },
+      evidenceRequirements: [
+        { id: "tests", description: "Tests pass.", required: true },
+      ],
+    });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://session/goals");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/goals/{id}");
+
+    const snapshot = await surface.resources.read("kiln://session/goals");
+    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+      sequence: goal.sequence,
+      goals: [
+        {
+          id: "goal-1",
+          status: "active",
+          planId: "plan-1",
+          workItemIds: ["wi-1"],
+        },
+      ],
+    });
+
+    const single = await surface.resources.read(`kiln://session/goals/${goal.id}`);
+    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+      id: "goal-1",
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+      },
     });
   });
 

@@ -505,9 +505,45 @@ describe("GuiWsClient", () => {
           json: {
             type: "session_event",
             event: {
-              eventId: "evt-config-change",
+              eventId: "evt-goal",
               kilnSessionId: "sess-1",
               sequence: 3,
+              timestamp: "2026-05-12T18:00:00.000Z",
+              kind: "goal.completed",
+              payload: {
+                goal: {
+                  id: "goal-1",
+                  status: "completed",
+                  objective: "Finish slice 6.",
+                },
+              },
+            },
+          },
+          expected: {
+            type: "session_event",
+            event: {
+              eventId: "evt-goal",
+              kilnSessionId: "sess-1",
+              sequence: 3,
+              timestamp: "2026-05-12T18:00:00.000Z",
+              kind: "goal.completed",
+              payload: {
+                goal: {
+                  id: "goal-1",
+                  status: "completed",
+                  objective: "Finish slice 6.",
+                },
+              },
+            },
+          },
+        },
+        {
+          json: {
+            type: "session_event",
+            event: {
+              eventId: "evt-config-change",
+              kilnSessionId: "sess-1",
+              sequence: 4,
               timestamp: "2026-05-08T23:10:30.000Z",
               kind: "config_change_applied",
               payload: {
@@ -521,7 +557,7 @@ describe("GuiWsClient", () => {
             event: {
               eventId: "evt-config-change",
               kilnSessionId: "sess-1",
-              sequence: 3,
+              sequence: 4,
               timestamp: "2026-05-08T23:10:30.000Z",
               kind: "config_change_applied",
               payload: {

@@ -5,7 +5,7 @@ import type { AnalysisStateStore } from "../infrastructure/analysis-state-store.
 import type { PlanStateStore } from "../infrastructure/plan-state-store.js";
 import type { SpecificationStateStore } from "../infrastructure/specification-state-store.js";
 import type { TaskStateStore } from "../infrastructure/task-state-tools.js";
-import type { WorkItemStore } from "../../work-governance/index.js";
+import type { GoalRunStore, WorkItemStore } from "../../work-governance/index.js";
 import { createHash } from "node:crypto";
 
 const JSON_MIME_TYPE = "application/json";
@@ -74,6 +74,7 @@ export interface ToolResourceRegistryOptions {
   readonly planStateStore?: PlanStateStore;
   readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
+  readonly goalRunStore?: GoalRunStore;
   readonly monitorRegistry: MonitorRegistry;
   readonly providers?: readonly ToolResourceProvider[];
 }
@@ -85,6 +86,7 @@ export class ToolResourceRegistry {
   private readonly planStateStore?: PlanStateStore;
   private readonly specificationStateStore?: SpecificationStateStore;
   private readonly workItemStore?: WorkItemStore;
+  private readonly goalRunStore?: GoalRunStore;
   private readonly monitorRegistry: MonitorRegistry;
   private readonly providers: readonly ToolResourceProvider[];
 
@@ -95,6 +97,7 @@ export class ToolResourceRegistry {
     this.planStateStore = options.planStateStore;
     this.specificationStateStore = options.specificationStateStore;
     this.workItemStore = options.workItemStore;
+    this.goalRunStore = options.goalRunStore;
     this.monitorRegistry = options.monitorRegistry;
     this.providers = options.providers ?? [];
   }
@@ -171,6 +174,14 @@ export class ToolResourceRegistry {
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       }] : []),
+      ...(this.goalRunStore ? [{
+        uri: "kiln://session/goals",
+        name: "session_goals",
+        title: "Session Goals",
+        description: "Read-only snapshot of durable goal-run lifecycle state for this session.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
       ...this.providers.flatMap((provider) => provider.listResources()),
     ];
   }
@@ -244,6 +255,14 @@ export class ToolResourceRegistry {
         name: "session_work_item",
         title: "Session Work Item",
         description: "Read one governed work item by id.",
+        mimeType: JSON_MIME_TYPE,
+        annotations: { readOnlyHint: true },
+      }] : []),
+      ...(this.goalRunStore ? [{
+        uriTemplate: "kiln://session/goals/{id}",
+        name: "session_goal",
+        title: "Session Goal",
+        description: "Read one durable goal run by id.",
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       }] : []),
@@ -375,6 +394,10 @@ export class ToolResourceRegistry {
       return jsonResource(uri, this.workItemStore.snapshot());
     }
 
+    if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "goals" && this.goalRunStore) {
+      return jsonResource(uri, this.goalRunStore.snapshot());
+    }
+
     if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "work-items" && this.workItemStore) {
       const id = parsed.path[1] ?? "";
       const item = this.workItemStore.list().find((candidate) => candidate.id === id);
@@ -382,6 +405,15 @@ export class ToolResourceRegistry {
         throw resourceNotFound(uri);
       }
       return jsonResource(uri, item);
+    }
+
+    if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "goals" && this.goalRunStore) {
+      const id = parsed.path[1] ?? "";
+      const goal = this.goalRunStore.get(id);
+      if (!goal) {
+        throw resourceNotFound(uri);
+      }
+      return jsonResource(uri, goal);
     }
 
     if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "monitors") {

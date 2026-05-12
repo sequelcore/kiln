@@ -12,7 +12,7 @@ import type {
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
-import type { WorkItem } from "../work-governance/index.js";
+import type { GoalRun, WorkItem } from "../work-governance/index.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -24,6 +24,11 @@ export type CanonicalSessionEventKind =
   | "plan_submitted"
   | "plan_analysis_reported"
   | "plan_approved"
+  | "goal.created"
+  | "goal.updated"
+  | "goal.completed"
+  | "goal.failed"
+  | "goal.cancelled"
   | "provider_routed"
   | "tool_call_started"
   | "tool_call_completed"
@@ -206,6 +211,31 @@ export interface CanonicalPlanApprovedEvent extends SessionEventEnvelope<"plan_a
   readonly residualRiskAcknowledgement?: string;
   readonly fromMode: "plan";
   readonly toMode: "execute";
+}
+
+export interface CanonicalGoalCreatedEvent extends SessionEventEnvelope<"goal.created"> {
+  readonly goal: GoalRun;
+}
+
+export interface CanonicalGoalUpdatedEvent extends SessionEventEnvelope<"goal.updated"> {
+  readonly goal: GoalRun;
+  readonly changedFields: readonly string[];
+}
+
+export interface CanonicalGoalCompletedEvent extends SessionEventEnvelope<"goal.completed"> {
+  readonly goal: GoalRun;
+  readonly closeoutSummary: string;
+}
+
+export interface CanonicalGoalFailedEvent extends SessionEventEnvelope<"goal.failed"> {
+  readonly goal: GoalRun;
+  readonly reason: string;
+}
+
+export interface CanonicalGoalCancelledEvent extends SessionEventEnvelope<"goal.cancelled"> {
+  readonly goal: GoalRun;
+  readonly reason: string;
+  readonly cancelledBy?: string;
 }
 
 export interface CanonicalPlanAnalysisReportedEvent extends SessionEventEnvelope<"plan_analysis_reported"> {
@@ -449,6 +479,11 @@ export interface CanonicalSessionEventMap {
   plan_submitted: CanonicalPlanSubmittedEvent;
   plan_analysis_reported: CanonicalPlanAnalysisReportedEvent;
   plan_approved: CanonicalPlanApprovedEvent;
+  "goal.created": CanonicalGoalCreatedEvent;
+  "goal.updated": CanonicalGoalUpdatedEvent;
+  "goal.completed": CanonicalGoalCompletedEvent;
+  "goal.failed": CanonicalGoalFailedEvent;
+  "goal.cancelled": CanonicalGoalCancelledEvent;
   provider_routed: CanonicalProviderRoutedEvent;
   tool_call_started: CanonicalToolCallStartedEvent;
   tool_call_completed: CanonicalToolCallCompletedEvent;

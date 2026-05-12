@@ -1433,6 +1433,48 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   };
 }
 
+function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string, unknown>): OperatorEventPresentation {
+  const goal = asRecord(payload.goal);
+  const authority = asRecord(goal?.authorityEnvelope);
+  const routePolicy = asRecord(goal?.routePolicy);
+  const status = readString(goal?.status) ?? "unknown";
+  const objective = readString(goal?.objective) ?? "Governed goal";
+  const summary = `${status} · ${compactText(objective)}`;
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Goal", goal?.id);
+  addItem(details, "Status", status);
+  addItem(details, "Plan", goal?.planId);
+  addItem(details, "Work items", Array.isArray(goal?.workItemIds) ? goal.workItemIds.join(", ") : undefined);
+  addItem(details, "Workflow", routePolicy?.workflowProfile);
+  addItem(details, "Authority", authority?.maximumAuthority);
+  addItem(details, "Escalation", authority?.escalationPolicy);
+  addItem(details, "Reason", payload.reason ?? goal?.terminalReason);
+  addItem(details, "Closeout", payload.closeoutSummary ?? goal?.closeoutSummary);
+
+  return {
+    title: status === "completed"
+      ? "Goal completed"
+      : status === "failed"
+        ? "Goal failed"
+        : status === "cancelled"
+          ? "Goal cancelled"
+          : kind === "goal.created"
+            ? "Goal created"
+            : "Goal updated",
+    summary,
+    compactText: summary,
+    tone: status === "completed"
+      ? "success"
+      : status === "failed"
+        ? "error"
+        : status === "cancelled"
+          ? "warning"
+          : "info",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+  };
+}
+
 export function operatorEventTargetsSurface(
   presentation: Pick<OperatorEventPresentation, "surfaces">,
   surface: OperatorEventSurface,
@@ -1465,6 +1507,12 @@ export function presentOperatorEventPayload(
       return fileChangedPresentation(payload);
     case "cost_updated":
       return costUpdatedPresentation(payload);
+    case "goal.created":
+    case "goal.updated":
+    case "goal.completed":
+    case "goal.failed":
+    case "goal.cancelled":
+      return goalPresentation(kind, payload);
     case "work_item_updated":
       return workItemPresentation(payload);
     case "approval_requested":

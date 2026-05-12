@@ -88,6 +88,42 @@ describe("operator event presentation", () => {
     expect(JSON.stringify(presentation.details)).not.toContain("\\\"provider\\\"");
   });
 
+  it("presents goal lifecycle events as operator-visible previews", () => {
+    const presentation = presentOperatorEventPayload("goal.completed", {
+      goal: {
+        id: "goal-1",
+        objective: "Finish roadmap slice 6 with verified goal resources.",
+        planId: "plan-1",
+        status: "completed",
+        workItemIds: ["wi-1", "wi-2"],
+        authorityEnvelope: {
+          maximumAuthority: "audited",
+          escalationPolicy: "approval_required",
+        },
+        routePolicy: {
+          workflowProfile: "architecture-change",
+        },
+        closeoutSummary: "Goal resources verified.",
+      },
+      closeoutSummary: "Goal resources verified.",
+    });
+
+    expect(presentation.title).toBe("Goal completed");
+    expect(presentation.summary).toBe("completed · Finish roadmap slice 6 with verified goal resources.");
+    expect(presentation.tone).toBe("success");
+    expect(presentation.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(presentation.details).toEqual([
+      { label: "Goal", value: "goal-1" },
+      { label: "Status", value: "completed" },
+      { label: "Plan", value: "plan-1" },
+      { label: "Work items", value: "wi-1, wi-2" },
+      { label: "Workflow", value: "architecture-change" },
+      { label: "Authority", value: "audited" },
+      { label: "Escalation", value: "approval_required" },
+      { label: "Closeout", value: "Goal resources verified." },
+    ]);
+  });
+
   it("presents turn completion nested data as operator detail rows", () => {
     const presentation = presentOperatorEventPayload("turn_completed", {
       routedProvider: "codex-oauth",

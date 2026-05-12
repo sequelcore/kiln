@@ -2,7 +2,7 @@ import type { ToolDefinition } from "../agents/index.js";
 import type { Capability } from "../engine/domain/capability.js";
 import type { EventBus } from "../events/index.js";
 import { MemoryGraphResourceProvider, type MemoryGraphResourceProviderOptions } from "../memory/resources/index.js";
-import { WorkItemStore } from "../work-governance/index.js";
+import { GoalRunStore, WorkItemStore } from "../work-governance/index.js";
 import { MemoryMutationService } from "../memory/service.js";
 import type { MemoryRepository } from "../memory/repository.js";
 import { ToolCatalogIndex } from "./domain/tool-catalog.js";
@@ -118,6 +118,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly specificationState?: SpecificationStateStoreOptions;
   readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
+  readonly goalRunStore?: GoalRunStore;
   readonly operatorElicitation?: OperatorElicitationToolOptions;
   readonly toolProjection?: DefaultBuiltinToolProjectionOptions;
   readonly workspaceResources?: WorkspaceResourceProviderOptions;
@@ -178,6 +179,7 @@ export interface DefaultBuiltinToolSurface {
   readonly planStateStore?: PlanStateStore;
   readonly specificationStateStore?: SpecificationStateStore;
   readonly workItemStore?: WorkItemStore;
+  readonly goalRunStore?: GoalRunStore;
 }
 
 export function createSessionBuiltinToolOptions(
@@ -211,6 +213,8 @@ export function createSessionBuiltinToolOptions(
   specificationStateStore.setResourceChangeNotifier(resourceNotifications);
   const workItemStore = options.workItemStore;
   workItemStore?.setResourceChangeNotifier(resourceNotifications);
+  const goalRunStore = options.goalRunStore;
+  goalRunStore?.setResourceChangeNotifier(resourceNotifications);
   const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
   artifactStore.setResourceChangeNotifier?.(resourceNotifications);
 
@@ -223,6 +227,7 @@ export function createSessionBuiltinToolOptions(
     planStateStore,
     specificationStateStore,
     ...(workItemStore ? { workItemStore } : {}),
+    ...(goalRunStore ? { goalRunStore } : {}),
     artifactResources: { store: artifactStore },
   };
 }
@@ -350,6 +355,8 @@ export function createDefaultBuiltinToolSurface(
   options.specificationStateStore?.setResourceChangeNotifier(resourceNotifications);
   const workItemStore = options.workItemStore;
   workItemStore?.setResourceChangeNotifier(resourceNotifications);
+  const goalRunStore = options.goalRunStore;
+  goalRunStore?.setResourceChangeNotifier(resourceNotifications);
   const artifactStore = options.artifactResources?.store ?? new MemoryArtifactResourceStore({ resourceNotifications });
   artifactStore.setResourceChangeNotifier?.(resourceNotifications);
   let resources: ToolResourceRegistry | undefined;
@@ -361,6 +368,7 @@ export function createDefaultBuiltinToolSurface(
     ...(planStateStore ? { planStateStore } : {}),
     ...(specificationStateStore ? { specificationStateStore } : {}),
     ...(workItemStore ? { workItemStore } : {}),
+    ...(goalRunStore ? { goalRunStore } : {}),
     artifactResources: { store: artifactStore },
     resourceRegistry: () => resources,
   };
@@ -379,6 +387,7 @@ export function createDefaultBuiltinToolSurface(
     ...(planStateStore ? { planStateStore } : {}),
     ...(specificationStateStore ? { specificationStateStore } : {}),
     ...(workItemStore ? { workItemStore } : {}),
+    ...(goalRunStore ? { goalRunStore } : {}),
     providers: resourceProviders,
   });
   resources = resourceRegistry;
@@ -404,6 +413,7 @@ export function createDefaultBuiltinToolSurface(
     ...(planStateStore ? { planStateStore } : {}),
     ...(specificationStateStore ? { specificationStateStore } : {}),
     workItemStore,
+    goalRunStore,
   };
 }
 
