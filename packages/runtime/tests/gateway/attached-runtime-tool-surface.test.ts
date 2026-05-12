@@ -1,12 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDefaultBuiltinToolSurface, createSessionBuiltinToolOptions } from "@kilnai/core";
+import type {
+  DevTool,
+  ManagedAgentAdapterDescriptor,
+  ManagedAgentInvocationRequest,
+  ToolInput,
+  ToolResult,
+} from "@kilnai/core";
+import {
+  buildManagedAgentCapabilitySnapshot,
+  createDefaultBuiltinToolSurface,
+  createSessionBuiltinToolOptions,
+  defineManagedAgentAdapterDescriptor,
+  defineManagedAgentInvocationRecord,
+  textParts,
+} from "@kilnai/core";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
+import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
 const ALWAYS_ON_RESOURCE_TOOLS = ["resource_list", "resource_template_list", "resource_read"];
 
@@ -74,6 +91,153 @@ function sliceOnePlanPayload(
     constitutionSnapshot: {
       instructionProfileHash: "hash-slice-1",
       instructionProfileIds: ["sequel-engineering"],
+    },
+  };
+}
+
+function makeRuntimeSession(): RuntimeSession {
+  const session = new RuntimeSession({
+    sessionId: "session-parent",
+    appName: "test-app",
+    tenantId: "tenant-a",
+    userId: "user-1",
+    systemPrompt: "test",
+  });
+  session.addUserMessage(textParts("Start the governed managed work item."));
+  return session;
+}
+
+function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): ManagedAgentAdapterDescriptor {
+  return defineManagedAgentAdapterDescriptor({
+    adapterDescriptorId: "adapter:opencode:harness",
+    providerId: "opencode",
+    adapterKind: "harness",
+    supportedProfiles: ["foundation-readonly-plan"],
+    supportedExecutionModes: ["cli-harness"],
+    lifecycle: {
+      exposesStart: true,
+      exposesTerminal: true,
+      exposesCleanup: true,
+    },
+    cancellation: { supported: true },
+    timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+    transcript: {
+      supported: true,
+      redactionKnown: true,
+      truncationKnown: true,
+      persistenceKnown: true,
+      retentionKnown: true,
+    },
+    usage: {
+      supported: true,
+      preservesProviderTokenClasses: true,
+      supportsExplicitUnknowns: true,
+    },
+    resultHandoff: {
+      boundedSummary: true,
+      resourcePointers: true,
+    },
+    credentialRoute: { supported: true },
+    memoryContext: { governedAdmission: true },
+    unsupportedFieldPolicy: "reject",
+    cleanup: { supported: true },
+    ...overrides,
+  });
+}
+
+function makeManagedAdapter(): ManagedAgentRuntimeAdapter {
+  return {
+    descriptor: makeManagedDescriptor(),
+    invoke: vi.fn(async ({ request, admission }: {
+      readonly request: ManagedAgentInvocationRequest;
+      readonly admission: {
+        readonly capabilitySnapshot: ReturnType<typeof buildManagedAgentCapabilitySnapshot>;
+      };
+    }) =>
+      defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        resultHandoff: {
+          summary: "Managed child completed governed work.",
+          resourceUris: [],
+          memoryWriteProposalUris: [],
+        },
+      })),
+  };
+}
+
+function makeManagedExecutionStartTool(): DevTool & { readonly calls: ToolInput[] } {
+  const calls: ToolInput[] = [];
+  return {
+    name: "work_item.execution.start",
+    description: "Test work item execution start tool.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        goalRunId: { type: "string" },
+        managedInvocationId: { type: "string" },
+      },
+    },
+    annotations: { readOnly: false },
+    calls,
+    async execute(input): Promise<ToolResult> {
+      calls.push(input);
+      const managedInvocationId = typeof input.input.managedInvocationId === "string"
+        ? input.input.managedInvocationId
+        : undefined;
+      if (!managedInvocationId) {
+        return {
+          output: JSON.stringify({
+            status: "paused",
+            reason: "managedInvocationId is required before starting managed-delegation execution.",
+            workItemId: "work-managed",
+            nextTool: "managed_agent.invoke",
+            managedInvocationRequest: {
+              profile: "foundation-readonly-plan",
+              routeId: "opencode-readonly",
+              requestedAuthority: "read_only",
+              task: "Execute governed managed work.",
+              summary: "Execute governed managed work.",
+              workItemId: "work-managed",
+              expectedEvidence: ["managed-agent-review"],
+              requiredResultFields: ["summary", "evidence", "checks"],
+              doneCriteria: ["Return a bounded handoff."],
+              residualRiskRequired: false,
+            },
+          }, null, 2),
+          isError: true,
+        };
+      }
+      return {
+        output: JSON.stringify({
+          status: "started",
+          attempt: {
+            managedInvocationId,
+          },
+        }, null, 2),
+        isError: false,
+        metadata: {
+          kind: "work_item",
+          toolName: "work_item.execution.start",
+          operation: "execution_started",
+          id: "work-managed",
+          status: "in_progress",
+          attempt: {
+            managedInvocationId,
+          },
+        },
+      };
     },
   };
 }
@@ -1117,6 +1281,97 @@ describe("attached runtime builtin tool surface", () => {
       analysisStatus: "blocked",
       analysisHighestSeverity: "critical",
       analysisBlockingFindingCount: 1,
+    });
+  });
+
+  it("invokes and resumes managed-delegation work item execution exactly once", async () => {
+    const startTool = makeManagedExecutionStartTool();
+    const adapter = makeManagedAdapter();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool],
+      }),
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read", "grep", "glob"],
+              workingDirectory: {
+                path: "C:/Proyectos/Sequel/kiln",
+                mode: "read-only",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+            },
+          },
+        }],
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+
+    expect(result.isError).toBe(false);
+    expect(startTool.calls).toHaveLength(2);
+    expect(startTool.calls[1]?.input).toMatchObject({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+      managedInvocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
+    });
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
+      profile: "foundation-readonly-plan",
+      requestedAuthority: "read_only",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      input: {
+        handoff: {
+          workItemId: "work-managed",
+          expectedEvidence: ["managed-agent-review"],
+          requiredResultFields: ["summary", "evidence", "checks"],
+          doneCriteria: ["Return a bounded handoff."],
+          residualRiskRequired: false,
+        },
+      },
+    });
+    expect(result.metadata).toMatchObject({
+      operation: "execution_started",
+      managedInvocationAutoStarted: true,
+      managedInvocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
+      managedInvocation: {
+        toolName: "managed_agent.invoke",
+        invocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
+        status: "completed",
+      },
     });
   });
 

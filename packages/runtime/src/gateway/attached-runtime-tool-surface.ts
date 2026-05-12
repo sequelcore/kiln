@@ -5,6 +5,7 @@ import type {
   DefaultBuiltinToolSurface,
   DefaultBuiltinToolRegistryOptions,
   DiscoveredDirectProviderModelCapabilities,
+  ManagedAgentAdmissionProfile,
   ToolDefinition,
   ToolResourceDisplayDescriptor,
   ToolResourceReadResult,
@@ -32,7 +33,11 @@ import type {
   OperatorSurfaceController,
   OperatorSurfaceThemeController,
 } from "../operator/operator-surface-controller.js";
-import type { PerCallToolConfig, RuntimeBuiltinToolExecutor } from "../session/runtime-session-orchestrator.js";
+import type {
+  PerCallToolConfig,
+  RuntimeBuiltinToolExecutionContext,
+  RuntimeBuiltinToolExecutor,
+} from "../session/runtime-session-orchestrator.js";
 import type { EffectiveTurnAuthorityAdmissionContext } from "../session/effective-turn-authority.js";
 import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
 import {
@@ -70,6 +75,7 @@ const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
 const DEFAULT_BUILTIN_TOOL_SURFACE: AttachedRuntimeBuiltinToolSurface = buildRuntimeSurface(
   DEFAULT_CORE_BUILTIN_TOOL_SURFACE,
 );
+const WORK_ITEM_EXECUTION_START_TOOL_NAME = "work_item.execution.start";
 
 const OPERATOR_SET_THEME_TOOL: ToolDefinition = {
   name: "operator_set_theme",
@@ -450,7 +456,19 @@ export function createAttachedRuntimeBuiltinToolSurface(
   }
 
   if (options.managedInvocation) {
-    callBuiltinTools.set(MANAGED_AGENT_INVOKE_TOOL.name, createManagedInvocationToolExecutor(options.managedInvocation));
+    const managedInvocationExecutor = createManagedInvocationToolExecutor(options.managedInvocation);
+    callBuiltinTools.set(MANAGED_AGENT_INVOKE_TOOL.name, managedInvocationExecutor);
+    const workItemExecutionStart = callBuiltinTools.get(WORK_ITEM_EXECUTION_START_TOOL_NAME);
+    if (workItemExecutionStart) {
+      callBuiltinTools.set(
+        WORK_ITEM_EXECUTION_START_TOOL_NAME,
+        createManagedDelegationWorkItemStartExecutor(
+          workItemExecutionStart,
+          managedInvocationExecutor,
+          options.managedInvocation,
+        ),
+      );
+    }
     capabilities.set(MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY);
     toolCallMetadata.set(
       MANAGED_AGENT_INVOKE_TOOL.name,
@@ -476,6 +494,159 @@ export function createAttachedRuntimeBuiltinToolSurface(
     listResourceTemplates: baseSurface.listResourceTemplates,
     readResource: baseSurface.readResource,
   };
+}
+
+function createManagedDelegationWorkItemStartExecutor(
+  startExecutor: RuntimeBuiltinToolExecutor,
+  managedInvocationExecutor: RuntimeBuiltinToolExecutor,
+  managedInvocationOptions: ManagedInvocationToolOptions,
+): RuntimeBuiltinToolExecutor {
+  return async (input, context) => {
+    const initialResult = await startExecutor(input, context);
+    const managedPause = parseManagedDelegationPause(initialResult);
+    if (!managedPause) {
+      return initialResult;
+    }
+
+    const managedRequest = hydrateManagedInvocationRequest(managedPause.request, managedInvocationOptions);
+    const managedContext = context
+      ? {
+        ...context,
+        toolCall: {
+          ...context.toolCall,
+          id: `${context.toolCall.id}:managed-invocation`,
+          name: MANAGED_AGENT_INVOKE_TOOL.name,
+          input: managedRequest,
+        },
+      } satisfies RuntimeBuiltinToolExecutionContext
+      : undefined;
+    const managedResult = await managedInvocationExecutor(managedRequest, managedContext);
+    const managedEnvelope = readRuntimeToolResultEnvelope(managedResult);
+    if (!managedEnvelope || managedEnvelope.isError) {
+      return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation failed before work item execution could start.");
+    }
+
+    const managedInvocationId = readTextFromUnknown(managedEnvelope.metadata?.invocationId);
+    if (!managedInvocationId) {
+      return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.");
+    }
+
+    const resumedResult = await startExecutor({
+      ...input,
+      managedInvocationId,
+    }, context);
+    const resumedEnvelope = readRuntimeToolResultEnvelope(resumedResult);
+    if (!resumedEnvelope) {
+      return resumedResult;
+    }
+    return {
+      ...resumedEnvelope,
+      metadata: {
+        ...(resumedEnvelope.metadata ?? {}),
+        managedInvocationAutoStarted: true,
+        managedInvocationId,
+        ...(managedEnvelope.metadata ? { managedInvocation: managedEnvelope.metadata } : {}),
+      },
+    };
+  };
+}
+
+function hydrateManagedInvocationRequest(
+  request: Record<string, unknown>,
+  options: ManagedInvocationToolOptions,
+): Record<string, unknown> {
+  const providerRoute = readRecord(request.providerRoute);
+  if (readTextFromUnknown(providerRoute?.providerId)) {
+    return request;
+  }
+  const routeId = readTextFromUnknown(request.routeId);
+  const profile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const matches = options.routes.filter((route) =>
+    (!routeId || route.routeId === routeId)
+    && route.profiles[profile] !== undefined
+  );
+  if (matches.length !== 1) {
+    return request;
+  }
+  const route = matches[0]!;
+  return {
+    ...request,
+    routeId: routeId ?? route.routeId,
+    providerRoute: {
+      ...(providerRoute ?? {}),
+      providerId: route.providerId,
+      ...(readTextFromUnknown(providerRoute?.model) || !route.model
+        ? {}
+        : { model: route.model }),
+    },
+  };
+}
+
+function parseManagedDelegationPause(result: unknown): { readonly request: Record<string, unknown> } | undefined {
+  const envelope = readRuntimeToolResultEnvelope(result);
+  if (!envelope?.isError) {
+    return undefined;
+  }
+  const output = parseJsonRecord(envelope.output);
+  if (!output || output.status !== "paused" || output.nextTool !== MANAGED_AGENT_INVOKE_TOOL.name) {
+    return undefined;
+  }
+  const request = readRecord(output.managedInvocationRequest);
+  return request ? { request } : undefined;
+}
+
+function managedDelegationPausedResult(
+  initialResult: unknown,
+  managedResult: RuntimeToolResultEnvelope | undefined,
+  reason: string,
+): RuntimeToolResultEnvelope {
+  const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
+  return {
+    output: JSON.stringify({
+      status: "paused",
+      reason,
+      initial: initialEnvelope ? parseJsonRecord(initialEnvelope.output) ?? initialEnvelope.output : initialResult,
+      ...(managedResult ? { managedInvocation: managedResult } : {}),
+    }, null, 2),
+    isError: true,
+    metadata: {
+      toolName: WORK_ITEM_EXECUTION_START_TOOL_NAME,
+      operation: "managed_invocation_failed",
+      ...(initialEnvelope?.metadata ? { initial: initialEnvelope.metadata } : {}),
+      ...(managedResult?.metadata ? { managedInvocation: managedResult.metadata } : {}),
+    },
+  };
+}
+
+interface RuntimeToolResultEnvelope {
+  readonly output: string;
+  readonly isError: boolean;
+  readonly metadata?: Record<string, unknown>;
+  readonly resourceLinks?: unknown;
+  readonly content?: unknown;
+}
+
+function readRuntimeToolResultEnvelope(value: unknown): RuntimeToolResultEnvelope | undefined {
+  const record = readRecord(value);
+  if (!record || typeof record.output !== "string" || typeof record.isError !== "boolean") {
+    return undefined;
+  }
+  const metadata = readRecord(record.metadata);
+  return {
+    output: record.output,
+    isError: record.isError,
+    ...(metadata ? { metadata } : {}),
+    ...(record.resourceLinks !== undefined ? { resourceLinks: record.resourceLinks } : {}),
+    ...(record.content !== undefined ? { content: record.content } : {}),
+  };
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    return readRecord(JSON.parse(value));
+  } catch {
+    return undefined;
+  }
 }
 
 function buildRuntimeSurface(
@@ -1300,6 +1471,16 @@ function asOptionalText(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readTextFromUnknown(value: unknown): string | undefined {
+  return asOptionalText(value);
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function asRequiredText(
