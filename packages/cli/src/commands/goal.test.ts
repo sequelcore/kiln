@@ -339,6 +339,7 @@ function makeWorkItem(input: { readonly id: string }): WorkItem {
     providedEvidence: [],
     verificationGates: ["bun run --filter @kilnai/cli test"],
     skippedVerificationGates: [],
+    verificationGateResults: [],
     dependencies: [],
     goalRunId: "goal-1",
     executionAttempts: [],

@@ -353,6 +353,102 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("records verification gate results and blocks closeout while any gate failed", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-gate-results",
+      summary: "Record verification gate results.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests", "typecheck"],
+      verificationGates: ["bun test", "bun run typecheck"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-gate-results",
+      objective: "Execute closeout-gated work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+      summary: "Run focused verification.",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests", "typecheck"],
+      verificationGateResults: [
+        { gate: "bun test", status: "passed", summary: "Focused tests passed." },
+        { gate: "bun run typecheck", status: "failed", summary: "TypeScript error in workflow projection." },
+      ],
+      summary: "Typecheck failed.",
+    });
+
+    expect(blocked).toMatchObject({
+      missingEvidence: [],
+      failedVerificationGates: ["bun run typecheck"],
+      item: {
+        status: "blocked",
+        verificationGateResults: [
+          { gate: "bun test", status: "passed" },
+          { gate: "bun run typecheck", status: "failed" },
+        ],
+      },
+      attempt: {
+        status: "blocked",
+        verificationGateResults: [
+          { gate: "bun test", status: "passed" },
+          { gate: "bun run typecheck", status: "failed" },
+        ],
+      },
+    });
+    expect(blocked.goal.currentPhase).toBe("paused:work-gate-results");
+
+    const completed = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      verificationGateResults: [
+        { gate: "bun run typecheck", status: "passed", summary: "Typecheck passed after fix." },
+      ],
+      closeoutSummary: "All gates passed.",
+    });
+
+    expect(completed).toMatchObject({
+      failedVerificationGates: [],
+      item: {
+        status: "completed",
+        verificationGateResults: [
+          { gate: "bun test", status: "passed" },
+          { gate: "bun run typecheck", status: "passed" },
+        ],
+      },
+      goal: {
+        status: "completed",
+        closeoutSummary: "All gates passed.",
+      },
+    });
+  });
+
   it("blocks goal completion when required goal evidence is missing from linked work items", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

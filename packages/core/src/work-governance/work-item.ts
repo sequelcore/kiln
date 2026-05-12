@@ -16,6 +16,15 @@ export type WorkItemExecutionMode = "direct" | "managed_delegation";
 export type WorkItemExecutionAttemptStatus = "started" | "completed" | "blocked" | "failed" | "cancelled";
 export type WorkItemPauseRequirementKind = "operator_input" | "credentials" | "approval" | "authority_elevation";
 export type WorkItemPauseRequirementStatus = "pending" | "resolved";
+export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
+
+export interface VerificationGateResult {
+  readonly gate: string;
+  readonly status: VerificationGateResultStatus;
+  readonly summary?: string;
+  readonly evidence?: readonly string[];
+  readonly completedAt?: string;
+}
 
 export interface WorkItemPauseRequirement {
   readonly id: string;
@@ -41,6 +50,7 @@ export interface WorkItemExecutionAttempt {
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
   readonly skippedVerificationGates: readonly string[];
+  readonly verificationGateResults: readonly VerificationGateResult[];
   readonly residualRisk?: string;
 }
 
@@ -59,6 +69,7 @@ export interface WorkItemUpsertInput {
   readonly providedEvidence?: readonly string[];
   readonly verificationGates: readonly string[];
   readonly skippedVerificationGates?: readonly string[];
+  readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly dependencies?: readonly string[];
   readonly residualRisk?: string;
   readonly pauseRequirements?: readonly WorkItemPauseRequirement[];
@@ -75,6 +86,7 @@ export interface WorkItem extends WorkItemUpsertInput {
   readonly status: WorkItemStatus;
   readonly providedEvidence: readonly string[];
   readonly skippedVerificationGates: readonly string[];
+  readonly verificationGateResults: readonly VerificationGateResult[];
   readonly dependencies: readonly string[];
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -86,6 +98,7 @@ export interface WorkItemCompletionInput {
   readonly id: string;
   readonly providedEvidence?: readonly string[];
   readonly skippedVerificationGates?: readonly string[];
+  readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
 }
 
@@ -93,6 +106,7 @@ export interface WorkItemCompletionResult {
   readonly item: WorkItem;
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
+  readonly failedVerificationGates: readonly string[];
 }
 
 export interface WorkItemStartExecutionAttemptInput {
@@ -113,6 +127,7 @@ export interface WorkItemFinishExecutionAttemptInput {
   readonly attemptId: string;
   readonly providedEvidence?: readonly string[];
   readonly skippedVerificationGates?: readonly string[];
+  readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
   readonly summary?: string;
 }
@@ -170,6 +185,7 @@ export class WorkItemStore {
       providedEvidence: unique(input.providedEvidence ?? existing?.providedEvidence ?? []),
       verificationGates: unique(input.verificationGates),
       skippedVerificationGates: unique(input.skippedVerificationGates ?? existing?.skippedVerificationGates ?? []),
+      verificationGateResults: normalizeVerificationGateResults(input.verificationGateResults ?? existing?.verificationGateResults ?? []),
       dependencies: unique(input.dependencies ?? existing?.dependencies ?? []),
       residualRisk: input.residualRisk ?? existing?.residualRisk,
       pauseRequirements: normalizePauseRequirements(input.pauseRequirements ?? existing?.pauseRequirements ?? []),
@@ -220,16 +236,30 @@ export class WorkItemStore {
       ...existing.skippedVerificationGates,
       ...(input.skippedVerificationGates ?? []),
     ]);
+    const verificationGateResults = mergeVerificationGateResults(
+      existing.verificationGateResults,
+      input.verificationGateResults ?? [],
+    );
+    const allSkippedVerificationGates = unique([
+      ...skippedVerificationGates,
+      ...verificationGateResults
+        .filter((result) => result.status === "skipped")
+        .map((result) => result.gate),
+    ]);
+    const failedVerificationGates = failedGates(verificationGateResults);
     const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
     const residualRisk = input.residualRisk ?? existing.residualRisk;
-    const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, skippedVerificationGates) && !residualRisk;
-    const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk ? "completed" : "blocked";
+    const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
+    const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk && failedVerificationGates.length === 0
+      ? "completed"
+      : "blocked";
 
     const item = this.upsert({
       ...existing,
       status,
       providedEvidence,
-      skippedVerificationGates,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
       residualRisk,
     });
 
@@ -237,6 +267,7 @@ export class WorkItemStore {
       item,
       missingEvidence,
       missingResidualRisk,
+      failedVerificationGates,
     };
   }
 
@@ -259,6 +290,7 @@ export class WorkItemStore {
       missingEvidence: [],
       missingResidualRisk: false,
       skippedVerificationGates: [],
+      verificationGateResults: [],
     };
     const item = this.upsert({
       ...existing,
@@ -287,10 +319,24 @@ export class WorkItemStore {
       ...attempt.skippedVerificationGates,
       ...(input.skippedVerificationGates ?? []),
     ]);
+    const verificationGateResults = mergeVerificationGateResults(
+      existing.verificationGateResults,
+      attempt.verificationGateResults,
+      input.verificationGateResults ?? [],
+    );
+    const allSkippedVerificationGates = unique([
+      ...skippedVerificationGates,
+      ...verificationGateResults
+        .filter((result) => result.status === "skipped")
+        .map((result) => result.gate),
+    ]);
+    const failedVerificationGates = failedGates(verificationGateResults);
     const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
     const residualRisk = input.residualRisk ?? existing.residualRisk ?? attempt.residualRisk;
-    const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, skippedVerificationGates) && !residualRisk;
-    const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk ? "completed" : "blocked";
+    const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
+    const status: WorkItemStatus = missingEvidence.length === 0 && !missingResidualRisk && failedVerificationGates.length === 0
+      ? "completed"
+      : "blocked";
     const completedAttempt: WorkItemExecutionAttempt = {
       ...attempt,
       status: status === "completed" ? "completed" : "blocked",
@@ -299,14 +345,16 @@ export class WorkItemStore {
       providedEvidence,
       missingEvidence,
       missingResidualRisk,
-      skippedVerificationGates,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
       ...(residualRisk ? { residualRisk } : {}),
     };
     const item = this.upsert({
       ...existing,
       status,
       providedEvidence,
-      skippedVerificationGates,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
       residualRisk,
       executionAttempts: existing.executionAttempts.map((candidate) =>
         candidate.id === input.attemptId ? completedAttempt : candidate),
@@ -316,6 +364,7 @@ export class WorkItemStore {
       attempt: completedAttempt,
       missingEvidence,
       missingResidualRisk,
+      failedVerificationGates,
     };
   }
 
@@ -358,6 +407,36 @@ function requiresResidualRisk(
   skippedVerificationGates: readonly string[],
 ): boolean {
   return expectedEvidence.includes("residual-risk") || skippedVerificationGates.length > 0;
+}
+
+function failedGates(results: readonly VerificationGateResult[]): readonly string[] {
+  return results
+    .filter((result) => result.status === "failed")
+    .map((result) => result.gate);
+}
+
+function mergeVerificationGateResults(
+  ...groups: readonly (readonly VerificationGateResult[])[]
+): readonly VerificationGateResult[] {
+  return normalizeVerificationGateResults(groups.flat());
+}
+
+function normalizeVerificationGateResults(results: readonly VerificationGateResult[]): readonly VerificationGateResult[] {
+  const byGate = new Map<string, VerificationGateResult>();
+  for (const result of results) {
+    const gate = result.gate.trim();
+    if (!gate) {
+      continue;
+    }
+    byGate.set(gate, {
+      gate,
+      status: result.status,
+      ...(result.summary ? { summary: result.summary } : {}),
+      ...(result.evidence ? { evidence: unique(result.evidence) } : {}),
+      ...(result.completedAt ? { completedAt: result.completedAt } : {}),
+    });
+  }
+  return [...byGate.values()];
 }
 
 function normalizePauseRequirements(

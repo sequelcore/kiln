@@ -6,6 +6,7 @@ import type {
   WorkItemPauseRequirementKind,
   WorkItemPauseRequirementStatus,
   WorkItemStatus,
+  VerificationGateResult,
 } from "@kilnai/core";
 import {
   finishGoalExecutionAttempt,
@@ -449,6 +450,7 @@ export class WorkItemCompleteTool implements DevTool {
         items: { type: "string" },
         description: "Verification gates intentionally skipped during closeout. Requires residual-risk closeout.",
       },
+      verificationGateResults: verificationGateResultsSchema(),
     },
     required: ["id"],
     additionalProperties: false,
@@ -466,6 +468,7 @@ export class WorkItemCompleteTool implements DevTool {
       id,
       providedEvidence: readEvidence(input.input.providedEvidence),
       skippedVerificationGates: readTextArray(input.input.skippedVerificationGates),
+      verificationGateResults: readVerificationGateResults(input.input.verificationGateResults),
       residualRisk: readText(input.input.residualRisk),
     });
     if (!completion) {
@@ -474,6 +477,7 @@ export class WorkItemCompleteTool implements DevTool {
 
     const missing = [
       ...completion.missingEvidence,
+      ...completion.failedVerificationGates.map((gate) => `failed gate: ${gate}`),
       ...(completion.missingResidualRisk ? ["residual-risk closeout"] : []),
     ];
     if (missing.length > 0) {
@@ -489,6 +493,7 @@ export class WorkItemCompleteTool implements DevTool {
           status: completion.item.status,
           item: completion.item,
           missingEvidence: completion.missingEvidence,
+          failedVerificationGates: completion.failedVerificationGates,
           missingResidualRisk: completion.missingResidualRisk,
           sequence: completion.item.sequence,
           errorCode: "missing_evidence",
@@ -508,6 +513,7 @@ export class WorkItemCompleteTool implements DevTool {
         status: completion.item.status,
         item: completion.item,
         missingEvidence: completion.missingEvidence,
+        failedVerificationGates: completion.failedVerificationGates,
         missingResidualRisk: completion.missingResidualRisk,
         sequence: completion.item.sequence,
       }),
@@ -708,6 +714,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
         items: { type: "string" },
         description: "Verification gates intentionally skipped by the attempt. Requires residual-risk closeout.",
       },
+      verificationGateResults: verificationGateResultsSchema(),
       summary: { type: "string", description: "Attempt result summary." },
       closeoutSummary: { type: "string", description: "Goal closeout summary if this attempt completes the final work item." },
     },
@@ -740,6 +747,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
         attemptId,
         providedEvidence: readEvidence(input.input.providedEvidence),
         skippedVerificationGates: readTextArray(input.input.skippedVerificationGates),
+        verificationGateResults: readVerificationGateResults(input.input.verificationGateResults),
         residualRisk: readText(input.input.residualRisk),
         summary: readText(input.input.summary),
         closeoutSummary: readText(input.input.closeoutSummary),
@@ -747,6 +755,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
       const missing = [
         ...finished.missingEvidence,
         ...finished.missingGoalEvidence,
+        ...finished.failedVerificationGates.map((gate) => `failed gate: ${gate}`),
         ...(finished.missingResidualRisk ? ["residual-risk closeout"] : []),
       ];
       return {
@@ -765,6 +774,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
           attempt: finished.attempt,
           missingEvidence: finished.missingEvidence,
           missingGoalEvidence: finished.missingGoalEvidence,
+          failedVerificationGates: finished.failedVerificationGates,
           missingResidualRisk: finished.missingResidualRisk,
           sequence: finished.item.sequence,
           ...(missing.length > 0 ? { errorCode: "missing_evidence" } : {}),
@@ -942,6 +952,63 @@ function readPauseRequirementStatus(value: unknown): WorkItemPauseRequirementSta
   return WORK_ITEM_PAUSE_REQUIREMENT_STATUSES.includes(value as WorkItemPauseRequirementStatus)
     ? value as WorkItemPauseRequirementStatus
     : undefined;
+}
+
+function verificationGateResultsSchema(): Record<string, unknown> {
+  return {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        gate: { type: "string", minLength: 1 },
+        status: { enum: ["passed", "failed", "skipped"] },
+        summary: { type: "string" },
+        evidence: {
+          type: "array",
+          items: { type: "string" },
+        },
+        completedAt: { type: "string" },
+      },
+      required: ["gate", "status"],
+      additionalProperties: false,
+    },
+    description: "Recorded verification gate results such as build, typecheck, test, review, or browser QA outcomes.",
+  };
+}
+
+function readVerificationGateResults(value: unknown): readonly VerificationGateResult[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const results: VerificationGateResult[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const gate = readText(record.gate);
+    const status = readVerificationGateResultStatus(record.status);
+    if (!gate || !status || seen.has(gate)) {
+      continue;
+    }
+    seen.add(gate);
+    const summary = readText(record.summary);
+    const completedAt = readText(record.completedAt);
+    const evidence = readTextArray(record.evidence);
+    results.push({
+      gate,
+      status,
+      ...(summary ? { summary } : {}),
+      ...(evidence.length > 0 ? { evidence } : {}),
+      ...(completedAt ? { completedAt } : {}),
+    });
+  }
+  return results;
+}
+
+function readVerificationGateResultStatus(value: unknown): VerificationGateResult["status"] | undefined {
+  return value === "passed" || value === "failed" || value === "skipped" ? value : undefined;
 }
 
 function readTriggers(value: unknown): readonly KilnWorkGovernanceTrigger[] {

@@ -504,6 +504,81 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("records verification gate results and blocks failed gates", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-gate-results",
+      summary: "Record verification gate results.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests", "typecheck"],
+      verificationGates: ["bun test", "bun run typecheck"],
+      goalRunId: "goal-gate-results",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-gate-results",
+      objective: "Execute closeout-gated work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+
+    await startTool?.execute({
+      name: "work_item.execution.start",
+      input: { goalRunId: goal.id },
+    });
+
+    const blocked = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-gate-results:work-gate-results:attempt:1",
+        providedEvidence: ["tests", "typecheck"],
+        verificationGateResults: [
+          { gate: "bun test", status: "passed", summary: "Focused tests passed." },
+          { gate: "bun run typecheck", status: "failed", summary: "TypeScript error in workflow projection." },
+        ],
+        summary: "Typecheck failed.",
+      },
+    });
+
+    expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("failed gate: bun run typecheck");
+    expect(blocked?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "execution_finished",
+      id: item.id,
+      status: "blocked",
+      failedVerificationGates: ["bun run typecheck"],
+      errorCode: "missing_evidence",
+      attempt: {
+        verificationGateResults: [
+          { gate: "bun test", status: "passed" },
+          { gate: "bun run typecheck", status: "failed" },
+        ],
+      },
+      item: {
+        verificationGateResults: [
+          { gate: "bun test", status: "passed" },
+          { gate: "bun run typecheck", status: "failed" },
+        ],
+      },
+    });
+    expect(goalRunStore.get(goal.id)?.currentPhase).toBe("paused:work-gate-results");
+  });
+
   it("does not start an explicit work item before earlier dependencies are complete", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

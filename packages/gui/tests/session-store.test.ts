@@ -1115,6 +1115,7 @@ describe("session-store", () => {
               providedEvidence: [],
               missingEvidence: [],
               skippedVerificationGates: [],
+              verificationGateResults: [],
               missingResidualRisk: false,
             },
           ],
@@ -1157,6 +1158,10 @@ describe("session-store", () => {
               providedEvidence: ["tests"],
               missingEvidence: [],
               skippedVerificationGates: [],
+              verificationGateResults: [
+                { gate: "bun test", status: "passed" },
+                { gate: "bun run typecheck", status: "failed" },
+              ],
               missingResidualRisk: false,
             },
           ],
@@ -1172,6 +1177,7 @@ describe("session-store", () => {
         },
         missingEvidence: [],
         missingGoalEvidence: ["typecheck"],
+        failedVerificationGates: ["bun run typecheck"],
         missingResidualRisk: false,
       },
     });
@@ -1198,6 +1204,7 @@ describe("session-store", () => {
           }),
         ],
         missingGoalEvidence: ["typecheck"],
+        failedVerificationGates: ["bun run typecheck"],
       }),
     ]);
     expect(useSessionStore.getState().timelineEntries).toEqual(expect.arrayContaining([

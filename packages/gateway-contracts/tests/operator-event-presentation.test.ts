@@ -187,6 +187,7 @@ describe("operator event presentation", () => {
       },
       missingEvidence: [],
       missingGoalEvidence: ["typecheck"],
+      failedVerificationGates: ["bun run typecheck"],
       missingResidualRisk: false,
     });
 
@@ -203,6 +204,7 @@ describe("operator event presentation", () => {
       tone: "warning",
     });
     expect(finished.details).toContainEqual({ label: "Missing goal evidence", value: "typecheck" });
+    expect(finished.details).toContainEqual({ label: "Failed verification gates", value: "bun run typecheck" });
   });
 
   it("presents turn completion nested data as operator detail rows", () => {

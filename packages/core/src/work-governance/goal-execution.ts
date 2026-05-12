@@ -9,6 +9,7 @@ import type {
   WorkItemExecutionMode,
   WorkItemPauseRequirement,
   WorkItemStore,
+  VerificationGateResult,
 } from "./work-item.js";
 
 export interface GoalExecutionGovernanceAssessment {
@@ -80,6 +81,7 @@ export interface FinishGoalExecutionAttemptInput {
   readonly attemptId: string;
   readonly providedEvidence?: readonly string[];
   readonly skippedVerificationGates?: readonly string[];
+  readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
   readonly summary?: string;
   readonly closeoutSummary?: string;
@@ -88,6 +90,7 @@ export interface FinishGoalExecutionAttemptInput {
 export interface GoalExecutionAttemptFinish extends GoalExecutionAttemptTransition {
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
+  readonly failedVerificationGates: readonly string[];
   readonly missingGoalEvidence: readonly string[];
 }
 
@@ -218,6 +221,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     attemptId: input.attemptId,
     providedEvidence: input.providedEvidence,
     skippedVerificationGates: input.skippedVerificationGates,
+    verificationGateResults: input.verificationGateResults,
     residualRisk: input.residualRisk,
     summary: input.summary,
   });
@@ -239,6 +243,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     attempt: completed.attempt,
     missingEvidence: completed.missingEvidence,
     missingResidualRisk: completed.missingResidualRisk,
+    failedVerificationGates: completed.failedVerificationGates,
     missingGoalEvidence: goalCloseout.missingGoalEvidence,
   };
 }

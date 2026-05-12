@@ -100,6 +100,7 @@ describe("session event envelope", () => {
       providedEvidence: [],
       missingEvidence: [],
       skippedVerificationGates: [],
+      verificationGateResults: [],
       missingResidualRisk: false,
     };
     const workItem: WorkItem = {
@@ -111,6 +112,7 @@ describe("session event envelope", () => {
       expectedEvidence: ["tests"],
       providedEvidence: [],
       verificationGates: ["bun test"],
+      verificationGateResults: [],
       dependencies: [],
       executionAttempts: [workItemAttempt],
       createdAt: "2026-05-12T18:05:00.000Z",
@@ -356,10 +358,11 @@ describe("session event envelope", () => {
         turnId: "turn-1",
         toolCallId: "tool-3",
         workItem: finishedWorkItem,
-        attempt: finishedAttempt,
-        missingEvidence: [],
-        missingGoalEvidence: [],
-        missingResidualRisk: false,
+      attempt: finishedAttempt,
+      missingEvidence: [],
+      missingGoalEvidence: [],
+      failedVerificationGates: [],
+      missingResidualRisk: false,
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({
         kind: "agent_invocation_requested",

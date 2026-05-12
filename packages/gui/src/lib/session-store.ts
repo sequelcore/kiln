@@ -68,6 +68,7 @@ export interface WorkItemEntry {
   readonly executionAttempts?: readonly WorkItemExecutionAttemptEntry[];
   readonly missingEvidence?: readonly string[];
   readonly missingGoalEvidence?: readonly string[];
+  readonly failedVerificationGates?: readonly string[];
   readonly missingResidualRisk?: boolean;
   readonly updatedAt: string;
 }
@@ -344,6 +345,7 @@ function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | 
     executionAttempts: readWorkItemExecutionAttempts(item.executionAttempts),
     missingEvidence: readStringArray(payload.missingEvidence),
     missingGoalEvidence: readStringArray(payload.missingGoalEvidence),
+    failedVerificationGates: readStringArray(payload.failedVerificationGates),
     missingResidualRisk: payload.missingResidualRisk === true,
     updatedAt: readString(item.updatedAt) ?? nowIso(),
   };

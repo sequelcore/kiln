@@ -409,6 +409,7 @@ export interface WorkItemToolResultMetadata<TToolName extends WorkItemToolName =
   readonly itemCount?: number;
   readonly missingEvidence?: readonly string[];
   readonly missingGoalEvidence?: readonly string[];
+  readonly failedVerificationGates?: readonly string[];
   readonly missingResidualRisk?: boolean;
   readonly sequence?: number;
   readonly errorCode?: "invalid_input" | "not_found" | "missing_evidence";

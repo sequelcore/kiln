@@ -59,6 +59,7 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
           const missing = [
             ...(item.missingEvidence ?? []),
             ...(item.missingGoalEvidence ?? []),
+            ...(item.failedVerificationGates ?? []).map((gate) => `failed gate: ${gate}`),
             ...(item.missingResidualRisk ? ["residual-risk"] : []),
           ];
           const pendingRequirements = item.pauseRequirements?.filter((requirement) => requirement.status === "pending") ?? [];
