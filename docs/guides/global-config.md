@@ -618,6 +618,21 @@ files with Kiln projection metadata. Existing unmanaged guidance files and
 drifted managed shims block generation unless `--force` is explicit; forced
 overwrites create backups under `.kiln/backups/repo-shims/`.
 
+The same sync also writes a workflow snapshot projection for harnesses and
+external tools that can read repo files but cannot query Kiln runtime state:
+
+- `.kiln/projections/workflow-snapshot.md` is the readable generated snapshot.
+- `.kiln/projections/workflow-snapshot-manifest.json` records the generator,
+  source ids, generated file list, timestamp, and canonical snapshot hash.
+
+The snapshot projects specification, work-governance posture, work-item
+profiles, instruction profile references, authority posture, and model policy
+guidance. It is generated from canonical Kiln evidence and must not be edited as
+source. Re-running `kiln sync --repo-shims` leaves the repo shims, manifest, and
+snapshot markdown unchanged when canonical workflow evidence has not changed.
+`kiln config read projections` reports `workflow-snapshot:manifest` as missing,
+current, stale, or drifted without repairing it implicitly.
+
 Adopt durable repository context before syncing shims when the repo needs
 project-specific guidance beyond deterministic package/script/doc evidence:
 
@@ -649,8 +664,9 @@ kiln config read skills
 
 `kiln config read` is read-only. It resolves the same project root as repo-shim
 sync, merges global and project config through the canonical loaders, reports
-adopted project-context status, classifies generated repo shims, summarizes
-native projection install-state, and exposes harness capability diagnostics.
+adopted project-context status, classifies generated repo shims, reports
+workflow snapshot manifest health, summarizes native projection install-state,
+and exposes harness capability diagnostics.
 The `setup` view is the operator-facing setup read model: project-context
 status, repo-shim status, native projection status, and recommended actions such
 as `adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or

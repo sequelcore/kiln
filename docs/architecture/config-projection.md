@@ -142,16 +142,37 @@ missing projection, or blocked by ambiguous root. Unmanaged files are never
 overwritten silently; Kiln may recommend adoption or backup, but the adoption
 command must make the source and target explicit.
 
+Repo-shim sync also exports a workflow snapshot for native harnesses and other
+tools that can read project files but cannot query Kiln runtime state directly.
+The canonical snapshot is built from deterministic project context, resolved
+work-governance config, static workflow profiles, active instruction profiles,
+authority posture, and model policy guidance. Sync writes:
+
+- `.kiln/projections/workflow-snapshot.md` as a readable generated projection.
+- `.kiln/projections/workflow-snapshot-manifest.json` as the manifest containing
+  generator id, generation timestamp, source ids, generated file list, and the
+  canonical snapshot hash.
+
+These files are generated projections only. They are not durable doctrine and
+must not be edited to change Kiln behavior. The manifest hash is computed from
+canonical workflow evidence, not from the markdown projection alone. Re-running
+sync with unchanged canonical evidence leaves the repo shims, manifest, and
+workflow snapshot markdown unchanged. Config/status surfaces report
+`workflow-snapshot:manifest` as missing, current, stale, or drifted; stale and
+drifted diagnostics are read-only and must not mutate the manifest or canonical
+workflow state.
+
 Configuration inspection uses the same canonical status contract across
 operator surfaces. `KilnConfigStatusSnapshot` reports resolved project root,
 global config status, project config status, adopted project-context status,
 effective config availability, repo-shim projection status, native projection
-install-state status, and harness integration capabilities. CLI commands,
-runtime setup endpoints, GUI/TUI setup screens, SDK/widget descriptors, and
-audit events must consume that shared contract instead of re-reading YAML or
-native files independently. The model-callable `kiln_config.read` tool is a
-read-only projection of this contract; it may inspect effective config and
-status but must not mutate configuration or native provider files.
+install-state status, workflow snapshot manifest status, and harness integration
+capabilities. CLI commands, runtime setup endpoints, GUI/TUI setup screens,
+SDK/widget descriptors, and audit events must consume that shared contract
+instead of re-reading YAML or native files independently. The model-callable
+`kiln_config.read` tool is a read-only projection of this contract; it may
+inspect effective config and status but must not mutate configuration or native
+provider files.
 
 For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
 read model. It contains project-context status, repo-shim status, native
@@ -337,6 +358,9 @@ handoff remains unavailable for `foundation-readonly-plan`.
 - Generated repo shims must be self-identifying through Kiln projection
   metadata so status surfaces can explain whether a file is managed, stale,
   drifted, unmanaged, or missing.
+- Workflow snapshot markdown and manifest files are generated projections from
+  canonical workflow evidence; status surfaces may report drift, but must not
+  repair them implicitly.
 - Managed-agent route projection is governed config, not assistant preference.
 - `routing.routes` is the default managed-agent route source; explicit
   `managedAgents.routes` is an allowlist override, not a second routing graph to
