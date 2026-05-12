@@ -872,6 +872,12 @@ function wireOperatorTransport(
                   userId,
                   sourceSurface: "gui",
                   component: "gui-gateway",
+                  residualRiskAcknowledged: typeof frame.residualRiskAcknowledged === "boolean"
+                    ? frame.residualRiskAcknowledged
+                    : true,
+                  residualRiskAcknowledgement: typeof frame.residualRiskAcknowledgement === "string"
+                    ? frame.residualRiskAcknowledgement
+                    : "Operator requested execute mode from the GUI after reviewing the current plan.",
                 });
                 if (!transition.ok) {
                   ws.send(JSON.stringify({

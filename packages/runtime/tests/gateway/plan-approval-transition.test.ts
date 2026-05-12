@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PlanSubmissionInput } from "@kilnai/core";
+import { createSessionEvent, type PlanSubmissionInput } from "@kilnai/core";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { approvePlanExecutionTransition } from "../../src/gateway/plan-approval-transition.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
@@ -26,6 +26,8 @@ describe("approvePlanExecutionTransition", () => {
       userId: "operator-1",
       sourceSurface: "gui",
       component: "gui-gateway",
+      residualRiskAcknowledged: true,
+      residualRiskAcknowledgement: "Operator accepts the documented reload persistence risk for this transition.",
       now: () => new Date("2026-05-11T12:00:00.000Z"),
     });
 
@@ -42,6 +44,9 @@ describe("approvePlanExecutionTransition", () => {
       kilnSessionId: session.id,
       planId: plan.id,
       planHash: plan.contentHash,
+      approvedBy: "operator-1",
+      residualRiskAcknowledged: true,
+      residualRiskAcknowledgement: "Operator accepts the documented reload persistence risk for this transition.",
       fromMode: "plan",
       toMode: "execute",
     });
@@ -117,6 +122,83 @@ describe("approvePlanExecutionTransition", () => {
     });
     expect(surface.planStateStore?.getPlan(plan!.id)?.approval).toBeUndefined();
     expect(session.sessionEvents).toHaveLength(0);
+  });
+
+  it("requires residual-risk acknowledgement for high-control plans with residual risks", async () => {
+    const registry = new SessionRegistry();
+    const session = await registry.getOrCreate({
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      systemPrompt: "You are a helpful assistant.",
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
+    const plan = surface.planStateStore?.submitPlan(basePlanInput());
+    expect(plan).toBeDefined();
+    submitReadyAnalysis(surface, plan?.id);
+
+    const result = await approvePlanExecutionTransition({
+      surfaces: [surface],
+      sessionRegistry: registry,
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      sourceSurface: "gui",
+      component: "gui-gateway",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "PLAN_APPROVAL_RESIDUAL_RISK_ACK_REQUIRED",
+    });
+    expect(plan && surface.planStateStore?.getPlan(plan.id)?.approval).toBeUndefined();
+    expect(session.sessionEvents).toHaveLength(0);
+  });
+
+  it("recovers approval from canonical plan and analysis events after surface reload", async () => {
+    const registry = new SessionRegistry();
+    const session = await registry.getOrCreate({
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      systemPrompt: "You are a helpful assistant.",
+    });
+    const originalSurface = createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
+    const plan = originalSurface.planStateStore?.submitPlan(basePlanInput());
+    expect(plan).toBeDefined();
+    submitReadyAnalysis(originalSurface, plan?.id);
+    appendCanonicalPlanEvents(session, originalSurface, plan!.id);
+    await registry.save(session);
+
+    const result = await approvePlanExecutionTransition({
+      surfaces: [],
+      planId: plan!.id,
+      sessionRegistry: registry,
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "operator-1",
+      sourceSurface: "gui",
+      component: "gui-gateway",
+      residualRiskAcknowledged: true,
+      residualRiskAcknowledgement: "Operator accepts the residual risk after reconnect.",
+      now: () => new Date("2026-05-11T12:05:00.000Z"),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.frame).toMatchObject({
+      type: "execution_mode_transitioned",
+      executionMode: "execute",
+      planId: plan!.id,
+      planHash: plan!.contentHash,
+    });
+    expect(result.event).toMatchObject({
+      kind: "plan_approved",
+      planId: plan!.id,
+      planHash: plan!.contentHash,
+      approvedBy: "operator-1",
+      residualRiskAcknowledged: true,
+    });
   });
 
   it("fails closed for malformed plans", async () => {
@@ -235,4 +317,74 @@ function submitReadyAnalysis(
   });
   expect(specification).toBeDefined();
   surface.analysisStateStore?.analyzePlan({ specification: specification!, plan: plan! });
+}
+
+function appendCanonicalPlanEvents(
+  session: Awaited<ReturnType<SessionRegistry["getOrCreate"]>>,
+  surface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>,
+  planId: string,
+): void {
+  const plan = surface.planStateStore?.getPlan(planId);
+  const report = surface.analysisStateStore?.listReports().filter((candidate) => candidate.planId === planId).at(-1);
+  const findings = surface.analysisStateStore?.listFindings() ?? [];
+  expect(plan).toBeDefined();
+  expect(report).toBeDefined();
+  session.appendSessionEvents([
+    createSessionEvent({
+      kilnSessionId: session.id,
+      sequence: session.nextSessionEventSequence(),
+      kind: "plan_submitted",
+      planId,
+      planHash: plan!.contentHash,
+      mode: "plan",
+      objective: plan!.objective,
+      nonGoals: plan!.nonGoals,
+      operatorDecisionsRequired: plan!.operatorDecisionsRequired,
+      assumptions: plan!.assumptions,
+      affectedSurfaces: plan!.affectedSurfaces,
+      riskClassification: plan!.riskClassification,
+      workflowProfile: plan!.workGovernanceRecommendation.workflowProfile,
+      workGovernancePosture: plan!.workGovernanceRecommendation.posture,
+      workGovernanceRationale: plan!.workGovernanceRecommendation.rationale,
+      expectedEvidence: plan!.expectedEvidence,
+      verificationGates: plan!.verificationGates,
+      managedAgentDelegationCandidates: plan!.managedAgentDelegationCandidates,
+      approvalBoundaries: plan!.approvalBoundaries,
+      rollbackNotes: plan!.rollbackNotes,
+      residualRisks: plan!.residualRisks,
+      sourceSpecificationId: plan!.sourceSpecificationId,
+      clarificationRecordIds: plan!.clarificationRecordIds,
+      constitutionSnapshotHash: plan!.constitutionSnapshot.instructionProfileHash,
+      constitutionSnapshotIds: plan!.constitutionSnapshot.instructionProfileIds,
+      proposedWorkItemCount: plan!.proposedWorkItems.length,
+      proposedWorkItems: plan!.proposedWorkItems,
+      summary: plan!.objective,
+      timestamp: new Date("2026-05-11T12:01:00.000Z"),
+    }),
+    createSessionEvent({
+      kilnSessionId: session.id,
+      sequence: session.nextSessionEventSequence() + 1,
+      kind: "plan_analysis_reported",
+      reportId: report!.id,
+      planId,
+      specificationId: report!.specificationId,
+      status: report!.status,
+      highestSeverity: report!.highestSeverity,
+      findingIds: report!.findingIds,
+      blockingFindingIds: report!.blockingFindingIds,
+      findingCount: report!.findingIds.length,
+      findings: findings.map((finding) => ({
+        id: finding.id,
+        fingerprint: finding.fingerprint,
+        category: finding.category,
+        severity: finding.severity,
+        title: finding.title,
+        detail: finding.detail,
+        references: finding.references,
+        status: finding.status,
+      })),
+      summary: report!.summary,
+      timestamp: new Date("2026-05-11T12:01:00.000Z"),
+    }),
+  ]);
 }

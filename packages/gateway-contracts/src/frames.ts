@@ -471,7 +471,13 @@ export type GuiOutboundFrame =
   | { type: "resume"; sessionId: string }
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }
-  | { type: "execution_mode_transition"; toMode: OperatorExecutionMode; planId?: string };
+  | {
+      type: "execution_mode_transition";
+      toMode: OperatorExecutionMode;
+      planId?: string;
+      residualRiskAcknowledged?: boolean;
+      residualRiskAcknowledgement?: string;
+    };
 
 /** Frames sent by the gateway to the browser (operator). */
 export type GuiInboundFrame =

@@ -145,7 +145,13 @@ export type TuiOutboundFrame =
   | { type: "operator_theme_set_result"; requestId: string; ok: boolean; appliedTheme?: string; error?: string }
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }
-  | { type: "execution_mode_transition"; toMode: OperatorExecutionMode; planId?: string };
+  | {
+      type: "execution_mode_transition";
+      toMode: OperatorExecutionMode;
+      planId?: string;
+      residualRiskAcknowledged?: boolean;
+      residualRiskAcknowledgement?: string;
+    };
 
 /**
  * Configuration options for TuiWsClient.

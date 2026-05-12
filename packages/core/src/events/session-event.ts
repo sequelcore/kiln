@@ -169,6 +169,7 @@ export interface CanonicalPlanWorkItemDraft {
 
 export interface CanonicalPlanSubmittedEvent extends SessionEventEnvelope<"plan_submitted"> {
   readonly planId: string;
+  readonly planHash: string;
   readonly mode: "plan";
   readonly objective: string;
   readonly nonGoals: readonly string[];
@@ -178,6 +179,7 @@ export interface CanonicalPlanSubmittedEvent extends SessionEventEnvelope<"plan_
   readonly riskClassification: "low" | "medium" | "high" | "critical";
   readonly workflowProfile: string;
   readonly workGovernancePosture: "direct" | "orchestrate" | "delegate";
+  readonly workGovernanceRationale: string;
   readonly expectedEvidence: readonly string[];
   readonly verificationGates: readonly string[];
   readonly managedAgentDelegationCandidates: readonly string[];
@@ -187,6 +189,7 @@ export interface CanonicalPlanSubmittedEvent extends SessionEventEnvelope<"plan_
   readonly sourceSpecificationId: string;
   readonly clarificationRecordIds: readonly string[];
   readonly constitutionSnapshotHash: string;
+  readonly constitutionSnapshotIds: readonly string[];
   readonly proposedWorkItemCount: number;
   readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
   readonly summary: string;
@@ -196,7 +199,10 @@ export interface CanonicalPlanApprovedEvent extends SessionEventEnvelope<"plan_a
   readonly planId: string;
   readonly approvalId: string;
   readonly planHash: string;
+  readonly approvedBy: string;
   readonly approvedAt: string;
+  readonly residualRiskAcknowledged: boolean;
+  readonly residualRiskAcknowledgement?: string;
   readonly fromMode: "plan";
   readonly toMode: "execute";
 }

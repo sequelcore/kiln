@@ -46,6 +46,7 @@ export interface AppendCanonicalTurnEventsInput {
   readonly runtimeEvents: readonly CapturedRuntimeLedgerEvent[];
   readonly planSubmissions?: readonly {
     readonly planId: string;
+    readonly planHash: string;
     readonly mode: "plan";
     readonly objective: string;
     readonly nonGoals: readonly string[];
@@ -55,6 +56,7 @@ export interface AppendCanonicalTurnEventsInput {
     readonly riskClassification: "low" | "medium" | "high" | "critical";
     readonly workflowProfile: string;
     readonly workGovernancePosture: "direct" | "orchestrate" | "delegate";
+    readonly workGovernanceRationale: string;
     readonly expectedEvidence: readonly string[];
     readonly verificationGates: readonly string[];
     readonly managedAgentDelegationCandidates: readonly string[];
@@ -64,6 +66,7 @@ export interface AppendCanonicalTurnEventsInput {
     readonly sourceSpecificationId: string;
     readonly clarificationRecordIds: readonly string[];
     readonly constitutionSnapshotHash: string;
+    readonly constitutionSnapshotIds: readonly string[];
     readonly proposedWorkItemCount: number;
     readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
     readonly summary: string;
@@ -306,6 +309,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       kind: "plan_submitted",
       turnId,
       planId: submission.planId,
+      planHash: submission.planHash,
       mode: submission.mode,
       objective: submission.objective,
       nonGoals: submission.nonGoals,
@@ -315,6 +319,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       riskClassification: submission.riskClassification,
       workflowProfile: submission.workflowProfile,
       workGovernancePosture: submission.workGovernancePosture,
+      workGovernanceRationale: submission.workGovernanceRationale,
       expectedEvidence: submission.expectedEvidence,
       verificationGates: submission.verificationGates,
       managedAgentDelegationCandidates: submission.managedAgentDelegationCandidates,
@@ -324,6 +329,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       sourceSpecificationId: submission.sourceSpecificationId,
       clarificationRecordIds: submission.clarificationRecordIds,
       constitutionSnapshotHash: submission.constitutionSnapshotHash,
+      constitutionSnapshotIds: submission.constitutionSnapshotIds,
       proposedWorkItemCount: submission.proposedWorkItemCount,
       proposedWorkItems: submission.proposedWorkItems,
       summary: submission.summary,

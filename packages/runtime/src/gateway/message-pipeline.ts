@@ -173,6 +173,7 @@ function extractPlanSubmissions(
   toolExecutions: readonly ToolExecutionSummary[] | undefined,
 ): readonly {
   readonly planId: string;
+  readonly planHash: string;
   readonly mode: "plan";
   readonly objective: string;
   readonly nonGoals: readonly string[];
@@ -182,6 +183,7 @@ function extractPlanSubmissions(
   readonly riskClassification: "low" | "medium" | "high" | "critical";
   readonly workflowProfile: string;
   readonly workGovernancePosture: "direct" | "orchestrate" | "delegate";
+  readonly workGovernanceRationale: string;
   readonly expectedEvidence: readonly string[];
   readonly verificationGates: readonly string[];
   readonly managedAgentDelegationCandidates: readonly string[];
@@ -191,6 +193,7 @@ function extractPlanSubmissions(
   readonly sourceSpecificationId: string;
   readonly clarificationRecordIds: readonly string[];
   readonly constitutionSnapshotHash: string;
+  readonly constitutionSnapshotIds: readonly string[];
   readonly proposedWorkItemCount: number;
   readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
   readonly summary: string;
@@ -200,6 +203,7 @@ function extractPlanSubmissions(
     .map((execution) => {
       const metadata = execution.metadata;
       const metadataPlanId = typeof metadata?.planId === "string" ? metadata.planId.trim() : "";
+      const metadataPlanHash = typeof metadata?.planHash === "string" ? metadata.planHash.trim() : "";
       const metadataSummary = typeof metadata?.summary === "string" ? metadata.summary.trim() : "";
       const metadataWorkItemCount = typeof metadata?.proposedWorkItemCount === "number" ? metadata.proposedWorkItemCount : undefined;
       const objective = typeof metadata?.objective === "string"
@@ -215,6 +219,9 @@ function extractPlanSubmissions(
         ? metadata.workflowProfile.trim()
         : extractWorkflowProfile(execution.input?.workGovernanceRecommendation);
       const posture = metadata?.workGovernancePosture ?? extractWorkGovernancePosture(execution.input?.workGovernanceRecommendation);
+      const workGovernanceRationale = typeof metadata?.workGovernanceRationale === "string"
+        ? metadata.workGovernanceRationale.trim()
+        : extractWorkGovernanceRationale(execution.input?.workGovernanceRecommendation);
       if (!objective || !sourceSpecificationId || !workflowProfile) return null;
       if (riskClassification !== "low" && riskClassification !== "medium" && riskClassification !== "high" && riskClassification !== "critical") {
         return null;
@@ -246,6 +253,7 @@ function extractPlanSubmissions(
         : extractPlanWorkItems(execution.input?.proposedWorkItems);
       return {
         planId: metadataPlanId || execution.toolCallId || `plan:${execution.durationMs}`,
+        planHash: metadataPlanHash,
         mode: "plan",
         objective,
         nonGoals,
@@ -255,6 +263,7 @@ function extractPlanSubmissions(
         riskClassification,
         workflowProfile,
         workGovernancePosture: posture,
+        workGovernanceRationale,
         expectedEvidence,
         verificationGates,
         managedAgentDelegationCandidates: extractStringArray(metadata?.managedAgentDelegationCandidates).length > 0
@@ -276,6 +285,9 @@ function extractPlanSubmissions(
         constitutionSnapshotHash: typeof metadata?.constitutionSnapshotHash === "string"
           ? metadata.constitutionSnapshotHash.trim()
           : extractConstitutionSnapshotHash(execution.input?.constitutionSnapshot),
+        constitutionSnapshotIds: extractStringArray(metadata?.constitutionSnapshotIds).length > 0
+          ? extractStringArray(metadata?.constitutionSnapshotIds)
+          : extractConstitutionSnapshotIds(execution.input?.constitutionSnapshot),
         proposedWorkItemCount: metadataWorkItemCount ?? proposedWorkItems.length,
         proposedWorkItems,
         summary: metadataSummary || [
@@ -287,6 +299,7 @@ function extractPlanSubmissions(
     })
     .filter((submission): submission is {
       readonly planId: string;
+      readonly planHash: string;
       readonly mode: "plan";
       readonly objective: string;
       readonly nonGoals: readonly string[];
@@ -296,6 +309,7 @@ function extractPlanSubmissions(
       readonly riskClassification: "low" | "medium" | "high" | "critical";
       readonly workflowProfile: string;
       readonly workGovernancePosture: "direct" | "orchestrate" | "delegate";
+      readonly workGovernanceRationale: string;
       readonly expectedEvidence: readonly string[];
       readonly verificationGates: readonly string[];
       readonly managedAgentDelegationCandidates: readonly string[];
@@ -305,6 +319,7 @@ function extractPlanSubmissions(
       readonly sourceSpecificationId: string;
       readonly clarificationRecordIds: readonly string[];
       readonly constitutionSnapshotHash: string;
+      readonly constitutionSnapshotIds: readonly string[];
       readonly proposedWorkItemCount: number;
       readonly proposedWorkItems: readonly CanonicalPlanWorkItemDraft[];
       readonly summary: string;
@@ -531,6 +546,22 @@ function extractConstitutionSnapshotHash(value: unknown): string {
   return typeof record.instructionProfileHash === "string"
     ? record.instructionProfileHash.trim()
     : "";
+}
+
+function extractConstitutionSnapshotIds(value: unknown): readonly string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+  const record = value as Record<string, unknown>;
+  return extractStringArray(record.instructionProfileIds);
+}
+
+function extractWorkGovernanceRationale(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "";
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.rationale === "string" ? record.rationale.trim() : "";
 }
 
 function extractPlanWorkItems(value: unknown): readonly CanonicalPlanWorkItemDraft[] {

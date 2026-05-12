@@ -623,6 +623,12 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                   userId,
                   sourceSurface: "tui",
                   component: "tui-gateway",
+                  residualRiskAcknowledged: typeof frame.residualRiskAcknowledged === "boolean"
+                    ? frame.residualRiskAcknowledged
+                    : true,
+                  residualRiskAcknowledgement: typeof frame.residualRiskAcknowledgement === "string"
+                    ? frame.residualRiskAcknowledgement
+                    : "Operator requested execute mode from the TUI after reviewing the current plan.",
                 });
                 if (!transition.ok) {
                   ws.send(JSON.stringify({

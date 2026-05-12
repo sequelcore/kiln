@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased -- Workflow Control
+
+- Closed roadmap Slice 4 for plan approval and transition. Plan approval now
+  records operator identity, immutable plan hash, approval id, and residual-risk
+  acknowledgement state in canonical `plan_approved` events.
+- Canonical `plan_submitted` events now carry the replay fields needed for
+  hash-stable approval recovery after GUI/TUI reload or reconnect.
+- Runtime plan execution approval now fails closed when required residual-risk
+  acknowledgement is missing, when analysis is absent or blocking, when a plan
+  is malformed, or when recovered plan content does not match the canonical
+  plan hash.
+
 ## Unreleased -- Shared Tooling Intelligence
 
 - Replaced the generic built-in operator theme set with the curated Kiln visual

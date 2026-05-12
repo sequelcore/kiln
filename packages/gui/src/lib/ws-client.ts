@@ -52,6 +52,8 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("execution_mode_transition"),
     toMode: z.enum(["execute", "plan"]),
     planId: z.string().trim().min(1).optional(),
+    residualRiskAcknowledged: z.boolean().optional(),
+    residualRiskAcknowledgement: z.string().optional(),
   }),
 ]);
 
