@@ -33,6 +33,7 @@ import type {
   OperatorSurfaceThemeController,
 } from "../operator/operator-surface-controller.js";
 import type { PerCallToolConfig, RuntimeBuiltinToolExecutor } from "../session/runtime-session-orchestrator.js";
+import { buildEffectiveTurnAuthorityPolicyInputs } from "../session/effective-turn-authority.js";
 import {
   createManagedAgentInvokeToolDefinition,
   createManagedInvocationToolCallMetadataResolver,
@@ -734,18 +735,26 @@ function withEffectiveTurnAuthority(
   const toolAllowlist = config.toolAllowlist ?? new Set<string>();
   const toolAuthority = config.toolAuthority;
   const rollup = rollupAdmittedAuthority(toolAllowlist, toolAuthority);
+  const admittedAuthority = rollup.admittedAuthority;
   return {
     ...config,
     effectiveTurnAuthority: {
       executionMode: input.executionMode,
       requestedAuthority,
-      admittedAuthority: rollup.admittedAuthority,
+      admittedAuthority,
       sourcePolicy: input.sourcePolicy,
       reason: input.reason,
       completeness: rollup.completeness,
       toolCount: toolAllowlist.size,
       deniedToolCount: rollup.deniedToolCount,
       ...(input.sandboxProjection ? { sandboxProjection: input.sandboxProjection } : {}),
+      policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
+        executionMode: input.executionMode,
+        tenantId: config.tenantId,
+        requestedAuthority,
+        admittedAuthority,
+        routeReason: input.reason,
+      }),
     },
   };
 }

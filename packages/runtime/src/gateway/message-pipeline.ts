@@ -28,7 +28,14 @@ import type {
 import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
-import type { RuntimeSessionOrchestrator, OrchestrateResult, PerCallToolConfig, RuntimeBuiltinToolExecutor, ToolExecutionSummary } from "../session/runtime-session-orchestrator.js";
+import type {
+  RuntimeSessionOrchestrator,
+  OrchestrateResult,
+  PerCallToolConfig,
+  RuntimeBuiltinToolExecutor,
+  ToolExecutionSummary,
+} from "../session/runtime-session-orchestrator.js";
+import { buildEffectiveTurnAuthorityPolicyInputs } from "../session/effective-turn-authority.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
@@ -1061,6 +1068,13 @@ function projectRequestedAuthorityPerCallConfig(
         completeness: "partial",
         toolCount: config?.toolAllowlist?.size ?? config?.additionalTools?.length ?? 0,
         deniedToolCount: 0,
+        policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
+          executionMode,
+          tenantId: config?.tenantId,
+          requestedAuthority: effectiveRequestedAuthority,
+          admittedAuthority: "unknown",
+          routeReason: reason,
+        }),
       },
     };
   }
@@ -1105,6 +1119,13 @@ function projectRequestedAuthorityPerCallConfig(
       completeness: "authoritative",
       toolCount: admittedToolNames.size,
       deniedToolCount: Math.max(0, candidateNames.size - admittedToolNames.size),
+      policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
+        executionMode,
+        tenantId: config?.tenantId,
+        requestedAuthority: effectiveRequestedAuthority,
+        admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : effectiveRequestedAuthority,
+        routeReason: reason,
+      }),
     },
   };
 }

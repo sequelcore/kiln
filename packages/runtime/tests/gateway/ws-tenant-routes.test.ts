@@ -482,6 +482,53 @@ describe("createWsTenantRoutes", () => {
         completeness: "authoritative",
         deniedToolCount: 1,
       }));
+      expect(perCallConfig?.effectiveTurnAuthority?.policyInputs).toEqual([
+        {
+          source: "requested_authority",
+          status: "applied",
+          requestedAuthority: "read_only",
+          reason: "Operator requested read_only authority.",
+        },
+        {
+          source: "session_policy",
+          status: "applied",
+          admittedAuthority: "unknown",
+          reason: "No narrower session authority policy is configured for this turn.",
+        },
+        {
+          source: "tenant_policy",
+          status: "applied",
+          subjectId: "salon-test",
+          admittedAuthority: "unknown",
+          reason: "Tenant salon-test contributes the runtime tool surface policy.",
+        },
+        {
+          source: "route_policy",
+          status: "applied",
+          admittedAuthority: "read_only",
+          reason: "websocket tenant message requested turn authority",
+        },
+        {
+          source: "parent_authority",
+          status: "not_applicable",
+          reason: "Operator turns have no parent managed-agent authority.",
+        },
+        {
+          source: "plan_approval",
+          status: "not_applicable",
+          reason: "Execute-mode turns are not governed by plan-mode approval policy.",
+        },
+        {
+          source: "goal_envelope",
+          status: "not_applicable",
+          reason: "Goal envelopes are introduced by Slice 6 and are not available to this Slice 5 admission.",
+        },
+        {
+          source: "work_item_authority",
+          status: "not_applicable",
+          reason: "Work-item authority envelopes are introduced by Slice 7 and are not available to this Slice 5 admission.",
+        },
+      ]);
     });
 
     it("fails closed when audited authority is requested for tenant tools without authority metadata", async () => {

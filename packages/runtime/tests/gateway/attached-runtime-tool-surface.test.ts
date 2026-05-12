@@ -242,6 +242,56 @@ describe("attached runtime builtin tool surface", () => {
     expect(requestedReadOnly.effectiveTurnAuthority?.deniedToolCount).toBe(0);
   });
 
+  it("records explicit min-policy inputs on admitted authority snapshots", () => {
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: createAttachedRuntimeBuiltinToolSurface(),
+      executionMode: "execute",
+      requestedAuthority: "read_only",
+    });
+
+    expect(config.effectiveTurnAuthority?.policyInputs).toEqual([
+      expect.objectContaining({
+        source: "requested_authority",
+        status: "applied",
+        requestedAuthority: "read_only",
+      }),
+      expect.objectContaining({
+        source: "session_policy",
+        status: "applied",
+      }),
+      expect.objectContaining({
+        source: "tenant_policy",
+        status: "applied",
+        subjectId: "tenant-1",
+      }),
+      expect.objectContaining({
+        source: "route_policy",
+        status: "applied",
+        admittedAuthority: "read_only",
+      }),
+      expect.objectContaining({
+        source: "parent_authority",
+        status: "not_applicable",
+      }),
+      expect.objectContaining({
+        source: "plan_approval",
+        status: "not_applicable",
+      }),
+      expect.objectContaining({
+        source: "goal_envelope",
+        status: "not_applicable",
+      }),
+      expect.objectContaining({
+        source: "work_item_authority",
+        status: "not_applicable",
+      }),
+    ]);
+  });
+
   it("rejects malformed requested authority in the shared per-call builder", () => {
     expect(() => buildAttachedRuntimePerCallToolConfig({
       tenantId: "tenant-1",

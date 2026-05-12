@@ -14,6 +14,7 @@ import type { AgentHandoffSummarizer } from "../session/support/summarization/ag
 import type { EventBus } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
+import { buildEffectiveTurnAuthorityPolicyInputs } from "../session/effective-turn-authority.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -475,6 +476,13 @@ function projectRequestedAuthorityPerCallConfig(
           completeness: "partial",
           toolCount: config.toolAllowlist?.size ?? config.additionalTools?.length ?? 0,
           deniedToolCount: 0,
+          policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
+            executionMode: "execute",
+            tenantId: config.tenantId,
+            requestedAuthority,
+            admittedAuthority: "unknown",
+            routeReason: "websocket tenant message requested turn authority",
+          }),
         },
       }
       : config;
@@ -505,6 +513,7 @@ function projectRequestedAuthorityPerCallConfig(
     }
   }
 
+  const admittedAuthority = admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority;
   return {
     ...config,
     toolAllowlist: admittedToolNames,
@@ -514,12 +523,19 @@ function projectRequestedAuthorityPerCallConfig(
     effectiveTurnAuthority: {
       executionMode: "execute",
       requestedAuthority,
-      admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority,
+      admittedAuthority,
       sourcePolicy: "runtime_surface_projection",
       reason: "websocket tenant message requested turn authority",
       completeness: "authoritative",
       toolCount: admittedToolNames.size,
       deniedToolCount: Math.max(0, candidateNames.size - admittedToolNames.size),
+      policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
+        executionMode: "execute",
+        tenantId: config.tenantId,
+        requestedAuthority,
+        admittedAuthority,
+        routeReason: "websocket tenant message requested turn authority",
+      }),
     },
   };
 }

@@ -1,7 +1,17 @@
 export { RuntimeSession } from "./runtime-session.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
 export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
-export type { OrchestratorDeps, OrchestrateResult, PerCallToolConfig, ToolExecutionSummary } from "./runtime-session-orchestrator.js";
+export { buildEffectiveTurnAuthorityPolicyInputs } from "./effective-turn-authority.js";
+export type {
+  EffectiveTurnAuthorityPolicyInput,
+  EffectiveTurnAuthorityPolicyInputSource,
+  EffectiveTurnAuthorityPolicyInputStatus,
+  EffectiveTurnAuthoritySnapshot,
+  OrchestratorDeps,
+  OrchestrateResult,
+  PerCallToolConfig,
+  ToolExecutionSummary,
+} from "./runtime-session-orchestrator.js";
 
 // Persistence + registry
 export {

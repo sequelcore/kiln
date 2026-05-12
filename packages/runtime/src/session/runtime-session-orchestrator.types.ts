@@ -120,6 +120,30 @@ export type EffectiveTurnAuthoritySandboxProjection =
   | "workspace_write"
   | "unknown";
 
+export type EffectiveTurnAuthorityPolicyInputSource =
+  | "requested_authority"
+  | "session_policy"
+  | "tenant_policy"
+  | "route_policy"
+  | "parent_authority"
+  | "plan_approval"
+  | "goal_envelope"
+  | "work_item_authority";
+
+export type EffectiveTurnAuthorityPolicyInputStatus =
+  | "applied"
+  | "not_applicable"
+  | "unresolved";
+
+export interface EffectiveTurnAuthorityPolicyInput {
+  readonly source: EffectiveTurnAuthorityPolicyInputSource;
+  readonly status: EffectiveTurnAuthorityPolicyInputStatus;
+  readonly reason: string;
+  readonly subjectId?: string;
+  readonly requestedAuthority?: "planning" | "auto" | "read_only" | "audited" | "destructive";
+  readonly admittedAuthority?: EffectiveTurnAuthorityLevel;
+}
+
 export interface EffectiveTurnAuthoritySnapshot {
   readonly executionMode: "execute" | "plan";
   readonly requestedAuthority: "planning" | "auto" | "read_only" | "audited" | "destructive";
@@ -130,6 +154,7 @@ export interface EffectiveTurnAuthoritySnapshot {
   readonly toolCount: number;
   readonly deniedToolCount: number;
   readonly sandboxProjection?: EffectiveTurnAuthoritySandboxProjection;
+  readonly policyInputs?: readonly EffectiveTurnAuthorityPolicyInput[];
 }
 
 export interface PerCallToolConfig {

@@ -1762,6 +1762,73 @@ describe("processAdmittedTurn", () => {
     }));
   });
 
+  it("returns min-policy inputs with tenant authority projection", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      tenantId: "tenant-policy-1",
+      requestedAuthority: "audited",
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: {
+        tenantId: "tenant-policy-1",
+        toolAllowlist: new Set(["lookup_customer"]),
+        perCallCapabilities: new Map([[
+          "lookup_customer",
+          {
+            name: "lookup_customer",
+            description: "Lookup customer",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          },
+        ]]),
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.effectiveTurnAuthority?.policyInputs).toEqual([
+        expect.objectContaining({
+          source: "requested_authority",
+          status: "applied",
+          requestedAuthority: "audited",
+        }),
+        expect.objectContaining({
+          source: "session_policy",
+          status: "applied",
+        }),
+        expect.objectContaining({
+          source: "tenant_policy",
+          status: "applied",
+          subjectId: "tenant-policy-1",
+        }),
+        expect.objectContaining({
+          source: "route_policy",
+          status: "applied",
+          admittedAuthority: "audited",
+        }),
+        expect.objectContaining({
+          source: "parent_authority",
+          status: "not_applicable",
+        }),
+        expect.objectContaining({
+          source: "plan_approval",
+          status: "not_applicable",
+        }),
+        expect.objectContaining({
+          source: "goal_envelope",
+          status: "not_applicable",
+        }),
+        expect.objectContaining({
+          source: "work_item_authority",
+          status: "not_applicable",
+        }),
+      ]);
+    }
+  });
+
   it("persists dangerous-command outcomes into canonical turn artifacts", async () => {
     const session = makeMockSession();
     const orchestrator = {

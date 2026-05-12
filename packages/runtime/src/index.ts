@@ -230,6 +230,7 @@ export type {
 export {
   RuntimeSession,
   RuntimeSessionOrchestrator,
+  buildEffectiveTurnAuthorityPolicyInputs,
   SessionRegistry,
   InMemorySessionStore,
   RedisSessionStore,
@@ -249,6 +250,10 @@ export type {
   RuntimeSessionConfig,
   SerializedSessionData,
   AgentTurnEntry,
+  EffectiveTurnAuthorityPolicyInput,
+  EffectiveTurnAuthorityPolicyInputSource,
+  EffectiveTurnAuthorityPolicyInputStatus,
+  EffectiveTurnAuthoritySnapshot,
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,

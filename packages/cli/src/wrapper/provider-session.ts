@@ -22,6 +22,7 @@ import {
   type DefaultBuiltinToolRegistryOptions,
 } from "@kilnai/core";
 import {
+  buildEffectiveTurnAuthorityPolicyInputs,
   createAttachedRuntimeBuiltinToolSurface,
   type ManagedInvocationToolOptions,
   type OperatorSurfaceController,
@@ -459,6 +460,12 @@ export class ProviderSession implements IKilnSession {
             completeness: "partial",
             toolCount: this.toolDefinitions.length,
             deniedToolCount: 0,
+            policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
+              executionMode: "execute",
+              requestedAuthority,
+              admittedAuthority: "unknown",
+              routeReason: "cli direct-provider requested turn authority",
+            }),
           },
         } : {}),
       };
@@ -485,6 +492,7 @@ export class ProviderSession implements IKilnSession {
       }
     }
 
+    const admittedAuthority = admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority;
     return {
       ...(reasoningEffort ? { reasoningEffort } : {}),
       toolAllowlist: admittedToolNames,
@@ -494,12 +502,18 @@ export class ProviderSession implements IKilnSession {
       effectiveTurnAuthority: {
         executionMode: "execute",
         requestedAuthority,
-        admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority,
+        admittedAuthority,
         sourcePolicy: "runtime_surface_projection",
         reason: "cli direct-provider requested turn authority",
         completeness: "authoritative",
         toolCount: admittedToolNames.size,
         deniedToolCount: Math.max(0, this.toolDefinitions.length - admittedToolNames.size),
+        policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
+          executionMode: "execute",
+          requestedAuthority,
+          admittedAuthority,
+          routeReason: "cli direct-provider requested turn authority",
+        }),
       },
     };
   }
