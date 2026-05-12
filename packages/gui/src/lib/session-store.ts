@@ -448,6 +448,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   readonly turnCounter: number;
   readonly routedProvider: string | null;
   readonly routedModel: string | null;
+  readonly authorityStatus: AuthorityStatus | null;
 } {
   const messages: Message[] = [];
   const timelineEntries: TimelineEntry[] = [];
@@ -458,6 +459,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   let turnCounter = 0;
   let lastRoutedProvider = detail.meta.lastProvider ?? null;
   let lastRoutedModel: string | null = null;
+  let lastAuthorityStatus: AuthorityStatus | null = null;
   let interactiveUseSnapshot: GuiInteractiveUseSnapshot | null = null;
 
   for (const event of detail.events) {
@@ -853,6 +855,14 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     }
 
     if (event.kind === "turn_completed") {
+      const routingRationale = isObjectRecord(payload.routingRationale) ? payload.routingRationale : null;
+      lastRoutedProvider = readString(payload.routedProvider)
+        ?? readString(routingRationale?.selectedProvider)
+        ?? lastRoutedProvider;
+      lastRoutedModel = readString(payload.routedModel)
+        ?? readString(routingRationale?.selectedModel)
+        ?? lastRoutedModel;
+      lastAuthorityStatus = readAuthorityStatus(payload.authorityStatus) ?? lastAuthorityStatus;
       turnCounter += 1;
       timelineEntries.push({
         id: `${detail.id}:timeline:${event.sequence}`,
@@ -945,6 +955,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     turnCounter,
     routedProvider: lastRoutedProvider,
     routedModel: lastRoutedModel,
+    authorityStatus: lastAuthorityStatus,
   };
 }
 
@@ -1213,6 +1224,29 @@ export interface ProviderDescriptor {
 export interface AuthorityStatus {
   readonly effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
   readonly completeness: "authoritative" | "partial";
+}
+
+function readAuthorityStatus(value: unknown): AuthorityStatus | null {
+  const record = isObjectRecord(value) ? value : null;
+  if (!record) {
+    return null;
+  }
+  const effective = record.effective;
+  const completeness = record.completeness;
+  if (
+    (
+      effective === "fail_closed"
+      || effective === "read_only"
+      || effective === "idempotent"
+      || effective === "audited"
+      || effective === "destructive"
+      || effective === "unknown"
+    )
+    && (completeness === "authoritative" || completeness === "partial")
+  ) {
+    return { effective, completeness };
+  }
+  return null;
 }
 
 function normalizeProviderDescriptors(
@@ -1631,6 +1665,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnCounter: loaded.turnCounter,
       routedProvider: loaded.routedProvider,
       routedModel: loaded.routedModel,
+      authorityStatus: loaded.authorityStatus,
       interactiveUseSnapshot: loaded.interactiveUseSnapshot,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
@@ -2162,6 +2197,52 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
           },
         ],
+      });
+      return;
+    }
+
+    if (event.kind === "turn_completed") {
+      const current = get();
+      const routingRationale = isObjectRecord(payload.routingRationale) ? payload.routingRationale : null;
+      const routedProvider = readString(payload.routedProvider)
+        ?? readString(routingRationale?.selectedProvider)
+        ?? current.respondingProvider
+        ?? current.routedProvider;
+      const routedModel = readString(payload.routedModel)
+        ?? readString(routingRationale?.selectedModel)
+        ?? current.respondingModel
+        ?? current.routedModel;
+      const authorityStatus = readAuthorityStatus(payload.authorityStatus);
+      set({
+        timelineEntries: [
+          ...current.timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            ...timelineTurnId(event),
+            title: "Turn completed",
+            summary: readString(payload.outcome) ?? undefined,
+            tone: "success",
+            details: payload,
+          },
+        ],
+        currentAssistant: null,
+        status: "ready",
+        activity: null,
+        activityPhase: "idle",
+        authorityStatus: authorityStatus ?? current.authorityStatus,
+        routedProvider,
+        routedModel,
+        routeMode: current.providerExplicitSelection ? "user" : "auto",
+        respondingProvider: null,
+        respondingModel: null,
+        currentTurnTrackedInputTokens: 0,
+        currentTurnTrackedOutputTokens: 0,
+        turnCounter: current.turnCounter + 1,
+        clearPending: false,
       });
       return;
     }

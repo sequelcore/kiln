@@ -702,6 +702,61 @@ describe("session-store", () => {
     ]);
   });
 
+  it("applies live canonical turn completion authority and routing state", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-live",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-turn-completed",
+      kilnSessionId: "session-live",
+      sequence: 9,
+      timestamp: "2026-05-12T20:02:00.000Z",
+      kind: "turn_completed",
+      payload: {
+        outcome: "completed",
+        routedProvider: "codex-oauth",
+        routedModel: "gpt-5.4-mini",
+        routingRationale: {
+          selectedProvider: "codex-oauth",
+          selectedModel: "gpt-5.4-mini",
+          selectionMode: "auto",
+          routingReason: "Auto by Kiln selected the default route.",
+          routingTier: "default",
+        },
+        authorityStatus: {
+          effective: "read_only",
+          completeness: "authoritative",
+        },
+      },
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.status).toBe("ready");
+    expect(state.routedProvider).toBe("codex-oauth");
+    expect(state.routedModel).toBe("gpt-5.4-mini");
+    expect(state.authorityStatus).toEqual({
+      effective: "read_only",
+      completeness: "authoritative",
+    });
+    expect(state.turnCounter).toBe(1);
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "turn_completed",
+      details: expect.objectContaining({
+        routingRationale: expect.objectContaining({
+          selectionMode: "auto",
+          routingReason: "Auto by Kiln selected the default route.",
+        }),
+        authorityStatus: {
+          effective: "read_only",
+          completeness: "authoritative",
+        },
+      }),
+    }));
+  });
+
   it("stores unwrapped typed read presentations for nested tool result envelopes", () => {
     useSessionStore.setState({
       selectedSessionId: "session-live",
@@ -1691,6 +1746,65 @@ describe("session-store", () => {
       details: expect.objectContaining({
         decision: "continue",
         reason: "single-source-cache",
+      }),
+    }));
+  });
+
+  it("restores selected-session authority and routing state from canonical turn completion", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-authority-route",
+      meta: {
+        kilnSessionId: "session-authority-route",
+        title: "Authority route replay",
+        task: "Authority route replay",
+        startedAt: "2026-05-12T20:00:00.000Z",
+      },
+      events: [
+        {
+          eventId: "evt-complete",
+          kilnSessionId: "session-authority-route",
+          sequence: 1,
+          timestamp: "2026-05-12T20:01:00.000Z",
+          kind: "turn_completed",
+          payload: {
+            outcome: "completed",
+            routedProvider: "codex-oauth",
+            routedModel: "gpt-5.4-mini",
+            routingRationale: {
+              selectedProvider: "codex-oauth",
+              selectedModel: "gpt-5.4-mini",
+              selectionMode: "auto",
+              routingReason: "Auto by Kiln selected the default route.",
+              routingTier: "default",
+            },
+            authorityStatus: {
+              effective: "read_only",
+              completeness: "authoritative",
+            },
+          },
+        },
+      ],
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.routedProvider).toBe("codex-oauth");
+    expect(state.routedModel).toBe("gpt-5.4-mini");
+    expect(state.authorityStatus).toEqual({
+      effective: "read_only",
+      completeness: "authoritative",
+    });
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "turn_completed",
+      details: expect.objectContaining({
+        routingRationale: expect.objectContaining({
+          selectionMode: "auto",
+          routingReason: "Auto by Kiln selected the default route.",
+        }),
+        authorityStatus: {
+          effective: "read_only",
+          completeness: "authoritative",
+        },
       }),
     }));
   });
