@@ -81,11 +81,40 @@ describe("config-status", () => {
     expect(snapshot.projections).toEqual(expect.arrayContaining([
       expect.objectContaining({ targetId: "repo-shim:agents", status: "current" }),
       expect.objectContaining({ targetId: "repo-shim:claude", status: "current" }),
+      expect.objectContaining({
+        targetId: "workflow-snapshot:manifest",
+        kind: "workflow-snapshot",
+        status: "current",
+      }),
     ]));
     expect(snapshot.setup.repoShims).toEqual(expect.arrayContaining([
       expect.objectContaining({ targetId: "repo-shim:agents", status: "current", recommendation: "none" }),
       expect.objectContaining({ targetId: "repo-shim:claude", status: "current", recommendation: "none" }),
     ]));
+  });
+
+  it("reports workflow snapshot manifest drift without mutating canonical state", async () => {
+    writeProjectConfig(tempDir);
+    await writeRepoShimProjections(tempDir);
+    const manifestPath = join(tempDir, ".kiln", "projections", "workflow-snapshot-manifest.json");
+    const originalManifest = readFileSync(manifestPath, "utf-8");
+    const staleManifest = JSON.stringify({
+      ...JSON.parse(originalManifest),
+      hash: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    }, null, 2);
+    writeFileSync(manifestPath, `${staleManifest}\n`, "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "workflow-snapshot:manifest",
+        kind: "workflow-snapshot",
+        status: "stale",
+        details: expect.stringContaining("expected sha256:"),
+      }),
+    ]));
+    expect(readFileSync(manifestPath, "utf-8")).toBe(`${staleManifest}\n`);
   });
 
   it("returns bounded read views", async () => {

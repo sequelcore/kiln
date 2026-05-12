@@ -54,6 +54,14 @@ export interface WorkflowSnapshotManifestResult {
   readonly errors: readonly string[];
 }
 
+export interface WorkflowSnapshotManifestStatus {
+  readonly path: string;
+  readonly status: "missing" | "current" | "stale" | "drifted";
+  readonly expectedHash?: string;
+  readonly currentHash?: string;
+  readonly details?: string;
+}
+
 export interface RepoShimProjectionStatus {
   readonly target: RepoShimKind;
   readonly path: string;
@@ -187,6 +195,42 @@ export async function readRepoShimProjectionStatuses(projectPath: string): Promi
       status: existing === expected ? "current" : "stale",
     };
   });
+}
+
+export async function readWorkflowSnapshotManifestStatus(projectPath: string): Promise<WorkflowSnapshotManifestStatus> {
+  const manifestPath = workflowSnapshotManifestPath(projectPath);
+  if (!existsSync(manifestPath)) {
+    return { path: manifestPath, status: "missing" };
+  }
+
+  const content = readFileSync(manifestPath, "utf-8");
+  const currentHash = readManifestHash(content);
+  if (!currentHash) {
+    return {
+      path: manifestPath,
+      status: "drifted",
+      details: "workflow snapshot manifest is not valid JSON",
+    };
+  }
+
+  const expected = await buildCurrentWorkflowSnapshot(projectPath);
+  const expectedHash = expected.manifest.hash;
+  if (currentHash !== expectedHash) {
+    return {
+      path: manifestPath,
+      status: "stale",
+      expectedHash,
+      currentHash,
+      details: `workflow snapshot manifest hash is stale: expected ${expectedHash}, found ${currentHash}`,
+    };
+  }
+
+  return {
+    path: manifestPath,
+    status: "current",
+    expectedHash,
+    currentHash,
+  };
 }
 
 function writeRepoShimTarget(input: {
@@ -505,7 +549,7 @@ function writeWorkflowSnapshotManifest(
   projectPath: string,
   workflowSnapshot: WorkflowSnapshotExport,
 ): WorkflowSnapshotManifestResult {
-  const manifestPath = join(projectPath, ".kiln", "projections", "workflow-snapshot-manifest.json");
+  const manifestPath = workflowSnapshotManifestPath(projectPath);
   const existing = existsSync(manifestPath) ? readFileSync(manifestPath, "utf-8") : null;
   const existingHash = existing ? readManifestHash(existing) : null;
 
@@ -528,6 +572,10 @@ function writeWorkflowSnapshotManifest(
   };
 }
 
+function workflowSnapshotManifestPath(projectPath: string): string {
+  return join(projectPath, ".kiln", "projections", "workflow-snapshot-manifest.json");
+}
+
 function readManifestHash(content: string): string | null {
   try {
     const parsed = JSON.parse(content) as { hash?: unknown };
@@ -535,6 +583,18 @@ function readManifestHash(content: string): string | null {
   } catch {
     return null;
   }
+}
+
+async function buildCurrentWorkflowSnapshot(projectPath: string): Promise<WorkflowSnapshotExport> {
+  const instructionProfiles = loadInstructionProfiles(projectPath);
+  const kilnYaml = await loadKilnConfig(projectPath);
+  return buildWorkflowSnapshotExport({
+    generatedAt: new Date().toISOString(),
+    generatedFiles: TARGETS.map((target) => target.filename),
+    projectContext: collectProjectContextEvidence(projectPath),
+    instructionProfiles,
+    kilnConfig: kilnYaml,
+  });
 }
 
 function hashText(value: string): string {

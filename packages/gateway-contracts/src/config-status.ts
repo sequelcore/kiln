@@ -69,7 +69,7 @@ export type KilnProjectionTargetStatus =
 export interface KilnProjectionTargetSnapshot {
   readonly targetId: string;
   readonly path: string;
-  readonly kind: "repo-shim" | "native";
+  readonly kind: "repo-shim" | "native" | "workflow-snapshot";
   readonly status: KilnProjectionTargetStatus;
   readonly details?: string;
 }
@@ -139,7 +139,7 @@ export const KilnConfigSourceSnapshotSchema = z.object({
 export const KilnProjectionTargetSnapshotSchema = z.object({
   targetId: z.string(),
   path: z.string(),
-  kind: z.enum(["repo-shim", "native"]),
+  kind: z.enum(["repo-shim", "native", "workflow-snapshot"]),
   status: z.enum(KILN_PROJECTION_TARGET_STATUSES),
   details: z.string().optional(),
 });

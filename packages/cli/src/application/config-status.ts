@@ -32,7 +32,10 @@ import {
 import { loadAgentDefinitions } from "./agent-loader.js";
 import { projectContextPath } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
-import { readRepoShimProjectionStatuses } from "./repo-shim-projection.js";
+import {
+  readRepoShimProjectionStatuses,
+  readWorkflowSnapshotManifestStatus,
+} from "./repo-shim-projection.js";
 import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
 
 export interface ReadConfigStatusOptions {
@@ -220,6 +223,19 @@ async function readProjectionSnapshots(
     }
   } catch (error) {
     errors.push(`repo-shims: ${errorMessage(error)}`);
+  }
+
+  try {
+    const workflowSnapshot = await readWorkflowSnapshotManifestStatus(projectPath);
+    projections.push({
+      targetId: "workflow-snapshot:manifest",
+      path: workflowSnapshot.path,
+      kind: "workflow-snapshot" as const,
+      status: workflowSnapshot.status,
+      ...(workflowSnapshot.details ? { details: workflowSnapshot.details } : {}),
+    });
+  } catch (error) {
+    errors.push(`workflow-snapshot: ${errorMessage(error)}`);
   }
 
   try {

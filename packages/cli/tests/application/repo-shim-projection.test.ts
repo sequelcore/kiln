@@ -19,7 +19,10 @@ vi.mock("../../src/application/instruction-profile-loader.js", () => ({
 import { loadAgentDefinitions } from "../../src/application/agent-loader.js";
 import { loadKilnConfig } from "../../src/config/config-merger.js";
 import { loadInstructionProfiles } from "../../src/application/instruction-profile-loader.js";
-import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
+import {
+  readWorkflowSnapshotManifestStatus,
+  writeRepoShimProjections,
+} from "../../src/application/repo-shim-projection.js";
 
 const PROJECT_PATH = join(process.cwd(), ".kiln", "tmp", "repo-shim-projection-test");
 
@@ -157,6 +160,38 @@ describe("repo-shim-projection", () => {
       written: false,
     });
     expect(secondManifest).toBe(firstManifest);
+  });
+
+  it("reports workflow snapshot manifest drift without mutating the manifest", async () => {
+    await writeRepoShimProjections(PROJECT_PATH);
+    const manifestPath = join(PROJECT_PATH, ".kiln", "projections", "workflow-snapshot-manifest.json");
+    const currentManifest = readFileSync(manifestPath, "utf-8");
+
+    expect(await readWorkflowSnapshotManifestStatus(PROJECT_PATH)).toMatchObject({
+      path: manifestPath,
+      status: "current",
+    });
+
+    const staleManifest = JSON.stringify({
+      ...JSON.parse(currentManifest),
+      hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    }, null, 2);
+    writeFileSync(manifestPath, `${staleManifest}\n`, "utf-8");
+
+    expect(await readWorkflowSnapshotManifestStatus(PROJECT_PATH)).toMatchObject({
+      path: manifestPath,
+      status: "stale",
+      expectedHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+      currentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    });
+    expect(readFileSync(manifestPath, "utf-8")).toBe(`${staleManifest}\n`);
+
+    writeFileSync(manifestPath, "{not json", "utf-8");
+    expect(await readWorkflowSnapshotManifestStatus(PROJECT_PATH)).toMatchObject({
+      path: manifestPath,
+      status: "drifted",
+      details: "workflow snapshot manifest is not valid JSON",
+    });
   });
 
   it("blocks unmanaged guidance files unless force is explicit", async () => {
