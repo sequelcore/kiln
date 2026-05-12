@@ -157,6 +157,31 @@ export interface EffectiveTurnAuthoritySnapshot {
   readonly policyInputs?: readonly EffectiveTurnAuthorityPolicyInput[];
 }
 
+export type EffectiveTurnAuthorityPolicyMaximum = "read_only" | "audited" | "destructive";
+
+export interface EffectiveTurnAuthorityPolicyBound {
+  readonly maximumAuthority: EffectiveTurnAuthorityPolicyMaximum;
+  readonly reason: string;
+  readonly subjectId?: string;
+}
+
+export interface GoalAuthorityEnvelopePolicyBound extends EffectiveTurnAuthorityPolicyBound {
+  readonly goalRunId: string;
+}
+
+export interface WorkItemAuthorityPolicyBound extends EffectiveTurnAuthorityPolicyBound {
+  readonly workItemId: string;
+}
+
+export interface EffectiveTurnAuthorityAdmissionContext {
+  readonly sessionPolicy?: EffectiveTurnAuthorityPolicyBound;
+  readonly tenantPolicy?: EffectiveTurnAuthorityPolicyBound;
+  readonly routePolicy?: EffectiveTurnAuthorityPolicyBound;
+  readonly parentAuthority?: EffectiveTurnAuthoritySnapshot;
+  readonly goalEnvelope?: GoalAuthorityEnvelopePolicyBound;
+  readonly workItemAuthority?: WorkItemAuthorityPolicyBound;
+}
+
 export interface PerCallToolConfig {
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
@@ -173,6 +198,7 @@ export interface PerCallToolConfig {
   };
   readonly reasoningEffort?: ReasoningEffort;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
+  readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
 }
 
 export type RuntimeToolCallMetadataResolver = (

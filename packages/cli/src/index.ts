@@ -80,7 +80,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama, lmstudio)");
     console.log("  --model      Model override for the selected provider");
     console.log("  --effort     Reasoning effort override (minimal, low, medium, high, xhigh)");
-    console.log("  --authority  Requested turn authority (auto, read_only, audited)");
+    console.log("  --authority  Requested turn authority (auto, read_only, audited, destructive)");
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
     console.log("  --port       Port override (dev/gateway)");
     console.log("  --gui-port   GUI dev server port override (gui command)");
@@ -436,10 +436,11 @@ function parseRequestedAuthority(value: string | undefined): OperatorTurnRequest
     normalized === "auto"
     || normalized === "read_only"
     || normalized === "audited"
+    || normalized === "destructive"
   ) {
     return normalized;
   }
-  throw new Error(`Unknown requested authority '${value}'. Use auto, read_only, or audited.`);
+  throw new Error(`Unknown requested authority '${value}'. Use auto, read_only, audited, or destructive.`);
 }
 
 function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {

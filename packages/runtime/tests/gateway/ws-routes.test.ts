@@ -230,7 +230,7 @@ describe("createWsRoutes", () => {
       });
     });
 
-    it("rejects destructive requestedAuthority before processMessage", async () => {
+    it("passes destructive requestedAuthority through message-frame options", async () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
@@ -248,11 +248,10 @@ describe("createWsRoutes", () => {
         wsCtx,
       );
 
-      expect(processMessage).not.toHaveBeenCalled();
-      expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
-        type: "error",
-        message: "requestedAuthority must be auto, read_only, or audited",
+      expect(processMessage).toHaveBeenCalledWith("user-1", textParts("hello"), {
+        requestedAuthority: "destructive",
       });
+      expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual(expect.objectContaining({ type: "done" }));
     });
 
     it("sends done frame with response content", async () => {

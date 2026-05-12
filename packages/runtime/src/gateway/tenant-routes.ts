@@ -64,7 +64,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       return c.json({ error: "tenantId is required" }, 400);
     }
     if (!isRequestedAuthority(body.requestedAuthority)) {
-      return c.json({ error: "requestedAuthority must be auto, read_only, or audited" }, 400);
+      return c.json({ error: "requestedAuthority must be auto, read_only, audited, or destructive" }, 400);
     }
 
     // Resolve tenant
@@ -149,5 +149,6 @@ function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAut
   return value === undefined
     || value === "auto"
     || value === "read_only"
-    || value === "audited";
+    || value === "audited"
+    || value === "destructive";
 }

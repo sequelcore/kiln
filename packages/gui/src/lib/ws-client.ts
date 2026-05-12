@@ -17,7 +17,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("message"),
     content: z.string(),
     executionMode: z.enum(["execute", "plan"]).optional(),
-    requestedAuthority: z.enum(["auto", "read_only", "audited"]).optional(),
+    requestedAuthority: z.enum(["auto", "read_only", "audited", "destructive"]).optional(),
     resumeSessionId: z.string().optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
     appName: z.string().optional(),

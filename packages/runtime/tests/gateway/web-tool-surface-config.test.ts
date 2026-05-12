@@ -72,8 +72,11 @@ describe("attached runtime web tool configuration", () => {
       activeModel: "gpt-5.4-mini",
       builtinToolSurface: runtimeSurface,
     });
-    expect(perCallConfig.perCallCapabilities).toBe(runtimeSurface.capabilities);
+    expect(perCallConfig.perCallCapabilities?.get("web_search")).toBe(runtimeSurface.capabilities.get("web_search"));
+    expect(perCallConfig.perCallCapabilities?.get("web_extract")).toBe(runtimeSurface.capabilities.get("web_extract"));
+    expect(perCallConfig.perCallCapabilities?.has("write")).toBe(false);
     expect(perCallConfig.additionalTools?.map((tool) => tool.name)).toContain("web_search");
     expect(perCallConfig.additionalTools?.map((tool) => tool.name)).toContain("web_extract");
+    expect(perCallConfig.additionalTools?.map((tool) => tool.name)).not.toContain("write");
   });
 });

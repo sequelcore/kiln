@@ -70,19 +70,19 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("grep")).toBe(true);
     expect(cfg.additionalTools?.some((tool) => tool.name === "glob")).toBe(true);
     expect(cfg.perCallCapabilities?.has("read")).toBe(true);
-    expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(cfg.toolAuthority?.has("write")).toBe(false);
     expect(cfg.modelOverride).toEqual({
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
     });
     expect(cfg.effectiveTurnAuthority).toMatchObject({
       executionMode: "execute",
-      admittedAuthority: "destructive",
+      admittedAuthority: "audited",
       completeness: "authoritative",
       toolCount: cfg.toolAllowlist?.size,
     });
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
   });
@@ -135,7 +135,7 @@ describe("GUI authority forwarding", () => {
     expect(cfg.effectiveTurnAuthority).toMatchObject({
       executionMode: "execute",
       requestedAuthority: "audited",
-      admittedAuthority: "idempotent",
+      admittedAuthority: "audited",
     });
     expect(cfg.toolAllowlist?.has("read")).toBe(true);
     expect(cfg.toolAllowlist?.has("write")).toBe(false);
@@ -146,8 +146,8 @@ describe("GUI authority forwarding", () => {
     const { resolveGuiRequestedAuthority } = await import("../../src/gateway/gui-gateway.js");
 
     expect(resolveGuiRequestedAuthority(undefined)).toBeUndefined();
+    expect(resolveGuiRequestedAuthority("destructive")).toBe("destructive");
     expect(() => resolveGuiRequestedAuthority("invalid")).toThrow("Unknown requested authority 'invalid'.");
-    expect(() => resolveGuiRequestedAuthority("destructive")).toThrow("Unknown requested authority 'destructive'.");
     expect(() => resolveGuiRequestedAuthority(null)).toThrow("Unknown requested authority 'null'.");
   });
 
@@ -216,11 +216,11 @@ describe("GUI authority forwarding", () => {
       provider: "codex-oauth",
       model: "gpt-5.5",
     });
-    expect(cfg.toolAllowlist?.has("write")).toBe(true);
-    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(true);
-    expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(cfg.toolAllowlist?.has("write")).toBe(false);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
+    expect(cfg.toolAuthority?.has("write")).toBe(false);
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
   });
@@ -236,7 +236,7 @@ describe("GUI authority forwarding", () => {
       model: "gpt-disabled",
     });
     expect(cfg.toolAllowlist?.size).toBe(0);
-    expect(cfg.additionalTools).toBeUndefined();
+    expect(cfg.additionalTools).toEqual([]);
     expect(cfg.toolAuthority?.size).toBe(0);
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "fail_closed",
@@ -251,10 +251,10 @@ describe("GUI authority forwarding", () => {
       supportsNativePatchTools: false,
     });
 
-    expect(cfg.toolAllowlist?.has("write")).toBe(true);
-    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(true);
+    expect(cfg.toolAllowlist?.has("write")).toBe(false);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
     expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
   });
@@ -279,7 +279,7 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("read")).toBe(true);
   });
 
-  it("prefers turn authority config for done-frame status over a destructive default config", async () => {
+  it("prefers turn authority config for done-frame status over a default config", async () => {
     const {
       buildGuiTurnPerCallConfig,
       deriveGuiDoneAuthorityStatus,
@@ -294,10 +294,10 @@ describe("GUI authority forwarding", () => {
       "execute",
       "audited",
     );
-    const destructiveDefaultConfig = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
+    const defaultConfig = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
 
-    expect(deriveGuiDoneAuthorityStatus(doneTurnConfig, destructiveDefaultConfig)).toEqual({
-      effective: "idempotent",
+    expect(deriveGuiDoneAuthorityStatus(doneTurnConfig, defaultConfig)).toEqual({
+      effective: "audited",
       completeness: "authoritative",
     });
   });
@@ -326,11 +326,11 @@ describe("GUI authority forwarding", () => {
     };
 
     expect(welcomeFrame.authorityStatus).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
     expect(doneFrame.authorityStatus).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
   });

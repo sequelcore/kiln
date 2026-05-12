@@ -69,7 +69,7 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
       return c.json({ error: "userId is required" }, 400);
     }
     if (!isRequestedAuthority(body.requestedAuthority)) {
-      return c.json({ error: "requestedAuthority must be auto, read_only, or audited" }, 400);
+      return c.json({ error: "requestedAuthority must be auto, read_only, audited, or destructive" }, 400);
     }
 
     // Validate optional context: must be a plain non-array object with string values
@@ -171,5 +171,6 @@ function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAut
   return value === undefined
     || value === "auto"
     || value === "read_only"
-    || value === "audited";
+    || value === "audited"
+    || value === "destructive";
 }

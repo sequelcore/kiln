@@ -321,7 +321,7 @@ describe("run command", () => {
       );
     });
 
-    it("rejects destructive --authority until elevation approval exists", async () => {
+    it("forwards destructive --authority to runCommand flags", async () => {
       process.argv = [
         process.argv[0] ?? "bun",
         process.argv[1] ?? "kiln",
@@ -334,10 +334,17 @@ describe("run command", () => {
         "destructive",
       ];
 
-      await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow(
-        "Unknown requested authority 'destructive'. Use auto, read_only, or audited.",
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "openai",
+          requestedAuthority: "destructive",
+        }),
       );
-      expect(runCommandMock).not.toHaveBeenCalled();
     });
   });
 

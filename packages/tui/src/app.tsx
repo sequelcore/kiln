@@ -60,11 +60,13 @@ const TURN_AUTHORITY_OPTIONS: readonly RequestableTurnAuthority[] = [
   "auto",
   "read_only",
   "audited",
+  "destructive",
 ];
 const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
   auto: "auto",
   read_only: "read only",
   audited: "audited",
+  destructive: "destructive",
 };
 
 export async function startTui(

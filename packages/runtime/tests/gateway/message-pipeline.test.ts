@@ -1797,16 +1797,16 @@ describe("processAdmittedTurn", () => {
         }),
         expect.objectContaining({
           source: "session_policy",
-          status: "applied",
+          status: "not_applicable",
         }),
         expect.objectContaining({
           source: "tenant_policy",
-          status: "applied",
+          status: "not_applicable",
           subjectId: "tenant-policy-1",
         }),
         expect.objectContaining({
           source: "route_policy",
-          status: "applied",
+          status: "not_applicable",
           admittedAuthority: "audited",
         }),
         expect.objectContaining({

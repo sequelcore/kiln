@@ -205,9 +205,32 @@ describe("App Gateway GUI routes", () => {
     vi.resetModules();
   });
 
-  it("rejects destructive requestedAuthority before App Gateway GUI processing", async () => {
+  it("forwards destructive requestedAuthority to App Gateway GUI processing", async () => {
     vi.resetModules();
-    const processAdmittedTurnMock = vi.fn();
+    const processAdmittedTurnMock = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        parts: [{ type: "text", text: "mock response" }],
+        inputTokens: 3,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        sessionId: "session-gui",
+        sessionMode: "ai_active",
+        traceId: "trace-gui",
+        effectiveTurnAuthority: {
+          executionMode: "execute",
+          requestedAuthority: "destructive",
+          admittedAuthority: "fail_closed",
+          sourcePolicy: "runtime_surface_projection",
+          reason: "test",
+          completeness: "authoritative",
+          toolCount: 0,
+          deniedToolCount: 1,
+        },
+      },
+    });
     vi.doMock("../../src/gateway/message-pipeline.js", async () => {
       const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>("../../src/gateway/message-pipeline.js");
       return {
@@ -253,12 +276,13 @@ describe("App Gateway GUI routes", () => {
       { send },
     );
 
-    expect(processAdmittedTurnMock).not.toHaveBeenCalled();
-    const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; message?: string });
+    expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
+    expect(processAdmittedTurnMock.mock.calls[0]![0].requestedAuthority).toBe("destructive");
+    const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; authorityStatus?: unknown });
     expect(sentFrames).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        type: "error",
-        message: "requestedAuthority must be auto, read_only, or audited",
+        type: "done",
+        authorityStatus: { effective: "fail_closed", completeness: "authoritative" },
       }),
     ]));
 

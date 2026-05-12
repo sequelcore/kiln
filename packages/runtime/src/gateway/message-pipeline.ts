@@ -20,8 +20,6 @@ import type {
   ToolResultEvent,
   TenantConfig,
   RetrievalPipeline,
-  Capability,
-  AuthorityDescriptor,
   CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanWorkItemDraft,
 } from "@kilnai/core";
@@ -35,7 +33,7 @@ import type {
   RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
 } from "../session/runtime-session-orchestrator.js";
-import { buildEffectiveTurnAuthorityPolicyInputs } from "../session/effective-turn-authority.js";
+import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
@@ -64,6 +62,7 @@ import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { OperatorExecutionMode, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type { RuntimeSession } from "../session/runtime-session.js";
+import { authorityFromCapability } from "./tool-authority.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -1048,134 +1047,13 @@ function projectRequestedAuthorityPerCallConfig(
   requestedAuthority: OperatorTurnRequestedAuthority | undefined,
   reason: string,
 ): PerCallToolConfig | undefined {
-  const effectiveRequestedAuthority = executionMode === "plan" ? "planning" : requestedAuthority;
-  if (!effectiveRequestedAuthority) {
-    return config;
-  }
-
-  if (
-    effectiveRequestedAuthority === "planning"
-    || effectiveRequestedAuthority === "auto"
-  ) {
-    return {
-      ...config,
-      effectiveTurnAuthority: {
-        executionMode,
-        requestedAuthority: effectiveRequestedAuthority,
-        admittedAuthority: "unknown",
-        sourcePolicy: "runtime_surface_projection",
-        reason,
-        completeness: "partial",
-        toolCount: config?.toolAllowlist?.size ?? config?.additionalTools?.length ?? 0,
-        deniedToolCount: 0,
-        policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
-          executionMode,
-          tenantId: config?.tenantId,
-          requestedAuthority: effectiveRequestedAuthority,
-          admittedAuthority: "unknown",
-          routeReason: reason,
-        }),
-      },
-    };
-  }
-
-  const candidateNames = config?.toolAllowlist
-    ? new Set(config.toolAllowlist)
-    : new Set((config?.additionalTools ?? []).map((tool) => tool.name));
-  const admittedToolNames = new Set<string>();
-  const toolAuthority = new Map<string, AuthorityDescriptor>();
-
-  for (const toolName of candidateNames) {
-    const capability = config?.perCallCapabilities?.get(toolName);
-    const authority = config?.toolAuthority?.get(toolName) ?? authorityDescriptorFromCapability(toolName, capability);
-    if (!authority || !authority.allowed || authority.requiresApproval) {
-      continue;
-    }
-    if (effectiveRequestedAuthority === "read_only") {
-      if (capability?.annotations?.readOnly === true && authority.level <= 1) {
-        admittedToolNames.add(toolName);
-        toolAuthority.set(toolName, authority);
-      }
-      continue;
-    }
-    if (authority.level <= 2) {
-      admittedToolNames.add(toolName);
-      toolAuthority.set(toolName, authority);
-    }
-  }
-
-  return {
-    ...config,
-    toolAllowlist: admittedToolNames,
-    toolAuthority,
-    additionalTools: (config?.additionalTools ?? []).filter((tool) => admittedToolNames.has(tool.name)),
-    perCallCapabilities: filterCapabilityMap(config?.perCallCapabilities, admittedToolNames),
-    effectiveTurnAuthority: {
-      executionMode,
-      requestedAuthority: effectiveRequestedAuthority,
-      admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : effectiveRequestedAuthority,
-      sourcePolicy: "runtime_surface_projection",
-      reason,
-      completeness: "authoritative",
-      toolCount: admittedToolNames.size,
-      deniedToolCount: Math.max(0, candidateNames.size - admittedToolNames.size),
-      policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
-        executionMode,
-        tenantId: config?.tenantId,
-        requestedAuthority: effectiveRequestedAuthority,
-        admittedAuthority: admittedToolNames.size === 0 ? "fail_closed" : effectiveRequestedAuthority,
-        routeReason: reason,
-      }),
-    },
-  };
-}
-
-function filterCapabilityMap(
-  capabilities: ReadonlyMap<string, Capability> | undefined,
-  allowlist: ReadonlySet<string>,
-): ReadonlyMap<string, Capability> | undefined {
-  if (!capabilities) {
-    return undefined;
-  }
-  const filtered = new Map<string, Capability>();
-  for (const [name, capability] of capabilities.entries()) {
-    if (allowlist.has(name)) {
-      filtered.set(name, capability);
-    }
-  }
-  return filtered;
-}
-
-function authorityDescriptorFromCapability(
-  toolName: string,
-  capability: Capability | undefined,
-): AuthorityDescriptor | undefined {
-  const annotations = capability?.annotations;
-  if (!annotations) {
-    return undefined;
-  }
-  if (annotations.destructive) {
-    return {
-      level: 4,
-      allowed: false,
-      requiresApproval: true,
-      reason: `Destructive tool "${toolName}" requires approval`,
-    };
-  }
-  if (annotations.readOnly) {
-    return {
-      level: 1,
-      allowed: true,
-      requiresApproval: false,
-      reason: "Read-only tool, auto-execute",
-    };
-  }
-  return {
-    level: 2,
-    allowed: true,
-    requiresApproval: false,
-    reason: "Audited execution",
-  };
+  return projectEffectiveTurnAuthorityPerCallConfig({
+    config,
+    executionMode,
+    requestedAuthority,
+    reason,
+    authorityDescriptorFromCapability: authorityFromCapability,
+  });
 }
 
 export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<ProcessResult> {

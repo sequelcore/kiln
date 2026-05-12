@@ -33,7 +33,8 @@ import type {
   OperatorSurfaceThemeController,
 } from "../operator/operator-surface-controller.js";
 import type { PerCallToolConfig, RuntimeBuiltinToolExecutor } from "../session/runtime-session-orchestrator.js";
-import { buildEffectiveTurnAuthorityPolicyInputs } from "../session/effective-turn-authority.js";
+import type { EffectiveTurnAuthorityAdmissionContext } from "../session/effective-turn-authority.js";
+import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
 import {
   createManagedAgentInvokeToolDefinition,
   createManagedInvocationToolCallMetadataResolver,
@@ -511,8 +512,9 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly builtinToolSurface?: AttachedRuntimeBuiltinToolSurface;
   readonly executionMode?: OperatorExecutionMode;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+  readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
 }): PerCallToolConfig {
-  const requestedAuthority = resolveAttachedRuntimeRequestedAuthority(input.requestedAuthority);
+  const requestedAuthority = resolveAttachedRuntimeRequestedAuthority(input.requestedAuthority) ?? "auto";
   const executionMode = resolvePerCallExecutionMode(input.executionMode);
   const provider = isDirectProviderId(input.activeProvider)
     ? input.activeProvider
@@ -532,6 +534,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     tenantId: input.tenantId,
     ...(modelOverride ? { modelOverride } : {}),
     ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+    ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),
   };
 
   if (profile?.executionMode !== "kiln-executable") {
@@ -540,18 +543,16 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       toolAllowlist: new Set<string>(),
       toolAuthority: new Map(),
     };
-    return withEffectiveTurnAuthority(
-      failClosedConfig,
-      {
-        executionMode,
-        sourcePolicy: "provider_profile_gate",
-        reason: profile
-          ? `Provider profile execution mode '${profile.executionMode}' is not kiln-executable.`
-          : "Provider/model authority input is unresolved; execution profile unavailable.",
-        sandboxProjection: "none",
-        requestedAuthority,
-      },
-    );
+    return projectEffectiveTurnAuthorityPerCallConfig({
+      config: failClosedConfig,
+      executionMode,
+      sourcePolicy: "provider_profile_gate",
+      reason: profile
+        ? `Provider profile execution mode '${profile.executionMode}' is not kiln-executable.`
+        : "Provider/model authority input is unresolved; execution profile unavailable.",
+      sandboxProjection: "none",
+      requestedAuthority,
+    })!;
   }
 
   const builtinToolSurface = input.builtinToolSurface
@@ -564,18 +565,15 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
       && builtinToolSurface.specificationStateStore
       ? builtinToolSurface
       : createAttachedRuntimeBuiltinToolSurface({ executionMode: "plan" });
-    return withEffectiveTurnAuthority(
-      buildPlanModePerCallConfig(config, planSurface),
-      {
-        executionMode,
-        sourcePolicy: "plan_mode_projection",
-        reason: "Plan mode narrows the runtime surface to planning and read-only tools.",
-        sandboxProjection: "read_only",
-        requestedAuthority,
-      },
-    );
+    return projectEffectiveTurnAuthorityPerCallConfig({
+      config: buildPlanModePerCallConfig(config, planSurface),
+      executionMode,
+      sourcePolicy: "plan_mode_projection",
+      reason: "Plan mode narrows the runtime surface to planning and read-only tools.",
+      sandboxProjection: "read_only",
+      requestedAuthority,
+    })!;
   }
-  const effectiveRequestedAuthority = resolveEffectiveRequestedAuthority(executionMode, requestedAuthority);
   const executeConfig: PerCallToolConfig = {
     ...config,
     toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
@@ -584,18 +582,14 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     additionalTools: builtinToolSurface.toolDefinitions,
     perCallCapabilities: builtinToolSurface.capabilities,
   };
-  return withEffectiveTurnAuthority(
-    effectiveRequestedAuthority === "read_only" || effectiveRequestedAuthority === "audited"
-      ? narrowExecuteModePerCallConfig(executeConfig, effectiveRequestedAuthority)
-      : executeConfig,
-    {
-      executionMode,
-      sourcePolicy: "runtime_surface_projection",
-      reason: "Authority admitted from the attached runtime allowlist and toolAuthority map.",
-      sandboxProjection: "workspace_write",
-      requestedAuthority,
-    },
-  );
+  return projectEffectiveTurnAuthorityPerCallConfig({
+    config: executeConfig,
+    executionMode,
+    sourcePolicy: "runtime_surface_projection",
+    reason: "Authority admitted from the attached runtime allowlist and toolAuthority map.",
+    sandboxProjection: "workspace_write",
+    requestedAuthority,
+  })!;
 }
 
 export function resolveAttachedRuntimeToolCallMetadata(
@@ -656,39 +650,6 @@ function buildPlanModePerCallConfig(
   };
 }
 
-function narrowExecuteModePerCallConfig(
-  config: PerCallToolConfig,
-  requestedAuthority: "read_only" | "audited",
-): PerCallToolConfig {
-  const baseAllowlist = config.toolAllowlist ?? new Set<string>();
-  const admittedToolNames = new Set<string>();
-  for (const toolName of baseAllowlist) {
-    const descriptor = config.toolAuthority?.get(toolName);
-    const capability = config.perCallCapabilities?.get(toolName);
-    if (!descriptor || !descriptor.allowed || descriptor.requiresApproval) {
-      continue;
-    }
-    if (requestedAuthority === "read_only") {
-      if (capability?.annotations?.readOnly === true) {
-        admittedToolNames.add(toolName);
-      }
-      continue;
-    }
-    if (descriptor.level <= 2) {
-      admittedToolNames.add(toolName);
-    }
-  }
-
-  return {
-    ...config,
-    toolAllowlist: admittedToolNames,
-    toolAuthority: filterMapByAllowlist(config.toolAuthority, admittedToolNames),
-    toolCallMetadata: filterMapByAllowlist(config.toolCallMetadata, admittedToolNames),
-    additionalTools: (config.additionalTools ?? []).filter((tool) => admittedToolNames.has(tool.name)),
-    perCallCapabilities: filterMapByAllowlist(config.perCallCapabilities, admittedToolNames),
-  };
-}
-
 function filterMapByAllowlist<T>(
   entries: ReadonlyMap<string, T> | undefined,
   toolAllowlist: ReadonlySet<string>,
@@ -715,143 +676,10 @@ function resolveAttachedRuntimeRequestedAuthority(value: unknown): OperatorTurnR
   if (value === undefined) {
     return undefined;
   }
-  if (value === "auto" || value === "read_only" || value === "audited") {
+  if (value === "auto" || value === "read_only" || value === "audited" || value === "destructive") {
     return value;
   }
   throw new Error(`Unknown requested authority '${String(value)}'.`);
-}
-
-function withEffectiveTurnAuthority(
-  config: PerCallToolConfig,
-  input: {
-    readonly executionMode: "execute" | "plan";
-    readonly sourcePolicy: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>["sourcePolicy"];
-    readonly reason: string;
-    readonly sandboxProjection?: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>["sandboxProjection"];
-    readonly requestedAuthority?: OperatorTurnRequestedAuthority;
-  },
-): PerCallToolConfig {
-  const requestedAuthority = resolveEffectiveRequestedAuthority(input.executionMode, input.requestedAuthority);
-  const toolAllowlist = config.toolAllowlist ?? new Set<string>();
-  const toolAuthority = config.toolAuthority;
-  const rollup = rollupAdmittedAuthority(toolAllowlist, toolAuthority);
-  const admittedAuthority = rollup.admittedAuthority;
-  return {
-    ...config,
-    effectiveTurnAuthority: {
-      executionMode: input.executionMode,
-      requestedAuthority,
-      admittedAuthority,
-      sourcePolicy: input.sourcePolicy,
-      reason: input.reason,
-      completeness: rollup.completeness,
-      toolCount: toolAllowlist.size,
-      deniedToolCount: rollup.deniedToolCount,
-      ...(input.sandboxProjection ? { sandboxProjection: input.sandboxProjection } : {}),
-      policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
-        executionMode: input.executionMode,
-        tenantId: config.tenantId,
-        requestedAuthority,
-        admittedAuthority,
-        routeReason: input.reason,
-      }),
-    },
-  };
-}
-
-function resolveEffectiveRequestedAuthority(
-  executionMode: "execute" | "plan",
-  requestedAuthority: OperatorTurnRequestedAuthority | undefined,
-): NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>["requestedAuthority"] {
-  if (executionMode === "plan") {
-    return "planning";
-  }
-  return requestedAuthority ?? "auto";
-}
-
-function rollupAdmittedAuthority(
-  toolAllowlist: ReadonlySet<string>,
-  toolAuthority: ReadonlyMap<string, AuthorityDescriptor> | undefined,
-): {
-  readonly admittedAuthority: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>["admittedAuthority"];
-  readonly completeness: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>["completeness"];
-  readonly deniedToolCount: number;
-} {
-  if (toolAllowlist.size === 0) {
-    return {
-      admittedAuthority: "fail_closed",
-      completeness: "authoritative",
-      deniedToolCount: 0,
-    };
-  }
-
-  if (!toolAuthority || toolAuthority.size === 0) {
-    return {
-      admittedAuthority: "unknown",
-      completeness: "partial",
-      deniedToolCount: 0,
-    };
-  }
-
-  let sawReadOnly = false;
-  let sawIdempotent = false;
-  let sawAudited = false;
-  let sawUnknown = false;
-  let deniedToolCount = 0;
-  for (const toolName of toolAllowlist) {
-    const descriptor = toolAuthority.get(toolName);
-    if (!descriptor) {
-      sawUnknown = true;
-      continue;
-    }
-    if (descriptor.level === 4 || descriptor.requiresApproval || !descriptor.allowed) {
-      deniedToolCount += 1;
-      continue;
-    }
-    if (descriptor.level === 1) {
-      sawReadOnly = true;
-      continue;
-    }
-    if (descriptor.level === 2) {
-      sawIdempotent = true;
-      continue;
-    }
-    sawAudited = true;
-  }
-
-  if (deniedToolCount > 0) {
-    return {
-      admittedAuthority: "destructive",
-      completeness: sawUnknown ? "partial" : "authoritative",
-      deniedToolCount,
-    };
-  }
-  if (sawAudited) {
-    return {
-      admittedAuthority: "audited",
-      completeness: sawUnknown ? "partial" : "authoritative",
-      deniedToolCount,
-    };
-  }
-  if (sawIdempotent) {
-    return {
-      admittedAuthority: "idempotent",
-      completeness: sawUnknown ? "partial" : "authoritative",
-      deniedToolCount,
-    };
-  }
-  if (sawReadOnly) {
-    return {
-      admittedAuthority: "read_only",
-      completeness: sawUnknown ? "partial" : "authoritative",
-      deniedToolCount,
-    };
-  }
-  return {
-    admittedAuthority: "unknown",
-    completeness: "partial",
-    deniedToolCount,
-  };
 }
 
 function appendIfMissing(

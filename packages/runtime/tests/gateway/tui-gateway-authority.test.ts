@@ -76,15 +76,15 @@ describe("TUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("grep")).toBe(true);
     expect(cfg.additionalTools?.some((tool) => tool.name === "glob")).toBe(true);
     expect(cfg.perCallCapabilities?.has("read")).toBe(true);
-    expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(cfg.toolAuthority?.has("write")).toBe(false);
     expect(cfg.effectiveTurnAuthority).toMatchObject({
       executionMode: "execute",
-      admittedAuthority: "destructive",
+      admittedAuthority: "audited",
       completeness: "authoritative",
       toolCount: cfg.toolAllowlist?.size,
     });
     expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
   });
@@ -115,9 +115,34 @@ describe("TUI authority forwarding", () => {
     const { resolveTuiRequestedAuthority } = await import("../../src/gateway/tui-gateway.js");
 
     expect(resolveTuiRequestedAuthority(undefined)).toBeUndefined();
+    expect(resolveTuiRequestedAuthority("destructive")).toBe("destructive");
     expect(() => resolveTuiRequestedAuthority("invalid")).toThrow("Unknown requested authority 'invalid'.");
-    expect(() => resolveTuiRequestedAuthority("destructive")).toThrow("Unknown requested authority 'destructive'.");
     expect(() => resolveTuiRequestedAuthority(null)).toThrow("Unknown requested authority 'null'.");
+  });
+
+  it("fails closed for destructive TUI authority without goal and work-item envelopes", async () => {
+    const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "destructive",
+    );
+
+    expect(cfg.toolAllowlist?.size).toBe(0);
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      admittedAuthority: "fail_closed",
+      completeness: "authoritative",
+    });
+    expect(cfg.effectiveTurnAuthority?.policyInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "goal_envelope", status: "unresolved" }),
+      expect.objectContaining({ source: "work_item_authority", status: "unresolved" }),
+    ]));
   });
 
   it("keeps plan-mode authority semantics when audited authority is requested", async () => {
@@ -150,11 +175,11 @@ describe("TUI authority forwarding", () => {
       provider: "codex-oauth",
       model: "gpt-5.5",
     });
-    expect(cfg.toolAllowlist?.has("write")).toBe(true);
-    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(true);
-    expect(cfg.toolAuthority?.has("write")).toBe(true);
+    expect(cfg.toolAllowlist?.has("write")).toBe(false);
+    expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
+    expect(cfg.toolAuthority?.has("write")).toBe(false);
     expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
   });
@@ -199,7 +224,7 @@ describe("TUI authority forwarding", () => {
       model: "gpt-disabled",
     });
     expect(cfg.toolAllowlist?.size).toBe(0);
-    expect(cfg.additionalTools).toBeUndefined();
+    expect(cfg.additionalTools).toEqual([]);
     expect(cfg.toolAuthority?.size).toBe(0);
     expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
       effective: "fail_closed",
@@ -258,11 +283,11 @@ describe("TUI authority forwarding", () => {
     });
 
     expect(welcome.authorityStatus).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
     expect(done.authorityStatus).toEqual({
-      effective: "destructive",
+      effective: "audited",
       completeness: "authoritative",
     });
   });

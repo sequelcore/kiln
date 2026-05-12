@@ -76,7 +76,7 @@ describe("createProviderAdapterRoutes", () => {
       expect(body.outputTokens).toBe(50);
     });
 
-    it("rejects destructive requestedAuthority until elevation approval exists", async () => {
+    it("accepts destructive requestedAuthority for downstream fail-closed admission", async () => {
       const runtime = makeRuntime();
       const app = createProviderAdapterRoutes(runtime);
 
@@ -86,10 +86,9 @@ describe("createProviderAdapterRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1", requestedAuthority: "destructive" }),
       });
 
-      expect(res.status).toBe(400);
-      await expect(res.json()).resolves.toEqual({
-        error: "requestedAuthority must be auto, read_only, or audited",
-      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { content: string };
+      expect(body.content).toBe("mock response");
     });
 
     it("creates session for new user", async () => {

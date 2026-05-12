@@ -89,11 +89,13 @@ const TURN_AUTHORITY_OPTIONS: readonly RequestableTurnAuthority[] = [
   "auto",
   "read_only",
   "audited",
+  "destructive",
 ];
 const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
   auto: "Auto",
   read_only: "Read only",
   audited: "Audited",
+  destructive: "Destructive",
 };
 const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];

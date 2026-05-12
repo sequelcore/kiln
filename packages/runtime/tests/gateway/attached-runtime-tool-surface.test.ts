@@ -33,19 +33,9 @@ function projectToolDefinitions(
 
 function countDeniedTools(
   toolAllowlist: ReadonlySet<string> | undefined,
-  toolAuthority: ReadonlyMap<string, { readonly level: number; readonly allowed: boolean; readonly requiresApproval: boolean }> | undefined,
+  candidateToolNames: readonly string[],
 ): number {
-  if (!toolAllowlist || !toolAuthority) {
-    return 0;
-  }
-  let denied = 0;
-  for (const toolName of toolAllowlist) {
-    const descriptor = toolAuthority.get(toolName);
-    if (descriptor && (descriptor.level === 4 || descriptor.requiresApproval || !descriptor.allowed)) {
-      denied += 1;
-    }
-  }
-  return denied;
+  return candidateToolNames.filter((toolName) => !toolAllowlist?.has(toolName)).length;
 }
 
 function sliceOnePlanPayload(
@@ -120,10 +110,21 @@ describe("attached runtime builtin tool surface", () => {
     });
 
     const projectedToolNames = runtimeSurface.toolDefinitions.map((tool) => tool.name);
-    expect(Array.from(config.toolAllowlist ?? [])).toEqual(projectedToolNames);
-    expect(config.additionalTools?.map((tool) => tool.name)).toEqual(projectedToolNames);
-    expect(config.perCallCapabilities).toBe(runtimeSurface.capabilities);
-    expect(config.toolAuthority).toBe(runtimeSurface.toolAuthority);
+    const admittedToolNames = Array.from(config.toolAllowlist ?? []);
+    expect(admittedToolNames).toContain("read");
+    expect(admittedToolNames).toContain("grep");
+    expect(admittedToolNames).not.toContain("write");
+    expect(admittedToolNames).not.toContain("patch");
+    expect(admittedToolNames).not.toContain("bash");
+    expect(config.additionalTools?.map((tool) => tool.name)).toEqual(admittedToolNames);
+    expect(new Set(config.perCallCapabilities?.keys())).toEqual(new Set(admittedToolNames));
+    expect(new Set(config.toolAuthority?.keys())).toEqual(new Set(admittedToolNames));
+    expect(config.effectiveTurnAuthority).toMatchObject({
+      requestedAuthority: "auto",
+      admittedAuthority: "audited",
+      toolCount: admittedToolNames.length,
+      deniedToolCount: projectedToolNames.length - admittedToolNames.length,
+    });
   });
 
   it("fails closed for non-executable provider profiles and exposes no tools", () => {
@@ -239,7 +240,7 @@ describe("attached runtime builtin tool surface", () => {
 
     expect(requestedReadOnly.additionalTools?.map((tool) => tool.name)).toEqual(Array.from(allowlist));
     expect(requestedReadOnly.effectiveTurnAuthority?.toolCount).toBe(allowlist.size);
-    expect(requestedReadOnly.effectiveTurnAuthority?.deniedToolCount).toBe(0);
+    expect(requestedReadOnly.effectiveTurnAuthority?.deniedToolCount).toBe(runtimeSurface.toolDefinitions.length - allowlist.size);
   });
 
   it("records explicit min-policy inputs on admitted authority snapshots", () => {
@@ -261,16 +262,16 @@ describe("attached runtime builtin tool surface", () => {
       }),
       expect.objectContaining({
         source: "session_policy",
-        status: "applied",
+        status: "not_applicable",
       }),
       expect.objectContaining({
         source: "tenant_policy",
-        status: "applied",
+        status: "not_applicable",
         subjectId: "tenant-1",
       }),
       expect.objectContaining({
         source: "route_policy",
-        status: "applied",
+        status: "not_applicable",
         admittedAuthority: "read_only",
       }),
       expect.objectContaining({
@@ -343,8 +344,8 @@ describe("attached runtime builtin tool surface", () => {
 
     expect(requestedAudited.additionalTools?.map((tool) => tool.name)).toEqual(Array.from(allowlist));
     expect(requestedAudited.effectiveTurnAuthority?.toolCount).toBe(allowlist.size);
-    expect(requestedAudited.effectiveTurnAuthority?.deniedToolCount).toBe(0);
-    expect(allowlist.size).toBeLessThan(Array.from(baseline.toolAllowlist ?? []).length);
+    expect(requestedAudited.effectiveTurnAuthority?.deniedToolCount).toBe(runtimeSurface.toolDefinitions.length - allowlist.size);
+    expect(allowlist.size).toBe(Array.from(baseline.toolAllowlist ?? []).length);
   });
 
   it("keeps plan-mode requestedAuthority as planning even when execute-mode audited authority is requested", () => {
@@ -377,20 +378,19 @@ describe("attached runtime builtin tool surface", () => {
       executionMode: "execute",
     });
 
-    const expectedToolCount = runtimeSurface.toolDefinitions.length;
-    const deniedToolCount = countDeniedTools(config.toolAllowlist, config.toolAuthority);
+    const candidateToolNames = runtimeSurface.toolDefinitions.map((tool) => tool.name);
+    const expectedToolCount = config.toolAllowlist?.size ?? 0;
+    const deniedToolCount = countDeniedTools(config.toolAllowlist, candidateToolNames);
     expect(config.effectiveTurnAuthority).toMatchObject({
       executionMode: "execute",
       requestedAuthority: "auto",
       sourcePolicy: "runtime_surface_projection",
+      admittedAuthority: "audited",
       toolCount: expectedToolCount,
       deniedToolCount,
       sandboxProjection: "workspace_write",
     });
-    if (deniedToolCount > 0) {
-      expect(config.effectiveTurnAuthority?.admittedAuthority).toBe("destructive");
-      expect(config.effectiveTurnAuthority?.completeness).toBe("authoritative");
-    }
+    expect(config.effectiveTurnAuthority?.completeness).toBe("authoritative");
   });
 
   it("keeps effectiveTurnAuthority in lockstep with returned allowlist and authority map", () => {
@@ -404,7 +404,8 @@ describe("attached runtime builtin tool surface", () => {
 
     const allowlist = Array.from(config.toolAllowlist ?? []);
     const additionalToolNames = config.additionalTools?.map((tool) => tool.name) ?? [];
-    const deniedToolCount = countDeniedTools(config.toolAllowlist, config.toolAuthority);
+    const candidateToolNames = createAttachedRuntimeBuiltinToolSurface().toolDefinitions.map((tool) => tool.name);
+    const deniedToolCount = countDeniedTools(config.toolAllowlist, candidateToolNames);
 
     expect(new Set(additionalToolNames)).toEqual(new Set(allowlist));
     expect(config.effectiveTurnAuthority?.toolCount).toBe(allowlist.length);

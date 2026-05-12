@@ -491,20 +491,18 @@ describe("createWsTenantRoutes", () => {
         },
         {
           source: "session_policy",
-          status: "applied",
-          admittedAuthority: "unknown",
+          status: "not_applicable",
           reason: "No narrower session authority policy is configured for this turn.",
         },
         {
           source: "tenant_policy",
-          status: "applied",
+          status: "not_applicable",
           subjectId: "salon-test",
-          admittedAuthority: "unknown",
-          reason: "Tenant salon-test contributes the runtime tool surface policy.",
+          reason: "Tenant salon-test has no narrower authority policy configured for this turn.",
         },
         {
           source: "route_policy",
-          status: "applied",
+          status: "not_applicable",
           admittedAuthority: "read_only",
           reason: "websocket tenant message requested turn authority",
         },
@@ -521,12 +519,12 @@ describe("createWsTenantRoutes", () => {
         {
           source: "goal_envelope",
           status: "not_applicable",
-          reason: "Goal envelopes are introduced by Slice 6 and are not available to this Slice 5 admission.",
+          reason: "No goal authority envelope is bound to this turn.",
         },
         {
           source: "work_item_authority",
           status: "not_applicable",
-          reason: "Work-item authority envelopes are introduced by Slice 7 and are not available to this Slice 5 admission.",
+          reason: "No work-item authority envelope is bound to this turn.",
         },
       ]);
     });
@@ -576,7 +574,7 @@ describe("createWsTenantRoutes", () => {
       }));
     });
 
-    it("rejects destructive requestedAuthority before tenant message processing", async () => {
+    it("fails closed destructive requestedAuthority before tenant provider invocation", async () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
 
@@ -590,11 +588,21 @@ describe("createWsTenantRoutes", () => {
         wsCtx,
       );
 
-      expect(mockOrchestrator.processMessage).not.toHaveBeenCalled();
-      expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
-        type: "error",
-        message: "requestedAuthority must be auto, read_only, or audited",
-      });
+      const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
+      expect(perCallConfig?.toolAllowlist?.size).toBe(0);
+      expect(perCallConfig?.additionalTools).toEqual([]);
+      expect(perCallConfig?.effectiveTurnAuthority).toEqual(expect.objectContaining({
+        requestedAuthority: "destructive",
+        admittedAuthority: "fail_closed",
+        completeness: "authoritative",
+      }));
+      expect(perCallConfig?.effectiveTurnAuthority?.policyInputs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ source: "goal_envelope", status: "unresolved" }),
+        expect.objectContaining({ source: "work_item_authority", status: "unresolved" }),
+      ]));
+      expect(JSON.parse(mockWs.send.mock.calls.at(-1)?.[0] as string)).toEqual(expect.objectContaining({
+        type: "done",
+      }));
     });
 
     it("projects coordination provider candidates into tenant WebSocket governed context", async () => {

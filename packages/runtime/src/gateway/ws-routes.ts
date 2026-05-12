@@ -75,7 +75,7 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
               if (!isRequestedAuthority(parsed.requestedAuthority)) {
                 ws.send(JSON.stringify({
                   type: "error",
-                  message: "requestedAuthority must be auto, read_only, or audited",
+                  message: "requestedAuthority must be auto, read_only, audited, or destructive",
                 }));
                 return;
               }
@@ -120,5 +120,6 @@ function isRequestedAuthority(value: unknown): value is OperatorTurnRequestedAut
   return value === undefined
     || value === "auto"
     || value === "read_only"
-    || value === "audited";
+    || value === "audited"
+    || value === "destructive";
 }

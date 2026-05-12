@@ -334,7 +334,7 @@ describe("createTenantRoutes", () => {
       vi.resetModules();
     });
 
-    it("rejects destructive requestedAuthority before tenant REST message processing", async () => {
+    it("accepts destructive requestedAuthority for downstream fail-closed admission", async () => {
       const runtime = makeRuntime();
       runtime.tenantRegistry.create(makeTenantConfig());
       const app = createTenantRoutes(runtime);
@@ -345,10 +345,9 @@ describe("createTenantRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-1", tenantId: "test-tenant", requestedAuthority: "destructive" }),
       });
 
-      expect(res.status).toBe(400);
-      await expect(res.json()).resolves.toEqual({
-        error: "requestedAuthority must be auto, read_only, or audited",
-      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { content: string };
+      expect(body.content).toBe("mock response");
     });
   });
 
