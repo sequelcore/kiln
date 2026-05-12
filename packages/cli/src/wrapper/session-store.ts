@@ -371,6 +371,12 @@ const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'plan_submitted',
   'plan_analysis_reported',
   'plan_approved',
+  'goal.created',
+  'goal.updated',
+  'goal.completed',
+  'goal.failed',
+  'goal.cancelled',
+  'work_items.materialized',
   'provider_routed',
   'tool_call_started',
   'tool_call_completed',
@@ -390,6 +396,9 @@ const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'continuity_decided',
   'error_recorded',
   'turn_completed',
+  'work_item_updated',
+  'work_item_execution_started',
+  'work_item_execution_finished',
 ]);
 const SESSION_EVENT_ACTORS = new Set(['user', 'assistant', 'system', 'tool', 'runtime']);
 const SESSION_EVENT_SURFACES = new Set(['cli', 'tui', 'gui', 'ide', 'gateway', 'runtime']);
