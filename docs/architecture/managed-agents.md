@@ -368,6 +368,11 @@ projected through `work_item_execution_started` and
 `work_item_execution_finished` events and through
 `kiln://session/work-items`, so replay and operator surfaces can connect child
 evidence to the parent work item without parsing prose.
+If the managed child fails before the work-item attempt can start, the runtime
+returns the work item to an explicit paused result. The result metadata records
+`operation=managed_invocation_failed`, `managedInvocationAutoStarted=false`,
+the failure reason, and the managed invocation metadata so downstream surfaces
+can show that the child was attempted and no parent attempt was started.
 
 `managed_agent.invoke` tool results also emit a validated presentation intent
 for operator-facing route evidence. The first supported intent is a

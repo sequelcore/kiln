@@ -177,6 +177,36 @@ function makeManagedAdapter(): ManagedAgentRuntimeAdapter {
   };
 }
 
+function makeFailedManagedAdapter(): ManagedAgentRuntimeAdapter {
+  return {
+    descriptor: makeManagedDescriptor(),
+    invoke: vi.fn(async ({ request, admission }: {
+      readonly request: ManagedAgentInvocationRequest;
+      readonly admission: {
+        readonly capabilitySnapshot: ReturnType<typeof buildManagedAgentCapabilitySnapshot>;
+      };
+    }) =>
+      defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "failed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+        resultHandoff: {
+          summary: "Managed child failed before producing governed evidence.",
+          resourceUris: [],
+          memoryWriteProposalUris: [],
+        },
+      })),
+  };
+}
+
 function makeManagedExecutionStartTool(): DevTool & { readonly calls: ToolInput[] } {
   const calls: ToolInput[] = [];
   return {
@@ -1371,6 +1401,81 @@ describe("attached runtime builtin tool surface", () => {
         toolName: "managed_agent.invoke",
         invocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
         status: "completed",
+      },
+    });
+  });
+
+  it("keeps managed-delegation work item execution paused when the managed child fails", async () => {
+    const startTool = makeManagedExecutionStartTool();
+    const adapter = makeFailedManagedAdapter();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool],
+      }),
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read", "grep", "glob"],
+              workingDirectory: {
+                path: "C:/Proyectos/Sequel/kiln",
+                mode: "read-only",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+            },
+          },
+        }],
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+    const output = JSON.parse(result.output) as Record<string, unknown>;
+
+    expect(result.isError).toBe(true);
+    expect(output).toMatchObject({
+      status: "paused",
+      reason: "Managed child invocation failed before work item execution could start.",
+    });
+    expect(startTool.calls).toHaveLength(1);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect(result.metadata).toMatchObject({
+      operation: "managed_invocation_failed",
+      managedInvocationAutoStarted: false,
+      managedInvocationFailureReason: "Managed child invocation failed before work item execution could start.",
+      managedInvocation: {
+        toolName: "managed_agent.invoke",
+        status: "failed",
+        invocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
       },
     });
   });

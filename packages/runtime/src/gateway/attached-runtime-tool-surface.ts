@@ -612,6 +612,8 @@ function managedDelegationPausedResult(
     metadata: {
       toolName: WORK_ITEM_EXECUTION_START_TOOL_NAME,
       operation: "managed_invocation_failed",
+      managedInvocationAutoStarted: false,
+      managedInvocationFailureReason: reason,
       ...(initialEnvelope?.metadata ? { initial: initialEnvelope.metadata } : {}),
       ...(managedResult?.metadata ? { managedInvocation: managedResult.metadata } : {}),
     },
