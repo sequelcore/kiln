@@ -79,6 +79,41 @@ describe("work-governance-tool", () => {
     expect(result?.isError).toBe(false);
     expect(result?.output).toContain('"id": "ui-change"');
     expect(result?.output).toContain('"browser-qa"');
+    expect(result?.output).toContain('"evidenceMatrix"');
+    expect(result?.output).toContain('"browser QA screenshot or interaction proof"');
+  });
+
+  it("materializes expected evidence and verification gates from the profile evidence matrix", async () => {
+    const tools = createWorkGovernanceTools(policy);
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Validate managed agent replay evidence.",
+        workflowProfile: "managed-agent-change",
+        triggers: ["managed-agents", "provider-routing"],
+      },
+    });
+
+    expect(created?.isError).toBe(false);
+    const parsed = JSON.parse(created?.output ?? "{}") as {
+      item: {
+        expectedEvidence: readonly string[];
+        verificationGates: readonly string[];
+      };
+    };
+    expect(parsed.item.expectedEvidence).toEqual(expect.arrayContaining([
+      "managed-agent-review",
+      "tests",
+      "typecheck",
+      "residual-risk",
+    ]));
+    expect(parsed.item.verificationGates).toEqual(expect.arrayContaining([
+      "managed child live or simulated evidence",
+      "route/provider identity check",
+      "typecheck/build",
+    ]));
   });
 
   it("blocks work item completion until expected evidence and residual risk are present", async () => {

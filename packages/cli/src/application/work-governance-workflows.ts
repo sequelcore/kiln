@@ -25,6 +25,59 @@ export interface WorkGovernanceWorkflowProfile {
   readonly verificationGates: readonly string[];
 }
 
+export interface WorkGovernanceEvidenceMatrixEntry {
+  readonly evidence: KilnWorkGovernanceEvidence;
+  readonly verificationGates: readonly string[];
+}
+
+const PROFILE_EVIDENCE_GATE_MATRIX: Record<
+  WorkGovernanceWorkflowProfileId,
+  Partial<Record<KilnWorkGovernanceEvidence, readonly string[]>>
+> = {
+  "small-fix": {
+    tests: ["focused test or explicit no-test rationale"],
+    typecheck: ["typecheck when TypeScript is affected"],
+    "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "bug-diagnosis": {
+    tests: ["failing test or reproduction before fix", "focused regression test"],
+    typecheck: ["typecheck/build"],
+    "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "architecture-change": {
+    "managed-agent-review": ["architecture/DDD review"],
+    tests: ["contract tests where behavior changes"],
+    typecheck: ["typecheck/build"],
+    "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "ui-change": {
+    "browser-qa": ["browser QA screenshot or interaction proof", "accessibility/overflow check"],
+    typecheck: ["typecheck"],
+    "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "managed-agent-change": {
+    "managed-agent-review": ["managed child live or simulated evidence", "route/provider identity check"],
+    typecheck: ["typecheck/build"],
+    "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "config-change": {
+    tests: ["config parse/merge tests", "projection or sync diagnostic test"],
+    typecheck: ["typecheck"],
+    "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "verification-heavy": {
+    tests: ["failing proof or test first", "verification loop until no known blocker"],
+    "managed-agent-review": ["review closeout"],
+    "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "formal-proof-candidate": {
+    spec: ["explicit invariant/spec review"],
+    "formal-proof": ["deterministic proof/property-test result"],
+    tests: ["deterministic proof/property-test result"],
+    "residual-risk": ["residual-risk closeout"],
+  },
+};
+
 export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowProfile[] = [
   {
     id: "small-fix",
@@ -112,6 +165,28 @@ export function findWorkflowProfile(id: string): WorkGovernanceWorkflowProfile |
   return WORK_GOVERNANCE_WORKFLOW_PROFILES.find((profile) => profile.id === id);
 }
 
+export function evidenceMatrixForWorkflowProfile(
+  profile: WorkGovernanceWorkflowProfile,
+): readonly WorkGovernanceEvidenceMatrixEntry[] {
+  const gateMatrix = PROFILE_EVIDENCE_GATE_MATRIX[profile.id];
+  return profile.requiredEvidence.map((evidence) => ({
+    evidence,
+    verificationGates: gateMatrix[evidence] ?? [],
+  }));
+}
+
+export function requiredEvidenceForWorkflowProfile(
+  profile: WorkGovernanceWorkflowProfile,
+): readonly KilnWorkGovernanceEvidence[] {
+  return evidenceMatrixForWorkflowProfile(profile).map((entry) => entry.evidence);
+}
+
+export function verificationGatesForWorkflowProfile(
+  profile: WorkGovernanceWorkflowProfile,
+): readonly string[] {
+  return uniqueText(evidenceMatrixForWorkflowProfile(profile).flatMap((entry) => entry.verificationGates));
+}
+
 export function chooseWorkflowProfile(
   triggers: readonly KilnWorkGovernanceTrigger[],
   risk: KilnWorkGovernanceRisk | undefined,
@@ -131,4 +206,8 @@ function requiredProfile(id: WorkGovernanceWorkflowProfileId): WorkGovernanceWor
     throw new Error(`Missing work governance workflow profile: ${id}`);
   }
   return profile;
+}
+
+function uniqueText(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }

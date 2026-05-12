@@ -26,7 +26,10 @@ import type {
 import { assessWorkGovernance } from "./work-governance-policy.js";
 import {
   chooseWorkflowProfile,
+  evidenceMatrixForWorkflowProfile,
   findWorkflowProfile,
+  requiredEvidenceForWorkflowProfile,
+  verificationGatesForWorkflowProfile,
   WORK_GOVERNANCE_WORKFLOW_PROFILES,
 } from "./work-governance-workflows.js";
 
@@ -229,6 +232,7 @@ export class WorkProfileListTool implements DevTool {
           defaultAuthorityProfile: profile.defaultAuthorityProfile,
           requiredEvidence: profile.requiredEvidence,
           verificationGates: profile.verificationGates,
+          evidenceMatrix: evidenceMatrixForWorkflowProfile(profile),
         })),
       }, null, 2),
       isError: false,
@@ -338,12 +342,12 @@ export class WorkItemUpdateTool implements DevTool {
       triggers,
     });
     const expectedEvidence = uniqueEvidence([
-      ...workflowProfile.requiredEvidence,
+      ...requiredEvidenceForWorkflowProfile(workflowProfile),
       ...assessment.requiredEvidence,
       ...readEvidence(input.input.expectedEvidence),
     ]);
     const verificationGates = uniqueText([
-      ...workflowProfile.verificationGates,
+      ...verificationGatesForWorkflowProfile(workflowProfile),
       ...readTextArray(input.input.verificationGates),
     ]);
     const pauseRequirements = readPauseRequirements(input.input.pauseRequirements);
