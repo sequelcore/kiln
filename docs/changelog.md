@@ -2,6 +2,20 @@
 
 ## Unreleased -- Workflow Control
 
+- Completed the implemented slices of the plan/goal workflow-control roadmap:
+  structured specification events, clarification gates, structured plans,
+  analysis and approval gates, effective turn authority, model routing
+  rationale, goal runs, work-item materialization, execution attempts,
+  managed-agent handoff, evidence and review gates, cross-surface operator UX,
+  and native harness workflow snapshot projection.
+- Added canonical goal/work-item execution state with governed execution
+  attempts, pause requirements, managed invocation linkage, evidence closeout,
+  verification gate results, residual-risk handling, and deterministic final
+  goal closeout summaries generated from linked work-item evidence.
+- Added cross-surface workflow projections for CLI, GUI, TUI, SDK/resource
+  consumers, gateway contracts, and generated repo/native harness shims so
+  operators see the same plan, goal, work-item, authority, routing, evidence,
+  and workflow snapshot state.
 - Closed roadmap Slice 4 for plan approval and transition. Plan approval now
   records operator identity, immutable plan hash, approval id, and residual-risk
   acknowledgement state in canonical `plan_approved` events.
