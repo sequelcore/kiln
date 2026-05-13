@@ -16,6 +16,11 @@
   consumers, gateway contracts, and generated repo/native harness shims so
   operators see the same plan, goal, work-item, authority, routing, evidence,
   and workflow snapshot state.
+- Absorbed the implemented workflow-control behavior into canonical plan-mode,
+  work-governance, managed-agent, agent-context, flows, tool-execution,
+  config-projection, operator-surface, and invariant docs. Native workflow
+  snapshot projection was regenerated from canonical evidence and remains a
+  generated shim, not durable doctrine.
 - Closed roadmap Slice 4 for plan approval and transition. Plan approval now
   records operator identity, immutable plan hash, approval id, and residual-risk
   acknowledgement state in canonical `plan_approved` events.

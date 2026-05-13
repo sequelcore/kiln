@@ -57,8 +57,8 @@ explicitly parked until their prerequisite product surface exists.
   structured plan mode, approved goal runs, work-item materialization,
   managed-agent execution, evidence-gated closeout, cross-surface workflow
   projection, and final canonical documentation cleanup. Slices 1-12 are
-  complete; Slice 13 is absorbing the implemented behavior into stable docs and
-  removing roadmap residue.
+  complete; Slice 13 has absorbed the implemented behavior into stable docs and
+  is finishing duplicate-roadmap cleanup and final verification.
 
 ## Deferred Roadmaps
 
@@ -191,24 +191,27 @@ explicitly parked until their prerequisite product surface exists.
   `kiln://session/work-items` resources, GUI/TUI work-item projections,
   evidence-gated closeout, and managed-child handoff contract fields.
 - Plan/goal workflow control slices 1-12 completed on 2026-05-12. Stable
-  doctrine is being absorbed through
+  doctrine has been absorbed through
   `00.5-plan-goal-workflow-control.md` Slice 13 into
   `docs/guides/plan-mode.md`, `docs/architecture/work-governance.md`,
   `docs/architecture/managed-agents.md`,
-  `docs/architecture/config-projection.md`, and related canonical architecture
-  docs. Completed implementation covers structured specification events,
-  clarification gates, structured plans, analysis and approval gates, effective
-  turn authority, model routing rationale, goal runs, work-item
-  materialization, execution attempts, managed-agent handoff, evidence and
-  review gates, cross-surface operator UX, and native harness workflow snapshot
-  projection.
+  `docs/architecture/agent-context.md`, `docs/architecture/flows.md`,
+  `docs/architecture/tool-execution.md`,
+  `docs/architecture/config-projection.md`,
+  `docs/architecture/operator-surfaces.md`, and
+  `docs/architecture/invariants.md`. Completed implementation covers structured
+  specification events, clarification gates, structured plans, analysis and
+  approval gates, effective turn authority, model routing rationale, goal runs,
+  work-item materialization, execution attempts, managed-agent handoff, evidence
+  and review gates, cross-surface operator UX, and native harness workflow
+  snapshot projection.
 
 ## Execution Priority
 
 1. Complete `00.5-plan-goal-workflow-control.md` Slice 13 before adding new
-   long-running-agent UX or benchmark claims. Slices 1-12 are implemented; the
-   remaining control-plane work is absorbing the behavior into canonical docs
-   and removing duplicate roadmap doctrine.
+   long-running-agent UX or benchmark claims. Slices 1-12 are implemented and
+   canonical docs are updated; the remaining control-plane work is duplicate
+   roadmap cleanup, generated-shim verification, and final consistency checks.
 2. Keep `02-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
