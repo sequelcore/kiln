@@ -322,6 +322,29 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     if (request.url) {
       this.assertUrlAllowed(request.url);
     }
+    const existingSessionId = request.sessionId ?? this.activeSessionId;
+    const existingSession = existingSessionId ? this.sessions.get(existingSessionId) : undefined;
+    if (existingSession) {
+      this.clearIdleTimer(existingSession.id);
+      this.activeSessionId = existingSession.id;
+      if (request.url && existingSession.page.url() !== request.url) {
+        this.assertAgentBrowserControl(existingSession);
+        await existingSession.page.goto(request.url, {
+          timeout: request.timeoutMs ?? this.defaultTimeoutMs,
+          waitUntil: "domcontentloaded",
+        });
+      }
+      const result = {
+        provider: "playwright",
+        sessionId: existingSession.id,
+        output: `Attached to Playwright browser session ${existingSession.id}.`,
+        observation: await this.observeSession(existingSession, request),
+      };
+      this.startLiveStream(existingSession, request);
+      this.scheduleIdleClose(existingSession);
+      return result;
+    }
+
     const playwright = await this.loader();
     const sessionId = request.sessionId ?? `browser-${++this.sequence}`;
     const browser = await this.launchBrowser(playwright, request);

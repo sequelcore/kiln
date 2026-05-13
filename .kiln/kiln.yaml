@@ -28,3 +28,6 @@ interactiveUse:
       - Notepad
       - Bloc de notas
       - notas
+permissions:
+  approval: on-request
+  sandbox: workspace-write

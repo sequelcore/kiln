@@ -146,6 +146,43 @@ describe("PlaywrightBrowserUseProvider", () => {
     ]);
   });
 
+  it("attaches browser_session_start to the active session instead of opening a duplicate", async () => {
+    const events: string[] = [];
+    const page = fakePage(events);
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(page, events),
+      allowedDomains: ["example.com"],
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      url: "https://example.com/start",
+      input: { url: "https://example.com/start" },
+    });
+
+    await expect(provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      url: "https://example.com/next",
+      input: { url: "https://example.com/next" },
+    })).resolves.toMatchObject({
+      provider: "playwright",
+      sessionId: "browser-1",
+      output: "Attached to Playwright browser session browser-1.",
+      observation: {
+        url: "https://example.com/next",
+      },
+    });
+
+    expect(events.filter((event) => event === "launch:true")).toHaveLength(1);
+    expect(events.filter((event) => event === "newPage")).toHaveLength(1);
+    expect(events).toContain("goto:https://example.com/start");
+    expect(events).toContain("goto:https://example.com/next");
+  });
+
   it("emits provider-owned live browser screenshot stream updates", async () => {
     vi.useFakeTimers();
     const events: string[] = [];

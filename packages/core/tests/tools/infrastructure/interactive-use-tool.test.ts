@@ -18,6 +18,18 @@ import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/a
 import { describe, expect, it, vi } from "vitest";
 
 describe("interactive use tools", () => {
+  it("allows browser_session_start to attach to a known browser session id", () => {
+    const tool = new BrowserSessionStartTool();
+
+    expect(tool.inputSchema).toMatchObject({
+      properties: {
+        sessionId: expect.objectContaining({
+          type: "string",
+        }),
+      },
+    });
+  });
+
   it("fail closed when no browser provider is configured", async () => {
     const tool = new BrowserNavigateTool();
 

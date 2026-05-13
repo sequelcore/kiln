@@ -564,10 +564,11 @@ export const TOOL_SCHEMAS: Record<
   },
   browser_session_start: {
     name: "browser_session_start",
-    description: "Start or attach to a governed browser automation session. Always pass a JSON object with optional url, viewport, allowedDomains, recordArtifacts, timeout, or verbosity. For one-off tasks, call browser_session_stop before the final answer; runtimes may also close idle sessions automatically.",
+    description: "Start or attach to a governed browser automation session. Always pass a JSON object with optional sessionId, url, viewport, allowedDomains, recordArtifacts, timeout, or verbosity. Providers attach to an existing sessionId or active session instead of opening duplicate browser sessions.",
     inputSchema: {
       type: "object",
       properties: {
+        sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
         url: { type: "string", description: "Optional initial HTTP(S) URL." },
         viewport: {
           type: "object",

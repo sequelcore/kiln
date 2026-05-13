@@ -196,6 +196,30 @@ async function startSession(
   if (request.url) {
     assertUrlAllowed(config, request.url);
   }
+  const existingSessionId = request.sessionId ?? activeSessionId;
+  const existingSession = existingSessionId ? sessions.get(existingSessionId) : undefined;
+  if (existingSession) {
+    clearIdleTimer(existingSession.id);
+    cancelSidecarExit();
+    activeSessionId = existingSession.id;
+    if (request.url && existingSession.page.url() !== request.url) {
+      assertAgentBrowserControl(existingSession);
+      await existingSession.page.goto(request.url, {
+        timeout: request.timeoutMs ?? config.defaultTimeoutMs,
+        waitUntil: "domcontentloaded",
+      });
+    }
+    const result = {
+      provider: "playwright",
+      sessionId: existingSession.id,
+      output: `Attached to Playwright browser session ${existingSession.id}.`,
+      observation: await observeSession(config, existingSession, request),
+    };
+    startLiveStream(config, existingSession, request);
+    scheduleIdleClose(config, existingSession);
+    return result;
+  }
+
   const playwright = await loadPlaywright();
   const sessionId = request.sessionId ?? `browser-${++sequence}`;
   const browser = await launchBrowser(playwright, config, request);
