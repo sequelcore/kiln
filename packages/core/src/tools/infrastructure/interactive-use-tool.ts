@@ -231,11 +231,15 @@ abstract class BaseInteractiveUseTool<TToolName extends InteractiveToolName> imp
       : observation;
     const mimeType = parsed?.mimeType ?? artifact?.mimeType;
     const size = artifact?.size;
+    const sequence = this.target === "browser" ? artifact?.sequence : undefined;
+    const label = sequence !== undefined ? `Capture ${sequence}` : undefined;
     const title = `${this.name} screenshot`;
     const resourceLink: ToolResourceLinkMetadata | undefined = screenshotUri
       ? {
           uri: screenshotUri,
           title,
+          ...(label ? { label } : {}),
+          ...(sequence !== undefined ? { sequence } : {}),
           ...(mimeType ? { mimeType } : {}),
           ...(size !== undefined ? { size } : {}),
           relation: "snapshot",

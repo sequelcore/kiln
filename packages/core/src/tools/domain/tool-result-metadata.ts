@@ -119,6 +119,8 @@ export type ToolResourceLinkRelation = "full_output" | "snapshot" | "events" | "
 export interface ToolResourceLinkMetadata {
   readonly uri: string;
   readonly title?: string;
+  readonly label?: string;
+  readonly sequence?: number;
   readonly mimeType?: string;
   readonly size?: number;
   readonly relation: ToolResourceLinkRelation;

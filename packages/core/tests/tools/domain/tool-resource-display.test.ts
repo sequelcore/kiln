@@ -31,12 +31,16 @@ describe("tool resource display projection", () => {
       mimeType: "text/plain",
       size: 9_000,
       relation: "full_output",
+      label: "Capture 1",
+      sequence: 1,
     }, true)).toEqual({
       uri: "kiln://artifacts/tool-results/artifact_1/content",
       title: "read_many full output",
       mimeType: "text/plain",
       size: 9_000,
       relation: "full_output",
+      label: "Capture 1",
+      sequence: 1,
       truncated: true,
     });
   });

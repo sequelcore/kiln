@@ -243,6 +243,47 @@ describe("interactive use tools", () => {
     });
   });
 
+  it("labels browser screenshot resource links with stable capture sequence metadata", async () => {
+    const artifactStore = new MemoryArtifactResourceStore();
+    let capture = 0;
+    const provider: InteractiveUseProvider = {
+      execute: vi.fn(async () => {
+        capture += 1;
+        return {
+          sessionId: "browser-1",
+          provider: "test-browser",
+          output: `observed ${capture}`,
+          observation: {
+            url: `https://example.com/${capture}`,
+            title: `Example ${capture}`,
+            screenshotDataUrl: `data:image/png;base64,AQID${capture}`,
+          },
+        };
+      }),
+    };
+    const tool = new BrowserObserveTool({ provider, artifactStore });
+
+    const first = await tool.execute({
+      name: "browser_observe",
+      input: { sessionId: "browser-1", includeScreenshot: true },
+    });
+    const second = await tool.execute({
+      name: "browser_observe",
+      input: { sessionId: "browser-1", includeScreenshot: true },
+    });
+
+    expect(first.metadata?.resourceLinks?.[0]).toMatchObject({
+      relation: "snapshot",
+      sequence: 1,
+      label: "Capture 1",
+    });
+    expect(second.metadata?.resourceLinks?.[0]).toMatchObject({
+      relation: "snapshot",
+      sequence: 2,
+      label: "Capture 2",
+    });
+  });
+
   it("constructs every browser and computer tool", () => {
     expect([
       new BrowserSessionStartTool().name,

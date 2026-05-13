@@ -31,6 +31,8 @@ export type ToolResultOutputKind =
 export interface ToolResultResourceLinkPresentation {
   readonly uri: string;
   readonly title?: string;
+  readonly label?: string;
+  readonly sequence?: number;
   readonly mimeType?: string;
   readonly size?: number;
   readonly relation?: string;
@@ -254,6 +256,8 @@ function readResourceLinks(value: unknown): readonly ToolResultResourceLinkPrese
       return {
         uri,
         ...(readString(record?.title) ? { title: readString(record?.title)! } : {}),
+        ...(readString(record?.label) ? { label: readString(record?.label)! } : {}),
+        ...(readNumber(record?.sequence) !== null ? { sequence: readNumber(record?.sequence)! } : {}),
         ...(readString(record?.mimeType) ? { mimeType: readString(record?.mimeType)! } : {}),
         ...(readNumber(record?.size) !== null ? { size: readNumber(record?.size)! } : {}),
         ...(readString(record?.relation) ? { relation: readString(record?.relation)! } : {}),
@@ -433,6 +437,66 @@ function projectResourceLinkPresentation(
     summary,
     fields,
     resourceLinks,
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function browserSnapshotLinks(
+  metadata: Record<string, unknown> | undefined,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): readonly ToolResultResourceLinkPresentation[] {
+  if (readString(metadata?.kind) !== "interactive" || readString(metadata?.target) !== "browser") {
+    return [];
+  }
+  return resourceLinks.filter((link) => link.relation === "snapshot" && link.uri.startsWith("kiln://artifacts/"));
+}
+
+function captureLabel(resource: ToolResultResourceLinkPresentation, index: number): string {
+  return resource.label ?? (resource.sequence !== undefined ? `Capture ${resource.sequence}` : `Capture ${index + 1}`);
+}
+
+function isBrowserSnapshotResource(resource: ToolResultResourceLinkPresentation): boolean {
+  return resource.relation === "snapshot" && resource.uri.startsWith("kiln://artifacts/");
+}
+
+function projectBrowserScreenshotPresentation(
+  output: string | undefined,
+  metadata: Record<string, unknown>,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation {
+  const captures = browserSnapshotLinks(metadata, resourceLinks);
+  const observation = asRecord(metadata.observation);
+  const pageTitle = readString(observation?.title);
+  const url = readString(observation?.url);
+  const sessionId = readString(metadata.sessionId);
+  const provider = readString(metadata.provider);
+  const captureNames = captures.map((resource, index) => captureLabel(resource, index));
+  const summarySubject = pageTitle ?? url ?? compactText(output ?? captures[0]?.title ?? "browser screenshot");
+  const summary = captures.length === 1
+    ? `${captureNames[0]}: ${summarySubject}`
+    : `${captures.length} captures: ${captureNames.join(", ")}`;
+  const fields = [
+    field("URL", url),
+    field("Title", pageTitle),
+    field("Session", sessionId),
+    field("Provider", provider),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "image",
+    title: "Browser screenshots",
+    summary,
+    fields,
+    resourceLinks: resourceLinks.map((resource) => {
+      if (!isBrowserSnapshotResource(resource)) {
+        return resource;
+      }
+      const captureIndex = captures.findIndex((capture) => capture.uri === resource.uri);
+      return {
+        ...resource,
+        label: captureLabel(resource, captureIndex >= 0 ? captureIndex : 0),
+        ...(resource.sequence !== undefined ? { sequence: resource.sequence } : {}),
+      };
+    }),
     raw: toolResultRawAvailability(resourceLinks),
   };
 }
@@ -746,6 +810,9 @@ function projectToolResultPresentation(
   }
   const operation = readString(metadata?.operation);
   const kind = readString(metadata?.kind);
+  if (browserSnapshotLinks(metadata, resourceLinks).length > 0 && metadata) {
+    return projectBrowserScreenshotPresentation(output, metadata, resourceLinks);
+  }
   const hasDiff = !!metadata && (
     readString(metadata.diffPreview) !== null
     || operation === "patch"

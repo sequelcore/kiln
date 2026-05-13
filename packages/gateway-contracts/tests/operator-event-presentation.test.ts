@@ -950,6 +950,73 @@ describe("operator event presentation", () => {
     });
   });
 
+  it("projects browser screenshot resources as numbered transcript capture evidence", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-browser-1",
+      toolName: "browser_observe",
+      output: JSON.stringify({
+        output: "observe: https://example.com",
+        isError: false,
+        metadata: {
+          toolName: "browser_observe",
+          kind: "interactive",
+          target: "browser",
+          operation: "observe",
+          provider: "playwright",
+          sessionId: "browser-1",
+          observation: {
+            url: "https://example.com",
+            title: "Example Domain",
+            screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+          },
+          resourceLinks: [
+            {
+              uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+              title: "browser_observe screenshot",
+              mimeType: "image/png",
+              size: 1234,
+              relation: "snapshot",
+              label: "Capture 1",
+              sequence: 1,
+            },
+            {
+              uri: "kiln://artifacts/browser-debug/artifact_2/content",
+              title: "browser diagnostic payload",
+              mimeType: "application/json",
+              size: 456,
+              relation: "full_output",
+            },
+          ],
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("Capture 1: Example Domain");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "image",
+      title: "Browser screenshots",
+      summary: "Capture 1: Example Domain",
+      raw: {
+        available: true,
+        resourceUri: "kiln://artifacts/browser-debug/artifact_2/content",
+      },
+    });
+    expect(presentation.toolPresentation?.resourceLinks).toEqual([
+      expect.objectContaining({
+        uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+        label: "Capture 1",
+        sequence: 1,
+        relation: "snapshot",
+      }),
+      expect.objectContaining({
+        uri: "kiln://artifacts/browser-debug/artifact_2/content",
+        relation: "full_output",
+      }),
+    ]);
+    expect(JSON.stringify(presentation)).not.toContain("data:image");
+  });
+
   it("does not invent raw availability or diff previews for write summaries", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",

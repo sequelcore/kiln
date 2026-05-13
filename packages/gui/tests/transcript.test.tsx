@@ -345,6 +345,81 @@ describe("Transcript", () => {
     expect(screen.queryByText("--- C:\\Proyectos\\Sequel\\kiln\\docs\\architecture.md")).not.toBeInTheDocument();
   });
 
+  it("renders browser screenshot tool presentations as a numbered capture gallery", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:browser-captures",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed browser_observe",
+            summary: "Capture 1: Example Domain",
+            tone: "success",
+            details: {
+              result: "observe: https://example.com",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "image",
+              title: "Browser screenshots",
+              summary: "Capture 1: Example Domain",
+              fields: [
+                { label: "URL", value: "https://example.com" },
+                { label: "Session", value: "browser-1" },
+              ],
+              resourceLinks: [
+                {
+                  uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+                  title: "browser_observe screenshot",
+                  mimeType: "image/png",
+                  size: 1234,
+                  relation: "snapshot",
+                  label: "Capture 1",
+                  sequence: 1,
+                },
+                {
+                  uri: "kiln://artifacts/interactive-screenshots/artifact_2/content",
+                  title: "browser_click screenshot",
+                  mimeType: "image/png",
+                  size: 2345,
+                  relation: "snapshot",
+                  label: "Capture 2",
+                  sequence: 2,
+                },
+                {
+                  uri: "kiln://artifacts/browser-debug/artifact_3/content",
+                  title: "browser diagnostic payload",
+                  mimeType: "application/json",
+                  size: 456,
+                  relation: "full_output",
+                },
+              ],
+              raw: {
+                available: true,
+                resourceUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const gallery = screen.getByRole("list", { name: "Browser screenshot captures" });
+    expect(within(gallery).getByText("Capture 1")).toBeInTheDocument();
+    expect(within(gallery).getByText("Capture 2")).toBeInTheDocument();
+    expect(within(gallery).getByText("kiln://artifacts/interactive-screenshots/artifact_1/content")).toBeInTheDocument();
+    expect(within(gallery).getByText("kiln://artifacts/interactive-screenshots/artifact_2/content")).toBeInTheDocument();
+    expect(within(gallery).queryByText("browser diagnostic payload")).not.toBeInTheDocument();
+    expect(screen.getByText("browser diagnostic payload")).toBeInTheDocument();
+    expect(screen.getByText("kiln://artifacts/browser-debug/artifact_3/content")).toBeInTheDocument();
+    expect(screen.queryByText(/data:image/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
+  });
+
   it("renders read and tree tool presentations without JSON envelopes", () => {
     render(
       <Transcript

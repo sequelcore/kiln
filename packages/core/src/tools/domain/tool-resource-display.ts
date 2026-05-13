@@ -6,6 +6,8 @@ export interface ToolResourceDisplayDescriptor {
   readonly uri: string;
   readonly name?: string;
   readonly title?: string;
+  readonly label?: string;
+  readonly sequence?: number;
   readonly mimeType?: string;
   readonly size?: number;
   readonly relation?: ToolResourceLinkMetadata["relation"];
@@ -32,6 +34,8 @@ export function projectToolResourceLink(
   return compactResourceDisplay({
     uri: link.uri,
     title: link.title,
+    label: link.label,
+    sequence: link.sequence,
     mimeType: link.mimeType,
     size: link.size,
     relation: link.relation,
@@ -57,6 +61,8 @@ function compactResourceDisplay(
     uri: descriptor.uri,
     ...(descriptor.name ? { name: descriptor.name } : {}),
     ...(descriptor.title ? { title: descriptor.title } : {}),
+    ...(descriptor.label ? { label: descriptor.label } : {}),
+    ...(descriptor.sequence !== undefined ? { sequence: descriptor.sequence } : {}),
     ...(descriptor.mimeType ? { mimeType: descriptor.mimeType } : {}),
     ...(descriptor.size !== undefined ? { size: descriptor.size } : {}),
     ...(descriptor.relation ? { relation: descriptor.relation } : {}),

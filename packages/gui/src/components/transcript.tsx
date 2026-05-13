@@ -283,18 +283,18 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
       {presentation.presentationIntent ? (
         <PresentationIntentDetails intent={presentation.presentationIntent} />
       ) : null}
-      {presentation.resourceLinks?.map((resource) => (
-        <div key={resource.uri} className="min-w-0 rounded-lg bg-background/55 px-2.5 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{previewLabel}</p>
-          <p className="mt-1 truncate text-sm font-medium text-foreground">{resource.title ?? resource.uri}</p>
-          <p className="mt-1 break-all font-mono text-[11px] leading-5 text-muted-foreground">{resource.uri}</p>
-          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-            {resource.mimeType ? <span>{resource.mimeType}</span> : null}
-            {resource.size !== undefined ? <span>{resource.size} bytes</span> : null}
-            {resource.relation ? <span>{resource.relation}</span> : null}
-          </div>
-        </div>
-      ))}
+      {isBrowserCapturePresentation(presentation) ? (
+        <>
+          <BrowserCaptureGallery resources={presentation.resourceLinks ?? []} />
+          {presentation.resourceLinks
+            ?.filter((resource) => resource.relation !== "snapshot")
+            .map((resource) => (
+              <ResourceLinkCard key={resource.uri} resource={resource} label={previewLabel} />
+            ))}
+        </>
+      ) : presentation.resourceLinks?.map((resource) => (
+          <ResourceLinkCard key={resource.uri} resource={resource} label={previewLabel} />
+        ))}
       {presentation.preview ? (
         <div>
           <div className="mb-2 flex items-center justify-between gap-3">
@@ -306,6 +306,62 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
           <ToolPreviewText text={presentation.preview.text} outputKind={presentation.outputKind} />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function isBrowserCapturePresentation(
+  presentation: NonNullable<TimelineEventEntry["toolPresentation"]>,
+): boolean {
+  return presentation.outputKind === "image"
+    && !!presentation.resourceLinks?.some((resource) => resource.relation === "snapshot");
+}
+
+function ResourceLinkCard(props: {
+  readonly resource: NonNullable<NonNullable<TimelineEventEntry["toolPresentation"]>["resourceLinks"]>[number];
+  readonly label: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg bg-background/55 px-2.5 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{props.label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-foreground">{props.resource.title ?? props.resource.uri}</p>
+      <p className="mt-1 break-all font-mono text-[11px] leading-5 text-muted-foreground">{props.resource.uri}</p>
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+        {props.resource.mimeType ? <span>{props.resource.mimeType}</span> : null}
+        {props.resource.size !== undefined ? <span>{props.resource.size} bytes</span> : null}
+        {props.resource.relation ? <span>{props.resource.relation}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function BrowserCaptureGallery(props: {
+  readonly resources: NonNullable<NonNullable<TimelineEventEntry["toolPresentation"]>["resourceLinks"]>;
+}) {
+  const captures = props.resources.filter((resource) => resource.relation === "snapshot");
+  return (
+    <div role="list" aria-label="Browser screenshot captures" className="grid gap-2 sm:grid-cols-2">
+      {captures.map((resource, index) => (
+        <div
+          key={resource.uri}
+          role="listitem"
+          className="min-w-0 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
+        >
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <p className="truncate text-sm font-semibold text-foreground">
+              {resource.label ?? (resource.sequence !== undefined ? `Capture ${resource.sequence}` : `Capture ${index + 1}`)}
+            </p>
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              {resource.mimeType ?? "image"}
+            </span>
+          </div>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{resource.title ?? "Browser screenshot"}</p>
+          <p className="mt-2 break-all font-mono text-[11px] leading-5 text-muted-foreground">{resource.uri}</p>
+          {resource.size !== undefined ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">{resource.size} bytes</p>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }
