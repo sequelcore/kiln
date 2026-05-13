@@ -147,6 +147,27 @@ describe("OperatorSurfaceTabs", () => {
           title: "Settings",
           screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
         }}
+        browserSession={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-08T12:00:00.000Z",
+          toolName: "browser_click",
+          operation: "click",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          url: "https://app.example.com/settings",
+          title: "Settings",
+          ownership: "agent",
+          viewMode: "snapshot",
+          stream: {
+            status: "unavailable",
+            reason: "No live browser stream transport is configured.",
+          },
+          latestCapture: {
+            uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+            relation: "snapshot",
+          },
+        }}
         memoryOpen={false}
         files={[]}
         selectedPath={null}
@@ -163,6 +184,8 @@ describe("OperatorSurfaceTabs", () => {
 
     expect(screen.getByRole("tab", { name: "Browser: Settings" })).toBeInTheDocument();
     expect(screen.getByText("Agent controlling")).toBeInTheDocument();
+    expect(screen.getByText("Stream unavailable")).toBeInTheDocument();
+    expect(screen.getByText("View snapshot")).toBeInTheDocument();
     expect(screen.getByText("kiln://artifacts/interactive-screenshots/artifact_1/content")).toBeInTheDocument();
   });
 

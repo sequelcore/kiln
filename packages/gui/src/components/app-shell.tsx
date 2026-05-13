@@ -602,6 +602,7 @@ export function AppShell() {
   const turnCounter = useSessionStore((state) => state.turnCounter);
   const activityPhase = useSessionStore((state) => state.activityPhase);
   const interactiveUseSnapshot = useSessionStore((state) => state.interactiveUseSnapshot);
+  const browserSessionState = useSessionStore((state) => state.browserSessionState);
   const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
   const setSender = useSessionStore((state) => state.setSender);
   const setSessionList = useSessionStore((state) => state.setSessionList);
@@ -702,12 +703,19 @@ export function AppShell() {
   }, [activeModelCapabilities?.defaultReasoningEffort, reasoningEffort, reasoningEffortOptions]);
 
   useEffect(() => {
-    if (interactiveUseSnapshot?.target !== "browser") {
+    if (!browserSessionState && interactiveUseSnapshot?.target !== "browser") {
       return;
     }
     setWorkbenchSurface("chat");
     setActiveSurface("browser");
-  }, [interactiveUseSnapshot?.target, interactiveUseSnapshot?.toolCallId, interactiveUseSnapshot?.updatedAt]);
+  }, [
+    browserSessionState?.sessionId,
+    browserSessionState?.toolCallId,
+    browserSessionState?.updatedAt,
+    interactiveUseSnapshot?.target,
+    interactiveUseSnapshot?.toolCallId,
+    interactiveUseSnapshot?.updatedAt,
+  ]);
 
   const closePalette = () => {
     setIsPaletteOpen(false);
@@ -1266,7 +1274,7 @@ export function AppShell() {
         />
       );
 
-  const activeChatWorkspaceSurface = workbenchSurface === "chat" && activeSurface === "browser" && interactiveUseSnapshot?.target === "browser"
+  const activeChatWorkspaceSurface = workbenchSurface === "chat" && activeSurface === "browser" && (Boolean(browserSessionState) || interactiveUseSnapshot?.target === "browser")
     ? "browser"
     : "chat";
   const workbenchTitle = workbenchSurface === "chat"
@@ -1480,6 +1488,7 @@ export function AppShell() {
           <OperatorSurfaceTabs
             activeSurface={activeSurface}
             browserSnapshot={interactiveUseSnapshot?.target === "browser" ? interactiveUseSnapshot : null}
+            browserSession={browserSessionState}
             loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri)}
             memoryOpen={memorySurfaceOpen}
             files={workspaceDocuments}

@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import type {
+  GuiBrowserSessionCapture,
+  GuiBrowserSessionState,
   GuiInboundFrame,
   GuiInteractiveUseSnapshot,
   GuiModelRoutingRationale,
@@ -20,6 +22,8 @@ import {
   isGuiProviderModeless,
   presentOperatorEventPayload,
 } from "@kilnai/gateway-contracts";
+
+const BROWSER_STREAM_UNAVAILABLE_REASON = "No live browser stream transport is configured.";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -448,6 +452,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   readonly messages: readonly Message[];
   readonly timelineEntries: readonly TimelineEntry[];
   readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
+  readonly browserSessionState: GuiBrowserSessionState | null;
   readonly sessionCostUsd: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -467,6 +472,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   let lastRoutedModel: string | null = null;
   let lastAuthorityStatus: AuthorityStatus | null = null;
   let interactiveUseSnapshot: GuiInteractiveUseSnapshot | null = null;
+  let browserSessionState: GuiBrowserSessionState | null = null;
 
   for (const event of detail.events) {
     const payload = isObjectRecord(event.payload) ? event.payload : {};
@@ -653,8 +659,11 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const toolName = readString(payload.toolName) ?? toolCalls.get(toolCallId)?.toolName ?? "tool";
       const status = isObjectRecord(payload.status) ? payload.status : null;
       const presentation = presentOperatorEventPayload(event.kind, payload);
-      interactiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(detail.id, event, payload, status)
-        ?? interactiveUseSnapshot;
+      const projectedInteractiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(detail.id, event, payload, status);
+      interactiveUseSnapshot = projectedInteractiveUseSnapshot ?? interactiveUseSnapshot;
+      browserSessionState = projectedInteractiveUseSnapshot
+        ? browserSessionStateFromSnapshot(projectedInteractiveUseSnapshot)
+        : browserSessionState;
       toolCalls.set(toolCallId, {
         callId: toolCallId,
         toolName,
@@ -955,6 +964,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     messages,
     timelineEntries,
     interactiveUseSnapshot,
+    browserSessionState,
     sessionCostUsd,
     inputTokens,
     outputTokens,
@@ -1390,6 +1400,43 @@ function interactiveSnapshotFromPersistedToolEvent(
   };
 }
 
+function browserSessionStateFromSnapshot(
+  snapshot: GuiInteractiveUseSnapshot | null,
+): GuiBrowserSessionState | null {
+  if (!snapshot || snapshot.target !== "browser") {
+    return null;
+  }
+  return {
+    target: "browser",
+    status: snapshot.status,
+    updatedAt: snapshot.updatedAt,
+    ...(snapshot.kilnSessionId ? { kilnSessionId: snapshot.kilnSessionId } : {}),
+    ...(snapshot.toolCallId ? { toolCallId: snapshot.toolCallId } : {}),
+    ...(snapshot.toolName ? { toolName: snapshot.toolName } : {}),
+    ...(snapshot.provider ? { provider: snapshot.provider } : {}),
+    ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
+    ...(snapshot.operation ? { operation: snapshot.operation } : {}),
+    ...(snapshot.url ? { url: snapshot.url } : {}),
+    ...(snapshot.title ? { title: snapshot.title } : {}),
+    ...(snapshot.visibleText ? { visibleText: snapshot.visibleText } : {}),
+    ownership: snapshot.operation === "session_stop" ? "released" : "agent",
+    viewMode: "snapshot",
+    stream: {
+      status: "unavailable",
+      reason: BROWSER_STREAM_UNAVAILABLE_REASON,
+    },
+    ...browserCaptureField(snapshot.screenshotUri),
+    ...(snapshot.actionSummary ? { actionSummary: snapshot.actionSummary } : {}),
+    ...(snapshot.error ? { error: snapshot.error } : {}),
+  };
+}
+
+function browserCaptureField(
+  screenshotUri: string | undefined,
+): { readonly latestCapture: GuiBrowserSessionCapture } | Record<string, never> {
+  return screenshotUri ? { latestCapture: { uri: screenshotUri, relation: "snapshot" } } : {};
+}
+
 function readInteractiveTarget(value: unknown): GuiInteractiveUseSnapshot["target"] | null {
   return value === "browser" || value === "computer" ? value : null;
 }
@@ -1495,6 +1542,7 @@ interface SessionStoreState {
   readonly providerExplicitSelection: boolean;
   readonly authorityStatus: AuthorityStatus | null;
   readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
+  readonly browserSessionState: GuiBrowserSessionState | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -1591,6 +1639,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   providerExplicitSelection: false,
   authorityStatus: null,
   interactiveUseSnapshot: null,
+  browserSessionState: null,
   outboundSend: null,
   clearTimeoutId: null,
   providerSwitchTimeoutId: null,
@@ -1640,6 +1689,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       activity: null,
       activityPhase: "idle",
       interactiveUseSnapshot: null,
+      browserSessionState: null,
       errorBanner: null,
       sessionCostUsd: 0,
       inputTokens: 0,
@@ -1673,6 +1723,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       routedModel: loaded.routedModel,
       authorityStatus: loaded.authorityStatus,
       interactiveUseSnapshot: loaded.interactiveUseSnapshot,
+      browserSessionState: loaded.browserSessionState,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
     });
@@ -1880,6 +1931,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (event.kind === "tool_call_completed") {
       const status = isObjectRecord(payload.status) ? payload.status : null;
       const interactiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(event.kilnSessionId, event, payload, status);
+      const browserSessionState = browserSessionStateFromSnapshot(interactiveUseSnapshot);
       const priorToolCalls = deriveToolCallLog(get().timelineEntries);
       const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
@@ -1912,6 +1964,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         currentAssistant: anchored.currentAssistant,
         activity: null,
         ...(interactiveUseSnapshot ? { interactiveUseSnapshot } : {}),
+        ...(interactiveUseSnapshot ? { browserSessionState } : {}),
       });
       return;
     }
@@ -2584,6 +2637,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingProvider: null,
       respondingModel: null,
       interactiveUseSnapshot: null,
+      browserSessionState: null,
       sessionCostUsd: 0,
       inputTokens: 0,
       outputTokens: 0,
@@ -3047,6 +3101,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       activity: null,
       activityPhase: "idle",
       interactiveUseSnapshot: null,
+      browserSessionState: null,
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
@@ -3071,6 +3126,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
     set({
       interactiveUseSnapshot: frame.snapshot,
+      browserSessionState: frame.browserSession ?? browserSessionStateFromSnapshot(frame.snapshot),
     });
   },
 

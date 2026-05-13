@@ -193,6 +193,36 @@ const GuiInteractiveUseSnapshotSchema = z.object({
   error: z.string().optional(),
 });
 
+const GuiBrowserSessionStateSchema = z.object({
+  target: z.literal("browser"),
+  status: z.enum(["running", "succeeded", "failed"]),
+  updatedAt: z.string(),
+  kilnSessionId: z.string().optional(),
+  toolCallId: z.string().optional(),
+  toolName: z.string().optional(),
+  provider: z.string().optional(),
+  sessionId: z.string().optional(),
+  operation: z.string().optional(),
+  url: z.string().optional(),
+  title: z.string().optional(),
+  visibleText: z.string().optional(),
+  ownership: z.enum(["agent", "operator", "released"]),
+  viewMode: z.enum(["snapshot", "live"]),
+  stream: z.object({
+    status: z.enum(["unavailable", "starting", "live", "paused", "ended", "failed"]),
+    reason: z.string().optional(),
+  }),
+  latestCapture: z.object({
+    uri: z.string(),
+    label: z.string().optional(),
+    relation: z.string().optional(),
+    mimeType: z.string().optional(),
+    sizeBytes: z.number().optional(),
+  }).optional(),
+  actionSummary: z.string().optional(),
+  error: z.string().optional(),
+});
+
 const GuiSessionEventSchema = z.object({
   eventId: z.string(),
   kilnSessionId: z.string(),
@@ -269,6 +299,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("interactive_use_updated"),
     snapshot: GuiInteractiveUseSnapshotSchema,
+    browserSession: GuiBrowserSessionStateSchema.optional(),
   }),
   z.object({
     type: z.literal("done"),

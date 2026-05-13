@@ -1,63 +1,81 @@
-# Roadmap 06 Research Slice Plan
+# Roadmap 06 Browser Session State Plan
 
-Objective: continue `docs/roadmap/00.06-live-browser-operator-surface.md`
-after the committed Transcript Snapshot Gallery slice (`f7084e5`) by recording
-the research decision required before live-browser implementation. The output
-is a canonical topical research note that compares current browser-agent
-surfaces and decides Kiln's next architecture direction.
+Objective: implement the next Roadmap 06 slice after the research decision:
+promote the existing private interactive browser snapshot into a shared browser
+session state projection. This creates the contract needed for future live
+viewport streaming without adding a stream transport yet.
 
 Non-goals:
 
-- Do not implement live viewport streaming in this slice.
-- Do not add gateway frames, GUI state, or runtime provider code yet.
-- Do not make a specific remote browser vendor mandatory.
-- Do not move durable architecture doctrine out of `docs/architecture/`.
+- Do not implement continuous viewport streaming.
+- Do not add operator takeover controls in this slice.
+- Do not introduce a provider-specific remote browser SDK.
+- Do not remove existing `interactive_use_updated` compatibility until all
+  consumers are migrated.
 
 Surface map:
 
-- `docs/roadmap/00.06-live-browser-operator-surface.md` marks the feature as a
-  deferred research track, records Pre-Slice 0 as complete, and asks for
-  comparison of labs/products before implementation.
-- `docs/research/README.md` owns the canonical research index.
-- `docs/architecture/operator-surfaces.md` already requires human surfaces to
-  be projections of runtime contracts, not owners of control-plane semantics.
-- `docs/architecture/runtime-surfaces.md` defines Operator Gateway and GUI as
-  operator surfaces, not app runtime owners.
+- `packages/gateway-contracts/src/frames.ts` currently defines
+  `GuiInteractiveUseSnapshot` directly in the GUI frame contract.
+- `packages/runtime/src/gateway/interactive-use-frame.ts` projects interactive
+  tool metadata into `interactive_use_updated` snapshot frames.
+- `packages/gui/src/lib/ws-client.ts` validates incoming interactive snapshot
+  frames with a local zod schema.
+- `packages/gui/src/lib/session-store.ts` stores `interactiveUseSnapshot` and
+  reconstructs it from persisted canonical tool events.
+- `packages/gui/src/components/operator-surface-tabs.tsx` renders the Browser
+  tab directly from `GuiInteractiveUseSnapshot`.
+- `packages/tui/tests/gateway-session.test.ts` verifies terminal degradation
+  through shared session-event presentation.
 
 Implementation slices:
 
-1. Research comparison:
-   Compare current official docs for OpenAI, Anthropic, Browserbase,
-   Cloudflare Browser Run, Steel, Hyperbrowser, and Browser Use Cloud across
-   authority, live view, takeover, replay, and stream-token handling.
+1. Gateway contract:
+   Add shared browser session state types with stream state, ownership, view
+   mode, latest capture resource link, and status metadata. Keep
+   `GuiInteractiveUseSnapshot` as a compatibility alias or adapter shape.
 
-2. Research note:
-   Add `docs/research/14-live-browser-operator-surface.md` with the findings,
-   decision, architecture consequences, security constraints, and recommended
-   next implementation slice.
+2. Runtime projection:
+   Extend `projectInteractiveUseFrameFromToolResult` so browser observations
+   emit `browserSession` state in the `interactive_use_updated` frame while
+   preserving the existing snapshot fields.
 
-3. Index update:
-   Add the new research note to `docs/research/README.md`.
+3. GUI state:
+   Store and replay browser session state alongside the compatibility
+   interactive snapshot. Render the Browser tab from browser session state and
+   use the current screenshot snapshot fallback.
 
-Next implementation slice after this commit:
+4. Terminal degradation:
+   Ensure browser session state is visible as deterministic text/resource-link
+   evidence through existing tool-result presentation, without requiring live
+   media.
 
-1. Add gateway-contract types for browser session state and live stream
-   lifecycle events.
-2. Emit that state from the existing browser tool path when observations are
-   produced.
-3. Render the GUI Browser tab from the shared state with current snapshot
-   behavior as fallback.
-4. Add TUI/CLI degradation tests for session state and latest capture links.
+Test-first sequence:
+
+1. Add failing gateway-contract frame validation tests for browser session
+   state in `interactive_use_updated`.
+2. Add failing runtime projection tests proving browser tool observations
+   produce browser session state with stream status `unavailable`, ownership
+   `agent`, view mode `snapshot`, and latest capture URI.
+3. Add failing GUI session-store tests proving live and persisted browser
+   session state is stored and replayed.
+4. Add failing GUI Browser tab tests proving the tab renders session state,
+   latest capture links, and snapshot fallback.
+5. Add or extend TUI tests only if existing shared tool presentation does not
+   expose browser state/resource links clearly.
 
 Verification gates:
 
+- `bun test packages/gateway-contracts/tests/browser-session-state.test.ts`
+- `bun test packages/runtime/tests/gateway/interactive-use-frame.test.ts`
+- `bun run --filter @kilnai/gui test -- tests/session-store.test.ts tests/operator-surface-tabs.test.tsx tests/ws-client.test.ts`
+- `bun run --filter @kilnai/tui test -- tests/gateway-session.test.ts`
 - `bun run typecheck`
-- Documentation review gate focused on source support, architecture consistency,
-  and whether the next slice is executable.
+- GUI browser smoke if the Browser tab UI changes materially.
 
 Residual risks:
 
-- Vendor docs are temporally unstable; revisit before choosing a concrete
-  stream provider or remote-browser adapter.
-- The research recommends a contract slice next, so no runtime behavior changes
-  are expected from this commit.
+- This slice models stream lifecycle but does not prove a real stream
+  transport.
+- Ownership state initially derives from tool status and is not yet an
+  auditable takeover lock.

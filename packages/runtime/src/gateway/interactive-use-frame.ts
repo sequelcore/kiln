@@ -1,4 +1,6 @@
-import type { GuiInboundFrame, GuiInteractiveUseSnapshot } from "@kilnai/gateway-contracts";
+import type { GuiBrowserSessionCapture, GuiBrowserSessionState, GuiInboundFrame, GuiInteractiveUseSnapshot } from "@kilnai/gateway-contracts";
+
+const BROWSER_STREAM_UNAVAILABLE_REASON = "No live browser stream transport is configured.";
 
 export interface InteractiveUseToolResultFrameInput {
   readonly kilnSessionId?: string;
@@ -46,9 +48,14 @@ export function projectInteractiveUseFrameFromToolResult(
     ...(error ? { error } : {}),
   };
 
+  const browserSession = target === "browser"
+    ? browserSessionStateFromSnapshot(snapshot, metadata, observation)
+    : null;
+
   return {
     type: "interactive_use_updated",
     snapshot,
+    ...(browserSession ? { browserSession } : {}),
   };
 }
 
@@ -69,6 +76,82 @@ function readString(value: unknown): string | null {
 function stringField<TName extends string>(name: TName, value: unknown): Record<TName, string> | Record<string, never> {
   const text = readString(value);
   return text ? { [name]: text } as Record<TName, string> : {};
+}
+
+function browserSessionStateFromSnapshot(
+  snapshot: GuiInteractiveUseSnapshot,
+  metadata: Record<string, unknown>,
+  observation: Record<string, unknown> | null,
+): GuiBrowserSessionState {
+  return {
+    target: "browser",
+    status: snapshot.status,
+    updatedAt: snapshot.updatedAt,
+    ...(snapshot.kilnSessionId ? { kilnSessionId: snapshot.kilnSessionId } : {}),
+    ...(snapshot.toolCallId ? { toolCallId: snapshot.toolCallId } : {}),
+    ...(snapshot.toolName ? { toolName: snapshot.toolName } : {}),
+    ...(snapshot.provider ? { provider: snapshot.provider } : {}),
+    ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
+    ...(snapshot.operation ? { operation: snapshot.operation } : {}),
+    ...(snapshot.url ? { url: snapshot.url } : {}),
+    ...(snapshot.title ? { title: snapshot.title } : {}),
+    ...(snapshot.visibleText ? { visibleText: snapshot.visibleText } : {}),
+    ownership: snapshot.operation === "session_stop" ? "released" : "agent",
+    viewMode: "snapshot",
+    stream: {
+      status: "unavailable",
+      reason: BROWSER_STREAM_UNAVAILABLE_REASON,
+    },
+    ...captureField(metadata, observation, snapshot.screenshotUri),
+    ...(snapshot.actionSummary ? { actionSummary: snapshot.actionSummary } : {}),
+    ...(snapshot.error ? { error: snapshot.error } : {}),
+  };
+}
+
+function captureField(
+  metadata: Record<string, unknown>,
+  observation: Record<string, unknown> | null,
+  screenshotUri: string | undefined,
+): { readonly latestCapture: GuiBrowserSessionCapture } | Record<string, never> {
+  const capture = latestCapture(metadata, screenshotUri);
+  if (capture) {
+    return { latestCapture: capture };
+  }
+  const observedUri = readString(observation?.screenshotUri);
+  return observedUri ? { latestCapture: { uri: observedUri, relation: "snapshot" } } : {};
+}
+
+function latestCapture(metadata: Record<string, unknown>, screenshotUri: string | undefined): GuiBrowserSessionCapture | null {
+  const links = Array.isArray(metadata.resourceLinks) ? metadata.resourceLinks : [];
+  const captures = links
+    .map(readCapture)
+    .filter((capture): capture is GuiBrowserSessionCapture => Boolean(capture));
+  if (captures.length === 0) {
+    return screenshotUri ? { uri: screenshotUri, relation: "snapshot" } : null;
+  }
+  return captures.find((capture) => capture.uri === screenshotUri)
+    ?? captures.find((capture) => capture.relation === "snapshot")
+    ?? captures[0]
+    ?? null;
+}
+
+function readCapture(value: unknown): GuiBrowserSessionCapture | null {
+  const record = readRecord(value);
+  if (!record) {
+    return null;
+  }
+  const uri = readString(record.uri);
+  if (!uri) {
+    return null;
+  }
+  const sizeBytes = typeof record.sizeBytes === "number" && Number.isFinite(record.sizeBytes) ? record.sizeBytes : null;
+  return {
+    uri,
+    ...stringField("label", record.label),
+    ...stringField("relation", record.relation),
+    ...stringField("mimeType", record.mimeType),
+    ...(sizeBytes !== null ? { sizeBytes } : {}),
+  };
 }
 
 function summarizeAction(action: Record<string, unknown> | null): string | null {

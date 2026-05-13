@@ -469,6 +469,9 @@ export interface GuiMemoryLatticeInvalidatedFrame {
 
 export type GuiInteractiveUseTarget = "browser" | "computer";
 export type GuiInteractiveUseStatus = "running" | "succeeded" | "failed";
+export type GuiBrowserSessionOwnership = "agent" | "operator" | "released";
+export type GuiBrowserSessionViewMode = "snapshot" | "live";
+export type GuiBrowserSessionStreamStatus = "unavailable" | "starting" | "live" | "paused" | "ended" | "failed";
 
 export interface GuiInteractiveUseSnapshot {
   readonly target: GuiInteractiveUseTarget;
@@ -492,9 +495,44 @@ export interface GuiInteractiveUseSnapshot {
   readonly error?: string;
 }
 
+export interface GuiBrowserSessionCapture {
+  readonly uri: string;
+  readonly label?: string;
+  readonly relation?: string;
+  readonly mimeType?: string;
+  readonly sizeBytes?: number;
+}
+
+export interface GuiBrowserSessionStream {
+  readonly status: GuiBrowserSessionStreamStatus;
+  readonly reason?: string;
+}
+
+export interface GuiBrowserSessionState {
+  readonly target: "browser";
+  readonly status: GuiInteractiveUseStatus;
+  readonly updatedAt: string;
+  readonly kilnSessionId?: string;
+  readonly toolCallId?: string;
+  readonly toolName?: string;
+  readonly provider?: string;
+  readonly sessionId?: string;
+  readonly operation?: string;
+  readonly url?: string;
+  readonly title?: string;
+  readonly visibleText?: string;
+  readonly ownership: GuiBrowserSessionOwnership;
+  readonly viewMode: GuiBrowserSessionViewMode;
+  readonly stream: GuiBrowserSessionStream;
+  readonly latestCapture?: GuiBrowserSessionCapture;
+  readonly actionSummary?: string;
+  readonly error?: string;
+}
+
 export interface GuiInteractiveUseUpdatedFrame {
   readonly type: "interactive_use_updated";
   readonly snapshot: GuiInteractiveUseSnapshot;
+  readonly browserSession?: GuiBrowserSessionState;
 }
 
 /** Frames sent by the browser (operator) to the gateway. */

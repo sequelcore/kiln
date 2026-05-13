@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { GuiInteractiveUseSnapshot, OperatorWorkspaceFileSnapshot } from "@kilnai/gateway-contracts";
+import type { GuiBrowserSessionState, GuiInteractiveUseSnapshot, OperatorWorkspaceFileSnapshot } from "@kilnai/gateway-contracts";
 import { File, Image, MessageSquare, Monitor, Network, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,7 @@ interface OperatorSurfaceTabsProps {
   readonly activeSurface: OperatorSurfaceKind;
   readonly chatContent: ReactNode;
   readonly browserSnapshot?: GuiInteractiveUseSnapshot | null;
+  readonly browserSession?: GuiBrowserSessionState | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
   readonly memoryContent: ReactNode;
   readonly memoryOpen: boolean;
@@ -207,22 +208,32 @@ function FilePreview(props: { readonly file: OperatorWorkspaceFileSnapshot }) {
 }
 
 function BrowserUsePanel(props: {
-  readonly snapshot: GuiInteractiveUseSnapshot;
+  readonly snapshot?: GuiInteractiveUseSnapshot | null;
+  readonly browserSession?: GuiBrowserSessionState | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
 }) {
-  const label = props.snapshot.title ?? props.snapshot.url ?? props.snapshot.sessionId ?? "Browser";
+  const label = props.browserSession?.title
+    ?? props.snapshot?.title
+    ?? props.browserSession?.url
+    ?? props.snapshot?.url
+    ?? props.browserSession?.sessionId
+    ?? props.snapshot?.sessionId
+    ?? "Browser";
+  const url = props.browserSession?.url ?? props.snapshot?.url;
+  const status = props.browserSession?.status ?? props.snapshot?.status ?? "succeeded";
+  const screenshotUri = props.browserSession?.latestCapture?.uri ?? props.snapshot?.screenshotUri;
   const [loadedScreenshotDataUrl, setLoadedScreenshotDataUrl] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const screenshotDataUrl = props.snapshot.screenshotDataUrl ?? loadedScreenshotDataUrl;
+  const screenshotDataUrl = props.snapshot?.screenshotDataUrl ?? loadedScreenshotDataUrl;
 
   useEffect(() => {
     setLoadedScreenshotDataUrl(null);
     setLoadFailed(false);
-    if (props.snapshot.screenshotDataUrl || !props.snapshot.screenshotUri || !props.loadResourceDataUrl) {
+    if (props.snapshot?.screenshotDataUrl || !screenshotUri || !props.loadResourceDataUrl) {
       return;
     }
     let cancelled = false;
-    props.loadResourceDataUrl(props.snapshot.screenshotUri).then((dataUrl) => {
+    props.loadResourceDataUrl(screenshotUri).then((dataUrl) => {
       if (cancelled) return;
       if (dataUrl) {
         setLoadedScreenshotDataUrl(dataUrl);
@@ -237,7 +248,7 @@ function BrowserUsePanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.loadResourceDataUrl, props.snapshot.screenshotDataUrl, props.snapshot.screenshotUri]);
+  }, [props.loadResourceDataUrl, props.snapshot?.screenshotDataUrl, screenshotUri]);
 
   return (
     <section aria-label="Browser use" className="flex h-full min-h-0 flex-col bg-workspace-viewer">
@@ -245,17 +256,27 @@ function BrowserUsePanel(props: {
         <Monitor className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{label}</p>
-          {props.snapshot.url ? (
-            <p className="truncate font-mono text-[10.5px] text-muted-foreground">{props.snapshot.url}</p>
+          {url ? (
+            <p className="truncate font-mono text-[10.5px] text-muted-foreground">{url}</p>
           ) : null}
         </div>
         <span className="shrink-0 rounded border border-border/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          {props.snapshot.status}
+          {status}
         </span>
-        {props.snapshot.status === "running" ? (
+        {status === "running" || props.browserSession?.ownership === "agent" ? (
           <span className="shrink-0 rounded border border-amber-500/45 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
             Agent controlling
           </span>
+        ) : null}
+        {props.browserSession ? (
+          <>
+            <span className="shrink-0 rounded border border-border/60 px-2 py-1 text-xs text-muted-foreground">
+              Stream {props.browserSession.stream.status}
+            </span>
+            <span className="shrink-0 rounded border border-border/60 px-2 py-1 text-xs text-muted-foreground">
+              View {props.browserSession.viewMode}
+            </span>
+          </>
         ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-auto bg-workspace-viewer p-4">
@@ -272,8 +293,8 @@ function BrowserUsePanel(props: {
             <div>
               <Monitor className="mx-auto size-7 text-muted-foreground" aria-hidden="true" />
               <p className="mt-3 text-sm text-muted-foreground">No browser screenshot has been captured yet.</p>
-              {props.snapshot.screenshotUri ? (
-                <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{props.snapshot.screenshotUri}</p>
+              {screenshotUri ? (
+                <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{screenshotUri}</p>
               ) : null}
               {loadFailed ? (
                 <p className="mt-2 text-xs text-muted-foreground">Screenshot artifact could not be loaded.</p>
@@ -287,24 +308,28 @@ function BrowserUsePanel(props: {
 }
 
 export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
+  const browserSession = props.browserSession ?? null;
+  const browserSnapshot = props.browserSnapshot ?? null;
+  const hasBrowserSurface = Boolean(browserSession || browserSnapshot);
+  const browserTabLabel = browserSession?.title ?? browserSnapshot?.title ?? browserSession?.sessionId ?? browserSnapshot?.sessionId ?? "session";
   const selectedFile = props.selectedPath ? props.files.find((file) => file.path === props.selectedPath) ?? null : null;
   const pendingPath = props.selectedPath && props.loadingPath === props.selectedPath && !selectedFile ? props.selectedPath : null;
   const transientPath = pendingPath ?? (props.selectedPath && !selectedFile ? props.selectedPath : null);
   const selectedValue = props.activeSurface === "memory" && props.memoryOpen
     ? MEMORY_TAB_VALUE
-    : props.activeSurface === "browser" && props.browserSnapshot
+    : props.activeSurface === "browser" && hasBrowserSurface
       ? BROWSER_TAB_VALUE
     : props.activeSurface === "workspace" && props.selectedPath
       ? props.selectedPath
       : CHAT_TAB_VALUE;
-  const hasTabAlternatives = props.memoryOpen || Boolean(props.browserSnapshot) || props.files.length > 0 || Boolean(transientPath);
+  const hasTabAlternatives = props.memoryOpen || hasBrowserSurface || props.files.length > 0 || Boolean(transientPath);
 
   function handleTabChange(value: unknown) {
     if (value === CHAT_TAB_VALUE) {
       props.onSelectChat();
       return;
     }
-    if (value === BROWSER_TAB_VALUE && props.browserSnapshot) {
+    if (value === BROWSER_TAB_VALUE && hasBrowserSurface) {
       props.onSelectBrowser?.();
       return;
     }
@@ -357,11 +382,11 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
             <MessageSquare data-icon="inline-start" />
             Chat
           </TabsTrigger>
-          {props.browserSnapshot ? (
+          {hasBrowserSurface ? (
             <TabsTrigger value={BROWSER_TAB_VALUE} className="h-8 flex-none px-3">
               <Monitor data-icon="inline-start" />
               <span className="max-w-52 truncate">
-                Browser: {props.browserSnapshot.title ?? props.browserSnapshot.sessionId ?? "session"}
+                Browser: {browserTabLabel}
               </span>
             </TabsTrigger>
           ) : null}
@@ -435,9 +460,13 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
       <TabsContent value={CHAT_TAB_VALUE} keepMounted className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
         {props.chatContent}
       </TabsContent>
-      {props.browserSnapshot ? (
+      {hasBrowserSurface ? (
         <TabsContent value={BROWSER_TAB_VALUE} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
-          <BrowserUsePanel snapshot={props.browserSnapshot} loadResourceDataUrl={props.loadResourceDataUrl} />
+          <BrowserUsePanel
+            snapshot={browserSnapshot}
+            browserSession={browserSession}
+            loadResourceDataUrl={props.loadResourceDataUrl}
+          />
         </TabsContent>
       ) : null}
       {props.memoryOpen ? (

@@ -46,6 +46,7 @@ function resetSessionStore(): void {
     authorityStatus: null,
     activityPhase: "idle",
     interactiveUseSnapshot: null,
+    browserSessionState: null,
     outboundSend: null,
     clearTimeoutId: null,
     providerSwitchTimeoutId: null,
@@ -1923,6 +1924,28 @@ describe("session-store", () => {
       title: "Example Domain",
       screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
     });
+    expect(useSessionStore.getState().browserSessionState).toMatchObject({
+      target: "browser",
+      status: "succeeded",
+      kilnSessionId: "session-browser",
+      toolCallId: "tool-browser",
+      toolName: "browser_observe",
+      provider: "playwright",
+      sessionId: "browser-1",
+      operation: "observe",
+      url: "https://example.com/",
+      title: "Example Domain",
+      ownership: "agent",
+      viewMode: "snapshot",
+      stream: {
+        status: "unavailable",
+        reason: "No live browser stream transport is configured.",
+      },
+      latestCapture: {
+        uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+        relation: "snapshot",
+      },
+    });
   });
 
   it("opens the interactive browser snapshot from live canonical tool results", () => {
@@ -1971,6 +1994,79 @@ describe("session-store", () => {
       title: "Example Domain",
       screenshotUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
     });
+    expect(useSessionStore.getState().browserSessionState).toMatchObject({
+      target: "browser",
+      status: "succeeded",
+      kilnSessionId: "session-browser-live",
+      toolCallId: "tool-browser-live",
+      toolName: "browser_observe",
+      provider: "playwright",
+      sessionId: "browser-1",
+      operation: "observe",
+      url: "https://example.com/",
+      title: "Example Domain",
+      ownership: "agent",
+      viewMode: "snapshot",
+      stream: {
+        status: "unavailable",
+        reason: "No live browser stream transport is configured.",
+      },
+      latestCapture: {
+        uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+        relation: "snapshot",
+      },
+    });
+  });
+
+  it("clears browser session state when a later live interactive event targets the computer", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-interactive-targets",
+      browserSessionState: {
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-08T23:10:00.000Z",
+        kilnSessionId: "session-interactive-targets",
+        ownership: "agent",
+        viewMode: "snapshot",
+        stream: {
+          status: "unavailable",
+          reason: "No live browser stream transport is configured.",
+        },
+      },
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-computer-live",
+      kilnSessionId: "session-interactive-targets",
+      sequence: 2,
+      timestamp: "2026-05-08T23:12:00.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-computer-live",
+        toolName: "computer_observe",
+        output: "Window observed.",
+        metadata: {
+          kind: "interactive",
+          target: "computer",
+          operation: "observe",
+          provider: "computer-use",
+          sessionId: "computer-1",
+          observation: {
+            windowTitle: "Terminal",
+            application: "Windows Terminal",
+          },
+        },
+        status: { state: "succeeded" },
+      },
+    });
+
+    expect(useSessionStore.getState().interactiveUseSnapshot).toMatchObject({
+      target: "computer",
+      status: "succeeded",
+      sessionId: "computer-1",
+    });
+    expect(useSessionStore.getState().browserSessionState).toBeNull();
   });
 
   it("does not auto-select an old session when refreshing the session list", () => {
