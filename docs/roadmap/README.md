@@ -218,6 +218,35 @@ explicitly parked until their prerequisite product surface exists.
 3. Keep `01-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
 
+## Deferred Candidates
+
+The following ideas were removed from `00.5-plan-goal-workflow-control.md` as
+active roadmap phases because they are not required to close the implemented
+plan/goal workflow-control substrate:
+
+- `OperationalMode`
+- `AllostaticLoad`
+- `KilnStateSnapshot`
+- monolithic `GovernanceDecision`
+- governance ML advisor
+- ML-based routing
+- dataset generation pipeline
+- fine-tuning
+- full external benchmark validation
+
+These are candidate future tracks only. Do not turn them into active roadmap
+phases until there is a concrete product/runtime trigger:
+
+- shared state/control modeling needed by multiple runtime policies
+- enough real workflow traces and eval data to justify learning-based routing
+  or fine-tuning
+- a stable product surface that can support external benchmark validation
+- an ADR-worthy architecture decision that cannot be expressed by the current
+  workflow, authority, routing, or evidence contracts
+
+Until one of those triggers exists, keep them as deferred candidates rather
+than extending `00.5`.
+
 ## Rules
 
 - Do not add roadmap files for completed doctrine.
