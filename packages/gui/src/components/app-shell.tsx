@@ -704,21 +704,6 @@ export function AppShell() {
     }
   }, [activeModelCapabilities?.defaultReasoningEffort, reasoningEffort, reasoningEffortOptions]);
 
-  useEffect(() => {
-    if (!browserSessionState && interactiveUseSnapshot?.target !== "browser") {
-      return;
-    }
-    setWorkbenchSurface("chat");
-    setActiveSurface("browser");
-  }, [
-    browserSessionState?.sessionId,
-    browserSessionState?.toolCallId,
-    browserSessionState?.updatedAt,
-    interactiveUseSnapshot?.target,
-    interactiveUseSnapshot?.toolCallId,
-    interactiveUseSnapshot?.updatedAt,
-  ]);
-
   const closePalette = () => {
     setIsPaletteOpen(false);
     setPaletteMode("root");
@@ -912,16 +897,8 @@ export function AppShell() {
           onActivityPhase(frame);
       } else if (frame.type === "interactive_use_updated") {
           onInteractiveUseUpdated(frame);
-          if (frame.snapshot.target === "browser") {
-            setWorkbenchSurface("chat");
-            setActiveSurface("browser");
-          }
         } else if (frame.type === "browser_session_updated") {
           onBrowserSessionUpdated(frame);
-          if (frame.browserSession.ownership !== "released" && frame.browserSession.stream.status !== "ended") {
-            setWorkbenchSurface("chat");
-            setActiveSurface("browser");
-          }
         } else if (frame.type === "memory_lattice_invalidated") {
           setMemoryLatticeInvalidationTick((tick) => tick + 1);
         }

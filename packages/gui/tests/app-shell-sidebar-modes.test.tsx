@@ -471,7 +471,8 @@ describe("AppShell sidebar modes", () => {
     });
 
     expect(await screen.findByRole("tab", { name: "Browser: Example App" })).toBeInTheDocument();
-    expect(screen.getByText("interactive browser")).toBeInTheDocument();
+    expect(screen.getByText("conversation")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("collapses the primary sidebar into an icon rail and keeps sessions accessible", async () => {

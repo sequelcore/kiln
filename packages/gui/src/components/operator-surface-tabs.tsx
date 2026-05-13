@@ -346,6 +346,7 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
   const browserSession = props.browserSession ?? null;
   const browserSnapshot = props.browserSnapshot ?? null;
   const hasBrowserSurface = Boolean(browserSession || browserSnapshot);
+  const showBrowserDock = hasBrowserSurface && props.activeSurface === "chat";
   const browserTabLabel = browserSession?.title ?? browserSnapshot?.title ?? browserSession?.sessionId ?? browserSnapshot?.sessionId ?? "session";
   const selectedFile = props.selectedPath ? props.files.find((file) => file.path === props.selectedPath) ?? null : null;
   const pendingPath = props.selectedPath && props.loadingPath === props.selectedPath && !selectedFile ? props.selectedPath : null;
@@ -394,6 +395,20 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
       return <FilePreview file={selectedFile} />;
     }
     return <p className="p-4 text-sm text-muted-foreground">Select a file to preview it here.</p>;
+  }
+
+  function renderBrowserPanel() {
+    if (!hasBrowserSurface) {
+      return null;
+    }
+    return (
+      <BrowserUsePanel
+        snapshot={browserSnapshot}
+        browserSession={browserSession}
+        loadResourceDataUrl={props.loadResourceDataUrl}
+        onBrowserSessionControl={props.onBrowserSessionControl}
+      />
+    );
   }
 
   if (!hasTabAlternatives) {
@@ -493,16 +508,20 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
         </TabsList>
       </div>
       <TabsContent value={CHAT_TAB_VALUE} keepMounted className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
-        {props.chatContent}
+        {showBrowserDock ? (
+          <div className="grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(22rem,40vw)]">
+            <div className="min-h-0 min-w-0 overflow-hidden">
+              {props.chatContent}
+            </div>
+            <aside aria-label="Browser dock" className="hidden min-h-0 min-w-0 overflow-hidden border-l border-border/70 bg-workspace-viewer lg:block">
+              {renderBrowserPanel()}
+            </aside>
+          </div>
+        ) : props.chatContent}
       </TabsContent>
       {hasBrowserSurface ? (
         <TabsContent value={BROWSER_TAB_VALUE} className="min-h-0 min-w-0 overflow-hidden bg-workspace-viewer">
-          <BrowserUsePanel
-            snapshot={browserSnapshot}
-            browserSession={browserSession}
-            loadResourceDataUrl={props.loadResourceDataUrl}
-            onBrowserSessionControl={props.onBrowserSessionControl}
-          />
+          {renderBrowserPanel()}
         </TabsContent>
       ) : null}
       {props.memoryOpen ? (
