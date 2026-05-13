@@ -201,6 +201,39 @@ parallel task database, GUI-only task state, or prose-only checklist as the
 source of truth. Future long-running workflow queues may index these same
 session events, but they must not replace them.
 
+## Goal Runs and Evidence Closeout
+
+Goal runs are the execution container for an approved plan. A goal run records
+the approved plan id, approved plan hash, authority envelope, route policy,
+required evidence, and materialized work item ids. That binding makes the run
+reconstructable from session evidence instead of relying on assistant text or a
+surface-local UI state.
+
+`materializeApprovedPlanWorkItems` deterministically converts approved plan
+work items into governed work items. The materialized items keep their source
+plan relationship, goal id, route hints, expected evidence, verification gates,
+dependencies, pause requirements, and residual-risk requirements. Runtime emits
+`work_items.materialized`, and surfaces read the resulting state from
+`kiln://session/work-items`.
+
+Execution attempts are part of the same evidence plane:
+
+- `work_item.execution.start` records the attempt, route, authority context,
+  and managed invocation linkage when delegated execution is used.
+- Managed-delegation attempts fail closed until the attempt is linked to a
+  recorded `managed_agent.invoke` id.
+- `work_item.execution.finish` records evidence, verification gate results,
+  skipped checks, and residual risk.
+- Failed verification gates block completion until a later attempt records a
+  passing result.
+- Skipped gates require residual-risk notes before closeout can proceed.
+
+Goal closeout checks required goal evidence across materialized work items.
+Missing evidence, failed gates, or skipped checks without residual risk are
+projected as actionable closeout state through session events, resources, and
+operator surfaces. If no manual summary is supplied, runtime generates a
+deterministic final summary from the recorded goal and work-item evidence.
+
 ## Workflow Profiles
 
 Kiln ships canonical workflow profiles for common work shapes:

@@ -191,6 +191,41 @@ elevation approval flow exists. Execute turns may request `read_only` or
 invocation, and malformed authority values fail instead of falling back to full
 authority.
 
+## Goal Execution After Approval
+
+Approval does not execute the plan by itself. It authorizes a later execute
+turn to bind the approved plan to a goal run, using the approved plan id and
+content hash as the contract.
+
+When execution begins, runtime materializes approved plan work items into
+canonical work items. Materialized items preserve the source plan id, approved
+plan hash, source work item id, goal id, route hints, expected evidence,
+verification gates, dependencies, pause requirements, and residual-risk
+requirements. Surfaces must render these canonical work items instead of
+inventing local checklist state.
+
+Execution attempts are explicit. `work_item.execution.start` records the start
+of a governed attempt, including route and authority context. Delegated work
+links the attempt to `managed_agent.invoke`; if the managed invocation id is
+missing, runtime pauses the work item instead of pretending the delegation is
+traceable. `work_item.execution.finish` records evidence, verification-gate
+results, skipped checks, and residual risk.
+
+Closeout is evidence-gated. Missing required goal evidence, failed verification
+gates, or skipped verification without residual-risk notes block completion and
+project actionable missing-evidence state. If no manual final summary is
+provided, runtime generates a deterministic closeout summary from the evidence
+already recorded in the goal and work-item lifecycle.
+
+The canonical event and resource surface for this lifecycle is:
+
+- `goal.created`, `goal.updated`, `goal.completed`, `goal.failed`, and
+  `goal.cancelled`
+- `work_items.materialized`
+- `work_item_execution_started` and `work_item_execution_finished`
+- `kiln://session/goals`
+- `kiln://session/work-items`
+
 ## Expected Outcome
 
 A useful planning pass should produce:
