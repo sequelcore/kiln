@@ -225,13 +225,20 @@ function BrowserUsePanel(props: {
   const status = props.browserSession?.status ?? props.snapshot?.status ?? "succeeded";
   const screenshotUri = props.browserSession?.latestCapture?.uri ?? props.snapshot?.screenshotUri;
   const browserSessionId = props.browserSession?.sessionId ?? props.snapshot?.sessionId;
+  const browserSurfaceKey = browserSessionId ?? `${props.browserSession?.provider ?? props.snapshot?.provider ?? "browser"}:${url ?? label}`;
   const operatorOwnsBrowser = props.browserSession?.ownership === "operator";
-  const [loadedScreenshotDataUrl, setLoadedScreenshotDataUrl] = useState<string | null>(null);
+  const [loadedScreenshot, setLoadedScreenshot] = useState<{ readonly sessionKey: string; readonly dataUrl: string } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const screenshotDataUrl = props.snapshot?.screenshotDataUrl ?? loadedScreenshotDataUrl;
+  const retainedScreenshotDataUrl = loadedScreenshot?.sessionKey === browserSurfaceKey ? loadedScreenshot.dataUrl : null;
+  const screenshotDataUrl = props.snapshot?.screenshotDataUrl ?? retainedScreenshotDataUrl;
 
   useEffect(() => {
-    setLoadedScreenshotDataUrl(null);
+    if (props.snapshot?.screenshotDataUrl) {
+      setLoadedScreenshot({ sessionKey: browserSurfaceKey, dataUrl: props.snapshot.screenshotDataUrl });
+    }
+  }, [browserSurfaceKey, props.snapshot?.screenshotDataUrl]);
+
+  useEffect(() => {
     setLoadFailed(false);
     if (props.snapshot?.screenshotDataUrl || !screenshotUri || !props.loadResourceDataUrl) {
       return;
@@ -240,7 +247,7 @@ function BrowserUsePanel(props: {
     props.loadResourceDataUrl(screenshotUri).then((dataUrl) => {
       if (cancelled) return;
       if (dataUrl) {
-        setLoadedScreenshotDataUrl(dataUrl);
+        setLoadedScreenshot({ sessionKey: browserSurfaceKey, dataUrl });
       } else {
         setLoadFailed(true);
       }
@@ -252,7 +259,7 @@ function BrowserUsePanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.loadResourceDataUrl, props.snapshot?.screenshotDataUrl, screenshotUri]);
+  }, [browserSurfaceKey, props.loadResourceDataUrl, props.snapshot?.screenshotDataUrl, screenshotUri]);
 
   return (
     <section aria-label="Browser use" className="flex h-full min-h-0 flex-col bg-workspace-viewer">

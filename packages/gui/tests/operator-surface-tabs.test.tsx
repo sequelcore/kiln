@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OperatorSurfaceTabs } from "../src/components/operator-surface-tabs.js";
 
@@ -264,6 +264,96 @@ describe("OperatorSurfaceTabs", () => {
       sessionId: "qa-browser",
       reason: "Operator released browser control.",
     });
+  });
+
+  it("keeps the last browser screenshot visible during operator takeover updates", async () => {
+    const loadResourceDataUrl = vi.fn(async (uri: string) => {
+      if (uri === "kiln://artifacts/interactive-screenshots/artifact_1/content") {
+        return "data:image/png;base64,first";
+      }
+      return null;
+    });
+
+    const { rerender } = render(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSession={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-08T12:00:00.000Z",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          title: "QA Browser",
+          ownership: "agent",
+          viewMode: "live",
+          stream: { status: "live" },
+          latestCapture: {
+            uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+            relation: "snapshot",
+          },
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        loadResourceDataUrl={loadResourceDataUrl}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+        onBrowserSessionControl={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "Browser screenshot for QA Browser" })).toHaveAttribute(
+        "src",
+        "data:image/png;base64,first",
+      );
+    });
+
+    rerender(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSession={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-08T12:00:01.000Z",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          title: "QA Browser",
+          ownership: "operator",
+          viewMode: "live",
+          stream: { status: "paused" },
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        loadResourceDataUrl={loadResourceDataUrl}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+        onBrowserSessionControl={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: "Browser screenshot for QA Browser" })).toHaveAttribute(
+      "src",
+      "data:image/png;base64,first",
+    );
+    expect(screen.queryByText("No browser screenshot has been captured yet.")).not.toBeInTheDocument();
   });
 
   it("renders markdown through the safe markdown renderer", () => {
