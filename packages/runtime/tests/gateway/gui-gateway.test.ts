@@ -3293,8 +3293,8 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("discovers codex-oauth models from live OAuth auth and the Codex models endpoint", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
-      .mockResolvedValue("test-codex-token");
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
+      .mockResolvedValue([{ credentialId: "test", accessToken: "test-codex-token" }]);
     const fetchSpy = vi.fn(async (url: string) => {
       const requestedUrl = new URL(url);
       return {
@@ -3381,10 +3381,59 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
     }
   });
 
+  it("skips backend-invalidated codex-oauth credentials during model discovery", async () => {
+    const codexAuthSpy = vi
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
+      .mockResolvedValue([
+        { credentialId: "old", accessToken: "old-invalidated-token" },
+        { credentialId: "fresh", accessToken: "fresh-token" },
+      ]);
+    const fetchSpy = vi.fn(async (_url: string, options?: RequestInit) => {
+      const authorization = (options?.headers as Record<string, string> | undefined)?.Authorization;
+      if (authorization === "Bearer old-invalidated-token") {
+        return {
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+          headers: new Headers({ "content-type": "application/json" }),
+          text: async () => JSON.stringify({
+            error: {
+              message: "Your authentication token has been invalidated. Please try signing in again.",
+              code: "token_invalidated",
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ models: [{ slug: "gpt-5.4" }] }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    try {
+      const discovered = await discoverGuiDirectProviderModelDiscovery({
+        "codex-oauth": true,
+      });
+
+      expect(discovered["codex-oauth"]).toMatchObject({
+        models: ["gpt-5.4"],
+        status: "available",
+        authState: "authenticated",
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(fetchSpy.mock.calls.map(([, options]) => (options?.headers as Record<string, string>).Authorization))
+        .toEqual(["Bearer old-invalidated-token", "Bearer fresh-token"]);
+    } finally {
+      codexAuthSpy.mockRestore();
+    }
+  });
+
   it("diagnoses missing codex-oauth OAuth credentials", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
-      .mockResolvedValue("");
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
+      .mockResolvedValue([]);
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -3406,7 +3455,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses expired codex-oauth OAuth credentials", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
       .mockRejectedValue(new Error("refresh token expired"));
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -3429,8 +3478,8 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses codex-oauth model endpoint failure", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
-      .mockResolvedValue("test-codex-token-endpoint-failure");
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
+      .mockResolvedValue([{ credentialId: "test", accessToken: "test-codex-token-endpoint-failure" }]);
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
 
     try {
@@ -3450,8 +3499,8 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("diagnoses an empty codex-oauth model response", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
-      .mockResolvedValue("test-codex-token-empty-models");
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
+      .mockResolvedValue([{ credentialId: "test", accessToken: "test-codex-token-empty-models" }]);
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: true,
       json: async () => ({ models: [] }),
@@ -3474,8 +3523,8 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
 
   it("reuses in-flight and cached codex-oauth model discovery", async () => {
     const codexAuthSpy = vi
-      .spyOn(CodexOAuthCredentialPoolService.prototype, "getValidAccessToken")
-      .mockResolvedValue("test-codex-token-cache");
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
+      .mockResolvedValue([{ credentialId: "test", accessToken: "test-codex-token-cache" }]);
     const fetchSpy = vi.fn(async () => ({
       ok: true,
       json: async () => ({

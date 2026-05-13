@@ -70,13 +70,13 @@ export class CredentialHealthStore {
   createStatePort<TAuth>(providerId: string): CredentialPoolStatePort<TAuth> {
     return {
       onCredentialAdded: (credential) => {
-        void this.upsertHealth(toHealthRecord(providerId, credential, null));
+        void this.upsertHealth(toHealthRecord(providerId, credential, null)).catch(() => {});
       },
       onCredentialRemoved: () => {},
       onLeaseAcquired: () => {},
       onLeaseReleased: () => {},
       onOutcomeReported: (credentialId, outcome, cooldownUntil) => {
-        void this.recordOutcome(providerId, credentialId, outcome, cooldownUntil);
+        void this.recordOutcome(providerId, credentialId, outcome, cooldownUntil).catch(() => {});
       },
       onSelectionStrategyChanged: (_strategy: SelectionStrategy) => {},
     };

@@ -16,6 +16,7 @@ export interface PooledProviderAdapterConfig<TAuth, TAdapter extends ProviderAda
   readonly createAdapter: (auth: TAuth) => TAdapter;
   readonly mapError: ErrorOutcomeMapper;
   readonly maxAttempts?: number;
+  readonly shouldRetryOutcome?: (outcome: CredentialOutcome) => boolean;
 }
 
 export class PooledProviderAdapter<
@@ -28,6 +29,7 @@ export class PooledProviderAdapter<
   private readonly createAdapter: (auth: TAuth) => TAdapter;
   private readonly mapError: ErrorOutcomeMapper;
   private readonly maxAttempts?: number;
+  private readonly shouldRetryOutcome: (outcome: CredentialOutcome) => boolean;
 
   constructor(config: PooledProviderAdapterConfig<TAuth, TAdapter>) {
     this.name = config.name;
@@ -35,6 +37,7 @@ export class PooledProviderAdapter<
     this.createAdapter = config.createAdapter;
     this.mapError = config.mapError;
     this.maxAttempts = config.maxAttempts;
+    this.shouldRetryOutcome = config.shouldRetryOutcome ?? isRetryable;
   }
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
@@ -53,7 +56,7 @@ export class PooledProviderAdapter<
         const outcome = this.mapError(error);
         this.pool.report(lease, outcome);
 
-        if (!isRetryable(outcome)) {
+        if (!this.shouldRetryOutcome(outcome)) {
           throw error;
         }
 
@@ -87,7 +90,7 @@ export class PooledProviderAdapter<
         const outcome = this.mapError(error);
         this.pool.report(lease, outcome);
 
-        if (!isRetryable(outcome)) {
+        if (!this.shouldRetryOutcome(outcome)) {
           throw error;
         }
 

@@ -393,9 +393,9 @@ async function discoverCodexOauthModelDiscovery(
   if (available !== true) {
     return undefined;
   }
-  let token = "";
+  let tokenCandidates: readonly { readonly credentialId: string; readonly accessToken: string }[] = [];
   try {
-    token = await new CodexOAuthCredentialPoolService().getValidAccessToken();
+    tokenCandidates = await new CodexOAuthCredentialPoolService().listValidAccessTokenCandidates();
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     return unavailableCliProviderDiscovery(
@@ -406,13 +406,37 @@ async function discoverCodexOauthModelDiscovery(
       /expir/i.test(message) ? "expired" : "missing",
     );
   }
-  if (token.length === 0) {
+  if (tokenCandidates.length === 0) {
     return unavailableCliProviderDiscovery(
       "missing_auth",
       "Codex OAuth authentication is missing.",
       "missing",
     );
   }
+  let sawRejectedCredential = false;
+  for (const candidate of tokenCandidates) {
+    const result = await discoverCodexOauthModelsWithCache(candidate.accessToken);
+    if (isCodexOauthRejectedCredential(result)) {
+      sawRejectedCredential = true;
+      codexOauthModelDebug("skipping rejected credential", {
+        credentialId: candidate.credentialId,
+        status: result.status,
+        authState: result.authState,
+      });
+      continue;
+    }
+    return result;
+  }
+  return unavailableCliProviderDiscovery(
+    "auth_expired",
+    sawRejectedCredential
+      ? "All Codex OAuth credentials were rejected by the model endpoint. Sign in again."
+      : "Codex OAuth authentication is expired.",
+    "expired",
+  );
+}
+
+async function discoverCodexOauthModelsWithCache(token: string): Promise<GuiCliProviderModelDiscovery> {
   const cachedDiscovery = codexOauthModelDiscoveryCache;
   if (
     cachedDiscovery
@@ -446,6 +470,10 @@ async function discoverCodexOauthModelDiscovery(
   }
 }
 
+function isCodexOauthRejectedCredential(result: GuiCliProviderModelDiscovery): boolean {
+  return result.status === "auth_expired" && result.authState === "expired";
+}
+
 async function discoverCodexOauthModelsFromEndpoint(token: string): Promise<GuiCliProviderModelDiscovery> {
   let data: { readonly data?: unknown; readonly models?: unknown } | undefined;
   const modelsUrl = new URL(CODEX_OAUTH_MODELS_URL);
@@ -471,9 +499,19 @@ async function discoverCodexOauthModelsFromEndpoint(token: string): Promise<GuiC
       authErrorCode: responseHeader(response, "x-openai-authorization-error-code"),
     });
     if (!response.ok) {
+      const body = await responseDebugBody(response);
       codexOauthModelDebug("model endpoint non-ok body", {
-        body: await responseDebugBody(response),
+        body,
       });
+      if (response.status === 401 || response.status === 403) {
+        return unavailableCliProviderDiscovery(
+          "auth_expired",
+          isInvalidatedCodexOauthResponse(body ?? "")
+            ? "Codex OAuth authentication was invalidated. Sign in again."
+            : "Codex OAuth authentication was rejected by the model endpoint.",
+          "expired",
+        );
+      }
       return unavailableCliProviderDiscovery(
         "endpoint_error",
         "Codex OAuth model endpoint failed.",
@@ -530,6 +568,10 @@ async function discoverCodexOauthModelsFromEndpoint(token: string): Promise<GuiC
         "Codex OAuth model endpoint returned an empty model list.",
         "unknown",
       );
+}
+
+function isInvalidatedCodexOauthResponse(body: string): boolean {
+  return /token_invalidated|invalidated/i.test(body);
 }
 
 function countCodexOauthModelCapabilityEntries(entries: readonly unknown[]): number {

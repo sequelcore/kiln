@@ -6,6 +6,7 @@ import {
   CodexOAuthAuth,
   CredentialPool,
   PooledProviderAdapter,
+  isRetryable,
   type CodexOAuthTokenFile,
   type Credential,
   type CredentialOutcome,
@@ -41,6 +42,11 @@ export interface CodexOAuthCredentialStatus {
     readonly cooldownUntil: number | null;
     readonly lastOutcome: CredentialOutcome | null;
   };
+}
+
+export interface CodexOAuthAccessTokenCandidate {
+  readonly credentialId: string;
+  readonly accessToken: string;
 }
 
 export interface CreateCodexOAuthPooledAdapterOptions {
@@ -100,18 +106,24 @@ export class CodexOAuthCredentialPoolService {
   }
 
   async getValidAccessToken(): Promise<string> {
+    const candidates = await this.listValidAccessTokenCandidates();
+    return candidates[0]?.accessToken ?? "";
+  }
+
+  async listValidAccessTokenCandidates(): Promise<readonly CodexOAuthAccessTokenCandidate[]> {
     const credentials = await this.readCredentials();
+    const candidates: CodexOAuthAccessTokenCandidate[] = [];
     for (const credential of credentials) {
       try {
         const token = await new CodexOAuthAuth({ tokenPath: credential.tokenPath }).getValidAccessToken();
         if (token.trim().length > 0) {
-          return token;
+          candidates.push({ credentialId: credential.id, accessToken: token });
         }
       } catch {
         continue;
       }
     }
-    return "";
+    return candidates;
   }
 
   async clearCredentials(): Promise<void> {
@@ -132,12 +144,13 @@ export class CodexOAuthCredentialPoolService {
         defaultModel: options.defaultModel,
       })),
       mapError: mapCodexOAuthProviderError,
+      shouldRetryOutcome: isRetryableCodexOAuthOutcome,
     });
   }
 
   async createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {
     const pool = new CredentialPool<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID, {
-      strategy: "fill-first",
+      strategy: "round-robin",
       credentials: await this.loadCredentialsForPool(),
       statePort: this.healthStore.createStatePort<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID),
     });
@@ -209,6 +222,10 @@ export class CodexOAuthCredentialPoolService {
   private credentialFilePath(id: string): string {
     return join(this.providerDirectory(), `${id}.json`);
   }
+}
+
+function isRetryableCodexOAuthOutcome(outcome: CredentialOutcome): boolean {
+  return isRetryable(outcome) || outcome.type === "auth-failed";
 }
 
 export function mapCodexOAuthProviderError(error: unknown): CredentialOutcome {

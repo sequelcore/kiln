@@ -153,6 +153,29 @@ describe("CodexOAuthCredentialPoolService", () => {
     ]);
   });
 
+  it("rotates on auth failures so stale Codex OAuth credentials do not block fresh credentials", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "first", tokenFile: token({ access_token: "access-invalidated" }) });
+    await service.linkCredential({ id: "second", tokenFile: token({ access_token: "access-fresh" }) });
+    const calls: string[] = [];
+
+    const adapter = await service.createPooledAdapter({
+      defaultModel: "model",
+      createAdapter: (credential) => new TestAdapter(async () => {
+        calls.push(credential.tokenFile.access_token);
+        if (credential.tokenFile.access_token === "access-invalidated") {
+          const error = new Error("token invalidated");
+          (error as { status?: number }).status = 401;
+          throw error;
+        }
+        return makeResponse("ok");
+      }),
+    });
+
+    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
+    expect(calls).toEqual(["access-invalidated", "access-fresh"]);
+  });
+
   it("throws AllCredentialsExhaustedError when all Codex OAuth entries are exhausted", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "only", tokenFile: token() });
