@@ -52,32 +52,40 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-- None.
+- `00.06-multimodal-transport-and-capability-delegation.md`
+  First active foundation track. Owns governed multimodal transport,
+  artifact-backed image/document/audio evidence, capability-aware provider
+  routing, auxiliary managed-agent delegation, and explicit OCR/transform
+  degradation across CLI, TUI, GUI, webhooks, SDK, and replay.
+
+- `00.07-agent-qa-showcase-recorder.md`
+  Adjacent product track for turning governed agent runs into real QA and
+  showcase videos. It sits next to `00.06` because it depends on the same
+  artifact/capture/replay foundations, but it remains a separate product track.
 
 ## Deferred Roadmaps
-
-- `00.06-live-browser-operator-surface.md`
-  Deferred research track for a live browser operator surface. Kiln currently
-  has governed browser automation and artifact-backed Browser tab snapshots;
-  this track covers the future live viewport/streaming experience.
-
-- `00.07-multimodal-transport-and-capability-delegation.md`
-  Deferred foundation track for governed multimodal transport, artifact-backed
-  image/document/audio evidence, capability-aware provider routing, auxiliary
-  managed-agent delegation, and explicit OCR/transform degradation across
-  CLI, TUI, GUI, webhooks, SDK, and replay.
-
-- `00.08-agent-qa-showcase-recorder.md`
-  Deferred product track for turning governed agent runs into real QA and
-  showcase videos. The track combines raw browser/desktop capture with Kiln's
-  structured action timeline for auto-zoom, captions, voiceover, redaction,
-  replay, and export.
 
 - `01-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `02-native-operator-surface-experiment.md`
+- `02-browser-operator-foundations-and-snapshot-monitor.md`
+  Browser operator foundation track. Kiln currently has governed browser
+  automation, artifact-backed Browser tab snapshots, takeover/release, brokered
+  input, and evidence work here. This track must call polling screenshots a
+  snapshot monitor, not a real live browser.
+
+- `03-native-browser-host-decision.md`
+  Focused native browser-host decision track. This sits before the broad native
+  operator-surface experiment because a real embedded browser requires a host
+  decision before Kiln can claim in-app browser parity.
+
+- `04-embedded-browser-operator-surface.md`
+  Real embedded browser operator-surface track. Blocked on `03`; owns the
+  product capability where the operator interacts with an actual browser view
+  inside Kiln.
+
+- `05-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -202,11 +210,20 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Execution Priority
 
-1. Keep `02-native-operator-surface-experiment.md` deferred until managed
+1. Execute `00.06-multimodal-transport-and-capability-delegation.md` first.
+   Multimodal transport is a cross-surface foundation for future browser,
+   recorder, benchmark, and managed-agent evidence.
+2. Advance `00.07-agent-qa-showcase-recorder.md` alongside `00.06` where it
+   depends only on governed artifacts, capture evidence, and replay. Do not let
+   recorder scope pull the late live-browser/native tracks forward.
+3. Keep `01-external-benchmark-validation.md` deferred until the evaluated
+   product surface is stable.
+4. Keep the late browser/native sequence deferred until the earlier foundations
+   are stable: `02` browser operator foundations, `03` native browser host,
+   `04` embedded browser operator surface, then `05` native operator surface.
+5. Keep `05-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
-2. Keep `01-external-benchmark-validation.md` deferred until the evaluated
-   product surface is stable.
 
 ## Deferred Candidates
 

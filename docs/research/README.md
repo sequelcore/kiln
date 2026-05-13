@@ -63,8 +63,13 @@ define the active architecture contract. For doctrine, use
   feedback, and evidence closeout.
 
 - `14-live-browser-operator-surface.md`
-  External browser-agent and remote-browser surface research for Roadmap 06,
-  including live view, human takeover, replay, and stream authority.
+  External browser-agent and remote-browser surface research for the late
+  browser operator sequence,
+  including browser operation, human takeover, replay, stream authority, the
+  2026-05-13 reassessment that separates snapshot monitor from real embedded
+  browser, local CDP screencast as frame-stream fallback, lock/brokered input,
+  sanitized operator evidence, and the native browser-host decision now split
+  into `03` and `04` after the earlier multimodal and recorder tracks.
 
 ## Supporting Reference
 

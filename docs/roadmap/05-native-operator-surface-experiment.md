@@ -1,4 +1,4 @@
-# 02 - Native Operator Surface Experiment
+# 05 - Native Operator Surface Experiment
 
 ## Status
 
@@ -39,7 +39,7 @@ It must not become:
 This file is the canonical roadmap for the deferred native operator surface
 experiment.
 
-Do not create a separate `01.5-pre-02.md` for Rust, parallelism, or simultaneous
+Do not create a separate `04.5-pre-05.md` for Rust, parallelism, or simultaneous
 session supervision.
 
 Rust hot-path optimization and parallel-work supervision belong inside this
@@ -47,6 +47,17 @@ roadmap as experiment boundaries because they are only relevant once native
 operator workloads exist and can be measured.
 
 This roadmap depends on the active `00.5` track. It does not supersede it.
+
+It also does not own the focused real embedded browser work. That work now
+lives in the late browser sequence:
+
+- `02-browser-operator-foundations-and-snapshot-monitor.md`
+- `03-native-browser-host-decision.md`
+- `04-embedded-browser-operator-surface.md`
+
+The native browser-host decision may use native shell technology earlier than
+this broad high-density cockpit experiment. That does not promote the whole
+native operator surface roadmap.
 
 ```text
 00.5
@@ -57,7 +68,7 @@ This roadmap depends on the active `00.5` track. It does not supersede it.
   -> managed invocation
   -> traces and evidence
 
-02
+05
   -> high-density supervision of those workloads
   -> multi-session and multi-instance cockpit validation
   -> optional Rust/GPU projection acceleration

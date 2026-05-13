@@ -2,15 +2,17 @@
 
 ## Purpose
 
-This note records the research basis for Roadmap 06, the live browser operator
-surface. It informs future architecture and implementation slices; it does not
-override the operator-surface doctrine in
+This note records the research basis for the late browser operator sequence:
+browser operator foundations, native browser-host decision, and the real
+embedded browser operator surface. It informs future architecture and
+implementation slices; it does not override the operator-surface doctrine in
 `docs/architecture/operator-surfaces.md` or runtime taxonomy in
 `docs/architecture/runtime-surfaces.md`.
 
 ## Scope
 
-Sources reviewed for this slice:
+Sources reviewed for this slice, rechecked on 2026-05-13 where the source is
+time-sensitive:
 
 - OpenAI Computer Use:
   https://developers.openai.com/api/docs/guides/tools-computer-use
@@ -19,11 +21,11 @@ Sources reviewed for this slice:
 - Browserbase browser sessions and Live View:
   https://docs.browserbase.com/platform/browser/getting-started/using-browser-session
   and
-  https://browserbase.mintlify.app/platform/browser/observability/session-live-view
-- Cloudflare Browser Run Live View and Human in the Loop:
-  https://developers.cloudflare.com/browser-run/features/live-view/
+  https://browserbase.mintlify.app/features/session-live-view
+- Cloudflare Browser Run / Browser Rendering Live View and Human in the Loop:
+  https://developers.cloudflare.com/browser-rendering/features/live-view/
   and
-  https://developers.cloudflare.com/browser-run/features/human-in-the-loop/
+  https://developers.cloudflare.com/browser-rendering/features/human-in-the-loop/
 - Steel session embeds:
   https://docs.steel.dev/overview/sessions-api/embed-sessions
 - Hyperbrowser Live View:
@@ -32,6 +34,64 @@ Sources reviewed for this slice:
   https://docs.browser-use.com/cloud/tips/live-view/iframe-embed
   and
   https://docs.browser-use.com/cloud/browser/playwright-puppeteer-selenium
+- Chrome DevTools Protocol Page and Input domains:
+  https://chromedevtools.github.io/devtools-protocol/tot/Page/
+  and
+  https://chromedevtools.github.io/devtools-protocol/tot/Input/
+- Playwright CDPSession and BrowserContext CDP support:
+  https://playwright.dev/docs/api/class-cdpsession
+  and
+  https://playwright.dev/docs/api/class-browsercontext#browser-context-new-cdp-session
+- OpenAI Codex plan/app notes:
+  https://help.openai.com/en/articles/11369540
+  and
+  https://openai.com/index/introducing-the-codex-app
+
+## 2026-05-13 Reassessment
+
+The browser operator track was previously marked complete after Kiln shipped
+screenshot projection, provider-owned screenshot polling, and a safe operator
+takeover lock. That baseline is useful, but it does not satisfy the actual user
+experience target: a real browser surface inside Kiln that the operator can
+watch and control without leaving the app.
+
+Current Kiln behavior is closer to a snapshot monitor than a real in-app
+browser:
+
+- Runtime emits `browser_session_updated` with the latest screenshot artifact.
+- Gateway emits `browser_live_viewport_frame` from artifact-backed captures
+  when viewport dimensions are known, preserving whether the source transport
+  is snapshot polling or local CDP screencast.
+- GUI renders the latest viewport frame in the Browser tab and can load the
+  frame from the resource plane.
+- Takeover transfers ownership and blocks agent mutations. While ownership is
+  `operator`, GUI sends viewport-relative click, wheel, text, and keypress input
+  through `browser_operator_input`, and runtime/provider code acknowledges or
+  rejects the input.
+- The Windows/Bun sidecar path handles the same operator input operation and
+  carries the CDP screencast transport marker when available.
+- GUI gateway emits sanitized browser operator evidence events for takeover,
+  release, and input acknowledgements. Text input is summarized by length, not
+  raw text.
+- Continuous stream frames are not durable transcript evidence, and persisted
+  sessions mostly contain explicit `browser_observe` screenshot artifacts.
+- If the runtime starts a headed session, the visible browser can compete with
+  the chat surface instead of living inside the operator transcript.
+
+Therefore the browser operator work is now split into three concerns:
+
+1. `02-browser-operator-foundations-and-snapshot-monitor.md`
+   Browser operator foundations, snapshot monitor, brokered input, and
+   evidence.
+2. `03-native-browser-host-decision.md`
+   Native browser-host decision and proof. This is narrower than the broad
+   high-density native operator-surface experiment in Roadmap 05.
+3. `04-embedded-browser-operator-surface.md`
+   Real embedded browser operator surface.
+
+Snapshot evidence, CDP frame streams, brokered input, sanitized evidence, and
+lock semantics are useful foundations. They are not completion proof for a real
+embedded browser.
 
 ## External Patterns
 
@@ -77,6 +137,30 @@ Implication for Kiln: live browser should be a projection of a runtime-owned
 browser session. The GUI tab may embed or render that projection, but the
 runtime must remain the session owner and event source.
 
+### Mature Products Separate Live View, Control, And Replay
+
+Remote browser products converge on three separate capabilities:
+
+- Live view: a real-time viewport projection for an active browser session.
+- Human control: a governed way for a person to step in and operate the same
+  session.
+- Replay: recordings, traces, artifacts, or screenshots for after-the-fact
+  debugging.
+
+Cloudflare Browser Run exposes Live View through a dashboard, hosted UI, and
+native Chrome DevTools, and states that the hosted UI provides a live
+interactive view for a remote session. Cloudflare Human in the Loop describes a
+human opening the live view URL, completing the blocked action, and handing the
+session back to automation. Steel documents WebRTC live-session embeds and
+separate MP4/HLS past-session replay. Hyperbrowser exposes an embeddable
+authenticated live URL and warns that anyone with the URL can access the
+session. Browserbase and Browser Use follow the same hosted or embeddable live
+view pattern.
+
+Implication for Kiln: the Browser tab cannot be just a nicer screenshot viewer.
+It needs a first-class live viewport stream, a first-class input channel, and a
+separate durable evidence channel.
+
 ### Human Takeover Is A First-Class Safety Boundary
 
 Cloudflare documents a human-in-the-loop flow where a human opens the Live View
@@ -118,6 +202,33 @@ Implication for Kiln: the resource plane remains the durable replay source.
 Live stream frames may be ephemeral, but milestone screenshots, recordings,
 trace metadata, and stream lifecycle events need artifact-backed records.
 
+### CDP Provides The Local Browser Primitives
+
+For a local Playwright/Chromium provider, Chrome DevTools Protocol provides the
+lowest-level primitives Kiln needs:
+
+- `Page.startScreencast` emits viewport image frames with metadata.
+- `Page.screencastFrameAck` acknowledges frames so the frontend can apply
+  backpressure.
+- `Input.dispatchMouseEvent` dispatches pointer and wheel events in CSS pixel
+  viewport coordinates.
+- `Input.dispatchKeyEvent` dispatches browser-level keyboard events.
+- Playwright exposes `CDPSession` so protocol methods can be sent and protocol
+  events subscribed to from a page or browser context.
+
+Playwright documents that CDP sessions are Chromium-only. That is acceptable
+for the first local live-control transport because Kiln's current provider path
+already uses Playwright and the native browser problem is isolated behind a
+provider boundary. It does mean the gateway/GUI contract must be transport
+neutral so future Firefox/WebKit, WebRTC, VNC, or remote-provider adapters do
+not leak CDP into surface code.
+
+Implication for Kiln: CDP can control Chromium and can support frame-stream
+fallbacks, but a real in-app browser requires a native browser host. GUI should
+send normalized input/control intents to runtime; runtime should validate
+ownership, policy, and coordinates, then dispatch through the active host or
+provider adapter.
+
 ### Live URLs Are Secrets
 
 Hyperbrowser warns that anyone with a live URL can view and potentially
@@ -143,21 +254,31 @@ copied into model-visible prompt context, or exposed across tenants.
 
 ## Decision
 
-Kiln should use a hybrid snapshot-first live-browser model:
+Kiln should use a split browser operator model:
 
 1. Browser automation remains owned by the runtime provider.
 2. Every browser observation that matters for replay is stored as an artifact
    or resource-plane record.
-3. GUI and future rich surfaces may subscribe to an optional live browser
-   projection while an agent controls a session.
-4. The first live implementation should use a provider-owned stream, not an
-   embedded GUI-owned browser.
-5. Operator takeover requires an explicit lock transition and audit event.
+3. GUI and future rich surfaces may subscribe to browser viewport projections
+   while a browser session is active.
+4. GUI sends operator input as typed intents, never direct browser commands.
+5. Runtime validates ownership, domain policy, session liveness, and input
+   bounds before dispatching input through the provider.
+6. Snapshot-polling viewport frames are an acceptable monitor/evidence
+   fallback, not live browser.
+7. Local CDP screencast is an acceptable frame-stream fallback/diagnostic
+   transport, not a real embedded browser.
+8. A real in-app browser requires a native browser host decision before
+   implementation.
+9. Remote provider live URLs or WebRTC streams should be represented as
+   sensitive resource-backed transports behind the same gateway contract.
+10. Operator takeover requires explicit lock transition, audit event, timeout,
+   release, and a fresh post-release observation.
 
-This rejects a GUI-owned embedded browser/WebView as the first architecture.
-It also rejects making continuous live streaming mandatory for all sessions.
+This rejects treating screenshot polling or CDP screencast as completion.
 Snapshot evidence must remain sufficient for replay, terminal surfaces, SDK
-consumers, and environments where live streaming is disabled.
+consumers, and environments where embedded browser is unavailable, but the
+operator experience target requires a real native embedded browser host.
 
 ## Architecture Consequences
 
@@ -174,22 +295,51 @@ contract with at least:
 - interactivity mode: view-only, operator-control, agent-control
 - policy state: allowed domains, blocked action reason, pending safety check
 - resource links for latest screenshot, milestone captures, and recordings
+- browser surface capability: unavailable, snapshot-monitor, frame-stream,
+  external-browser, embedded-browser
+- transport/host: snapshot-polling, cdp-screencast, electron-webcontents,
+  tauri-webview, webrtc, hosted-url
+- input capability: none, pointer, keyboard, wheel, drag, text
+- input acknowledgement: accepted, blocked, failed, stale-session
 
 The contract should project through gateway/operator events before GUI renders
 it. TUI/CLI/SDK should be able to degrade this to text and resource links.
 
-### Stream Transport
+### Browser Surface And Transport
 
-Acceptable first transports:
+Accepted categories:
 
-- local Playwright/Chromium CDP screenshot stream emitted by the runtime
-  provider
+- snapshot monitor for artifact-backed observability and replay degradation
+- local Playwright/Chromium CDP screencast as a frame-stream fallback
+- native embedded browser host after `03` selects and proves it
 - remote provider live URL or WebRTC stream represented as a sensitive
   resource link plus lifecycle metadata
 
 The GUI should consume a stable gateway contract rather than provider-specific
 SDKs. Provider-specific URLs should be wrapped by runtime policy so surfaces
 do not learn more authority than needed.
+
+### Input Broker
+
+Operator input must flow through the same authority boundary as agent browser
+actions:
+
+1. GUI captures pointer, keyboard, wheel, drag, and text events only while the
+   current browser session ownership is `operator`.
+2. GUI normalizes events to viewport-relative coordinates and typed input
+   intents.
+3. Gateway validates the frame shape and active session id.
+4. Runtime provider validates ownership, allowed domains, session state,
+   viewport dimensions, and coordinate bounds.
+5. Provider dispatches through CDP or the provider-native control channel.
+6. Provider returns an acknowledgement or blocked/failed reason.
+7. Runtime emits a lightweight audit event and captures milestone screenshots
+   on takeover, release, navigation, failure, and explicit operator request.
+
+The transcript should not persist every mouse move. It should persist control
+state transitions, input batch summaries, fresh observations, and recording or
+trace links. This keeps evidence useful without turning replay into an
+unbounded stream log.
 
 ### Takeover And Lock Semantics
 
@@ -223,18 +373,16 @@ normal transcript text.
 
 ## Recommended Next Slice
 
-Implement a browser session state projection before implementing viewport
-streaming:
+The 2026-05-13 slices implemented contract frames, snapshot-monitor projection,
+GUI viewport-frame rendering, brokered click/wheel/text/key input, gateway
+acknowledgements, sidecar input parity, local CDP screencast transport,
+CDP-backed raw key down/up dispatch, and sanitized operator evidence.
 
-1. Add gateway-contract types for browser session state and live stream
-   lifecycle events.
-2. Emit state from the existing browser tool path when a screenshot-backed
-   observation is produced.
-3. Render the GUI Browser tab from that state, preserving the current snapshot
-   behavior as the fallback.
-4. Add TUI/CLI degradation tests that show session state and latest capture
-   links without live media.
+The next completion work is now split:
 
-This creates the seam for both local CDP screenshot streaming and remote
-provider live URLs without making either provider choice part of the GUI
-architecture.
+1. Finish `02` by making snapshot monitor semantics and durable transport
+   evidence truthful across GUI/replay.
+2. Execute `03`: decide and prove the native browser host, including any
+   ADR-006 amendment.
+3. Execute `04`: build and prove the real embedded browser operator
+   surface.
