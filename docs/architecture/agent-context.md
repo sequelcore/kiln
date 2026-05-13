@@ -284,6 +284,13 @@ doctrine unless promoted through the same evaluation and documentation gate.
 A managed child receives an admitted child context, not the parent's ambient
 authority and not the full parent transcript by default.
 
+When the child is executing or reviewing a governed work item, the admitted
+context also carries the explicit handoff contract from the parent work item:
+`workItemId`, `roleIntent`, `expectedEvidence`, `requiredResultFields`,
+`doneCriteria`, and `residualRiskRequired`. These fields make the child task
+traceable and reviewable, but they do not grant tools, credentials, write
+access, or authority profile changes.
+
 Default child context mode is `isolated`. The runtime may admit additional
 context through:
 

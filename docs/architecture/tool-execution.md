@@ -179,23 +179,42 @@ MCP resources are the read-only context plane. They expose stable snapshots and
 addressable context without turning reads into tool actions.
 
 The default builtin tool surface owns a `ToolResourceRegistry` alongside the
-tool registry. The first shared resources are:
+tool registry. Shared session resources include:
 
 - `kiln://tools/catalog`
 - `kiln://session/tasks`
 - `kiln://session/monitors`
+- `kiln://session/specifications`
+- `kiln://session/clarifications`
+- `kiln://session/plans`
+- `kiln://session/analysis-reports`
+- `kiln://session/analysis-findings`
+- `kiln://session/authority`
+- `kiln://session/work-items`
+- `kiln://session/goals`
 
-The first resource templates are:
+Shared resource templates include:
 
 - `kiln://tools/catalog/{name}`
 - `kiln://session/tasks/{id}`
 - `kiln://session/monitors/{id}`
+- `kiln://session/specifications/{id}`
+- `kiln://session/clarifications/{specificationId}`
+- `kiln://session/plans/{id}`
+- `kiln://session/analysis-reports/{id}`
+- `kiln://session/analysis-findings/{id}`
+- `kiln://session/authority/{id}`
+- `kiln://session/work-items/{id}`
+- `kiln://session/goals/{id}`
 
 Resource reads are backed by the same `ToolCatalogIndex`, `TaskStateStore`, and
-`MonitorRegistry` instances that power builtin tools. They are read-only JSON
-snapshots. They must not execute commands, mutate files, update tasks, stop
-monitors, grant approval, or bypass canonical tool authority. If a consumer
-needs to act, it must call the appropriate tool through the execution bridge.
+`MonitorRegistry` instances that power builtin tools, plus the canonical
+specification, plan, analysis, authority, work-item, and goal-run stores when
+those stores are attached to the surface. They are read-only JSON snapshots.
+They must not execute commands, mutate files, update tasks, stop monitors,
+grant approval, advance goals, complete work items, or bypass canonical tool
+authority. If a consumer needs to act, it must call the appropriate tool
+through the execution bridge.
 
 Resource and resource-template listing is cursor-paginated at the core registry
 boundary. In-process callers can still use the no-arg full listing for the

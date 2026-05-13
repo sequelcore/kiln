@@ -25,7 +25,16 @@ explicit control-plane definitions.
 7. Every adaptive parameter has bounds and hysteresis.
 8. Operational modes are explicit state machines.
 9. The EventBus is part of the sensor fabric.
-10. No biological or neural term becomes an implementation contract without an
+10. Plan approval is hash-bound and does not execute work by itself.
+11. Goal runs and governed work items are canonical session evidence, not
+    surface-local checklist state.
+12. Work-item execution attempts require explicit start and finish records;
+    delegated attempts require managed invocation linkage.
+13. Completion claims require recorded evidence, verification-gate results, and
+    residual-risk closeout when checks are skipped.
+14. Native harness shims and workflow snapshots are projections from canonical
+    state, not sources of doctrine or authority.
+15. No biological or neural term becomes an implementation contract without an
     explicit control-plane definition.
 
 ## Naming Rules
