@@ -68,6 +68,18 @@ MCP clients
 developer/operator sessions. That mode is separate from operating YAML apps and
 does not own app runtime topology.
 
+## App Gateway MCP Discovery
+
+At App Gateway startup, configured app MCP servers are discovered before their
+tools are projected into the app tool context. If an app declares an explicit
+agent tool list and the first MCP discovery response omits configured tool
+names, the App Gateway retries discovery before accepting the surface. A warning
+is emitted only after the final retry still lacks configured tools.
+
+This retry is a startup consistency guard for app/MCP restart races. It does not
+authorize undeclared tools, bypass app tool allowlists, or change the MCP
+endpoint boundary described above.
+
 ## App YAML Capability Position
 
 YAML apps remain a first-class deployable surface for Kiln. They are not made

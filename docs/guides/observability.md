@@ -119,6 +119,13 @@ request count, last success, last exhaustion, and cooldown deadline.
 Multiple active pools for the same provider family are reported separately, so
 tiered routes such as `opencode-go` and `opencode-zen` remain distinguishable.
 
+Gateway `GET /health` derives provider subsystem status from the same pool
+snapshots for providers that do not use `apiKeyEnv`. A pooled provider is `ok`
+when at least one credential is available, `degraded` when credentials exist but
+none are currently available, and `error` when the route has no credential
+evidence. Direct API-key providers continue to use their configured environment
+variable for health.
+
 ## CompositeEventStore
 
 `CompositeEventStore` fans out every `save()` call to all registered sinks using `Promise.allSettled()`. This ensures that a failure in one sink (e.g., OTel backend is down) does not prevent other sinks from receiving the event.

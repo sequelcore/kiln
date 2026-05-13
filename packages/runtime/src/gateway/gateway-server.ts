@@ -79,6 +79,13 @@ export type { DevOrchestratorConfig, DevRunResult } from "./dev-orchestrator.js"
 export { DevTokenStore } from "./dev-token-store.js";
 export type { DevToken } from "./dev-token-store.js";
 
+export interface ProviderSubsystemHealth {
+  readonly status: "ok" | "degraded" | "error";
+  readonly details: Record<string, string>;
+}
+
+type ProviderHealthStatus = "ok" | "degraded" | "error";
+
 type BunHonoAdapters = typeof import("hono/bun");
 type BunServeStatic = BunHonoAdapters["serveStatic"];
 type BunWebSocketHandler = ReturnType<BunHonoAdapters["createBunWebSocket"]>["websocket"];
@@ -139,6 +146,133 @@ function buildSharedDevRoutesConfig(deps: DevRoutesSharedDeps): Partial<import("
       : undefined,
     issueToken: tokenStore ? (userId: string) => tokenStore.issue(userId) : undefined,
   };
+}
+
+export function evaluateProviderSubsystemHealth(
+  resolvedApps: readonly Pick<ResolvedApp, "runtimeModeConfig">[],
+  credentialPoolObservability?: CredentialPoolObservabilityRegistry,
+): ProviderSubsystemHealth {
+  const providerStatuses: Record<string, ProviderHealthStatus> = {};
+  const poolSnapshots = credentialPoolObservability?.snapshot() ?? [];
+
+  for (const resolved of resolvedApps) {
+    if (resolved.runtimeModeConfig?.runtime !== "provider-adapter") continue;
+
+    const providerName = resolved.runtimeModeConfig.provider.name;
+    const apiKeyEnv = resolved.runtimeModeConfig.provider.apiKeyEnv;
+    const status = apiKeyEnv
+      ? (process.env[apiKeyEnv] ? "ok" : "error")
+      : credentialPoolProviderStatus(providerName, poolSnapshots);
+    providerStatuses[providerName] = mergeProviderStatus(
+      providerStatuses[providerName],
+      status,
+    );
+  }
+
+  const statuses = Object.values(providerStatuses);
+  return {
+    status: statuses.includes("error")
+      ? "error"
+      : statuses.includes("degraded")
+        ? "degraded"
+        : "ok",
+    details: providerStatuses,
+  };
+}
+
+function credentialPoolProviderStatus(
+  providerName: string,
+  poolSnapshots: readonly ReturnType<CredentialPoolObservabilityRegistry["snapshot"]>[number][],
+): ProviderHealthStatus {
+  const matchingPools = poolSnapshots.filter((snapshot) => snapshot.provider === providerName);
+  const totalCredentials = matchingPools.reduce(
+    (total, snapshot) => total + snapshot.credentialPool.metrics.totalCredentials,
+    0,
+  );
+  const availableCredentials = matchingPools.reduce(
+    (total, snapshot) => total + snapshot.credentialPool.metrics.availableCount,
+    0,
+  );
+
+  if (availableCredentials > 0) return "ok";
+  if (totalCredentials > 0) return "degraded";
+  return "error";
+}
+
+function mergeProviderStatus(
+  current: ProviderHealthStatus | undefined,
+  next: ProviderHealthStatus,
+): ProviderHealthStatus {
+  if (!current) return next;
+  return providerHealthSeverity(next) > providerHealthSeverity(current) ? next : current;
+}
+
+function providerHealthSeverity(status: ProviderHealthStatus): number {
+  if (status === "error") return 2;
+  if (status === "degraded") return 1;
+  return 0;
+}
+
+export interface DiscoverMcpCapabilitiesInput {
+  readonly client: Pick<McpClient, "discoverTools">;
+  readonly app: App;
+  readonly appName: string;
+  readonly serverName: string;
+  readonly attempts?: number;
+  readonly delayMs?: number;
+}
+
+export async function discoverMcpCapabilitiesWithConfiguredToolRetry(
+  input: DiscoverMcpCapabilitiesInput,
+): Promise<readonly Capability[]> {
+  const attempts = Math.max(1, input.attempts ?? 3);
+  const delayMs = Math.max(0, input.delayMs ?? 250);
+  const configuredToolNames = collectConfiguredToolNames(input.app);
+  let capabilities: readonly Capability[] = [];
+  let missingConfiguredTools: readonly string[] = [];
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    capabilities = await input.client.discoverTools();
+    missingConfiguredTools = missingTools(configuredToolNames, capabilities);
+    if (missingConfiguredTools.length === 0 || attempt === attempts) {
+      break;
+    }
+    await delay(delayMs);
+  }
+
+  if (missingConfiguredTools.length > 0) {
+    console.warn(
+      `  ${input.appName}: MCP server "${input.serverName}" did not expose configured tools: ${missingConfiguredTools.join(", ")}`,
+    );
+  }
+
+  return capabilities;
+}
+
+function collectConfiguredToolNames(app: App): readonly string[] {
+  const names = new Set<string>();
+  for (const team of Object.values(app.teams)) {
+    for (const agent of Object.values(team.agents)) {
+      for (const tool of agent.tools ?? []) {
+        if (tool !== "*") names.add(tool);
+      }
+    }
+  }
+  return [...names].sort();
+}
+
+function missingTools(
+  configuredToolNames: readonly string[],
+  capabilities: readonly Capability[],
+): readonly string[] {
+  if (configuredToolNames.length === 0) return [];
+  const discovered = new Set(capabilities.map((capability) => capability.name));
+  return configuredToolNames.filter((name) => !discovered.has(name));
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolveStudioDist(): string | undefined {
@@ -365,7 +499,12 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       for (const serverConfig of resolved.app.mcp.servers) {
         try {
           const client = new McpClient(serverConfig);
-          const capabilities = await client.discoverTools();
+          const capabilities = await discoverMcpCapabilitiesWithConfiguredToolRetry({
+            client,
+            app: resolved.app,
+            appName: loaded.name,
+            serverName: serverConfig.name,
+          });
           for (const cap of capabilities) {
             tools.push({
               name: cap.name,
@@ -735,27 +874,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   const startTime = Date.now();
 
   // Register provider health checker
-  healthRegistry.register("providers", () => {
-    const providerStatuses: Record<string, string> = {};
-    let hasError = false;
-
-    for (const loaded of loadedApps) {
-      const resolved = resolvedApps.find((r) => r.name === loaded.name);
-      if (resolved?.runtimeModeConfig?.runtime === "provider-adapter") {
-        const providerName = resolved.runtimeModeConfig.provider.name;
-        // Provider is considered ok if we have an API key configured
-        const apiKeyEnv = resolved.runtimeModeConfig.provider.apiKeyEnv;
-        const hasKey = apiKeyEnv ? Boolean(process.env[apiKeyEnv]) : false;
-        providerStatuses[providerName] = hasKey ? "ok" : "error";
-        if (!hasKey) hasError = true;
-      }
-    }
-
-    return {
-      status: hasError ? "error" : "ok",
-      details: providerStatuses,
-    };
-  });
+  healthRegistry.register("providers", () =>
+    evaluateProviderSubsystemHealth(resolvedApps, credentialPoolObservability),
+  );
 
   // Register budget health checker
   healthRegistry.register("budget", () => {

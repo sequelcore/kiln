@@ -212,6 +212,14 @@ The gateway includes these snapshots in `GET /observability`. When gateway JWT
 auth is configured, the endpoint requires the same bearer-token boundary as
 other protected operator routes.
 
+The App Gateway also uses these snapshots for `GET /health` provider subsystem
+status when a configured provider route does not declare `apiKeyEnv`. Direct
+API-key providers still report health from their configured environment
+variable. Subscription-auth and pooled routes such as `codex-oauth` report
+`ok` when at least one pool credential is available, `degraded` when credentials
+exist but none are currently available, and `error` when no credential evidence
+exists for the route.
+
 Multiple active pools for the same underlying provider are registered as
 separate observations. This preserves tiered or route-specific views such as
 `opencode-go` and `opencode-zen`.

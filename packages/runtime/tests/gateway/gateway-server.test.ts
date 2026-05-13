@@ -6,6 +6,10 @@ import { join } from "node:path";
 import type { UpgradeWebSocket } from "hono/ws";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import type { LoadedApp, GatewayServerConfig } from "../../src/gateway/gateway-routes.js";
+import {
+  discoverMcpCapabilitiesWithConfiguredToolRetry,
+  evaluateProviderSubsystemHealth,
+} from "../../src/gateway/gateway-server.js";
 import { CredentialPoolObservabilityRegistry } from "../../src/agents/credential-pool/credential-pool-observability.js";
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
@@ -13,7 +17,7 @@ import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
-import type { App, ProviderAdapter, TenantConfig } from "@kilnai/core";
+import type { App, ProviderAdapter, RuntimeModeConfig, TenantConfig } from "@kilnai/core";
 import { CredentialPool, textParts } from "@kilnai/core";
 
 const originalFetch = globalThis.fetch;
@@ -65,6 +69,15 @@ function makeMockProvider(): ProviderAdapter {
       toolCalls: [],
     }),
     streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+  };
+}
+
+function makeProviderHealthApp(providerName: string): { readonly runtimeModeConfig: RuntimeModeConfig } {
+  return {
+    runtimeModeConfig: {
+      runtime: "provider-adapter",
+      provider: { name: providerName, model: "gpt-5.4-mini" },
+    },
   };
 }
 
@@ -222,6 +235,57 @@ describe("createGatewayApp", () => {
         }],
       },
     }]);
+  });
+
+  it("provider health uses credential pools for providers without apiKeyEnv", () => {
+    const registry = new CredentialPoolObservabilityRegistry();
+    const pool = new CredentialPool("codex-oauth");
+    pool.addCredential("codex-primary", "codex-primary", { tokenPath: "token.json" });
+    registry.register("codex-oauth", pool);
+
+    const health = evaluateProviderSubsystemHealth([makeProviderHealthApp("codex-oauth")], registry);
+
+    expect(health).toEqual({
+      status: "ok",
+      details: { "codex-oauth": "ok" },
+    });
+  });
+
+  it("provider health reports pooled providers without credentials as errors", () => {
+    const registry = new CredentialPoolObservabilityRegistry();
+    registry.register("codex-oauth", new CredentialPool("codex-oauth"));
+
+    const health = evaluateProviderSubsystemHealth([makeProviderHealthApp("codex-oauth")], registry);
+
+    expect(health).toEqual({
+      status: "error",
+      details: { "codex-oauth": "error" },
+    });
+  });
+
+  it("retries MCP discovery when configured tools are initially missing", async () => {
+    const app = makeApp("artu");
+    app.teams.default.agents.w.tools = ["get_opportunity_report"];
+    const discoverTools = vi.fn()
+      .mockResolvedValueOnce([{ name: "get_opportunity" }])
+      .mockResolvedValueOnce([
+        { name: "get_opportunity" },
+        { name: "get_opportunity_report" },
+      ]);
+
+    const capabilities = await discoverMcpCapabilitiesWithConfiguredToolRetry({
+      client: { discoverTools },
+      app,
+      appName: "artu",
+      serverName: "artu-trading",
+      attempts: 2,
+      delayMs: 0,
+    });
+
+    expect(discoverTools).toHaveBeenCalledTimes(2);
+    expect(capabilities.map((capability) => capability.name)).toContain(
+      "get_opportunity_report",
+    );
   });
 
   it("GET /observability requires gateway JWT when configured", async () => {

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased -- Runtime Gateway
+
+- Gateway provider health now evaluates providers without `apiKeyEnv` through
+  the credential-pool observability registry. Subscription-auth routes such as
+  `codex-oauth` are healthy when they have available pool credentials instead
+  of being marked unhealthy because no direct API-key environment variable
+  exists.
+- Gateway MCP startup discovery now retries when an app declares specific tools
+  but the first MCP `tools/list` response omits one or more configured names.
+  The gateway warns only after the final retry, reducing partial tool surfaces
+  during app/MCP restart races.
+
 ## Unreleased -- Workflow Control
 
 - Completed the implemented slices of the plan/goal workflow-control roadmap:
