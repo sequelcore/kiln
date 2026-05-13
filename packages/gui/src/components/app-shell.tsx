@@ -625,6 +625,7 @@ export function AppShell() {
   const onExecConfirmed = useSessionStore((state) => state.onExecConfirmed);
   const onActivityPhase = useSessionStore((state) => state.onActivityPhase);
   const onInteractiveUseUpdated = useSessionStore((state) => state.onInteractiveUseUpdated);
+  const onBrowserSessionUpdated = useSessionStore((state) => state.onBrowserSessionUpdated);
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const sendClear = useSessionStore((state) => state.sendClear);
@@ -911,6 +912,12 @@ export function AppShell() {
       } else if (frame.type === "interactive_use_updated") {
           onInteractiveUseUpdated(frame);
           if (frame.snapshot.target === "browser") {
+            setWorkbenchSurface("chat");
+            setActiveSurface("browser");
+          }
+        } else if (frame.type === "browser_session_updated") {
+          onBrowserSessionUpdated(frame);
+          if (frame.browserSession.ownership !== "released" && frame.browserSession.stream.status !== "ended") {
             setWorkbenchSurface("chat");
             setActiveSurface("browser");
           }

@@ -2069,6 +2069,83 @@ describe("session-store", () => {
     expect(useSessionStore.getState().browserSessionState).toBeNull();
   });
 
+  it("applies browser session lifecycle updates to the visible live session", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-browser-live",
+    });
+
+    useSessionStore.getState().onBrowserSessionUpdated({
+      type: "browser_session_updated",
+      browserSession: {
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-08T23:13:00.000Z",
+        kilnSessionId: "session-browser-live",
+        provider: "playwright",
+        sessionId: "browser-1",
+        ownership: "agent",
+        viewMode: "live",
+        stream: {
+          status: "live",
+        },
+      },
+    });
+
+    expect(useSessionStore.getState().browserSessionState).toMatchObject({
+      target: "browser",
+      status: "running",
+      kilnSessionId: "session-browser-live",
+      provider: "playwright",
+      sessionId: "browser-1",
+      ownership: "agent",
+      viewMode: "live",
+      stream: {
+        status: "live",
+      },
+    });
+  });
+
+  it("ignores browser session lifecycle updates for another visible session", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-visible",
+      browserSessionState: {
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-08T23:13:00.000Z",
+        kilnSessionId: "session-visible",
+        provider: "playwright",
+        sessionId: "browser-visible",
+        ownership: "agent",
+        viewMode: "snapshot",
+        stream: {
+          status: "unavailable",
+          reason: "No live browser stream transport is configured.",
+        },
+      },
+    });
+
+    useSessionStore.getState().onBrowserSessionUpdated({
+      type: "browser_session_updated",
+      browserSession: {
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-08T23:14:00.000Z",
+        kilnSessionId: "session-other",
+        provider: "playwright",
+        sessionId: "browser-other",
+        ownership: "agent",
+        viewMode: "live",
+        stream: {
+          status: "live",
+        },
+      },
+    });
+
+    expect(useSessionStore.getState().browserSessionState?.sessionId).toBe("browser-visible");
+  });
+
   it("does not auto-select an old session when refreshing the session list", () => {
     useSessionStore.getState().setSessionList([
       {

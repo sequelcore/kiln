@@ -302,6 +302,10 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     browserSession: GuiBrowserSessionStateSchema.optional(),
   }),
   z.object({
+    type: z.literal("browser_session_updated"),
+    browserSession: GuiBrowserSessionStateSchema,
+  }),
+  z.object({
     type: z.literal("done"),
     content: z.string(),
     parts: z.array(z.unknown()).optional(),

@@ -41,4 +41,26 @@ describe("browser session state frames", () => {
 
     expect(frame.browserSession).toEqual(browserSession);
   });
+
+  it("carries shared browser session state on lifecycle update frames", () => {
+    const frame: GuiInboundFrame = {
+      type: "browser_session_updated",
+      browserSession: {
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-08T12:01:00.000Z",
+        kilnSessionId: "session-1",
+        provider: "playwright",
+        sessionId: "browser-1",
+        ownership: "agent",
+        viewMode: "live",
+        stream: {
+          status: "live",
+        },
+      },
+    };
+
+    expect(frame.browserSession.stream.status).toBe("live");
+    expect(frame.browserSession.viewMode).toBe("live");
+  });
 });

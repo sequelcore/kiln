@@ -91,6 +91,7 @@ export type {
   GuiBrowserSessionState,
   GuiBrowserSessionStream,
   GuiBrowserSessionStreamStatus,
+  GuiBrowserSessionUpdatedFrame,
   GuiBrowserSessionViewMode,
   GuiOutboundFrame,
   GuiInboundFrame,

@@ -535,6 +535,11 @@ export interface GuiInteractiveUseUpdatedFrame {
   readonly browserSession?: GuiBrowserSessionState;
 }
 
+export interface GuiBrowserSessionUpdatedFrame {
+  readonly type: "browser_session_updated";
+  readonly browserSession: GuiBrowserSessionState;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -576,6 +581,7 @@ export type GuiInboundFrame =
   | { type: "session_event"; event: OperatorSessionEvent }
   | OperatorActivityPhaseFrame
   | GuiInteractiveUseUpdatedFrame
+  | GuiBrowserSessionUpdatedFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";

@@ -701,6 +701,48 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
+            type: "browser_session_updated",
+            browserSession: {
+              target: "browser",
+              status: "running",
+              updatedAt: "2026-05-08T23:12:00.000Z",
+              kilnSessionId: "sess-1",
+              provider: "playwright",
+              sessionId: "browser-1",
+              ownership: "agent",
+              viewMode: "live",
+              stream: {
+                status: "live",
+              },
+              latestCapture: {
+                uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+                relation: "snapshot",
+              },
+            },
+          },
+          expected: {
+            type: "browser_session_updated",
+            browserSession: {
+              target: "browser",
+              status: "running",
+              updatedAt: "2026-05-08T23:12:00.000Z",
+              kilnSessionId: "sess-1",
+              provider: "playwright",
+              sessionId: "browser-1",
+              ownership: "agent",
+              viewMode: "live",
+              stream: {
+                status: "live",
+              },
+              latestCapture: {
+                uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+                relation: "snapshot",
+              },
+            },
+          },
+        },
+        {
+          json: {
             type: "done",
             content: "completed",
             inputTokens: 100,

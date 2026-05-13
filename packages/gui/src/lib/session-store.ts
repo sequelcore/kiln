@@ -1592,6 +1592,7 @@ interface SessionStoreActions {
   setResume: (sessionId: string | null) => void;
   disconnect: () => void;
   onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
+  onBrowserSessionUpdated: (frame: Extract<GuiInboundFrame, { type: "browser_session_updated" }>) => void;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
   sendApprovalResponse: (approved: boolean, reason: string | undefined, approvalId: string) => boolean;
 }
@@ -3128,6 +3129,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       interactiveUseSnapshot: frame.snapshot,
       browserSessionState: frame.browserSession ?? browserSessionStateFromSnapshot(frame.snapshot),
     });
+  },
+
+  onBrowserSessionUpdated: (frame) => {
+    const state = get();
+    const kilnSessionId = frame.browserSession.kilnSessionId;
+    if (kilnSessionId && !shouldApplySessionScopedFrame(state, kilnSessionId)) {
+      return;
+    }
+    const browserSessionState = frame.browserSession.ownership === "released" || frame.browserSession.stream.status === "ended"
+      ? null
+      : frame.browserSession;
+    set({ browserSessionState });
   },
 
   onActivityPhase: (frame) => {
