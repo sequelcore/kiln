@@ -71,6 +71,8 @@ Required operator evidence includes:
 - changed files and diffs when available
 - provider, model, billing, token, and cost attribution per turn
 - errors, retries, fallbacks, and continuity decisions
+- goal-run lifecycle, current phase, required evidence, missing evidence, and
+  closeout summary state
 - governed work-item lifecycle, expected evidence, provided evidence,
   verification gates, and residual-risk closeout status
 - session replay data with stable IDs
@@ -99,10 +101,12 @@ JavaScript, JSX, SVG, or component names as presentation input.
 
 Governed work items use the same operator contract. GUI may dedicate a Work
 surface to current items; TUI may show a compact sidebar projection; CLI and SDK
-consumers may read the event stream or `kiln://session/work-items`. None of
-these surfaces may treat a local checklist, visual row, or terminal sidebar
-line as authoritative. Authority remains in the work-item tool metadata,
-canonical `work_item_updated` session events, and resource-plane snapshot.
+consumers may read the event stream or `kiln://session/work-items`. Goal runs
+use the same rule through canonical goal lifecycle events and
+`kiln://session/goals`. None of these surfaces may treat a local checklist,
+visual row, terminal sidebar line, or progress badge as authoritative.
+Authority remains in tool metadata, canonical session events, and resource-plane
+snapshots.
 
 Operator identity display follows the same rule. Agent, sub-agent, operator,
 assistant, provider, tool, and system identities must be projected from

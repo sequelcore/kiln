@@ -162,6 +162,14 @@ workflow snapshot markdown unchanged. Config/status surfaces report
 drifted diagnostics are read-only and must not mutate the manifest or canonical
 workflow state.
 
+Workflow snapshot export is intentionally static. It projects project context,
+workflow policy, instruction profiles, authority posture, model policy, and
+profile guidance for native harness startup. It does not project live goal
+runs, work-item execution attempts, managed invocation records, or closeout
+summaries. Those are session evidence and remain available through canonical
+session events and resources such as `kiln://session/goals` and
+`kiln://session/work-items`.
+
 Configuration inspection uses the same canonical status contract across
 operator surfaces. `KilnConfigStatusSnapshot` reports resolved project root,
 global config status, project config status, adopted project-context status,

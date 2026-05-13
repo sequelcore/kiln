@@ -217,7 +217,10 @@ or runtime requests the next governed execution step.
 6. collect evidence and residual-risk closeout
 7. finish the attempt with `work_item.execution.finish`
 8. update the goal phase or terminal state
-9. project the attempt through canonical events and session resources
+9. project the attempt and goal state through canonical events and session
+   resources
+10. generate a deterministic final summary when completion is admitted and no
+    manual summary is supplied
 
 **Gates:**
 
@@ -227,13 +230,17 @@ or runtime requests the next governed execution step.
 - managed delegation must be linked to a managed invocation id
 - completion requires expected evidence and residual-risk closeout where
   required
+- goal completion requires all configured goal evidence to be satisfied across
+  linked work items
 
 **State transitions:** work-item status, execution attempt history, goal
-current phase, terminal goal status, and session work-item resources.
+current phase, terminal goal status, final summary state, and session
+work-item/goal resources.
 
 **Fail-closed behavior:** missing dependencies, unresolved pause requirements,
-missing managed invocation id, missing evidence, or missing residual-risk
-closeout pauses or blocks execution instead of advancing the goal.
+missing managed invocation id, missing evidence, failed verification gates, or
+missing residual-risk closeout pauses or blocks execution instead of advancing
+the goal.
 
 ## Tool Execution
 
