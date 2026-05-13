@@ -12,6 +12,10 @@ interface PlaywrightNodeSidecarConfig {
   readonly allowHeaded: boolean;
   readonly defaultTimeoutMs: number;
   readonly idleSessionTtlMs?: number;
+  readonly liveStream?: {
+    readonly enabled?: boolean;
+    readonly intervalMs?: number;
+  };
 }
 
 interface WireRequest {
@@ -25,6 +29,33 @@ interface WireResponse {
   readonly ok: boolean;
   readonly result?: InteractiveUseProviderResult;
   readonly error?: string;
+}
+
+interface BrowserSessionUpdatedWireEvent {
+  readonly type: "browser_session_updated";
+  readonly state: BrowserSessionState;
+}
+
+interface BrowserSessionState {
+  readonly target: "browser";
+  readonly status: "running" | "succeeded" | "failed";
+  readonly updatedAt: string;
+  readonly provider: "playwright";
+  readonly sessionId: string;
+  readonly operation?: string;
+  readonly url?: string;
+  readonly title?: string;
+  readonly ownership: "agent" | "operator" | "released";
+  readonly viewMode: "snapshot" | "live";
+  readonly stream: {
+    readonly status: "starting" | "live" | "ended" | "failed";
+    readonly reason?: string;
+  };
+  readonly latestCapture?: {
+    readonly dataUrl: string;
+    readonly relation: "snapshot";
+    readonly mimeType: "image/png";
+  };
 }
 
 interface PlaywrightModule {
@@ -84,6 +115,7 @@ const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
 
 const sessions = new Map<string, BrowserSession>();
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let activeSessionId: string | undefined;
 let sequence = 0;
 let sidecarExitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -172,6 +204,7 @@ async function startSession(
       output: `Started Playwright browser session ${sessionId}.`,
       observation: await observeSession(config, session, request),
     };
+    startLiveStream(config, session, request);
     scheduleIdleClose(config, session);
     return result;
   } catch (error) {
@@ -334,13 +367,12 @@ async function stopSession(request: InteractiveUseRequest): Promise<InteractiveU
 
 async function closeAll(): Promise<InteractiveUseProviderResult> {
   const activeSessions = [...sessions.values()];
-  sessions.clear();
   for (const timer of idleTimers.values()) {
     clearTimeout(timer);
   }
   idleTimers.clear();
   activeSessionId = undefined;
-  await Promise.allSettled(activeSessions.map(closeBrowserSession));
+  await Promise.allSettled(activeSessions.map(closeSession));
   return { provider: "playwright", output: "Stopped all Playwright browser sessions." };
 }
 
@@ -519,11 +551,19 @@ function assertUrlAllowed(config: PlaywrightNodeSidecarConfig, value: string): v
 
 async function closeSession(session: BrowserSession): Promise<void> {
   clearIdleTimer(session.id);
+  clearStreamTimer(session.id);
   sessions.delete(session.id);
   if (activeSessionId === session.id) {
     activeSessionId = sessions.keys().next().value;
   }
   await closeBrowserSession(session);
+  emitBrowserSessionState({
+    session,
+    operation: "session_stop",
+    ownership: "released",
+    viewMode: "snapshot",
+    stream: { status: "ended" },
+  });
 }
 
 async function closeBrowserSession(session: BrowserSession): Promise<void> {
@@ -531,6 +571,113 @@ async function closeBrowserSession(session: BrowserSession): Promise<void> {
     session.context.close(),
     session.browser.close(),
   ]);
+}
+
+function startLiveStream(
+  config: PlaywrightNodeSidecarConfig,
+  session: BrowserSession,
+  request: InteractiveUseRequest,
+): void {
+  if (config.liveStream?.enabled !== true) {
+    return;
+  }
+  emitBrowserSessionState({
+    session,
+    operation: request.operation,
+    ownership: "agent",
+    viewMode: "live",
+    stream: { status: "starting" },
+  });
+  scheduleStreamCapture(config, session, request.operation);
+}
+
+function scheduleStreamCapture(
+  config: PlaywrightNodeSidecarConfig,
+  session: BrowserSession,
+  operation: InteractiveUseRequest["operation"],
+): void {
+  if (config.liveStream?.enabled !== true || !sessions.has(session.id)) {
+    return;
+  }
+  clearStreamTimer(session.id);
+  const timer = setTimeout(() => {
+    void captureAndEmitLiveFrame(config, session, operation).finally(() => {
+      if (sessions.has(session.id)) {
+        scheduleStreamCapture(config, session, operation);
+      }
+    });
+  }, normalizeLiveStreamInterval(config.liveStream.intervalMs));
+  timer.unref?.();
+  streamTimers.set(session.id, timer);
+}
+
+async function captureAndEmitLiveFrame(
+  config: PlaywrightNodeSidecarConfig,
+  session: BrowserSession,
+  operation: InteractiveUseRequest["operation"],
+): Promise<void> {
+  try {
+    assertCurrentUrlAllowed(config, session);
+    const [title, screenshotDataUrl] = await Promise.all([
+      session.page.title().catch(() => undefined),
+      captureScreenshot(session),
+    ]);
+    emitBrowserSessionState({
+      session,
+      operation,
+      title,
+      ownership: "agent",
+      viewMode: "live",
+      stream: { status: "live" },
+      latestCaptureDataUrl: screenshotDataUrl,
+    });
+  } catch (error) {
+    emitBrowserSessionState({
+      session,
+      operation,
+      ownership: "agent",
+      viewMode: "live",
+      stream: {
+        status: "failed",
+        reason: errorMessage(error),
+      },
+    });
+  }
+}
+
+function emitBrowserSessionState(input: {
+  readonly session: BrowserSession;
+  readonly operation?: string;
+  readonly title?: string;
+  readonly ownership: BrowserSessionState["ownership"];
+  readonly viewMode: BrowserSessionState["viewMode"];
+  readonly stream: BrowserSessionState["stream"];
+  readonly latestCaptureDataUrl?: string;
+}): void {
+  const url = input.session.page.url();
+  const state: BrowserSessionState = {
+    target: "browser",
+    status: input.stream.status === "failed" ? "failed" : input.stream.status === "ended" ? "succeeded" : "running",
+    updatedAt: new Date().toISOString(),
+    provider: "playwright",
+    sessionId: input.session.id,
+    ...(input.operation ? { operation: input.operation } : {}),
+    ...(url && url !== "about:blank" ? { url } : {}),
+    ...(input.title ? { title: input.title } : {}),
+    ownership: input.ownership,
+    viewMode: input.viewMode,
+    stream: input.stream,
+    ...(input.latestCaptureDataUrl
+      ? {
+          latestCapture: {
+            dataUrl: input.latestCaptureDataUrl,
+            relation: "snapshot",
+            mimeType: "image/png",
+          },
+        }
+      : {}),
+  };
+  writeEvent({ type: "browser_session_updated", state });
 }
 
 function scheduleIdleClose(config: PlaywrightNodeSidecarConfig, session: BrowserSession): void {
@@ -554,6 +701,15 @@ function clearIdleTimer(sessionId: string): void {
   }
   clearTimeout(timer);
   idleTimers.delete(sessionId);
+}
+
+function clearStreamTimer(sessionId: string): void {
+  const timer = streamTimers.get(sessionId);
+  if (!timer) {
+    return;
+  }
+  clearTimeout(timer);
+  streamTimers.delete(sessionId);
 }
 
 function scheduleSidecarExitIfIdle(): void {
@@ -584,6 +740,20 @@ function write(response: WireResponse): void {
   process.stdout.write(`${JSON.stringify(response)}\n`);
 }
 
+function writeEvent(event: BrowserSessionUpdatedWireEvent): void {
+  process.stdout.write(`${JSON.stringify(event)}\n`);
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeLiveStreamInterval(value: number | undefined): number {
+  if (value === undefined) {
+    return 1_000;
+  }
+  if (!Number.isFinite(value) || value < 10) {
+    return 10;
+  }
+  return Math.trunc(value);
 }

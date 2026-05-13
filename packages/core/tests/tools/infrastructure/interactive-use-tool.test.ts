@@ -243,6 +243,55 @@ describe("interactive use tools", () => {
     });
   });
 
+  it("passes a session artifact sink to providers that emit live browser frames", async () => {
+    const artifactStore = new MemoryArtifactResourceStore();
+    let sink: {
+      writeInteractiveArtifact(input: {
+        readonly sessionId: string;
+        readonly kind: "screenshot";
+        readonly mimeType: string;
+        readonly content: Uint8Array;
+      }): Promise<string>;
+    } | undefined;
+    const provider: InteractiveUseProvider & { setInteractiveArtifactSink(next: typeof sink): void } = {
+      setInteractiveArtifactSink: vi.fn((next) => {
+        sink = next;
+      }),
+      execute: vi.fn(async (request) => {
+        const liveFrameUri = await sink?.writeInteractiveArtifact({
+          sessionId: request.sessionId ?? "browser-live",
+          kind: "screenshot",
+          mimeType: "image/png",
+          content: new Uint8Array([4, 5, 6]),
+        });
+        return {
+          sessionId: request.sessionId ?? "browser-live",
+          provider: "test-browser",
+          output: liveFrameUri ?? "missing live frame sink",
+        };
+      }),
+    };
+    const tool = new BrowserSessionStartTool({ provider, artifactStore });
+
+    const result = await tool.execute({
+      name: "browser_session_start",
+      input: { sessionId: "browser-live" },
+    });
+
+    expect(provider.setInteractiveArtifactSink).toHaveBeenCalledWith(expect.objectContaining({
+      writeInteractiveArtifact: expect.any(Function),
+    }));
+    expect(result.output).toMatch(/^kiln:\/\/artifacts\/interactive-screenshots\/artifact_\d+\/content$/);
+    expect(artifactStore.get("interactive-screenshots", "artifact_1")).toMatchObject({
+      title: "Live browser screenshot",
+      mimeType: "image/png",
+      content: {
+        type: "blob",
+        blob: "BAUG",
+      },
+    });
+  });
+
   it("labels browser screenshot resource links with stable capture sequence metadata", async () => {
     const artifactStore = new MemoryArtifactResourceStore();
     let capture = 0;

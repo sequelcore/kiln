@@ -17,6 +17,17 @@ export interface InteractiveUseProvider {
   execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult>;
 }
 
+interface InteractiveArtifactSinkConsumer {
+  setInteractiveArtifactSink(sink: {
+    writeInteractiveArtifact(input: {
+      readonly sessionId: string;
+      readonly kind: "screenshot";
+      readonly mimeType: string;
+      readonly content: Uint8Array;
+    }): Promise<string>;
+  } | undefined): void;
+}
+
 export interface InteractiveUseToolOptions {
   readonly provider?: InteractiveUseProvider;
   readonly artifactStore?: ArtifactResourceStore;
@@ -102,6 +113,7 @@ abstract class BaseInteractiveUseTool<TToolName extends InteractiveToolName> imp
     }
 
     try {
+      attachInteractiveArtifactSink(this.provider, this.artifactStore);
       const result = await this.provider.execute(request);
       const artifacts = this.materializeObservationArtifacts(result);
       return {
@@ -267,6 +279,38 @@ abstract class BaseInteractiveUseTool<TToolName extends InteractiveToolName> imp
     }
     return { observation: nextObservation };
   }
+}
+
+function attachInteractiveArtifactSink(
+  provider: InteractiveUseProvider,
+  artifactStore: ArtifactResourceStore | undefined,
+): void {
+  if (!isInteractiveArtifactSinkConsumer(provider)) {
+    return;
+  }
+  provider.setInteractiveArtifactSink(artifactStore
+    ? {
+        async writeInteractiveArtifact(input) {
+          const artifact = artifactStore.put({
+            namespace: "interactive-screenshots",
+            title: "Live browser screenshot",
+            mimeType: input.mimeType,
+            content: { type: "blob", blob: Buffer.from(input.content).toString("base64") },
+            producer: { kind: "tool", name: "browser_observe" },
+            retention: { scope: "session", maxArtifacts: 50 },
+          });
+          return `kiln://artifacts/${artifact.namespace}/${artifact.id}/content`;
+        },
+      }
+    : undefined);
+}
+
+function isInteractiveArtifactSinkConsumer(value: unknown): value is InteractiveArtifactSinkConsumer {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && typeof (value as { setInteractiveArtifactSink?: unknown }).setInteractiveArtifactSink === "function",
+  );
 }
 
 function parseDataUrl(value: string): { readonly mimeType: string; readonly base64: string } | undefined {

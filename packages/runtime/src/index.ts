@@ -113,6 +113,8 @@ export {
 export type {
   InteractiveArtifactSink,
   InteractiveArtifactWrite,
+  PlaywrightBrowserLiveStreamOptions,
+  PlaywrightBrowserSessionState,
   PlaywrightBrowserUseProviderOptions,
 } from "./interactive/playwright-browser-use-provider.js";
 export {

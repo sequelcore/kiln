@@ -27,6 +27,8 @@ export interface PlaywrightBrowserUseProviderOptions {
   readonly defaultTimeoutMs?: number;
   readonly idleSessionTtlMs?: number;
   readonly artifactSink?: InteractiveArtifactSink;
+  readonly liveStream?: PlaywrightBrowserLiveStreamOptions;
+  readonly onBrowserSessionUpdated?: (state: PlaywrightBrowserSessionState) => void | Promise<void>;
 }
 
 export interface InteractiveArtifactSink {
@@ -38,6 +40,46 @@ export interface InteractiveArtifactWrite {
   readonly kind: "screenshot";
   readonly mimeType: string;
   readonly content: Uint8Array;
+}
+
+export interface PlaywrightBrowserLiveStreamOptions {
+  readonly enabled?: boolean;
+  readonly intervalMs?: number;
+}
+
+export interface PlaywrightBrowserSessionState {
+  readonly target: "browser";
+  readonly status: "running" | "succeeded" | "failed";
+  readonly updatedAt: string;
+  readonly provider: "playwright";
+  readonly sessionId: string;
+  readonly operation?: string;
+  readonly url?: string;
+  readonly title?: string;
+  readonly ownership: "agent" | "operator" | "released";
+  readonly viewMode: "snapshot" | "live";
+  readonly stream: {
+    readonly status: "starting" | "live" | "ended" | "failed";
+    readonly reason?: string;
+  };
+  readonly latestCapture?: {
+    readonly uri: string;
+    readonly relation: "snapshot";
+    readonly mimeType: "image/png";
+  };
+}
+
+interface PlaywrightNodeSidecarBrowserSessionState extends Omit<PlaywrightBrowserSessionState, "latestCapture"> {
+  readonly latestCapture?: {
+    readonly dataUrl: string;
+    readonly relation: "snapshot";
+    readonly mimeType: "image/png";
+  };
+}
+
+interface PlaywrightNodeSidecarBrowserSessionUpdateEvent {
+  readonly type: "browser_session_updated";
+  readonly state: PlaywrightNodeSidecarBrowserSessionState;
 }
 
 interface PlaywrightModule {
@@ -100,10 +142,13 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly allowHeaded: boolean;
   private readonly defaultTimeoutMs: number;
   private readonly idleSessionTtlMs: number | undefined;
-  private readonly artifactSink?: InteractiveArtifactSink;
+  private artifactSink?: InteractiveArtifactSink;
+  private readonly liveStream: Required<PlaywrightBrowserLiveStreamOptions>;
+  private onBrowserSessionUpdated?: (state: PlaywrightBrowserSessionState) => void | Promise<void>;
   private readonly sidecarRunner?: PlaywrightNodeSidecarRunner;
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private activeSessionId: string | undefined;
   private sequence = 0;
 
@@ -116,17 +161,28 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 30_000;
     this.idleSessionTtlMs = normalizeIdleSessionTtl(options.idleSessionTtlMs);
     this.artifactSink = options.artifactSink;
+    this.liveStream = {
+      enabled: options.liveStream?.enabled === true,
+      intervalMs: normalizeLiveStreamInterval(options.liveStream?.intervalMs),
+    };
+    this.onBrowserSessionUpdated = options.onBrowserSessionUpdated;
     this.sidecarRunner = options.sidecarRunner ?? (
       options.loader
         ? undefined
         : shouldUseNodeSidecar()
-          ? createPlaywrightNodeSidecarRunner({
+          ? createPlaywrightNodeSidecarRunner(() => ({
               allowedDomains: this.allowedDomains,
               allowExternalBrowser: this.allowExternalBrowser,
               headless: this.headless,
               allowHeaded: this.allowHeaded,
               defaultTimeoutMs: this.defaultTimeoutMs,
               idleSessionTtlMs: this.idleSessionTtlMs,
+              liveStream: {
+                enabled: this.liveStream.enabled && Boolean(this.onBrowserSessionUpdated),
+                intervalMs: this.liveStream.intervalMs,
+              },
+            }), {
+              onBrowserSessionUpdated: (event) => this.forwardSidecarBrowserSessionUpdate(event),
             })
           : undefined
     );
@@ -162,6 +218,14 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     }
   }
 
+  setInteractiveArtifactSink(sink: InteractiveArtifactSink | undefined): void {
+    this.artifactSink = sink;
+  }
+
+  setBrowserSessionUpdateHandler(handler: ((state: PlaywrightBrowserSessionState) => void | Promise<void>) | undefined): void {
+    this.onBrowserSessionUpdated = handler;
+  }
+
   async closeAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
@@ -169,9 +233,13 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       clearTimeout(timer);
     }
     this.idleTimers.clear();
+    for (const timer of this.streamTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.streamTimers.clear();
     this.activeSessionId = undefined;
     await Promise.allSettled([
-      ...sessions.map((session) => session.browser.close()),
+      ...sessions.map((session) => this.closeSession(session)),
       ...(this.sidecarRunner ? [this.sidecarRunner.closeAll()] : []),
     ]);
   }
@@ -203,6 +271,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         output: `Started Playwright browser session ${sessionId}.`,
         observation: await this.observeSession(session, request),
       };
+      this.startLiveStream(session, request);
       this.scheduleIdleClose(session);
       return result;
     } catch (error) {
@@ -425,6 +494,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
 
   private async closeSession(session: BrowserSession): Promise<void> {
     this.clearIdleTimer(session.id);
+    this.clearStreamTimer(session.id);
     this.sessions.delete(session.id);
     if (this.activeSessionId === session.id) {
       this.activeSessionId = this.sessions.keys().next().value;
@@ -433,6 +503,147 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       session.context.close(),
       session.browser.close(),
     ]);
+    this.emitBrowserSessionState({
+      session,
+      operation: "session_stop",
+      ownership: "released",
+      viewMode: "snapshot",
+      stream: { status: "ended" },
+    });
+  }
+
+  private startLiveStream(session: BrowserSession, request: InteractiveUseRequest): void {
+    if (!this.liveStream.enabled || !this.onBrowserSessionUpdated) {
+      return;
+    }
+    this.emitBrowserSessionState({
+      session,
+      operation: request.operation,
+      ownership: "agent",
+      viewMode: "live",
+      stream: { status: "starting" },
+    });
+    this.scheduleStreamCapture(session, request.operation);
+  }
+
+  private scheduleStreamCapture(session: BrowserSession, operation: InteractiveUseRequest["operation"]): void {
+    if (!this.liveStream.enabled || !this.onBrowserSessionUpdated || !this.sessions.has(session.id)) {
+      return;
+    }
+    this.clearStreamTimer(session.id);
+    const timer = setTimeout(() => {
+      void this.captureAndEmitLiveFrame(session, operation).finally(() => {
+        if (this.sessions.has(session.id)) {
+          this.scheduleStreamCapture(session, operation);
+        }
+      });
+    }, this.liveStream.intervalMs);
+    timer.unref?.();
+    this.streamTimers.set(session.id, timer);
+  }
+
+  private async captureAndEmitLiveFrame(session: BrowserSession, operation: InteractiveUseRequest["operation"]): Promise<void> {
+    try {
+      this.assertCurrentUrlAllowed(session);
+      const [title, screenshot] = await Promise.all([
+        session.page.title().catch(() => undefined),
+        this.captureScreenshot(session),
+      ]);
+      this.emitBrowserSessionState({
+        session,
+        operation,
+        title,
+        ownership: "agent",
+        viewMode: "live",
+        stream: { status: "live" },
+        latestCaptureUri: screenshot.uri,
+      });
+    } catch (error) {
+      this.emitBrowserSessionState({
+        session,
+        operation,
+        ownership: "agent",
+        viewMode: "live",
+        stream: {
+          status: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private emitBrowserSessionState(input: {
+    readonly session: BrowserSession;
+    readonly operation?: string;
+    readonly title?: string;
+    readonly ownership: PlaywrightBrowserSessionState["ownership"];
+    readonly viewMode: PlaywrightBrowserSessionState["viewMode"];
+    readonly stream: PlaywrightBrowserSessionState["stream"];
+    readonly latestCaptureUri?: string;
+  }): void {
+    if (!this.onBrowserSessionUpdated) {
+      return;
+    }
+    const url = input.session.page.url();
+    const state: PlaywrightBrowserSessionState = {
+      target: "browser",
+      status: input.stream.status === "failed" ? "failed" : input.stream.status === "ended" ? "succeeded" : "running",
+      updatedAt: new Date().toISOString(),
+      provider: "playwright",
+      sessionId: input.session.id,
+      ...(input.operation ? { operation: input.operation } : {}),
+      ...(url && url !== "about:blank" ? { url } : {}),
+      ...(input.title ? { title: input.title } : {}),
+      ownership: input.ownership,
+      viewMode: input.viewMode,
+      stream: input.stream,
+      ...(input.latestCaptureUri
+        ? {
+            latestCapture: {
+              uri: input.latestCaptureUri,
+              relation: "snapshot",
+              mimeType: "image/png",
+            },
+          }
+        : {}),
+    };
+    void Promise.resolve(this.onBrowserSessionUpdated(state)).catch(() => {});
+  }
+
+  private forwardSidecarBrowserSessionUpdate(event: PlaywrightNodeSidecarBrowserSessionUpdateEvent): void {
+    if (!this.onBrowserSessionUpdated) {
+      return;
+    }
+    void this.materializeSidecarBrowserSessionState(event)
+      .then((state) => this.onBrowserSessionUpdated?.(state))
+      .catch(() => {});
+  }
+
+  private async materializeSidecarBrowserSessionState(
+    event: PlaywrightNodeSidecarBrowserSessionUpdateEvent,
+  ): Promise<PlaywrightBrowserSessionState> {
+    const { latestCapture, ...state } = event.state;
+    if (!latestCapture || !this.artifactSink) {
+      return state;
+    }
+    const content = parseImageDataUrl(latestCapture.dataUrl);
+    if (!content) {
+      return state;
+    }
+    const uri = await this.artifactSink.writeInteractiveArtifact({
+      sessionId: state.sessionId,
+      kind: "screenshot",
+      mimeType: latestCapture.mimeType,
+      content,
+    });
+    return {
+      ...state,
+      latestCapture: {
+        uri,
+        relation: latestCapture.relation,
+        mimeType: latestCapture.mimeType,
+      },
+    };
   }
 
   private scheduleIdleClose(session: BrowserSession): void {
@@ -454,6 +665,15 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     }
     clearTimeout(timer);
     this.idleTimers.delete(sessionId);
+  }
+
+  private clearStreamTimer(sessionId: string): void {
+    const timer = this.streamTimers.get(sessionId);
+    if (!timer) {
+      return;
+    }
+    clearTimeout(timer);
+    this.streamTimers.delete(sessionId);
   }
 
   private readHeadless(request: InteractiveUseRequest): boolean {
@@ -578,6 +798,16 @@ function normalizeIdleSessionTtl(value: number | undefined): number | undefined 
   return Math.trunc(value);
 }
 
+function normalizeLiveStreamInterval(value: number | undefined): number {
+  if (value === undefined) {
+    return 1_000;
+  }
+  if (!Number.isFinite(value) || value < 10) {
+    return 10;
+  }
+  return Math.trunc(value);
+}
+
 interface PlaywrightNodeSidecarConfig {
   readonly allowedDomains: readonly string[];
   readonly allowExternalBrowser: boolean;
@@ -585,6 +815,7 @@ interface PlaywrightNodeSidecarConfig {
   readonly allowHeaded: boolean;
   readonly defaultTimeoutMs: number;
   readonly idleSessionTtlMs?: number;
+  readonly liveStream?: Required<PlaywrightBrowserLiveStreamOptions>;
 }
 
 interface PlaywrightNodeSidecarWireRequest {
@@ -600,7 +831,14 @@ interface PlaywrightNodeSidecarWireResponse {
   readonly error?: string;
 }
 
-function createPlaywrightNodeSidecarRunner(config: PlaywrightNodeSidecarConfig): PlaywrightNodeSidecarRunner {
+interface PlaywrightNodeSidecarRunnerEvents {
+  readonly onBrowserSessionUpdated?: (event: PlaywrightNodeSidecarBrowserSessionUpdateEvent) => void;
+}
+
+function createPlaywrightNodeSidecarRunner(
+  readConfig: () => PlaywrightNodeSidecarConfig,
+  events: PlaywrightNodeSidecarRunnerEvents = {},
+): PlaywrightNodeSidecarRunner {
   const sidecarPath = fileURLToPath(new URL("./playwright-node-sidecar.js", import.meta.url));
   let child: ChildProcessWithoutNullStreams | undefined;
   let sequence = 0;
@@ -635,10 +873,14 @@ function createPlaywrightNodeSidecarRunner(config: PlaywrightNodeSidecarConfig):
     });
     const lines = createInterface({ input: child.stdout });
     lines.on("line", (line) => {
-      let message: PlaywrightNodeSidecarWireResponse;
+      let message: PlaywrightNodeSidecarWireResponse | PlaywrightNodeSidecarBrowserSessionUpdateEvent;
       try {
-        message = JSON.parse(line) as PlaywrightNodeSidecarWireResponse;
+        message = JSON.parse(line) as PlaywrightNodeSidecarWireResponse | PlaywrightNodeSidecarBrowserSessionUpdateEvent;
       } catch {
+        return;
+      }
+      if (isPlaywrightNodeSidecarBrowserSessionUpdateEvent(message)) {
+        events.onBrowserSessionUpdated?.(message);
         return;
       }
       const entry = pending.get(message.id);
@@ -657,6 +899,7 @@ function createPlaywrightNodeSidecarRunner(config: PlaywrightNodeSidecarConfig):
   }
 
   async function send(
+    config: PlaywrightNodeSidecarConfig,
     request: InteractiveUseRequest | { readonly operation: "close_all" },
     timeoutMs: number,
   ): Promise<InteractiveUseProviderResult> {
@@ -682,17 +925,38 @@ function createPlaywrightNodeSidecarRunner(config: PlaywrightNodeSidecarConfig):
 
   return {
     execute(request) {
-      return send(request, request.timeoutMs ?? config.defaultTimeoutMs);
+      const config = readConfig();
+      return send(config, request, request.timeoutMs ?? config.defaultTimeoutMs);
     },
     async closeAll() {
       if (!child || child.killed || child.exitCode !== null) {
         return;
       }
       try {
-        await send({ operation: "close_all" }, 5_000);
+        await send(readConfig(), { operation: "close_all" }, 5_000);
       } finally {
         child.kill();
       }
     },
   };
+}
+
+function isPlaywrightNodeSidecarBrowserSessionUpdateEvent(
+  value: unknown,
+): value is PlaywrightNodeSidecarBrowserSessionUpdateEvent {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && (value as { type?: unknown }).type === "browser_session_updated"
+      && typeof (value as { state?: { sessionId?: unknown } }).state?.sessionId === "string",
+  );
+}
+
+function parseImageDataUrl(value: string): Uint8Array | undefined {
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/u.exec(value);
+  if (!match) {
+    return undefined;
+  }
+  const base64 = match[1];
+  return base64 ? Buffer.from(base64, "base64") : undefined;
 }

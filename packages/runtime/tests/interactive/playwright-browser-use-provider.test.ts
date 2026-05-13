@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE,
   PlaywrightBrowserUseProvider,
+  type PlaywrightBrowserSessionState,
 } from "../../src/interactive/playwright-browser-use-provider.js";
 
 describe("PlaywrightBrowserUseProvider", () => {
@@ -145,6 +146,120 @@ describe("PlaywrightBrowserUseProvider", () => {
     ]);
   });
 
+  it("emits provider-owned live browser screenshot stream updates", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const updates: PlaywrightBrowserSessionState[] = [];
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(fakePage(events), events),
+      allowedDomains: ["example.com"],
+      liveStream: {
+        enabled: true,
+        intervalMs: 25,
+      },
+      onBrowserSessionUpdated(update) {
+        updates.push(update);
+      },
+      artifactSink: {
+        async writeInteractiveArtifact(input) {
+          events.push(`artifact:${input.kind}:${input.mimeType}:${input.content.length}`);
+          return `kiln://artifacts/live/${input.sessionId}/${events.filter((event) => event === "screenshot").length}`;
+        },
+      },
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      sessionId: "browser-live",
+      url: "https://example.com/start",
+      input: {
+        sessionId: "browser-live",
+        url: "https://example.com/start",
+      },
+    });
+
+    expect(updates.some((update) => (
+      update.sessionId === "browser-live"
+        && update.ownership === "agent"
+        && update.viewMode === "live"
+        && update.stream.status === "starting"
+    ))).toBe(true);
+
+    await advanceTimersByTime(26);
+
+    expect(updates.some((update) => (
+      update.sessionId === "browser-live"
+        && update.ownership === "agent"
+        && update.viewMode === "live"
+        && update.stream.status === "live"
+        && update.latestCapture?.uri === "kiln://artifacts/live/browser-live/1"
+    ))).toBe(true);
+
+    await provider.execute({
+      toolName: "browser_session_stop",
+      target: "browser",
+      operation: "session_stop",
+      sessionId: "browser-live",
+      input: { sessionId: "browser-live" },
+    });
+
+    expect(updates.at(-1)).toMatchObject({
+      sessionId: "browser-live",
+      ownership: "released",
+      viewMode: "snapshot",
+      stream: { status: "ended" },
+    });
+  });
+
+  it("reports stream capture failure without failing the active browser session", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const updates: PlaywrightBrowserSessionState[] = [];
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(fakePage(events, {
+        screenshotError: new Error("screenshot failed"),
+      }), events),
+      allowedDomains: ["example.com"],
+      liveStream: {
+        enabled: true,
+        intervalMs: 25,
+      },
+      onBrowserSessionUpdated(update) {
+        updates.push(update);
+      },
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      sessionId: "browser-live",
+      url: "https://example.com/start",
+      input: {
+        sessionId: "browser-live",
+        url: "https://example.com/start",
+      },
+    });
+
+    await advanceTimersByTime(26);
+
+    expect(updates.some((update) => (
+      update.stream.status === "failed"
+        && update.stream.reason === "screenshot failed"
+    ))).toBe(true);
+    await expect(provider.execute({
+      toolName: "browser_observe",
+      target: "browser",
+      operation: "observe",
+      sessionId: "browser-live",
+      input: { sessionId: "browser-live" },
+    })).resolves.toMatchObject({
+      sessionId: "browser-live",
+    });
+  });
+
   it("denies headed browser launch when the provider is configured for headless background sessions", async () => {
     const events: string[] = [];
     const provider = new PlaywrightBrowserUseProvider({
@@ -257,7 +372,7 @@ describe("PlaywrightBrowserUseProvider", () => {
     });
 
     expect(events).not.toContain("browser.close");
-    await vi.advanceTimersByTimeAsync(51);
+    await advanceTimersByTime(51);
 
     expect(events).toContain("context.close");
     expect(events).toContain("browser.close");
@@ -356,11 +471,22 @@ function fakePlaywright(page: ReturnType<typeof fakePage>, events: string[]) {
   };
 }
 
+async function advanceTimersByTime(ms: number): Promise<void> {
+  const timerApi = vi as typeof vi & { advanceTimersByTimeAsync?: (duration: number) => Promise<void> };
+  if (typeof timerApi.advanceTimersByTimeAsync === "function") {
+    await timerApi.advanceTimersByTimeAsync(ms);
+    return;
+  }
+  vi.advanceTimersByTime(ms);
+  await Promise.resolve();
+}
+
 function fakePage(
   events: string[],
   options: {
     readonly gotoError?: Error;
     readonly clickRedirectUrl?: string;
+    readonly screenshotError?: Error;
   } = {},
 ) {
   let currentUrl = "about:blank";
@@ -383,6 +509,9 @@ function fakePage(
     },
     async screenshot() {
       events.push("screenshot");
+      if (options.screenshotError) {
+        throw options.screenshotError;
+      }
       return new Uint8Array([1, 2, 3]);
     },
     locator(selector: string) {

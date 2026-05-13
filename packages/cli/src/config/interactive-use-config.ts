@@ -69,6 +69,7 @@ export async function createInteractiveUseToolSurfaceOptions(
         provider: new runtime.PlaywrightBrowserUseProvider({
           allowedDomains: normalizeStringList(interactiveUse.allowedDomains),
           allowExternalBrowser: interactiveUse.allowExternalBrowser === true,
+          liveStream: { enabled: true },
           ...playwrightBrowserEnvironmentOptions(readBrowserEnvironment(interactiveUse.browserEnvironment)),
         }),
       },

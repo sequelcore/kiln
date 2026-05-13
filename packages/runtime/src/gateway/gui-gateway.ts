@@ -62,6 +62,7 @@ import {
   isGuiProviderModeless,
   isOperatorThemeName,
   type GuiDashboardSnapshot,
+  type GuiBrowserSessionState,
   type GuiInboundFrame,
   type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
@@ -134,6 +135,10 @@ export interface GuiGateway {
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
 type OperatorTurnRequestedAuthority = Extract<GuiOutboundFrame, { type: "message" }>["requestedAuthority"];
+
+interface BrowserSessionUpdateHandlerConsumer {
+  setBrowserSessionUpdateHandler(handler: ((state: Omit<GuiBrowserSessionState, "kilnSessionId">) => void) | undefined): void;
+}
 
 function guiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
   if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
@@ -235,6 +240,25 @@ export function deriveGuiAuthorityStatusFromPerCallConfig(
   if (sawIdempotent) return { effective: "idempotent", completeness: "authoritative" };
   if (sawReadOnly) return { effective: "read_only", completeness: "authoritative" };
   return { effective: "unknown", completeness: "partial" };
+}
+
+function bindBrowserSessionUpdateHandler(
+  builtinToolOptions: DefaultBuiltinToolRegistryOptions | undefined,
+  handler: (state: Omit<GuiBrowserSessionState, "kilnSessionId">) => void,
+): void {
+  const provider = builtinToolOptions?.browserUse?.provider;
+  if (!isBrowserSessionUpdateHandlerConsumer(provider)) {
+    return;
+  }
+  provider.setBrowserSessionUpdateHandler(handler);
+}
+
+function isBrowserSessionUpdateHandlerConsumer(value: unknown): value is BrowserSessionUpdateHandlerConsumer {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && typeof (value as { setBrowserSessionUpdateHandler?: unknown }).setBrowserSessionUpdateHandler === "function",
+  );
 }
 
 export function deriveGuiDoneAuthorityStatus(
@@ -548,6 +572,7 @@ function wireOperatorTransport(
     resourceSurfaces.splice(8);
   };
   const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
+  bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => activityStreamer.forwardBrowserSessionState(state));
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
   const executor = new CliSubscriptionExecutor(
     input.transport.sessionManager.factory,
@@ -1644,5 +1669,16 @@ class GuiActivityStreamer {
         sequence,
       }) satisfies GuiInboundFrame));
     }
+  }
+
+  forwardBrowserSessionState(state: Omit<GuiBrowserSessionState, "kilnSessionId">): void {
+    if (!this.ws) return;
+    this.ws.send(JSON.stringify({
+      type: "browser_session_updated",
+      browserSession: {
+        ...state,
+        ...(this.capture?.sessionId ? { kilnSessionId: this.capture.sessionId } : {}),
+      },
+    } satisfies GuiInboundFrame));
   }
 }

@@ -1,54 +1,64 @@
-# Roadmap 06 Browser Session Lifecycle Plan
+# Roadmap 06 Provider Screenshot Stream Plan
 
-Objective: add an operator-frame surface for browser session lifecycle updates
-after the browser session state projection slice. This lets future stream
-transport code publish browser session state changes without coupling lifecycle
-updates to tool-result snapshot frames.
+Objective: implement the next Roadmap 06 slice by adding a provider-owned live
+browser screenshot stream to the Playwright browser provider. The stream emits
+browser session lifecycle state and latest capture resource links without
+moving browser authority into GUI code.
 
 Non-goals:
-- Do not implement continuous viewport streaming.
+- Do not embed a GUI-owned browser or WebView.
+- Do not expose stream URLs, cookies, profile IDs, or provider tokens.
 - Do not add operator takeover controls in this slice.
-- Do not introduce a provider-specific remote browser SDK.
-- Do not remove `interactive_use_updated` compatibility.
+- Do not make live streaming mandatory for all browser sessions.
 
 Surface map:
-- `packages/gateway-contracts/src/frames.ts` owns GUI inbound frame shapes and
-  now exports `GuiBrowserSessionState`.
-- `packages/gui/src/lib/ws-client.ts` validates inbound operator WebSocket
-  frames before the App shell dispatches them.
-- `packages/gui/src/lib/session-store.ts` owns browser session projection state
-  for live and replayed sessions.
-- `packages/gui/src/components/app-shell.tsx` dispatches inbound frames into
-  session-store actions.
-- `packages/gui/src/components/operator-surface-tabs.tsx` already renders the
-  Browser tab from `GuiBrowserSessionState`.
+- `packages/runtime/src/interactive/playwright-browser-use-provider.ts` owns
+  Playwright browser sessions, page actions, idle close, and screenshot
+  artifact writes.
+- `packages/runtime/tests/interactive/playwright-browser-use-provider.test.ts`
+  covers provider behavior with fake Playwright pages and fake timers.
+- `packages/runtime/src/interactive/playwright-node-sidecar.ts` owns the
+  Windows/Bun Node sidecar browser process and must emit the same stream state.
+- `packages/core/src/tools/infrastructure/interactive-use-tool.ts` attaches
+  the resource-plane artifact sink used by stream captures.
+- `packages/runtime/src/gateway/gui-gateway.ts` forwards provider browser
+  session updates over the GUI operator WebSocket.
+- `packages/gateway-contracts/src/frames.ts` already defines browser stream
+  lifecycle state consumed by GUI.
 
 Implementation slices:
-1. Gateway contract: add `GuiBrowserSessionUpdatedFrame` with
-   `type: "browser_session_updated"` and `browserSession`.
-2. GUI validation: accept `browser_session_updated` frames through the local
-   zod inbound-frame schema.
-3. GUI state: add an `onBrowserSessionUpdated` store action that applies
-   session-scoped browser state and clears stale state when ownership is
-   `released` or stream status is `ended`.
-4. App shell: dispatch the new frame to the store.
+1. Add provider options for an optional live stream:
+   `liveStream.enabled`, `liveStream.intervalMs`, and
+   `onBrowserSessionUpdated`.
+2. Emit `starting` when a browser session is created and periodic `live`
+   updates with latest screenshot artifact links while the session remains
+   active.
+3. Stop stream timers on explicit stop, idle close, startup failure, and
+   `closeAll`, emitting `ended`/`released` for normal session close.
+4. Keep stream capture failures fail-closed for the stream only: emit `failed`
+   stream status but do not crash the browser automation session.
+5. Carry the same update protocol across the Node sidecar path used by
+   Windows/Bun runtime hosts.
+6. Wire provider updates into the GUI gateway `browser_session_updated` frame.
 
 Test-first sequence:
-1. Add failing gateway-contract frame tests for `browser_session_updated`.
-2. Add failing GUI WebSocket validation tests for `browser_session_updated`.
-3. Add failing GUI session-store tests for live stream lifecycle updates and
-   session-scoped filtering.
-4. Extend App shell dispatch tests only if existing frame-dispatch coverage
-   misses the new branch.
+1. Add failing provider test proving `starting`, periodic `live`, and `ended`
+   updates are emitted with latest capture URIs.
+2. Add failing provider test proving stream capture failure emits `failed`
+   without throwing from the active session.
+3. Add failing core tool test proving live providers receive a resource-plane
+   artifact sink.
+4. Add failing GUI gateway test proving browser stream updates are forwarded
+   during an active GUI turn.
 
 Verification gates:
-- `bun test packages/gateway-contracts/tests/browser-session-state.test.ts`
-- `bun run --filter @kilnai/gui test -- tests/session-store.test.ts tests/ws-client.test.ts tests/operator-surface-tabs.test.tsx`
+- `bun test packages/runtime/tests/interactive/playwright-browser-use-provider.test.ts`
+- `bun test packages/core/tests/tools/infrastructure/interactive-use-tool.test.ts`
+- `bun x vitest run packages/runtime/tests/gateway/gui-gateway.test.ts -t "forwards browser session stream updates"`
 - `bun run typecheck`
-- `bun run --filter @kilnai/gui build`
 
 Residual risks:
-- This slice only adds the lifecycle frame and GUI state handling; no runtime
-  provider emits real stream lifecycle data yet.
-- Stream URLs and tokens remain intentionally absent from the public state
-  shape until a sensitive-resource policy is implemented.
+- The stream is artifact-backed screenshot polling, not WebRTC or a remote live
+  URL transport.
+- Operator takeover, pause, and lock controls remain a separate Roadmap 06
+  slice because they require explicit ownership and audit transitions.

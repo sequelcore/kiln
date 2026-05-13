@@ -1437,6 +1437,136 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("forwards browser session stream updates from the configured provider", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    let browserSessionUpdateHandler: ((state: {
+      readonly target: "browser";
+      readonly status: "running" | "succeeded" | "failed";
+      readonly updatedAt: string;
+      readonly provider: "playwright";
+      readonly sessionId: string;
+      readonly ownership: "agent" | "operator" | "released";
+      readonly viewMode: "snapshot" | "live";
+      readonly stream: { readonly status: "starting" | "live" | "ended" | "failed" };
+      readonly latestCapture?: {
+        readonly uri: string;
+        readonly relation: "snapshot";
+        readonly mimeType: "image/png";
+      };
+    }) => void) | undefined;
+    const browserProvider = {
+      execute: vi.fn(),
+      setBrowserSessionUpdateHandler: vi.fn((handler) => {
+        browserSessionUpdateHandler = handler;
+      }),
+    };
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      await input.turnCapture?.start?.("gui-browser-session", 10);
+      browserSessionUpdateHandler?.({
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-12T12:00:00.000Z",
+        provider: "playwright",
+        sessionId: "browser-live",
+        ownership: "agent",
+        viewMode: "live",
+        stream: { status: "live" },
+        latestCapture: {
+          uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+          relation: "snapshot",
+          mimeType: "image/png",
+        },
+      });
+      await input.turnCapture?.finish?.("gui-browser-session");
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Browser stream observed." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        },
+      };
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        builtinToolOptions: {
+          browserUse: {
+            provider: browserProvider,
+          },
+        } as never,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "open the browser" }),
+        }),
+        wsCtx,
+      );
+
+      const browserFrame = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as { type: string; browserSession?: Record<string, unknown> })
+        .find((frame) => frame.type === "browser_session_updated");
+
+      expect(browserProvider.setBrowserSessionUpdateHandler).toHaveBeenCalledWith(expect.any(Function));
+      expect(browserFrame).toEqual({
+        type: "browser_session_updated",
+        browserSession: {
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-12T12:00:00.000Z",
+          provider: "playwright",
+          kilnSessionId: "gui-browser-session",
+          sessionId: "browser-live",
+          ownership: "agent",
+          viewMode: "live",
+          stream: { status: "live" },
+          latestCapture: {
+            uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+            relation: "snapshot",
+            mimeType: "image/png",
+          },
+        },
+      });
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ["blank", ""],
     ["stale", "gpt-4o-stale"],
