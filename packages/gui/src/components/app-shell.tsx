@@ -626,6 +626,7 @@ export function AppShell() {
   const onActivityPhase = useSessionStore((state) => state.onActivityPhase);
   const onInteractiveUseUpdated = useSessionStore((state) => state.onInteractiveUseUpdated);
   const onBrowserSessionUpdated = useSessionStore((state) => state.onBrowserSessionUpdated);
+  const requestBrowserSessionControl = useSessionStore((state) => state.requestBrowserSessionControl);
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const sendClear = useSessionStore((state) => state.sendClear);
@@ -1497,6 +1498,9 @@ export function AppShell() {
             browserSnapshot={interactiveUseSnapshot?.target === "browser" ? interactiveUseSnapshot : null}
             browserSession={browserSessionState}
             loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri)}
+            onBrowserSessionControl={(action, options) => {
+              requestBrowserSessionControl(action, options);
+            }}
             memoryOpen={memorySurfaceOpen}
             files={workspaceDocuments}
             selectedPath={selectedWorkspacePath}

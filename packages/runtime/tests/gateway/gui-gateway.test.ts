@@ -1567,6 +1567,122 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("routes browser session control requests to the configured provider", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    let browserSessionUpdateHandler: ((state: {
+      readonly target: "browser";
+      readonly status: "running";
+      readonly updatedAt: string;
+      readonly provider: "playwright";
+      readonly sessionId: string;
+      readonly ownership: "operator";
+      readonly viewMode: "live";
+      readonly stream: { readonly status: "paused"; readonly reason: string };
+    }) => void) | undefined;
+    const requestBrowserSessionControl = vi.fn(async () => {
+      const state = {
+        target: "browser" as const,
+        status: "running" as const,
+        updatedAt: "2026-05-12T12:00:00.000Z",
+        provider: "playwright",
+        sessionId: "browser-live",
+        ownership: "operator" as const,
+        viewMode: "live" as const,
+        stream: {
+          status: "paused" as const,
+          reason: "Inspect before continuing.",
+        },
+      };
+      browserSessionUpdateHandler?.(state);
+      return state;
+    });
+    const browserProvider = {
+      execute: vi.fn(),
+      setBrowserSessionUpdateHandler: vi.fn((handler) => {
+        browserSessionUpdateHandler = handler;
+      }),
+      requestBrowserSessionControl,
+    };
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        builtinToolOptions: {
+          browserUse: {
+            provider: browserProvider,
+          },
+        } as never,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "browser_session_control",
+            action: "takeover",
+            sessionId: "browser-live",
+            reason: "Inspect before continuing.",
+            requestId: "browser-control-1",
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(requestBrowserSessionControl).toHaveBeenCalledWith({
+        action: "takeover",
+        sessionId: "browser-live",
+        operatorId: "operator-1",
+        reason: "Inspect before continuing.",
+      });
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "browser_session_updated",
+        browserSession: {
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-12T12:00:00.000Z",
+          provider: "playwright",
+          sessionId: "browser-live",
+          kilnSessionId: undefined,
+          ownership: "operator",
+          viewMode: "live",
+          stream: {
+            status: "paused",
+            reason: "Inspect before continuing.",
+          },
+        },
+      }));
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ["blank", ""],
     ["stale", "gpt-4o-stale"],

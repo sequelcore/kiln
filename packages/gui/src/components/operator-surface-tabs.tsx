@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { GuiBrowserSessionState, GuiInteractiveUseSnapshot, OperatorWorkspaceFileSnapshot } from "@kilnai/gateway-contracts";
-import { File, Image, MessageSquare, Monitor, Network, X } from "lucide-react";
+import { File, Image, Lock, MessageSquare, Monitor, Network, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +17,7 @@ interface OperatorSurfaceTabsProps {
   readonly browserSnapshot?: GuiInteractiveUseSnapshot | null;
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
+  readonly onBrowserSessionControl?: (action: "takeover" | "release", options?: { readonly sessionId?: string; readonly reason?: string }) => void;
   readonly memoryContent: ReactNode;
   readonly memoryOpen: boolean;
   readonly files: readonly OperatorWorkspaceFileSnapshot[];
@@ -211,6 +212,7 @@ function BrowserUsePanel(props: {
   readonly snapshot?: GuiInteractiveUseSnapshot | null;
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
+  readonly onBrowserSessionControl?: (action: "takeover" | "release", options?: { readonly sessionId?: string; readonly reason?: string }) => void;
 }) {
   const label = props.browserSession?.title
     ?? props.snapshot?.title
@@ -222,6 +224,8 @@ function BrowserUsePanel(props: {
   const url = props.browserSession?.url ?? props.snapshot?.url;
   const status = props.browserSession?.status ?? props.snapshot?.status ?? "succeeded";
   const screenshotUri = props.browserSession?.latestCapture?.uri ?? props.snapshot?.screenshotUri;
+  const browserSessionId = props.browserSession?.sessionId ?? props.snapshot?.sessionId;
+  const operatorOwnsBrowser = props.browserSession?.ownership === "operator";
   const [loadedScreenshotDataUrl, setLoadedScreenshotDataUrl] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const screenshotDataUrl = props.snapshot?.screenshotDataUrl ?? loadedScreenshotDataUrl;
@@ -277,6 +281,30 @@ function BrowserUsePanel(props: {
               View {props.browserSession.viewMode}
             </span>
           </>
+        ) : null}
+        {props.browserSession && props.onBrowserSessionControl ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            onClick={() => {
+              props.onBrowserSessionControl?.(
+                operatorOwnsBrowser ? "release" : "takeover",
+                {
+                  ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+                  reason: operatorOwnsBrowser ? "Operator released browser control." : "Operator took browser control.",
+                },
+              );
+            }}
+          >
+            {operatorOwnsBrowser ? (
+              <Unlock data-icon="inline-start" aria-hidden="true" />
+            ) : (
+              <Lock data-icon="inline-start" aria-hidden="true" />
+            )}
+            {operatorOwnsBrowser ? "Release" : "Take control"}
+          </Button>
         ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-auto bg-workspace-viewer p-4">
@@ -466,6 +494,7 @@ export function OperatorSurfaceTabs(props: OperatorSurfaceTabsProps) {
             snapshot={browserSnapshot}
             browserSession={browserSession}
             loadResourceDataUrl={props.loadResourceDataUrl}
+            onBrowserSessionControl={props.onBrowserSessionControl}
           />
         </TabsContent>
       ) : null}

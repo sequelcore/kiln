@@ -140,6 +140,15 @@ interface BrowserSessionUpdateHandlerConsumer {
   setBrowserSessionUpdateHandler(handler: ((state: Omit<GuiBrowserSessionState, "kilnSessionId">) => void) | undefined): void;
 }
 
+interface BrowserSessionControlConsumer {
+  requestBrowserSessionControl(request: {
+    readonly action: "takeover" | "release";
+    readonly sessionId?: string;
+    readonly operatorId?: string;
+    readonly reason?: string;
+  }): Promise<Omit<GuiBrowserSessionState, "kilnSessionId">>;
+}
+
 function guiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
   if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
     return;
@@ -258,6 +267,21 @@ function isBrowserSessionUpdateHandlerConsumer(value: unknown): value is Browser
     value
       && typeof value === "object"
       && typeof (value as { setBrowserSessionUpdateHandler?: unknown }).setBrowserSessionUpdateHandler === "function",
+  );
+}
+
+function getBrowserSessionControlConsumer(
+  builtinToolOptions: DefaultBuiltinToolRegistryOptions | undefined,
+): BrowserSessionControlConsumer | undefined {
+  const provider = builtinToolOptions?.browserUse?.provider;
+  return isBrowserSessionControlConsumer(provider) ? provider : undefined;
+}
+
+function isBrowserSessionControlConsumer(value: unknown): value is BrowserSessionControlConsumer {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && typeof (value as { requestBrowserSessionControl?: unknown }).requestBrowserSessionControl === "function",
   );
 }
 
@@ -920,6 +944,39 @@ function wireOperatorTransport(
                 type: "execution_mode_transitioned",
                 executionMode: toMode,
               } satisfies GuiInboundFrame));
+              return;
+            }
+
+            if (frame.type === "browser_session_control") {
+              const action = frame.action === "takeover" || frame.action === "release" ? frame.action : undefined;
+              if (!action) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: "Browser session control action must be takeover or release.",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              const provider = getBrowserSessionControlConsumer(input.builtinToolOptions);
+              if (!provider) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: "Browser session control is not available for the configured provider.",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              try {
+                await provider.requestBrowserSessionControl({
+                  action,
+                  ...(typeof frame.sessionId === "string" ? { sessionId: frame.sessionId } : {}),
+                  operatorId: userId,
+                  ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
+                });
+              } catch (error) {
+                ws.send(JSON.stringify({
+                  type: "error",
+                  message: error instanceof Error ? error.message : "Browser session control failed.",
+                } satisfies GuiInboundFrame));
+              }
               return;
             }
 

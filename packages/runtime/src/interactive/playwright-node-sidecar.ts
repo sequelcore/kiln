@@ -21,14 +21,25 @@ interface PlaywrightNodeSidecarConfig {
 interface WireRequest {
   readonly id: number;
   readonly config: PlaywrightNodeSidecarConfig;
-  readonly request: InteractiveUseRequest | { readonly operation: "close_all" };
+  readonly request:
+    | InteractiveUseRequest
+    | { readonly operation: "close_all" }
+    | BrowserSessionControlRequest;
 }
 
 interface WireResponse {
   readonly id: number;
   readonly ok: boolean;
-  readonly result?: InteractiveUseProviderResult;
+  readonly result?: InteractiveUseProviderResult | BrowserSessionState;
   readonly error?: string;
+}
+
+interface BrowserSessionControlRequest {
+  readonly operation: "browser_session_control";
+  readonly action: "takeover" | "release";
+  readonly sessionId?: string;
+  readonly operatorId?: string;
+  readonly reason?: string;
 }
 
 interface BrowserSessionUpdatedWireEvent {
@@ -48,7 +59,7 @@ interface BrowserSessionState {
   readonly ownership: "agent" | "operator" | "released";
   readonly viewMode: "snapshot" | "live";
   readonly stream: {
-    readonly status: "starting" | "live" | "ended" | "failed";
+    readonly status: "starting" | "live" | "paused" | "ended" | "failed";
     readonly reason?: string;
   };
   readonly latestCapture?: {
@@ -116,6 +127,7 @@ const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
 const sessions = new Map<string, BrowserSession>();
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const operatorLocks = new Map<string, { readonly operatorId?: string; readonly reason?: string; readonly acquiredAt: string }>();
 let activeSessionId: string | undefined;
 let sequence = 0;
 let sidecarExitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -137,7 +149,9 @@ async function handleLine(line: string): Promise<void> {
   try {
     const result = message.request.operation === "close_all"
       ? await closeAll()
-      : await execute(message.config, message.request);
+      : message.request.operation === "browser_session_control"
+        ? await controlBrowserSession(message.config, message.request)
+        : await execute(message.config, message.request);
     write({ id: message.id, ok: true, result });
   } catch (error) {
     write({ id: message.id, ok: false, error: errorMessage(error) });
@@ -219,6 +233,7 @@ async function navigate(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
+    assertAgentBrowserControl(session);
     if (!request.url) {
       throw new Error("browser_navigate requires url.");
     }
@@ -261,6 +276,7 @@ async function click(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
+    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     const action = request.action;
     if (action?.selector) {
@@ -294,6 +310,7 @@ async function type(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
+    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     const text = readText(request.input);
     if (request.action?.selector) {
@@ -320,6 +337,7 @@ async function keypress(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
+    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     for (const key of request.action?.keys ?? []) {
       await session.page.keyboard.press(key);
@@ -341,6 +359,7 @@ async function scroll(
 ): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
   try {
+    assertAgentBrowserControl(session);
     assertCurrentUrlAllowed(config, session);
     const { deltaX, deltaY } = scrollDelta(request);
     await session.page.mouse.wheel(deltaX, deltaY);
@@ -371,9 +390,68 @@ async function closeAll(): Promise<InteractiveUseProviderResult> {
     clearTimeout(timer);
   }
   idleTimers.clear();
+  operatorLocks.clear();
   activeSessionId = undefined;
   await Promise.allSettled(activeSessions.map(closeSession));
   return { provider: "playwright", output: "Stopped all Playwright browser sessions." };
+}
+
+async function controlBrowserSession(
+  config: PlaywrightNodeSidecarConfig,
+  request: BrowserSessionControlRequest,
+): Promise<BrowserSessionState> {
+  const session = requireSession(request.sessionId);
+  if (request.action === "takeover") {
+    operatorLocks.set(session.id, {
+      ...(request.operatorId ? { operatorId: request.operatorId } : {}),
+      ...(request.reason ? { reason: request.reason } : {}),
+      acquiredAt: new Date().toISOString(),
+    });
+    clearStreamTimer(session.id);
+    return emitBrowserSessionState({
+      session,
+      operation: "operator_takeover",
+      ownership: "operator",
+      viewMode: "live",
+      stream: {
+        status: "paused",
+        reason: request.reason ?? "Operator took control of the browser session.",
+      },
+    });
+  }
+
+  operatorLocks.delete(session.id);
+  try {
+    const [title, screenshotDataUrl] = await Promise.all([
+      session.page.title().catch(() => undefined),
+      captureScreenshot(session),
+    ]);
+    const state = emitBrowserSessionState({
+      session,
+      operation: "operator_release",
+      title,
+      ownership: "agent",
+      viewMode: "live",
+      stream: { status: "live" },
+      latestCaptureDataUrl: screenshotDataUrl,
+    });
+    scheduleStreamCapture(config, session, "observe");
+    scheduleIdleClose(config, session);
+    return state;
+  } catch (error) {
+    const state = emitBrowserSessionState({
+      session,
+      operation: "operator_release",
+      ownership: "agent",
+      viewMode: "live",
+      stream: {
+        status: "failed",
+        reason: errorMessage(error),
+      },
+    });
+    scheduleIdleClose(config, session);
+    return state;
+  }
 }
 
 function requireSession(sessionId: string | undefined): BrowserSession {
@@ -552,6 +630,7 @@ function assertUrlAllowed(config: PlaywrightNodeSidecarConfig, value: string): v
 async function closeSession(session: BrowserSession): Promise<void> {
   clearIdleTimer(session.id);
   clearStreamTimer(session.id);
+  operatorLocks.delete(session.id);
   sessions.delete(session.id);
   if (activeSessionId === session.id) {
     activeSessionId = sessions.keys().next().value;
@@ -653,7 +732,7 @@ function emitBrowserSessionState(input: {
   readonly viewMode: BrowserSessionState["viewMode"];
   readonly stream: BrowserSessionState["stream"];
   readonly latestCaptureDataUrl?: string;
-}): void {
+}): BrowserSessionState {
   const url = input.session.page.url();
   const state: BrowserSessionState = {
     target: "browser",
@@ -678,6 +757,7 @@ function emitBrowserSessionState(input: {
       : {}),
   };
   writeEvent({ type: "browser_session_updated", state });
+  return state;
 }
 
 function scheduleIdleClose(config: PlaywrightNodeSidecarConfig, session: BrowserSession): void {
@@ -710,6 +790,13 @@ function clearStreamTimer(sessionId: string): void {
   }
   clearTimeout(timer);
   streamTimers.delete(sessionId);
+}
+
+function assertAgentBrowserControl(session: BrowserSession): void {
+  if (!operatorLocks.has(session.id)) {
+    return;
+  }
+  throw new Error(`Browser session ${session.id} is under operator control.`);
 }
 
 function scheduleSidecarExitIfIdle(): void {

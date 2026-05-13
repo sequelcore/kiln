@@ -714,11 +714,13 @@ GUI resolves browser screenshot artifact URIs through the runtime resource
 plane for display. Browser screenshot evidence should first appear in the
 transcript beside the producing tool call as a numbered capture gallery, so the
 operator can inspect the visual state with the action that caused it. The
-dynamic Browser tab is a focused latest-snapshot view, not the only inspection
-path. The primary sidebar remains for stable workbench destinations; browser
-sessions appear in tabs only when the agent is using one. This tab currently
-shows the latest artifact-backed snapshot, not a live embedded browser
-viewport.
+dynamic Browser tab is a focused latest-snapshot and live-stream projection,
+not the only inspection path. The primary sidebar remains for stable workbench
+destinations; browser sessions appear in tabs only when the agent is using one.
+The GUI can request operator takeover or release for a live browser session.
+Takeover is a provider-owned lock: agent browser mutations are blocked while
+ownership is `operator`, and release captures a fresh artifact-backed
+observation before agent actions resume. It is not raw embedded-browser input.
 
 Computer use should target explicit allowed applications instead of requiring
 the operator to manually focus the right window first. Pass `application` and,

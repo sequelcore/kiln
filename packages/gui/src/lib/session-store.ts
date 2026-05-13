@@ -1593,6 +1593,10 @@ interface SessionStoreActions {
   disconnect: () => void;
   onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
   onBrowserSessionUpdated: (frame: Extract<GuiInboundFrame, { type: "browser_session_updated" }>) => void;
+  requestBrowserSessionControl: (
+    action: "takeover" | "release",
+    options?: { readonly sessionId?: string; readonly reason?: string },
+  ) => boolean;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
   sendApprovalResponse: (approved: boolean, reason: string | undefined, approvalId: string) => boolean;
 }
@@ -3141,6 +3145,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ? null
       : frame.browserSession;
     set({ browserSessionState });
+  },
+
+  requestBrowserSessionControl: (action, options = {}) => {
+    const state = get();
+    const outboundSend = state.outboundSend;
+    if (!outboundSend) {
+      return false;
+    }
+    outboundSend({
+      type: "browser_session_control",
+      action,
+      ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+      ...(options.reason ? { reason: options.reason } : {}),
+    });
+    return true;
   },
 
   onActivityPhase: (frame) => {

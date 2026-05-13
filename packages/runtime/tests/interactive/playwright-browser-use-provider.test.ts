@@ -260,6 +260,101 @@ describe("PlaywrightBrowserUseProvider", () => {
     });
   });
 
+  it("transfers browser ownership to the operator and blocks agent mutations until release", async () => {
+    const events: string[] = [];
+    const updates: PlaywrightBrowserSessionState[] = [];
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(fakePage(events), events),
+      allowedDomains: ["example.com"],
+      liveStream: {
+        enabled: true,
+        intervalMs: 25,
+      },
+      onBrowserSessionUpdated(update) {
+        updates.push(update);
+      },
+      artifactSink: {
+        async writeInteractiveArtifact(input) {
+          events.push(`artifact:${input.kind}:${input.mimeType}:${input.content.length}`);
+          return `kiln://artifacts/live/${input.sessionId}/${events.filter((event) => event === "screenshot").length}`;
+        },
+      },
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      sessionId: "browser-lock",
+      url: "https://example.com/start",
+      input: {
+        sessionId: "browser-lock",
+        url: "https://example.com/start",
+      },
+    });
+
+    const takeover = await provider.requestBrowserSessionControl({
+      action: "takeover",
+      sessionId: "browser-lock",
+      operatorId: "operator-1",
+      reason: "Inspect page state.",
+    });
+
+    expect(takeover).toMatchObject({
+      sessionId: "browser-lock",
+      ownership: "operator",
+      viewMode: "live",
+      stream: {
+        status: "paused",
+        reason: "Inspect page state.",
+      },
+    });
+    expect(updates.at(-1)).toMatchObject({
+      sessionId: "browser-lock",
+      ownership: "operator",
+      stream: { status: "paused" },
+    });
+
+    await expect(provider.execute({
+      toolName: "browser_click",
+      target: "browser",
+      operation: "click",
+      sessionId: "browser-lock",
+      action: { type: "click", selector: "#submit" },
+      input: { sessionId: "browser-lock", target: { selector: "#submit" } },
+    })).rejects.toThrow("Browser session browser-lock is under operator control.");
+
+    const release = await provider.requestBrowserSessionControl({
+      action: "release",
+      sessionId: "browser-lock",
+      operatorId: "operator-1",
+      reason: "Return to agent.",
+    });
+
+    expect(release).toMatchObject({
+      sessionId: "browser-lock",
+      ownership: "agent",
+      viewMode: "live",
+      stream: { status: "live" },
+      latestCapture: {
+        uri: "kiln://artifacts/live/browser-lock/1",
+        relation: "snapshot",
+        mimeType: "image/png",
+      },
+    });
+
+    await expect(provider.execute({
+      toolName: "browser_click",
+      target: "browser",
+      operation: "click",
+      sessionId: "browser-lock",
+      action: { type: "click", selector: "#submit" },
+      input: { sessionId: "browser-lock", target: { selector: "#submit" } },
+    })).resolves.toMatchObject({
+      sessionId: "browser-lock",
+    });
+  });
+
   it("denies headed browser launch when the provider is configured for headless background sessions", async () => {
     const events: string[] = [];
     const provider = new PlaywrightBrowserUseProvider({

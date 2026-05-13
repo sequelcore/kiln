@@ -14,6 +14,7 @@ export const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
 type PlaywrightLoader = () => Promise<PlaywrightModule>;
 type PlaywrightNodeSidecarRunner = {
   execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult>;
+  control(request: PlaywrightBrowserSessionControlRequest): Promise<PlaywrightBrowserSessionState>;
   closeAll(): Promise<void>;
 };
 
@@ -59,7 +60,7 @@ export interface PlaywrightBrowserSessionState {
   readonly ownership: "agent" | "operator" | "released";
   readonly viewMode: "snapshot" | "live";
   readonly stream: {
-    readonly status: "starting" | "live" | "ended" | "failed";
+    readonly status: "starting" | "live" | "paused" | "ended" | "failed";
     readonly reason?: string;
   };
   readonly latestCapture?: {
@@ -67,6 +68,19 @@ export interface PlaywrightBrowserSessionState {
     readonly relation: "snapshot";
     readonly mimeType: "image/png";
   };
+}
+
+export interface PlaywrightBrowserSessionControlRequest {
+  readonly action: "takeover" | "release";
+  readonly sessionId?: string;
+  readonly operatorId?: string;
+  readonly reason?: string;
+}
+
+interface BrowserSessionOperatorLock {
+  readonly operatorId?: string;
+  readonly reason?: string;
+  readonly acquiredAt: string;
 }
 
 interface PlaywrightNodeSidecarBrowserSessionState extends Omit<PlaywrightBrowserSessionState, "latestCapture"> {
@@ -149,6 +163,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly operatorLocks = new Map<string, BrowserSessionOperatorLock>();
   private activeSessionId: string | undefined;
   private sequence = 0;
 
@@ -226,6 +241,64 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.onBrowserSessionUpdated = handler;
   }
 
+  async requestBrowserSessionControl(request: PlaywrightBrowserSessionControlRequest): Promise<PlaywrightBrowserSessionState> {
+    if (this.sidecarRunner) {
+      return this.sidecarRunner.control(request);
+    }
+    const session = this.requireSession(request.sessionId);
+    if (request.action === "takeover") {
+      this.operatorLocks.set(session.id, {
+        ...(request.operatorId ? { operatorId: request.operatorId } : {}),
+        ...(request.reason ? { reason: request.reason } : {}),
+        acquiredAt: new Date().toISOString(),
+      });
+      this.clearStreamTimer(session.id);
+      return this.emitBrowserSessionState({
+        session,
+        operation: "operator_takeover",
+        ownership: "operator",
+        viewMode: "live",
+        stream: {
+          status: "paused",
+          reason: request.reason ?? "Operator took control of the browser session.",
+        },
+      });
+    }
+
+    this.operatorLocks.delete(session.id);
+    try {
+      const [title, screenshot] = await Promise.all([
+        session.page.title().catch(() => undefined),
+        this.captureScreenshot(session),
+      ]);
+      const state = this.emitBrowserSessionState({
+        session,
+        operation: "operator_release",
+        title,
+        ownership: "agent",
+        viewMode: "live",
+        stream: { status: "live" },
+        latestCaptureUri: screenshot.uri,
+      });
+      this.scheduleStreamCapture(session, "observe");
+      this.scheduleIdleClose(session);
+      return state;
+    } catch (error) {
+      const state = this.emitBrowserSessionState({
+        session,
+        operation: "operator_release",
+        ownership: "agent",
+        viewMode: "live",
+        stream: {
+          status: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      });
+      this.scheduleIdleClose(session);
+      return state;
+    }
+  }
+
   async closeAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
@@ -237,6 +310,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       clearTimeout(timer);
     }
     this.streamTimers.clear();
+    this.operatorLocks.clear();
     this.activeSessionId = undefined;
     await Promise.allSettled([
       ...sessions.map((session) => this.closeSession(session)),
@@ -283,6 +357,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async navigate(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
+      this.assertAgentBrowserControl(session);
       if (!request.url) {
         throw new Error("browser_navigate requires url.");
       }
@@ -319,6 +394,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async click(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
+      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       const action = request.action;
       if (action?.selector) {
@@ -349,6 +425,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async type(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
+      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       const text = readText(request.input);
       if (request.action?.selector) {
@@ -372,6 +449,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async keypress(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
+      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       for (const key of request.action?.keys ?? []) {
         await session.page.keyboard.press(key);
@@ -390,6 +468,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async scroll(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
     try {
+      this.assertAgentBrowserControl(session);
       this.assertCurrentUrlAllowed(session);
       const { deltaX, deltaY } = scrollDelta(request);
       await session.page.mouse.wheel(deltaX, deltaY);
@@ -495,6 +574,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async closeSession(session: BrowserSession): Promise<void> {
     this.clearIdleTimer(session.id);
     this.clearStreamTimer(session.id);
+    this.operatorLocks.delete(session.id);
     this.sessions.delete(session.id);
     if (this.activeSessionId === session.id) {
       this.activeSessionId = this.sessions.keys().next().value;
@@ -580,10 +660,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     readonly viewMode: PlaywrightBrowserSessionState["viewMode"];
     readonly stream: PlaywrightBrowserSessionState["stream"];
     readonly latestCaptureUri?: string;
-  }): void {
-    if (!this.onBrowserSessionUpdated) {
-      return;
-    }
+  }): PlaywrightBrowserSessionState {
     const url = input.session.page.url();
     const state: PlaywrightBrowserSessionState = {
       target: "browser",
@@ -607,7 +684,10 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
           }
         : {}),
     };
-    void Promise.resolve(this.onBrowserSessionUpdated(state)).catch(() => {});
+    if (this.onBrowserSessionUpdated) {
+      void Promise.resolve(this.onBrowserSessionUpdated(state)).catch(() => {});
+    }
+    return state;
   }
 
   private forwardSidecarBrowserSessionUpdate(event: PlaywrightNodeSidecarBrowserSessionUpdateEvent): void {
@@ -674,6 +754,13 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     }
     clearTimeout(timer);
     this.streamTimers.delete(sessionId);
+  }
+
+  private assertAgentBrowserControl(session: BrowserSession): void {
+    if (!this.operatorLocks.has(session.id)) {
+      return;
+    }
+    throw new Error(`Browser session ${session.id} is under operator control.`);
   }
 
   private readHeadless(request: InteractiveUseRequest): boolean {
@@ -821,13 +908,16 @@ interface PlaywrightNodeSidecarConfig {
 interface PlaywrightNodeSidecarWireRequest {
   readonly id: number;
   readonly config: PlaywrightNodeSidecarConfig;
-  readonly request: InteractiveUseRequest | { readonly operation: "close_all" };
+  readonly request:
+    | InteractiveUseRequest
+    | { readonly operation: "close_all" }
+    | ({ readonly operation: "browser_session_control" } & PlaywrightBrowserSessionControlRequest);
 }
 
 interface PlaywrightNodeSidecarWireResponse {
   readonly id: number;
   readonly ok: boolean;
-  readonly result?: InteractiveUseProviderResult;
+  readonly result?: InteractiveUseProviderResult | PlaywrightBrowserSessionState;
   readonly error?: string;
 }
 
@@ -843,7 +933,7 @@ function createPlaywrightNodeSidecarRunner(
   let child: ChildProcessWithoutNullStreams | undefined;
   let sequence = 0;
   const pending = new Map<number, {
-    readonly resolve: (value: InteractiveUseProviderResult) => void;
+    readonly resolve: (value: InteractiveUseProviderResult | PlaywrightBrowserSessionState) => void;
     readonly reject: (error: Error) => void;
     readonly timer: ReturnType<typeof setTimeout>;
   }>();
@@ -898,21 +988,21 @@ function createPlaywrightNodeSidecarRunner(
     return child;
   }
 
-  async function send(
+  async function send<TResult extends InteractiveUseProviderResult | PlaywrightBrowserSessionState>(
     config: PlaywrightNodeSidecarConfig,
-    request: InteractiveUseRequest | { readonly operation: "close_all" },
+    request: PlaywrightNodeSidecarWireRequest["request"],
     timeoutMs: number,
-  ): Promise<InteractiveUseProviderResult> {
+  ): Promise<TResult> {
     const activeChild = ensureChild();
     const id = ++sequence;
     const payload: PlaywrightNodeSidecarWireRequest = { id, config, request };
-    return await new Promise<InteractiveUseProviderResult>((resolve, reject) => {
+    return await new Promise<TResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         activeChild.kill();
         reject(new Error(`Playwright browser sidecar timed out after ${timeoutMs}ms.`));
       }, timeoutMs);
-      pending.set(id, { resolve, reject, timer });
+      pending.set(id, { resolve: (value) => resolve(value as TResult), reject, timer });
       activeChild.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
         if (error) {
           pending.delete(id);
@@ -926,14 +1016,21 @@ function createPlaywrightNodeSidecarRunner(
   return {
     execute(request) {
       const config = readConfig();
-      return send(config, request, request.timeoutMs ?? config.defaultTimeoutMs);
+      return send<InteractiveUseProviderResult>(config, request, request.timeoutMs ?? config.defaultTimeoutMs);
+    },
+    control(request) {
+      return send<PlaywrightBrowserSessionState>(
+        readConfig(),
+        { operation: "browser_session_control", ...request },
+        5_000,
+      );
     },
     async closeAll() {
       if (!child || child.killed || child.exitCode !== null) {
         return;
       }
       try {
-        await send(readConfig(), { operation: "close_all" }, 5_000);
+        await send<InteractiveUseProviderResult>(readConfig(), { operation: "close_all" }, 5_000);
       } finally {
         child.kill();
       }

@@ -46,6 +46,13 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     error: z.string().optional(),
   }),
   z.object({ type: z.literal("resume"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("browser_session_control"),
+    action: z.enum(["takeover", "release"]),
+    sessionId: z.string().trim().min(1).optional(),
+    reason: z.string().optional(),
+    requestId: z.string().trim().min(1).optional(),
+  }),
   z.object({ type: z.literal("approve"), approvalId: z.string().trim().min(1) }),
   z.object({ type: z.literal("reject"), reason: z.string(), approvalId: z.string().trim().min(1) }),
   z.object({

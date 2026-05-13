@@ -189,6 +189,83 @@ describe("OperatorSurfaceTabs", () => {
     expect(screen.getByText("kiln://artifacts/interactive-screenshots/artifact_1/content")).toBeInTheDocument();
   });
 
+  it("offers browser takeover and release controls from session ownership", () => {
+    const onBrowserSessionControl = vi.fn();
+    const { rerender } = render(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSession={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-08T12:00:00.000Z",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          ownership: "agent",
+          viewMode: "live",
+          stream: { status: "live" },
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+        onBrowserSessionControl={onBrowserSessionControl}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Take control" }));
+
+    expect(onBrowserSessionControl).toHaveBeenCalledWith("takeover", {
+      sessionId: "qa-browser",
+      reason: "Operator took browser control.",
+    });
+
+    rerender(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSession={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-08T12:00:00.000Z",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          ownership: "operator",
+          viewMode: "live",
+          stream: { status: "paused" },
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+        onBrowserSessionControl={onBrowserSessionControl}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Release" }));
+
+    expect(onBrowserSessionControl).toHaveBeenLastCalledWith("release", {
+      sessionId: "qa-browser",
+      reason: "Operator released browser control.",
+    });
+  });
+
   it("renders markdown through the safe markdown renderer", () => {
     render(
       <OperatorSurfaceTabs

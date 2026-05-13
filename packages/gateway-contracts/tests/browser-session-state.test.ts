@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GuiBrowserSessionState, GuiInboundFrame } from "../src/frames.js";
+import type { GuiBrowserSessionState, GuiInboundFrame, GuiOutboundFrame } from "../src/frames.js";
 
 describe("browser session state frames", () => {
   it("carries shared browser session state on interactive use updates", () => {
@@ -62,5 +62,18 @@ describe("browser session state frames", () => {
 
     expect(frame.browserSession.stream.status).toBe("live");
     expect(frame.browserSession.viewMode).toBe("live");
+  });
+
+  it("carries operator browser session control requests", () => {
+    const frame: GuiOutboundFrame = {
+      type: "browser_session_control",
+      action: "takeover",
+      sessionId: "browser-1",
+      reason: "Inspect before continuing.",
+      requestId: "browser-control-1",
+    };
+
+    expect(frame.action).toBe("takeover");
+    expect(frame.sessionId).toBe("browser-1");
   });
 });

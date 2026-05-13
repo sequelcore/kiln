@@ -2106,6 +2106,24 @@ describe("session-store", () => {
     });
   });
 
+  it("sends browser session control requests through the outbound socket", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({ outboundSend });
+
+    const result = useSessionStore.getState().requestBrowserSessionControl("takeover", {
+      sessionId: "browser-1",
+      reason: "Inspect before continuing.",
+    });
+
+    expect(result).toBe(true);
+    expect(outboundSend).toHaveBeenCalledWith({
+      type: "browser_session_control",
+      action: "takeover",
+      sessionId: "browser-1",
+      reason: "Inspect before continuing.",
+    });
+  });
+
   it("ignores browser session lifecycle updates for another visible session", () => {
     useSessionStore.setState({
       status: "running",

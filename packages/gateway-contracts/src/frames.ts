@@ -472,6 +472,7 @@ export type GuiInteractiveUseStatus = "running" | "succeeded" | "failed";
 export type GuiBrowserSessionOwnership = "agent" | "operator" | "released";
 export type GuiBrowserSessionViewMode = "snapshot" | "live";
 export type GuiBrowserSessionStreamStatus = "unavailable" | "starting" | "live" | "paused" | "ended" | "failed";
+export type GuiBrowserSessionControlAction = "takeover" | "release";
 
 export interface GuiInteractiveUseSnapshot {
   readonly target: GuiInteractiveUseTarget;
@@ -540,6 +541,14 @@ export interface GuiBrowserSessionUpdatedFrame {
   readonly browserSession: GuiBrowserSessionState;
 }
 
+export interface GuiBrowserSessionControlFrame {
+  readonly type: "browser_session_control";
+  readonly action: GuiBrowserSessionControlAction;
+  readonly sessionId?: string;
+  readonly reason?: string;
+  readonly requestId?: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -564,6 +573,7 @@ export type GuiOutboundFrame =
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | OperatorThemeSetResultFrame
   | { type: "resume"; sessionId: string }
+  | GuiBrowserSessionControlFrame
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }
   | {
