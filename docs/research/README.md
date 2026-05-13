@@ -62,6 +62,10 @@ define the active architecture contract. For doctrine, use
   work lifecycles: orchestration preference, structured delegation, verifier
   feedback, and evidence closeout.
 
+- `14-live-browser-operator-surface.md`
+  External browser-agent and remote-browser surface research for Roadmap 06,
+  including live view, human takeover, replay, and stream authority.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -84,3 +88,4 @@ define the active architecture contract. For doctrine, use
 11. `11-agent-tooling-surface.md`
 12. `12-agent-tooling-next-surface.md`
 13. `13-work-governance-and-verification.md`
+14. `14-live-browser-operator-surface.md`

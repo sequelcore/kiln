@@ -1,74 +1,63 @@
-# Roadmap 06 Pre-Slice 0 Plan
+# Roadmap 06 Research Slice Plan
 
-Objective: start `docs/roadmap/00.06-live-browser-operator-surface.md` with
-the Transcript Snapshot Gallery pre-slice. Browser screenshot evidence must
-appear beside the transcript tool call that produced it while keeping image
-payloads in the resource plane.
+Objective: continue `docs/roadmap/00.06-live-browser-operator-surface.md`
+after the committed Transcript Snapshot Gallery slice (`f7084e5`) by recording
+the research decision required before live-browser implementation. The output
+is a canonical topical research note that compares current browser-agent
+surfaces and decides Kiln's next architecture direction.
 
 Non-goals:
 
-- Do not implement live browser viewport streaming.
-- Do not make the GUI Browser tab the source of screenshot authority.
-- Do not persist inline `data:image/...` payloads in transcript events.
-- Do not add compatibility fallbacks for older private screenshot shapes.
+- Do not implement live viewport streaming in this slice.
+- Do not add gateway frames, GUI state, or runtime provider code yet.
+- Do not make a specific remote browser vendor mandatory.
+- Do not move durable architecture doctrine out of `docs/architecture/`.
 
 Surface map:
 
-- `packages/core/src/tools/infrastructure/interactive-use-tool.ts` already
-  materializes screenshot data URLs as `kiln://artifacts/.../content`
-  resources and emits `resourceLinks` with `relation: "snapshot"`.
-- `packages/core/src/tools/domain/tool-result-metadata.ts` and
-  `packages/core/src/tools/domain/tool-resource-display.ts` own shared
-  resource-link metadata and display projection.
-- `packages/runtime/src/gateway/gui-gateway.ts` already carries
-  `metadata.resourceLinks` into `tool_call_completed` session events.
-- `packages/gateway-contracts/src/operator-event-presentation.ts` owns the
-  shared tool-result presentation consumed by GUI, TUI, CLI, SDK, and replay.
-- `packages/gui/src/components/transcript.tsx` renders
-  `toolPresentation.resourceLinks` in transcript tool rows.
+- `docs/roadmap/00.06-live-browser-operator-surface.md` marks the feature as a
+  deferred research track, records Pre-Slice 0 as complete, and asks for
+  comparison of labs/products before implementation.
+- `docs/research/README.md` owns the canonical research index.
+- `docs/architecture/operator-surfaces.md` already requires human surfaces to
+  be projections of runtime contracts, not owners of control-plane semantics.
+- `docs/architecture/runtime-surfaces.md` defines Operator Gateway and GUI as
+  operator surfaces, not app runtime owners.
 
 Implementation slices:
 
-1. Contract and core metadata:
-   Add optional resource-link sequence/label metadata for interactive browser
-   screenshots and preserve it through `ToolResourceDisplayDescriptor`.
+1. Research comparison:
+   Compare current official docs for OpenAI, Anthropic, Browserbase,
+   Cloudflare Browser Run, Steel, Hyperbrowser, and Browser Use Cloud across
+   authority, live view, takeover, replay, and stream-token handling.
 
-2. Shared presentation:
-   Project browser `interactive` snapshot links as image/gallery evidence with
-   stable `Capture N` labels, resource URIs, title, MIME type, relation, and
-   raw availability.
+2. Research note:
+   Add `docs/research/14-live-browser-operator-surface.md` with the findings,
+   decision, architecture consequences, security constraints, and recommended
+   next implementation slice.
 
-3. GUI transcript:
-   Render browser snapshot resources as a compact transcript gallery attached
-   to the tool-call row, while generic resource links keep their current
-   presentation.
+3. Index update:
+   Add the new research note to `docs/research/README.md`.
 
-Test-first sequence:
+Next implementation slice after this commit:
 
-1. Add failing core tests proving browser screenshot resource links include
-   stable capture labels and sequence metadata without inline data URLs.
-2. Add failing gateway-contract tests proving `browser_*` snapshot results
-   project as image/gallery tool presentations with numbered resource links.
-3. Add failing GUI transcript tests proving multiple browser screenshots render
-   as `Capture 1`, `Capture 2` gallery items and do not expose raw JSON.
-4. Add or extend terminal projection tests only if the shared summary does not
-   already provide numbered resource-link text.
+1. Add gateway-contract types for browser session state and live stream
+   lifecycle events.
+2. Emit that state from the existing browser tool path when observations are
+   produced.
+3. Render the GUI Browser tab from the shared state with current snapshot
+   behavior as fallback.
+4. Add TUI/CLI degradation tests for session state and latest capture links.
 
 Verification gates:
 
-- `bun test packages/core/tests/tools/infrastructure/interactive-use-tool.test.ts`
-- `bun test packages/core/tests/tools/domain/tool-resource-display.test.ts`
-- `bun test packages/gateway-contracts/tests/operator-event-presentation.test.ts`
-- `bun test packages/gui/tests/transcript.test.tsx`
-- `bun test packages/tui/tests/gateway-session.test.ts`
 - `bun run typecheck`
-- GUI browser/dev-server verification only if layout changes require browser
-  inspection beyond component tests.
+- Documentation review gate focused on source support, architecture consistency,
+  and whether the next slice is executable.
 
 Residual risks:
 
-- Capture numbering is only stable if it is stored in shared metadata before
-  replay. GUI-only numbering is not acceptable.
-- Existing artifact IDs are session-scoped, so mixed browser/computer
-  screenshot streams may not be contiguous per browser session until a future
-  browser-session-owned counter exists.
+- Vendor docs are temporally unstable; revisit before choosing a concrete
+  stream provider or remote-browser adapter.
+- The research recommends a contract slice next, so no runtime behavior changes
+  are expected from this commit.
