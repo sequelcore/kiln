@@ -197,7 +197,8 @@ explicitly parked until their prerequisite product surface exists.
   approval gates, effective turn authority, model routing rationale, goal runs,
   work-item materialization, execution attempts, managed-agent handoff, evidence
   and review gates, cross-surface operator UX, and native harness workflow
-  snapshot projection.
+  snapshot projection. Closure certified slices 1 through 13 as complete before
+  the implementation roadmap was retired from this directory.
 
 ## Execution Priority
 

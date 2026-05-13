@@ -21,10 +21,10 @@
   config-projection, operator-surface, and invariant docs. Native workflow
   snapshot projection was regenerated from canonical evidence and remains a
   generated shim, not durable doctrine.
-- Closed `00.5-plan-goal-workflow-control.md` on 2026-05-13 after focused
-  authority, routing, execution, closeout, operator projection, and repo-shim
-  tests passed. Deferred governance/ML ideas remain candidates in
-  `docs/roadmap/README.md`, not active `00.5` phases.
+- Closed and retired the completed plan/goal workflow-control roadmap on
+  2026-05-13 after focused authority, routing, execution, closeout, operator
+  projection, and repo-shim tests passed. Deferred governance/ML ideas remain
+  candidates in `docs/roadmap/README.md`, not active `00.5` phases.
 - Closed roadmap Slice 4 for plan approval and transition. Plan approval now
   records operator identity, immutable plan hash, approval id, and residual-risk
   acknowledgement state in canonical `plan_approved` events.
