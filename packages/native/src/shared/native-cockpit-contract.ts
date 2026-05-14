@@ -1,3 +1,12 @@
+import type {
+  OperatorCockpitAction,
+  OperatorCockpitActionAdmissionInput,
+  OperatorCockpitActionTarget,
+} from "@kilnai/gateway-contracts";
+import {
+  operatorCockpitActionAllowed,
+} from "@kilnai/gateway-contracts";
+
 export type NativeCockpitHighDensityWorkloadStatus =
   | "missing"
   | "synthetic"
@@ -44,46 +53,14 @@ export function createNativeCockpitPreconditionReview(
   };
 }
 
-export type NativeCockpitAction =
-  | "inspect"
-  | "replay"
-  | "focus_session"
-  | "filter_events"
-  | "open_resource"
-  | "cancel";
-
-export interface NativeCockpitActionTarget {
-  readonly instanceId?: string;
-  readonly sessionId?: string;
-  readonly eventId?: string;
-  readonly resourceUri?: string;
-  readonly workItemId?: string;
-  readonly managedInvocationId?: string;
-}
-
-export interface NativeCockpitActionAdmissionInput {
-  readonly action: NativeCockpitAction;
-  readonly target: NativeCockpitActionTarget;
-}
+export type NativeCockpitAction = OperatorCockpitAction;
+export type NativeCockpitActionTarget = OperatorCockpitActionTarget;
+export type NativeCockpitActionAdmissionInput = OperatorCockpitActionAdmissionInput;
 
 export function nativeCockpitActionAllowed(
   input: NativeCockpitActionAdmissionInput,
 ): boolean {
-  if (!input.target.instanceId) return false;
-
-  if (input.action === "inspect") return true;
-  if (input.action === "filter_events") return true;
-  if (input.action === "focus_session") return Boolean(input.target.sessionId);
-  if (input.action === "replay") return Boolean(input.target.sessionId && input.target.eventId);
-  if (input.action === "open_resource") return Boolean(input.target.resourceUri);
-  if (input.action === "cancel") {
-    return Boolean(
-      input.target.sessionId
-      && (input.target.workItemId || input.target.managedInvocationId),
-    );
-  }
-
-  return false;
+  return operatorCockpitActionAllowed(input);
 }
 
 export interface NativeCockpitBenchmarkFixtureDefinition {

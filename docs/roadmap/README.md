@@ -70,7 +70,9 @@ explicitly parked until their prerequisite product surface exists.
 - `05-native-operator-cockpit-and-projection-performance.md`
   Active in contract-only Phase 0/1. The current scope defines precondition
   review, explicit target/action admission, benchmark fixture thresholds, and
-  Rust hot-path boundaries before any native cockpit prototype.
+  Rust hot-path boundaries before any native cockpit prototype. Shared GUI
+  projection baselines and cancellation target contracts are now available;
+  cancellation dispatch and browser-rendering benchmarks remain out of scope.
 
 ## Deferred Roadmaps
 

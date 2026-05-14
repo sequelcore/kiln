@@ -16,10 +16,12 @@ explicit targets, benchmark fixtures, and Rust boundaries.
 - Existing canonical event sources already include goal, work-item,
   managed-invocation, provider, authority, cost, and tool-call evidence in
   runtime/core/gateway contracts.
-- GUI already has work-item and session-store projections that can become the
-  future web baseline, but no dedicated GUI high-density benchmark exists yet.
-- Read-only prototype work is blocked until baseline benchmarks and
-  gateway-mediated cancellation target semantics are available.
+- GUI already has work-item and session-store projections. The current baseline
+  now measures the shared operator-event presentation path; a browser-rendering
+  benchmark remains future work.
+- Shared GUI projection baselines and gateway-mediated cancellation target
+  semantics now exist; browser-rendering benchmarks and cancellation dispatch
+  remain out of scope for the next read-only prototype step.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
@@ -69,10 +71,35 @@ Deliverables:
 - Record the current blockers for read-only prototype work.
 - Document the native cockpit target/action/benchmark/Rust boundaries.
 
+### Slice 4 - Shared Benchmark And Target Contracts
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/src/operator-cockpit-target.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-target.test.ts`
+- `packages/native/src/shared/native-cockpit-contract.ts`
+- `packages/native/tests/native-boundary.test.ts`
+
+Deliverables:
+
+- Define deterministic synthetic cockpit event fixtures with explicit
+  instance/session/managed-invocation targets.
+- Define shared GUI projection baseline measurement over the same
+  operator-event presentation path GUI consumes.
+- Define gateway-mediated cancellation request validation without dispatch.
+- Move action target semantics to `@kilnai/gateway-contracts` and keep native as
+  a consumer.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
 - Passed `bun run --filter @kilnai/gateway-contracts test -- operator-surface-capability`.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-target operator-cockpit-benchmark`.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck`.
+- Passed `bun run --filter @kilnai/gateway-contracts build`.
 - Passed `bun run --cwd packages/native typecheck`.
 - Passed `bun run --cwd packages/native build`.
 - Passed `bun run typecheck`.

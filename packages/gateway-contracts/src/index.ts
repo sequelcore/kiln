@@ -125,6 +125,33 @@ export {
 } from "./conversation-turn-projection.js";
 
 export type {
+  OperatorCockpitBenchmarkFixture,
+  OperatorCockpitBenchmarkFixtureInput,
+  OperatorCockpitBenchmarkFixtureSummary,
+  OperatorCockpitProjectionBaseline,
+  OperatorCockpitProjectionBaselineInput,
+  OperatorCockpitProjectionSummary,
+} from "./operator-cockpit-benchmark.js";
+export {
+  createOperatorCockpitBenchmarkFixture,
+  measureOperatorCockpitProjectionBaseline,
+} from "./operator-cockpit-benchmark.js";
+
+export type {
+  OperatorCockpitAction,
+  OperatorCockpitActionAdmissionInput,
+  OperatorCockpitActionTarget,
+  OperatorCockpitCancellationRequest,
+} from "./operator-cockpit-target.js";
+export {
+  OPERATOR_COCKPIT_ACTIONS,
+  OperatorCockpitActionTargetSchema,
+  OperatorCockpitCancellationRequestSchema,
+  createOperatorCockpitCancellationRequest,
+  operatorCockpitActionAllowed,
+} from "./operator-cockpit-target.js";
+
+export type {
   GuiMemoryLatticeError,
   GuiMemoryLatticeGraphEdge,
   GuiMemoryLatticeGraphFilters,

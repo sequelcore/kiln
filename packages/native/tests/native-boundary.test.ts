@@ -299,6 +299,22 @@ describe("native operator surface foundation", () => {
     ]);
   });
 
+  it("allows native cockpit read-only prototype after baselines and cancellation targets exist", () => {
+    const review = createNativeCockpitPreconditionReview({
+      highDensityWorkloads: "synthetic",
+      configProjectionStable: true,
+      gatewayEventStreams: true,
+      guiBaselineBenchmarks: true,
+      managedInvocationLifecycleEvents: true,
+      authorityProviderProjections: true,
+      gatewayMediatedCancellation: true,
+    });
+
+    expect(review.canStartContractPhase).toBe(true);
+    expect(review.canStartReadOnlyPrototype).toBe(true);
+    expect(review.missingForReadOnlyPrototype).toEqual([]);
+  });
+
   it("requires explicit cockpit targets before admitting operator actions", () => {
     expect(nativeCockpitActionAllowed({
       action: "inspect",

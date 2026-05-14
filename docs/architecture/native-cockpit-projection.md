@@ -1,8 +1,9 @@
 # Native Cockpit Projection
 
-Status: contract-only architecture. Roadmap 05 has started with target,
-precondition, and benchmark-fixture contracts only; no native cockpit prototype
-or Rust projection kernel is promoted.
+Status: contract-only architecture. Roadmap 05 has target, precondition,
+benchmark-fixture, shared projection-baseline, and cancellation-target
+contracts. No native cockpit prototype, cancellation dispatch, or Rust
+projection kernel is promoted.
 
 ## Purpose
 
@@ -39,8 +40,8 @@ The contract phase may begin when:
 - authority and provider-route projections are available
 
 The read-only prototype may begin only after the contract phase is satisfied
-and GUI baseline benchmarks plus gateway-mediated cancellation semantics are
-available.
+and shared GUI projection baselines plus gateway-mediated cancellation target
+semantics are available.
 
 ## Target Contract
 
@@ -59,6 +60,11 @@ Required target rules:
 No dashboard action may infer target from row position, visual focus, selected
 tab, or local window state.
 
+Cancellation is represented as a gateway-mediated request contract. The shared
+contract validates `instanceId`, `sessionId`, and either `workItemId` or
+`managedInvocationId` before any future surface can ask runtime to cancel
+work. The current contract does not dispatch cancellation.
+
 ## Benchmark Fixtures
 
 Promotion requires shared fixture definitions before UI claims are made.
@@ -75,7 +81,9 @@ Required fixtures:
   between TypeScript and any Rust/WASM/sidecar candidate
 
 Benchmarks must compare the web GUI and native surface on equivalent canonical
-event fixtures before promotion.
+event fixtures before promotion. The current baseline measures the shared
+operator-event presentation path consumed by GUI; it is a projection baseline,
+not a browser-rendering benchmark.
 
 ## Rust Boundary
 
@@ -94,6 +102,9 @@ Implemented:
 - native cockpit precondition review contract
 - explicit target/action admission helper
 - benchmark fixture threshold definitions
+- shared synthetic high-density event fixture generator
+- shared GUI projection baseline measurement
+- gateway-mediated cancellation request schema
 - native boundary tests proving the contract fails closed
 
 Not implemented:
@@ -102,6 +113,6 @@ Not implemented:
 - multi-session cockpit UI
 - multi-instance dashboard UI
 - cancellation dispatch
-- benchmark runner
+- browser rendering benchmark runner
 - Rust/WASM/sidecar projection kernel
 - native packaging/distribution

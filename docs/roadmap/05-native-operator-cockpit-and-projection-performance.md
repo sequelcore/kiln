@@ -5,8 +5,9 @@
 Active experimental roadmap. Started on 2026-05-14 in contract-only Phase 0/1.
 
 Current scope is precondition review, explicit target/action admission,
-benchmark fixture definitions, and Rust hot-path boundaries. Do not build a
-native cockpit prototype, benchmark runner, cancellation dispatch, or
+benchmark fixture definitions, shared projection baselines, cancellation target
+contracts, and Rust hot-path boundaries. Do not build a native cockpit
+prototype, browser rendering benchmark runner, cancellation dispatch, or
 Rust/WASM/sidecar module until this contract phase and baseline measurements
 justify them.
 
@@ -1075,8 +1076,9 @@ Started 2026-05-14:
 - `packages/native/src/shared/native-cockpit-contract.ts` records the
   precondition review contract.
 - Synthetic high-density workload fixtures are sufficient for contract design.
-- GUI baseline benchmarks and gateway-mediated cancellation remain blockers for
-  the read-only prototype.
+- Shared GUI projection baseline and gateway-mediated cancellation target
+  contracts are now available. Browser-rendering benchmarks and cancellation
+  dispatch remain out of scope for the read-only prototype.
 
 ### Phase 1 - Contract-Only Design
 
@@ -1095,6 +1097,10 @@ Started 2026-05-14:
   architecture.
 - `packages/native/src/shared/native-cockpit-contract.ts` defines explicit
   target/action admission and benchmark fixture thresholds.
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts` defines shared
+  synthetic cockpit fixtures and GUI projection baseline measurement.
+- `packages/gateway-contracts/src/operator-cockpit-target.ts` defines shared
+  target/action admission and cancellation request validation.
 - `packages/native/tests/native-boundary.test.ts` proves the contract fails
   closed for missing targets and missing prototype prerequisites.
 

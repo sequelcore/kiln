@@ -37,11 +37,19 @@ gateway, and runtime consumers.
 Capability snapshots advertise what a surface can support without granting
 authority. The native surface starts with explicit capability slots for gateway
 attach, session projection, native window lifecycle, surface performance
-telemetry, and embedded-browser host proof. Browser session projections use
-explicit transport labels such as `snapshot-polling`, `cdp-screencast`,
-`electron-webcontents`, `webrtc`, and `hosted-url` so surfaces can distinguish
-artifact monitors, frame streams, native embedded hosts, and remote live views
-without inferring behavior from package names or local feature flags.
+telemetry, embedded-browser host proof, and native cockpit contract readiness.
+Browser session projections use explicit transport labels such as
+`snapshot-polling`, `cdp-screencast`, `electron-webcontents`, `webrtc`, and
+`hosted-url` so surfaces can distinguish artifact monitors, frame streams,
+native embedded hosts, and remote live views without inferring behavior from
+package names or local feature flags.
+
+`src/operator-cockpit-benchmark.ts` and
+`src/operator-cockpit-target.ts` define shared roadmap 05 contracts for
+high-density cockpit comparison. GUI and native must use the same synthetic
+event fixtures, shared presentation baseline, explicit instance/session targets,
+and cancellation request validation before any native cockpit or Rust hot-path
+claim is considered.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted
