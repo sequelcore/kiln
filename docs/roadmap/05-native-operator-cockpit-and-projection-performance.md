@@ -56,7 +56,7 @@ This roadmap depends on the completed plan/goal workflow-control foundation. It
 does not supersede that canonical workflow doctrine.
 
 It also does not own the focused real embedded browser work. That work now
-lives in the native/browser sequence:
+lives in completed native/browser architecture:
 
 - completed browser operator foundations in `docs/architecture/developer-tools.md`
   and `docs/guides/tool-use.md`
@@ -66,7 +66,9 @@ lives in the native/browser sequence:
 - completed embedded browser host capability in
   `docs/architecture/operator-surfaces.md`,
   `docs/architecture/developer-tools.md`, and `@kilnai/native`
-- `04-embedded-browser-operator-surface.md`
+- completed embedded browser operator product surface in
+  `docs/architecture/operator-surfaces.md`,
+  `docs/architecture/developer-tools.md`, and `@kilnai/native`
 
 The native surface foundation and embedded browser host may use native shell
 technology earlier than this broad high-density cockpit experiment. That does

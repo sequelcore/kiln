@@ -185,23 +185,37 @@ The native surface must not import `@kilnai/core` or `@kilnai/runtime`
 implementation modules. It may consume `@kilnai/gateway-contracts` and future
 operator HTTP/WS clients only. The Electron renderer starts with Node
 integration disabled, context isolation enabled, sandbox enabled, web security
-enabled, no preload bridge, denied popup windows, and navigation restricted to
-local file/dev-server origins until a governed runtime policy exists.
+enabled, denied popup windows, and navigation restricted to local
+file/dev-server origins until a governed runtime policy exists. Any preload
+bridge must be narrow, typed, surface-specific, and limited to native shell
+operations that cannot be represented as renderer-local state.
 
 The v1 implementation advertises native capability slots for gateway attach,
 session projection, theme projection, native window lifecycle, surface
 performance telemetry, and embedded browser hosting. Embedded browser hosting
 uses Electron `WebContentsView` and the `electron-webcontents` transport label.
-That host is a native adapter proof, not the full operator browser product
-surface; the product surface remains a separate roadmap.
+`@kilnai/native` now includes the first product embedded-browser operator
+surface: the renderer reserves and resizes a browser region, the main process
+owns the `WebContentsView`, and the renderer sends typed operator intents
+through a narrow preload bridge.
 
 The embedded browser host must keep all remote or task content isolated from the
 Electron renderer and main process. Host content runs with Node integration
 disabled, context isolation enabled, sandbox enabled, web security enabled, no
-preload bridge, denied popup windows, denied permission prompts, blocked
+host preload bridge, denied popup windows, denied permission prompts, blocked
 downloads, ephemeral partition state, and fail-closed navigation against a
 runtime-supplied allowlist. DevTools/CDP control belongs to the host adapter and
 must project audited evidence through gateway-shaped browser session data.
+
+The embedded browser operator surface follows the takeover contract used by
+browser foundations. Opening the surface creates a gateway-shaped browser
+session projection with `surfaceMode: "embedded-browser"` and
+`transport: "electron-webcontents"`. Takeover transfers ownership from agent to
+operator and runtime browser dispatch fails closed while the operator owns the
+surface. Operator pointer, wheel, text, and key intents are admitted only while
+ownership is `operator`, and text evidence is stored as sanitized summaries.
+Release returns ownership to `agent`; runtime resume is admitted only after
+release and must be proven by a fresh host observation/evidence projection.
 
 The native surface is justified when product evidence shows a real need for
 native capabilities that the web GUI cannot provide cleanly, including:

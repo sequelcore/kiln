@@ -8,6 +8,7 @@ import {
 } from "electron";
 import type {
   GuiBrowserOperatorInput,
+  GuiBrowserSessionOwnership,
   GuiBrowserSessionState,
 } from "@kilnai/gateway-contracts";
 import {
@@ -16,6 +17,7 @@ import {
   createNativeEmbeddedBrowserHostOptions,
   isNativeBrowserHostNavigationAllowed,
   nativeBrowserHostOperatorInputAllowed,
+  nativeBrowserHostRuntimeActionAllowed,
   NATIVE_BROWSER_HOST_TRANSPORT,
   summarizeNativeBrowserHostInput,
 } from "../shared/native-browser-host.js";
@@ -49,14 +51,18 @@ export interface NativeEmbeddedBrowserHost {
   readonly view: WebContentsView;
   navigate(url: string): Promise<void>;
   observe(): Promise<NativeEmbeddedBrowserHostObservation>;
+  setOwnership(ownership: GuiBrowserSessionOwnership): void;
   dispatchOperatorInput(input: GuiBrowserOperatorInput): Promise<void>;
+  dispatchRuntimeInput(input: GuiBrowserOperatorInput): Promise<void>;
   projectState(updatedAt: string): Promise<GuiBrowserSessionState>;
+  setBounds(bounds: Rectangle): void;
   close(): void;
 }
 
 export function createNativeEmbeddedBrowserHost(
   input: NativeEmbeddedBrowserHostInput,
 ): NativeEmbeddedBrowserHost {
+  let ownership: GuiBrowserSessionOwnership = "agent";
   const options = createNativeEmbeddedBrowserHostOptions({
     sessionId: input.sessionId,
   });
@@ -82,13 +88,24 @@ export function createNativeEmbeddedBrowserHost(
     async observe(): Promise<NativeEmbeddedBrowserHostObservation> {
       return observeNativeEmbeddedBrowserHost(view.webContents);
     },
+    setOwnership(nextOwnership: GuiBrowserSessionOwnership): void {
+      ownership = nextOwnership;
+    },
     async dispatchOperatorInput(operatorInput: GuiBrowserOperatorInput): Promise<void> {
-      if (!nativeBrowserHostOperatorInputAllowed({ ownership: "operator" })) {
+      if (!nativeBrowserHostOperatorInputAllowed({ ownership })) {
         throw new Error("Embedded browser host input requires operator ownership.");
       }
       input.parentWindow.focus();
       view.webContents.focus();
       await dispatchNativeBrowserHostInput(view.webContents, operatorInput);
+    },
+    async dispatchRuntimeInput(runtimeInput: GuiBrowserOperatorInput): Promise<void> {
+      if (!nativeBrowserHostRuntimeActionAllowed({ ownership })) {
+        throw new Error("Embedded browser host runtime dispatch requires agent ownership.");
+      }
+      input.parentWindow.focus();
+      view.webContents.focus();
+      await dispatchNativeBrowserHostInput(view.webContents, runtimeInput);
     },
     async projectState(updatedAt: string): Promise<GuiBrowserSessionState> {
       const observation = await observeNativeEmbeddedBrowserHost(view.webContents);
@@ -99,8 +116,11 @@ export function createNativeEmbeddedBrowserHost(
         title: observation.title,
         updatedAt,
         viewport: observation.viewport,
-        ownership: "operator",
+        ownership,
       });
+    },
+    setBounds(bounds: Rectangle): void {
+      view.setBounds(bounds);
     },
     close(): void {
       if (!view.webContents.isDestroyed() && view.webContents.debugger.isAttached()) {
@@ -301,6 +321,7 @@ export async function runNativeEmbeddedBrowserHostSmoke(
   proofUrl: string,
 ): Promise<NativeEmbeddedBrowserHostSmokeResult> {
   await host.navigate(proofUrl);
+  host.setOwnership("operator");
   await host.dispatchOperatorInput({
     kind: "pointer",
     phase: "click",

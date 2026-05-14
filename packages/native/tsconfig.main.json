@@ -6,7 +6,7 @@
     "rootDir": "src",
     "types": ["bun"]
   },
-  "include": ["src/main", "src/shared"],
+  "include": ["src/main", "src/preload", "src/shared"],
   "references": [
     { "path": "../gateway-contracts" }
   ]

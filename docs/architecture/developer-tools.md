@@ -408,8 +408,8 @@ metadata belong in shared presentation contracts, not in GUI-only state.
 GUI may also resolve the latest screenshot artifact URI through the runtime
 resource plane for display in the dynamic Browser tab. That tab is a focused
 snapshot projection of the governed browser session, not the only inspection
-path. A live embedded or streamed browser viewport is a separate roadmap track,
-not the current tab contract.
+path. The product embedded browser viewport is native-only in `@kilnai/native`
+because the real host is an Electron child view, not a web React component.
 
 Browser session state is runtime-owned. Gateway frames may project
 `browser_session_updated`, `browser_live_viewport_frame`,
@@ -426,12 +426,12 @@ Browser viewport projections use explicit transport labels. `snapshot-polling`
 means artifact-backed observation or monitor frames. `cdp-screencast` means a
 local Chromium frame stream produced through Playwright/Chrome DevTools
 Protocol. `electron-webcontents` means a native Electron `WebContentsView`
-embedded browser host. Future transports such as `webrtc` or `hosted-url` must
-also be represented as transport evidence rather than hidden behind a generic
-"live" label. Snapshot polling and CDP screencast are useful monitor and
-diagnostic transports; they are not a real embedded browser. The native
-`electron-webcontents` host proves the embedding/control capability, while the
-full in-app browser operator product surface remains a separate roadmap.
+embedded browser host with real in-app operator control. Future transports such
+as `webrtc` or `hosted-url` must also be represented as transport evidence
+rather than hidden behind a generic "live" label. Snapshot polling and CDP
+screencast are useful monitor and diagnostic transports; they are not a real
+embedded browser. The accepted product embedded browser surface lives in
+`@kilnai/native` and projects the same ownership, input, and evidence model.
 
 Operator browser evidence is sanitized. Takeover, release, and input
 acknowledgement events may be persisted as session evidence, but raw text input

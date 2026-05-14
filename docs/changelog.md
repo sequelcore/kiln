@@ -13,6 +13,11 @@
   denied permissions, blocked downloads, CDP observation/control, typed
   operator input dispatch, `electron-webcontents` transport evidence, and a
   deterministic local smoke proof.
+- Added the native embedded browser operator product surface with a real
+  reserved `WebContentsView` region, narrow preload IPC, open, takeover, input,
+  release, and resume controls, ownership-gated runtime dispatch, sanitized
+  operator evidence, and a deterministic `embedded-browser-surface:smoke`
+  proof.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.
@@ -24,6 +29,10 @@
   after gateway-contract tests, native boundary tests, native typecheck, native
   build, native smoke, browser-host smoke, full workspace typecheck, full
   workspace tests, and full workspace build passed.
+- Closed and retired `04-embedded-browser-operator-surface.md` on 2026-05-14
+  after native boundary tests, native typecheck, native build, native smoke,
+  browser-host smoke, embedded-browser-surface smoke, full workspace typecheck,
+  full workspace tests, full workspace build, and diff whitespace checks passed.
 
 ## Unreleased -- Runtime Gateway
 

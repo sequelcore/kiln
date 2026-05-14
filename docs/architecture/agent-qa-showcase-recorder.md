@@ -53,11 +53,12 @@ The implemented baseline supports:
 - WebM export from frame-stream evidence
 - exported manifests that preserve raw/event/artifact/edit/video tracks
 
-Embedded in-app browser capture is a future backend, not a recorder
+Embedded in-app browser capture is an additional backend, not a recorder
 prerequisite. Real video can be recorded from a runtime-owned browser session
-before Kiln has a product embedded browser view. The native
-`electron-webcontents` host proof is complete; future product embedded-browser
-work is owned by `docs/roadmap/04-embedded-browser-operator-surface.md`.
+without depending on the native product view. The native
+`electron-webcontents` product surface is implemented in `@kilnai/native`;
+future recorder integration may consume that surface evidence, but the recorder
+must still treat governed runtime artifacts as the durable recording source.
 
 ## Computer Capture
 

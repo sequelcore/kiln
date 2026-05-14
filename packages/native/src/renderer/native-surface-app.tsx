@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import type { OperatorSessionEvent } from "@kilnai/gateway-contracts";
 import {
@@ -6,6 +6,9 @@ import {
   createNativeSurfaceProjection,
   createNativeSurfaceTelemetry,
 } from "../shared/native-surface";
+import type {
+  EmbeddedBrowserOperatorSurfaceSnapshot,
+} from "./native-api";
 import "./styles.css";
 
 const gatewayUrl = new URLSearchParams(window.location.search).get("gateway")
@@ -27,6 +30,10 @@ const latestEvent: OperatorSessionEvent = {
 
 export function NativeSurfaceApp(): ReactElement {
   const startedAt = performance.timeOrigin;
+  const browserRegionRef = useRef<HTMLDivElement | null>(null);
+  const [browserSnapshot, setBrowserSnapshot] = useState<EmbeddedBrowserOperatorSurfaceSnapshot | null>(null);
+  const [browserError, setBrowserError] = useState<string | null>(null);
+  const [browserBusy, setBrowserBusy] = useState(false);
   const projection = useMemo(() => {
     return createNativeSurfaceProjection({
       connected: true,
@@ -53,12 +60,102 @@ export function NativeSurfaceApp(): ReactElement {
       droppedFrames: 0,
     });
   }, [startedAt]);
+  const browserApi = window.kilnNativeBrowser;
+
+  const readBrowserRegionBounds = useCallback(() => {
+    const region = browserRegionRef.current;
+    if (!region) {
+      throw new Error("Embedded browser region is not mounted.");
+    }
+    const rect = region.getBoundingClientRect();
+    return {
+      x: Math.round(rect.left),
+      y: Math.round(rect.top),
+      width: Math.max(320, Math.round(rect.width)),
+      height: Math.max(240, Math.round(rect.height)),
+    };
+  }, []);
+
+  const runBrowserAction = useCallback(async (
+    action: () => Promise<EmbeddedBrowserOperatorSurfaceSnapshot | null>,
+  ) => {
+    if (!browserApi) {
+      setBrowserError("Native browser bridge unavailable.");
+      return;
+    }
+    setBrowserBusy(true);
+    setBrowserError(null);
+    try {
+      const nextSnapshot = await action();
+      if (nextSnapshot) {
+        setBrowserSnapshot(nextSnapshot);
+      }
+    } catch (error: unknown) {
+      setBrowserError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBrowserBusy(false);
+    }
+  }, [browserApi]);
+
+  const openBrowser = useCallback(() => {
+    void runBrowserAction(() => browserApi?.open(readBrowserRegionBounds()) ?? Promise.resolve(null));
+  }, [browserApi, readBrowserRegionBounds, runBrowserAction]);
+
+  const takeoverBrowser = useCallback(() => {
+    void runBrowserAction(() => browserApi?.takeover() ?? Promise.resolve(null));
+  }, [browserApi, runBrowserAction]);
+
+  const typeInBrowser = useCallback(() => {
+    void runBrowserAction(() => browserApi?.sendInput({
+      kind: "text",
+      text: "kiln",
+    }) ?? Promise.resolve(null));
+  }, [browserApi, runBrowserAction]);
+
+  const scrollBrowser = useCallback(() => {
+    void runBrowserAction(() => browserApi?.sendInput({
+      kind: "wheel",
+      x: 500,
+      y: 500,
+      deltaX: 0,
+      deltaY: 480,
+    }) ?? Promise.resolve(null));
+  }, [browserApi, runBrowserAction]);
+
+  const releaseBrowser = useCallback(() => {
+    void runBrowserAction(() => browserApi?.release() ?? Promise.resolve(null));
+  }, [browserApi, runBrowserAction]);
+
+  const resumeRuntime = useCallback(() => {
+    void runBrowserAction(() => browserApi?.resumeRuntime() ?? Promise.resolve(null));
+  }, [browserApi, runBrowserAction]);
+
+  useEffect(() => {
+    if (!browserApi || !browserSnapshot || !browserRegionRef.current) return;
+    const observer = new ResizeObserver(() => {
+      void browserApi.resize(readBrowserRegionBounds())
+        .then((nextSnapshot) => {
+          if (nextSnapshot) setBrowserSnapshot(nextSnapshot);
+        })
+        .catch((error: unknown) => {
+          setBrowserError(error instanceof Error ? error.message : String(error));
+        });
+    });
+    observer.observe(browserRegionRef.current);
+    return () => {
+      observer.disconnect();
+    };
+  }, [browserApi, browserSnapshot, readBrowserRegionBounds]);
+
+  const ownership = browserSnapshot?.projection.ownership ?? "released";
+  const operatorCanInput = browserSnapshot?.projection.operatorCanInput ?? false;
+  const runtimeCanDispatch = browserSnapshot?.projection.runtimeCanDispatch ?? false;
 
   return (
     <main className="native-shell">
-      <section className="native-panel" aria-label="Native operator surface">
+      <section className="native-panel native-browser-panel" aria-label="Embedded browser operator surface">
         <p className="eyebrow">Kiln Native</p>
-        <h1>Operator Surface Foundation</h1>
+        <h1>Embedded Browser</h1>
         <dl className="native-grid">
           <div>
             <dt>Gateway</dt>
@@ -75,6 +172,59 @@ export function NativeSurfaceApp(): ReactElement {
           <div>
             <dt>Provider route</dt>
             <dd>{projection.providerRoute}</dd>
+          </div>
+        </dl>
+        <div className="browser-surface-toolbar" aria-label="Browser controls">
+          <button type="button" onClick={openBrowser} disabled={browserBusy || !browserApi}>
+            Open
+          </button>
+          <button type="button" onClick={takeoverBrowser} disabled={browserBusy || ownership !== "agent"}>
+            Take over
+          </button>
+          <button type="button" onClick={typeInBrowser} disabled={browserBusy || !operatorCanInput}>
+            Type
+          </button>
+          <button type="button" onClick={scrollBrowser} disabled={browserBusy || !operatorCanInput}>
+            Scroll
+          </button>
+          <button type="button" onClick={releaseBrowser} disabled={browserBusy || ownership !== "operator"}>
+            Release
+          </button>
+          <button type="button" onClick={resumeRuntime} disabled={browserBusy || !runtimeCanDispatch}>
+            Resume
+          </button>
+        </div>
+        <div ref={browserRegionRef} className="embedded-browser-region" aria-label="Embedded browser region">
+          <span>{browserSnapshot ? "Embedded browser active" : "Open a browser task"}</span>
+        </div>
+        {browserError ? <p className="browser-error">{browserError}</p> : null}
+      </section>
+      <section className="native-panel" aria-label="Browser state">
+        <h2>Browser State</h2>
+        <dl className="native-grid">
+          <div>
+            <dt>Mode</dt>
+            <dd>{browserSnapshot?.projection.surfaceMode ?? "idle"}</dd>
+          </div>
+          <div>
+            <dt>Transport</dt>
+            <dd>{browserSnapshot?.projection.transport ?? "none"}</dd>
+          </div>
+          <div>
+            <dt>Ownership</dt>
+            <dd>{ownership}</dd>
+          </div>
+          <div>
+            <dt>Evidence</dt>
+            <dd>{browserSnapshot?.projection.evidenceCount ?? 0}</dd>
+          </div>
+          <div>
+            <dt>Title</dt>
+            <dd>{browserSnapshot?.projection.title ?? "No browser session"}</dd>
+          </div>
+          <div>
+            <dt>Input</dt>
+            <dd>{browserSnapshot?.observation.proofInputValue ?? ""}</dd>
           </div>
         </dl>
       </section>

@@ -71,12 +71,6 @@ No active roadmap is currently in implementation.
 
 ## Deferred Roadmaps
 
-- `04-embedded-browser-operator-surface.md`
-  Real embedded browser operator-surface track. Native foundation and
-  `electron-webcontents` host proof are complete; this owns the product
-  capability where the operator interacts with an actual browser view inside
-  Kiln.
-
 - `05-native-operator-cockpit-and-projection-performance.md`
   Deferred native cockpit and projection-performance experiment for
   high-density managed-agent supervision, replay, timeline, graph,
@@ -250,15 +244,20 @@ No active roadmap is currently in implementation.
   observation/control, typed operator input dispatch, gateway-shaped browser
   session projection, sanitized browser operator evidence, and a deterministic
   smoke proof with clean shutdown.
+- Embedded browser operator surface completed on 2026-05-14. Stable doctrine
+  lives in `docs/architecture/operator-surfaces.md` and
+  `docs/architecture/developer-tools.md`. Implementation covers the native
+  renderer product panel, reserved Electron `WebContentsView` region, narrow
+  preload IPC, open/takeover/input/release/resume controls, ownership-gated
+  runtime dispatch, `electron-webcontents` projection, sanitized evidence, and
+  a deterministic product smoke proof with clean shutdown.
 
 ## Execution Priority
 
-1. Keep the remaining native/browser sequence ordered as: `04` embedded browser
-   operator surface, then `05` native cockpit and projection performance.
-2. Keep native performance architecture grounded in the completed foundation:
+1. Keep native performance architecture grounded in the completed foundation:
    shared projections, batching, resource links, virtualization, and metrics are
    v1 surface requirements, not late cleanup.
-3. Keep `05-native-operator-cockpit-and-projection-performance.md` deferred
+2. Keep `05-native-operator-cockpit-and-projection-performance.md` deferred
    until managed agents create real high-density workloads and config
    projection makes local/cloud/team/CI instance boundaries explicit.
 

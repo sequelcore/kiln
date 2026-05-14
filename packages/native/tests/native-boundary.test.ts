@@ -16,6 +16,11 @@ import {
   nativeBrowserHostOperatorInputAllowed,
   nativeBrowserHostRuntimeActionAllowed,
 } from "../src/shared/native-browser-host.js";
+import {
+  createNativeBrowserOperatorSurfaceProjection,
+  createNativeBrowserRegionBounds,
+  nativeBrowserOperatorActionAllowed,
+} from "../src/shared/native-browser-operator-surface.js";
 
 describe("native operator surface foundation", () => {
   it("advertises native capability slots including the proven embedded browser host", () => {
@@ -191,5 +196,77 @@ describe("native operator surface foundation", () => {
     expect(nativeBrowserHostOperatorInputAllowed({ ownership: "operator" })).toBe(true);
     expect(nativeBrowserHostOperatorInputAllowed({ ownership: "agent" })).toBe(false);
     expect(nativeBrowserHostOperatorInputAllowed({ ownership: "released" })).toBe(false);
+  });
+
+  it("reserves a stable embedded browser region for the native operator surface", () => {
+    const bounds = createNativeBrowserRegionBounds({
+      windowWidth: 1280,
+      windowHeight: 820,
+    });
+
+    expect(bounds).toEqual({
+      x: 24,
+      y: 232,
+      width: 828,
+      height: 572,
+    });
+  });
+
+  it("projects embedded browser operator surface state without owning runtime truth", () => {
+    const state = createNativeBrowserHostSessionState({
+      sessionId: "browser-1",
+      kilnSessionId: "session-1",
+      url: "file:///proof.html",
+      title: "Kiln Browser Host Proof",
+      updatedAt: "2026-05-14T12:00:00.000Z",
+      viewport: {
+        width: 820,
+        height: 548,
+      },
+      ownership: "agent",
+    });
+    const projection = createNativeBrowserOperatorSurfaceProjection({
+      state,
+      evidenceCount: 4,
+      lastEvidenceAction: "runtime_dispatch",
+      lastObservation: {
+        url: "file:///proof.html",
+        title: "Kiln Browser Host Proof",
+        proofInputValue: "kiln!",
+        scrollY: 480,
+      },
+    });
+
+    expect(projection.surfaceMode).toBe("embedded-browser");
+    expect(projection.transport).toBe("electron-webcontents");
+    expect(projection.ownership).toBe("agent");
+    expect(projection.operatorCanInput).toBe(false);
+    expect(projection.runtimeCanDispatch).toBe(true);
+    expect(projection.evidenceCount).toBe(4);
+    expect(projection.lastEvidenceAction).toBe("runtime_dispatch");
+    expect(projection.lastObservation?.proofInputValue).toBe("kiln!");
+  });
+
+  it("admits embedded browser operator actions only for the correct ownership state", () => {
+    expect(nativeBrowserOperatorActionAllowed({
+      action: "takeover",
+      ownership: "agent",
+    })).toBe(true);
+    expect(nativeBrowserOperatorActionAllowed({
+      action: "operator_input",
+      ownership: "operator",
+    })).toBe(true);
+    expect(nativeBrowserOperatorActionAllowed({
+      action: "release",
+      ownership: "operator",
+    })).toBe(true);
+    expect(nativeBrowserOperatorActionAllowed({
+      action: "runtime_dispatch",
+      ownership: "agent",
+    })).toBe(true);
+    expect(nativeBrowserOperatorActionAllowed({
+      action: "operator_input",
+      ownership: "agent",
+    })).toBe(false);
   });
 });

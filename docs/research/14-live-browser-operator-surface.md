@@ -5,8 +5,10 @@
 This note records the research basis for the late native/browser operator
 sequence: browser operator foundations, native operator surface foundation,
 embedded browser host capability, and the real embedded browser operator
-surface. It informs future architecture and
-implementation slices; it does not override the operator-surface doctrine in
+surface. The sequence is now implemented through the product embedded browser
+surface in `@kilnai/native`; future native cockpit work remains separate. This
+note informs future architecture and implementation slices; it does not
+override the operator-surface doctrine in
 `docs/architecture/operator-surfaces.md` or runtime taxonomy in
 `docs/architecture/runtime-surfaces.md`.
 
@@ -104,8 +106,10 @@ Therefore the browser/native operator work is now split into four concerns:
 3. Completed native browser-host proof in `@kilnai/native` and
    `docs/architecture/operator-surfaces.md`. Electron `WebContentsView` is the
    accepted first host, using the `electron-webcontents` transport label.
-4. `04-embedded-browser-operator-surface.md`
-   Real embedded browser operator surface.
+4. Completed product embedded browser operator surface in `@kilnai/native` and
+   `docs/architecture/operator-surfaces.md`: reserved Electron child-view
+   region, open/takeover/input/release/resume controls, ownership-gated runtime
+   dispatch, sanitized evidence, and deterministic smoke proof.
 
 Snapshot evidence, CDP frame streams, brokered input, sanitized evidence, and
 lock semantics are useful foundations. They are not completion proof for a real
@@ -408,9 +412,9 @@ GUI viewport-frame rendering, brokered click/wheel/text/key input, gateway
 acknowledgements, sidecar input parity, local CDP screencast transport,
 CDP-backed raw key down/up dispatch, and sanitized operator evidence.
 
-The browser-foundation work has been absorbed into canonical architecture and
-guide documentation. The next completion work is now split:
+The browser-foundation, native-surface, browser-host, and product embedded
+browser surface work has been absorbed into canonical architecture and guide
+documentation. The remaining completion work is now:
 
-1. Execute `04`: build and prove the real embedded browser operator surface.
-2. Keep `05` as the broader native cockpit and projection-performance
+1. Keep `05` as the broader native cockpit and projection-performance
    experiment.

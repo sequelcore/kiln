@@ -68,10 +68,10 @@ define the active architecture contract. For doctrine, use
   including browser operation, human takeover, replay, stream authority, the
   2026-05-13 reassessment that separates snapshot monitor from real embedded
   browser, local CDP screencast as frame-stream fallback, lock/brokered input,
-  sanitized operator evidence, and the native/browser roadmap sequence now
-  split into `02` native surface foundation, `03` embedded browser host
-  capability, `04` embedded browser operator surface, and `05` native cockpit
-  projection performance.
+  sanitized operator evidence, and the native/browser sequence completed
+  through `02` native surface foundation, `03` embedded browser host
+  capability, and `04` embedded browser operator surface, with `05` native
+  cockpit projection performance still deferred.
 
 ## Supporting Reference
 

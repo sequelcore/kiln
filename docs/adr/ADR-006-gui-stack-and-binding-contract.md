@@ -14,8 +14,9 @@ native operator surface implemented in `@kilnai/native` and for the proven
 Electron `WebContentsView` embedded browser-host capability. Stable native
 doctrine lives in
 `docs/architecture/operator-surfaces.md` and
-`docs/architecture/runtime-surfaces.md`; active browser product work remains in
-`docs/roadmap/04-embedded-browser-operator-surface.md`.
+`docs/architecture/runtime-surfaces.md`; the embedded browser product surface
+now lives in `@kilnai/native` and remains governed by the same operator
+contracts.
 
 ---
 

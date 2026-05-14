@@ -32,7 +32,7 @@ body {
 }
 
 .native-panel:first-child {
-  grid-row: span 2;
+  grid-row: span 3;
 }
 
 .eyebrow {
@@ -93,4 +93,59 @@ dd {
   color: #9ee493;
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.native-browser-panel {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(320px, 1fr) auto;
+  gap: 16px;
+}
+
+.browser-surface-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.browser-surface-toolbar button {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 6px;
+  background: #151a22;
+  color: #f4f5f7;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.browser-surface-toolbar button:disabled {
+  color: #647083;
+  cursor: not-allowed;
+}
+
+.embedded-browser-region {
+  position: relative;
+  overflow: hidden;
+  min-height: 320px;
+  border: 1px solid rgba(158, 228, 147, 0.34);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(158, 228, 147, 0.12), transparent 32%),
+    #060709;
+}
+
+.embedded-browser-region span {
+  position: absolute;
+  inset: 12px auto auto 12px;
+  color: rgba(244, 245, 247, 0.68);
+  font-size: 12px;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.browser-error {
+  margin: 0;
+  color: #ff8f8f;
+  font-size: 13px;
 }

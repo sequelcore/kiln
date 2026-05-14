@@ -65,7 +65,13 @@ export function createNativeSurfaceCapabilitySnapshot(
   };
 }
 
-export function createNativeBrowserWindowOptions(): NativeBrowserWindowOptions {
+export interface NativeBrowserWindowOptionsInput {
+  readonly preload?: string;
+}
+
+export function createNativeBrowserWindowOptions(
+  input: NativeBrowserWindowOptionsInput = {},
+): NativeBrowserWindowOptions {
   return {
     width: 1280,
     height: 820,
@@ -79,6 +85,7 @@ export function createNativeBrowserWindowOptions(): NativeBrowserWindowOptions {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      ...(input.preload ? { preload: input.preload } : {}),
     },
   };
 }
