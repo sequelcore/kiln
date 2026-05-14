@@ -22,9 +22,10 @@ canonical gateway events.
   benchmark remains future work.
 - Shared GUI projection baselines, gateway-mediated cancellation target
   semantics, shared read-only cockpit projections, and the native wrapper over
-  that projection now exist; browser-rendering benchmarks, gateway attach loops,
-  native UI, Rust acceleration, and cancellation dispatch remain out of scope
-  for the next read-only prototype step.
+  that projection/action-intent contract now exist; browser-rendering
+  benchmarks, gateway attach loops, native UI, Rust acceleration, and
+  cancellation dispatch remain out of scope for the next read-only prototype
+  step.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
@@ -146,11 +147,39 @@ Deliverables:
 - Preserve fail-closed attach target validation from the shared contract.
 - Update native capability wording without claiming a rendered cockpit.
 
+### Slice 7 - Read-Only Cockpit Action Intents
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-target.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-target.test.ts`
+- `packages/gateway-contracts/README.md`
+- `packages/native/src/shared/native-cockpit-contract.ts`
+- `packages/native/tests/native-boundary.test.ts`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Define shared read-only cockpit action intents for inspect, replay,
+  focus-session, filter-events, and open-resource actions.
+- Preserve explicit target validation through existing cockpit action admission.
+- Return `dispatch: not-dispatched`; do not perform gateway, IPC, WebSocket, or
+  native process mutation.
+- Reject cancellation in read-only cockpit mode.
+- Add a native wrapper with `surfaceId`, `runtimeBoundary: gateway-contracts`,
+  and `mutationDispatch: disabled`.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
 - Passed `bun run --filter @kilnai/gateway-contracts test -- operator-surface-capability`.
 - Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-target operator-cockpit-benchmark`.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-target` after Slice 7.
 - Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-projection`.
 - Passed `bun run --filter @kilnai/gateway-contracts typecheck`.
 - Passed `bun run --filter @kilnai/gateway-contracts build`.

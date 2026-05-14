@@ -72,10 +72,10 @@ explicitly parked until their prerequisite product surface exists.
   defines precondition review, explicit target/action admission, benchmark
   fixture thresholds, shared GUI projection baselines, cancellation target
   contracts, a shared read-only cockpit projection substrate, and the native
-  wrapper over that shared projection before any native cockpit UI. Gateway
-  attach loops, cancellation dispatch, browser-rendering benchmarks, and
-  Rust/WASM/sidecar modules remain out of scope until measurement justifies
-  them.
+  wrapper over that shared projection/action-intent contract before any native
+  cockpit UI. Gateway attach loops, cancellation dispatch, browser-rendering
+  benchmarks, and Rust/WASM/sidecar modules remain out of scope until
+  measurement justifies them.
 
 ## Deferred Roadmaps
 

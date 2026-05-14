@@ -161,12 +161,17 @@ export type {
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,
   OperatorCockpitCancellationRequest,
+  OperatorCockpitReadOnlyAction,
+  OperatorCockpitReadOnlyActionIntent,
+  OperatorCockpitReadOnlyActionIntentInput,
 } from "./operator-cockpit-target.js";
 export {
   OPERATOR_COCKPIT_ACTIONS,
+  OPERATOR_COCKPIT_READ_ONLY_ACTIONS,
   OperatorCockpitActionTargetSchema,
   OperatorCockpitCancellationRequestSchema,
   createOperatorCockpitCancellationRequest,
+  createOperatorCockpitReadOnlyActionIntent,
   operatorCockpitActionAllowed,
 } from "./operator-cockpit-target.js";
 

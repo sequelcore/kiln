@@ -41,6 +41,10 @@
   surface metadata and disabled mutation dispatch, without introducing a
   cockpit UI, gateway attach loop, cancellation dispatch, or private runtime
   model.
+- Added shared and native read-only cockpit action intents. Inspect, replay,
+  focus, filter, and open-resource intents are target-checked and
+  `not-dispatched`; cancellation is rejected until gateway-mediated dispatch is
+  implemented in a later roadmap slice.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.

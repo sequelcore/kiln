@@ -14,6 +14,16 @@ export const OPERATOR_COCKPIT_ACTIONS = [
 
 export type OperatorCockpitAction = typeof OPERATOR_COCKPIT_ACTIONS[number];
 
+export const OPERATOR_COCKPIT_READ_ONLY_ACTIONS = [
+  "inspect",
+  "replay",
+  "focus_session",
+  "filter_events",
+  "open_resource",
+] as const;
+
+export type OperatorCockpitReadOnlyAction = typeof OPERATOR_COCKPIT_READ_ONLY_ACTIONS[number];
+
 export const OperatorCockpitActionTargetSchema = z.object({
   instanceId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
@@ -27,6 +37,20 @@ export type OperatorCockpitActionTarget = z.infer<typeof OperatorCockpitActionTa
 
 export interface OperatorCockpitActionAdmissionInput {
   readonly action: OperatorCockpitAction;
+  readonly target: OperatorCockpitActionTarget;
+}
+
+export interface OperatorCockpitReadOnlyActionIntentInput {
+  readonly action: OperatorCockpitAction;
+  readonly requestedAt: string;
+  readonly target: OperatorCockpitActionTarget;
+}
+
+export interface OperatorCockpitReadOnlyActionIntent {
+  readonly mode: "read-only";
+  readonly action: OperatorCockpitReadOnlyAction;
+  readonly requestedAt: string;
+  readonly dispatch: "not-dispatched";
   readonly target: OperatorCockpitActionTarget;
 }
 
@@ -48,6 +72,31 @@ export function operatorCockpitActionAllowed(
   }
 
   return false;
+}
+
+export function createOperatorCockpitReadOnlyActionIntent(
+  input: OperatorCockpitReadOnlyActionIntentInput,
+): OperatorCockpitReadOnlyActionIntent {
+  if (!isOperatorCockpitReadOnlyAction(input.action)) {
+    throw new Error(`Operator cockpit action ${input.action} is not available in read-only cockpit mode.`);
+  }
+  if (!operatorCockpitActionAllowed(input)) {
+    throw new Error(`Operator cockpit read-only action ${input.action} requires an explicit target.`);
+  }
+
+  return {
+    mode: "read-only",
+    action: input.action,
+    requestedAt: input.requestedAt,
+    dispatch: "not-dispatched",
+    target: OperatorCockpitActionTargetSchema.parse(input.target),
+  };
+}
+
+function isOperatorCockpitReadOnlyAction(
+  value: OperatorCockpitAction,
+): value is OperatorCockpitReadOnlyAction {
+  return OPERATOR_COCKPIT_READ_ONLY_ACTIONS.includes(value as OperatorCockpitReadOnlyAction);
 }
 
 export const OperatorCockpitCancellationRequestSchema = z.object({

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   OperatorCockpitCancellationRequestSchema,
   createOperatorCockpitCancellationRequest,
+  createOperatorCockpitReadOnlyActionIntent,
   operatorCockpitActionAllowed,
 } from "../src/operator-cockpit-target.js";
 
@@ -61,5 +62,49 @@ describe("operator cockpit target contract", () => {
         managedInvocationId: "child-1",
       },
     })).toThrow();
+  });
+
+  it("creates read-only action intents without dispatching gateway mutations", () => {
+    const intent = createOperatorCockpitReadOnlyActionIntent({
+      action: "replay",
+      requestedAt: "2026-05-14T12:00:00.000Z",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+        eventId: "event-1",
+      },
+    });
+
+    expect(intent).toEqual({
+      mode: "read-only",
+      action: "replay",
+      requestedAt: "2026-05-14T12:00:00.000Z",
+      dispatch: "not-dispatched",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+        eventId: "event-1",
+      },
+    });
+  });
+
+  it("rejects cancellation as a read-only action intent", () => {
+    expect(() => createOperatorCockpitReadOnlyActionIntent({
+      action: "cancel",
+      requestedAt: "2026-05-14T12:00:00.000Z",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+        managedInvocationId: "child-1",
+      },
+    })).toThrow("not available in read-only cockpit mode");
+
+    expect(() => createOperatorCockpitReadOnlyActionIntent({
+      action: "replay",
+      requestedAt: "2026-05-14T12:00:00.000Z",
+      target: {
+        instanceId: "local",
+      },
+    })).toThrow("requires an explicit target");
   });
 });

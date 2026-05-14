@@ -50,9 +50,11 @@ high-density cockpit comparison. `src/operator-cockpit-projection.ts` defines
 the shared read-only cockpit projection over canonical events and explicit
 attach targets. GUI and native must use the same synthetic event fixtures,
 shared presentation baseline, read-only instance/session/timeline/invocation/
-tool/cost projections, explicit instance/session targets, and cancellation
-request validation before any native cockpit or Rust hot-path claim is
-considered.
+tool/cost projections, explicit instance/session targets, read-only action
+intents, and cancellation request validation before any native cockpit or Rust
+hot-path claim is considered. Read-only action intents are target-checked plans
+only; they do not dispatch gateway mutations and explicitly exclude
+cancellation.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted

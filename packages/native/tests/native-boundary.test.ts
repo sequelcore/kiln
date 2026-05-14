@@ -27,6 +27,7 @@ import {
 import {
   NATIVE_COCKPIT_BENCHMARK_FIXTURES,
   createNativeCockpitPreconditionReview,
+  createNativeCockpitReadOnlyActionIntent,
   createNativeCockpitReadOnlyProjection,
   nativeCockpitActionAllowed,
 } from "../src/shared/native-cockpit-contract.js";
@@ -50,7 +51,7 @@ describe("native operator surface foundation", () => {
     expect(snapshot.capabilities).toContainEqual({
       capability: "native-cockpit-contract",
       status: "available",
-      reason: "Roadmap 05 target, precondition, benchmark, and read-only projection contracts are available.",
+      reason: "Roadmap 05 target, precondition, benchmark, read-only projection, and action-intent contracts are available.",
     });
     expect(snapshot.capabilities).toContainEqual({
       capability: "embedded-browser-host",
@@ -422,6 +423,47 @@ describe("native operator surface foundation", () => {
       attachTargets: [],
       events: fixture.events,
     })).toThrow("requires at least one attach target");
+  });
+
+  it("creates native read-only cockpit action intents without dispatching mutations", () => {
+    const intent = createNativeCockpitReadOnlyActionIntent({
+      surfaceId: "native:local",
+      action: "focus_session",
+      requestedAt: "2026-05-14T12:02:00.000Z",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+      },
+    });
+
+    expect(intent).toEqual({
+      surfaceId: "native:local",
+      runtimeBoundary: "gateway-contracts",
+      mutationDispatch: "disabled",
+      intent: {
+        mode: "read-only",
+        action: "focus_session",
+        requestedAt: "2026-05-14T12:02:00.000Z",
+        dispatch: "not-dispatched",
+        target: {
+          instanceId: "local",
+          sessionId: "session-1",
+        },
+      },
+    });
+  });
+
+  it("rejects native cancellation intents until gateway dispatch is implemented", () => {
+    expect(() => createNativeCockpitReadOnlyActionIntent({
+      surfaceId: "native:local",
+      action: "cancel",
+      requestedAt: "2026-05-14T12:02:00.000Z",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+        managedInvocationId: "child-1",
+      },
+    })).toThrow("not available in read-only cockpit mode");
   });
 
   it("defines high-density benchmark fixtures before native cockpit promotion", () => {

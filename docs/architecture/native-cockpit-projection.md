@@ -3,8 +3,9 @@
 Status: early read-only projection architecture. Roadmap 05 has target,
 precondition, benchmark-fixture, shared projection-baseline,
 cancellation-target, shared read-only cockpit projection, and native
-read-only projection wrapper contracts. No native cockpit UI, network attach
-loop, cancellation dispatch, or Rust projection kernel is promoted.
+read-only projection wrapper/action-intent contracts. No native cockpit UI,
+network attach loop, cancellation dispatch, or Rust projection kernel is
+promoted.
 
 ## Purpose
 
@@ -77,6 +78,18 @@ contract validates `instanceId`, `sessionId`, and either `workItemId` or
 `managedInvocationId` before any future surface can ask runtime to cancel
 work. The current contract does not dispatch cancellation.
 
+Read-only action intents are available for target-checked planning only:
+
+- inspect
+- replay
+- focus session
+- filter events
+- open resource
+
+They return `dispatch: not-dispatched` and reject cancellation. This lets
+surfaces wire focus, replay cursor, filtering, and resource-opening affordances
+against explicit targets before any mutating gateway action exists.
+
 ## Read-Only Projection
 
 The first Phase 2 substrate is a shared read-only cockpit projection over
@@ -108,6 +121,10 @@ The native wrapper exposes the same read-only view as
 `runtimeBoundary: gateway-contracts` with `mutationDispatch: disabled`. This
 lets the native surface prove it can consume canonical cockpit projections
 without introducing native-owned runtime truth or private dispatch behavior.
+
+The native action-intent wrapper follows the same rule. It adds `surfaceId`
+metadata and keeps `mutationDispatch: disabled`; it does not send HTTP,
+WebSocket, IPC, or native process commands.
 
 ## Benchmark Fixtures
 
@@ -152,6 +169,7 @@ Implemented:
 - shared read-only cockpit projection over canonical events and explicit attach
   targets
 - native read-only cockpit projection wrapper over the shared gateway contract
+- shared and native read-only cockpit action intents with no dispatch
 - native boundary tests proving the contract fails closed
 
 Not implemented:

@@ -7,10 +7,10 @@ Active experimental roadmap. Started on 2026-05-14 in contract-only Phase 0/1.
 Current scope is precondition review, explicit target/action admission,
 benchmark fixture definitions, shared projection baselines, cancellation target
 contracts, a shared read-only projection substrate, a native read-only
-projection wrapper, and Rust hot-path boundaries. Do not build a native cockpit
-UI, browser rendering benchmark runner, gateway attach loop, cancellation
-dispatch, or Rust/WASM/sidecar module until this contract/projection phase and
-baseline measurements justify them.
+projection wrapper, read-only action intents, and Rust hot-path boundaries. Do
+not build a native cockpit UI, browser rendering benchmark runner, gateway
+attach loop, cancellation dispatch, or Rust/WASM/sidecar module until this
+contract/projection phase and baseline measurements justify them.
 
 Do not start this program before the completed plan/goal workflow-control
 foundation has produced real high-density workloads, especially:
@@ -1088,6 +1088,10 @@ Started 2026-05-14:
 - `packages/native/src/shared/native-cockpit-contract.ts` now wraps the shared
   projection as a native read-only surface projection with disabled mutation
   dispatch and an explicit `gateway-contracts` runtime boundary.
+- `packages/gateway-contracts/src/operator-cockpit-target.ts` now defines
+  read-only action intents for inspect, replay, focus, filter, and
+  open-resource affordances. These intents are target-checked and explicitly
+  `not-dispatched`; cancellation remains outside this phase.
 
 ### Phase 1 - Contract-Only Design
 
@@ -1141,6 +1145,9 @@ Started 2026-05-14:
 - `@kilnai/native` consumes that projection through
   `createNativeCockpitReadOnlyProjection`, adding native surface metadata while
   preserving the shared gateway view and fail-closed attach target validation.
+- `@kilnai/native` consumes read-only action intents through
+  `createNativeCockpitReadOnlyActionIntent`, adding native surface metadata
+  while keeping `mutationDispatch: disabled`.
 
 ### Phase 3 - Benchmark and Compare
 
