@@ -1,6 +1,6 @@
-# 02 - Browser Operator Foundations And Snapshot Monitor
+# 01 - Browser Operator Foundations And Snapshot Monitor
 
-Status: deferred foundation track; real embedded browser moved to `03` and `04`
+Status: deferred foundation track; real embedded browser moved to `02` and `03`
 
 ## Objective
 
@@ -17,8 +17,8 @@ browser operation:
 This track does **not** complete a real embedded in-app browser. That work is
 split into:
 
-- `03-native-browser-host-decision.md`
-- `04-embedded-browser-operator-surface.md`
+- `02-native-browser-host-decision.md`
+- `03-embedded-browser-operator-surface.md`
 
 ## Current Baseline
 
@@ -97,7 +97,7 @@ As of 2026-05-13:
   boundary:** yes.
 - **Durable evidence for operator input and handoff beyond screenshots and
   ownership transitions:** yes for sanitized gateway session events.
-- **Real embedded in-app browser:** no; moved to `03` and `04`.
+- **Real embedded in-app browser:** no; moved to `02` and `03`.
 
 Therefore this track should close only as the browser-operator foundation and
 snapshot-monitor track. It must not claim completion of a real in-app browser.
@@ -147,8 +147,8 @@ The corrected target is split:
 
 - This file owns browser operator foundations, snapshot monitoring, brokered
   input, and evidence.
-- `03` owns the native browser-host decision and prototype.
-- `04` owns the real embedded in-app browser operator surface.
+- `02` owns the native browser-host decision and prototype.
+- `03` owns the real embedded in-app browser operator surface.
 
 This file is complete only through the safe browser lock baseline:
 provider-owned sessions, durable artifact-backed captures, GUI projection, and
@@ -260,7 +260,7 @@ length instead of raw text.
 Remaining acceptance gap for this foundation track: persisted evidence must
 truthfully show whether a session used snapshot monitor, CDP screencast, or a
 future embedded browser host. Completion of real embedded browser UX belongs to
-`04`.
+  `03`.
 
 ## Research Requirement
 

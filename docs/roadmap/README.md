@@ -34,6 +34,10 @@ Read the relevant architecture or guide document before using a roadmap:
   governed multimodal artifact transport, capability-aware route admission,
   transforms, managed capability delegation, provider constraints,
   cross-surface projection, and replay evidence.
+- `docs/architecture/agent-qa-showcase-recorder.md` for governed recorder
+  capture manifests, browser/computer capture evidence, auto-edit tracks,
+  voice/audio tracks, external-editor handoff, and recorder security
+  invariants.
 - `docs/architecture/tool-execution.md`,
   `docs/architecture/developer-tools.md`,
   `docs/architecture/controlled-web-research.md`,
@@ -57,36 +61,32 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-- `00.07-agent-qa-showcase-recorder.md`
-  First active product track for turning governed agent runs into real QA and
-  showcase videos. It depends on the completed multimodal artifact, capture,
-  and replay foundation documented in
-  `docs/architecture/multimodal-transport.md`, but it remains a separate
-  recorder product track.
+None. Completed programs are absorbed into canonical architecture or guide
+documentation before their roadmap files are deleted.
 
 ## Deferred Roadmaps
 
-- `01-external-benchmark-validation.md`
+- `00-external-benchmark-validation.md`
   Deferred public benchmark and governed external-validation milestone after
   the product surface stabilizes.
 
-- `02-browser-operator-foundations-and-snapshot-monitor.md`
+- `01-browser-operator-foundations-and-snapshot-monitor.md`
   Browser operator foundation track. Kiln currently has governed browser
   automation, artifact-backed Browser tab snapshots, takeover/release, brokered
   input, and evidence work here. This track must call polling screenshots a
   snapshot monitor, not a real live browser.
 
-- `03-native-browser-host-decision.md`
+- `02-native-browser-host-decision.md`
   Focused native browser-host decision track. This sits before the broad native
   operator-surface experiment because a real embedded browser requires a host
   decision before Kiln can claim in-app browser parity.
 
-- `04-embedded-browser-operator-surface.md`
-  Real embedded browser operator-surface track. Blocked on `03`; owns the
+- `03-embedded-browser-operator-surface.md`
+  Real embedded browser operator-surface track. Blocked on `02`; owns the
   product capability where the operator interacts with an actual browser view
   inside Kiln.
 
-- `05-native-operator-surface-experiment.md`
+- `04-native-operator-surface-experiment.md`
   Deferred native, GPU-accelerated operator-surface experiment for high-density
   managed-agent supervision, replay, timeline, graph, and multi-instance
   workloads.
@@ -217,25 +217,29 @@ explicitly parked until their prerequisite product surface exists.
   adapters, managed capability delegation, governed OCR/document/audio/image
   transforms, `multimodal_routed` evidence, cross-surface artifact
   normalization, and replayable resource URIs.
+- Agent QA showcase recorder completed on 2026-05-14. Stable doctrine lives in
+  `docs/architecture/agent-qa-showcase-recorder.md`. Implementation covers
+  capture manifests, governed browser raw-capture proof, transcript screenshot
+  galleries, browser WebM rendering with captions and click zooms, governed
+  Windows computer capture proof, local timeline adjustments, voice input, TTS
+  narration, microphone capture, voiceover tracks, and neutral external-editor
+  handoff artifacts for SRT, VTT, marker JSON, and editor-project metadata.
 
 ## Execution Priority
 
-1. Advance `00.07-agent-qa-showcase-recorder.md` next. It builds on completed
-   governed artifacts, capture evidence, and replay. Do not let recorder scope
-   pull the late live-browser/native tracks forward.
-2. Keep `01-external-benchmark-validation.md` deferred until the evaluated
+1. Keep `00-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
-3. Keep the late browser/native sequence deferred until the earlier foundations
-   are stable: `02` browser operator foundations, `03` native browser host,
-   `04` embedded browser operator surface, then `05` native operator surface.
-4. Keep `05-native-operator-surface-experiment.md` deferred until managed
+2. Keep the late browser/native sequence deferred until the earlier foundations
+   are stable: `01` browser operator foundations, `02` native browser host,
+   `03` embedded browser operator surface, then `04` native operator surface.
+3. Keep `04-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
 
 ## Deferred Candidates
 
-The following ideas were removed from `00.5-plan-goal-workflow-control.md` as
-active roadmap phases because they are not required to close the implemented
+The following ideas were removed from the retired plan/goal workflow-control
+roadmap as active phases because they are not required to close the implemented
 plan/goal workflow-control substrate:
 
 - `OperationalMode`
@@ -259,7 +263,7 @@ phases until there is a concrete product/runtime trigger:
   workflow, authority, routing, or evidence contracts
 
 Until one of those triggers exists, keep them as deferred candidates rather
-than extending `00.5`.
+than extending a retired roadmap.
 
 ## Rules
 

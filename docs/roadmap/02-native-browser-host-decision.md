@@ -1,4 +1,4 @@
-# 03 - Native Browser Host Decision
+# 02 - Native Browser Host Decision
 
 Status: deferred design prerequisite.
 
@@ -12,31 +12,31 @@ browser tab with reliable interaction, automation, and inspection. Iframes are
 not sufficient because target sites can block embedding and browser
 same-origin policy prevents the GUI from owning cross-origin page control.
 
-This track is narrower than `05-native-operator-surface-experiment.md`.
-Roadmap `05` remains the deferred high-density native cockpit experiment.
+This track is narrower than `04-native-operator-surface-experiment.md`.
+Roadmap `04` remains the deferred high-density native cockpit experiment.
 This file only decides the browser-host substrate needed before Kiln can claim a
 real embedded browser.
 
 ## Canonical Placement
 
 This roadmap runs after
-`02-browser-operator-foundations-and-snapshot-monitor.md` foundations and before
-`04-embedded-browser-operator-surface.md`.
+`01-browser-operator-foundations-and-snapshot-monitor.md` foundations and before
+`03-embedded-browser-operator-surface.md`.
 
 ```text
 completed multimodal transport foundation
   ->
-00.07   agent QA showcase recorder
+completed agent QA showcase recorder
   ->
-01      external benchmark validation
+00      external benchmark validation
   ->
-02      browser operator foundations and snapshot monitor
+01      browser operator foundations and snapshot monitor
   ->
-03      native browser host decision
+02      native browser host decision
   ->
-04      real embedded browser operator surface
+03      real embedded browser operator surface
   ->
-05      high-density native operator surface experiment
+04      high-density native operator surface experiment
 ```
 
 ## Candidate Hosts

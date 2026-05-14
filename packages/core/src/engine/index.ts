@@ -42,6 +42,48 @@ export type {
   ProviderModalityConstraints,
 } from "./domain/multimodal-routing.js";
 export { planMultimodalRoute } from "./domain/multimodal-routing.js";
+export type {
+  RecorderArtifactRelation,
+  RecorderArtifactTrack,
+  RecorderCaptureManifest,
+  RecorderCaptureManifestInput,
+  RecorderCaptureManifestStatus,
+  RecorderCaptureManifestTracks,
+  RecorderCaptureManifestVersion,
+  RecorderCapturePolicy,
+  RecorderCaptureSource,
+  RecorderCaptureSourceKind,
+  RecorderCaptureTarget,
+  RecorderCaptureTrackKind,
+  RecorderCaptureTransport,
+  RecorderEditKind,
+  RecorderEditTrack,
+  RecorderEvidenceKind,
+  RecorderEvidenceReference,
+  RecorderEventTrack,
+  RecorderExportFormat,
+  RecorderExportTrack,
+  RecorderRawCaptureSegment,
+  RecorderRawCaptureTrack,
+  RecorderRecordingConsent,
+  RecorderRedactionPolicy,
+  RecorderRedactionStatus,
+  RecorderReplayKind,
+  RecorderReplayTrack,
+  RecorderResourceReference,
+  RecorderResourceRelation,
+  RecorderRetentionPolicy,
+  RecorderTimeline,
+  RecorderTimelineTimebase,
+  RecorderTrackBase,
+  RecorderTrackStatus,
+  RecorderViewportRegion,
+} from "./domain/capture-manifest.js";
+export {
+  RECORDER_CAPTURE_MANIFEST_VERSION,
+  RECORDER_CAPTURE_TRACK_KINDS,
+  createRecorderCaptureManifest,
+} from "./domain/capture-manifest.js";
 export type { SttAdapter, SttResult, TtsAdapter, TtsOptions, TtsResult, VoiceConfig, SttProviderConfig, TtsProviderConfig } from "./domain/speech-config.js";
 export { validateVoiceConfig } from "./domain/speech-config.js";
 export { assembleAgentPrompt } from "./domain/prompt-assembler.js";

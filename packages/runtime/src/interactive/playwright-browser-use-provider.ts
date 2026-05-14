@@ -7,6 +7,10 @@ import type {
   InteractiveUseProviderResult,
   InteractiveUseRequest,
 } from "@kilnai/core";
+import type {
+  PlaywrightBrowserCaptureRecorder,
+  PlaywrightBrowserCaptureTransport,
+} from "./playwright-browser-capture-recorder.js";
 
 export const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
   "Playwright browser use provider is not available. Install the optional peer dependency 'playwright' in the runtime host and install a browser before enabling interactiveUse.browserProvider=playwright. For Bun: bun add -d playwright && bun x playwright install chromium.";
@@ -29,7 +33,9 @@ export interface PlaywrightBrowserUseProviderOptions {
   readonly defaultTimeoutMs?: number;
   readonly idleSessionTtlMs?: number;
   readonly artifactSink?: InteractiveArtifactSink;
+  readonly captureRecorder?: PlaywrightBrowserCaptureRecorder;
   readonly liveStream?: PlaywrightBrowserLiveStreamOptions;
+  readonly now?: () => Date;
   readonly onBrowserSessionUpdated?: (state: PlaywrightBrowserSessionState) => void | Promise<void>;
 }
 
@@ -49,7 +55,7 @@ export interface PlaywrightBrowserLiveStreamOptions {
   readonly intervalMs?: number;
 }
 
-type PlaywrightBrowserLiveViewportTransport = "snapshot-polling" | "cdp-screencast";
+type PlaywrightBrowserLiveViewportTransport = PlaywrightBrowserCaptureTransport;
 
 export interface PlaywrightBrowserSessionState {
   readonly target: "browser";
@@ -236,7 +242,9 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly defaultTimeoutMs: number;
   private readonly idleSessionTtlMs: number | undefined;
   private artifactSink?: InteractiveArtifactSink;
+  private readonly captureRecorder?: PlaywrightBrowserCaptureRecorder;
   private readonly liveStream: Required<PlaywrightBrowserLiveStreamOptions>;
+  private readonly now: () => Date;
   private onBrowserSessionUpdated?: (state: PlaywrightBrowserSessionState) => void | Promise<void>;
   private readonly sidecarRunner?: PlaywrightNodeSidecarRunner;
   private readonly sessions = new Map<string, BrowserSession>();
@@ -256,10 +264,12 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 30_000;
     this.idleSessionTtlMs = normalizeIdleSessionTtl(options.idleSessionTtlMs);
     this.artifactSink = options.artifactSink;
+    this.captureRecorder = options.captureRecorder;
     this.liveStream = {
       enabled: options.liveStream?.enabled === true,
       intervalMs: normalizeLiveStreamInterval(options.liveStream?.intervalMs),
     };
+    this.now = options.now ?? (() => new Date());
     this.onBrowserSessionUpdated = options.onBrowserSessionUpdated;
     this.sidecarRunner = options.sidecarRunner ?? (
       options.loader
@@ -273,7 +283,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
               defaultTimeoutMs: this.defaultTimeoutMs,
               idleSessionTtlMs: this.idleSessionTtlMs,
               liveStream: {
-                enabled: this.liveStream.enabled && Boolean(this.onBrowserSessionUpdated),
+                enabled: this.liveStream.enabled && Boolean(this.onBrowserSessionUpdated || this.captureRecorder),
                 intervalMs: this.liveStream.intervalMs,
               },
             }), {
@@ -287,6 +297,52 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     if (request.target !== "browser") {
       throw new Error("Playwright browser use provider only supports browser targets.");
     }
+    const startedAt = this.now().toISOString();
+    let result: InteractiveUseProviderResult;
+    try {
+      result = await this.executeBrowserRequest(request);
+    } catch (error) {
+      this.recordBrowserOperation({
+        request,
+        startedAt,
+        completedAt: this.now().toISOString(),
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+
+    const completedAt = this.now().toISOString();
+    this.recordBrowserOperation({
+      request,
+      result,
+      startedAt,
+      completedAt,
+      status: "succeeded",
+    });
+
+    if (request.operation !== "session_stop" || !this.captureRecorder) {
+      return result;
+    }
+    const sessionId = result.sessionId ?? request.sessionId;
+    if (!sessionId) {
+      return result;
+    }
+    const proof = this.captureRecorder.finalizeSession(sessionId, {
+      completedAt,
+      ...(result.observation?.title ? { title: result.observation.title } : {}),
+    });
+    return {
+      ...result,
+      resourcePayload: {
+        title: "Recorder capture proof",
+        mimeType: "application/json",
+        text: JSON.stringify(proof, null, 2),
+      },
+    };
+  }
+
+  private async executeBrowserRequest(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     if (this.sidecarRunner) {
       return this.sidecarRunner.execute(request);
     }
@@ -313,6 +369,35 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     }
   }
 
+  private recordBrowserOperation(input: {
+    readonly request: InteractiveUseRequest;
+    readonly result?: InteractiveUseProviderResult;
+    readonly startedAt: string;
+    readonly completedAt: string;
+    readonly status: "succeeded" | "failed";
+    readonly errorMessage?: string;
+  }): void {
+    if (!this.captureRecorder) {
+      return;
+    }
+    const sessionId = input.result?.sessionId ?? input.request.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    this.captureRecorder.recordBrowserOperation({
+      sessionId,
+      toolName: input.request.toolName,
+      operation: input.request.operation,
+      startedAt: input.startedAt,
+      completedAt: input.completedAt,
+      ...(input.request.action ? { action: input.request.action } : {}),
+      status: input.status,
+      ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+      ...(input.result?.observation?.url ? { url: input.result.observation.url } : {}),
+      ...(input.result?.observation?.title ? { title: input.result.observation.title } : {}),
+    });
+  }
+
   setInteractiveArtifactSink(sink: InteractiveArtifactSink | undefined): void {
     this.artifactSink = sink;
   }
@@ -330,7 +415,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       this.operatorLocks.set(session.id, {
         ...(request.operatorId ? { operatorId: request.operatorId } : {}),
         ...(request.reason ? { reason: request.reason } : {}),
-        acquiredAt: new Date().toISOString(),
+        acquiredAt: this.now().toISOString(),
       });
       try {
         const [title, screenshot] = await Promise.all([
@@ -410,10 +495,10 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         sessionId: request.sessionId,
         status: "failed" as const,
         reason: error instanceof Error ? error.message : String(error),
-        handledAt: new Date().toISOString(),
+        handledAt: this.now().toISOString(),
       }));
     }
-    const handledAt = new Date().toISOString();
+    const handledAt = this.now().toISOString();
     const session = this.sessions.get(request.sessionId);
     if (!session) {
       return {
@@ -899,7 +984,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   }
 
   private async startLiveStream(session: BrowserSession, request: InteractiveUseRequest): Promise<void> {
-    if (!this.liveStream.enabled || !this.onBrowserSessionUpdated) {
+    if (!this.liveStream.enabled || (!this.onBrowserSessionUpdated && !this.captureRecorder)) {
       return;
     }
     this.emitBrowserSessionState({
@@ -997,7 +1082,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   }
 
   private scheduleStreamCapture(session: BrowserSession, operation: InteractiveUseRequest["operation"]): void {
-    if (!this.liveStream.enabled || !this.onBrowserSessionUpdated || !this.sessions.has(session.id)) {
+    if (!this.liveStream.enabled || (!this.onBrowserSessionUpdated && !this.captureRecorder) || !this.sessions.has(session.id)) {
       return;
     }
     this.clearStreamTimer(session.id);
@@ -1060,7 +1145,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     const state: PlaywrightBrowserSessionState = {
       target: "browser",
       status: input.stream.status === "failed" ? "failed" : input.stream.status === "ended" ? "succeeded" : "running",
-      updatedAt: new Date().toISOString(),
+      updatedAt: this.now().toISOString(),
       provider: "playwright",
       sessionId: input.session.id,
       ...(input.operation ? { operation: input.operation } : {}),
@@ -1082,6 +1167,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
           }
         : {}),
     };
+    this.recordBrowserCaptureState(state);
     if (this.onBrowserSessionUpdated) {
       void Promise.resolve(this.onBrowserSessionUpdated(state)).catch(() => {});
     }
@@ -1089,12 +1175,32 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   }
 
   private forwardSidecarBrowserSessionUpdate(event: PlaywrightNodeSidecarBrowserSessionUpdateEvent): void {
-    if (!this.onBrowserSessionUpdated) {
+    if (!this.onBrowserSessionUpdated && !this.captureRecorder) {
       return;
     }
     void this.materializeSidecarBrowserSessionState(event)
-      .then((state) => this.onBrowserSessionUpdated?.(state))
+      .then((state) => {
+        this.recordBrowserCaptureState(state);
+        return this.onBrowserSessionUpdated?.(state);
+      })
       .catch(() => {});
+  }
+
+  private recordBrowserCaptureState(state: PlaywrightBrowserSessionState): void {
+    if (!this.captureRecorder || !state.latestCapture?.uri) {
+      return;
+    }
+    this.captureRecorder.recordBrowserCaptureFrame({
+      sessionId: state.sessionId,
+      capturedAt: state.updatedAt,
+      ...(state.operation ? { operation: state.operation } : {}),
+      transport: state.latestCapture.transport ?? "snapshot-polling",
+      artifactUri: state.latestCapture.uri,
+      ...(state.url ? { url: state.url } : {}),
+      ...(state.title ? { title: state.title } : {}),
+      ...(state.latestCapture.width !== undefined ? { width: state.latestCapture.width } : {}),
+      ...(state.latestCapture.height !== undefined ? { height: state.latestCapture.height } : {}),
+    });
   }
 
   private async materializeSidecarBrowserSessionState(

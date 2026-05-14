@@ -1,11 +1,11 @@
-# 05 - Native Operator Surface Experiment
+# 04 - Native Operator Surface Experiment
 
 ## Status
 
 Deferred experimental roadmap.
 
-Do not start this program before the active `00.5` workflow-control roadmap has
-produced real high-density workloads, especially:
+Do not start this program before the completed plan/goal workflow-control
+foundation has produced real high-density workloads, especially:
 
 - effective turn authority
 - model intelligence policy
@@ -39,28 +39,29 @@ It must not become:
 This file is the canonical roadmap for the deferred native operator surface
 experiment.
 
-Do not create a separate `04.5-pre-05.md` for Rust, parallelism, or simultaneous
+Do not create a separate `03.5-pre-04.md` for Rust, parallelism, or simultaneous
 session supervision.
 
 Rust hot-path optimization and parallel-work supervision belong inside this
 roadmap as experiment boundaries because they are only relevant once native
 operator workloads exist and can be measured.
 
-This roadmap depends on the active `00.5` track. It does not supersede it.
+This roadmap depends on the completed plan/goal workflow-control foundation. It
+does not supersede that canonical workflow doctrine.
 
 It also does not own the focused real embedded browser work. That work now
 lives in the late browser sequence:
 
-- `02-browser-operator-foundations-and-snapshot-monitor.md`
-- `03-native-browser-host-decision.md`
-- `04-embedded-browser-operator-surface.md`
+- `01-browser-operator-foundations-and-snapshot-monitor.md`
+- `02-native-browser-host-decision.md`
+- `03-embedded-browser-operator-surface.md`
 
 The native browser-host decision may use native shell technology earlier than
 this broad high-density cockpit experiment. That does not promote the whole
 native operator surface roadmap.
 
 ```text
-00.5
+completed plan/goal workflow-control foundation
   -> effective authority
   -> model intelligence policy
   -> goal runs
@@ -68,7 +69,7 @@ native operator surface roadmap.
   -> managed invocation
   -> traces and evidence
 
-05
+04
   -> high-density supervision of those workloads
   -> multi-session and multi-instance cockpit validation
   -> optional Rust/GPU projection acceleration
@@ -801,8 +802,9 @@ This roadmap depends on:
   Provides config projection and drift-aware runtime configuration so local,
   cloud, team, CI, GUI, native, CLI, and IDE surfaces do not invent separate
   config truth.
-- `docs/roadmap/00.5-plan-goal-workflow-control.md`
-  Provides goal runs, work items, effective authority, model intelligence
+- `docs/architecture/work-governance.md`, `docs/guides/plan-mode.md`, and
+  `docs/architecture/managed-agents.md`
+  Provide goal runs, work items, effective authority, model intelligence
   policy, managed delegation, evidence gates, and dataset-ready traces required
   before native high-density supervision can be evaluated.
 
@@ -999,8 +1001,8 @@ Benchmark reports must include:
 
 A later ADR may promote the native surface only if all are true:
 
-- `00.5` workflow control is implemented enough to generate real high-density
-  goal/work-item/managed-invocation workloads.
+- Plan/goal workflow control is implemented enough to generate real
+  high-density goal/work-item/managed-invocation workloads.
 - The web GUI remains the default universal surface.
 - Native surface demonstrates measured superiority on approved workloads.
 - Gateway/operator contracts remain the only runtime interface.
@@ -1037,7 +1039,8 @@ compatibility layers for a failed experiment without real consumers.
 
 Confirm:
 
-- `00.5` has produced real or synthetic high-density workloads
+- Plan/goal workflow control has produced real or synthetic high-density
+  workloads
 - config projection is stable enough for local/cloud/team/CI targets
 - gateway/operator contracts expose required event streams
 - GUI baseline benchmarks exist

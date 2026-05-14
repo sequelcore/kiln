@@ -1,6 +1,6 @@
-# 04 - Embedded Browser Operator Surface
+# 03 - Embedded Browser Operator Surface
 
-Status: blocked on `03-native-browser-host-decision.md`.
+Status: blocked on `02-native-browser-host-decision.md`.
 
 ## Objective
 
@@ -13,10 +13,10 @@ not a CDP screencast canvas, and not an external Chromium window.
 
 ## Dependencies
 
-- `02-browser-operator-foundations-and-snapshot-monitor.md`
+- `01-browser-operator-foundations-and-snapshot-monitor.md`
   Browser operator contracts, ownership, brokered input, snapshot monitor, and
   evidence baseline.
-- `03-native-browser-host-decision.md`
+- `02-native-browser-host-decision.md`
   Native browser host decision, prototype, security baseline, and ADR update.
 - `docs/architecture/operator-surfaces.md`
   Surface ownership and runtime ownership invariants.

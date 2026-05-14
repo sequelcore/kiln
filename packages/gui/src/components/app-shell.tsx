@@ -1519,6 +1519,7 @@ export function AppShell() {
                 activityPhase={activityPhase}
                 activityToolName={activity?.toolName}
                 activityDetails={activity?.details}
+                loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri)}
                 onApprove={(approvalId) => sendApprovalResponse(true, undefined, approvalId)}
                 onDeny={(approvalId) => sendApprovalResponse(false, undefined, approvalId)}
               />

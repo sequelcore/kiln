@@ -80,13 +80,13 @@ browser:
 
 Therefore the browser operator work is now split into three concerns:
 
-1. `02-browser-operator-foundations-and-snapshot-monitor.md`
+1. `01-browser-operator-foundations-and-snapshot-monitor.md`
    Browser operator foundations, snapshot monitor, brokered input, and
    evidence.
-2. `03-native-browser-host-decision.md`
+2. `02-native-browser-host-decision.md`
    Native browser-host decision and proof. This is narrower than the broad
-   high-density native operator-surface experiment in Roadmap 05.
-3. `04-embedded-browser-operator-surface.md`
+   high-density native operator-surface experiment in Roadmap 04.
+3. `03-embedded-browser-operator-surface.md`
    Real embedded browser operator surface.
 
 Snapshot evidence, CDP frame streams, brokered input, sanitized evidence, and

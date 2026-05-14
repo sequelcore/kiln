@@ -291,6 +291,186 @@ describe("Transcript", () => {
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
   });
 
+  it("exposes local recorder timeline controls for zoom, cut, caption, and redaction edits", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:recorder-edits",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed recorder timeline",
+            summary: "4 edit tracks",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "text",
+              title: "Recorder edit timeline",
+              summary: "4 edit tracks",
+              fields: [{ label: "Intent", value: "timeline" }],
+              presentationIntent: {
+                kind: "timeline",
+                title: "Recorder edit timeline",
+                summary: "Editable browser recorder tracks",
+                items: [
+                  {
+                    id: "edit-auto-zoom-1",
+                    timestamp: "00:01.250",
+                    label: "auto_zoom click target",
+                    status: "success",
+                    summary: "Zoom into the submit button",
+                  },
+                  {
+                    id: "edit-cut-1",
+                    timestamp: "00:04.000",
+                    label: "cut idle gap",
+                    status: "warning",
+                    summary: "Remove a 900 ms idle segment",
+                  },
+                  {
+                    id: "edit-caption-1",
+                    timestamp: "00:05.000",
+                    label: "caption: Submit the form",
+                    status: "info",
+                    summary: "Submit the form",
+                  },
+                  {
+                    id: "edit-redaction-1",
+                    timestamp: "00:06.000",
+                    label: "redaction password field",
+                    status: "warning",
+                    summary: "Mask the password field",
+                  },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const editor = screen.getByRole("region", { name: "Recorder timeline editor" });
+    const zoom = within(editor).getByRole("slider", { name: "Zoom depth for auto_zoom click target" });
+    fireEvent.change(zoom, { target: { value: "2.2" } });
+    expect(within(editor).getByText("2.2x")).toBeInTheDocument();
+
+    const cut = within(editor).getByRole("checkbox", { name: "Cut segment for cut idle gap" });
+    expect(cut).not.toBeChecked();
+    fireEvent.click(cut);
+    expect(cut).toBeChecked();
+    expect(within(editor).getByText("Cut selected")).toBeInTheDocument();
+
+    const caption = within(editor).getByRole("textbox", { name: "Caption text for caption: Submit the form" });
+    expect(caption).toHaveValue("Submit the form");
+    fireEvent.change(caption, { target: { value: "Submit and confirm" } });
+    expect(caption).toHaveValue("Submit and confirm");
+
+    const redaction = within(editor).getByRole("checkbox", { name: "Redact region for redaction password field" });
+    expect(redaction).not.toBeChecked();
+    fireEvent.click(redaction);
+    expect(redaction).toBeChecked();
+    expect(within(editor).getByText("Redaction marked")).toBeInTheDocument();
+  });
+
+  it("keeps recorder timeline adjustments scoped to their edit item", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:recorder-captions",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed recorder timeline",
+            summary: "2 captions",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "text",
+              title: "Recorder caption timeline",
+              summary: "2 caption tracks",
+              fields: [{ label: "Intent", value: "timeline" }],
+              presentationIntent: {
+                kind: "timeline",
+                title: "Recorder caption timeline",
+                items: [
+                  {
+                    id: "edit-caption-1",
+                    timestamp: "00:01.000",
+                    label: "caption: Open settings",
+                    summary: "Open settings",
+                  },
+                  {
+                    id: "edit-caption-2",
+                    timestamp: "00:02.000",
+                    label: "caption: Save changes",
+                    summary: "Save changes",
+                  },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const editor = screen.getByRole("region", { name: "Recorder timeline editor" });
+    const firstCaption = within(editor).getByRole("textbox", { name: "Caption text for caption: Open settings" });
+    const secondCaption = within(editor).getByRole("textbox", { name: "Caption text for caption: Save changes" });
+
+    fireEvent.change(firstCaption, { target: { value: "Open preferences" } });
+
+    expect(firstCaption).toHaveValue("Open preferences");
+    expect(secondCaption).toHaveValue("Save changes");
+  });
+
+  it("keeps generic timeline presentations read-only even when labels mention captions", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:generic-timeline",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed release plan",
+            summary: "2 milestones",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "text",
+              title: "Release plan timeline",
+              summary: "2 milestones",
+              fields: [{ label: "Intent", value: "timeline" }],
+              presentationIntent: {
+                kind: "timeline",
+                title: "Release plan timeline",
+                items: [
+                  {
+                    id: "milestone-caption-copy",
+                    timestamp: "Day 1",
+                    label: "caption copy review",
+                    summary: "Review marketing captions before launch",
+                  },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    expect(screen.getByText("caption copy review")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Recorder timeline editor" })).not.toBeInTheDocument();
+  });
+
   it("renders resource-linked tool presentations without fake inspector actions", () => {
     render(
       <Transcript
@@ -418,6 +598,70 @@ describe("Transcript", () => {
     expect(screen.getByText("kiln://artifacts/browser-debug/artifact_3/content")).toBeInTheDocument();
     expect(screen.queryByText(/data:image/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
+  });
+
+  it("loads browser screenshot resource links into inspectable transcript previews", async () => {
+    const screenshotUri = "kiln://artifacts/interactive-screenshots/artifact_1/content";
+    const screenshotDataUrl = "data:image/png;base64,a2lsbg==";
+    const loadResourceDataUrl = vi.fn(async (uri: string) => (uri === screenshotUri ? screenshotDataUrl : null));
+
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:browser-preview",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed browser_observe",
+            summary: "Capture 1: Example Domain",
+            tone: "success",
+            details: {
+              result: "observe: https://example.com",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "image",
+              title: "Browser screenshots",
+              summary: "Capture 1: Example Domain",
+              fields: [
+                { label: "URL", value: "https://example.com" },
+                { label: "Session", value: "browser-1" },
+              ],
+              resourceLinks: [
+                {
+                  uri: screenshotUri,
+                  title: "browser_observe screenshot",
+                  mimeType: "image/png",
+                  size: 1234,
+                  relation: "snapshot",
+                  label: "Capture 1",
+                  sequence: 1,
+                },
+                {
+                  uri: "kiln://artifacts/browser-debug/artifact_2/content",
+                  title: "browser diagnostic payload",
+                  mimeType: "application/json",
+                  size: 456,
+                  relation: "full_output",
+                },
+              ],
+              raw: { available: true },
+            },
+          },
+        ]}
+        loadResourceDataUrl={loadResourceDataUrl}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const preview = await screen.findByRole("img", { name: "Browser screenshot Capture 1" });
+    expect(preview).toHaveAttribute("src", screenshotDataUrl);
+    expect(loadResourceDataUrl).toHaveBeenCalledTimes(1);
+    expect(loadResourceDataUrl).toHaveBeenCalledWith(screenshotUri);
+    expect(screen.getByText(screenshotUri)).toBeInTheDocument();
+    expect(screen.getByText("kiln://artifacts/browser-debug/artifact_2/content")).toBeInTheDocument();
   });
 
   it("renders read and tree tool presentations without JSON envelopes", () => {

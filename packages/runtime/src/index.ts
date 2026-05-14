@@ -118,6 +118,73 @@ export type {
   PlaywrightBrowserUseProviderOptions,
 } from "./interactive/playwright-browser-use-provider.js";
 export {
+  PlaywrightBrowserCaptureRecorder,
+} from "./interactive/playwright-browser-capture-recorder.js";
+export type {
+  PlaywrightBrowserExternalEditorExportOptions,
+  PlaywrightBrowserExternalEditorExportProof,
+  PlaywrightBrowserCaptureFrameInput,
+  PlaywrightBrowserCaptureProof,
+  PlaywrightBrowserCaptureRecorderOptions,
+  PlaywrightBrowserCaptureTransport,
+  PlaywrightBrowserOperationInput,
+  PlaywrightBrowserOperationStatus,
+  PlaywrightBrowserRenderProof,
+  PlaywrightBrowserRenderVideoOptions,
+} from "./interactive/playwright-browser-capture-recorder.js";
+export {
+  RecorderExternalEditorExporter,
+} from "./interactive/recorder-external-editor-exporter.js";
+export type {
+  RecorderExternalEditorExporterOptions,
+  RecorderExternalEditorExportInput,
+  RecorderExternalEditorExportResult,
+} from "./interactive/recorder-external-editor-exporter.js";
+export {
+  WindowsComputerCaptureRecorder,
+} from "./interactive/windows-computer-capture-recorder.js";
+export type {
+  WindowsComputerCaptureProof,
+  WindowsComputerCaptureRecorderOptions,
+  WindowsComputerCaptureTransport,
+  WindowsComputerOperationInput,
+  WindowsComputerOperationStatus,
+} from "./interactive/windows-computer-capture-recorder.js";
+export {
+  RecorderVoiceTrackRecorder,
+} from "./interactive/recorder-voice-track.js";
+export type {
+  RecorderMicrophoneCaptureArtifactOptions,
+  RecorderMicrophoneCaptureOptions,
+  RecorderMicrophoneCaptureRecord,
+  RecorderTtsNarrationOptions,
+  RecorderTtsNarrationRecord,
+  RecorderVoiceInputMode,
+  RecorderVoiceInputOptions,
+  RecorderVoiceInputRecord,
+  RecorderVoiceTrackProof,
+  RecorderVoiceTrackRecorderOptions,
+} from "./interactive/recorder-voice-track.js";
+export {
+  createPlaywrightBrowserVideoEncoder,
+  createPlaywrightBrowserVideoRenderer,
+  renderPlaywrightBrowserVideo,
+} from "./interactive/playwright-browser-video-renderer.js";
+export type {
+  BrowserVideoEncoder,
+  BrowserVideoEncoderFrame,
+  BrowserVideoEncoderInput,
+  BrowserVideoEncoderResult,
+  BrowserVideoOperationEvent,
+  BrowserVideoOutputOptions,
+  BrowserVideoSourceFrame,
+  PlaywrightBrowserVideoRenderInput,
+  PlaywrightBrowserVideoRenderer,
+  PlaywrightBrowserVideoRenderResult,
+  PlaywrightVideoEncoderModule,
+  PlaywrightVideoEncoderOptions,
+} from "./interactive/playwright-browser-video-renderer.js";
+export {
   NUT_JS_COMPUTER_USE_MISSING_DEPENDENCY_MESSAGE,
   WindowsComputerUseProvider,
 } from "./interactive/windows-computer-use-provider.js";

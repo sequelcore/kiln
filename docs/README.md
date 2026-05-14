@@ -35,6 +35,7 @@ Start here for Kiln identity and system design:
 - [Coordination](architecture/coordination.md)
 - [Managed Agents](architecture/managed-agents.md)
 - [Tool Execution](architecture/tool-execution.md)
+- [Agent QA Showcase Recorder](architecture/agent-qa-showcase-recorder.md)
 - [Adaptation](architecture/adaptation.md)
 - [Invariants](architecture/invariants.md)
 

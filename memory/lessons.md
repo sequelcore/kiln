@@ -18,3 +18,7 @@
   wrappers for incomplete internal contracts unless an external published API
   requires them. Replace the contract and update every in-repo call site in the
   same slice so the codebase keeps one canonical path.
+- For Kiln roadmap closeout, completion means more than marking slices done:
+  move stable doctrine into canonical architecture or guide docs, delete the
+  retired roadmap file, compact remaining roadmap numbering, and update
+  references before calling the track closed.

@@ -11,6 +11,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Termin
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 import { MessageRow } from "./message-row.js";
+import { TranscriptTimelineEditor } from "./transcript-timeline-editor.js";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,6 +22,7 @@ interface TranscriptProps {
   readonly activityPhase?: ActivityPhase;
   readonly activityToolName?: string;
   readonly activityDetails?: string;
+  readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
   readonly onApprove?: (approvalId: string) => void;
   readonly onDeny?: (approvalId: string) => void;
 }
@@ -201,18 +203,21 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
 
   if (props.intent.kind === "timeline") {
     return (
-      <ol className="mt-2 flex flex-col gap-2">
-        {props.intent.items.map((item, index) => (
-          <li key={item.id ?? `${index}:${item.label}`} className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="font-mono text-[10px] text-muted-foreground">{item.timestamp ?? item.order ?? index + 1}</span>
-              {item.status ? <Badge variant="outline" className="shrink-0">{item.status}</Badge> : null}
-              <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-foreground">{item.label}</p>
-            </div>
-            {item.summary ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{item.summary}</p> : null}
-          </li>
-        ))}
-      </ol>
+      <>
+        <TranscriptTimelineEditor intent={props.intent} />
+        <ol className="mt-2 flex flex-col gap-2">
+          {props.intent.items.map((item, index) => (
+            <li key={item.id ?? `${index}:${item.label}`} className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="font-mono text-[10px] text-muted-foreground">{item.timestamp ?? item.order ?? index + 1}</span>
+                {item.status ? <Badge variant="outline" className="shrink-0">{item.status}</Badge> : null}
+                <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-foreground">{item.label}</p>
+              </div>
+              {item.summary ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{item.summary}</p> : null}
+            </li>
+          ))}
+        </ol>
+      </>
     );
   }
 
@@ -255,7 +260,10 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
   return null;
 }
 
-function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEntry }) {
+function ToolResultPresentationDetails(props: {
+  readonly entry: TimelineEventEntry;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
   const presentation = props.entry.toolPresentation;
   if (!presentation) return null;
   const previewLabel = {
@@ -285,7 +293,10 @@ function ToolResultPresentationDetails(props: { readonly entry: TimelineEventEnt
       ) : null}
       {isBrowserCapturePresentation(presentation) ? (
         <>
-          <BrowserCaptureGallery resources={presentation.resourceLinks ?? []} />
+          <BrowserCaptureGallery
+            resources={presentation.resourceLinks ?? []}
+            loadResourceDataUrl={props.loadResourceDataUrl}
+          />
           {presentation.resourceLinks
             ?.filter((resource) => resource.relation !== "snapshot")
             .map((resource) => (
@@ -337,42 +348,99 @@ function ResourceLinkCard(props: {
 
 function BrowserCaptureGallery(props: {
   readonly resources: NonNullable<NonNullable<TimelineEventEntry["toolPresentation"]>["resourceLinks"]>;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   const captures = props.resources.filter((resource) => resource.relation === "snapshot");
+  const [previewDataUrls, setPreviewDataUrls] = useState<Record<string, string | null>>({});
+  const loadingCaptureUrisRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const loadableCaptureUris = props.resources
+      .filter((resource) => (
+        resource.relation === "snapshot"
+        && (resource.mimeType === undefined || resource.mimeType.toLowerCase().startsWith("image/"))
+      ))
+      .map((resource) => resource.uri);
+    if (!props.loadResourceDataUrl || loadableCaptureUris.length === 0) return;
+    let cancelled = false;
+    const loadingCaptureUris = loadingCaptureUrisRef.current;
+    for (const uri of loadableCaptureUris) {
+      if (Object.prototype.hasOwnProperty.call(previewDataUrls, uri)) continue;
+      if (loadingCaptureUris.has(uri)) continue;
+      loadingCaptureUris.add(uri);
+      props.loadResourceDataUrl(uri)
+        .then((dataUrl) => {
+          if (cancelled) return;
+          setPreviewDataUrls((current) => {
+            const nextDataUrl = dataUrl ?? null;
+            return current[uri] === nextDataUrl ? current : { ...current, [uri]: nextDataUrl };
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setPreviewDataUrls((current) => (
+            Object.prototype.hasOwnProperty.call(current, uri) ? current : { ...current, [uri]: null }
+          ));
+        })
+        .finally(() => {
+          loadingCaptureUris.delete(uri);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [previewDataUrls, props.loadResourceDataUrl, props.resources]);
+
   return (
     <div role="list" aria-label="Browser screenshot captures" className="grid gap-2 sm:grid-cols-2">
-      {captures.map((resource, index) => (
-        <div
-          key={resource.uri}
-          role="listitem"
-          className="min-w-0 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <p className="truncate text-sm font-semibold text-foreground">
-              {resource.label ?? (resource.sequence !== undefined ? `Capture ${resource.sequence}` : `Capture ${index + 1}`)}
-            </p>
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-              {resource.mimeType ?? "image"}
-            </span>
+      {captures.map((resource, index) => {
+        const captureLabel = resource.label ?? (resource.sequence !== undefined ? `Capture ${resource.sequence}` : `Capture ${index + 1}`);
+        const previewDataUrl = previewDataUrls[resource.uri] ?? null;
+        return (
+          <div
+            key={resource.uri}
+            role="listitem"
+            className="min-w-0 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
+          >
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <p className="truncate text-sm font-semibold text-foreground">
+                {captureLabel}
+              </p>
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                {resource.mimeType ?? "image"}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{resource.title ?? "Browser screenshot"}</p>
+            {previewDataUrl ? (
+              <div className="mt-2 aspect-video w-full overflow-hidden rounded-md border border-border bg-muted/30">
+                <img
+                  src={previewDataUrl}
+                  alt={`Browser screenshot ${captureLabel}`}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            ) : null}
+            <p className="mt-2 break-all font-mono text-[11px] leading-5 text-muted-foreground">{resource.uri}</p>
+            {resource.size !== undefined ? (
+              <p className="mt-1 text-[11px] text-muted-foreground">{resource.size} bytes</p>
+            ) : null}
           </div>
-          <p className="mt-1 truncate text-xs text-muted-foreground">{resource.title ?? "Browser screenshot"}</p>
-          <p className="mt-2 break-all font-mono text-[11px] leading-5 text-muted-foreground">{resource.uri}</p>
-          {resource.size !== undefined ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">{resource.size} bytes</p>
-          ) : null}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function ToolEventDetails(props: { readonly entry: TimelineEventEntry }) {
+function ToolEventDetails(props: {
+  readonly entry: TimelineEventEntry;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
   const presentationDetails = filterTranscriptToolDetails(props.entry.presentationDetails ?? []);
   if (props.entry.toolPresentation) {
     return (
       <>
         <MetaList items={presentationDetails} />
-        <ToolResultPresentationDetails entry={props.entry} />
+        <ToolResultPresentationDetails entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
       </>
     );
   }
@@ -524,12 +592,16 @@ function canRenderEventDetails(entry: TimelineEventEntry): boolean {
   }
 }
 
-function EventDetails(props: { readonly entry: TimelineEventEntry; readonly open: boolean }) {
+function EventDetails(props: {
+  readonly entry: TimelineEventEntry;
+  readonly open: boolean;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
   if (!props.open) return null;
   switch (props.entry.eventKind) {
     case "tool_call_started":
     case "tool_call_completed":
-      return <ToolEventDetails entry={props.entry} />;
+      return <ToolEventDetails entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />;
     case "approval_requested":
     case "approval_resolved":
       return <ApprovalEventDetails entry={props.entry} />;
@@ -582,6 +654,7 @@ function toolEventTooltipText(entry: TimelineEventEntry): string {
 
 function ToolEventCard(props: {
   readonly entry: TimelineEventEntry;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
   readonly nested?: boolean;
 }) {
   const [open, setOpen] = useState(() => shouldAutoOpenToolEventDetails(props.entry));
@@ -650,29 +723,40 @@ function ToolEventCard(props: {
       </div>
       {open ? (
         <div className="mt-3 max-w-[min(36rem,100%)]">
-          <EventDetails entry={props.entry} open={open} />
+          <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
         </div>
       ) : null}
     </div>
   );
 }
 
-function InlineToolEventRow(props: { readonly entry: TimelineEventEntry }) {
+function InlineToolEventRow(props: {
+  readonly entry: TimelineEventEntry;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
   return (
     <article data-role="tool" className="mx-auto flex w-full max-w-3xl justify-start px-1">
       <div className="flex min-w-0 max-w-[min(42rem,94%)] flex-1 gap-2">
         <span className="mt-2 h-auto w-px shrink-0 rounded-full bg-border" aria-hidden="true" />
-        <ToolEventCard entry={props.entry} />
+        <ToolEventCard entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
       </div>
     </article>
   );
 }
 
-function AssistantToolEventStack(props: { readonly entries: readonly TimelineEventEntry[] }) {
+function AssistantToolEventStack(props: {
+  readonly entries: readonly TimelineEventEntry[];
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
   return (
     <div data-testid="assistant-tool-events" className="flex flex-col gap-2">
       {props.entries.map((entry) => (
-        <ToolEventCard key={entry.id} entry={entry} nested />
+        <ToolEventCard
+          key={entry.id}
+          entry={entry}
+          loadResourceDataUrl={props.loadResourceDataUrl}
+          nested
+        />
       ))}
     </div>
   );
@@ -680,6 +764,7 @@ function AssistantToolEventStack(props: { readonly entries: readonly TimelineEve
 
 function TimelineEventRow(props: {
   readonly entry: TimelineEventEntry;
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   const [open, setOpen] = useState(false);
   const toneClasses: Record<TimelineEventEntry["tone"], string> = {
@@ -727,7 +812,7 @@ function TimelineEventRow(props: {
           </Button>
         ) : null}
       </header>
-      <EventDetails entry={props.entry} open={open} />
+      <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
     </article>
   );
 }
@@ -808,6 +893,7 @@ function AssistantActivityRow(props: {
   readonly toolName?: string;
   readonly details?: string;
   readonly toolEvents?: readonly TimelineEventEntry[];
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   return (
     <article data-role="assistant" className="mx-auto flex w-full max-w-3xl justify-start">
@@ -817,7 +903,10 @@ function AssistantActivityRow(props: {
         </header>
         {props.toolEvents && props.toolEvents.length > 0 ? (
           <div className="mb-2">
-            <AssistantToolEventStack entries={props.toolEvents} />
+            <AssistantToolEventStack
+              entries={props.toolEvents}
+              loadResourceDataUrl={props.loadResourceDataUrl}
+            />
           </div>
         ) : null}
         <ActivityPhaseIndicator
@@ -892,6 +981,7 @@ function renderTranscriptEntries(
   entries: readonly TimelineEntry[],
   onApprove: TranscriptProps["onApprove"],
   onDeny: TranscriptProps["onDeny"],
+  loadResourceDataUrl: TranscriptProps["loadResourceDataUrl"],
   activity?: {
     readonly phase: ActivityPhase;
     readonly toolName?: string;
@@ -921,8 +1011,8 @@ function renderTranscriptEntries(
         return <ApprovalEventRow key={entry.id} entry={entry} onApprove={onApprove} onDeny={onDeny} />;
       }
       return isToolEvent(entry)
-        ? <InlineToolEventRow key={entry.id} entry={entry} />
-        : <TimelineEventRow key={entry.id} entry={entry} />;
+        ? <InlineToolEventRow key={entry.id} entry={entry} loadResourceDataUrl={loadResourceDataUrl} />
+        : <TimelineEventRow key={entry.id} entry={entry} loadResourceDataUrl={loadResourceDataUrl} />;
     }
     if (item.kind === "activity") {
       return (
@@ -932,6 +1022,7 @@ function renderTranscriptEntries(
           toolName={item.toolName}
           details={item.details}
           toolEvents={eventEntries(item.eventIds)}
+          loadResourceDataUrl={loadResourceDataUrl}
         />
       );
     }
@@ -941,8 +1032,18 @@ function renderTranscriptEntries(
       <MessageRow
         key={entry.id}
         message={entry.message}
-        beforeContent={item.beforeEventIds.length > 0 ? <AssistantToolEventStack entries={eventEntries(item.beforeEventIds)} /> : undefined}
-        afterContent={item.afterEventIds.length > 0 ? <AssistantToolEventStack entries={eventEntries(item.afterEventIds)} /> : undefined}
+        beforeContent={item.beforeEventIds.length > 0 ? (
+          <AssistantToolEventStack
+            entries={eventEntries(item.beforeEventIds)}
+            loadResourceDataUrl={loadResourceDataUrl}
+          />
+        ) : undefined}
+        afterContent={item.afterEventIds.length > 0 ? (
+          <AssistantToolEventStack
+            entries={eventEntries(item.afterEventIds)}
+            loadResourceDataUrl={loadResourceDataUrl}
+          />
+        ) : undefined}
       />
     );
   });
@@ -1001,6 +1102,7 @@ export function Transcript(props: TranscriptProps) {
             props.entries,
             props.onApprove,
             props.onDeny,
+            props.loadResourceDataUrl,
             showAssistantActivity
               ? {
                   phase: props.activityPhase!,

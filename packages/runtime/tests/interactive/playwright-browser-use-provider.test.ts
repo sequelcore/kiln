@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryArtifactResourceStore } from "@kilnai/core";
+import { PlaywrightBrowserCaptureRecorder } from "../../src/interactive/playwright-browser-capture-recorder.js";
 import {
   PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE,
   PlaywrightBrowserUseProvider,
@@ -318,6 +320,124 @@ describe("PlaywrightBrowserUseProvider", () => {
 
     expect(events).toContain("cdp.send:Page.stopScreencast");
     expect(events).toContain("cdp.detach");
+  });
+
+  it("finalizes a recorder manifest from live CDP frames and browser operation timing", async () => {
+    const events: string[] = [];
+    const cdp = fakeCdpSession(events);
+    const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-14T10:00:05.000Z" });
+    const captureRecorder = new PlaywrightBrowserCaptureRecorder({ artifactStore });
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(fakePage(events), events, { cdp }),
+      allowedDomains: ["example.com"],
+      liveStream: {
+        enabled: true,
+        intervalMs: 25,
+      },
+      onBrowserSessionUpdated() {},
+      captureRecorder,
+      artifactSink: {
+        async writeInteractiveArtifact(input) {
+          const artifact = artifactStore.put({
+            namespace: "interactive-screenshots",
+            title: "Live browser screenshot",
+            mimeType: input.mimeType,
+            content: { type: "blob", blob: Buffer.from(input.content).toString("base64") },
+            producer: { kind: "tool", name: "browser_observe" },
+            retention: { scope: "session", maxArtifacts: 50 },
+          });
+          return `kiln://artifacts/${artifact.namespace}/${artifact.id}/content`;
+        },
+      },
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      sessionId: "browser-recorder",
+      url: "https://example.com/start",
+      input: {
+        sessionId: "browser-recorder",
+        url: "https://example.com/start",
+      },
+    });
+    await cdp.emitScreencastFrame({
+      data: Buffer.from([4, 5, 6]).toString("base64"),
+      sessionId: 7,
+      metadata: {
+        deviceWidth: 1440,
+        deviceHeight: 900,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await provider.execute({
+      toolName: "browser_click",
+      target: "browser",
+      operation: "click",
+      sessionId: "browser-recorder",
+      action: { type: "click", selector: "#submit" },
+      input: { sessionId: "browser-recorder", target: { selector: "#submit" } },
+    });
+
+    const stopResult = await provider.execute({
+      toolName: "browser_session_stop",
+      target: "browser",
+      operation: "session_stop",
+      sessionId: "browser-recorder",
+      input: { sessionId: "browser-recorder" },
+    });
+
+    expect(stopResult.resourcePayload).toMatchObject({
+      mimeType: "application/json",
+      title: "Recorder capture proof",
+    });
+    const proof = JSON.parse(stopResult.resourcePayload!.text) as {
+      readonly manifestUri: string;
+      readonly rawCaptureEvidenceUri: string;
+      readonly eventTrackUri: string;
+    };
+    const rawEvidence = readJsonArtifact(artifactStore, proof.rawCaptureEvidenceUri);
+    expect(rawEvidence.frames).toEqual([
+      expect.objectContaining({
+        sessionId: "browser-recorder",
+        operation: "session_start",
+        transport: "cdp-screencast",
+        width: 1440,
+        height: 900,
+      }),
+    ]);
+
+    const eventTrack = readJsonArtifact(artifactStore, proof.eventTrackUri) as {
+      readonly events: readonly { readonly toolName: string }[];
+    };
+    expect(eventTrack.events.map((event) => event.toolName)).toEqual([
+      "browser_session_start",
+      "browser_click",
+      "browser_session_stop",
+    ]);
+
+    const manifest = readJsonArtifact(artifactStore, proof.manifestUri) as {
+      readonly tracks: {
+        readonly rawCapture: readonly unknown[];
+        readonly events: readonly { readonly resource: { readonly uri: string } }[];
+      };
+    };
+    expect(manifest.tracks.rawCapture[0]).toMatchObject({
+      source: {
+        kind: "browser_session",
+        target: "browser",
+        sessionId: "browser-recorder",
+      },
+      capture: {
+        transport: "frame-stream",
+        resource: {
+          uri: proof.rawCaptureEvidenceUri,
+          relation: "raw_capture",
+        },
+      },
+    });
+    expect(manifest.tracks.events[0].resource.uri).toBe(proof.eventTrackUri);
   });
 
   it("cleans up the CDP session and falls back to polling when screencast start fails", async () => {
@@ -958,4 +1078,16 @@ function fakePage(
       },
     },
   };
+}
+
+function readJsonArtifact(artifactStore: MemoryArtifactResourceStore, uri: string): Record<string, unknown> {
+  const match = /^kiln:\/\/artifacts\/([^/]+)\/([^/]+)\/content$/u.exec(uri);
+  if (!match) {
+    throw new Error(`Unexpected artifact URI: ${uri}`);
+  }
+  const artifact = artifactStore.get(match[1]!, match[2]!);
+  if (!artifact || artifact.content.type !== "json") {
+    throw new Error(`Expected JSON artifact: ${uri}`);
+  }
+  return artifact.content.value as Record<string, unknown>;
 }

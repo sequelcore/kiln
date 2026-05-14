@@ -93,6 +93,11 @@ is documented by concern, not as a single monolith.
   governed transforms, managed capability delegation, provider serialization
   constraints, cross-surface projection, and replay evidence.
 
+- `agent-qa-showcase-recorder.md`
+  Canonical recorder architecture for governed QA/showcase capture manifests,
+  browser/computer capture evidence, auto-edit tracks, voice/audio, external
+  editor handoff, and recorder security invariants.
+
 - `provider-credential-pools.md`
   Provider credential rotation, cooldown, runtime credential sources,
   cross-process reload, health snapshots, and secret-free observability.
