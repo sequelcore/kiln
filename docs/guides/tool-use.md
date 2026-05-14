@@ -717,10 +717,27 @@ operator can inspect the visual state with the action that caused it. The
 dynamic Browser tab is a focused latest-snapshot and live-stream projection,
 not the only inspection path. The primary sidebar remains for stable workbench
 destinations; browser sessions appear in tabs only when the agent is using one.
-The GUI can request operator takeover or release for a live browser session.
+Call the Browser tab a snapshot monitor when it is showing artifact-backed
+polling frames. Call it a frame stream when it is showing CDP screencast or a
+future remote stream. Do not call either mode an embedded browser. If
+`interactiveUse.browserEnvironment` is `isolated-headed`, a separate visible
+Chromium window is expected; that window is governed by Kiln but it is still
+outside the operator app.
+
+The GUI can request operator takeover or release for a browser session.
 Takeover is a provider-owned lock: agent browser mutations are blocked while
-ownership is `operator`, and release captures a fresh artifact-backed
-observation before agent actions resume. It is not raw embedded-browser input.
+ownership is `operator`. During that window, GUI sends viewport-relative
+pointer, wheel, text, and key intents through `browser_operator_input`; runtime
+and provider code validate the active session before accepting or rejecting the
+input. Release captures a fresh artifact-backed observation before agent
+actions resume.
+
+Browser evidence is durable but bounded. Persisted evidence should identify
+the browser session, ownership transitions, input summaries or
+acknowledgements, fresh observations, artifact links, and the active transport
+such as `snapshot-polling` or `cdp-screencast`. Text input evidence records
+text length rather than raw text. CLI, TUI, SDK, and replay surfaces may
+degrade browser monitoring to status plus resource links.
 
 Computer use should target explicit allowed applications instead of requiring
 the operator to manually focus the right window first. Pass `application` and,

@@ -80,9 +80,9 @@ browser:
 
 Therefore the browser operator work is now split into three concerns:
 
-1. `01-browser-operator-foundations-and-snapshot-monitor.md`
-   Browser operator foundations, snapshot monitor, brokered input, and
-   evidence.
+1. Completed browser operator foundations in
+   `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`:
+   snapshot monitor, frame-stream fallback, brokered input, and evidence.
 2. `02-native-browser-host-decision.md`
    Native browser-host decision and proof. This is narrower than the broad
    high-density native operator-surface experiment in Roadmap 04.
@@ -378,11 +378,10 @@ GUI viewport-frame rendering, brokered click/wheel/text/key input, gateway
 acknowledgements, sidecar input parity, local CDP screencast transport,
 CDP-backed raw key down/up dispatch, and sanitized operator evidence.
 
-The next completion work is now split:
+The browser-foundation work has been absorbed into canonical architecture and
+guide documentation. The next completion work is now split:
 
-1. Finish `02` by making snapshot monitor semantics and durable transport
-   evidence truthful across GUI/replay.
-2. Execute `03`: decide and prove the native browser host, including any
+1. Execute `02`: decide and prove the native browser host, including any
    ADR-006 amendment.
-3. Execute `04`: build and prove the real embedded browser operator
-   surface.
+2. Execute `03`: build and prove the real embedded browser operator surface.
+3. Keep `04` as the broader native high-density operator surface experiment.

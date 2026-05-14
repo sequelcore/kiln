@@ -45,6 +45,9 @@ Read the relevant architecture or guide document before using a roadmap:
   `docs/architecture/shared-tooling-intelligence.md`, and
   `docs/architecture/provider-model-discovery.md` for provider, tool, MCP, and
   model-discovery work.
+- `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md` for
+  browser operator foundations, snapshot monitoring, frame-stream fallback,
+  takeover/release, brokered browser input, and durable browser evidence.
 - `docs/architecture/operator-surfaces.md`, `docs/guides/gui-parity.md`, and
   `docs/guides/tui-maintenance.md` for GUI, TUI, CLI, IDE, desktop, and remote
   operator surfaces, including presentation-intent doctrine.
@@ -68,12 +71,6 @@ None. Completed programs are absorbed into canonical architecture or guide
 documentation before their roadmap files are deleted.
 
 ## Deferred Roadmaps
-
-- `01-browser-operator-foundations-and-snapshot-monitor.md`
-  Browser operator foundation track. Kiln currently has governed browser
-  automation, artifact-backed Browser tab snapshots, takeover/release, brokered
-  input, and evidence work here. This track must call polling screenshots a
-  snapshot monitor, not a real live browser.
 
 - `02-native-browser-host-decision.md`
   Focused native browser-host decision track. This sits before the broad native
@@ -230,12 +227,21 @@ documentation before their roadmap files are deleted.
   structural scorers, BFCL/AgentDojo/tau projection adapters, benchmark CLI
   commands, public report generation, and the blocked coding-benchmark decision
   for SWE-bench-style tracks.
+- Browser operator foundations and snapshot monitor completed on 2026-05-14.
+  Stable doctrine lives in `docs/architecture/developer-tools.md`; operator
+  usage lives in `docs/guides/tool-use.md`. Implementation covers governed
+  browser session state, artifact-backed observations, transcript screenshot
+  galleries, Browser tab snapshot and frame-stream projection,
+  takeover/release ownership, brokered pointer/wheel/text/key input,
+  provider-side mutation blocking while the operator owns the session, fresh
+  post-release observations, sanitized browser operator evidence, and explicit
+  transport labels for `snapshot-polling` and `cdp-screencast`.
 
 ## Execution Priority
 
-1. Keep the late browser/native sequence deferred until the earlier foundations
-   are stable: `01` browser operator foundations, `02` native browser host,
-   `03` embedded browser operator surface, then `04` native operator surface.
+1. Keep the late browser/native sequence deferred until the native browser host
+   is decided: `02` native browser host, `03` embedded browser operator surface,
+   then `04` native operator surface.
 2. Keep `04-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.

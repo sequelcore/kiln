@@ -411,6 +411,34 @@ snapshot projection of the governed browser session, not the only inspection
 path. A live embedded or streamed browser viewport is a separate roadmap track,
 not the current tab contract.
 
+Browser session state is runtime-owned. Gateway frames may project
+`browser_session_updated`, `browser_live_viewport_frame`,
+`browser_session_control`, `browser_operator_input`, and
+`browser_operator_input_ack`, but those frames do not transfer browser
+authority to GUI. GUI sends typed operator intents such as pointer, wheel,
+text, or key input; runtime validates session identity, ownership, provider
+state, policy, and viewport bounds before dispatching through the active
+provider. While ownership is `operator`, agent browser mutations fail closed.
+Release returns ownership to the agent only after the provider captures a fresh
+artifact-backed observation.
+
+Browser viewport projections use explicit transport labels. `snapshot-polling`
+means artifact-backed observation or monitor frames. `cdp-screencast` means a
+local Chromium frame stream produced through Playwright/Chrome DevTools
+Protocol. Future transports such as `webrtc`, `hosted-url`, or an embedded
+host must be represented as transport evidence rather than hidden behind a
+generic "live" label. Snapshot polling and CDP screencast are useful monitor
+and diagnostic transports; they are not a real embedded browser. A true
+in-app browser requires a native browser host that is selected and proven by
+the dedicated browser-host roadmap.
+
+Operator browser evidence is sanitized. Takeover, release, and input
+acknowledgement events may be persisted as session evidence, but raw text input
+must not be stored in transcript payloads. Text input evidence records length
+and acknowledgement status, while durable replay relies on observation
+artifacts, transport labels, ownership transitions, input summaries, and
+recording or trace resources.
+
 Agents should call `browser_session_stop` before their final answer for one-off
 browser tasks. Runtime providers also enforce an idle-session TTL as a cleanup
 backstop so forgotten Playwright sessions do not accumulate, while explicit

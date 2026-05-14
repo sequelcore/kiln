@@ -13,9 +13,9 @@ not a CDP screencast canvas, and not an external Chromium window.
 
 ## Dependencies
 
-- `01-browser-operator-foundations-and-snapshot-monitor.md`
-  Browser operator contracts, ownership, brokered input, snapshot monitor, and
-  evidence baseline.
+- `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`
+  Browser operator contracts, ownership, brokered input, snapshot monitor,
+  frame-stream fallback, and evidence baseline.
 - `02-native-browser-host-decision.md`
   Native browser host decision, prototype, security baseline, and ADR update.
 - `docs/architecture/operator-surfaces.md`

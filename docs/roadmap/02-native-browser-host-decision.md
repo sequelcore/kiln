@@ -19,18 +19,16 @@ real embedded browser.
 
 ## Canonical Placement
 
-This roadmap runs after
-`01-browser-operator-foundations-and-snapshot-monitor.md` foundations and before
-`03-embedded-browser-operator-surface.md`.
+This roadmap runs after the completed browser operator foundations documented
+in `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`, and
+before `03-embedded-browser-operator-surface.md`.
 
 ```text
 completed multimodal transport foundation
   ->
 completed agent QA showcase recorder
   ->
-00      external benchmark validation
-  ->
-01      browser operator foundations and snapshot monitor
+completed browser operator foundations and snapshot monitor
   ->
 02      native browser host decision
   ->

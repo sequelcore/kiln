@@ -52,7 +52,8 @@ does not supersede that canonical workflow doctrine.
 It also does not own the focused real embedded browser work. That work now
 lives in the late browser sequence:
 
-- `01-browser-operator-foundations-and-snapshot-monitor.md`
+- completed browser operator foundations in `docs/architecture/developer-tools.md`
+  and `docs/guides/tool-use.md`
 - `02-native-browser-host-decision.md`
 - `03-embedded-browser-operator-surface.md`
 
