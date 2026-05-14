@@ -23,6 +23,7 @@ const DEFAULT_LINKED_TOOLS = new Set([
   "web_extract",
   "web_search",
   "code_intelligence",
+  "browser_session_stop",
 ]);
 
 export interface ArtifactToolResourceLinkerOptions {
@@ -100,6 +101,9 @@ export class ArtifactToolResourceLinker implements ToolResourceLinker {
   private shouldLink(toolName: string, result: ToolResult): boolean {
     if (result.isError || !result.metadata || !this.linkedTools.has(toolName)) {
       return false;
+    }
+    if (toolName === "browser_session_stop" && result.resourcePayload) {
+      return true;
     }
     return Buffer.byteLength(result.output, "utf8") >= this.minOutputBytes
       || hasTruncationMetadata(result.metadata);

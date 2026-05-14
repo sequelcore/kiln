@@ -1,49 +1,48 @@
-# Recorder Roadmap Closeout
+# Prompt-Driven Recorder Wiring
 
 Status: completed on 2026-05-14.
 
 ## Objective
 
-Retire the completed Agent QA Showcase Recorder roadmap by moving its stable
-doctrine into canonical documentation, deleting the active roadmap file,
-compacting the remaining roadmap numbers, and updating references.
+Make agent prompts that request QA/showcase videos produce recorder artifacts
+end to end through the normal browser tool path. The runtime must create
+recorder evidence during governed browser use, render the browser WebM, export
+editor sidecars, and return artifact links on session stop.
 
 ## Scope
 
-- Add canonical recorder architecture documentation under `docs/architecture/`.
-- Update architecture and roadmap indexes to point at the canonical recorder
-  doc.
-- Delete the completed recorder roadmap file.
-- Rename remaining roadmap files from `01-05` to `00-04`.
-- Update filename and numeric references in roadmap and research docs.
-- Commit only files related to this closeout and the completed recorder work.
+- Wire Playwright browser provider construction to a shared artifact store and
+  `PlaywrightBrowserCaptureRecorder` across GUI/TUI prompt surfaces.
+- Treat `browser_session_start.recordArtifacts=true` as the governed recorder
+  opt-in for a browser session.
+- Finalize capture, render WebM, export editor sidecars, and return one
+  recorder proof payload from `browser_session_stop`.
+- Update model-facing browser tool copy so agents know to set
+  `recordArtifacts` when a user asks for a showcase/video.
+- Preserve existing browser sessions that do not request recorder artifacts.
+- Keep existing artifact resource registry behavior so returned URIs are
+  readable through the normal resource tools and GUI resource path.
 
 ## Non-Goals
 
-- No implementation changes.
-- No new roadmap scope.
-- No changes to native browser or benchmark acceptance criteria beyond
-  numbering/reference updates.
-- No staging unrelated local configuration or unrelated test timeout edits.
+- No new in-app browser backend.
+- No editor-specific application automation.
+- No broad GUI redesign.
+- No unrelated config, timeout, or roadmap changes.
 
 ## Verification
 
-- Confirm no references remain to the retired recorder roadmap filename.
-  - Passed on 2026-05-14.
-- Confirm no references remain to old roadmap filenames after renumbering.
-  - Passed on 2026-05-14.
-- Confirm `docs/roadmap` contains only compacted active/deferred roadmap files
-  plus `README.md`.
-  - Passed on 2026-05-14.
-- Run docs/reference checks and `git diff --check`.
-  - Passed on 2026-05-14 with line-ending warnings only.
-- Run focused recorder implementation tests.
-  - `bun run --filter @kilnai/core test -- capture-manifest` passed on
-    2026-05-14.
-  - `bun run --filter @kilnai/runtime test -- recorder` passed on
-    2026-05-14.
-  - `bun run --filter @kilnai/gui test -- transcript` passed on 2026-05-14.
-- Run project typecheck before commit.
-  - Passed on 2026-05-14.
-- Reviewer pass before commit.
-  - Passed on 2026-05-14.
+- Added CLI config coverage proving Playwright provider options include a
+  recorder built from the shared artifact store.
+- Added runtime provider coverage proving recorded session stop returns
+  capture, rendered WebM, captions, markers, editor project, and exported
+  manifest URIs.
+- Added coverage proving unrecorded browser sessions do not emit recorder
+  proofs.
+- Passed `bun run --filter @kilnai/runtime test -- playwright-browser-use-provider`.
+- Passed `bun run --filter @kilnai/cli test -- interactive-use-config builtin-tool-surface-config`.
+- Passed `bun run --filter @kilnai/core test -- default-tool-surface`.
+- Passed `bun run --filter @kilnai/runtime test -- recorder`.
+- Passed `bun run --filter @kilnai/cli test`.
+- Passed `bun run --filter @kilnai/core test`.
+- Passed `bun run typecheck`.

@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { mergeKilnYaml, type KilnYaml } from "../../src/kiln-yaml.js";
+import { MemoryArtifactResourceStore } from "@kilnai/core";
 import {
   createInteractiveUseToolSurfaceOptions,
   describeInteractiveUseConfiguration,
 } from "../../src/config/interactive-use-config.js";
 
 vi.mock("@kilnai/runtime", () => ({
+  PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
+    constructor(readonly options?: unknown) {}
+  },
   PlaywrightBrowserUseProvider: class MockPlaywrightBrowserUseProvider {
     constructor(readonly options?: unknown) {}
     execute() {
@@ -147,6 +151,27 @@ describe("interactive use config", () => {
       options: expect.objectContaining({
         headless: false,
         allowHeaded: true,
+      }),
+    }));
+  });
+
+  it("wires Playwright recorder capture to the shared artifact store when available", async () => {
+    const artifactStore = new MemoryArtifactResourceStore();
+    const options = await createInteractiveUseToolSurfaceOptions(config({
+      enabled: true,
+      browserProvider: "playwright",
+      browserEnvironment: "isolated-headed",
+      allowedDomains: ["app.example.com"],
+    }), { artifactStore });
+
+    expect(options.artifactResources?.store).toBe(artifactStore);
+    expect(options.browserUse?.provider).toEqual(expect.objectContaining({
+      options: expect.objectContaining({
+        captureRecorder: expect.objectContaining({
+          options: expect.objectContaining({
+            artifactStore,
+          }),
+        }),
       }),
     }));
   });

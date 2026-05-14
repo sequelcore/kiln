@@ -8,8 +8,11 @@ import type {
   InteractiveUseRequest,
 } from "@kilnai/core";
 import type {
+  PlaywrightBrowserCaptureProof,
   PlaywrightBrowserCaptureRecorder,
   PlaywrightBrowserCaptureTransport,
+  PlaywrightBrowserExternalEditorExportProof,
+  PlaywrightBrowserRenderProof,
 } from "./playwright-browser-capture-recorder.js";
 
 export const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
@@ -233,6 +236,14 @@ interface BrowserCdpScreencastStream {
   readonly handler: (event: CdpScreencastFrame) => void;
 }
 
+interface PlaywrightBrowserRecorderSessionProof {
+  readonly version: "playwright-browser-recorder-session.v1";
+  readonly sessionId: string;
+  readonly capture: PlaywrightBrowserCaptureProof;
+  readonly video: PlaywrightBrowserRenderProof;
+  readonly editor: PlaywrightBrowserExternalEditorExportProof;
+}
+
 export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly loader: PlaywrightLoader;
   private readonly allowedDomains: readonly string[];
@@ -252,6 +263,8 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly cdpStreams = new Map<string, BrowserCdpScreencastStream>();
   private readonly operatorLocks = new Map<string, BrowserSessionOperatorLock>();
+  private readonly recorderSessionIds = new Set<string>();
+  private readonly pendingSidecarUpdates = new Map<string, Set<Promise<void>>>();
   private activeSessionId: string | undefined;
   private sequence = 0;
 
@@ -313,6 +326,8 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     }
 
     const completedAt = this.now().toISOString();
+    const sessionId = result.sessionId ?? request.sessionId;
+    this.markRecorderSessionIfRequested(request, sessionId);
     this.recordBrowserOperation({
       request,
       result,
@@ -321,25 +336,28 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       status: "succeeded",
     });
 
-    if (request.operation !== "session_stop" || !this.captureRecorder) {
+    if (request.operation !== "session_stop" || !sessionId || !this.isRecorderSession(sessionId)) {
       return result;
     }
-    const sessionId = result.sessionId ?? request.sessionId;
-    if (!sessionId) {
-      return result;
+    try {
+      await this.flushSidecarBrowserSessionUpdates(sessionId);
+      const proof = await this.finalizeRecorderSession(sessionId, completedAt, result.observation?.title);
+      return {
+        ...result,
+        output: recorderProofOutput(result.output, proof),
+        content: [
+          ...(result.content ?? []),
+          ...recorderProofContent(proof),
+        ],
+        resourcePayload: {
+          title: "Recorder browser video proof",
+          mimeType: "application/json",
+          text: JSON.stringify(proof, null, 2),
+        },
+      };
+    } finally {
+      this.recorderSessionIds.delete(sessionId);
     }
-    const proof = this.captureRecorder.finalizeSession(sessionId, {
-      completedAt,
-      ...(result.observation?.title ? { title: result.observation.title } : {}),
-    });
-    return {
-      ...result,
-      resourcePayload: {
-        title: "Recorder capture proof",
-        mimeType: "application/json",
-        text: JSON.stringify(proof, null, 2),
-      },
-    };
   }
 
   private async executeBrowserRequest(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
@@ -377,14 +395,15 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     readonly status: "succeeded" | "failed";
     readonly errorMessage?: string;
   }): void {
-    if (!this.captureRecorder) {
+    const recorder = this.captureRecorder;
+    if (!recorder) {
       return;
     }
     const sessionId = input.result?.sessionId ?? input.request.sessionId;
-    if (!sessionId) {
+    if (!sessionId || !this.recorderSessionIds.has(sessionId)) {
       return;
     }
-    this.captureRecorder.recordBrowserOperation({
+    recorder.recordBrowserOperation({
       sessionId,
       toolName: input.request.toolName,
       operation: input.request.operation,
@@ -553,6 +572,8 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     this.streamTimers.clear();
     await Promise.allSettled([...this.cdpStreams.keys()].map((sessionId) => this.stopCdpScreencast(sessionId)));
     this.operatorLocks.clear();
+    this.recorderSessionIds.clear();
+    this.pendingSidecarUpdates.clear();
     this.activeSessionId = undefined;
     await Promise.allSettled([
       ...sessions.map((session) => this.closeSession(session)),
@@ -751,6 +772,9 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
 
   private async stopSession(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
     const session = this.requireSession(request.sessionId);
+    if (this.isRecorderSession(session.id)) {
+      await this.captureAndEmitLiveFrame(session, "session_stop");
+    }
     await this.closeSession(session);
     return {
       provider: "playwright",
@@ -1178,19 +1202,21 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     if (!this.onBrowserSessionUpdated && !this.captureRecorder) {
       return;
     }
-    void this.materializeSidecarBrowserSessionState(event)
+    const update = this.materializeSidecarBrowserSessionState(event)
       .then((state) => {
         this.recordBrowserCaptureState(state);
         return this.onBrowserSessionUpdated?.(state);
       })
       .catch(() => {});
+    this.trackSidecarBrowserSessionUpdate(event.state.sessionId, update);
   }
 
   private recordBrowserCaptureState(state: PlaywrightBrowserSessionState): void {
-    if (!this.captureRecorder || !state.latestCapture?.uri) {
+    const recorder = this.captureRecorder;
+    if (!recorder || !this.recorderSessionIds.has(state.sessionId) || !state.latestCapture?.uri) {
       return;
     }
-    this.captureRecorder.recordBrowserCaptureFrame({
+    recorder.recordBrowserCaptureFrame({
       sessionId: state.sessionId,
       capturedAt: state.updatedAt,
       ...(state.operation ? { operation: state.operation } : {}),
@@ -1231,6 +1257,74 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         transport: latestCapture.transport ?? "snapshot-polling",
       },
     };
+  }
+
+  private markRecorderSessionIfRequested(
+    request: InteractiveUseRequest,
+    sessionId: string | undefined,
+  ): void {
+    if (request.operation !== "session_start" || request.recordArtifacts !== true || !sessionId || !this.captureRecorder) {
+      return;
+    }
+    this.recorderSessionIds.add(sessionId);
+  }
+
+  private isRecorderSession(sessionId: string | undefined): boolean {
+    return Boolean(this.captureRecorder && sessionId && this.recorderSessionIds.has(sessionId));
+  }
+
+  private async finalizeRecorderSession(
+    sessionId: string,
+    completedAt: string,
+    title: string | undefined,
+  ): Promise<PlaywrightBrowserRecorderSessionProof> {
+    if (!this.captureRecorder) {
+      throw new Error("Playwright browser recorder is not configured.");
+    }
+    const capture = this.captureRecorder.finalizeSession(sessionId, {
+      completedAt,
+      ...(title ? { title } : {}),
+    });
+    const video = await this.captureRecorder.renderBasicVideo(sessionId, {
+      completedAt,
+      ...(title ? { title } : {}),
+    });
+    const editor = this.captureRecorder.exportExternalEditorProject(sessionId, {
+      completedAt,
+      ...(title ? { title } : {}),
+    });
+    return {
+      version: "playwright-browser-recorder-session.v1",
+      sessionId,
+      capture,
+      video,
+      editor,
+    };
+  }
+
+  private trackSidecarBrowserSessionUpdate(sessionId: string, update: Promise<void>): void {
+    let updates = this.pendingSidecarUpdates.get(sessionId);
+    if (!updates) {
+      updates = new Set();
+      this.pendingSidecarUpdates.set(sessionId, updates);
+    }
+    updates.add(update);
+    update.finally(() => {
+      updates?.delete(update);
+      if (updates?.size === 0) {
+        this.pendingSidecarUpdates.delete(sessionId);
+      }
+    });
+  }
+
+  private async flushSidecarBrowserSessionUpdates(sessionId: string): Promise<void> {
+    while (true) {
+      const updates = this.pendingSidecarUpdates.get(sessionId);
+      if (!updates || updates.size === 0) {
+        return;
+      }
+      await Promise.allSettled([...updates]);
+    }
   }
 
   private scheduleIdleClose(session: BrowserSession): void {
@@ -1406,6 +1500,59 @@ function normalizeLiveStreamInterval(value: number | undefined): number {
     return 10;
   }
   return Math.trunc(value);
+}
+
+function recorderProofOutput(
+  baseOutput: string | undefined,
+  proof: PlaywrightBrowserRecorderSessionProof,
+): string {
+  const lines = [
+    baseOutput?.trim() || `Stopped Playwright browser session ${proof.sessionId}.`,
+    "Recorder artifacts:",
+    `- Video: ${proof.video.exportUri}`,
+    `- Editor project: ${proof.editor.editorProjectUri}`,
+    `- Captions SRT: ${proof.editor.captionsSrtUri}`,
+    `- Captions VTT: ${proof.editor.captionsVttUri}`,
+    `- Capture manifest: ${proof.capture.manifestUri}`,
+  ];
+  return lines.join("\n");
+}
+
+function recorderProofContent(
+  proof: PlaywrightBrowserRecorderSessionProof,
+): NonNullable<InteractiveUseProviderResult["content"]> {
+  return [
+    recorderResourceLink(proof.video.exportUri, "Recorder WebM video", proof.video.mimeType, 0.95),
+    recorderResourceLink(
+      proof.editor.editorProjectUri,
+      "Recorder editor project",
+      "application/vnd.kiln.recorder.editor-project+json",
+      0.9,
+    ),
+    recorderResourceLink(proof.editor.captionsSrtUri, "Recorder captions SRT", "application/x-subrip", 0.75),
+    recorderResourceLink(proof.editor.captionsVttUri, "Recorder captions VTT", "text/vtt", 0.75),
+    recorderResourceLink(proof.editor.markerJsonUri, "Recorder edit markers", "application/json", 0.7),
+    recorderResourceLink(proof.editor.manifestUri, "Recorder editor manifest", "application/json", 0.65),
+    recorderResourceLink(proof.capture.manifestUri, "Recorder capture manifest", "application/json", 0.65),
+  ];
+}
+
+function recorderResourceLink(
+  uri: string,
+  name: string,
+  mimeType: string,
+  priority: number,
+): NonNullable<InteractiveUseProviderResult["content"]>[number] {
+  return {
+    type: "resource_link",
+    uri,
+    name,
+    mimeType,
+    annotations: {
+      audience: ["assistant"],
+      priority,
+    },
+  };
 }
 
 interface PlaywrightNodeSidecarConfig {

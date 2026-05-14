@@ -564,7 +564,7 @@ export const TOOL_SCHEMAS: Record<
   },
   browser_session_start: {
     name: "browser_session_start",
-    description: "Start or attach to a governed browser automation session. Always pass a JSON object with optional sessionId, url, viewport, allowedDomains, recordArtifacts, timeout, or verbosity. Providers attach to an existing sessionId or active session instead of opening duplicate browser sessions.",
+    description: "Start or attach to a governed browser automation session. Always pass a JSON object with optional sessionId, url, viewport, allowedDomains, recordArtifacts, timeout, or verbosity. Set recordArtifacts=true when the user asks for a QA/showcase video, recording, captions, or editor-ready artifacts. Providers attach to an existing sessionId or active session instead of opening duplicate browser sessions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -587,7 +587,7 @@ export const TOOL_SCHEMAS: Record<
         },
         recordArtifacts: {
           type: "boolean",
-          description: "When true, request trace/video/screenshot artifacts from the provider.",
+          description: "When true, request recorder capture, rendered video, captions, and editor-ready artifacts from the provider.",
         },
         headless: {
           type: "boolean",
@@ -730,7 +730,7 @@ export const TOOL_SCHEMAS: Record<
   },
   browser_session_stop: {
     name: "browser_session_stop",
-    description: "Stop a governed browser automation session and finalize artifacts. Prefer explicit cleanup before the final answer for one-off browser tasks.",
+    description: "Stop a governed browser automation session and finalize artifacts. When the session was started with recordArtifacts=true, this returns recorder proof, rendered video, captions, and editor-ready artifact links. Prefer explicit cleanup before the final answer for one-off browser tasks.",
     inputSchema: {
       type: "object",
       properties: {

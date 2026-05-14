@@ -1,4 +1,4 @@
-import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import { MemoryArtifactResourceStore, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import {
   loadConfiguredWebToolSurfaceOptions,
@@ -11,11 +11,16 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
   projectPath: string,
   options: LoadConfiguredWebToolSurfaceOptionsInput = {},
 ): Promise<DefaultBuiltinToolRegistryOptions> {
+  const artifactStore = new MemoryArtifactResourceStore();
   const [webOptions, interactiveOptions] = await Promise.all([
     loadConfiguredWebToolSurfaceOptions(appConfig, projectPath, options),
-    loadConfiguredInteractiveUseToolSurfaceOptions(appConfig, projectPath),
+    loadConfiguredInteractiveUseToolSurfaceOptions(appConfig, projectPath, { artifactStore }),
   ]);
-  return mergeBuiltinToolSurfaceOptions(webOptions, interactiveOptions);
+  const merged = mergeBuiltinToolSurfaceOptions(webOptions, interactiveOptions);
+  return {
+    ...merged,
+    artifactResources: merged.artifactResources ?? { store: artifactStore },
+  };
 }
 
 export function mergeBuiltinToolSurfaceOptions(

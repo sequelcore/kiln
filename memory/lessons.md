@@ -22,3 +22,6 @@
   move stable doctrine into canonical architecture or guide docs, delete the
   retired roadmap file, compact remaining roadmap numbering, and update
   references before calling the track closed.
+- For prompt-driven Kiln product goals, do not call the work complete just
+  because runtime internals and tests exist. Verify the user-facing prompt/tool
+  surface wires the feature end to end and returns the expected artifacts.

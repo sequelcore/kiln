@@ -1,4 +1,4 @@
-import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import type { ArtifactResourceStore, DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import { loadKilnConfig } from "./config-merger.js";
 import type {
@@ -44,16 +44,22 @@ export interface InteractiveUseConfigurationDiagnostics {
   readonly issues: readonly string[];
 }
 
+export interface InteractiveUseToolSurfaceOptionsInput {
+  readonly artifactStore?: ArtifactResourceStore;
+}
+
 export async function loadConfiguredInteractiveUseToolSurfaceOptions(
   appConfig: KilnAppConfig,
   projectPath: string,
+  options: InteractiveUseToolSurfaceOptionsInput = {},
 ): Promise<DefaultBuiltinToolRegistryOptions> {
   const config = appConfig.kilnYaml ?? await loadKilnConfig(projectPath);
-  return createInteractiveUseToolSurfaceOptions(config);
+  return createInteractiveUseToolSurfaceOptions(config, options);
 }
 
 export async function createInteractiveUseToolSurfaceOptions(
   config: KilnYaml | null | undefined,
+  options: InteractiveUseToolSurfaceOptionsInput = {},
 ): Promise<DefaultBuiltinToolRegistryOptions> {
   const interactiveUse = config?.interactiveUse;
   if (interactiveUse?.enabled !== true) {
@@ -64,12 +70,17 @@ export async function createInteractiveUseToolSurfaceOptions(
 
   if (interactiveUse.browserProvider === "playwright") {
     const runtime = await import("@kilnai/runtime");
+    const captureRecorder = options.artifactStore
+      ? new runtime.PlaywrightBrowserCaptureRecorder({ artifactStore: options.artifactStore })
+      : undefined;
     return {
+      ...(options.artifactStore ? { artifactResources: { store: options.artifactStore } } : {}),
       browserUse: {
         provider: new runtime.PlaywrightBrowserUseProvider({
           allowedDomains: normalizeStringList(interactiveUse.allowedDomains),
           allowExternalBrowser: interactiveUse.allowExternalBrowser === true,
           liveStream: { enabled: true },
+          ...(captureRecorder ? { captureRecorder } : {}),
           ...playwrightBrowserEnvironmentOptions(readBrowserEnvironment(interactiveUse.browserEnvironment)),
         }),
       },
@@ -86,6 +97,7 @@ export async function createInteractiveUseToolSurfaceOptions(
   if (interactiveUse.computerProvider === "windows" || interactiveUse.computerProvider === "windows-uia") {
     const runtime = await import("@kilnai/runtime");
     return {
+      ...(options.artifactStore ? { artifactResources: { store: options.artifactStore } } : {}),
       computerUse: {
         provider: createWindowsComputerProvider(runtime, interactiveUse),
       },

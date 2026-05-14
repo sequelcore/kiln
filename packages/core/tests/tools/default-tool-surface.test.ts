@@ -6,7 +6,9 @@ import {
 } from "../../src/tools/default-tool-surface.js";
 import {
   createDefaultBuiltinToolSurface as createDefaultBuiltinToolSurfaceFromBarrel,
+  ArtifactToolResourceLinker,
   fileToolMetadata,
+  MemoryArtifactResourceStore,
   MonitorRegistry,
   projectDevToolSchemas,
   TaskStateStore,
@@ -571,6 +573,44 @@ describe("default builtin tool surface", () => {
     } finally {
       await removeTempDir(tempDir);
     }
+  });
+
+  it("links browser session stop recorder proof payloads as session artifacts", () => {
+    const store = new MemoryArtifactResourceStore();
+    const linker = new ArtifactToolResourceLinker({ store });
+
+    const result = linker.link({
+      toolName: "browser_session_stop",
+      input: {},
+      result: {
+        output: "Stopped Playwright browser session browser-1. Recorder video: kiln://artifacts/video/content",
+        isError: false,
+        metadata: {
+          toolName: "browser_session_stop",
+          kind: "interactive",
+          target: "browser",
+          operation: "session_stop",
+        } as never,
+        resourcePayload: {
+          title: "Recorder browser video proof",
+          mimeType: "application/json",
+          text: "{\"video\":{\"exportUri\":\"kiln://artifacts/video/content\"}}",
+        },
+      },
+    });
+
+    const link = result.metadata?.resourceLinks?.[0];
+    expect(result).not.toHaveProperty("resourcePayload");
+    expect(link).toMatchObject({
+      relation: "full_output",
+      mimeType: "application/json",
+      title: "Recorder browser video proof",
+    });
+    expect(result.content).toContainEqual(expect.objectContaining({
+      type: "resource_link",
+      uri: link?.uri,
+      mimeType: "application/json",
+    }));
   });
 
   it("stores full read_many payloads in resource links even when visible output is summary", async () => {

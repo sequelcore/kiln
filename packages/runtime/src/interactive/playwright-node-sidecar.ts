@@ -262,7 +262,7 @@ async function execute(
     case "scroll":
       return scroll(config, request);
     case "session_stop":
-      return stopSession(request);
+      return stopSession(config, request);
     default:
       throw new Error(`Playwright browser use provider does not support operation '${request.operation}'.`);
   }
@@ -477,8 +477,14 @@ async function scroll(
   }
 }
 
-async function stopSession(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult> {
+async function stopSession(
+  config: PlaywrightNodeSidecarConfig,
+  request: InteractiveUseRequest,
+): Promise<InteractiveUseProviderResult> {
   const session = requireSession(request.sessionId);
+  if (config.liveStream?.enabled === true) {
+    await captureAndEmitLiveFrame(config, session, "session_stop");
+  }
   await closeSession(session);
   return {
     provider: "playwright",
