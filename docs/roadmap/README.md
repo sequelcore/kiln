@@ -67,14 +67,12 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-No active roadmap is currently in implementation.
+- `05-native-operator-cockpit-and-projection-performance.md`
+  Active in contract-only Phase 0/1. The current scope defines precondition
+  review, explicit target/action admission, benchmark fixture thresholds, and
+  Rust hot-path boundaries before any native cockpit prototype.
 
 ## Deferred Roadmaps
-
-- `05-native-operator-cockpit-and-projection-performance.md`
-  Deferred native cockpit and projection-performance experiment for
-  high-density managed-agent supervision, replay, timeline, graph,
-  multi-instance workloads, and optional Rust/WASM/sidecar acceleration.
 
 - OS-pack packaging for web extraction/browser helpers.
   Deferred until controlled web primitives and research capability need
@@ -257,9 +255,9 @@ No active roadmap is currently in implementation.
 1. Keep native performance architecture grounded in the completed foundation:
    shared projections, batching, resource links, virtualization, and metrics are
    v1 surface requirements, not late cleanup.
-2. Keep `05-native-operator-cockpit-and-projection-performance.md` deferred
-   until managed agents create real high-density workloads and config
-   projection makes local/cloud/team/CI instance boundaries explicit.
+2. Keep `05-native-operator-cockpit-and-projection-performance.md` limited to
+   contract-only Phase 0/1 until GUI baseline benchmarks and
+   gateway-mediated cancellation target semantics exist.
 
 ## Deferred Candidates
 

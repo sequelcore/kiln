@@ -57,6 +57,11 @@ export function createNativeSurfaceCapabilitySnapshot(
         status: "available",
       },
       {
+        capability: "native-cockpit-contract",
+        status: "available",
+        reason: "Contract-only target, precondition, and benchmark fixture definitions are available for roadmap 05.",
+      },
+      {
         capability: "embedded-browser-host",
         status: "available",
         reason: "Electron WebContentsView host proof is available behind the native host adapter.",

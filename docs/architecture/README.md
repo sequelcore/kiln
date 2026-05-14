@@ -121,6 +121,11 @@ is documented by concern, not as a single monolith.
   supervision evidence, embedded browser host boundaries, and surface ownership
   rules.
 
+- `native-cockpit-projection.md`
+  Contract-only architecture for roadmap 05 native cockpit projection:
+  precondition gates, explicit instance/session targets, benchmark fixtures,
+  and Rust hot-path boundaries.
+
 - `benchmark-validation.md`
   Canonical benchmark validation contract: benchmark-facing profiles, internal
   baseline gates, external track gates, and reproducible reporting.

@@ -22,6 +22,7 @@ export const OPERATOR_SURFACE_CAPABILITIES = [
   "browser-snapshot-monitor",
   "browser-frame-stream",
   "embedded-browser-host",
+  "native-cockpit-contract",
   "native-window-lifecycle",
   "surface-performance-telemetry",
 ] as const;

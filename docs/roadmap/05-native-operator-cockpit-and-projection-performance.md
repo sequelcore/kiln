@@ -2,7 +2,13 @@
 
 ## Status
 
-Deferred experimental roadmap.
+Active experimental roadmap. Started on 2026-05-14 in contract-only Phase 0/1.
+
+Current scope is precondition review, explicit target/action admission,
+benchmark fixture definitions, and Rust hot-path boundaries. Do not build a
+native cockpit prototype, benchmark runner, cancellation dispatch, or
+Rust/WASM/sidecar module until this contract phase and baseline measurements
+justify them.
 
 Do not start this program before the completed plan/goal workflow-control
 foundation has produced real high-density workloads, especially:
@@ -1064,6 +1070,14 @@ Confirm:
 - authority and provider route projections exist
 - cancellation target semantics are gateway-mediated
 
+Started 2026-05-14:
+
+- `packages/native/src/shared/native-cockpit-contract.ts` records the
+  precondition review contract.
+- Synthetic high-density workload fixtures are sufficient for contract design.
+- GUI baseline benchmarks and gateway-mediated cancellation remain blockers for
+  the read-only prototype.
+
 ### Phase 1 - Contract-Only Design
 
 Deliver:
@@ -1074,6 +1088,15 @@ Deliver:
 - Rust hot-path boundary contract
 - benchmark fixture definitions
 - no implementation yet
+
+Started 2026-05-14:
+
+- `docs/architecture/native-cockpit-projection.md` records the contract-only
+  architecture.
+- `packages/native/src/shared/native-cockpit-contract.ts` defines explicit
+  target/action admission and benchmark fixture thresholds.
+- `packages/native/tests/native-boundary.test.ts` proves the contract fails
+  closed for missing targets and missing prototype prerequisites.
 
 ### Phase 2 - Read-Only Prototype
 

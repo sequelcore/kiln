@@ -1,110 +1,81 @@
-# Embedded Browser Operator Surface Plan
+# Native Cockpit Projection Contract Plan
 
-Status: completed on 2026-05-14.
+Status: active.
 
 ## Objective
 
-Complete and retire the embedded browser operator surface roadmap by turning
-the proven Electron `WebContentsView` host into the first native product
-operator surface for embedded browser work.
+Start `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+without prematurely building a cockpit UI, scheduler, Rust module, or
+packaging track. Deliver Phase 0/1 contract foundations for precondition review,
+explicit targets, benchmark fixtures, and Rust boundaries.
 
 ## Scout Summary
 
-- `@kilnai/native` owns the first real embedded browser operator surface.
-- `@kilnai/gateway-contracts` already carries browser session state,
-  `electron-webcontents` transport labels, operator input frames, and evidence
-  event shapes.
-- `@kilnai/gui` can parse `electron-webcontents` as projected browser state,
-  but the real embedded browser view is native-only because it is an Electron
-  child view, not a React component.
-- The native host proof already loads a deterministic local page, dispatches
-  pointer/text/wheel input, observes through CDP, and emits sanitized evidence.
+- Roadmap 05 is a validation track, not a commitment to replace `@kilnai/gui`.
+- The owning package for contract-only native cockpit work is `@kilnai/native`.
+- Existing canonical event sources already include goal, work-item,
+  managed-invocation, provider, authority, cost, and tool-call evidence in
+  runtime/core/gateway contracts.
+- GUI already has work-item and session-store projections that can become the
+  future web baseline, but no dedicated GUI high-density benchmark exists yet.
+- Read-only prototype work is blocked until baseline benchmarks and
+  gateway-mediated cancellation target semantics are available.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
 ## Implementation Slices
 
-### Slice 1 - Native Operator Surface Contract
+### Slice 1 - Native Cockpit Contract Tests
 
 Files:
 
-- `packages/native/src/shared/native-browser-operator-surface.ts`
 - `packages/native/tests/native-boundary.test.ts`
 
 Deliverables:
 
-- Define the native browser region layout calculation.
-- Define ownership/input admission rules for the operator surface.
-- Define a closeout projection that shows embedded-browser transport, target,
-  ownership, evidence, and release/resume state without inventing runtime truth.
+- Add failing tests for precondition review, explicit target/action admission,
+  and benchmark fixture thresholds.
 
-### Slice 2 - Main Process Surface Controller
+### Slice 2 - Native Cockpit Shared Contract
 
 Files:
 
-- `packages/native/src/main/embedded-browser-host.ts`
-- `packages/native/src/main/embedded-browser-operator-surface.ts`
-- `packages/native/src/main/main.ts`
+- `packages/native/src/shared/native-cockpit-contract.ts`
+- `packages/native/src/shared/native-surface.ts`
 
 Deliverables:
 
-- Add explicit ownership transitions to the host adapter.
-- Add runtime dispatch after release through the host control channel.
-- Add a surface controller for open, resize, takeover, input, release, resume,
-  state projection, evidence collection, and cleanup.
-- Add `embedded-browser-surface:smoke` proof that uses the same controller.
+- Define `createNativeCockpitPreconditionReview`.
+- Define `nativeCockpitActionAllowed`.
+- Define `NATIVE_COCKPIT_BENCHMARK_FIXTURES`.
+- Advertise `native-cockpit-contract` as a native capability without claiming a
+  prototype.
 
-### Slice 3 - Renderer Product Surface
-
-Files:
-
-- `packages/native/src/preload/native-api.ts`
-- `packages/native/src/renderer/native-surface-app.tsx`
-- `packages/native/src/renderer/styles.css`
-- `packages/native/tsconfig.main.json`
-
-Deliverables:
-
-- Add a narrow preload bridge for native browser operations only.
-- Render an embedded browser panel with real reserved host region, transport,
-  ownership, session target, evidence status, and controls.
-- Keep the renderer as an operator projection; it sends intents and displays
-  state, while the Electron main process owns native host actions.
-
-### Slice 4 - Canonical Docs And Roadmap Closeout
+### Slice 3 - Canonical Docs
 
 Files:
 
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/architecture/README.md`
 - `docs/architecture/operator-surfaces.md`
-- `docs/architecture/developer-tools.md`
-- `docs/changelog.md`
-- `docs/research/14-live-browser-operator-surface.md`
 - `docs/roadmap/README.md`
 - `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/changelog.md`
+- `docs/plan.md`
 
 Deliverables:
 
-- Absorb stable embedded browser operator surface doctrine into canonical docs.
-- Retire roadmap `04`; leave `05` deferred as the later high-density cockpit
-  and projection-performance track.
+- Mark roadmap 05 active in contract-only mode.
+- Record the current blockers for read-only prototype work.
+- Document the native cockpit target/action/benchmark/Rust boundaries.
 
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-surface-capability`.
 - Passed `bun run --cwd packages/native typecheck`.
 - Passed `bun run --cwd packages/native build`.
-- Passed `bun run --cwd packages/native smoke`.
-- Passed `bun run --cwd packages/native browser-host:smoke`.
-- Passed `bun run --cwd packages/native embedded-browser-surface:smoke`.
 - Passed `bun run typecheck`.
 - Passed `bun run test`.
 - Passed `bun run build`.
 - Passed `git diff --check`.
-
-## Closeout
-
-- Implemented the native embedded browser operator surface in `@kilnai/native`.
-- Absorbed stable doctrine into canonical architecture, research, roadmap, and
-  changelog documents.
-- Retired `docs/roadmap/04-embedded-browser-operator-surface.md`; remaining
-  native roadmap work is only the deferred `05` cockpit/performance experiment.

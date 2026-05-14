@@ -28,6 +28,11 @@ describe("operator surface capability contract", () => {
           reason: "Browser host proof is owned by roadmap 03.",
         },
         {
+          capability: "native-cockpit-contract",
+          status: "available",
+          reason: "Roadmap 05 target and benchmark contracts are available.",
+        },
+        {
           capability: "surface-performance-telemetry",
           status: "available",
         },
@@ -36,6 +41,7 @@ describe("operator surface capability contract", () => {
 
     expect(operatorSurfaceSupports(snapshot, "gateway-attach")).toBe(true);
     expect(operatorSurfaceSupports(snapshot, "surface-performance-telemetry")).toBe(true);
+    expect(operatorSurfaceSupports(snapshot, "native-cockpit-contract")).toBe(true);
     expect(operatorSurfaceSupports(snapshot, "embedded-browser-host")).toBe(false);
     expect(operatorSurfaceCapabilityStatus(snapshot, "embedded-browser-host")).toEqual({
       capability: "embedded-browser-host",

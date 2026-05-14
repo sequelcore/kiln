@@ -250,6 +250,10 @@ frames. Rust, WASM, or sidecar acceleration may be added only for measured
 projection/replay hot paths and must never own authority, scheduling, provider
 routing, memory, config, replay truth, or policy.
 
+Native cockpit projection is contract-only until roadmap 05 proves value with
+benchmark fixtures. Stable target, precondition, benchmark, and Rust-boundary
+rules live in `native-cockpit-projection.md`.
+
 Completion standard: the native surface can be removed without changing
 core/runtime semantics.
 

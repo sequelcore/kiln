@@ -21,6 +21,11 @@ import {
   createNativeBrowserRegionBounds,
   nativeBrowserOperatorActionAllowed,
 } from "../src/shared/native-browser-operator-surface.js";
+import {
+  NATIVE_COCKPIT_BENCHMARK_FIXTURES,
+  createNativeCockpitPreconditionReview,
+  nativeCockpitActionAllowed,
+} from "../src/shared/native-cockpit-contract.js";
 
 describe("native operator surface foundation", () => {
   it("advertises native capability slots including the proven embedded browser host", () => {
@@ -37,6 +42,11 @@ describe("native operator surface foundation", () => {
     expect(snapshot.capabilities).toContainEqual({
       capability: "native-window-lifecycle",
       status: "available",
+    });
+    expect(snapshot.capabilities).toContainEqual({
+      capability: "native-cockpit-contract",
+      status: "available",
+      reason: "Contract-only target, precondition, and benchmark fixture definitions are available for roadmap 05.",
     });
     expect(snapshot.capabilities).toContainEqual({
       capability: "embedded-browser-host",
@@ -268,5 +278,77 @@ describe("native operator surface foundation", () => {
       action: "operator_input",
       ownership: "agent",
     })).toBe(false);
+  });
+
+  it("keeps native cockpit prototype start gated by roadmap preconditions", () => {
+    const review = createNativeCockpitPreconditionReview({
+      highDensityWorkloads: "synthetic",
+      configProjectionStable: true,
+      gatewayEventStreams: true,
+      guiBaselineBenchmarks: false,
+      managedInvocationLifecycleEvents: true,
+      authorityProviderProjections: true,
+      gatewayMediatedCancellation: false,
+    });
+
+    expect(review.canStartContractPhase).toBe(true);
+    expect(review.canStartReadOnlyPrototype).toBe(false);
+    expect(review.missingForReadOnlyPrototype).toEqual([
+      "gui-baseline-benchmarks",
+      "gateway-mediated-cancellation",
+    ]);
+  });
+
+  it("requires explicit cockpit targets before admitting operator actions", () => {
+    expect(nativeCockpitActionAllowed({
+      action: "inspect",
+      target: {
+        instanceId: "local",
+      },
+    })).toBe(true);
+    expect(nativeCockpitActionAllowed({
+      action: "focus_session",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+      },
+    })).toBe(true);
+    expect(nativeCockpitActionAllowed({
+      action: "cancel",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+        managedInvocationId: "child-1",
+      },
+    })).toBe(true);
+    expect(nativeCockpitActionAllowed({
+      action: "focus_session",
+      target: {
+        instanceId: "local",
+      },
+    })).toBe(false);
+    expect(nativeCockpitActionAllowed({
+      action: "cancel",
+      target: {
+        instanceId: "local",
+        sessionId: "session-1",
+      },
+    })).toBe(false);
+  });
+
+  it("defines high-density benchmark fixtures before native cockpit promotion", () => {
+    expect(NATIVE_COCKPIT_BENCHMARK_FIXTURES.singleSessionHeavy).toMatchObject({
+      minimumSessionCount: 1,
+      minimumChildInvocationCount: 50,
+      minimumEventCount: 100_000,
+    });
+    expect(NATIVE_COCKPIT_BENCHMARK_FIXTURES.multiSession).toMatchObject({
+      minimumSessionCount: 10,
+      minimumActiveManagedSessionCount: 3,
+      minimumChildInvocationCount: 50,
+      minimumEventCount: 100_000,
+    });
+    expect(NATIVE_COCKPIT_BENCHMARK_FIXTURES.multiInstance.minimumInstanceCount).toBe(2);
+    expect(NATIVE_COCKPIT_BENCHMARK_FIXTURES.projectionHotPath.requiresIdenticalOutput).toBe(true);
   });
 });

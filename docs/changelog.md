@@ -23,6 +23,10 @@
   release channels, crash/log collection, user-data migration, rollback, and
   uninstall behavior remain deferred to a dedicated packaging/distribution
   roadmap after the native surface is ready to ship.
+- Started roadmap `05-native-operator-cockpit-and-projection-performance.md`
+  in contract-only mode with native cockpit precondition review, explicit
+  target/action admission, benchmark fixture thresholds, Rust hot-path
+  boundaries, and canonical architecture documentation.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.
