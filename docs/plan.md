@@ -29,6 +29,9 @@ canonical gateway events.
 - The next benchmark slice belongs in `@kilnai/gateway-contracts`: measure the
   shared read-only projection itself over explicit attach targets before any
   surface-specific rendering or Rust/WASM/sidecar candidate is considered.
+- The next attach slice belongs in `@kilnai/gateway-contracts` and
+  `@kilnai/native`: validate read-only local/simulated-remote gateway attach
+  targets and record planned connection intent without opening sockets.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
@@ -202,6 +205,37 @@ Deliverables:
 - Keep browser rendering, native UI rendering, gateway networking,
   cancellation dispatch, and Rust/WASM/sidecar acceleration out of scope.
 
+### Slice 9 - Read-Only Gateway Attach Plan
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
+- `packages/gateway-contracts/README.md`
+- `packages/native/src/shared/native-cockpit-contract.ts`
+- `packages/native/src/shared/native-surface.ts`
+- `packages/native/tests/native-boundary.test.ts`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Define `createOperatorCockpitReadOnlyAttachPlan` over explicit attach
+  targets.
+- Validate target kind, identity, label, duplicate targets, and HTTP(S)
+  gateway URLs before a read-only cockpit target is attach-planned.
+- Classify local targets as Operator Gateway, simulated remote targets as
+  simulated App Gateway, and remaining remote/team/cloud/CI targets as
+  App Gateway.
+- Define `createNativeCockpitReadOnlyAttachPlan` as a native metadata wrapper
+  with `networkAttach: not-started` and `mutationDispatch: disabled`.
+- Keep live gateway networking, UI rendering, cancellation dispatch, and
+  Rust/WASM/sidecar acceleration out of scope.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -228,3 +262,13 @@ Deliverables:
 - Re-passed `bun run test` after Slice 8.
 - Re-passed `bun run build` after Slice 8.
 - Re-passed `git diff --check` after Slice 8.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-projection` after Slice 9.
+- Passed `bun run --cwd packages/native test` after Slice 9.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 9.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 9.
+- Passed `bun run --cwd packages/native typecheck` after Slice 9.
+- Passed `bun run --cwd packages/native build` after Slice 9.
+- Passed `bun run typecheck` after Slice 9.
+- Passed `bun run test` after Slice 9.
+- Passed `bun run build` after Slice 9.
+- Passed `git diff --check` after Slice 9.

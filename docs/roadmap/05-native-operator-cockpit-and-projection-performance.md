@@ -8,9 +8,10 @@ Current scope is precondition review, explicit target/action admission,
 benchmark fixture definitions, shared projection baselines, cancellation target
 contracts, a shared read-only projection substrate, a native read-only
 projection wrapper, read-only action intents, a shared read-only projection
-baseline measurement, and Rust hot-path boundaries. Do not build a native
-cockpit UI, browser rendering benchmark runner, gateway attach loop,
-cancellation dispatch, or Rust/WASM/sidecar module until this
+baseline measurement, a read-only attach plan, and Rust hot-path boundaries.
+Do not build a native cockpit UI, browser rendering benchmark runner, live
+gateway attach loop, cancellation dispatch, or Rust/WASM/sidecar module until
+this
 contract/projection phase and baseline measurements justify them.
 
 Do not start this program before the completed plan/goal workflow-control
@@ -1086,6 +1087,12 @@ Started 2026-05-14:
   attach targets. It groups instance, session, timeline, managed-invocation,
   tool-call, cost, provider, and authority summaries without network attach,
   UI rendering, cancellation dispatch, or Rust acceleration.
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts` now defines
+  a shared read-only attach plan over explicit attach targets. It validates
+  supported target kinds, duplicate targets, labels, and `http://` or
+  `https://` gateway URLs, then records planned local Operator Gateway,
+  App Gateway, or simulated App Gateway connection intent without opening
+  sockets or dispatching mutations.
 - `packages/gateway-contracts/src/operator-cockpit-benchmark.ts` now measures
   the shared read-only cockpit projection baseline over explicit attach
   targets. The result records instance, session, timeline, invocation, tool,
@@ -1095,6 +1102,10 @@ Started 2026-05-14:
 - `packages/native/src/shared/native-cockpit-contract.ts` now wraps the shared
   projection as a native read-only surface projection with disabled mutation
   dispatch and an explicit `gateway-contracts` runtime boundary.
+- `packages/native/src/shared/native-cockpit-contract.ts` now wraps the shared
+  attach plan as a native read-only cockpit attach plan with
+  `networkAttach: not-started`, disabled mutation dispatch, and an explicit
+  `gateway-contracts` runtime boundary.
 - `packages/gateway-contracts/src/operator-cockpit-target.ts` now defines
   read-only action intents for inspect, replay, focus, filter, and
   open-resource affordances. These intents are target-checked and explicitly
@@ -1120,6 +1131,8 @@ Started 2026-05-14:
 - `packages/gateway-contracts/src/operator-cockpit-benchmark.ts` defines shared
   synthetic cockpit fixtures, GUI projection baseline measurement, and shared
   read-only cockpit projection baseline measurement.
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts` defines the
+  read-only attach plan and projection substrate.
 - `packages/gateway-contracts/src/operator-cockpit-target.ts` defines shared
   target/action admission and cancellation request validation.
 - `packages/native/tests/native-boundary.test.ts` proves the contract fails
@@ -1156,6 +1169,9 @@ Started 2026-05-14:
 - `@kilnai/native` consumes read-only action intents through
   `createNativeCockpitReadOnlyActionIntent`, adding native surface metadata
   while keeping `mutationDispatch: disabled`.
+- `@kilnai/native` consumes the shared read-only attach plan through
+  `createNativeCockpitReadOnlyAttachPlan`, adding native surface metadata while
+  keeping `networkAttach: not-started` and `mutationDispatch: disabled`.
 - `@kilnai/gateway-contracts` exposes
   `measureOperatorCockpitReadOnlyProjectionBaseline`, which measures the shared
   TypeScript projection over canonical events and explicit attach targets. This

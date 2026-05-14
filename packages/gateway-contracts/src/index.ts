@@ -143,11 +143,16 @@ export {
 
 export type {
   OperatorCockpitAttachTarget,
+  OperatorCockpitAttachConnectionKind,
   OperatorCockpitAttachTargetKind,
+  OperatorCockpitAttachTransport,
   OperatorCockpitCostProjection,
   OperatorCockpitInstanceProjection,
   OperatorCockpitInvocationProjection,
   OperatorCockpitInvocationStatus,
+  OperatorCockpitReadOnlyAttachPlan,
+  OperatorCockpitReadOnlyAttachPlanInput,
+  OperatorCockpitReadOnlyAttachPlanTarget,
   OperatorCockpitReadOnlyProjection,
   OperatorCockpitReadOnlyProjectionInput,
   OperatorCockpitSessionProjection,
@@ -157,6 +162,7 @@ export type {
 } from "./operator-cockpit-projection.js";
 export {
   OPERATOR_COCKPIT_ATTACH_TARGET_KINDS,
+  createOperatorCockpitReadOnlyAttachPlan,
   projectOperatorCockpitReadOnlyView,
 } from "./operator-cockpit-projection.js";
 

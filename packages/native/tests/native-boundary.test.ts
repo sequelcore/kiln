@@ -27,6 +27,7 @@ import {
 import {
   NATIVE_COCKPIT_BENCHMARK_FIXTURES,
   createNativeCockpitPreconditionReview,
+  createNativeCockpitReadOnlyAttachPlan,
   createNativeCockpitReadOnlyActionIntent,
   createNativeCockpitReadOnlyProjection,
   nativeCockpitActionAllowed,
@@ -51,7 +52,7 @@ describe("native operator surface foundation", () => {
     expect(snapshot.capabilities).toContainEqual({
       capability: "native-cockpit-contract",
       status: "available",
-      reason: "Roadmap 05 target, precondition, benchmark, read-only projection, and action-intent contracts are available.",
+      reason: "Roadmap 05 target, precondition, benchmark, read-only attach-plan, projection, and action-intent contracts are available.",
     });
     expect(snapshot.capabilities).toContainEqual({
       capability: "embedded-browser-host",
@@ -423,6 +424,45 @@ describe("native operator surface foundation", () => {
       attachTargets: [],
       events: fixture.events,
     })).toThrow("requires at least one attach target");
+  });
+
+  it("plans native read-only cockpit attachment without starting gateway networking", () => {
+    const attachPlan = createNativeCockpitReadOnlyAttachPlan({
+      surfaceId: "native:local",
+      plannedAt: "2026-05-14T12:04:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-attach:local",
+          label: "Local / kiln",
+          kind: "local",
+          gatewayUrl: "http://127.0.0.1:4810",
+        },
+        {
+          instanceId: "native-attach:remote",
+          label: "Simulated remote",
+          kind: "simulated-remote",
+          gatewayUrl: "https://example.invalid",
+        },
+      ],
+    });
+
+    expect(attachPlan.surfaceMode).toBe("operator-cockpit");
+    expect(attachPlan.surfaceId).toBe("native:local");
+    expect(attachPlan.runtimeBoundary).toBe("gateway-contracts");
+    expect(attachPlan.networkAttach).toBe("not-started");
+    expect(attachPlan.mutationDispatch).toBe("disabled");
+    expect(attachPlan.plan.targets).toEqual([
+      expect.objectContaining({
+        instanceId: "native-attach:local",
+        connectionKind: "operator-gateway",
+        connectionState: "planned",
+      }),
+      expect.objectContaining({
+        instanceId: "native-attach:remote",
+        connectionKind: "simulated-app-gateway",
+        connectionState: "planned",
+      }),
+    ]);
   });
 
   it("creates native read-only cockpit action intents without dispatching mutations", () => {

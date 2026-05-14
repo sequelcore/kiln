@@ -4,6 +4,7 @@ import {
   createOperatorCockpitBenchmarkFixture,
 } from "../src/operator-cockpit-benchmark.js";
 import {
+  createOperatorCockpitReadOnlyAttachPlan,
   projectOperatorCockpitReadOnlyView,
 } from "../src/operator-cockpit-projection.js";
 
@@ -167,5 +168,79 @@ describe("operator cockpit read-only projection", () => {
       ],
       events: fixture.events,
     })).toThrow("unsupported kind");
+  });
+
+  it("creates a read-only attach plan for local and simulated remote gateways without opening connections", () => {
+    const plan = createOperatorCockpitReadOnlyAttachPlan({
+      plannedAt: "2026-05-14T12:04:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "attach-plan:local",
+          label: "Local / kiln",
+          kind: "local",
+          gatewayUrl: "http://127.0.0.1:4810",
+        },
+        {
+          instanceId: "attach-plan:remote",
+          label: "Simulated remote",
+          kind: "simulated-remote",
+          gatewayUrl: "https://example.invalid",
+        },
+      ],
+    });
+
+    expect(plan).toEqual({
+      mode: "read-only",
+      plannedAt: "2026-05-14T12:04:00.000Z",
+      targetCount: 2,
+      mutationDispatch: "disabled",
+      targets: [
+        {
+          instanceId: "attach-plan:local",
+          label: "Local / kiln",
+          kind: "local",
+          gatewayUrl: "http://127.0.0.1:4810",
+          connectionKind: "operator-gateway",
+          transport: "http-ws",
+          connectionState: "planned",
+          mutationDispatch: "disabled",
+        },
+        {
+          instanceId: "attach-plan:remote",
+          label: "Simulated remote",
+          kind: "simulated-remote",
+          gatewayUrl: "https://example.invalid",
+          connectionKind: "simulated-app-gateway",
+          transport: "simulated-http-ws",
+          connectionState: "planned",
+          mutationDispatch: "disabled",
+        },
+      ],
+    });
+  });
+
+  it("fails read-only attach planning for missing or unsafe gateway URLs", () => {
+    expect(() => createOperatorCockpitReadOnlyAttachPlan({
+      plannedAt: "2026-05-14T12:04:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "attach-plan:local",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+    })).toThrow("requires gatewayUrl");
+
+    expect(() => createOperatorCockpitReadOnlyAttachPlan({
+      plannedAt: "2026-05-14T12:04:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "attach-plan:local",
+          label: "Local / kiln",
+          kind: "local",
+          gatewayUrl: "file:///C:/Proyectos/Sequel/kiln",
+        },
+      ],
+    })).toThrow("must use http:// or https://");
   });
 });

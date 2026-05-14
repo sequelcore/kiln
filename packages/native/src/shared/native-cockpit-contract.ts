@@ -3,12 +3,15 @@ import type {
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,
   OperatorCockpitAttachTarget,
+  OperatorCockpitReadOnlyAttachPlan,
+  OperatorCockpitReadOnlyAttachPlanInput,
   OperatorCockpitReadOnlyProjection,
   OperatorCockpitReadOnlyProjectionInput,
   OperatorCockpitReadOnlyActionIntent,
   OperatorCockpitReadOnlyActionIntentInput,
 } from "@kilnai/gateway-contracts";
 import {
+  createOperatorCockpitReadOnlyAttachPlan,
   createOperatorCockpitReadOnlyActionIntent,
   operatorCockpitActionAllowed,
   projectOperatorCockpitReadOnlyView,
@@ -71,8 +74,38 @@ export function nativeCockpitActionAllowed(
 }
 
 export type NativeCockpitAttachTarget = OperatorCockpitAttachTarget;
+export type NativeCockpitReadOnlyAttachPlanView = OperatorCockpitReadOnlyAttachPlan;
 export type NativeCockpitReadOnlyView = OperatorCockpitReadOnlyProjection;
 export type NativeCockpitReadOnlyActionIntentView = OperatorCockpitReadOnlyActionIntent;
+
+export interface NativeCockpitReadOnlyAttachPlanInput extends OperatorCockpitReadOnlyAttachPlanInput {
+  readonly surfaceId: string;
+}
+
+export interface NativeCockpitReadOnlyAttachPlan {
+  readonly surfaceMode: "operator-cockpit";
+  readonly surfaceId: string;
+  readonly runtimeBoundary: "gateway-contracts";
+  readonly networkAttach: "not-started";
+  readonly mutationDispatch: "disabled";
+  readonly plan: NativeCockpitReadOnlyAttachPlanView;
+}
+
+export function createNativeCockpitReadOnlyAttachPlan(
+  input: NativeCockpitReadOnlyAttachPlanInput,
+): NativeCockpitReadOnlyAttachPlan {
+  return {
+    surfaceMode: "operator-cockpit",
+    surfaceId: input.surfaceId,
+    runtimeBoundary: "gateway-contracts",
+    networkAttach: "not-started",
+    mutationDispatch: "disabled",
+    plan: createOperatorCockpitReadOnlyAttachPlan({
+      plannedAt: input.plannedAt,
+      attachTargets: input.attachTargets,
+    }),
+  };
+}
 
 export interface NativeCockpitReadOnlyProjectionInput extends OperatorCockpitReadOnlyProjectionInput {
   readonly surfaceId: string;

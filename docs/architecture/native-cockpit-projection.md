@@ -4,9 +4,10 @@ Status: early read-only projection architecture. Roadmap 05 has target,
 precondition, benchmark-fixture, shared projection-baseline,
 cancellation-target, shared read-only cockpit projection, and native
 read-only projection wrapper/action-intent contracts. It also has a shared
-TypeScript read-only projection baseline over the same projection substrate. No
-native cockpit UI, network attach loop, browser-rendering benchmark,
-cancellation dispatch, or Rust projection kernel is promoted.
+TypeScript read-only projection baseline over the same projection substrate and
+a read-only attach plan for explicit local and simulated remote gateway
+targets. No native cockpit UI, network attach loop, browser-rendering
+benchmark, cancellation dispatch, or Rust projection kernel is promoted.
 
 ## Purpose
 
@@ -39,6 +40,11 @@ gateway projection to add native surface metadata such as `surfaceId`,
 `surfaceMode`, and disabled mutation dispatch. It must not fork session,
 timeline, invocation, tool, cost, provider, authority, or target projection
 logic.
+
+The native package may also wrap the shared read-only attach plan to add
+surface metadata and `networkAttach: not-started`. The attach plan is still a
+contract and validation artifact. It does not open HTTP, WebSocket, IPC, or
+native process connections.
 
 ## Phase Gate
 
@@ -95,6 +101,14 @@ against explicit targets before any mutating gateway action exists.
 
 The first Phase 2 substrate is a shared read-only cockpit projection over
 canonical `OperatorSessionEvent` records.
+
+The first attach substrate is a shared read-only attach plan over explicit
+`OperatorCockpitAttachTarget` records. It validates target identity, labels,
+supported target kinds, duplicate targets, and `http://` or `https://`
+gateway URLs before any local or simulated remote target can be projected. The
+plan records `connectionState: planned`, `mutationDispatch: disabled`, and the
+intended HTTP/WebSocket transport only. It does not open sockets or start a
+gateway attach loop.
 
 `packages/gateway-contracts/src/operator-cockpit-projection.ts` groups events
 by explicit attach target and session, then emits:
@@ -172,6 +186,7 @@ Implemented:
 - shared synthetic high-density event fixture generator
 - shared GUI projection baseline measurement
 - shared read-only cockpit projection baseline measurement
+- shared read-only attach plan for local and simulated remote gateway targets
 - gateway-mediated cancellation request schema
 - shared read-only cockpit projection over canonical events and explicit attach
   targets
@@ -181,7 +196,7 @@ Implemented:
 
 Not implemented:
 
-- local or remote attach prototype
+- live local or remote gateway attach loop
 - multi-session cockpit UI
 - multi-instance dashboard UI
 - cancellation dispatch

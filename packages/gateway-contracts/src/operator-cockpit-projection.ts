@@ -29,6 +29,39 @@ export interface OperatorCockpitAttachTarget {
   readonly gatewayUrl?: string;
 }
 
+export type OperatorCockpitAttachConnectionKind =
+  | "operator-gateway"
+  | "app-gateway"
+  | "simulated-app-gateway";
+
+export type OperatorCockpitAttachTransport =
+  | "http-ws"
+  | "simulated-http-ws";
+
+export interface OperatorCockpitReadOnlyAttachPlanInput {
+  readonly plannedAt: string;
+  readonly attachTargets: readonly OperatorCockpitAttachTarget[];
+}
+
+export interface OperatorCockpitReadOnlyAttachPlanTarget {
+  readonly instanceId: string;
+  readonly label: string;
+  readonly kind: OperatorCockpitAttachTargetKind;
+  readonly gatewayUrl: string;
+  readonly connectionKind: OperatorCockpitAttachConnectionKind;
+  readonly transport: OperatorCockpitAttachTransport;
+  readonly connectionState: "planned";
+  readonly mutationDispatch: "disabled";
+}
+
+export interface OperatorCockpitReadOnlyAttachPlan {
+  readonly mode: "read-only";
+  readonly plannedAt: string;
+  readonly targetCount: number;
+  readonly mutationDispatch: "disabled";
+  readonly targets: readonly OperatorCockpitReadOnlyAttachPlanTarget[];
+}
+
 export interface OperatorCockpitReadOnlyProjectionInput {
   readonly projectedAt: string;
   readonly attachTargets: readonly OperatorCockpitAttachTarget[];
@@ -168,6 +201,31 @@ interface ToolAccumulator {
   status: OperatorCockpitToolStatus;
   eventCount: number;
   latestEventId: string;
+}
+
+export function createOperatorCockpitReadOnlyAttachPlan(
+  input: OperatorCockpitReadOnlyAttachPlanInput,
+): OperatorCockpitReadOnlyAttachPlan {
+  createAttachTargetMap(input.attachTargets);
+
+  const targets = input.attachTargets.map((target) => ({
+    instanceId: target.instanceId,
+    label: target.label,
+    kind: target.kind,
+    gatewayUrl: readAttachGatewayUrl(target),
+    connectionKind: connectionKindForAttachTarget(target),
+    transport: target.kind === "simulated-remote" ? "simulated-http-ws" : "http-ws",
+    connectionState: "planned",
+    mutationDispatch: "disabled",
+  } satisfies OperatorCockpitReadOnlyAttachPlanTarget));
+
+  return {
+    mode: "read-only",
+    plannedAt: input.plannedAt,
+    targetCount: targets.length,
+    mutationDispatch: "disabled",
+    targets,
+  };
 }
 
 export function projectOperatorCockpitReadOnlyView(
@@ -345,6 +403,35 @@ function createAttachTargetMap(
 function isAttachTargetKind(value: unknown): value is OperatorCockpitAttachTargetKind {
   return typeof value === "string"
     && OPERATOR_COCKPIT_ATTACH_TARGET_KINDS.includes(value as OperatorCockpitAttachTargetKind);
+}
+
+function readAttachGatewayUrl(target: OperatorCockpitAttachTarget): string {
+  const gatewayUrl = target.gatewayUrl?.trim();
+  if (!gatewayUrl) {
+    throw new Error(`Operator cockpit attach target ${target.instanceId} requires gatewayUrl.`);
+  }
+
+  const parsed = parseGatewayUrl(gatewayUrl, target.instanceId);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Operator cockpit attach target ${target.instanceId} gatewayUrl must use http:// or https://.`);
+  }
+  return gatewayUrl;
+}
+
+function parseGatewayUrl(value: string, instanceId: string): URL {
+  try {
+    return new URL(value);
+  } catch {
+    throw new Error(`Operator cockpit attach target ${instanceId} gatewayUrl must be a valid URL.`);
+  }
+}
+
+function connectionKindForAttachTarget(
+  target: OperatorCockpitAttachTarget,
+): OperatorCockpitAttachConnectionKind {
+  if (target.kind === "local") return "operator-gateway";
+  if (target.kind === "simulated-remote") return "simulated-app-gateway";
+  return "app-gateway";
 }
 
 function getOrCreateSession(
