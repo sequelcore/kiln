@@ -104,7 +104,7 @@ is documented by concern, not as a single monolith.
 
 - `runtime-surfaces.md`
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
-  CLI, GUI, TUI, SDK/widget, and MCP boundaries.
+  CLI, GUI, native, TUI, SDK/widget, and MCP boundaries.
 
 - `config-projection.md`
   Canonical global config, native harness projection, install-state, drift detection,
@@ -117,8 +117,9 @@ is documented by concern, not as a single monolith.
   runtime tools, hooks, and proof requirements.
 
 - `operator-surfaces.md`
-  Canonical human operator surface model: GUI, CLI, TUI, IDE, remote, future
-  native operator surface, supervision evidence, and surface ownership rules.
+  Canonical human operator surface model: GUI, native, CLI, TUI, IDE, remote,
+  supervision evidence, embedded browser host boundaries, and surface ownership
+  rules.
 
 - `benchmark-validation.md`
   Canonical benchmark validation contract: benchmark-facing profiles, internal

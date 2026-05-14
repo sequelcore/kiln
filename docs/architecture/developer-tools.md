@@ -425,12 +425,13 @@ artifact-backed observation.
 Browser viewport projections use explicit transport labels. `snapshot-polling`
 means artifact-backed observation or monitor frames. `cdp-screencast` means a
 local Chromium frame stream produced through Playwright/Chrome DevTools
-Protocol. Future transports such as `webrtc`, `hosted-url`, or an embedded
-host must be represented as transport evidence rather than hidden behind a
-generic "live" label. Snapshot polling and CDP screencast are useful monitor
-and diagnostic transports; they are not a real embedded browser. A true
-in-app browser requires the native operator surface foundation and a native
-browser host capability selected and proven by the dedicated roadmaps.
+Protocol. `electron-webcontents` means a native Electron `WebContentsView`
+embedded browser host. Future transports such as `webrtc` or `hosted-url` must
+also be represented as transport evidence rather than hidden behind a generic
+"live" label. Snapshot polling and CDP screencast are useful monitor and
+diagnostic transports; they are not a real embedded browser. The native
+`electron-webcontents` host proves the embedding/control capability, while the
+full in-app browser operator product surface remains a separate roadmap.
 
 Operator browser evidence is sanitized. Takeover, release, and input
 acknowledgement events may be persisted as session evidence, but raw text input

@@ -63,7 +63,9 @@ lives in the native/browser sequence:
 - completed native operator surface foundation in
   `docs/architecture/operator-surfaces.md`,
   `docs/architecture/runtime-surfaces.md`, and `@kilnai/native`
-- `03-embedded-browser-host-capability.md`
+- completed embedded browser host capability in
+  `docs/architecture/operator-surfaces.md`,
+  `docs/architecture/developer-tools.md`, and `@kilnai/native`
 - `04-embedded-browser-operator-surface.md`
 
 The native surface foundation and embedded browser host may use native shell

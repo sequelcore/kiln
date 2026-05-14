@@ -477,7 +477,12 @@ export type GuiBrowserSessionOwnership = "agent" | "operator" | "released";
 export type GuiBrowserSessionViewMode = "snapshot" | "live";
 export type GuiBrowserSessionStreamStatus = "unavailable" | "starting" | "live" | "paused" | "ended" | "failed";
 export type GuiBrowserSessionControlAction = "takeover" | "release";
-export type GuiBrowserLiveViewportTransport = "snapshot-polling" | "cdp-screencast" | "webrtc" | "hosted-url";
+export type GuiBrowserLiveViewportTransport =
+  | "snapshot-polling"
+  | "cdp-screencast"
+  | "electron-webcontents"
+  | "webrtc"
+  | "hosted-url";
 export type GuiBrowserLiveViewportFormat = "jpeg" | "png";
 export type GuiBrowserOperatorInputAckStatus = "accepted" | "blocked" | "failed" | "stale-session";
 export type GuiBrowserOperatorPointerButton = "left" | "middle" | "right" | "back" | "forward" | "none";

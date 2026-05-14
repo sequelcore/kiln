@@ -71,16 +71,11 @@ No active roadmap is currently in implementation.
 
 ## Deferred Roadmaps
 
-- `03-embedded-browser-host-capability.md`
-  Focused native browser-host capability decision. Native foundation is complete;
-  this track owns the Electron `WebContentsView` proof, host security baseline,
-  control protocol, evidence model, and ADR update before the product browser
-  surface starts.
-
 - `04-embedded-browser-operator-surface.md`
-  Real embedded browser operator-surface track. Blocked on `03`; owns the
-  product capability where the operator interacts with an actual browser view
-  inside Kiln.
+  Real embedded browser operator-surface track. Native foundation and
+  `electron-webcontents` host proof are complete; this owns the product
+  capability where the operator interacts with an actual browser view inside
+  Kiln.
 
 - `05-native-operator-cockpit-and-projection-performance.md`
   Deferred native cockpit and projection-performance experiment for
@@ -245,12 +240,21 @@ No active roadmap is currently in implementation.
   hardened renderer defaults, no direct `@kilnai/core` or `@kilnai/runtime`
   package dependency, workspace test/typecheck/build wiring, and an Electron
   smoke proof with clean shutdown.
+- Embedded browser host capability completed on 2026-05-14. Stable doctrine
+  lives in `docs/architecture/operator-surfaces.md`,
+  `docs/architecture/developer-tools.md`, and
+  `docs/adr/ADR-006-gui-stack-and-binding-contract.md`. Implementation covers
+  the native Electron `WebContentsView` host adapter, `electron-webcontents`
+  transport vocabulary, fail-closed local navigation policy, isolated ephemeral
+  web preferences, denied popups, denied permissions, blocked downloads, CDP
+  observation/control, typed operator input dispatch, gateway-shaped browser
+  session projection, sanitized browser operator evidence, and a deterministic
+  smoke proof with clean shutdown.
 
 ## Execution Priority
 
-1. Keep the remaining native/browser sequence ordered as: `03` embedded browser
-   host capability, `04` embedded browser operator surface, then `05` native
-   cockpit and projection performance.
+1. Keep the remaining native/browser sequence ordered as: `04` embedded browser
+   operator surface, then `05` native cockpit and projection performance.
 2. Keep native performance architecture grounded in the completed foundation:
    shared projections, batching, resource links, virtualization, and metrics are
    v1 surface requirements, not late cleanup.

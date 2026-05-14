@@ -174,7 +174,7 @@ an initial first-class native package at `packages/native` / `@kilnai/native`.
 The accepted v1 stack is:
 
 - Electron main process for native window lifecycle, process isolation, and the
-  future embedded-browser host adapter.
+  embedded-browser host adapter.
 - React 19 and Vite renderer for consistency with the web GUI implementation
   stack.
 - `@kilnai/gateway-contracts` as the shared capability, session-projection,
@@ -190,9 +190,18 @@ local file/dev-server origins until a governed runtime policy exists.
 
 The v1 implementation advertises native capability slots for gateway attach,
 session projection, theme projection, native window lifecycle, surface
-performance telemetry, and an unsupported embedded-browser-host slot. The
-embedded browser host remains roadmap `03`; native v1 exposes the extension
-point without claiming that capability.
+performance telemetry, and embedded browser hosting. Embedded browser hosting
+uses Electron `WebContentsView` and the `electron-webcontents` transport label.
+That host is a native adapter proof, not the full operator browser product
+surface; the product surface remains a separate roadmap.
+
+The embedded browser host must keep all remote or task content isolated from the
+Electron renderer and main process. Host content runs with Node integration
+disabled, context isolation enabled, sandbox enabled, web security enabled, no
+preload bridge, denied popup windows, denied permission prompts, blocked
+downloads, ephemeral partition state, and fail-closed navigation against a
+runtime-supplied allowlist. DevTools/CDP control belongs to the host adapter and
+must project audited evidence through gateway-shaped browser session data.
 
 The native surface is justified when product evidence shows a real need for
 native capabilities that the web GUI cannot provide cleanly, including:

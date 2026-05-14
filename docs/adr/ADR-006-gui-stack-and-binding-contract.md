@@ -10,11 +10,11 @@
 **2026-05-14 amendment:** This ADR remains authoritative for the web GUI stack
 and gateway binding contract. Its Electron rejection applies to using Electron
 as the general GUI substrate. Electron is accepted only for the first-class
-native operator surface implemented in `@kilnai/native` and for the later
-embedded browser-host capability. Stable native doctrine lives in
+native operator surface implemented in `@kilnai/native` and for the proven
+Electron `WebContentsView` embedded browser-host capability. Stable native
+doctrine lives in
 `docs/architecture/operator-surfaces.md` and
-`docs/architecture/runtime-surfaces.md`; active browser-host work remains in
-`docs/roadmap/03-embedded-browser-host-capability.md` and
+`docs/architecture/runtime-surfaces.md`; active browser product work remains in
 `docs/roadmap/04-embedded-browser-operator-surface.md`.
 
 ---

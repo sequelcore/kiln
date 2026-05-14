@@ -3,8 +3,8 @@
 Shared HTTP and WebSocket frame contracts for the Kiln operator gateway.
 
 Both the runtime gateway (`@kilnai/runtime`) and the operator clients
-(`@kilnai/gui`, future `@kilnai/native`, `@kilnai/tui`, SDK, and widget)
-depend on this package so that frame shapes and shared operator projections are
+(`@kilnai/gui`, `@kilnai/native`, `@kilnai/tui`, SDK, and widget) depend on
+this package so that frame shapes and shared operator projections are
 defined once and consumed by every surface. Neither side defines its own copy of
 these types; any shape change is made here and takes effect on the next build
 for all consumers.
@@ -37,9 +37,11 @@ gateway, and runtime consumers.
 Capability snapshots advertise what a surface can support without granting
 authority. The native surface starts with explicit capability slots for gateway
 attach, session projection, native window lifecycle, surface performance
-telemetry, and the later embedded-browser host proof. Unsupported capabilities
-must remain explicit so surfaces can render honest unavailable states instead
-of inferring behavior from package names or local feature flags.
+telemetry, and embedded-browser host proof. Browser session projections use
+explicit transport labels such as `snapshot-polling`, `cdp-screencast`,
+`electron-webcontents`, `webrtc`, and `hosted-url` so surfaces can distinguish
+artifact monitors, frame streams, native embedded hosts, and remote live views
+without inferring behavior from package names or local feature flags.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted

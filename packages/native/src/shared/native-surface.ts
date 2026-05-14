@@ -58,8 +58,8 @@ export function createNativeSurfaceCapabilitySnapshot(
       },
       {
         capability: "embedded-browser-host",
-        status: "unsupported",
-        reason: "Roadmap 03 owns the embedded browser host proof.",
+        status: "available",
+        reason: "Electron WebContentsView host proof is available behind the native host adapter.",
       },
     ],
   };

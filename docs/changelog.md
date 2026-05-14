@@ -7,8 +7,12 @@
   `@kilnai/gateway-contracts` projections, and no direct `@kilnai/core` or
   `@kilnai/runtime` implementation imports.
 - Added native surface capability, projection, hardened window, telemetry, and
-  smoke-test coverage. The native surface advertises the embedded-browser-host
-  slot as unsupported until roadmap `03` proves the real host adapter.
+  smoke-test coverage.
+- Added the Electron `WebContentsView` embedded-browser host proof with
+  fail-closed navigation, isolated ephemeral web preferences, denied popups,
+  denied permissions, blocked downloads, CDP observation/control, typed
+  operator input dispatch, `electron-webcontents` transport evidence, and a
+  deterministic local smoke proof.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.
@@ -16,6 +20,10 @@
   2026-05-14 after native package tests, gateway-contract tests, typecheck,
   native build, Electron smoke proof, full workspace tests, and full workspace
   build passed.
+- Closed and retired `03-embedded-browser-host-capability.md` on 2026-05-14
+  after gateway-contract tests, native boundary tests, native typecheck, native
+  build, native smoke, browser-host smoke, full workspace typecheck, full
+  workspace tests, and full workspace build passed.
 
 ## Unreleased -- Runtime Gateway
 

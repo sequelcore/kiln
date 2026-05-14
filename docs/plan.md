@@ -1,115 +1,113 @@
-# Native Operator Surface Foundation Closeout Plan
+# Embedded Browser Host Capability Closeout Plan
 
 Status: completed on 2026-05-14.
 
 ## Objective
 
-Close `docs/roadmap/02-native-operator-surface-foundation.md` end to end by
-shipping the native foundation, absorbing durable doctrine into canonical
-architecture/ADR docs, and retiring the active roadmap file.
+Close `docs/roadmap/03-embedded-browser-host-capability.md` by choosing and
+proving the native embedded browser host substrate without building the full
+operator browser product surface.
 
 ## Scout Summary
 
-- `@kilnai/gateway-contracts` is the shared boundary for operator surface
-  capabilities, session-event projection, theme projection, and renderer-facing
-  presentation data.
-- `@kilnai/native` must be a first-class surface over gateway contracts, not a
-  wrapper around `@kilnai/gui` and not an importer of `@kilnai/core` or
-  `@kilnai/runtime`.
-- ADR-006 rejects Electron as the general web GUI substrate but already permits
-  a focused native operator surface/browser-host exception when runtime
-  ownership remains in gateway contracts.
+- `@kilnai/native` owns the native host proof.
+- `@kilnai/gateway-contracts` owns cross-surface browser transport vocabulary.
+- `@kilnai/gui` validates inbound browser session frames and must accept the
+  same transport labels as gateway contracts.
+- Runtime/browser authority remains in existing browser session contracts;
+  native host code proves lifecycle, input dispatch, observation projection,
+  and evidence shape, but does not own policy, session truth, provider routing,
+  credentials, or replay.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
 ## Delivered Slices
 
-### Slice 1 - Shared Surface Capability Contract
+### Slice 1 - Browser Host Transport Contract
 
 Files:
 
-- `packages/gateway-contracts/src/operator-surface-capability.ts`
-- `packages/gateway-contracts/src/index.ts`
 - `packages/gateway-contracts/src/frames.ts`
-- `packages/gateway-contracts/tests/operator-surface-capability.test.ts`
+- `packages/gateway-contracts/tests/browser-session-state.test.ts`
 - `packages/gui/src/lib/ws-client.ts`
+- `packages/gui/tests/ws-client.test.ts`
 
 Result:
 
-- Added shared operator surface vocabulary including `native`.
-- Added surface capability snapshots, unsupported-capability states, and helper
-  functions.
-- Updated session-event source validation to accept native-originated projected
-  events.
+- Added `electron-webcontents` to the shared browser transport union.
+- Proved gateway-contract frames and GUI inbound parsing accept native host
+  browser session state.
 
-### Slice 2 - Native Package Foundation
+### Slice 2 - Native Host Boundary Helpers
 
 Files:
 
-- `packages/native/package.json`
-- `packages/native/tsconfig.json`
-- `packages/native/tsconfig.main.json`
-- `packages/native/tsconfig.renderer.json`
-- `packages/native/vite.config.ts`
-- `packages/native/index.html`
-- `packages/native/src/main/main.ts`
 - `packages/native/src/shared/native-surface.ts`
-- `packages/native/src/renderer/main.tsx`
-- `packages/native/src/renderer/native-surface-app.tsx`
-- `packages/native/src/renderer/styles.css`
+- `packages/native/src/shared/native-browser-host.ts`
 - `packages/native/tests/native-boundary.test.ts`
 
 Result:
 
-- Added `@kilnai/native` as an Electron main process plus React 19/Vite
-  renderer.
-- Hardened the Electron renderer with disabled Node integration, enabled
-  context isolation, enabled sandbox, enabled web security, no preload bridge,
-  denied popups, and local-only navigation until a governed runtime policy
-  exists.
-- Kept native shared logic in `src/shared/native-surface.ts` so main process,
-  renderer, and tests use one capability/projection/telemetry implementation.
-- Proved the package does not depend on `@kilnai/core` or `@kilnai/runtime`.
-- Added an Electron smoke mode that opens the built native surface, records
-  baseline telemetry, prints machine-readable proof, closes cleanly, and exits.
+- Marked `embedded-browser-host` available after the Electron proof.
+- Added deterministic host policy, isolated ephemeral web preferences,
+  navigation admission, gateway-shaped browser session projection, sanitized
+  evidence projection, and ownership-gated runtime/operator action helpers.
 
-### Slice 3 - Workspace Wiring And Canonical Docs
+### Slice 3 - Electron WebContentsView Proof
 
 Files:
 
-- `package.json`
-- `tsconfig.json`
-- `bun.lock`
-- `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
-- `docs/architecture/operator-surfaces.md`
-- `docs/architecture/runtime-surfaces.md`
-- `docs/changelog.md`
-- `docs/roadmap/README.md`
-- `docs/roadmap/03-embedded-browser-host-capability.md`
-- `docs/roadmap/04-embedded-browser-operator-surface.md`
-- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `packages/native/src/main/embedded-browser-host.ts`
+- `packages/native/src/main/main.ts`
+- `packages/native/proof/browser-host-proof.html`
+- `packages/native/package.json`
 
 Result:
 
-- Added native to workspace `test`, `typecheck`, and `build`.
-- Kept root TypeScript ambient types constrained to Bun so Electron transitive
-  Node typings do not perturb Bun-oriented packages.
-- Updated ADR-006 and architecture docs so Electron is accepted only for
-  `@kilnai/native` and later embedded-browser host work, not as the web GUI
-  substrate.
-- Retired roadmap `02`; active/deferred sequencing now starts at roadmap `03`.
+- Added an Electron `WebContentsView` host adapter.
+- Denied popups, permission prompts, downloads, and unapproved navigation.
+- Used isolated/sandboxed web preferences and smoke-only isolated user-data
+  directories.
+- Used Electron `webContents.debugger` for CDP observation and wheel dispatch.
+- Added `browser-host:smoke` proof that loads a deterministic local page,
+  dispatches pointer/text/wheel input, observes URL/title/viewport/scroll state,
+  records `electron-webcontents` evidence, and shuts down cleanly.
+
+### Slice 4 - Canonical Docs And Roadmap Closeout
+
+Files:
+
+- `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
+- `docs/architecture/README.md`
+- `docs/architecture/agent-qa-showcase-recorder.md`
+- `docs/architecture/developer-tools.md`
+- `docs/architecture/operator-surfaces.md`
+- `docs/changelog.md`
+- `docs/research/14-live-browser-operator-surface.md`
+- `docs/roadmap/README.md`
+- `docs/roadmap/04-embedded-browser-operator-surface.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `packages/gateway-contracts/README.md`
+
+Result:
+
+- Absorbed stable host decision and security/evidence doctrine into canonical
+  docs.
+- Retired roadmap `03`; remaining native/browser sequence starts at roadmap
+  `04`.
 
 ## Verification
 
-- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-surface-capability`.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- browser-session-state`.
 - Passed `bun run --filter @kilnai/gateway-contracts test`.
+- Passed `bun run --filter @kilnai/gateway-contracts build`.
+- Passed `bun run --cwd packages/gui test:run -- ws-client`.
 - Passed `bun run --cwd packages/native test`.
 - Passed `bun run --cwd packages/native typecheck`.
 - Passed `bun run --cwd packages/native build`.
 - Passed `bun run --cwd packages/native smoke`.
+- Passed `bun run --cwd packages/native browser-host:smoke`.
 - Passed `bun run typecheck`.
 - Passed `bun run test`.
 - Passed `bun run build`.
-
-Final documentation-only edits still require `git diff --check` and a focused
-post-closeout test/typecheck pass before commit.
+- Passed `git diff --check`.

@@ -101,10 +101,9 @@ Therefore the browser/native operator work is now split into four concerns:
    This is not a wrapper plan; it establishes the native stack, gateway-only
    boundary, package shape, performance foundation, and capability extension
    point.
-3. `03-embedded-browser-host-capability.md`
-   Native browser-host decision and proof. This is narrower than the broad
-   high-density native cockpit and projection-performance experiment in
-   Roadmap 05.
+3. Completed native browser-host proof in `@kilnai/native` and
+   `docs/architecture/operator-surfaces.md`. Electron `WebContentsView` is the
+   accepted first host, using the `electron-webcontents` transport label.
 4. `04-embedded-browser-operator-surface.md`
    Real embedded browser operator surface.
 
@@ -341,7 +340,8 @@ Accepted categories:
 
 - snapshot monitor for artifact-backed observability and replay degradation
 - local Playwright/Chromium CDP screencast as a frame-stream fallback
-- native embedded browser host after `03` selects and proves it
+- native embedded browser host through the proven Electron `WebContentsView`
+  adapter
 - remote provider live URL or WebRTC stream represented as a sensitive
   resource link plus lifecycle metadata
 
@@ -411,7 +411,6 @@ CDP-backed raw key down/up dispatch, and sanitized operator evidence.
 The browser-foundation work has been absorbed into canonical architecture and
 guide documentation. The next completion work is now split:
 
-1. Execute `03`: decide and prove the embedded browser host capability.
-2. Execute `04`: build and prove the real embedded browser operator surface.
-3. Keep `05` as the broader native cockpit and projection-performance
+1. Execute `04`: build and prove the real embedded browser operator surface.
+2. Keep `05` as the broader native cockpit and projection-performance
    experiment.

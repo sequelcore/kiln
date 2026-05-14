@@ -113,6 +113,35 @@ describe("browser session state frames", () => {
     expect(viewportFrame.width).toBe(1280);
   });
 
+  it("carries native embedded browser host transport evidence", () => {
+    const frame: GuiInboundFrame = {
+      type: "browser_session_updated",
+      browserSession: {
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-14T12:00:00.000Z",
+        kilnSessionId: "session-1",
+        provider: "native-electron",
+        sessionId: "native-browser-1",
+        ownership: "agent",
+        viewMode: "live",
+        stream: {
+          status: "live",
+        },
+        latestCapture: {
+          uri: "kiln://browser-host/native-browser-1/current",
+          relation: "embedded-browser-host",
+          mimeType: "text/html",
+          width: 1024,
+          height: 640,
+          transport: "electron-webcontents",
+        },
+      },
+    };
+
+    expect(frame.browserSession.latestCapture?.transport).toBe("electron-webcontents");
+  });
+
   it("carries typed operator input intents and acknowledgements", () => {
     const outbound: GuiOutboundFrame = {
       type: "browser_operator_input",

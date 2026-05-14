@@ -7,9 +7,18 @@ import {
   createNativeSurfaceProjection,
   createNativeSurfaceTelemetry,
 } from "../src/shared/native-surface.js";
+import {
+  createNativeBrowserHostEvidenceEvent,
+  createNativeBrowserHostPolicy,
+  createNativeBrowserHostSessionState,
+  createNativeEmbeddedBrowserHostOptions,
+  isNativeBrowserHostNavigationAllowed,
+  nativeBrowserHostOperatorInputAllowed,
+  nativeBrowserHostRuntimeActionAllowed,
+} from "../src/shared/native-browser-host.js";
 
 describe("native operator surface foundation", () => {
-  it("advertises native capability slots without claiming embedded browser support", () => {
+  it("advertises native capability slots including the proven embedded browser host", () => {
     const snapshot = createNativeSurfaceCapabilitySnapshot({
       surfaceId: "native:local",
       generatedAt: "2026-05-14T12:00:00.000Z",
@@ -26,8 +35,8 @@ describe("native operator surface foundation", () => {
     });
     expect(snapshot.capabilities).toContainEqual({
       capability: "embedded-browser-host",
-      status: "unsupported",
-      reason: "Roadmap 03 owns the embedded browser host proof.",
+      status: "available",
+      reason: "Electron WebContentsView host proof is available behind the native host adapter.",
     });
   });
 
@@ -99,5 +108,88 @@ describe("native operator surface foundation", () => {
     expect(packageJson.dependencies?.["@kilnai/runtime"]).toBeUndefined();
     expect(packageJson.devDependencies?.["@kilnai/core"]).toBeUndefined();
     expect(packageJson.devDependencies?.["@kilnai/runtime"]).toBeUndefined();
+  });
+
+  it("configures the embedded browser host with isolated ephemeral security defaults", () => {
+    const options = createNativeEmbeddedBrowserHostOptions({
+      sessionId: "browser-1",
+    });
+
+    expect(options.transport).toBe("electron-webcontents");
+    expect(options.webPreferences.nodeIntegration).toBe(false);
+    expect(options.webPreferences.contextIsolation).toBe(true);
+    expect(options.webPreferences.sandbox).toBe(true);
+    expect(options.webPreferences.webSecurity).toBe(true);
+    expect(options.webPreferences.allowRunningInsecureContent).toBe(false);
+    expect(options.webPreferences.preload).toBeUndefined();
+    expect(options.webPreferences.partition).toBe("kiln-embedded-browser-host:browser-1");
+    expect(options.webPreferences.partition.startsWith("persist:")).toBe(false);
+  });
+
+  it("fails closed for unapproved embedded browser navigation", () => {
+    const policy = createNativeBrowserHostPolicy({
+      allowedUrls: ["file:///C:/Proyectos/Sequel/kiln/packages/native/proof/browser-host-proof.html"],
+    });
+
+    expect(isNativeBrowserHostNavigationAllowed(
+      "file:///C:/Proyectos/Sequel/kiln/packages/native/proof/browser-host-proof.html",
+      policy,
+    )).toBe(true);
+    expect(isNativeBrowserHostNavigationAllowed("https://example.com", policy)).toBe(false);
+    expect(isNativeBrowserHostNavigationAllowed("javascript:alert(1)", policy)).toBe(false);
+  });
+
+  it("projects embedded browser host state and evidence through gateway-shaped data", () => {
+    const state = createNativeBrowserHostSessionState({
+      sessionId: "browser-1",
+      kilnSessionId: "session-1",
+      url: "file:///proof.html",
+      title: "Kiln Browser Host Proof",
+      updatedAt: "2026-05-14T12:00:00.000Z",
+      viewport: {
+        width: 1024,
+        height: 640,
+      },
+      ownership: "operator",
+    });
+    const event = createNativeBrowserHostEvidenceEvent({
+      eventId: "session-1:browser-host:1",
+      kilnSessionId: "session-1",
+      sequence: 1,
+      timestamp: "2026-05-14T12:00:00.000Z",
+      sessionId: "browser-1",
+      action: "operator_input",
+      url: "file:///proof.html",
+      title: "Kiln Browser Host Proof",
+      input: {
+        kind: "text",
+        textLength: 5,
+      },
+      acknowledgement: {
+        status: "accepted",
+      },
+    });
+
+    expect(state.latestCapture?.transport).toBe("electron-webcontents");
+    expect(state.stream.status).toBe("live");
+    expect(event.kind).toBe("browser_operator_evidence");
+    expect(event.source.surface).toBe("native");
+    expect(event.payload).toMatchObject({
+      hostTransport: "electron-webcontents",
+      browserSessionId: "browser-1",
+      input: {
+        kind: "text",
+        textLength: 5,
+      },
+    });
+    expect(JSON.stringify(event.payload)).not.toContain("typed secret");
+  });
+
+  it("keeps runtime dispatch and operator input mutually gated by ownership", () => {
+    expect(nativeBrowserHostRuntimeActionAllowed({ ownership: "agent" })).toBe(true);
+    expect(nativeBrowserHostRuntimeActionAllowed({ ownership: "operator" })).toBe(false);
+    expect(nativeBrowserHostOperatorInputAllowed({ ownership: "operator" })).toBe(true);
+    expect(nativeBrowserHostOperatorInputAllowed({ ownership: "agent" })).toBe(false);
+    expect(nativeBrowserHostOperatorInputAllowed({ ownership: "released" })).toBe(false);
   });
 });

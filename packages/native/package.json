@@ -8,6 +8,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json --noEmit && vite build",
+    "browser-host:smoke": "electron dist/main/main/main.js --browser-host-smoke",
     "smoke": "electron dist/main/main/main.js --smoke",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "test": "vitest run"
