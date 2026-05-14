@@ -63,6 +63,7 @@ export type {
   FilePart,
   ToolUsePart,
   ToolResultPart,
+  ToolResultPayloadPart,
 } from "./engine/domain/content.js";
 export {
   textPart,
@@ -74,6 +75,36 @@ export {
 } from "./engine/domain/content.js";
 export type { Modality } from "./engine/domain/modality.js";
 export { VALID_MODALITIES, validateModalities } from "./engine/domain/modality.js";
+export type {
+  AuxiliaryModalityRoute,
+  MultimodalArtifact,
+  MultimodalArtifactRetention,
+  MultimodalArtifactSource,
+  MultimodalCapability,
+  MultimodalChecksum,
+  MultimodalDelegationCostBudgetDecision,
+  MultimodalDelegationEvidence,
+  MultimodalDelegationExpectedResult,
+  MultimodalDelegationPolicyDecision,
+  MultimodalDelegationUncertainty,
+  MultimodalDiagnosticSeverity,
+  MultimodalDimensions,
+  MultimodalReplayReference,
+  MultimodalRouteHealth,
+  MultimodalRoutingDecision,
+  MultimodalRoutingDiagnostic,
+  MultimodalRoutingPolicy,
+  MultimodalRoutingReason,
+  MultimodalRoutingRequest,
+  MultimodalRoutingStrategy,
+  MultimodalTransformCandidate,
+  MultimodalTransformEvidence,
+  MultimodalTransportModality,
+  NativeMultimodalRouteEvidence,
+  ProviderModalityCapabilities,
+  ProviderModalityConstraints,
+} from "./engine/domain/multimodal-routing.js";
+export { planMultimodalRoute } from "./engine/domain/multimodal-routing.js";
 export type {
   SttAdapter,
   SttResult,

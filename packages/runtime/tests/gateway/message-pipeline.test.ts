@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventBus, SkillRegistry, coordinationStateToContextCandidates, textParts } from "@kilnai/core";
-import type { TenantConfig } from "@kilnai/core";
+import { EventBus, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, textParts } from "@kilnai/core";
+import type { MultimodalRoutedEvent, TenantConfig } from "@kilnai/core";
 import type { SkillConfig } from "@kilnai/core";
 import { processAdmittedTurn, projectAdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
-import type { RuntimeSession } from "../../src/session/runtime-session.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
 import * as agentResolver from "../../src/tenant/agent-resolver.js";
@@ -221,6 +221,45 @@ describe("processAdmittedTurn", () => {
 
     expect(result.ok).toBe(true);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("captures inbound multimodal parts as replayable artifacts before runtime orchestration", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
+    const orchestrator = makeMockOrchestrator();
+    const ctx = makeBaseContext({
+      orchestrator,
+      artifactStore,
+      userParts: [
+        { type: "text", text: "Describe this image." },
+        { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+      ],
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    expect(orchestrator.processMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      [
+        { type: "text", text: "Describe this image." },
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "iVBORw0KGgo=",
+          artifactUri: "kiln://artifacts/inbound-multimodal/artifact_1/content",
+        },
+      ],
+      expect.anything(),
+      undefined,
+      undefined,
+    );
+    expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
+      mimeType: "image/png",
+      multimodal: {
+        modality: "image",
+        source: { kind: "uploaded-file", id: "test-app:test-tenant:user-1:api:part:1" },
+      },
+    });
   });
 
   it("records submitted plans as canonical session events in plan execution mode", async () => {
@@ -1986,5 +2025,290 @@ describe("processAdmittedTurn", () => {
       kind: "assistant_message",
       content: "done",
     });
+  });
+
+  it("persists pre-admitted multimodal transform evidence supplied by ingress", async () => {
+    const session = makeMockSession();
+    const transformEvent = {
+      type: "multimodal_routed",
+      provider: "gateway-transform",
+      model: "test-stt",
+      strategy: "transform",
+      reasonCode: "audio_transcription_transform",
+      reason: "Audio was transcribed before runtime admission.",
+      requestedCapability: "transcription",
+      requiredModalities: ["audio"],
+      artifactUris: ["kiln://artifacts/audio-transforms/artifact_1/content"],
+      diagnostics: [{
+        code: "audio_source_captured",
+        severity: "info",
+        message: "Source audio was captured as a replayable artifact.",
+      }],
+      timestamp: new Date("2026-05-13T12:00:00.000Z"),
+      sessionId: session.id,
+      tenantId: "test-tenant",
+    } satisfies MultimodalRoutedEvent;
+
+    const result = await processInboundMessage(makeBaseContext({
+      sessionRegistry: makeMockSessionRegistry(session),
+      userParts: textParts("[Voice note transcription]: hello from audio"),
+      runtimeEvents: [transformEvent],
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger).toContainEqual(expect.objectContaining({
+      kind: "multimodal_routed",
+      strategy: "transform",
+      reasonCode: "audio_transcription_transform",
+      requestedCapability: "transcription",
+      artifactUris: ["kiln://artifacts/audio-transforms/artifact_1/content"],
+      diagnostics: [expect.objectContaining({
+        code: "audio_source_captured",
+        severity: "info",
+      })],
+    }));
+  });
+
+  it("preserves delegated multimodal governance evidence in canonical session events", async () => {
+    const session = makeMockSession();
+    const delegatedEvent = {
+      type: "multimodal_routed",
+      provider: "openai",
+      model: "gpt-4o",
+      strategy: "delegated",
+      reasonCode: "delegation_route_available",
+      reason: "A governed auxiliary route can satisfy the requested modality.",
+      requestedCapability: "vision",
+      requiredModalities: ["text", "image"],
+      artifactUris: ["kiln://runtime/session-artifact/0"],
+      delegation: {
+        routeId: "managed-vision-readonly",
+        provider: "openai",
+        model: "gpt-4o",
+        agentProfile: "vision-describer",
+        authorityProfileId: "authority:managed-vision:readonly",
+        routeHealth: {
+          status: "healthy",
+          evidence: "live route health is green",
+        },
+        policyDecision: {
+          allowed: true,
+          reason: "Tenant policy allows read-only auxiliary vision.",
+        },
+        costBudgetDecision: {
+          status: "within-budget",
+          evidence: "delegated vision budget remains available",
+        },
+        expectedResult: {
+          format: "structured-handoff",
+          requiredFields: ["summary", "artifactUris", "limitations", "residualRisk"],
+        },
+        uncertainty: {
+          level: "medium",
+          limitations: ["Image quality may constrain description accuracy."],
+        },
+        artifactUris: ["kiln://runtime/session-artifact/0"],
+        requestedCapability: "vision",
+      },
+      diagnostics: [],
+      timestamp: new Date("2026-05-13T12:00:00.000Z"),
+      sessionId: session.id,
+      tenantId: "test-tenant",
+    } satisfies MultimodalRoutedEvent;
+
+    const result = await processInboundMessage(makeBaseContext({
+      sessionRegistry: makeMockSessionRegistry(session),
+      userParts: [
+        { type: "text", text: "Describe this image." },
+        { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+      ],
+      runtimeEvents: [delegatedEvent],
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger).toContainEqual(expect.objectContaining({
+      kind: "multimodal_routed",
+      strategy: "delegated",
+      delegation: expect.objectContaining({
+        routeId: "managed-vision-readonly",
+        routeHealth: {
+          status: "healthy",
+          evidence: "live route health is green",
+        },
+        policyDecision: {
+          allowed: true,
+          reason: "Tenant policy allows read-only auxiliary vision.",
+        },
+        costBudgetDecision: {
+          status: "within-budget",
+          evidence: "delegated vision budget remains available",
+        },
+        expectedResult: {
+          format: "structured-handoff",
+          requiredFields: ["summary", "artifactUris", "limitations", "residualRisk"],
+        },
+        uncertainty: {
+          level: "medium",
+          limitations: ["Image quality may constrain description accuracy."],
+        },
+      }),
+    }));
+  });
+
+  it("persists rejected multimodal routing evidence as a canonical failed turn", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const unsupported = new KilnError(
+      "UNSUPPORTED_MODALITY",
+      "unsupported_modality: No governed native, delegated, or transform route can satisfy image input.",
+    );
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "multimodal_routed",
+          provider: "deepseek",
+          model: "deepseek-chat",
+          strategy: "unsupported",
+          reasonCode: "unsupported_modality",
+          reason: "No governed native, delegated, or transform route can satisfy image input.",
+          requestedCapability: "vision",
+          requiredModalities: ["text", "image"],
+          artifactUris: ["kiln://runtime/session-artifact/0"],
+          diagnostics: [{
+            code: "native_route_missing_capability",
+            severity: "info",
+            message: "The active provider/model cannot satisfy the requested multimodal capability.",
+            provider: "deepseek",
+            model: "deepseek-chat",
+          }],
+          timestamp: new Date("2026-05-13T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        throw unsupported;
+      }),
+      model: "deepseek-chat",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const abort = vi.fn();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      userParts: [
+        { type: "text", text: "Describe this image." },
+        { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+      ],
+      turnCapture: { abort },
+    }))).rejects.toThrow("unsupported_modality");
+
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(sessionRegistry.save).toHaveBeenCalledWith(session);
+    expect(abort).toHaveBeenCalledWith(session.id);
+    expect(ledger.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "continuity_decided",
+      "multimodal_routed",
+      "error_recorded",
+      "turn_completed",
+    ]);
+    expect(ledger[3]).toMatchObject({
+      kind: "multimodal_routed",
+      strategy: "unsupported",
+      reasonCode: "unsupported_modality",
+      artifactUris: ["kiln://runtime/session-artifact/0"],
+    });
+    expect(ledger[4]).toMatchObject({
+      kind: "error_recorded",
+      errorCode: "UNSUPPORTED_MODALITY",
+      message: unsupported.message,
+    });
+    expect(ledger[5]).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("allocates the next canonical turn id after a rejected multimodal turn", async () => {
+    const session = new RuntimeSession({
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "user-1",
+      systemPrompt: "You are a test assistant.",
+    });
+    const eventBus = new EventBus();
+    const unsupported = new KilnError(
+      "UNSUPPORTED_MODALITY",
+      "unsupported_modality: No governed native, delegated, or transform route can satisfy image input.",
+    );
+    const orchestrator = {
+      processMessage: vi.fn()
+        .mockImplementationOnce(async () => {
+          eventBus.emit({
+            type: "multimodal_routed",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            strategy: "unsupported",
+            reasonCode: "unsupported_modality",
+            reason: "No governed native, delegated, or transform route can satisfy image input.",
+            requestedCapability: "vision",
+            requiredModalities: ["text", "image"],
+            artifactUris: ["kiln://runtime/session-artifact/0"],
+            diagnostics: [],
+            timestamp: new Date("2026-05-13T12:00:01.000Z"),
+            sessionId: session.id,
+          });
+          throw unsupported;
+        })
+        .mockImplementationOnce(async (runtimeSession: RuntimeSession, userParts: Parameters<RuntimeSession["addUserMessage"]>[0]) => {
+          runtimeSession.addUserMessage(userParts);
+          runtimeSession.addAssistantMessage(textParts("retry accepted"));
+          return {
+            parts: textParts("retry accepted"),
+            inputTokens: 4,
+            outputTokens: 3,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            queued: false,
+          } satisfies OrchestrateResult;
+        }),
+      model: "deepseek-chat",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      userParts: [
+        { type: "text", text: "Describe this image." },
+        { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+      ],
+    }))).rejects.toThrow("unsupported_modality");
+
+    const retry = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      userParts: textParts("Continue with text only."),
+    }));
+
+    expect(retry.ok).toBe(true);
+    const completedTurnIds = session.sessionEvents
+      .filter((event) => event.kind === "turn_completed")
+      .map((event) => event.turnId);
+    expect(completedTurnIds).toEqual([
+      `${session.id}:turn:1`,
+      `${session.id}:turn:2`,
+    ]);
+    const userMessageIds = session.sessionEvents
+      .filter((event) => event.kind === "user_message")
+      .map((event) => event.messageId);
+    expect(userMessageIds).toEqual([
+      `${session.id}:turn:1:user`,
+      `${session.id}:turn:2:user`,
+    ]);
   });
 });

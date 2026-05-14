@@ -1,5 +1,6 @@
 import type {
   ContentPart,
+  ArtifactResourceStore,
   SessionLimitsConfig,
   SkillRegistry,
   GroundingMode,
@@ -16,14 +17,16 @@ import type {
   CostUpdateEvent,
   ErrorEvent,
   ModelRoutedEvent,
+  MultimodalRoutedEvent,
   ToolCalledEvent,
   ToolResultEvent,
   TenantConfig,
   RetrievalPipeline,
   CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanWorkItemDraft,
+  KilnEvent,
 } from "@kilnai/core";
-import { DefaultContextGovernor, extractText, textParts, GroundingRail, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
+import { DefaultContextGovernor, extractText, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type {
@@ -63,10 +66,21 @@ import type { AgentHandoffSummarizer } from "../session/support/summarization/ag
 import type { OperatorExecutionMode, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type { RuntimeSession } from "../session/runtime-session.js";
 import { authorityFromCapability } from "./tool-authority.js";
+import { createGenericMediaDownloader } from "./audio-preprocessor.js";
+import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
 type EgressPayloadType = "assistant-response" | "context-summary" | "tool-result-summary";
+type RuntimePipelineLedgerEvent =
+  | ApprovalRequestedEvent
+  | ApprovalReceivedEvent
+  | CostUpdateEvent
+  | ErrorEvent
+  | ModelRoutedEvent
+  | MultimodalRoutedEvent
+  | ToolCalledEvent
+  | ToolResultEvent;
 
 interface EgressPermissionRequest {
   readonly tenantId: string;
@@ -86,6 +100,7 @@ export interface AdmittedTurnContext {
   readonly sessionId?: string;
   readonly systemPrompt?: string;
   readonly userParts: readonly ContentPart[];
+  readonly artifactStore?: ArtifactResourceStore;
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
   readonly channel: string;
@@ -99,6 +114,7 @@ export interface AdmittedTurnContext {
   readonly tenant?: TenantConfig;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
+  readonly runtimeEvents?: readonly RuntimePipelineLedgerEvent[];
   readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly perCallConfig?: PerCallToolConfig;
   readonly traceId?: string;
@@ -1060,10 +1076,100 @@ function projectRequestedAuthorityPerCallConfig(
   });
 }
 
+function replayCapturedRuntimeLedgerEvents(
+  eventBus: EventBus | undefined,
+  sessionId: string,
+  since: Date,
+  seed: readonly RuntimePipelineLedgerEvent[],
+): {
+  readonly events: RuntimePipelineLedgerEvent[];
+  readonly keys: Set<string>;
+} {
+  const events: RuntimePipelineLedgerEvent[] = [];
+  const keys = new Set<string>();
+  for (const event of seed) {
+    appendRuntimeLedgerEvent(events, keys, event, sessionId);
+  }
+  if (eventBus) {
+    for (const event of eventBus.history()) {
+      if (isRuntimeLedgerEvent(event) && event.timestamp >= since) {
+        appendRuntimeLedgerEvent(events, keys, event, sessionId);
+      }
+    }
+  }
+  return { events, keys };
+}
+
+function isRuntimeLedgerEvent(event: KilnEvent): event is
+  RuntimePipelineLedgerEvent {
+  switch (event.type) {
+    case "approval_requested":
+    case "approval_received":
+    case "cost_update":
+    case "error":
+    case "model_routed":
+    case "multimodal_routed":
+    case "tool_called":
+    case "tool_result":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function appendRuntimeLedgerEvent(
+  events: RuntimePipelineLedgerEvent[],
+  keys: Set<string>,
+  event: RuntimePipelineLedgerEvent,
+  sessionId: string,
+): boolean {
+  if (event.sessionId !== sessionId) {
+    return false;
+  }
+  const key = runtimeLedgerEventKey(event);
+  if (keys.has(key)) {
+    return false;
+  }
+  keys.add(key);
+  events.push(event);
+  return true;
+}
+
+function runtimeLedgerEventKey(event: RuntimePipelineLedgerEvent): string {
+  const base = `${event.type}|${event.sessionId}|${event.timestamp.toISOString()}`;
+  switch (event.type) {
+    case "approval_requested":
+      return `${base}|${event.approvalId}`;
+    case "approval_received":
+      return `${base}|${event.approvalId}|${event.approved}`;
+    case "cost_update":
+      return `${base}|${event.provider ?? ""}|${event.model ?? ""}|${event.inputTokens}|${event.outputTokens}`;
+    case "error":
+      return `${base}|${event.code}|${event.message}`;
+    case "model_routed":
+      return `${base}|${event.provider}|${event.model}|${event.routingTier}`;
+    case "multimodal_routed":
+      return `${base}|${event.provider}|${event.model}|${event.strategy}|${event.reasonCode}|${event.requestedCapability}`;
+    case "tool_called":
+      return `${base}|${event.toolName}|${event.taskId ?? ""}`;
+    case "tool_result":
+      return `${base}|${event.toolName}|${event.success}|${event.resultSummary}`;
+  }
+}
+
 export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<ProcessResult> {
   const trace = new TraceContext(ctx.traceId);
   trace.log("pipeline", "Processing inbound message", { appName: ctx.appName, userId: ctx.userId, channel: ctx.channel });
-  const userText = extractText(ctx.userParts);
+  const userParts = ctx.artifactStore
+    ? await captureMultimodalArtifacts(ctx.userParts, {
+      artifactStore: ctx.artifactStore,
+      downloader: createGenericMediaDownloader(),
+      sourceKind: "uploaded-file",
+      sourceIdPrefix: `${ctx.appName}:${ctx.tenantId}:${ctx.userId}:${ctx.channel}`,
+      producerName: `gateway-${ctx.channel}-ingress`,
+    })
+    : ctx.userParts;
+  const userText = extractText(userParts);
   const turnStartedAt = new Date();
   const taskShape = normalizeRuntimeTaskShape(userText);
   const effectiveTenantId = ctx.tenant?.tenantId ?? ctx.tenantId;
@@ -1163,7 +1269,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   if (ctx.tenant) {
     const agentCtx = await resolveAgentContextAsync(
       ctx.tenant,
-      ctx.userParts,
+      userParts,
       session,
       { handoffSummarizer: ctx.handoffSummarizer, eventBus: ctx.eventBus },
       undefined,
@@ -1397,19 +1503,20 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   // Capture real approval state transitions for this turn from runtime events.
   const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
   const authorityDecisions: RuntimeTurnAuthorityDecision[] = [];
-  const capturedRuntimeEvents: Array<
-    ApprovalRequestedEvent
-    | ApprovalReceivedEvent
-    | CostUpdateEvent
-    | ErrorEvent
-    | ModelRoutedEvent
-    | ToolCalledEvent
-    | ToolResultEvent
-  > = [];
+  const capturedRuntimeReplay = replayCapturedRuntimeLedgerEvents(
+    ctx.orchestrator.eventBus,
+    session.id,
+    turnStartedAt,
+    ctx.runtimeEvents ?? [],
+  );
+  const capturedRuntimeEvents = capturedRuntimeReplay.events;
+  const capturedRuntimeEventKeys = capturedRuntimeReplay.keys;
   const orchestratorEventBus = ctx.orchestrator.eventBus;
   const onApprovalRequested = (event: ApprovalRequestedEvent): void => {
     if (event.sessionId !== session.id) return;
-    capturedRuntimeEvents.push(event);
+    if (!appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id)) {
+      return;
+    }
     approvalTransitions.push({
       approvalId: event.approvalId,
       status: "requested",
@@ -1419,7 +1526,9 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   };
   const onApprovalReceived = (event: ApprovalReceivedEvent): void => {
     if (event.sessionId !== session.id) return;
-    capturedRuntimeEvents.push(event);
+    if (!appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id)) {
+      return;
+    }
     approvalTransitions.push({
       approvalId: event.approvalId,
       status: event.approved ? "approved" : "rejected",
@@ -1437,12 +1546,12 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     });
   };
   const onRuntimeLedgerEvent = (
-    event: CostUpdateEvent | ErrorEvent | ModelRoutedEvent | ToolCalledEvent | ToolResultEvent,
+    event: CostUpdateEvent | ErrorEvent | ModelRoutedEvent | MultimodalRoutedEvent | ToolCalledEvent | ToolResultEvent,
   ): void => {
     if (event.sessionId !== session.id) {
       return;
     }
-    capturedRuntimeEvents.push(event);
+    appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id);
   };
   orchestratorEventBus?.on("approval_requested", onApprovalRequested);
   orchestratorEventBus?.on("approval_received", onApprovalReceived);
@@ -1450,6 +1559,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   orchestratorEventBus?.on("cost_update", onRuntimeLedgerEvent);
   orchestratorEventBus?.on("error", onRuntimeLedgerEvent);
   orchestratorEventBus?.on("model_routed", onRuntimeLedgerEvent);
+  orchestratorEventBus?.on("multimodal_routed", onRuntimeLedgerEvent);
   orchestratorEventBus?.on("tool_called", onRuntimeLedgerEvent);
   orchestratorEventBus?.on("tool_result", onRuntimeLedgerEvent);
   await ctx.turnCapture?.start?.(session.id, session.nextSessionEventSequence());
@@ -1459,12 +1569,28 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     // Process message
     result = await ctx.orchestrator.processMessage(
       session,
-      ctx.userParts,
+      userParts,
       projectedTurnContext,
       effectiveCallBuiltinTools,
       perCallConfig,
     );
   } catch (error) {
+    const turnFailedAt = new Date();
+    const failureRuntimeEvents = capturedRuntimeEvents.some((event) => event.type === "error")
+      ? capturedRuntimeEvents
+      : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
+    appendCanonicalTurnEvents({
+      session,
+      channel: ctx.channel,
+      userMessageContent: userText,
+      queued: false,
+      turnOutcome: "failed",
+      turnStartedAt,
+      turnCompletedAt: turnFailedAt,
+      continuity: runtimeContinuityPresentation.runtimeContinuity,
+      runtimeEvents: failureRuntimeEvents,
+    });
+    await ctx.sessionRegistry.save(session);
     await ctx.turnCapture?.abort?.(session.id);
     throw error;
   } finally {
@@ -1474,6 +1600,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     orchestratorEventBus?.off("cost_update", onRuntimeLedgerEvent);
     orchestratorEventBus?.off("error", onRuntimeLedgerEvent);
     orchestratorEventBus?.off("model_routed", onRuntimeLedgerEvent);
+    orchestratorEventBus?.off("multimodal_routed", onRuntimeLedgerEvent);
     orchestratorEventBus?.off("tool_called", onRuntimeLedgerEvent);
     orchestratorEventBus?.off("tool_result", onRuntimeLedgerEvent);
   }
@@ -1875,5 +2002,16 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       contextAudit: projectedContextAudit,
       effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
     },
+  };
+}
+
+function runtimeFailureEvent(error: unknown, sessionId: string, timestamp: Date): ErrorEvent {
+  return {
+    type: "error",
+    code: error instanceof KilnError ? error.code : "INTERNAL_ERROR",
+    message: error instanceof Error ? error.message : String(error),
+    taskId: null,
+    timestamp,
+    sessionId,
   };
 }

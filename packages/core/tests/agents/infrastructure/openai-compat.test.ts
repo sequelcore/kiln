@@ -224,6 +224,68 @@ describe("OpenAIAdapter", () => {
     ]);
   });
 
+  it("serializes image parts without degrading them to text", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await adapter.createMessage(makeOptions({
+      messages: [{
+        role: "user",
+        parts: [
+          { type: "text", text: "Describe this image." },
+          { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+        ],
+      }],
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+    expect(body.messages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Describe this image." },
+        { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+      ],
+    });
+  });
+
+  it("fails closed instead of degrading unsupported audio parts", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await expect(adapter.createMessage(makeOptions({
+      messages: [{
+        role: "user",
+        parts: [
+          { type: "text", text: "Transcribe this audio." },
+          { type: "audio", mimeType: "audio/wav", data: "UklGRg==", durationMs: 1000 },
+        ],
+      }],
+    }))).rejects.toThrow("unsupported_modality");
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("fails closed instead of dropping multimodal tool-result content parts", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await expect(adapter.createMessage(makeOptions({
+      messages: [{
+        role: "user",
+        parts: [{
+          type: "tool_result",
+          toolUseId: "call_view_image",
+          content: "Loaded image.",
+          contentParts: [
+            { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+          ],
+        }],
+      }],
+    }))).rejects.toThrow("unsupported_modality");
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("preserves malformed function-call arguments as invalid tool input", async () => {
     const body = makeOpenAIResponse({
       choices: [

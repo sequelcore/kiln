@@ -2,7 +2,7 @@
 // Handles tenant-scoped message processing, session listing, and session removal
 
 import { Hono } from "hono";
-import type { ContentPart, ContextArtifactCache } from "@kilnai/core";
+import type { ArtifactResourceStore, ContentPart, ContextArtifactCache } from "@kilnai/core";
 import { textParts, extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
@@ -18,6 +18,7 @@ export interface TenantAppRuntime {
   readonly orchestrator: RuntimeSessionOrchestrator;
   readonly sessionRegistry: SessionRegistry;
   readonly tenantRegistry: TenantRegistry;
+  readonly artifactStore?: ArtifactResourceStore;
   readonly billing?: BillingConfig;
   readonly apiKey?: string;
   readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
@@ -88,6 +89,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       tenantId: body.tenantId,
       userId: body.userId,
       userParts,
+      artifactStore: runtime.artifactStore,
       billing: billingConfig,
       channel: "api",
       tenant,

@@ -88,6 +88,59 @@ describe("operator event presentation", () => {
     expect(JSON.stringify(presentation.details)).not.toContain("\\\"provider\\\"");
   });
 
+  it("presents multimodal routing evidence as operator-visible audit detail", () => {
+    const presentation = presentOperatorEventPayload("multimodal_routed", {
+      provider: {
+        provider: "openai",
+        model: "gpt-4o",
+      },
+      strategy: "native",
+      reasonCode: "native_supported",
+      reason: "The active provider/model can accept the required modality.",
+      requestedCapability: "vision",
+      requiredModalities: ["text", "image"],
+      artifactUris: ["kiln://runtime/session-artifact/0"],
+      diagnostics: [],
+    });
+
+    expect(presentation.title).toBe("Multimodal routed");
+    expect(presentation.summary).toBe("native · vision · openai · gpt-4o");
+    expect(presentation.tone).toBe("success");
+    expect(presentation.details).toEqual([
+      { label: "Strategy", value: "native" },
+      { label: "Capability", value: "vision" },
+      { label: "Modalities", value: "text, image" },
+      { label: "Provider", value: "openai" },
+      { label: "Model", value: "gpt-4o" },
+      { label: "Reason", value: "native_supported" },
+      { label: "Artifacts", value: "kiln://runtime/session-artifact/0" },
+    ]);
+    expect(presentation.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+  });
+
+  it("presents delegated multimodal route identity and authority evidence", () => {
+    const presentation = presentOperatorEventPayload("multimodal_routed", {
+      provider: {
+        provider: "openai",
+        model: "gpt-4o",
+      },
+      strategy: "delegated",
+      reasonCode: "delegation_route_available",
+      requestedCapability: "vision",
+      requiredModalities: ["text", "image"],
+      artifactUris: ["kiln://runtime/session-artifact/0"],
+      delegation: {
+        routeId: "managed-vision-readonly",
+        authorityProfileId: "authority:managed-vision:readonly",
+      },
+      diagnostics: [],
+    });
+
+    expect(presentation.summary).toBe("delegated · vision · openai · gpt-4o");
+    expect(presentation.details).toContainEqual({ label: "Delegation route", value: "managed-vision-readonly" });
+    expect(presentation.details).toContainEqual({ label: "Authority profile", value: "authority:managed-vision:readonly" });
+  });
+
   it("presents goal lifecycle events as operator-visible previews", () => {
     const presentation = presentOperatorEventPayload("goal.completed", {
       goal: {

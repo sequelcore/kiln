@@ -7,8 +7,11 @@ import type {
   CostUpdateEvent,
   ErrorEvent,
   ModelRoutedEvent,
+  MultimodalDelegationEvidence,
+  MultimodalRoutedEvent,
   SessionEventSource,
   SessionProviderIdentity,
+  SessionTurnOutcome,
   SessionToolStatus,
   WorkItem,
   WorkItemExecutionAttempt,
@@ -25,6 +28,7 @@ type CapturedRuntimeLedgerEvent =
   | CostUpdateEvent
   | ErrorEvent
   | ModelRoutedEvent
+  | MultimodalRoutedEvent
   | ToolCalledEvent
   | ToolResultEvent;
 
@@ -47,6 +51,7 @@ export interface AppendCanonicalTurnEventsInput {
   readonly userMessageContent: string;
   readonly assistantMessageContent?: string;
   readonly queued: boolean;
+  readonly turnOutcome?: SessionTurnOutcome;
   readonly turnStartedAt: Date;
   readonly turnCompletedAt: Date;
   readonly continuity: RuntimeContinuitySnapshot;
@@ -108,7 +113,7 @@ export interface AppendCanonicalTurnEventsInput {
 
 export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput): readonly CanonicalSessionEvent[] {
   const { session } = input;
-  const turnOrdinal = Math.max(session.userTurnCount, 1);
+  const turnOrdinal = nextCanonicalTurnOrdinal(session);
   const turnId = `${session.id}:turn:${turnOrdinal}`;
   const userMessageContent = input.userMessageContent.trim();
   const assistantMessageContent = input.assistantMessageContent?.trim();
@@ -168,6 +173,26 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           turnId,
           provider: toSessionProviderIdentity(runtimeEvent),
           reason: runtimeEvent.reason,
+          source: runtimeSource,
+          timestamp: runtimeEvent.timestamp,
+        }));
+        break;
+      }
+      case "multimodal_routed": {
+        events.push(createSessionEvent<"multimodal_routed">({
+          kilnSessionId: session.id,
+          sequence: nextSequence(),
+          kind: "multimodal_routed",
+          turnId,
+          provider: toSessionProviderIdentity(runtimeEvent),
+          strategy: runtimeEvent.strategy,
+          reasonCode: runtimeEvent.reasonCode,
+          reason: runtimeEvent.reason,
+          requestedCapability: runtimeEvent.requestedCapability,
+          requiredModalities: runtimeEvent.requiredModalities,
+          artifactUris: runtimeEvent.artifactUris,
+          ...(runtimeEvent.delegation ? { delegation: toSessionDelegationEvidence(runtimeEvent.delegation) } : {}),
+          diagnostics: runtimeEvent.diagnostics,
           source: runtimeSource,
           timestamp: runtimeEvent.timestamp,
         }));
@@ -449,7 +474,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
     sequence: nextSequence(),
     kind: "turn_completed",
     turnId,
-    outcome: input.queued ? "cancelled" : "completed",
+    outcome: input.turnOutcome ?? (input.queued ? "cancelled" : "completed"),
     outputMessageId: assistantMessageContent ? `${turnId}:assistant` : undefined,
     durationMs: Math.max(0, input.turnCompletedAt.getTime() - input.turnStartedAt.getTime()),
     source: runtimeSource,
@@ -458,6 +483,23 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
 
   session.appendSessionEvents(events);
   return events;
+}
+
+function nextCanonicalTurnOrdinal(session: RuntimeSession): number {
+  const highestPersistedTurnOrdinal = session.sessionEvents.reduce((highest, event) => {
+    const turnId = "turnId" in event ? event.turnId : undefined;
+    if (typeof turnId !== "string") {
+      return highest;
+    }
+    const prefix = `${session.id}:turn:`;
+    if (!turnId.startsWith(prefix)) {
+      return highest;
+    }
+    const ordinal = Number.parseInt(turnId.slice(prefix.length), 10);
+    return Number.isFinite(ordinal) ? Math.max(highest, ordinal) : highest;
+  }, 0);
+
+  return Math.max(session.userTurnCount, highestPersistedTurnOrdinal + 1, 1);
 }
 
 function projectWorkItemEvents(input: {
@@ -758,6 +800,26 @@ function toSessionProviderIdentity(event: {
     model: event.model ?? event.canonicalModel ?? "unknown",
     canonicalModel: event.canonicalModel,
     billingMode: event.billingMode,
+  };
+}
+
+function toSessionDelegationEvidence(delegation: MultimodalDelegationEvidence): NonNullable<Extract<
+  CanonicalSessionEvent,
+  { readonly kind: "multimodal_routed" }
+>["delegation"]> {
+  return {
+    routeId: delegation.routeId,
+    provider: delegation.provider,
+    model: delegation.model,
+    ...(delegation.agentProfile ? { agentProfile: delegation.agentProfile } : {}),
+    authorityProfileId: delegation.authorityProfileId,
+    routeHealth: delegation.routeHealth,
+    policyDecision: delegation.policyDecision,
+    costBudgetDecision: delegation.costBudgetDecision,
+    expectedResult: delegation.expectedResult,
+    uncertainty: delegation.uncertainty,
+    artifactUris: delegation.artifactUris,
+    requestedCapability: delegation.requestedCapability,
   };
 }
 

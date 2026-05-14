@@ -7,6 +7,7 @@ import type {
 } from "../index.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
+import { KilnError } from "../../engine/errors.js";
 
 export const LLAMA3 = "llama3.1";
 export const CODELLAMA = "codellama";
@@ -156,8 +157,31 @@ export class OllamaAdapter implements ProviderAdapter {
     const text = extractText(parts);
     const images: string[] = [];
     for (const part of parts) {
-      if (part.type === "image" && part.data) {
-        images.push(part.data);
+      switch (part.type) {
+        case "text":
+        case "tool_use":
+          break;
+        case "tool_result":
+          if (part.contentParts?.some((contentPart) => contentPart.type !== "text")) {
+            throw unsupportedModality(
+              "tool_result",
+              "Ollama chat serialization does not support multimodal tool-result content parts.",
+            );
+          }
+          break;
+        case "image":
+          if (!part.data) {
+            throw unsupportedModality(
+              "image",
+              "Ollama chat serialization requires base64 image data; image URL parts need governed artifact transport or transform.",
+            );
+          }
+          images.push(part.data);
+          break;
+        case "audio":
+          throw unsupportedModality("audio", "Ollama chat serialization does not support audio parts.");
+        case "file":
+          throw unsupportedModality("document", "Ollama chat serialization does not support file parts.");
       }
     }
     return images.length > 0 ? { content: text, images } : { content: text };
@@ -196,4 +220,11 @@ export class OllamaAdapter implements ProviderAdapter {
 
     return request;
   }
+}
+
+function unsupportedModality(modality: string, reason: string): KilnError {
+  return new KilnError("UNSUPPORTED_MODALITY", `unsupported_modality: ${reason}`, {
+    retryable: false,
+    context: { provider: "ollama", modality },
+  });
 }

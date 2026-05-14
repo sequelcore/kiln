@@ -8,7 +8,7 @@ import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
 import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { Capability, TenantConfig, ToolDefinition } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {
@@ -128,6 +128,7 @@ describe("createWsTenantRoutes", () => {
   let mockSession: { id: string; userId: string; tenantId: string };
 
   beforeEach(() => {
+    mockedResolveAgentContextAsync.mockReset();
     mockedResolveAgentContextAsync.mockResolvedValue({
       systemPrompt: "Mock system prompt",
       tenantToolContext: {
@@ -180,6 +181,7 @@ describe("createWsTenantRoutes", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   describe("widgetId validation", () => {
@@ -297,6 +299,93 @@ describe("createWsTenantRoutes", () => {
       expect(governedContext).toEqual(expect.objectContaining({
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }));
+    });
+
+    it("captures tenant WebSocket multimodal parts as replay artifacts before routing and orchestration", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const tenant = makeTenantConfig();
+      const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(tenant);
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+        { artifactStore },
+      ));
+
+      const { handlers, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "message",
+            parts: [{ type: "image", mimeType: "image/png", data: "AQID" }],
+          }),
+        }),
+        wsCtx,
+      );
+
+      const expectedParts = [{
+        type: "image",
+        mimeType: "image/png",
+        data: "AQID",
+        artifactUri: "kiln://artifacts/inbound-multimodal/artifact_1/content",
+      }];
+      expect(mockedResolveAgentContextAsync).toHaveBeenCalledWith(
+        tenant,
+        expectedParts,
+        mockSession,
+        expect.any(Object),
+        "web",
+      );
+      expect(vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![1]).toEqual(expectedParts);
+      expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
+        multimodal: {
+          modality: "image",
+          source: { kind: "uploaded-file", id: "kilvo:salon-test:user-1:web:part:0" },
+        },
+      });
+    });
+
+    it("sends error frame when tenant WebSocket artifact capture fails", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const tenant = makeTenantConfig();
+      const artifactStore = new MemoryArtifactResourceStore();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(tenant);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 500 })));
+
+      createWsTenantRoutes(makeConfig(
+        channel,
+        upgradeWebSocket,
+        mockTenantRegistry,
+        mockSessionRegistry,
+        mockOrchestrator,
+        { artifactStore },
+      ));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "message",
+            parts: [{ type: "image", mimeType: "image/png", url: "https://media.example.test/image.png" }],
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(mockedResolveAgentContextAsync).not.toHaveBeenCalled();
+      expect(mockOrchestrator.processMessage).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls.at(-1)?.[0] as string)).toEqual({
+        type: "error",
+        message: "Media download failed: 500",
+      });
     });
 
     it("passes systemPrompt and tenantId when creating session", async () => {

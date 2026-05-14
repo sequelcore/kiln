@@ -1,15 +1,20 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ContentPart, IncomingMessage } from "@kilnai/core";
+import type { ArtifactResourceStore, ContentPart, IncomingMessage } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { textParts, extractText } from "@kilnai/core";
+import { createGenericMediaDownloader } from "./audio-preprocessor.js";
+import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 
 export interface WsRoutesConfig {
   readonly webChannel: WebChannel;
   readonly upgradeWebSocket: UpgradeWebSocket;
   readonly validateToken?: (token: string) => { valid: boolean; userId?: string };
   readonly apiKey?: string;
+  readonly appName?: string;
+  readonly tenantId?: string;
+  readonly artifactStore?: ArtifactResourceStore;
   readonly processMessage?: (userId: string, parts: readonly ContentPart[], options?: {
     readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   }) => Promise<{
@@ -79,11 +84,20 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
                 }));
                 return;
               }
-              const userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
+              let userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
 
               try {
+                if (config.artifactStore) {
+                  userParts = await captureMultimodalArtifacts(userParts, {
+                    artifactStore: config.artifactStore,
+                    downloader: createGenericMediaDownloader(),
+                    sourceKind: "uploaded-file",
+                    sourceIdPrefix: `${config.appName ?? "websocket"}:${config.tenantId ?? "_default"}:${userId}:web`,
+                    producerName: "gateway-web-ingress",
+                  });
+                }
                 const result = await config.processMessage(userId, userParts, {
                   requestedAuthority: parsed.requestedAuthority,
                 });

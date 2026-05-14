@@ -69,7 +69,8 @@ define the active architecture contract. For doctrine, use
   2026-05-13 reassessment that separates snapshot monitor from real embedded
   browser, local CDP screencast as frame-stream fallback, lock/brokered input,
   sanitized operator evidence, and the native browser-host decision now split
-  into `03` and `04` after the earlier multimodal and recorder tracks.
+  into `03` and `04` after the completed multimodal foundation and recorder
+  track.
 
 ## Supporting Reference
 

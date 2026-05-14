@@ -1,4 +1,12 @@
+import { createHash } from "node:crypto";
 import { KilnError } from "../../engine/errors.js";
+import type {
+  MultimodalArtifact,
+  MultimodalArtifactSource,
+  MultimodalChecksum,
+  MultimodalDimensions,
+  MultimodalTransportModality,
+} from "../../engine/domain/multimodal-routing.js";
 import type {
   ToolResourceDescriptor,
   ToolResourceProvider,
@@ -20,6 +28,13 @@ export interface ArtifactRetentionPolicy {
 export interface ArtifactProducer {
   readonly kind: string;
   readonly name: string;
+}
+
+export interface ArtifactResourceMultimodalMetadata {
+  readonly modality: MultimodalTransportModality;
+  readonly source: MultimodalArtifactSource;
+  readonly dimensions?: MultimodalDimensions;
+  readonly durationMs?: number;
 }
 
 export type ArtifactContent =
@@ -47,6 +62,8 @@ export interface ArtifactResourceMetadata {
   readonly size: number;
   readonly sequence: number;
   readonly retention: ArtifactRetentionPolicy;
+  readonly checksum?: MultimodalChecksum;
+  readonly multimodal?: ArtifactResourceMultimodalMetadata;
 }
 
 export interface ArtifactResource extends ArtifactResourceMetadata {
@@ -75,6 +92,7 @@ export interface ArtifactResourcePutInput {
   readonly content: ArtifactContent;
   readonly producer: ArtifactProducer;
   readonly retention: ArtifactRetentionPolicy;
+  readonly multimodal?: ArtifactResourceMultimodalMetadata;
 }
 
 export interface MemoryArtifactResourceStoreOptions {
@@ -125,6 +143,7 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
     const timestamp = this.now();
     const sequence = this.sequence + 1;
     this.sequence = sequence;
+    const checksum = input.multimodal ? checksumContent(input.content) : undefined;
     const artifact: ArtifactResource = {
       id: `artifact_${sequence}`,
       namespace: input.namespace,
@@ -136,6 +155,8 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
       size: contentSize,
       sequence,
       retention: input.retention,
+      ...(checksum ? { checksum } : {}),
+      ...(input.multimodal ? { multimodal: input.multimodal } : {}),
       content: input.content,
     };
     const previousArtifacts = this.artifactsByNamespace.get(input.namespace) ?? [];
@@ -178,6 +199,25 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
     this.resourceNotifications?.notifyResourceUpdated(`kiln://artifacts/${artifact.namespace}/${artifact.id}`);
     this.resourceNotifications?.notifyResourceUpdated(`kiln://artifacts/${artifact.namespace}/${artifact.id}/content`);
   }
+}
+
+export function projectMultimodalArtifactResource(artifact: ArtifactResource): MultimodalArtifact | undefined {
+  if (!artifact.multimodal || !artifact.checksum) {
+    return undefined;
+  }
+  const uri = `kiln://artifacts/${artifact.namespace}/${artifact.id}/content`;
+  return {
+    uri,
+    modality: artifact.multimodal.modality,
+    mimeType: artifact.mimeType,
+    sizeBytes: artifact.size,
+    checksum: artifact.checksum,
+    source: artifact.multimodal.source,
+    retention: artifact.retention,
+    replay: { uri },
+    ...(artifact.multimodal.dimensions ? { dimensions: artifact.multimodal.dimensions } : {}),
+    ...(artifact.multimodal.durationMs !== undefined ? { durationMs: artifact.multimodal.durationMs } : {}),
+  };
 }
 
 export class ArtifactResourceProvider implements ToolResourceProvider {
@@ -362,6 +402,21 @@ function measureContentSize(content: ArtifactContent): number {
   return Buffer.byteLength(content.text, "utf8");
 }
 
+function checksumContent(content: ArtifactContent): MultimodalChecksum {
+  const hash = createHash("sha256");
+  if (content.type === "blob") {
+    hash.update(Buffer.from(content.blob, "base64"));
+  } else if (content.type === "json") {
+    hash.update(JSON.stringify(content.value), "utf8");
+  } else {
+    hash.update(content.text, "utf8");
+  }
+  return {
+    algorithm: "sha256",
+    value: hash.digest("hex"),
+  };
+}
+
 function projectArtifactMetadata(artifact: ArtifactResource): ArtifactResourceMetadata {
   return {
     id: artifact.id,
@@ -374,6 +429,8 @@ function projectArtifactMetadata(artifact: ArtifactResource): ArtifactResourceMe
     size: artifact.size,
     sequence: artifact.sequence,
     retention: artifact.retention,
+    ...(artifact.checksum ? { checksum: artifact.checksum } : {}),
+    ...(artifact.multimodal ? { multimodal: artifact.multimodal } : {}),
   };
 }
 

@@ -1,8 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ProviderAdapter, ModelRouter, RoutingDecision, RoutingRequest } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import type {
+  AuxiliaryModalityRoute,
+  ManagedAgentAdapterDescriptor,
+  ManagedAgentInvocationRequest,
+  ModelCapabilityRegistry,
+  ModelRouter,
+  ProviderAdapter,
+  RoutingDecision,
+  RoutingRequest,
+} from "@kilnai/core";
+import {
+  buildManagedAgentCapabilitySnapshot,
+  defineManagedAgentAdapterDescriptor,
+  defineManagedAgentInvocationRecord,
+  extractText,
+  textParts,
+} from "@kilnai/core";
+import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { RuntimeMultimodalTransformRoute } from "../../src/session/runtime-session-orchestrator.types.js";
 
 function makeProvider(name = "mock"): ProviderAdapter {
   return {
@@ -27,6 +44,136 @@ function makeSession(systemPrompt = "You are helpful."): RuntimeSession {
 function makeRouter(decision: RoutingDecision): ModelRouter {
   return {
     route: vi.fn().mockReturnValue(decision),
+  };
+}
+
+function makeManagedAdapter(summary = "Delegated vision summary."): ManagedAgentRuntimeAdapter {
+  return {
+    descriptor: makeManagedDescriptor(),
+    invoke: vi.fn(async ({ request, admission }: {
+      readonly request: ManagedAgentInvocationRequest;
+      readonly admission: {
+        readonly capabilitySnapshot: ReturnType<typeof buildManagedAgentCapabilitySnapshot>;
+      };
+    }) =>
+      defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        usage: {
+          tokenClasses: [
+            { name: "input_tokens", value: 7 },
+            { name: "output_tokens", value: 5 },
+            { name: "cache_read_tokens", value: 0 },
+          ],
+        },
+        resultHandoff: {
+          summary,
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
+          memoryWriteProposalUris: [],
+        },
+      })),
+  };
+}
+
+function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): ManagedAgentAdapterDescriptor {
+  return defineManagedAgentAdapterDescriptor({
+    adapterDescriptorId: "adapter:vision-child:harness",
+    providerId: "openai",
+    adapterKind: "harness",
+    supportedProfiles: ["foundation-readonly-plan"],
+    supportedExecutionModes: ["cli-harness"],
+    lifecycle: {
+      exposesStart: true,
+      exposesTerminal: true,
+      exposesCleanup: true,
+    },
+    cancellation: { supported: true },
+    timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+    transcript: {
+      supported: true,
+      redactionKnown: true,
+      truncationKnown: true,
+      persistenceKnown: true,
+      retentionKnown: true,
+    },
+    usage: {
+      supported: true,
+      preservesProviderTokenClasses: true,
+      supportsExplicitUnknowns: true,
+    },
+    resultHandoff: {
+      boundedSummary: true,
+      resourcePointers: true,
+    },
+    credentialRoute: { supported: true },
+    memoryContext: { governedAdmission: true },
+    unsupportedFieldPolicy: "reject",
+    cleanup: { supported: true },
+    ...overrides,
+  });
+}
+
+function makeAuxiliaryVisionRoute(): AuxiliaryModalityRoute {
+  return {
+    routeId: "managed-vision-readonly",
+    provider: "openai",
+    model: "gpt-4o",
+    agentProfile: "vision-describer",
+    authorityProfileId: "authority:managed-vision:readonly",
+    routeHealth: {
+      status: "healthy",
+      evidence: "Test managed vision route is configured.",
+    },
+    capabilities: {
+      provider: "openai",
+      model: "gpt-4o",
+      supportedCapabilities: ["vision"],
+      inputModalities: ["text", "image"],
+      outputModalities: ["text"],
+      toolResultModalities: ["text", "image"],
+      constraints: {
+        supportsBase64: true,
+        supportsUrl: true,
+        supportsDocuments: false,
+      },
+      degradationBehavior: [],
+    },
+  };
+}
+
+function makeTransformRoute(
+  overrides: Partial<RuntimeMultimodalTransformRoute>,
+): RuntimeMultimodalTransformRoute {
+  return {
+    transform: "ocr",
+    sourceModalities: ["image"],
+    outputModality: "text",
+    provenance: "test-transform",
+    degradation: "test transform degradation",
+    execute: vi.fn(async () => ({
+      parts: textParts("[OCR transform]: EXIT"),
+      summary: "OCR transform completed.",
+      outputArtifactUris: ["kiln://artifacts/multimodal-transforms/artifact_1/content"],
+    })),
+    ...overrides,
   };
 }
 
@@ -80,6 +227,32 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       selectionMode: "auto",
       routingReason: "Test rule matched",
     });
+  });
+
+  it("scores routing against the projected completed turn depth", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Depth-aware route",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+    const providerPool = new Map<string, ProviderAdapter>([["routed", routedProvider]]);
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, textParts("hello"));
+    await orchestrator.processMessage(session, textParts("second turn"));
+
+    const firstRequest = (router.route as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as RoutingRequest;
+    const secondRequest = (router.route as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as RoutingRequest;
+    expect(firstRequest.complexity.signals.turnDepth).toBe(2);
+    expect(secondRequest.complexity.signals.turnDepth).toBe(4);
   });
 
   it("passes requested reasoning effort into routing policy inputs", async () => {
@@ -150,6 +323,656 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
     expect(routedProvider.createMessage).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before provider execution when the active route cannot accept image input", async () => {
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ])).rejects.toThrow("unsupported_modality");
+
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not keep rejected multimodal input in session history", async () => {
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ])).rejects.toThrow("unsupported_modality");
+
+    const result = await orchestrator.processMessage(session, textParts("Continue with text only."));
+
+    expect(extractText(result.parts)).toBe("mock response");
+    expect(session.conversationHistory[0]).toEqual({ role: "user", parts: textParts("Continue with text only.") });
+    expect(defaultProvider.createMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows native provider execution when the active route supports image input", async () => {
+    const visionProvider = makeProvider("openai");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: visionProvider,
+      model: "gpt-4o",
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    expect(visionProvider.createMessage).toHaveBeenCalledTimes(1);
+    const createMessageMock = visionProvider.createMessage as ReturnType<typeof vi.fn>;
+    expect(createMessageMock.mock.calls[0]?.[0].messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+  });
+
+  it("emits multimodal routing evidence for native image admission", async () => {
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const visionProvider = makeProvider("openai");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: visionProvider,
+      model: "gpt-4o",
+      eventBus,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    const multimodalEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
+    );
+    expect(multimodalEvents).toHaveLength(1);
+    expect(multimodalEvents[0]?.[0]).toMatchObject({
+      type: "multimodal_routed",
+      provider: "openai",
+      model: "gpt-4o",
+      strategy: "native",
+      reasonCode: "native_supported",
+      requestedCapability: "vision",
+      requiredModalities: ["text", "image"],
+      artifactUris: ["kiln://runtime/session-artifact/0"],
+    });
+  });
+
+  it("uses persisted artifact URIs for native multimodal routing evidence", async () => {
+    const artifactUri = "kiln://artifacts/uploads/artifact_1/content";
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const visionProvider = makeProvider("openai");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: visionProvider,
+      model: "gpt-4o",
+      eventBus,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=", artifactUri },
+    ]);
+
+    const multimodalEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
+    );
+    expect(multimodalEvents).toHaveLength(1);
+    expect(multimodalEvents[0]?.[0]).toMatchObject({
+      type: "multimodal_routed",
+      strategy: "native",
+      artifactUris: [artifactUri],
+    });
+  });
+
+  it("emits multimodal routing evidence for rejected image admission", async () => {
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      eventBus,
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ])).rejects.toThrow("unsupported_modality");
+
+    const multimodalEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
+    );
+    expect(multimodalEvents).toHaveLength(1);
+    expect(multimodalEvents[0]?.[0]).toMatchObject({
+      type: "multimodal_routed",
+      provider: "default",
+      model: "deepseek-chat",
+      strategy: "unsupported",
+      reasonCode: "unsupported_modality",
+      requestedCapability: "vision",
+      requiredModalities: ["text", "image"],
+      artifactUris: ["kiln://runtime/session-artifact/0"],
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "native_route_missing_capability" }),
+      ]),
+    });
+  });
+
+  it("uses persisted artifact URIs for managed multimodal delegation resources", async () => {
+    const artifactUri = "kiln://artifacts/uploads/artifact_2/content";
+    const managedAdapter = makeManagedAdapter();
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      multimodalDelegationRoutes: [{
+        route: makeAuxiliaryVisionRoute(),
+        adapter: managedAdapter,
+        profile: "foundation-readonly-plan",
+        requestedAuthority: "read_only",
+        providerRoute: {
+          providerId: "openai",
+          surface: "cli-harness",
+          model: "gpt-4o",
+        },
+        authority: {
+          authorityProfileId: "authority:managed-vision:readonly",
+          permissionProfile: "read-only",
+          toolAuthority: {
+            allowedToolNames: ["read"],
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+          workingDirectory: {
+            path: "C:/Proyectos/Sequel/kiln",
+            mode: "read-only",
+          },
+          timeoutMs: 120000,
+          credentialRoute: {
+            mode: "runtime-selected",
+            routeId: "credential-route:managed-vision",
+          },
+          memoryScope: {
+            scope: { kind: "project", id: "kiln" },
+            access: "read-only",
+          },
+        },
+      }],
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=", artifactUri },
+    ]);
+
+    const request = (managedAdapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]
+      .request as ManagedAgentInvocationRequest;
+    expect(request.input.resourceUris).toEqual([artifactUri]);
+  });
+
+  it("delegates image admission to a managed auxiliary route when the active route lacks vision", async () => {
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const managedAdapter = makeManagedAdapter();
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      eventBus,
+      multimodalDelegationRoutes: [{
+        route: makeAuxiliaryVisionRoute(),
+        adapter: managedAdapter,
+        profile: "foundation-readonly-plan",
+        requestedAuthority: "read_only",
+        providerRoute: {
+          providerId: "openai",
+          surface: "cli-harness",
+          model: "gpt-4o",
+        },
+        authority: {
+          authorityProfileId: "authority:managed-vision:readonly",
+          permissionProfile: "read-only",
+          toolAuthority: {
+            allowedToolNames: ["read"],
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+          workingDirectory: {
+            path: "C:/Proyectos/Sequel/kiln",
+            mode: "read-only",
+          },
+          timeoutMs: 120000,
+          credentialRoute: {
+            mode: "runtime-selected",
+            routeId: "credential-route:managed-vision",
+          },
+          memoryScope: {
+            scope: { kind: "project", id: "kiln" },
+            access: "read-only",
+          },
+        },
+      }],
+    });
+    const session = makeSession();
+
+    const result = await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+    expect(managedAdapter.invoke).toHaveBeenCalledTimes(1);
+    const request = (managedAdapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]
+      .request as ManagedAgentInvocationRequest;
+    expect(request.requestSource).toBe("runtime-multimodal-delegation");
+    expect(request.requestedAuthority).toBe("read_only");
+    expect(request.input.resourceUris).toEqual(["kiln://runtime/session-artifact/0"]);
+    expect(request.input.context).toMatchObject({
+      mode: "resources",
+      agentProfile: "vision-describer",
+    });
+    expect(extractText(result.parts)).toBe("Delegated vision summary.");
+    expect(result.inputTokens).toBe(7);
+    expect(result.outputTokens).toBe(5);
+    expect(result.toolExecutions?.[0]).toMatchObject({
+      toolName: "managed_agent.invoke",
+      success: true,
+      resultSummary: "Delegated vision summary.",
+    });
+
+    const multimodalEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "multimodal_routed",
+    );
+    expect(multimodalEvents).toHaveLength(1);
+    expect(multimodalEvents[0]?.[0]).toMatchObject({
+      type: "multimodal_routed",
+      provider: "openai",
+      model: "gpt-4o",
+      strategy: "delegated",
+      reasonCode: "delegation_route_available",
+      requestedCapability: "vision",
+      artifactUris: ["kiln://runtime/session-artifact/0"],
+      delegation: {
+        routeId: "managed-vision-readonly",
+        provider: "openai",
+        model: "gpt-4o",
+        agentProfile: "vision-describer",
+        authorityProfileId: "authority:managed-vision:readonly",
+        artifactUris: ["kiln://runtime/session-artifact/0"],
+      },
+    });
+  });
+
+  it("applies a governed OCR transform before invoking a text-only provider", async () => {
+    const artifactUri = "kiln://artifacts/uploads/artifact_3/content";
+    const provider = makeProvider("deepseek");
+    const eventBus = { emit: vi.fn() };
+    const ocrTransform = makeTransformRoute({
+      transform: "ocr",
+      sourceModalities: ["image"],
+      outputModality: "text",
+      provenance: "test-ocr",
+      degradation: "extracts visible text only",
+      execute: vi.fn(async () => ({
+        parts: textParts("[Image OCR transform from kiln://runtime/session-artifact/0]: EXIT"),
+        summary: "OCR extracted 4 characters.",
+        outputArtifactUris: ["kiln://artifacts/multimodal-transforms/artifact_1/content"],
+        metadata: { textLength: 4 },
+      })),
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      model: "deepseek-chat",
+      eventBus: eventBus as unknown as ConstructorParameters<typeof RuntimeSessionOrchestrator>[0]["eventBus"],
+      multimodalTransformRoutes: [ocrTransform],
+    });
+    const session = makeSession();
+
+    const result = await orchestrator.processMessage(session, [
+      { type: "text", text: "Read this sign." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=", artifactUri },
+    ]);
+
+    expect(result.parts).toEqual(textParts("mock response"));
+    expect(ocrTransform.execute).toHaveBeenCalledWith(expect.objectContaining({
+      requestedCapability: "vision",
+      sourceArtifacts: [expect.objectContaining({
+        uri: artifactUri,
+        modality: "image",
+        replay: { uri: artifactUri },
+      })],
+    }));
+    const createMessageInput = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(createMessageInput.messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "[Image OCR transform from kiln://runtime/session-artifact/0]: EXIT" },
+    ]);
+    expect(session.conversationHistory.at(-2)?.parts).toEqual([
+      { type: "text", text: "[Image OCR transform from kiln://runtime/session-artifact/0]: EXIT" },
+    ]);
+    expect(result.toolExecutions).toContainEqual(expect.objectContaining({
+      toolName: "multimodal_transform.ocr",
+      success: true,
+      resultSummary: "OCR extracted 4 characters.",
+      metadata: expect.objectContaining({
+        kind: "multimodal-transform",
+        transform: "ocr",
+        outputArtifactUris: ["kiln://artifacts/multimodal-transforms/artifact_1/content"],
+      }),
+    }));
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: "multimodal_routed",
+      strategy: "transform",
+      reasonCode: "transform_available",
+      requestedCapability: "vision",
+      artifactUris: [artifactUri],
+    }));
+  });
+
+  it("applies document extraction before invoking a text-only provider", async () => {
+    const provider = makeProvider("deepseek");
+    const documentTransform = makeTransformRoute({
+      transform: "document-extraction",
+      sourceModalities: ["document"],
+      outputModality: "text",
+      provenance: "test-unpdf",
+      degradation: "extracts PDF text only",
+      execute: vi.fn(async () => ({
+        parts: textParts("[Document extraction from kiln://runtime/session-artifact/0]: Quarterly revenue is up."),
+        summary: "Document text extracted.",
+      })),
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      model: "deepseek-chat",
+      multimodalTransformRoutes: [documentTransform],
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Summarize this PDF." },
+      { type: "file", mimeType: "application/pdf", data: "JVBERi0xLjQ=", filename: "report.pdf" },
+    ]);
+
+    const createMessageInput = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(createMessageInput.messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "[Document extraction from kiln://runtime/session-artifact/0]: Quarterly revenue is up." },
+    ]);
+    expect(documentTransform.execute).toHaveBeenCalledWith(expect.objectContaining({
+      requestedCapability: "document",
+      sourceArtifacts: [expect.objectContaining({ modality: "document" })],
+    }));
+  });
+
+  it("applies downsample before invoking a constrained vision provider", async () => {
+    const provider = makeProvider("openai");
+    const registry = {
+      modalityCapabilities: vi.fn().mockReturnValue({
+        provider: "openai",
+        model: "gpt-4o",
+        supportedCapabilities: ["vision"],
+        inputModalities: ["text", "image"],
+        outputModalities: ["text"],
+        toolResultModalities: ["text", "image"],
+        constraints: {
+          supportsBase64: true,
+          supportsUrl: true,
+          supportsDocuments: false,
+          maxBytesPerArtifact: 4,
+        },
+        degradationBehavior: [],
+      }),
+    } as unknown as ModelCapabilityRegistry;
+    const downsampleTransform = makeTransformRoute({
+      transform: "downsample",
+      sourceModalities: ["image"],
+      outputModality: "image",
+      provenance: "test-sharp",
+      degradation: "reduces image size",
+      execute: vi.fn(async () => ({
+        parts: [
+          { type: "text", text: "Describe this image." },
+          { type: "image", mimeType: "image/jpeg", data: "small-image" },
+        ],
+        summary: "Image downsampled.",
+        metadata: { outputMimeType: "image/jpeg" },
+      })),
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      model: "gpt-4o",
+      modelCapabilityRegistry: registry,
+      multimodalTransformRoutes: [downsampleTransform],
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB" },
+    ]);
+
+    const createMessageInput = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(createMessageInput.messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/jpeg", data: "small-image" },
+    ]);
+    expect(downsampleTransform.execute).toHaveBeenCalledWith(expect.objectContaining({
+      requestedCapability: "vision",
+      sourceArtifacts: [expect.objectContaining({ modality: "image" })],
+    }));
+  });
+
+  it("allows native provider execution for provider-qualified vision model ids", async () => {
+    const openrouterProvider = makeProvider("openrouter");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: openrouterProvider,
+      model: "openrouter/google/gemma-3-27b-it:free",
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    expect(openrouterProvider.createMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows native provider execution when Anthropic can serialize document input", async () => {
+    const anthropicProvider = makeProvider("anthropic");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: anthropicProvider,
+      model: "claude-sonnet-4-6",
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, [
+      { type: "text", text: "Summarize this document." },
+      { type: "file", mimeType: "application/pdf", data: "JVBERi0xLjQ=", filename: "brief.pdf" },
+    ]);
+
+    expect(anthropicProvider.createMessage).toHaveBeenCalledTimes(1);
+    const createMessageMock = anthropicProvider.createMessage as ReturnType<typeof vi.fn>;
+    expect(createMessageMock.mock.calls[0]?.[0].messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "Summarize this document." },
+      { type: "file", mimeType: "application/pdf", data: "JVBERi0xLjQ=", filename: "brief.pdf" },
+    ]);
+  });
+
+  it("checks the applied router-selected route before provider execution", async () => {
+    const routedProvider = makeProvider("deepseek");
+    const router = makeRouter({
+      provider: "deepseek",
+      model: "deepseek-chat",
+      reasoning: "Text route selected",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+    const providerPool = new Map<string, ProviderAdapter>([["deepseek", routedProvider]]);
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "gpt-5.4",
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ])).rejects.toThrow("unsupported_modality");
+
+    expect(routedProvider.createMessage).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("enforces multimodal routing for reinjected tool-result history", async () => {
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+    });
+    const session = makeSession();
+    session.addAssistantMessage([
+      {
+        type: "tool_use",
+        id: "call_view_image",
+        name: "view_image",
+        input: { path: "evidence.png" },
+      },
+    ]);
+    session.addUserMessage([
+      {
+        type: "tool_result",
+        toolUseId: "call_view_image",
+        content: "Loaded image artifact.",
+        contentParts: [
+          { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+        ],
+      },
+    ]);
+
+    await expect(orchestrator.processMessage(session, textParts("Now describe the evidence.")))
+      .rejects
+      .toThrow("unsupported_modality");
+
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a transform would target reinjected tool-result history", async () => {
+    const ocrTransform = makeTransformRoute({
+      transform: "ocr",
+      sourceModalities: ["image"],
+      outputModality: "text",
+      execute: vi.fn(async () => ({
+        parts: textParts("[OCR transform]: history"),
+        summary: "OCR transform completed.",
+      })),
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      multimodalTransformRoutes: [ocrTransform],
+    });
+    const session = makeSession();
+    session.addAssistantMessage([
+      {
+        type: "tool_use",
+        id: "call_view_image",
+        name: "view_image",
+        input: { path: "evidence.png" },
+      },
+    ]);
+    session.addUserMessage([
+      {
+        type: "tool_result",
+        toolUseId: "call_view_image",
+        content: "Loaded image artifact.",
+        contentParts: [
+          { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+        ],
+      },
+    ]);
+
+    await expect(orchestrator.processMessage(session, textParts("Now describe the evidence.")))
+      .rejects
+      .toThrow("persisted history transform replay is not implemented");
+
+    expect(ocrTransform.execute).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a vision route cannot serialize multimodal tool results", async () => {
+    const openaiProvider = makeProvider("openai");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: openaiProvider,
+      model: "gpt-4o",
+    });
+    const session = makeSession();
+    session.addAssistantMessage([
+      {
+        type: "tool_use",
+        id: "call_view_image",
+        name: "view_image",
+        input: { path: "evidence.png" },
+      },
+    ]);
+    session.addUserMessage([
+      {
+        type: "tool_result",
+        toolUseId: "call_view_image",
+        content: "Loaded image artifact.",
+        contentParts: [
+          { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+        ],
+      },
+    ]);
+
+    await expect(orchestrator.processMessage(session, textParts("Now describe the evidence.")))
+      .rejects
+      .toThrow("native_route_missing_tool_result_modality");
+
+    expect(openaiProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not emit successful model_routed telemetry for rejected multimodal input", async () => {
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const routedProvider = makeProvider("deepseek");
+    const router = makeRouter({
+      provider: "deepseek",
+      model: "deepseek-chat",
+      reasoning: "Text route selected",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+    const providerPool = new Map<string, ProviderAdapter>([["deepseek", routedProvider]]);
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "gpt-4o",
+      modelRouter: router,
+      providerPool,
+      eventBus,
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ])).rejects.toThrow("unsupported_modality");
+
+    const modelRoutedEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "model_routed",
+    );
+    expect(modelRoutedEvents).toEqual([]);
   });
 
   it("injects routed execution identity when router-selected provider is applied", async () => {

@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createWsRoutes } from "../../src/gateway/ws-routes.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
-import { textParts } from "@kilnai/core";
+import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 
 /**
  * Simulates the upgradeWebSocket middleware by capturing the handler factory,
@@ -61,6 +61,10 @@ describe("createWsRoutes", () => {
 
   beforeEach(() => {
     channel = new WebChannel();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("mounts a /ws route", () => {
@@ -305,6 +309,87 @@ describe("createWsRoutes", () => {
 
       expect(processMessage).toHaveBeenCalledWith("user-3", userParts, {
         requestedAuthority: undefined,
+      });
+    });
+
+    it("captures provided multimodal parts as replay artifacts before processMessage", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("response"),
+        inputTokens: 1,
+        outputTokens: 2,
+      });
+      const userParts = [{ type: "image", mimeType: "image/png", data: "AQID" }];
+
+      createWsRoutes({
+        webChannel: channel,
+        upgradeWebSocket,
+        processMessage,
+        appName: "kilvo",
+        tenantId: "tenant-1",
+        artifactStore,
+      });
+
+      const { handlers, wsCtx } = simulateConnection({ userId: "user-3" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "ignored", parts: userParts }) }),
+        wsCtx,
+      );
+
+      expect(processMessage).toHaveBeenCalledWith("user-3", [{
+        type: "image",
+        mimeType: "image/png",
+        data: "AQID",
+        artifactUri: "kiln://artifacts/inbound-multimodal/artifact_1/content",
+      }], {
+        requestedAuthority: undefined,
+      });
+      expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
+        title: "Inbound image 0",
+        multimodal: {
+          modality: "image",
+          source: { kind: "uploaded-file", id: "kilvo:tenant-1:user-3:web:part:0" },
+        },
+      });
+    });
+
+    it("sends error frame when multimodal artifact capture fails", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const artifactStore = new MemoryArtifactResourceStore();
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("response"),
+        inputTokens: 1,
+        outputTokens: 2,
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 500 })));
+
+      createWsRoutes({
+        webChannel: channel,
+        upgradeWebSocket,
+        processMessage,
+        artifactStore,
+      });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-3" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "message",
+            parts: [{ type: "image", mimeType: "image/png", url: "https://media.example.test/image.png" }],
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(processMessage).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
+        type: "error",
+        message: "Media download failed: 500",
       });
     });
 

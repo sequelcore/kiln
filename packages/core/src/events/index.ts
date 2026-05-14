@@ -4,6 +4,13 @@ import type {
   MemoryRelationType,
   MemoryScope,
 } from "../memory/domain/index.js";
+import type {
+  MultimodalCapability,
+  MultimodalDelegationEvidence,
+  MultimodalDiagnosticSeverity,
+  MultimodalRoutingStrategy,
+  MultimodalTransportModality,
+} from "../engine/domain/multimodal-routing.js";
 import type { TraceSpan } from "./trace.js";
 
 /** Streaming granularity levels, from coarsest to finest */
@@ -66,6 +73,7 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   agent_routed: "phase",
   // Intelligence (Phase 9)
   model_routed: "phase",
+  multimodal_routed: "phase",
   conversation_closed: "state",
   conversation_enriched: "state",
   // Domain apps
@@ -137,6 +145,7 @@ export type EventType =
   | "agent_routed"
   // Intelligence (Phase 9)
   | "model_routed"
+  | "multimodal_routed"
   | "conversation_closed"
   | "conversation_enriched"
   // Domain apps
@@ -587,6 +596,26 @@ export interface ModelRoutedEvent extends KilnEvent {
   readonly rationale?: import("../engine/domain/model-router.js").ModelRoutingRationale;
 }
 
+export interface MultimodalRoutedEvent extends KilnEvent {
+  readonly type: "multimodal_routed";
+  readonly provider: string;
+  readonly model: string;
+  readonly strategy: MultimodalRoutingStrategy;
+  readonly reasonCode: string;
+  readonly reason: string;
+  readonly requestedCapability: MultimodalCapability;
+  readonly requiredModalities: readonly MultimodalTransportModality[];
+  readonly artifactUris: readonly string[];
+  readonly delegation?: MultimodalDelegationEvidence;
+  readonly diagnostics: readonly {
+    readonly code: string;
+    readonly severity: MultimodalDiagnosticSeverity;
+    readonly message: string;
+    readonly provider?: string;
+    readonly model?: string;
+  }[];
+}
+
 /** Conversation closed event (session ended normally) */
 export interface ConversationClosedInternalEvent extends KilnEvent {
   readonly type: "conversation_closed";
@@ -666,6 +695,7 @@ export interface EventMap {
   agent_routed: AgentRoutedEvent;
   // Intelligence (Phase 9)
   model_routed: ModelRoutedEvent;
+  multimodal_routed: MultimodalRoutedEvent;
   conversation_closed: ConversationClosedInternalEvent;
   conversation_enriched: ConversationEnrichedEvent;
   // Domain apps
@@ -714,6 +744,7 @@ export type {
   CanonicalGoalCancelledEvent,
   CanonicalWorkItemsMaterializedEvent,
   CanonicalProviderRoutedEvent,
+  CanonicalMultimodalRoutedEvent,
   CanonicalToolCallStartedEvent,
   CanonicalToolCallCompletedEvent,
   CanonicalApprovalRequestedEvent,

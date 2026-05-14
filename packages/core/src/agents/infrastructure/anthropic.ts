@@ -6,7 +6,7 @@ import type {
   AgentStreamEvent,
   ToolCall,
 } from "../index.js";
-import type { ContentPart } from "../../engine/domain/content.js";
+import type { ContentPart, ToolResultPayloadPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "./retry.js";
@@ -237,7 +237,9 @@ export class AnthropicAdapter implements ProviderAdapter {
           blocks.push({
             type: "tool_result",
             tool_use_id: part.toolUseId,
-            content: part.content,
+            content: part.contentParts
+              ? this.mapToolResultPayloadPartsToAnthropic(part.content, part.contentParts)
+              : part.content,
             is_error: part.isError,
           });
           break;
@@ -248,6 +250,43 @@ export class AnthropicAdapter implements ProviderAdapter {
       }
     }
     return blocks;
+  }
+
+  private mapToolResultPayloadPartsToAnthropic(
+    content: string,
+    parts: readonly ToolResultPayloadPart[],
+  ): Anthropic.Messages.ToolResultBlockParam["content"] {
+    const blocks: unknown[] = content.length > 0
+      ? [{ type: "text", text: content }]
+      : [];
+    for (const part of parts) {
+      switch (part.type) {
+        case "text":
+          blocks.push({ type: "text", text: part.text });
+          break;
+        case "image":
+          blocks.push({
+            type: "image",
+            source: part.data
+              ? { type: "base64", media_type: part.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: part.data }
+              : { type: "url", url: part.url! },
+          });
+          break;
+        case "file":
+          blocks.push({
+            type: "document",
+            source: part.data
+              ? { type: "base64", media_type: part.mimeType as "application/pdf", data: part.data }
+              : { type: "url", url: part.url! },
+          });
+          break;
+        case "audio":
+          throw new KilnError("UNSUPPORTED_MODALITY", "Anthropic does not support audio tool result content blocks", {
+            context: { modality: "audio", provider: "anthropic" },
+          });
+      }
+    }
+    return blocks as Anthropic.Messages.ToolResultBlockParam["content"];
   }
 
   private mapResponse(response: Anthropic.Messages.Message): AgentResponse {

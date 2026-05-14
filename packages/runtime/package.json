@@ -44,7 +44,9 @@
   "dependencies": {
     "@kilnai/gateway-contracts": "workspace:*",
     "hono": "^4.7.0",
-    "jose": "^5.0.0"
+    "jose": "^5.0.0",
+    "sharp": "^0.34.5",
+    "unpdf": "^1.6.2"
   },
   "peerDependencies": {
     "@kilnai/core": "^1.0.7",

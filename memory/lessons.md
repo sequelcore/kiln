@@ -14,3 +14,7 @@
   behavior or unresolved selector syntax. Normalize model-facing refs from the
   accessibility tree into provider-native selectors and fail clearly when the
   target cannot execute the required semantic pattern.
+- For Sequel/Kiln implementation slices, do not introduce compatibility
+  wrappers for incomplete internal contracts unless an external published API
+  requires them. Replace the contract and update every in-repo call site in the
+  same slice so the codebase keeps one canonical path.

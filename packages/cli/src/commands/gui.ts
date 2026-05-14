@@ -173,6 +173,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       },
       resumeSessionHydrator,
       contextArtifactCache,
+      artifactStore: builtinToolOptions.artifactResources?.store,
       executionMode: flags.plan ? "plan" : "execute",
       managedInvocation,
       workingDirectory: cwd,

@@ -115,8 +115,6 @@ export class RuntimeSessionOrchestrator {
 
     let escalation = this.detectPreLlmEscalation(userParts);
 
-    session.addUserMessage(userParts);
-
     const system = buildRuntimeTurnSystemPrompt(session, governedContext);
     const routing = await resolveRuntimeSessionRouting(
       this.deps,
@@ -126,9 +124,35 @@ export class RuntimeSessionOrchestrator {
       this._tools,
       perCallConfig,
       (sessionId, decision) => this.telemetry.emitModelRouted(sessionId, decision),
+      (sessionId, route) => this.telemetry.emitMultimodalRouted(sessionId, route),
     );
 
-    const toolExecutions: ToolExecutionSummary[] = [];
+    const admittedUserParts = routing.transformedUserParts ?? userParts;
+    session.addUserMessage(admittedUserParts);
+
+    const toolExecutions: ToolExecutionSummary[] = [...(routing.preModelToolExecutions ?? [])];
+    if (routing.delegatedMultimodalResult) {
+      return finalizeRuntimeSessionResponse({
+        deps: this.deps,
+        session,
+        parts: routing.delegatedMultimodalResult.parts,
+        usage: {
+          inputTokens: routing.delegatedMultimodalResult.inputTokens,
+          outputTokens: routing.delegatedMultimodalResult.outputTokens,
+          cacheReadTokens: routing.delegatedMultimodalResult.cacheReadTokens,
+          cacheWriteTokens: routing.delegatedMultimodalResult.cacheWriteTokens,
+        },
+        usageTotals: {
+          inputTokens: routing.delegatedMultimodalResult.inputTokens,
+          outputTokens: routing.delegatedMultimodalResult.outputTokens,
+          cacheReadTokens: routing.delegatedMultimodalResult.cacheReadTokens,
+          cacheWriteTokens: routing.delegatedMultimodalResult.cacheWriteTokens,
+        },
+        toolExecutions: [routing.delegatedMultimodalResult.toolExecution],
+        routingDecision: toPublicRoutingDecision(routing.routingDecision),
+        preLlmEscalation: escalation,
+      });
+    }
     const invalidToolCallAttempts = new Map<string, number>();
     const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,

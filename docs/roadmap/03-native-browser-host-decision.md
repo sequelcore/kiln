@@ -24,7 +24,7 @@ This roadmap runs after
 `04-embedded-browser-operator-surface.md`.
 
 ```text
-00.06   multimodal transport and capability delegation
+completed multimodal transport foundation
   ->
 00.07   agent QA showcase recorder
   ->

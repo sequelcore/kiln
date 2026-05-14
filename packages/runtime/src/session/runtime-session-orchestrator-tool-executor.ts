@@ -11,6 +11,7 @@ import type {
   ToolAuthorizationResult,
   FileToolChangeMetadata,
   FileToolResultMetadata,
+  ToolResultPayloadPart,
 } from "@kilnai/core";
 import {
   executeWithRetry,
@@ -100,6 +101,84 @@ function extractToolResultOutput(resultValue: unknown): string | undefined {
     ? resultValue as { output?: unknown }
     : undefined;
   return typeof resultRecord?.output === "string" ? resultRecord.output : undefined;
+}
+
+function extractToolResultContentParts(resultValue: unknown): readonly ToolResultPayloadPart[] | undefined {
+  const resultRecord = resultValue && typeof resultValue === "object" && !Array.isArray(resultValue)
+    ? resultValue as { content?: unknown }
+    : undefined;
+  if (!Array.isArray(resultRecord?.content)) {
+    return undefined;
+  }
+
+  const parts = resultRecord.content
+    .map(projectToolResultPayloadPart)
+    .filter((part): part is ToolResultPayloadPart => part !== undefined);
+
+  return parts.length > 0 ? parts : undefined;
+}
+
+function projectToolResultPayloadPart(value: unknown): ToolResultPayloadPart | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const candidate = value as {
+    type?: unknown;
+    text?: unknown;
+    mimeType?: unknown;
+    data?: unknown;
+    url?: unknown;
+    durationMs?: unknown;
+    filename?: unknown;
+  };
+
+  if (candidate.type === "text" && typeof candidate.text === "string") {
+    return { type: "text", text: candidate.text };
+  }
+
+  if (candidate.type !== "image" && candidate.type !== "audio" && candidate.type !== "file") {
+    return undefined;
+  }
+  if (typeof candidate.mimeType !== "string" || candidate.mimeType.length === 0) {
+    return undefined;
+  }
+
+  const data = typeof candidate.data === "string" ? candidate.data : undefined;
+  const url = typeof candidate.url === "string" ? candidate.url : undefined;
+  if ((data === undefined && url === undefined) || (data !== undefined && url !== undefined)) {
+    return undefined;
+  }
+
+  if (candidate.type === "image") {
+    return {
+      type: "image",
+      mimeType: candidate.mimeType,
+      ...(data !== undefined ? { data } : {}),
+      ...(url !== undefined ? { url } : {}),
+    };
+  }
+
+  if (candidate.type === "audio") {
+    const durationMs = typeof candidate.durationMs === "number" && Number.isFinite(candidate.durationMs)
+      ? candidate.durationMs
+      : undefined;
+    return {
+      type: "audio",
+      mimeType: candidate.mimeType,
+      ...(data !== undefined ? { data } : {}),
+      ...(url !== undefined ? { url } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    };
+  }
+
+  return {
+    type: "file",
+    mimeType: candidate.mimeType,
+    ...(data !== undefined ? { data } : {}),
+    ...(url !== undefined ? { url } : {}),
+    ...(typeof candidate.filename === "string" ? { filename: candidate.filename } : {}),
+  };
 }
 
 function countLines(value: string): number {
@@ -193,13 +272,16 @@ function buildEditPreview(oldString: string, newString: string): string {
   return [...removed, ...added].join("\n");
 }
 
+type RuntimeSessionToolResultPart = {
+  readonly type: "tool_result";
+  readonly toolUseId: string;
+  readonly content: string;
+  readonly contentParts?: readonly ToolResultPayloadPart[];
+  readonly isError: boolean;
+};
+
 export interface RuntimeSessionToolExecutionResult {
-  readonly resultParts: readonly {
-    readonly type: "tool_result";
-    readonly toolUseId: string;
-    readonly content: string;
-    readonly isError: boolean;
-  }[];
+  readonly resultParts: readonly RuntimeSessionToolResultPart[];
   readonly toolExecutions: readonly ToolExecutionSummary[];
 }
 
@@ -226,12 +308,7 @@ export class RuntimeSessionToolExecutor {
     this.currentSession = session;
     this.currentEffectiveTurnAuthority = perCallConfig?.effectiveTurnAuthority;
     try {
-    const resultParts: Array<{
-      readonly type: "tool_result";
-      readonly toolUseId: string;
-      readonly content: string;
-      readonly isError: boolean;
-    }> = [];
+    const resultParts: RuntimeSessionToolResultPart[] = [];
     const toolExecutions: ToolExecutionSummary[] = [];
 
     for (const toolCall of toolCalls) {
@@ -366,6 +443,7 @@ export class RuntimeSessionToolExecutor {
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
         const metadata = extractToolResultMetadata(execution.resultValueRaw);
         const resultOutput = extractToolResultOutput(execution.resultValueRaw);
+        const contentParts = sanitized.sanitized ? undefined : extractToolResultContentParts(execution.resultValueRaw);
         const envelopeIsError = extractToolResultIsError(execution.resultValueRaw);
         const isError = envelopeIsError === true;
         const success = !isError;
@@ -411,7 +489,8 @@ export class RuntimeSessionToolExecutor {
         resultParts.push({
           type: "tool_result",
           toolUseId: normalizedToolCall.id,
-          content: sanitized.resultValue,
+          content: resultOutput ?? sanitized.resultValue,
+          ...(contentParts ? { contentParts } : {}),
           isError,
         });
 
@@ -550,12 +629,7 @@ export class RuntimeSessionToolExecutor {
     sessionId: string,
     toolCall: ToolCall,
     authResult: ToolAuthorizationResult | undefined,
-    resultParts: Array<{
-      readonly type: "tool_result";
-      readonly toolUseId: string;
-      readonly content: string;
-      readonly isError: boolean;
-    }>,
+    resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
   ): Promise<boolean> {
     if (!this.deps.dangerousCommandDetector) {
@@ -618,12 +692,7 @@ export class RuntimeSessionToolExecutor {
   private handleRateLimitBlock(
     toolCall: ToolCall,
     perCallConfig: PerCallToolConfig | undefined,
-    resultParts: Array<{
-      readonly type: "tool_result";
-      readonly toolUseId: string;
-      readonly content: string;
-      readonly isError: boolean;
-    }>,
+    resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
   ): boolean {
     if (!perCallConfig?.rateLimiter || !perCallConfig.tenantId) {
@@ -657,12 +726,7 @@ export class RuntimeSessionToolExecutor {
     sessionId: string,
     toolCall: ToolCall,
     cacheTtl: number | undefined,
-    resultParts: Array<{
-      readonly type: "tool_result";
-      readonly toolUseId: string;
-      readonly content: string;
-      readonly isError: boolean;
-    }>,
+    resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
   ): Promise<{ readonly hit: boolean }> {
     if (!cacheTtl || !this.deps.toolCache) {

@@ -2,7 +2,7 @@
 // Separated from gateway-server.ts so it can be tested without Bun runtime.
 
 import { Hono } from "hono";
-import type { App, SttAdapter, ContactMemoryService } from "@kilnai/core";
+import type { App, ArtifactResourceStore, EventBus, SttAdapter, ContactMemoryService } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog, GatewayMcpConfig } from "@kilnai/core";
 import { extractText, PromptScanner, textParts } from "@kilnai/core";
 import type { WSContext } from "hono/ws";
@@ -79,6 +79,7 @@ export interface LoadedApp {
   webChannel?: WebChannel;
   eventEmitter?: ConversationEventEmitter;
   sttAdapter?: SttAdapter;
+  artifactStore?: ArtifactResourceStore;
   knowledgePipeline?: KnowledgePipelineResult;
   knowledgeAdminConfig?: KnowledgeAdminRoutesConfig;
   contactMemoryService?: ContactMemoryService;
@@ -91,6 +92,7 @@ export interface GatewayServerConfig {
   readonly apps: readonly LoadedApp[];
   readonly mcp?: GatewayMcpConfig;
   readonly delegationRegistry?: DelegationRegistry;
+  readonly eventBus?: EventBus;
   readonly healthRegistry?: HealthRegistry;
   readonly startTime?: number;
   readonly securityConfig?: SecurityConfig;
@@ -376,8 +378,10 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             tenantRegistry: tenantRuntime.tenantRegistry,
             billing: tenantRuntime.billing,
             eventEmitter: loadedApp.eventEmitter,
+            ...(config.eventBus ? { eventBus: config.eventBus } : {}),
             allowedOrigins: channel.allowedOrigins,
             sttAdapter: loadedApp.sttAdapter,
+            artifactStore: loadedApp.artifactStore,
             knowledgePipeline: loadedApp.knowledgePipeline?.pipeline,
             knowledgeMode: loadedApp.app.knowledge?.mode,
             contactMemoryService: loadedApp.contactMemoryService,
@@ -391,6 +395,9 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             upgradeWebSocket: config.upgradeWebSocket,
             validateToken: config.validateToken,
             apiKey: runtime.apiKey,
+            appName: loadedApp.name,
+            tenantId: "_default",
+            artifactStore: loadedApp.artifactStore,
             processMessage: async (userId, parts, options) => {
               const session = await runtime.sessionRegistry.getOrCreate({
                 appName: loadedApp.name,
@@ -743,6 +750,7 @@ async function processAppGatewayGuiMessage(
         contextArtifactCache: selectedRuntime.runtime.contextArtifactCache,
         coordinationContextProvider: selectedRuntime.runtime.coordinationContextProvider,
         requestedAuthority: frame.requestedAuthority,
+        artifactStore: selectedRuntime.loadedApp.artifactStore,
       })
       : await processTenantAppGatewayGuiTurn(selectedRuntime, content, sessionId, frame.requestedAuthority);
 
@@ -808,6 +816,7 @@ async function processTenantAppGatewayGuiTurn(
     contextArtifactCache: selection.runtime.contextArtifactCache,
     coordinationContextProvider: selection.runtime.coordinationContextProvider,
     requestedAuthority,
+    artifactStore: selection.loadedApp.artifactStore,
   });
 }
 

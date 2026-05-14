@@ -1020,6 +1020,44 @@ function providerRoutedPresentation(payload: Record<string, unknown>): OperatorE
   };
 }
 
+function multimodalRoutedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const provider = providerIdentity(payload);
+  const strategy = readString(payload.strategy) ?? "unknown";
+  const capability = readString(payload.requestedCapability) ?? "multimodal";
+  const modalities = formatStringList(payload.requiredModalities);
+  const artifacts = formatStringList(payload.artifactUris);
+  const diagnostics = Array.isArray(payload.diagnostics)
+    ? payload.diagnostics.flatMap((diagnostic) => readString(asRecord(diagnostic)?.code) ? [readString(asRecord(diagnostic)?.code)!] : [])
+    : [];
+  const delegation = asRecord(payload.delegation);
+  const summary = [strategy, capability, provider.provider, provider.model]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Strategy", strategy);
+  addItem(details, "Capability", capability);
+  addItem(details, "Modalities", modalities);
+  addItem(details, "Provider", provider.provider);
+  addItem(details, "Model", provider.model);
+  addItem(details, "Reason", payload.reasonCode ?? payload.reason);
+  addItem(details, "Artifacts", artifacts);
+  addItem(details, "Delegation route", delegation?.routeId);
+  addItem(details, "Authority profile", delegation?.authorityProfileId);
+  addItem(details, "Diagnostics", diagnostics.join(", "));
+  return {
+    title: "Multimodal routed",
+    summary,
+    compactText: summary,
+    tone: strategy === "native" || strategy === "delegated"
+      ? "success"
+      : strategy === "transform"
+        ? "warning"
+        : "error",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+  };
+}
+
 function toolStartedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const toolName = readString(payload.toolName) ?? "tool";
   const input = asRecord(payload.input) ?? payload;
@@ -1661,6 +1699,8 @@ export function presentOperatorEventPayload(
       return planApprovedPresentation(payload);
     case "provider_routed":
       return providerRoutedPresentation(payload);
+    case "multimodal_routed":
+      return multimodalRoutedPresentation(payload);
     case "tool_call_started":
       return toolStartedPresentation(payload);
     case "tool_call_completed":

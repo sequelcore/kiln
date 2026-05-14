@@ -13,6 +13,7 @@ export interface ImagePart {
   readonly mimeType: string;
   readonly data?: string;
   readonly url?: string;
+  readonly artifactUri?: string;
 }
 
 /** Audio content (base64 data or URL) */
@@ -21,6 +22,7 @@ export interface AudioPart {
   readonly mimeType: string;
   readonly data?: string;
   readonly url?: string;
+  readonly artifactUri?: string;
   readonly durationMs?: number;
 }
 
@@ -30,6 +32,7 @@ export interface FilePart {
   readonly mimeType: string;
   readonly data?: string;
   readonly url?: string;
+  readonly artifactUri?: string;
   readonly filename?: string;
 }
 
@@ -46,8 +49,11 @@ export interface ToolResultPart {
   readonly type: "tool_result";
   readonly toolUseId: string;
   readonly content: string;
+  readonly contentParts?: readonly ToolResultPayloadPart[];
   readonly isError?: boolean;
 }
+
+export type ToolResultPayloadPart = TextPart | ImagePart | AudioPart | FilePart;
 
 /** Discriminated union of all content part types */
 export type ContentPart = TextPart | ImagePart | AudioPart | FilePart | ToolUsePart | ToolResultPart;
@@ -86,7 +92,17 @@ export function validateContentPart(part: ContentPart): string | null {
   if (part.type === "text") {
     return null;
   }
-  if (part.type === "tool_use" || part.type === "tool_result") {
+  if (part.type === "tool_use") {
+    return null;
+  }
+  if (part.type === "tool_result") {
+    const contentParts = part.contentParts ?? [];
+    for (let i = 0; i < contentParts.length; i++) {
+      const error = validateContentPart(contentParts[i]!);
+      if (error !== null) {
+        return `contentParts[${i}]: ${error}`;
+      }
+    }
     return null;
   }
   // Binary parts must have exactly one of data or url

@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   ArtifactResourceProvider,
   MemoryArtifactResourceStore,
+  projectMultimodalArtifactResource,
 } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 
 describe("MemoryArtifactResourceStore", () => {
@@ -99,6 +101,51 @@ describe("MemoryArtifactResourceStore", () => {
       producer: { kind: "test", name: "unit" },
       retention: { scope: "session" },
     })).toThrow("Artifact content exceeds configured limit");
+  });
+
+  it("stores and projects multimodal artifact metadata with checksum and replay URI", () => {
+    const store = new MemoryArtifactResourceStore({
+      now: () => "2026-05-13T10:00:00.000Z",
+    });
+    const blob = Buffer.from("png bytes").toString("base64");
+
+    const metadata = store.put({
+      namespace: "tool-results",
+      title: "Browser screenshot",
+      mimeType: "image/png",
+      content: { type: "blob", blob },
+      producer: { kind: "tool", name: "browser_observe" },
+      retention: { scope: "session", maxArtifacts: 10 },
+      multimodal: {
+        modality: "screenshot",
+        source: { kind: "generated-screenshot", id: "browser_observe:call_1" },
+        dimensions: { width: 1280, height: 720 },
+      },
+    });
+    const artifact = store.get("tool-results", metadata.id)!;
+
+    expect(metadata).toMatchObject({
+      checksum: {
+        algorithm: "sha256",
+        value: createHash("sha256").update(Buffer.from(blob, "base64")).digest("hex"),
+      },
+      multimodal: {
+        modality: "screenshot",
+        source: { kind: "generated-screenshot", id: "browser_observe:call_1" },
+        dimensions: { width: 1280, height: 720 },
+      },
+    });
+    expect(projectMultimodalArtifactResource(artifact)).toEqual({
+      uri: `kiln://artifacts/tool-results/${metadata.id}/content`,
+      modality: "screenshot",
+      mimeType: "image/png",
+      sizeBytes: Buffer.byteLength(blob, "base64"),
+      checksum: metadata.checksum,
+      source: { kind: "generated-screenshot", id: "browser_observe:call_1" },
+      retention: { scope: "session", maxArtifacts: 10 },
+      replay: { uri: `kiln://artifacts/tool-results/${metadata.id}/content` },
+      dimensions: { width: 1280, height: 720 },
+    });
   });
 });
 

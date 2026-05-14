@@ -285,6 +285,7 @@ export type OperatorSessionEventKind =
   | "goal.cancelled"
   | "work_items.materialized"
   | "provider_routed"
+  | "multimodal_routed"
   | "tool_call_started"
   | "tool_call_completed"
   | "approval_requested"

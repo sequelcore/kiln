@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 import { createMessengerWebhookRoutes } from "../../src/gateway/messenger-webhook-routes.js";
 import type { MessengerWebhookConfig } from "../../src/gateway/messenger-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
@@ -44,6 +44,10 @@ interface MessengerWebhookPayload {
         mid: string;
         text?: string;
         is_echo?: boolean;
+        attachments?: Array<{
+          type: string;
+          payload: { url?: string };
+        }>;
       };
     }>;
   }>;
@@ -337,6 +341,70 @@ describe("createMessengerWebhookRoutes", () => {
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
       expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+    });
+
+    it("captures Messenger attachments as replay artifacts before provider invocation", async () => {
+      const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
+      const config = makeConfig({ artifactStore });
+      config.tenantRegistry.create(makeTenantConfig());
+      const processSpy = vi.spyOn(config.orchestrator, "processMessage");
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "https://cdn.example.test/msg-image.jpg") {
+          return new Response(new Uint8Array([7, 8, 9]), {
+            status: 200,
+            headers: { "Content-Type": "image/jpeg" },
+          });
+        }
+        return new Response(JSON.stringify({ recipient_id: "psid-sender", message_id: "mid-reply" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const app = createMessengerWebhookRoutes(config);
+      const payload: MessengerWebhookPayload = {
+        object: "page",
+        entry: [{
+          id: "fb-page-789",
+          time: Date.now(),
+          messaging: [{
+            sender: { id: "psid-sender" },
+            recipient: { id: "fb-page-789" },
+            timestamp: Date.now(),
+            message: {
+              mid: "mid-image",
+              attachments: [{
+                type: "image",
+                payload: { url: "https://cdn.example.test/msg-image.jpg" },
+              }],
+            },
+          }],
+        }],
+      };
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(processSpy).toHaveBeenCalledTimes(1);
+      expect(processSpy.mock.calls[0]![1]).toEqual([{
+        type: "image",
+        mimeType: "image/jpeg",
+        url: "https://cdn.example.test/msg-image.jpg",
+        artifactUri: "kiln://artifacts/inbound-multimodal/artifact_1/content",
+      }]);
+      expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
+        content: { type: "blob", blob: Buffer.from(new Uint8Array([7, 8, 9])).toString("base64") },
+        multimodal: {
+          modality: "image",
+          source: { kind: "webhook-attachment", id: "test-app:msg-tenant:psid-sender:messenger:part:0" },
+        },
+      });
     });
   });
 });

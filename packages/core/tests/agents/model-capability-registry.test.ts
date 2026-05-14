@@ -37,6 +37,44 @@ describe("ModelCapabilityRegistry", () => {
     expect(openaiProfile!.outputPer1M).toBe(15);
   });
 
+  it("projects multimodal capabilities only when the provider adapter can serialize them", () => {
+    expect(registry.modalityCapabilities("openai", "gpt-4o")).toMatchObject({
+      provider: "openai",
+      model: "gpt-4o",
+      supportedCapabilities: ["vision", "screenshot-review"],
+      inputModalities: ["text", "image", "screenshot"],
+      toolResultModalities: ["text"],
+    });
+
+    expect(registry.modalityCapabilities("codex-oauth", "gpt-5.4")).toMatchObject({
+      provider: "codex-oauth",
+      model: "gpt-5.4",
+      supportedCapabilities: [],
+      inputModalities: ["text"],
+      toolResultModalities: ["text"],
+    });
+
+    expect(registry.modalityCapabilities("openrouter", "openrouter/google/gemma-3-27b-it:free")).toMatchObject({
+      provider: "openrouter",
+      model: "google/gemma-3-27b-it:free",
+      supportedCapabilities: ["vision", "screenshot-review"],
+      inputModalities: ["text", "image", "screenshot"],
+    });
+  });
+
+  it("projects Anthropic document support because the adapter serializes document blocks", () => {
+    expect(registry.modalityCapabilities("anthropic", "claude-sonnet-4-6")).toMatchObject({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      supportedCapabilities: ["vision", "screenshot-review", "document"],
+      inputModalities: ["text", "image", "screenshot", "document"],
+      toolResultModalities: ["text", "image", "screenshot", "document"],
+      constraints: {
+        supportsDocuments: true,
+      },
+    });
+  });
+
   it("get() returns undefined for unknown model", () => {
     expect(registry.get("nonexistent-model")).toBeUndefined();
   });

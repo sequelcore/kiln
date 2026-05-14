@@ -789,6 +789,7 @@ async function bootstrapGatewaySession(
     onClear: sessionManager.onClear,
     getProviderAvailability: () => getRuntimeProviderAvailability(options.registry),
     contextArtifactCache,
+    artifactStore: options.builtinToolOptions?.artifactResources?.store,
     executionMode: flags.plan ? "plan" : "execute",
     builtinToolOptions: options.builtinToolOptions,
     managedInvocation: options.managedInvocation,

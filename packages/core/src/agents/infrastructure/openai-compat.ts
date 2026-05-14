@@ -7,6 +7,7 @@ import type {
 } from "../index.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
+import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "./retry.js";
 import type { RetryOptions } from "./retry.js";
 import { normalizeToolInput } from "../tool-call-input.js";
@@ -259,11 +260,10 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
           blocks.push({ type: "image_url", image_url: { url } });
           break;
         }
-        case "audio":
         case "file":
-          // Degrade to text placeholder for unsupported types
-          blocks.push({ type: "text", text: `[${part.type}: unsupported]` });
-          break;
+          throw unsupportedModality(this.name, "document", "OpenAI-compatible chat serialization does not support file parts.");
+        case "audio":
+          throw unsupportedModality(this.name, "audio", "OpenAI-compatible chat serialization does not support audio parts.");
         case "tool_use":
         case "tool_result":
           blocks.push({ type: "text", text: `[${part.type}: represented separately]` });
@@ -307,6 +307,13 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     }
 
     for (const part of toolResults) {
+      if (part.contentParts && part.contentParts.some((contentPart) => contentPart.type !== "text")) {
+        throw unsupportedModality(
+          this.name,
+          part.contentParts.map((contentPart) => contentPart.type).join(","),
+          "OpenAI-compatible tool messages cannot serialize multimodal tool-result content parts.",
+        );
+      }
       messages.push({
         role: "tool",
         tool_call_id: part.toolUseId,
@@ -428,4 +435,10 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       },
     };
   }
+}
+
+function unsupportedModality(provider: string, modality: string, reason: string): KilnError {
+  return new KilnError("UNSUPPORTED_MODALITY", `unsupported_modality: ${reason}`, {
+    context: { provider, modality },
+  });
 }

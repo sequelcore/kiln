@@ -1129,6 +1129,7 @@ function wireOperatorTransport(
                 providerValidation: currentDiscovery,
                 executionMode,
                 contextArtifactCache: input.transport.contextArtifactCache,
+                artifactStore: input.transport.artifactStore,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: turnPerCallConfig,
                 turnCapture: {

@@ -183,6 +183,94 @@ describe("OllamaAdapter", () => {
       ]);
     });
 
+    it("serializes base64 image parts without dropping text", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          message: { content: "OK" },
+          done: true,
+        }),
+      });
+
+      const adapter = new OllamaAdapter();
+      await adapter.createMessage(makeOptions({
+        messages: [{
+          role: "user",
+          parts: [
+            { type: "text", text: "Inspect this." },
+            { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+          ],
+        }],
+      }));
+
+      const body = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
+      expect(body.messages.at(-1)).toEqual({
+        role: "user",
+        content: "Inspect this.",
+        images: ["iVBORw0KGgo="],
+      });
+    });
+
+    it("fails closed before request for image URL parts", async () => {
+      const adapter = new OllamaAdapter();
+
+      await expect(adapter.createMessage(makeOptions({
+        messages: [{
+          role: "user",
+          parts: [
+            { type: "text", text: "Inspect this." },
+            { type: "image", mimeType: "image/png", url: "https://example.test/image.png" },
+          ],
+        }],
+      }))).rejects.toThrow("unsupported_modality");
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("fails closed before request for audio and file parts", async () => {
+      const adapter = new OllamaAdapter();
+
+      await expect(adapter.createMessage(makeOptions({
+        messages: [{
+          role: "user",
+          parts: [
+            { type: "audio", mimeType: "audio/mp4", data: "AAAA" },
+          ],
+        }],
+      }))).rejects.toThrow("unsupported_modality");
+
+      await expect(adapter.createMessage(makeOptions({
+        messages: [{
+          role: "user",
+          parts: [
+            { type: "file", mimeType: "application/pdf", data: "JVBERi0=", filename: "doc.pdf" },
+          ],
+        }],
+      }))).rejects.toThrow("unsupported_modality");
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("fails closed before request for multimodal tool-result content parts", async () => {
+      const adapter = new OllamaAdapter();
+
+      await expect(adapter.createMessage(makeOptions({
+        messages: [{
+          role: "user",
+          parts: [{
+            type: "tool_result",
+            toolUseId: "call_view_image",
+            content: "Loaded image.",
+            contentParts: [
+              { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+            ],
+          }],
+        }],
+      }))).rejects.toThrow("unsupported_modality");
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it("handles missing token counts", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

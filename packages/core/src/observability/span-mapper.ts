@@ -42,6 +42,7 @@ import type {
     KnowledgeSourceFailedEvent,
     AgentRoutedEvent,
     ModelRoutedEvent,
+    MultimodalRoutedEvent,
     ConversationClosedInternalEvent,
     ConversationEnrichedEvent,
     GroundingEvaluatedEvent,
@@ -479,6 +480,27 @@ function mapModelRouted(e: ModelRoutedEvent): SpanOperation {
     };
 }
 
+function mapMultimodalRouted(e: MultimodalRoutedEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "multimodal_routed",
+        attributes: {
+            "gen_ai.request.model": e.model,
+            "gen_ai.system": e.provider,
+            strategy: e.strategy,
+            reasonCode: e.reasonCode,
+            requestedCapability: e.requestedCapability,
+            requiredModalities: e.requiredModalities.join(","),
+            artifactCount: e.artifactUris.length,
+            diagnosticCount: e.diagnostics.length,
+            ...(e.delegation ? {
+                delegationRouteId: e.delegation.routeId,
+                authorityProfileId: e.delegation.authorityProfileId,
+            } : {}),
+        },
+    };
+}
+
 function mapConversationClosed(e: ConversationClosedInternalEvent): SpanOperation {
     return {
         action: "endSpan",
@@ -651,6 +673,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapAgentRouted(event as AgentRoutedEvent);
         case "model_routed":
             return mapModelRouted(event as ModelRoutedEvent);
+        case "multimodal_routed":
+            return mapMultimodalRouted(event as MultimodalRoutedEvent);
         case "conversation_closed":
             return mapConversationClosed(event as ConversationClosedInternalEvent);
         case "conversation_enriched":

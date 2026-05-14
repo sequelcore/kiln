@@ -137,6 +137,24 @@ function getReinjectedToolResultFromCall(provider: ProviderAdapter, callIndex: n
   throw new Error(`No reinjected tool_result content found in provider call ${callIndex + 1}.`);
 }
 
+function getReinjectedToolResultPartFromSecondCall(provider: ProviderAdapter): {
+  readonly content?: unknown;
+  readonly contentParts?: unknown;
+} {
+  const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls;
+  const targetCall = calls[1]?.[0] as { messages?: Array<{ role?: string; parts?: Array<{ type?: string; content?: unknown; contentParts?: unknown }> }> } | undefined;
+  const messages = targetCall?.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg?.role !== "user") continue;
+    const toolResult = (msg.parts ?? []).find((part) => part?.type === "tool_result");
+    if (toolResult) {
+      return toolResult;
+    }
+  }
+  throw new Error("No reinjected tool_result part found in second provider call.");
+}
+
 function getLastToolResultPartsFromCall(
   provider: ProviderAdapter,
   callIndex: number,
@@ -244,6 +262,36 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           operation: "submit_plan",
           planId: "plan_1",
         },
+      });
+    });
+
+    it("preserves model-visible multimodal tool result parts for reinjection", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue({
+        output: "Image attached.",
+        isError: false,
+        content: [{
+          type: "image",
+          data: "aW1n",
+          mimeType: "image/png",
+        }],
+      });
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("inspect image"));
+
+      expect(getReinjectedToolResultPartFromSecondCall(provider)).toMatchObject({
+        content: "Image attached.",
+        contentParts: [{
+          type: "image",
+          data: "aW1n",
+          mimeType: "image/png",
+        }],
       });
     });
 

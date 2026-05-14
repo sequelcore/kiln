@@ -14,6 +14,7 @@ import {
   SqliteMemoryRepository,
   AesSecretStore,
   GroundingRail,
+  MemoryArtifactResourceStore,
   ModelCapabilityRegistry,
   DeterministicDangerousCommandDetector,
 } from "@kilnai/core";
@@ -36,6 +37,8 @@ import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
+import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import type { DelegationTarget, DelegationRegistry } from "./delegation-handler.js";
 import { TenantRegistry } from "../tenant/tenant-registry.js";
@@ -105,6 +108,8 @@ export interface StartGatewayOptions {
   readonly integrations?: readonly IntegrationAdapter[];
   /** Env var name containing the master key for AES-256-GCM secret encryption. */
   readonly secretKeyEnv?: string;
+  /** Runtime-managed auxiliary routes available for multimodal capability delegation, keyed by app name. */
+  readonly multimodalDelegationRoutesByApp?: ReadonlyMap<string, readonly RuntimeMultimodalDelegationRoute[]>;
 }
 
 export interface DevServerOptions {
@@ -458,6 +463,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       webChannel: hasWebChannel ? new WebChannel() : undefined,
       eventEmitter: undefined as undefined | ConversationEventEmitter,
       sttAdapter: undefined as undefined | SttAdapter,
+      artifactStore: new MemoryArtifactResourceStore(),
       knowledgePipeline: undefined as undefined | KnowledgePipelineResult,
       knowledgeAdminConfig: undefined as undefined | KnowledgeAdminRoutesConfig,
       contactMemoryService: undefined as undefined | ContactMemoryService,
@@ -652,6 +658,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     });
     const dangerousCommandDetector = new DeterministicDangerousCommandDetector();
 
+    const multimodalDelegationRoutes = options?.multimodalDelegationRoutesByApp?.get(loaded.name);
+    const multimodalTransformRoutes = createDefaultRuntimeMultimodalTransformRoutes({
+      artifactStore: loaded.artifactStore,
+    });
     const orchestrator = new RuntimeSessionOrchestrator({
       provider,
       model: resolved.runtimeModeConfig.provider.model,
@@ -662,6 +672,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       toolAuthorizer,
       toolResultSanitizer,
       dangerousCommandDetector,
+      ...(multimodalDelegationRoutes ? { multimodalDelegationRoutes } : {}),
+      multimodalTransformRoutes,
     });
 
     // Build grounding deps (shared by all routes for this app)
@@ -719,6 +731,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         orchestrator,
         sessionRegistry,
         tenantRegistry,
+        artifactStore: loaded.artifactStore,
         billing: resolved.runtimeModeConfig.billing,
         apiKey: resolvedApiKey,
         groundingDeps,
@@ -738,8 +751,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           appSecret: appSecretEnv ? process.env[appSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
+          eventBus: gatewayEventBus,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
+          artifactStore: loaded.artifactStore,
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
@@ -762,8 +777,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           appSecret: igAppSecretEnv ? process.env[igAppSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
+          eventBus: gatewayEventBus,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
+          artifactStore: loaded.artifactStore,
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
@@ -785,8 +802,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           appSecret: msgAppSecretEnv ? process.env[msgAppSecretEnv] ?? undefined : undefined,
           billing: resolved.runtimeModeConfig.billing,
           eventEmitter,
+          eventBus: gatewayEventBus,
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
+          artifactStore: loaded.artifactStore,
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
@@ -835,6 +854,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         appName: loaded.name,
         orchestrator,
         sessionRegistry,
+        artifactStore: loaded.artifactStore,
         billing: resolved.runtimeModeConfig.billing,
         systemPrompt,
         apiKey: resolvedApiKey,
@@ -954,6 +974,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     apps: loadedApps,
     mcp: gatewayConfig.mcp,
     delegationRegistry,
+    eventBus: gatewayEventBus,
     healthRegistry,
     credentialPoolObservability,
     startTime,

@@ -795,11 +795,13 @@ export class OpenCodeSession implements IKilnSession {
 
           for (const diff of props.diff ?? []) {
             if (typeof diff.file !== "string" || diff.file.trim().length === 0) continue;
+            const path = normalizeOpenCodeDiffPath(cwd, diff.file);
+            if (isKilnRuntimeMemoryPath(path)) continue;
             const additions = diff.additions;
             const deletions = diff.deletions;
             yield {
               type: "file_changed",
-              path: normalizeOpenCodeDiffPath(cwd, diff.file),
+              path,
               changeType: mapOpenCodeDiffStatus(diff.status),
               ...(typeof additions === "number" && Number.isInteger(additions) && additions >= 0 ? { linesAdded: additions } : {}),
               ...(typeof deletions === "number" && Number.isInteger(deletions) && deletions >= 0 ? { linesRemoved: deletions } : {}),
@@ -1039,6 +1041,21 @@ function isOpenCodeWriteTool(toolName: string | undefined): boolean {
 function normalizeOpenCodeDiffPath(cwd: string, file: string): string {
   const trimmed = file.trim();
   return isAbsolute(trimmed) ? trimmed : resolve(cwd, trimmed);
+}
+
+function isKilnRuntimeMemoryPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const marker = "/.kiln/";
+  const markerIndex = normalized.lastIndexOf(marker);
+  const relativeToKiln = markerIndex >= 0
+    ? normalized.slice(markerIndex + marker.length)
+    : normalized.startsWith(".kiln/")
+      ? normalized.slice(".kiln/".length)
+      : undefined;
+
+  return relativeToKiln === "memory.db" ||
+    relativeToKiln === "memory.db-shm" ||
+    relativeToKiln === "memory.db-wal";
 }
 
 function mapOpenCodeDiffStatus(status: "added" | "deleted" | "modified" | undefined): "created" | "modified" | "deleted" {

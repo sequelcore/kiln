@@ -1,5 +1,10 @@
 import type {
   ExecutionBillingMode,
+  AuxiliaryModalityRoute,
+  MultimodalArtifact,
+  MultimodalCapability,
+  MultimodalTransportModality,
+  MultimodalTransformCandidate,
   ModelRoutingRationale,
   ModelRoutingRankingEvidence,
   ProviderAdapter,
@@ -7,6 +12,11 @@ import type {
   ToolDefinition,
   ReasoningEffort,
   ToolCall,
+  ManagedAgentAdmissionProfile,
+  ManagedAgentAuthorityProfile,
+  ManagedAgentInvocationContextMode,
+  ManagedAgentProviderRoute,
+  ManagedAgentRequestedAuthority,
 } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
@@ -22,6 +32,8 @@ import type { ToolRAG } from "@kilnai/core";
 import type { RateLimiter } from "@kilnai/core";
 import type { ToolCache } from "@kilnai/core";
 import type { ModelRouter } from "@kilnai/core";
+import type { ModelCapabilityRegistry } from "@kilnai/core";
+import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
@@ -60,8 +72,55 @@ export interface OrchestratorDeps {
   readonly toolRAG?: ToolRAG;
   readonly toolCache?: ToolCache;
   readonly modelRouter?: ModelRouter;
+  readonly modelCapabilityRegistry?: ModelCapabilityRegistry;
   readonly providerPool?: ReadonlyMap<string, ProviderAdapter>;
+  readonly multimodalDelegationRoutes?: readonly RuntimeMultimodalDelegationRoute[];
+  readonly multimodalTransformRoutes?: readonly RuntimeMultimodalTransformRoute[];
   readonly dangerousCommandDetector?: DangerousCommandDetectorLike;
+}
+
+export interface RuntimeMultimodalDelegationRoute {
+  readonly route: AuxiliaryModalityRoute;
+  readonly adapter: ManagedAgentRuntimeAdapter;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly requestedAuthority?: ManagedAgentRequestedAuthority;
+  readonly providerRoute: ManagedAgentProviderRoute;
+  readonly authority: ManagedAgentAuthorityProfile;
+  readonly contextMode?: ManagedAgentInvocationContextMode;
+  readonly agentProfile?: string;
+  readonly skills?: readonly string[];
+}
+
+export type RuntimeMultimodalTransformKind = Extract<
+  MultimodalTransformCandidate["transform"],
+  "ocr" | "document-extraction" | "downsample"
+>;
+
+export type RuntimeMultimodalTransformSourcePart = Extract<ContentPart, { readonly type: "image" | "file" }>;
+
+export interface RuntimeMultimodalTransformExecutionInput {
+  readonly requestedCapability: MultimodalCapability;
+  readonly sourceArtifacts: readonly MultimodalArtifact[];
+  readonly sourceParts: readonly RuntimeMultimodalTransformSourcePart[];
+  readonly userParts: readonly ContentPart[];
+}
+
+export interface RuntimeMultimodalTransformExecutionResult {
+  readonly parts: readonly ContentPart[];
+  readonly summary: string;
+  readonly outputArtifactUris?: readonly string[];
+  readonly metadata?: Record<string, unknown>;
+}
+
+export interface RuntimeMultimodalTransformRoute {
+  readonly transform: RuntimeMultimodalTransformKind;
+  readonly sourceModalities: readonly MultimodalTransportModality[];
+  readonly outputModality: MultimodalTransportModality;
+  readonly provenance: string;
+  readonly degradation: string;
+  readonly execute: (
+    input: RuntimeMultimodalTransformExecutionInput,
+  ) => Promise<RuntimeMultimodalTransformExecutionResult>;
 }
 
 export interface ToolExecutionSummary {

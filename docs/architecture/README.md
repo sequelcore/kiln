@@ -88,6 +88,11 @@ is documented by concern, not as a single monolith.
   Runtime provider availability, model discovery, operator diagnostics, and
   provider/model selection invariants.
 
+- `multimodal-transport.md`
+  Canonical multimodal artifact transport, capability-aware route admission,
+  governed transforms, managed capability delegation, provider serialization
+  constraints, cross-surface projection, and replay evidence.
+
 - `provider-credential-pools.md`
   Provider credential rotation, cooldown, runtime credential sources,
   cross-process reload, health snapshots, and secret-free observability.

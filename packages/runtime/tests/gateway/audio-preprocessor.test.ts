@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { preprocessAudio, createWhatsAppMediaDownloader, createGenericMediaDownloader } from "../../src/gateway/audio-preprocessor.js";
+import { EventBus, MemoryArtifactResourceStore } from "@kilnai/core";
+import {
+  AudioTransformError,
+  createGenericMediaDownloader,
+  createWhatsAppMediaDownloader,
+  emitAudioTransformRoutingEvents,
+  transformAudioParts,
+} from "../../src/gateway/audio-preprocessor.js";
 import type { MediaDownloader } from "../../src/gateway/audio-preprocessor.js";
 import type { SttAdapter, SttResult } from "@kilnai/core";
 import type { ContentPart } from "@kilnai/core";
@@ -20,27 +27,66 @@ function mockDownloader(): MediaDownloader {
   };
 }
 
-describe("preprocessAudio", () => {
+function mockTransformOptions() {
+  return {
+    artifactStore: new MemoryArtifactResourceStore({
+      now: () => "2026-05-13T12:00:00.000Z",
+    }),
+    sourceIdPrefix: "test-app:tenant-1:user-1",
+  };
+}
+
+describe("transformAudioParts", () => {
   it("passes through non-audio parts unchanged", async () => {
     const parts: ContentPart[] = [
       { type: "text", text: "hello" },
       { type: "image", mimeType: "image/png", url: "https://example.com/img.png" },
     ];
-    const result = await preprocessAudio(parts, mockStt(), mockDownloader());
-    expect(result).toEqual(parts);
+    const result = await transformAudioParts(parts, mockStt(), mockDownloader(), mockTransformOptions());
+    expect(result.parts).toEqual(parts);
+    expect(result.transforms).toEqual([]);
   });
 
-  it("transcribes audio part with url", async () => {
+  it("transcribes audio part with url and records transform evidence", async () => {
     const stt = mockStt("transcribed text");
     const dl = mockDownloader();
     const parts: ContentPart[] = [
       { type: "audio", mimeType: "audio/ogg", url: "https://example.com/audio.ogg" },
     ];
 
-    const result = await preprocessAudio(parts, stt, dl);
+    const options = mockTransformOptions();
+    const result = await transformAudioParts(parts, stt, dl, options);
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ type: "text", text: "[Voice note transcription]: transcribed text" });
+    expect(result.parts).toHaveLength(1);
+    expect(result.parts[0]).toEqual({ type: "text", text: "[Voice note transcription]: transcribed text" });
+    expect(result.transforms).toEqual([
+      expect.objectContaining({
+        transform: "transcription",
+        status: "succeeded",
+        requestedCapability: "transcription",
+        sourceModality: "audio",
+        outputModality: "text",
+        sourceArtifactUri: "kiln://artifacts/audio-transforms/artifact_1/content",
+        sourceMimeType: "audio/ogg",
+        sourceBytes: 3,
+        provider: "mock",
+        provenance: "stt:mock",
+        outputText: "transcribed text",
+        confidence: 0.95,
+        durationMs: 2000,
+      }),
+    ]);
+    expect(options.artifactStore.get("audio-transforms", "artifact_1")).toMatchObject({
+      id: "artifact_1",
+      namespace: "audio-transforms",
+      title: "Gateway audio source 0",
+      mimeType: "audio/ogg",
+      content: { type: "blob", blob: Buffer.from(new Uint8Array([1, 2, 3])).toString("base64") },
+      multimodal: {
+        modality: "audio",
+        source: { kind: "webhook-attachment", id: "test-app:tenant-1:user-1:part:0" },
+      },
+    });
     expect(dl.download).toHaveBeenCalledWith("https://example.com/audio.ogg");
     expect(stt.transcribe).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), "audio/ogg");
   });
@@ -54,12 +100,37 @@ describe("preprocessAudio", () => {
       { type: "audio", mimeType: "audio/mp3", data: base64 },
     ];
 
-    const result = await preprocessAudio(parts, stt, dl);
+    const result = await transformAudioParts(parts, stt, dl, mockTransformOptions());
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ type: "text", text: "[Voice note transcription]: from base64" });
+    expect(result.parts).toHaveLength(1);
+    expect(result.parts[0]).toEqual({ type: "text", text: "[Voice note transcription]: from base64" });
+    expect(result.transforms[0]).toEqual(expect.objectContaining({
+      sourceMimeType: "audio/mp3",
+      sourceBytes: 3,
+      outputText: "from base64",
+    }));
     expect(dl.download).not.toHaveBeenCalled();
     expect(stt.transcribe).toHaveBeenCalledWith(raw, "audio/mp3");
+  });
+
+  it("uses an existing audio artifact URI as transform source evidence without storing a duplicate source artifact", async () => {
+    const stt = mockStt("from captured artifact");
+    const dl = mockDownloader();
+    const options = mockTransformOptions();
+    const artifactUri = "kiln://artifacts/inbound-multimodal/artifact_7/content";
+
+    const result = await transformAudioParts([
+      { type: "audio", mimeType: "audio/ogg", data: "AQID", artifactUri },
+    ], stt, dl, options);
+
+    expect(result.transforms[0]).toMatchObject({
+      status: "succeeded",
+      sourceArtifactUri: artifactUri,
+      sourceMimeType: "audio/ogg",
+      sourceBytes: 3,
+    });
+    expect(options.artifactStore.list("audio-transforms")).toEqual([]);
+    expect(stt.transcribe).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), "audio/ogg");
   });
 
   it("handles mixed parts preserving order", async () => {
@@ -71,15 +142,16 @@ describe("preprocessAudio", () => {
       { type: "text", text: "after" },
     ];
 
-    const result = await preprocessAudio(parts, stt, dl);
+    const result = await transformAudioParts(parts, stt, dl, mockTransformOptions());
 
-    expect(result).toHaveLength(3);
-    expect(result[0]).toEqual({ type: "text", text: "before" });
-    expect(result[1]).toEqual({ type: "text", text: "[Voice note transcription]: voice" });
-    expect(result[2]).toEqual({ type: "text", text: "after" });
+    expect(result.parts).toHaveLength(3);
+    expect(result.parts[0]).toEqual({ type: "text", text: "before" });
+    expect(result.parts[1]).toEqual({ type: "text", text: "[Voice note transcription]: voice" });
+    expect(result.parts[2]).toEqual({ type: "text", text: "after" });
+    expect(result.transforms).toHaveLength(1);
   });
 
-  it("falls back gracefully on transcription failure", async () => {
+  it("fails closed with evidence on transcription failure", async () => {
     const stt: SttAdapter = {
       name: "mock",
       transcribe: vi.fn().mockRejectedValue(new Error("STT down")),
@@ -89,13 +161,24 @@ describe("preprocessAudio", () => {
       { type: "audio", mimeType: "audio/ogg", url: "https://example.com/a.ogg" },
     ];
 
-    const result = await preprocessAudio(parts, stt, dl);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ type: "text", text: "[Voice note: transcription unavailable]" });
+    const options = mockTransformOptions();
+    await expect(transformAudioParts(parts, stt, dl, options)).rejects.toThrow(AudioTransformError);
+    try {
+      await transformAudioParts(parts, stt, dl, options);
+    } catch (err) {
+      expect(err).toBeInstanceOf(AudioTransformError);
+      expect((err as AudioTransformError).transforms).toEqual([
+        expect.objectContaining({
+          transform: "transcription",
+          status: "failed",
+          sourceArtifactUri: "kiln://artifacts/audio-transforms/artifact_2/content",
+          errorMessage: "STT down",
+        }),
+      ]);
+    }
   });
 
-  it("falls back gracefully on download failure", async () => {
+  it("fails closed with evidence on download failure", async () => {
     const stt = mockStt();
     const dl: MediaDownloader = {
       download: vi.fn().mockRejectedValue(new Error("network error")),
@@ -104,23 +187,87 @@ describe("preprocessAudio", () => {
       { type: "audio", mimeType: "audio/ogg", url: "https://example.com/a.ogg" },
     ];
 
-    const result = await preprocessAudio(parts, stt, dl);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ type: "text", text: "[Voice note: transcription unavailable]" });
+    await expect(transformAudioParts(parts, stt, dl, mockTransformOptions())).rejects.toThrow(AudioTransformError);
   });
 
-  it("handles audio part with neither url nor data", async () => {
+  it("fails closed when an audio part has neither url nor data", async () => {
     const stt = mockStt();
     const dl = mockDownloader();
     const parts: ContentPart[] = [
       { type: "audio", mimeType: "audio/ogg" } as ContentPart,
     ];
 
-    const result = await preprocessAudio(parts, stt, dl);
+    await expect(transformAudioParts(parts, stt, dl, mockTransformOptions())).rejects.toThrow(AudioTransformError);
+  });
+});
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ type: "text", text: "[Voice note: transcription unavailable]" });
+describe("emitAudioTransformRoutingEvents", () => {
+  it("emits transform routing evidence for successful transcriptions", async () => {
+    const eventBus = new EventBus();
+    const transformed = await transformAudioParts(
+      [{ type: "audio", mimeType: "audio/ogg", url: "https://example.com/audio.ogg" }],
+      mockStt("hello"),
+      mockDownloader(),
+      mockTransformOptions(),
+    );
+
+    emitAudioTransformRoutingEvents({
+      eventBus,
+      sessionId: "session-1",
+      tenantId: "tenant-1",
+      model: "mock",
+    }, transformed.transforms);
+
+    expect(eventBus.history()).toEqual([
+      expect.objectContaining({
+        type: "multimodal_routed",
+        sessionId: "session-1",
+        tenantId: "tenant-1",
+        provider: "gateway-transform",
+        model: "mock",
+        strategy: "transform",
+        reasonCode: "audio_transcription_transform_succeeded",
+        requestedCapability: "transcription",
+        requiredModalities: ["audio"],
+        artifactUris: ["kiln://artifacts/audio-transforms/artifact_1/content"],
+      }),
+    ]);
+  });
+
+  it("emits unsupported routing evidence for failed transcriptions", async () => {
+    const eventBus = new EventBus();
+    const stt: SttAdapter = {
+      name: "mock",
+      transcribe: vi.fn().mockRejectedValue(new Error("STT down")),
+    };
+
+    try {
+      await transformAudioParts(
+        [{ type: "audio", mimeType: "audio/ogg", url: "https://example.com/audio.ogg" }],
+        stt,
+        mockDownloader(),
+        mockTransformOptions(),
+      );
+    } catch (err) {
+      emitAudioTransformRoutingEvents({
+        eventBus,
+        sessionId: "session-1",
+        model: "mock",
+      }, (err as AudioTransformError).transforms);
+    }
+
+    expect(eventBus.history()[0]).toEqual(expect.objectContaining({
+      type: "multimodal_routed",
+      strategy: "unsupported",
+      reasonCode: "audio_transcription_transform_failed",
+      diagnostics: [
+        expect.objectContaining({
+          code: "audio_transcription_transform_failed",
+          severity: "error",
+          message: "STT down",
+        }),
+      ],
+    }));
   });
 });
 

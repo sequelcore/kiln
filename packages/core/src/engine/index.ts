@@ -8,10 +8,40 @@ export { getErrorSuggestion } from "./error-catalog.js";
 export type { ErrorSuggestion } from "./error-catalog.js";
 
 export type { Agent, AgentTier } from "./domain/agent.js";
-export type { ContentPart, TextPart, ImagePart, AudioPart, FilePart, ToolUsePart, ToolResultPart } from "./domain/content.js";
+export type { ContentPart, TextPart, ImagePart, AudioPart, FilePart, ToolUsePart, ToolResultPart, ToolResultPayloadPart } from "./domain/content.js";
 export { textPart, textParts, extractText, hasModality, validateContentPart, validateContentParts } from "./domain/content.js";
 export type { Modality } from "./domain/modality.js";
 export { VALID_MODALITIES, validateModalities } from "./domain/modality.js";
+export type {
+  AuxiliaryModalityRoute,
+  MultimodalArtifact,
+  MultimodalArtifactRetention,
+  MultimodalArtifactSource,
+  MultimodalCapability,
+  MultimodalChecksum,
+  MultimodalDelegationCostBudgetDecision,
+  MultimodalDelegationEvidence,
+  MultimodalDelegationExpectedResult,
+  MultimodalDelegationPolicyDecision,
+  MultimodalDelegationUncertainty,
+  MultimodalDiagnosticSeverity,
+  MultimodalDimensions,
+  MultimodalReplayReference,
+  MultimodalRouteHealth,
+  MultimodalRoutingDecision,
+  MultimodalRoutingDiagnostic,
+  MultimodalRoutingPolicy,
+  MultimodalRoutingReason,
+  MultimodalRoutingRequest,
+  MultimodalRoutingStrategy,
+  MultimodalTransformCandidate,
+  MultimodalTransformEvidence,
+  MultimodalTransportModality,
+  NativeMultimodalRouteEvidence,
+  ProviderModalityCapabilities,
+  ProviderModalityConstraints,
+} from "./domain/multimodal-routing.js";
+export { planMultimodalRoute } from "./domain/multimodal-routing.js";
 export type { SttAdapter, SttResult, TtsAdapter, TtsOptions, TtsResult, VoiceConfig, SttProviderConfig, TtsProviderConfig } from "./domain/speech-config.js";
 export { validateVoiceConfig } from "./domain/speech-config.js";
 export { assembleAgentPrompt } from "./domain/prompt-assembler.js";

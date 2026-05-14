@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 import { createWhatsAppWebhookRoutes } from "../../src/gateway/whatsapp-webhook-routes.js";
 import type { WhatsAppWebhookConfig } from "../../src/gateway/whatsapp-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
@@ -43,6 +43,7 @@ interface MetaWebhookPayload {
           from: string;
           type: string;
           text?: { body: string };
+          image?: { id: string; mime_type: string; caption?: string };
         }>;
       };
     }>;
@@ -113,6 +114,19 @@ function makeConfig(overrides: Partial<WhatsAppWebhookConfig> = {}): WhatsAppWeb
     verifyToken: "my-verify-token",
     ...overrides,
   };
+}
+
+async function waitForMockFetchCall(
+  predicate: (url: string) => boolean,
+  timeoutMs = 500,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock?.calls ?? [];
+    if (calls.some((call) => predicate(String(call[0])))) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Expected mocked fetch call was not observed before timeout.");
 }
 
 describe("createWhatsAppWebhookRoutes", () => {
@@ -254,6 +268,7 @@ describe("createWhatsAppWebhookRoutes", () => {
       expect(res.status).toBe(200);
       // Response should be near-instant (fire-and-forget)
       expect(elapsed).toBeLessThan(100);
+      await waitForMockFetchCall((url) => url === "https://graph.facebook.com/v21.0/phone-123/messages");
     });
 
     it("ignores disabled tenant messages", async () => {
@@ -364,6 +379,77 @@ describe("createWhatsAppWebhookRoutes", () => {
       }));
       const perCallConfig = processSpy.mock.calls[0]![4];
       expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+    });
+
+    it("captures WhatsApp media as replay artifacts before provider invocation", async () => {
+      const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
+      const config = makeConfig({ artifactStore });
+      config.tenantRegistry.create(makeTenantConfig());
+      const processSpy = vi.spyOn(config.orchestrator, "processMessage");
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/media-image-1")) {
+          return new Response(JSON.stringify({
+            url: "https://media.example.test/wa-image.jpg",
+            mime_type: "image/jpeg",
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url === "https://media.example.test/wa-image.jpg") {
+          return new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+            headers: { "Content-Type": "image/jpeg" },
+          });
+        }
+        return new Response(JSON.stringify({ messages: [{ id: "wamid.reply" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const app = createWhatsAppWebhookRoutes(config);
+      const payload = {
+        object: "whatsapp_business_account",
+        entry: [{
+          id: "entry-1",
+          changes: [{
+            value: {
+              messaging_product: "whatsapp",
+              metadata: { phone_number_id: "phone-123" },
+              messages: [{
+                from: "+5211234567",
+                type: "image",
+                image: { id: "media-image-1", mime_type: "image/jpeg" },
+              }],
+            },
+          }],
+        }],
+      } as MetaWebhookPayload;
+
+      await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(processSpy).toHaveBeenCalledTimes(1);
+      expect(processSpy.mock.calls[0]![1]).toEqual([{
+        type: "image",
+        mimeType: "image/jpeg",
+        url: "https://graph.facebook.com/v21.0/media-image-1",
+        artifactUri: "kiln://artifacts/inbound-multimodal/artifact_1/content",
+      }]);
+      expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
+        content: { type: "blob", blob: Buffer.from(new Uint8Array([1, 2, 3])).toString("base64") },
+        multimodal: {
+          modality: "image",
+          source: { kind: "webhook-attachment", id: "test-app:test-tenant:+5211234567:whatsapp:part:0" },
+        },
+      });
     });
   });
 

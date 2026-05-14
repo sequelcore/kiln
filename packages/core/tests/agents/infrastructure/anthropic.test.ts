@@ -185,6 +185,65 @@ describe("AnthropicAdapter", () => {
       ]);
     });
 
+    it("serializes multimodal tool result payload parts inside Anthropic tool_result blocks", async () => {
+      mockCreate.mockResolvedValueOnce(makeMessageResponse());
+
+      await adapter.createMessage(makeOptions({
+        messages: [
+          {
+            role: "assistant",
+            parts: [
+              { type: "tool_use", id: "toolu_image_1", name: "view_image", input: { path: "diagram.png" } },
+            ],
+          },
+          {
+            role: "user",
+            parts: [{
+              type: "tool_result",
+              toolUseId: "toolu_image_1",
+              content: "Image attached.",
+              contentParts: [
+                { type: "image", mimeType: "image/png", data: "aW1n" },
+              ],
+              isError: false,
+            }],
+          },
+        ],
+      }));
+
+      const params = mockCreate.mock.calls[0]![0];
+      expect(params.messages).toEqual([
+        {
+          role: "assistant",
+          content: [{
+            type: "tool_use",
+            id: "toolu_image_1",
+            name: "view_image",
+            input: { path: "diagram.png" },
+          }],
+        },
+        {
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: "toolu_image_1",
+            content: [
+              { type: "text", text: "Image attached." },
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "aW1n",
+                },
+              },
+            ],
+            is_error: false,
+          }],
+        },
+      ]);
+    });
+
     it("returns correct token counts", async () => {
       mockCreate.mockResolvedValueOnce(makeMessageResponse());
 

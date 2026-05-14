@@ -8,9 +8,11 @@ import type {
 import type { CliSessionEvent } from "../../execution/cli-session-contract.js";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
+type ManagedAgentFileChangeEvent = Extract<CliSessionEvent, { readonly type: "file_changed" }>;
+
 export interface ManagedAgentLiveWriteEventBridgeInput {
   readonly request: ManagedAgentInvocationRequest;
-  readonly fileChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[];
+  readonly fileChanges: readonly ManagedAgentFileChangeEvent[];
   readonly recordedAt?: string;
 }
 
@@ -23,7 +25,7 @@ export type ManagedAgentLiveWriteChangeSource =
 export interface ManagedAgentLiveWriteChange {
   readonly source: ManagedAgentLiveWriteChangeSource;
   readonly path: string;
-  readonly changeType: Extract<CliSessionEvent, { readonly type: "file_changed" }>["changeType"];
+  readonly changeType: ManagedAgentFileChangeEvent["changeType"];
   readonly linesAdded?: number;
   readonly linesRemoved?: number;
   readonly diffPreview?: string;
@@ -61,7 +63,7 @@ export interface ManagedAgentLiveWriteEventBridgeResult {
 
 export function normalizeManagedAgentLiveWriteChanges(
   changes: readonly ManagedAgentLiveWriteChange[],
-): Extract<CliSessionEvent, { readonly type: "file_changed" }>[] {
+): ManagedAgentFileChangeEvent[] {
   return changes.map((change) => ({
     type: "file_changed",
     path: requireText(change.path, "Managed live write change path is required"),
@@ -91,13 +93,8 @@ export function collectManagedAgentLiveWriteEvidence(
     throw new ManagedAgentRuntimeAdmissionError("Managed live write events require admitted apply-approved write authority");
   }
 
-  const evidence = input.fileChanges.flatMap((change, index) => {
-    assertPathWithinWriteAuthority(
-      change.path,
-      writeAuthority.scope.workspace.allowedPaths,
-      writeAuthority.scope.workspace.deniedPaths,
-    );
-
+  const fileChanges = collapseRepeatedFileChanges(input.request, input.fileChanges);
+  const evidence = fileChanges.flatMap((change, index) => {
     const ordinal = index + 1;
     const proposalId = `${input.request.invocationId}:write-proposal:${ordinal}`;
     const decisionId = `${input.request.invocationId}:write-decision:${ordinal}`;
@@ -152,6 +149,69 @@ export function collectManagedAgentLiveWriteEvidence(
       .filter((item) => item.kind === "write-attempt-completed")
       .flatMap((item) => item.resourceUris),
   };
+}
+
+function collapseRepeatedFileChanges(
+  request: ManagedAgentInvocationRequest,
+  fileChanges: readonly ManagedAgentFileChangeEvent[],
+): ManagedAgentFileChangeEvent[] {
+  const writeAuthority = request.authority.writeAuthority;
+  if (writeAuthority === undefined) {
+    return [...fileChanges];
+  }
+
+  const collapsed = new Map<string, ManagedAgentFileChangeEvent>();
+  for (const change of fileChanges) {
+    assertPathWithinWriteAuthority(
+      change.path,
+      writeAuthority.scope.workspace.allowedPaths,
+      writeAuthority.scope.workspace.deniedPaths,
+      request.authority.workingDirectory.path,
+    );
+
+    const key = canonicalPathKey(change.path, request.authority.workingDirectory.path);
+    const existing = collapsed.get(key);
+    collapsed.set(key, existing === undefined ? change : mergeRepeatedFileChange(existing, change));
+  }
+
+  return [...collapsed.values()];
+}
+
+function mergeRepeatedFileChange(
+  existing: ManagedAgentFileChangeEvent,
+  next: ManagedAgentFileChangeEvent,
+): ManagedAgentFileChangeEvent {
+  const linesAdded = maxOptionalInteger(existing.linesAdded, next.linesAdded);
+  const linesRemoved = maxOptionalInteger(existing.linesRemoved, next.linesRemoved);
+  const resourceUris = uniqueResourceUris([
+    ...(existing.resourceUris ?? []),
+    ...(next.resourceUris ?? []),
+  ]);
+
+  return {
+    type: "file_changed",
+    path: existing.path,
+    changeType: next.changeType,
+    ...(linesAdded !== undefined ? { linesAdded } : {}),
+    ...(linesRemoved !== undefined ? { linesRemoved } : {}),
+    ...(existing.diffPreview !== undefined ? { diffPreview: existing.diffPreview } : {}),
+    ...(existing.diffTruncated === true || next.diffTruncated === true ? { diffTruncated: true } : {}),
+    ...(resourceUris.length > 0 ? { resourceUris } : {}),
+  };
+}
+
+function maxOptionalInteger(left: number | undefined, right: number | undefined): number | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return Math.max(left, right);
+}
+
+function uniqueResourceUris(resourceUris: readonly string[]): string[] {
+  const unique = new Set<string>();
+  for (const uri of resourceUris) {
+    unique.add(requireText(uri, "Managed live write resource uri is required"));
+  }
+  return [...unique];
 }
 
 export function collectManagedAgentLiveWriteDecisionEvidence(
@@ -218,13 +278,18 @@ export function collectManagedAgentLiveWriteDecisionEvidence(
   });
 }
 
-function assertPathWithinWriteAuthority(path: string, allowedPaths: readonly string[], deniedPaths: readonly string[]): void {
-  const normalizedPath = normalizePath(path);
-  const denied = deniedPaths.some((deniedPath) => isSameOrChildPath(normalizedPath, normalizePath(deniedPath)));
+function assertPathWithinWriteAuthority(
+  path: string,
+  allowedPaths: readonly string[],
+  deniedPaths: readonly string[],
+  workspaceRoot: string,
+): void {
+  const normalizedPath = canonicalPathKey(path, workspaceRoot);
+  const denied = deniedPaths.some((deniedPath) => isSameOrChildPath(normalizedPath, canonicalPathKey(deniedPath, workspaceRoot)));
   if (denied) {
     throw new ManagedAgentRuntimeAdmissionError(`Managed live write path is denied: ${path}`);
   }
-  const allowed = allowedPaths.some((allowedPath) => isSameOrChildPath(normalizedPath, normalizePath(allowedPath)));
+  const allowed = allowedPaths.some((allowedPath) => isSameOrChildPath(normalizedPath, canonicalPathKey(allowedPath, workspaceRoot)));
   if (!allowed) {
     throw new ManagedAgentRuntimeAdmissionError(`Managed live write path is outside admitted scope: ${path}`);
   }
@@ -236,6 +301,44 @@ function isSameOrChildPath(path: string, parent: string): boolean {
 
 function normalizePath(path: string): string {
   return requireText(path, "Managed live write file path is required").replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function canonicalPathKey(path: string, workspaceRoot: string): string {
+  const normalizedPath = normalizePath(path);
+  const rootedPath = isAbsolutePathLike(normalizedPath)
+    ? normalizedPath
+    : `${normalizePath(workspaceRoot)}/${normalizedPath}`;
+  const canonicalPath = collapsePathSegments(rootedPath);
+  return isWindowsPathLike(canonicalPath) ? canonicalPath.toLowerCase() : canonicalPath;
+}
+
+function collapsePathSegments(path: string): string {
+  const normalizedPath = normalizePath(path);
+  const drive = normalizedPath.match(/^([A-Za-z]:)(?:\/|$)/);
+  const prefix = drive !== null ? `${drive[1]!.toUpperCase()}/` : normalizedPath.startsWith("/") ? "/" : "";
+  const body = drive !== null
+    ? normalizedPath.slice(drive[0]!.length)
+    : normalizedPath.replace(/^\/+/, "");
+  const segments: string[] = [];
+
+  for (const segment of body.split("/")) {
+    if (segment.length === 0 || segment === ".") continue;
+    if (segment === ".." && segments.length > 0 && segments[segments.length - 1] !== "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  return `${prefix}${segments.join("/")}`.replace(/\/+$/, "");
+}
+
+function isAbsolutePathLike(path: string): boolean {
+  return path.startsWith("/") || isWindowsPathLike(path);
+}
+
+function isWindowsPathLike(path: string): boolean {
+  return /^[A-Za-z]:\//.test(path);
 }
 
 function requireNonNegativeInteger(value: number, message: string): number {

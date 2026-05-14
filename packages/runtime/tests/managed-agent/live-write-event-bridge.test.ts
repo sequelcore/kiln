@@ -178,6 +178,35 @@ describe("managed agent live write event bridge", () => {
     ]);
   });
 
+  it("collapses repeated live file events for the same canonical path into one write attempt", () => {
+    const result = collectManagedAgentLiveWriteEvidence({
+      request: makeWriteRequest(),
+      fileChanges: [
+        fixtureFileChange("C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt"),
+        {
+          ...fixtureFileChange("C:\\Proyectos\\Sequel\\kiln\\packages\\runtime\\tests\\fixtures\\live-write-proof.txt"),
+          resourceUris: ["kiln://managed-invocations/invocation-live-write-1/diffs/opencode-1"],
+        },
+        {
+          ...fixtureFileChange("C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/./live-write-proof.txt"),
+          resourceUris: ["kiln://managed-invocations/invocation-live-write-1/diffs/opencode-2"],
+        },
+      ],
+      recordedAt: "2026-05-05T12:00:00.000Z",
+    });
+
+    expect(result.evidence.map((evidence) => evidence.kind)).toEqual([
+      "write-proposal-created",
+      "write-proposal-approved",
+      "write-attempt-completed",
+    ]);
+    expect(result.attemptResourceUris).toEqual([
+      "kiln://managed-invocations/invocation-live-write-1/write-attempts/1",
+      "kiln://managed-invocations/invocation-live-write-1/diffs/opencode-1",
+      "kiln://managed-invocations/invocation-live-write-1/diffs/opencode-2",
+    ]);
+  });
+
   it("normalizes Codex-style patch update changes without leaking provider vocabulary into evidence", () => {
     const fileChanges = normalizeManagedAgentLiveWriteChanges([{
       source: "patch-update",

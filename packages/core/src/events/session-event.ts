@@ -12,6 +12,7 @@ import type {
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
+import type { MultimodalDelegationEvidence } from "../engine/domain/multimodal-routing.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
 
 export type CanonicalSessionEventKind =
@@ -31,6 +32,7 @@ export type CanonicalSessionEventKind =
   | "goal.cancelled"
   | "work_items.materialized"
   | "provider_routed"
+  | "multimodal_routed"
   | "tool_call_started"
   | "tool_call_completed"
   | "approval_requested"
@@ -282,6 +284,24 @@ export interface CanonicalProviderRoutedEvent extends SessionEventEnvelope<"prov
   readonly reason: string;
 }
 
+export interface CanonicalMultimodalRoutedEvent extends SessionEventEnvelope<"multimodal_routed"> {
+  readonly provider: SessionProviderIdentity;
+  readonly strategy: "native" | "delegated" | "transform" | "unsupported";
+  readonly reasonCode: string;
+  readonly reason: string;
+  readonly requestedCapability: "vision" | "document" | "audio" | "screenshot-review" | "transcription";
+  readonly requiredModalities: readonly string[];
+  readonly artifactUris: readonly string[];
+  readonly delegation?: MultimodalDelegationEvidence;
+  readonly diagnostics: readonly {
+    readonly code: string;
+    readonly severity: "info" | "warning" | "error";
+    readonly message: string;
+    readonly provider?: string;
+    readonly model?: string;
+  }[];
+}
+
 export interface CanonicalToolCallStartedEvent extends SessionEventEnvelope<"tool_call_started"> {
   readonly toolCallId: string;
   readonly toolName: string;
@@ -513,6 +533,7 @@ export interface CanonicalSessionEventMap {
   "goal.cancelled": CanonicalGoalCancelledEvent;
   "work_items.materialized": CanonicalWorkItemsMaterializedEvent;
   provider_routed: CanonicalProviderRoutedEvent;
+  multimodal_routed: CanonicalMultimodalRoutedEvent;
   tool_call_started: CanonicalToolCallStartedEvent;
   tool_call_completed: CanonicalToolCallCompletedEvent;
   approval_requested: CanonicalApprovalRequestedEvent;

@@ -10,7 +10,7 @@ import type { SessionRegistry } from "../session/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
-import type { EventBus, MemoryRepository } from "@kilnai/core";
+import type { ArtifactResourceStore, EventBus, MemoryRepository } from "@kilnai/core";
 import { sendInstagramMessage } from "../channels/instagram-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
@@ -20,9 +20,16 @@ import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
 import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
-import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
+import {
+  AudioTransformError,
+  createGatewayAudioTransformSessionId,
+  createGenericMediaDownloader,
+  emitAudioTransformRoutingEvents,
+  transformAudioParts,
+} from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import { projectAdmittedTurnContext } from "./message-pipeline.js";
+import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import {
   createTenantConversationMemoryRepository,
   TenantConversationMemory,
@@ -39,6 +46,7 @@ export interface InstagramWebhookConfig {
   readonly eventEmitter?: ConversationEventEmitter;
   readonly memoryBasePath?: string;
   readonly sttAdapter?: SttAdapter;
+  readonly artifactStore?: ArtifactResourceStore;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
   readonly contactMemoryService?: ContactMemoryService;
@@ -226,14 +234,55 @@ async function processInstagramMessage(
     ? (process.env[accessToken] ?? accessToken)
     : "";
 
-  // Preprocess audio parts via STT (fail-open) -- Instagram CDN URLs don't need auth
+  const mediaDownloader = createGenericMediaDownloader();
   let processedParts = messageParts;
+  if (config.artifactStore) {
+    processedParts = await captureMultimodalArtifacts(processedParts, {
+      artifactStore: config.artifactStore,
+      downloader: mediaDownloader,
+      sourceKind: "webhook-attachment",
+      sourceIdPrefix: `${config.appName}:${tenantId}:${senderId}:instagram`,
+      producerName: "gateway-instagram-ingress",
+    });
+  }
+
+  // Governed audio transform route via STT -- Instagram CDN URLs don't need auth.
   if (config.sttAdapter) {
     try {
-      const downloader = createGenericMediaDownloader();
-      processedParts = await preprocessAudio(messageParts, config.sttAdapter, downloader);
+      if (!config.artifactStore) {
+        throw new AudioTransformError("Audio transform artifact store is not configured.", []);
+      }
+      const transformed = await transformAudioParts(processedParts, config.sttAdapter, mediaDownloader, {
+        artifactStore: config.artifactStore,
+        sourceIdPrefix: `${config.appName}:${tenantId}:${senderId}`,
+      });
+      processedParts = transformed.parts;
+      emitAudioTransformRoutingEvents({
+        eventBus: config.eventBus,
+        sessionId: createGatewayAudioTransformSessionId(config.appName, tenantId, senderId),
+        tenantId,
+        model: config.sttAdapter.name,
+      }, transformed.transforms);
     } catch (err) {
-      trace.warn("instagram", "Audio preprocessing failed", { error: err instanceof Error ? err.message : String(err) });
+      if (err instanceof AudioTransformError) {
+        emitAudioTransformRoutingEvents({
+          eventBus: config.eventBus,
+          sessionId: createGatewayAudioTransformSessionId(config.appName, tenantId, senderId),
+          tenantId,
+          model: config.sttAdapter.name,
+        }, err.transforms);
+        trace.warn("instagram", "Audio transform failed", { error: err.message });
+        try {
+          await sendInstagramMessage(pageId, resolvedAccessToken, senderId, "I could not process that voice note. Please try again or send text.");
+        } catch (sendErr) {
+          trace.warn("instagram", "Failed to send audio transform failure reply", {
+            error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+          });
+        }
+        return;
+      }
+      trace.warn("instagram", "Audio transform failed", { error: err instanceof Error ? err.message : String(err) });
+      throw err;
     }
   }
 

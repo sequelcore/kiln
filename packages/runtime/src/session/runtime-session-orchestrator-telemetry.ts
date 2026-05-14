@@ -3,8 +3,12 @@ import type {
   CostUpdateEvent,
   ErrorEvent,
   ModelRoutedEvent,
+  MultimodalRoutedEvent,
   RoutingDecision,
   ExecutionIdentity,
+  MultimodalRoutingDecision,
+  MultimodalCapability,
+  MultimodalTransportModality,
 } from "@kilnai/core";
 import { computeUsageCostUsd, resolveExecutionPricing } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
@@ -83,6 +87,36 @@ export class RuntimeSessionExecutionTelemetry {
       selectionMode: decision.selectionMode,
       reasoningEffort: decision.reasoningEffort,
       rationale: decision.rationale,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this.eventBus?.emit(event);
+  }
+
+  emitMultimodalRouted(
+    sessionId: string,
+    input: {
+      readonly provider: string;
+      readonly model: string;
+      readonly requestedCapability: MultimodalCapability;
+      readonly requiredModalities: readonly MultimodalTransportModality[];
+      readonly artifactUris: readonly string[];
+      readonly decision: MultimodalRoutingDecision;
+    },
+  ): void {
+    const delegated = input.decision.delegation;
+    const event: MultimodalRoutedEvent = {
+      type: "multimodal_routed",
+      provider: delegated?.provider ?? input.provider,
+      model: delegated?.model ?? input.model,
+      strategy: input.decision.strategy,
+      reasonCode: input.decision.reason.code,
+      reason: input.decision.reason.message,
+      requestedCapability: input.requestedCapability,
+      requiredModalities: input.requiredModalities,
+      artifactUris: input.artifactUris,
+      ...(delegated ? { delegation: delegated } : {}),
+      diagnostics: input.decision.diagnostics,
       timestamp: new Date(),
       sessionId,
     };

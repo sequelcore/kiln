@@ -2,6 +2,11 @@
 // Built from MODEL_CATALOG pricing data + hardcoded capability flags per provider
 
 import type { ModelCapabilityProfile } from "../engine/domain/model-router.js";
+import type {
+  MultimodalCapability,
+  MultimodalTransportModality,
+  ProviderModalityCapabilities,
+} from "../engine/domain/multimodal-routing.js";
 import { MODEL_CATALOG } from "./model-pricing.js";
 
 /** Capability flags per model (not available in MODEL_CATALOG) */
@@ -39,6 +44,71 @@ export interface ModelTaskSuitability {
   readonly recommendedSkills?: readonly string[];
   readonly evidence?: readonly ModelTaskSuitabilityEvidence[];
 }
+
+interface ProviderMultimodalTransportProfile {
+  readonly image: boolean;
+  readonly screenshot: boolean;
+  readonly document: boolean;
+  readonly audio: boolean;
+  readonly multimodalToolResults: boolean;
+  readonly supportsBase64: boolean;
+  readonly supportsUrl: boolean;
+  readonly degradationBehavior: readonly string[];
+}
+
+const TEXT_ONLY_PROVIDER_TRANSPORT: ProviderMultimodalTransportProfile = {
+  image: false,
+  screenshot: false,
+  document: false,
+  audio: false,
+  multimodalToolResults: false,
+  supportsBase64: false,
+  supportsUrl: false,
+  degradationBehavior: [],
+};
+
+const PROVIDER_MULTIMODAL_TRANSPORT: ReadonlyMap<string, ProviderMultimodalTransportProfile> = new Map([
+  ["anthropic", {
+    image: true,
+    screenshot: true,
+    document: true,
+    audio: false,
+    multimodalToolResults: true,
+    supportsBase64: true,
+    supportsUrl: true,
+    degradationBehavior: ["audio content is not serialized by the Anthropic adapter"],
+  }],
+  ["openai", {
+    image: true,
+    screenshot: true,
+    document: false,
+    audio: false,
+    multimodalToolResults: false,
+    supportsBase64: true,
+    supportsUrl: true,
+    degradationBehavior: ["audio and file content require governed transforms before OpenAI-compatible chat serialization"],
+  }],
+  ["openrouter", {
+    image: true,
+    screenshot: true,
+    document: false,
+    audio: false,
+    multimodalToolResults: false,
+    supportsBase64: true,
+    supportsUrl: true,
+    degradationBehavior: ["audio and file content require governed transforms before OpenAI-compatible chat serialization"],
+  }],
+  ["ollama", {
+    image: true,
+    screenshot: true,
+    document: false,
+    audio: false,
+    multimodalToolResults: false,
+    supportsBase64: true,
+    supportsUrl: false,
+    degradationBehavior: ["Ollama adapter serializes base64 image data only"],
+  }],
+]);
 
 const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   // Anthropic
@@ -175,6 +245,65 @@ export class ModelCapabilityRegistry {
     return MODEL_CAPABILITIES.get(model)?.supportsTools ?? false;
   }
 
+  /** Project provider/model flags into multimodal route capabilities for runtime guards. */
+  modalityCapabilities(provider: string, model: string): ProviderModalityCapabilities {
+    const canonicalModel = stripProviderPrefix(provider, model);
+    const profile = this.getByProvider(provider, canonicalModel) ?? this.get(canonicalModel);
+    const supportsVision = profile?.supportsVision ?? MODEL_CAPABILITIES.get(canonicalModel)?.supportsVision ?? false;
+    const supportsAudio = profile?.supportsAudio ?? MODEL_CAPABILITIES.get(canonicalModel)?.supportsAudio ?? false;
+    const transport = PROVIDER_MULTIMODAL_TRANSPORT.get(provider) ?? TEXT_ONLY_PROVIDER_TRANSPORT;
+
+    const inputModalities: MultimodalTransportModality[] = ["text"];
+    const outputModalities: MultimodalTransportModality[] = ["text"];
+    const toolResultModalities: MultimodalTransportModality[] = ["text"];
+    const supportedCapabilities: MultimodalCapability[] = [];
+
+    if (supportsVision && transport.image) {
+      inputModalities.push("image");
+      if (transport.multimodalToolResults) {
+        toolResultModalities.push("image");
+      }
+      supportedCapabilities.push("vision");
+    }
+    if (supportsVision && transport.screenshot) {
+      inputModalities.push("screenshot");
+      if (transport.multimodalToolResults) {
+        toolResultModalities.push("screenshot");
+      }
+      supportedCapabilities.push("screenshot-review");
+    }
+    if (supportsVision && transport.document) {
+      inputModalities.push("document");
+      if (transport.multimodalToolResults) {
+        toolResultModalities.push("document");
+      }
+      supportedCapabilities.push("document");
+    }
+    if (supportsAudio && transport.audio) {
+      inputModalities.push("audio");
+      outputModalities.push("audio");
+      if (transport.multimodalToolResults) {
+        toolResultModalities.push("audio");
+      }
+      supportedCapabilities.push("audio", "transcription");
+    }
+
+    return {
+      provider,
+      model: canonicalModel,
+      supportedCapabilities,
+      inputModalities,
+      outputModalities,
+      toolResultModalities,
+      constraints: {
+        supportsBase64: transport.supportsBase64,
+        supportsUrl: transport.supportsUrl,
+        supportsDocuments: transport.document,
+      },
+      degradationBehavior: transport.degradationBehavior,
+    };
+  }
+
   /** Return advisory task suitability evidence for a provider/model route */
   taskSuitability(provider: string, model: string): readonly ModelTaskSuitability[] {
     return TASK_SUITABILITY.get(`${provider}/${model}`) ?? TASK_SUITABILITY.get(model) ?? [];
@@ -184,6 +313,11 @@ export class ModelCapabilityRegistry {
   all(): readonly ModelCapabilityProfile[] {
     return ALL_PROFILES;
   }
+}
+
+function stripProviderPrefix(provider: string, model: string): string {
+  const prefix = `${provider}/`;
+  return model.startsWith(prefix) ? model.slice(prefix.length) : model;
 }
 
 function preferred(task: ModelTaskSuitabilityTask, reason: string): ModelTaskSuitability {

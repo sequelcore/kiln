@@ -17,8 +17,8 @@ import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
-import type { App, ProviderAdapter, RuntimeModeConfig, TenantConfig } from "@kilnai/core";
-import { CredentialPool, textParts } from "@kilnai/core";
+import type { App, EventBus, ProviderAdapter, RuntimeModeConfig, SttAdapter, TenantConfig } from "@kilnai/core";
+import { CredentialPool, MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 
 const originalFetch = globalThis.fetch;
 
@@ -714,6 +714,81 @@ describe("createGatewayApp multi-tenant wiring", () => {
         source: expect.stringContaining("runtime-coordination-provider:0:adapter-handoff"),
       }),
     );
+  });
+
+  it("passes gateway event bus into tenant WebSocket audio transform routing", async () => {
+    const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+    const storageDir = join(tmpdir(), `kiln-test-${randomUUID()}`);
+    const tenantRegistry = new TenantRegistry(storageDir);
+    tenantRegistry.create(makeTenantConfig({ widgetId: "widget-a" }));
+    const sessionRegistry = new SessionRegistry();
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("mock response"),
+        inputTokens: 1,
+        outputTokens: 1,
+      }),
+    } as unknown as RuntimeSessionOrchestrator;
+    const sttAdapter: SttAdapter = {
+      name: "test-stt",
+      transcribe: vi.fn().mockResolvedValue({ text: "transcribed audio", confidence: 0.95, durationMs: 1000 }),
+    };
+    const eventBus = { emit: vi.fn() } as unknown as EventBus;
+    const artifactStore = new MemoryArtifactResourceStore();
+    const loadedApp: LoadedApp = {
+      name: "atendia",
+      app: makeApp("atendia"),
+      binding: {
+        name: "atendia",
+        config: "apps/atendia.yaml",
+        channels: [{ type: "web", multiTenant: true }],
+      },
+      registry: new ChannelRegistry(),
+      webChannel: new WebChannel(),
+      sttAdapter,
+      artifactStore,
+      tenantRuntime: {
+        appName: "atendia",
+        orchestrator,
+        sessionRegistry,
+        tenantRegistry,
+      },
+    };
+
+    createGatewayApp({
+      ...makeConfig([loadedApp]),
+      eventBus,
+      upgradeWebSocket,
+    });
+
+    const { handlers, wsCtx } = simulateConnection({ widgetId: "widget-a", userId: "user-1" });
+    await handlers.onMessage!(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          parts: [{ type: "audio", mimeType: "audio/ogg", data: "YXVkaW8=" }],
+        }),
+      }),
+      wsCtx,
+    );
+
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: "multimodal_routed",
+      strategy: "transform",
+      provider: "gateway-transform",
+      model: "test-stt",
+      requestedCapability: "transcription",
+      artifactUris: ["kiln://artifacts/inbound-multimodal/artifact_1/content"],
+    }));
+    expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
+      multimodal: {
+        modality: "audio",
+        source: { kind: "uploaded-file", id: "atendia:test-tenant:user-1:web:part:0" },
+      },
+    });
+    expect(orchestrator.processMessage).toHaveBeenCalledOnce();
+    const [, parts] = vi.mocked(orchestrator.processMessage).mock.calls[0]!;
+    expect(parts).toEqual(textParts("[Voice note transcription]: transcribed audio"));
   });
 });
 

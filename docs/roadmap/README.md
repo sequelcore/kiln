@@ -29,6 +29,11 @@ Read the relevant architecture or guide document before using a roadmap:
   projection, and governed config mutation.
 - `docs/architecture/managed-agents.md` for managed invocation, child authority,
   write evidence, live adapter proofs, and replay invariants.
+- `docs/architecture/multimodal-transport.md` and
+  `docs/adr/ADR-010-multimodal-transport-and-capability-delegation.md` for
+  governed multimodal artifact transport, capability-aware route admission,
+  transforms, managed capability delegation, provider constraints,
+  cross-surface projection, and replay evidence.
 - `docs/architecture/tool-execution.md`,
   `docs/architecture/developer-tools.md`,
   `docs/architecture/controlled-web-research.md`,
@@ -52,16 +57,12 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-- `00.06-multimodal-transport-and-capability-delegation.md`
-  First active foundation track. Owns governed multimodal transport,
-  artifact-backed image/document/audio evidence, capability-aware provider
-  routing, auxiliary managed-agent delegation, and explicit OCR/transform
-  degradation across CLI, TUI, GUI, webhooks, SDK, and replay.
-
 - `00.07-agent-qa-showcase-recorder.md`
-  Adjacent product track for turning governed agent runs into real QA and
-  showcase videos. It sits next to `00.06` because it depends on the same
-  artifact/capture/replay foundations, but it remains a separate product track.
+  First active product track for turning governed agent runs into real QA and
+  showcase videos. It depends on the completed multimodal artifact, capture,
+  and replay foundation documented in
+  `docs/architecture/multimodal-transport.md`, but it remains a separate
+  recorder product track.
 
 ## Deferred Roadmaps
 
@@ -207,21 +208,27 @@ explicitly parked until their prerequisite product surface exists.
   and review gates, cross-surface operator UX, and native harness workflow
   snapshot projection. Closure certified slices 1 through 13 as complete before
   the implementation roadmap was retired from this directory.
+- Multimodal transport and capability delegation completed on 2026-05-13.
+  Stable doctrine lives in `docs/architecture/multimodal-transport.md` and the
+  accepted decision record lives in
+  `docs/adr/ADR-010-multimodal-transport-and-capability-delegation.md`.
+  Implementation covers canonical multimodal artifacts, provider/model
+  capability projection, runtime route admission, fail-closed provider
+  adapters, managed capability delegation, governed OCR/document/audio/image
+  transforms, `multimodal_routed` evidence, cross-surface artifact
+  normalization, and replayable resource URIs.
 
 ## Execution Priority
 
-1. Execute `00.06-multimodal-transport-and-capability-delegation.md` first.
-   Multimodal transport is a cross-surface foundation for future browser,
-   recorder, benchmark, and managed-agent evidence.
-2. Advance `00.07-agent-qa-showcase-recorder.md` alongside `00.06` where it
-   depends only on governed artifacts, capture evidence, and replay. Do not let
-   recorder scope pull the late live-browser/native tracks forward.
-3. Keep `01-external-benchmark-validation.md` deferred until the evaluated
+1. Advance `00.07-agent-qa-showcase-recorder.md` next. It builds on completed
+   governed artifacts, capture evidence, and replay. Do not let recorder scope
+   pull the late live-browser/native tracks forward.
+2. Keep `01-external-benchmark-validation.md` deferred until the evaluated
    product surface is stable.
-4. Keep the late browser/native sequence deferred until the earlier foundations
+3. Keep the late browser/native sequence deferred until the earlier foundations
    are stable: `02` browser operator foundations, `03` native browser host,
    `04` embedded browser operator surface, then `05` native operator surface.
-5. Keep `05-native-operator-surface-experiment.md` deferred until managed
+4. Keep `05-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
 

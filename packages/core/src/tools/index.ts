@@ -180,6 +180,7 @@ export type {
   ArtifactProducer,
   ArtifactResource,
   ArtifactResourceMetadata,
+  ArtifactResourceMultimodalMetadata,
   ArtifactResourceProviderOptions,
   ArtifactResourcePutInput,
   ArtifactResourceStore,
@@ -189,6 +190,7 @@ export type {
 export {
   ArtifactResourceProvider,
   MemoryArtifactResourceStore,
+  projectMultimodalArtifactResource,
 } from "./infrastructure/artifact-resource-store.js";
 export type { ArtifactToolResourceLinkerOptions } from "./infrastructure/artifact-tool-resource-linker.js";
 export { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";

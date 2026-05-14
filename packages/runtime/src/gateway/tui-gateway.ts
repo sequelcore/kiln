@@ -26,6 +26,7 @@ import {
   type ReasoningEffort,
   type DefaultBuiltinToolRegistryOptions,
   type ContextArtifactCache,
+  type ArtifactResourceStore,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
@@ -95,6 +96,8 @@ export interface TuiGatewayOptions {
   readonly onProviderSwitch?: OnProviderSwitch;
   /** Optional context-artifact cache used to hydrate and persist runtime summaries. */
   readonly contextArtifactCache?: ContextArtifactCache;
+  /** Artifact store used to persist replayable multimodal turn inputs. */
+  readonly artifactStore?: ArtifactResourceStore;
   /** Event bus for listening to approval events. */
   readonly eventBus?: EventBus;
   /** Initial shared execution mode for operator work. */
@@ -769,6 +772,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 providerValidation: currentDiscovery,
                 executionMode,
                 contextArtifactCache: options.contextArtifactCache,
+                artifactStore: options.artifactStore,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: turnPerCallConfig,
                 turnCapture: {

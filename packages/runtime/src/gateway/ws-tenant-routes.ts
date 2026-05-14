@@ -4,7 +4,13 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ContentPart, SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
+import type {
+  ArtifactResourceStore,
+  ContentPart,
+  SttAdapter,
+  RetrievalPipeline,
+  ContactMemoryService,
+} from "@kilnai/core";
 import { textParts, extractText, hasModality } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/session-registry.js";
@@ -20,7 +26,13 @@ import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { isOriginAllowed } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
-import { preprocessAudio, createGenericMediaDownloader } from "./audio-preprocessor.js";
+import {
+  AudioTransformError,
+  createGatewayAudioTransformSessionId,
+  createGenericMediaDownloader,
+  emitAudioTransformRoutingEvents,
+  transformAudioParts,
+} from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import {
   appendCoordinationProviderFailureAudit,
@@ -28,6 +40,7 @@ import {
   resolveCoordinationContextCandidates,
 } from "./message-pipeline.js";
 import type { AdmittedTurnContext } from "./message-pipeline.js";
+import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import { sanitizeVisitorInfo, formatVisitorContext } from "./visitor-sanitizer.js";
 import type { SanitizedVisitorInfo } from "./visitor-sanitizer.js";
 import { authorityFromCapability } from "./tool-authority.js";
@@ -43,6 +56,7 @@ export interface WsTenantRoutesConfig {
   readonly eventEmitter?: ConversationEventEmitter;
   readonly allowedOrigins?: readonly string[];
   readonly sttAdapter?: SttAdapter;
+  readonly artifactStore?: ArtifactResourceStore;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
   readonly contactMemoryService?: ContactMemoryService;
@@ -165,12 +179,56 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
 
-              // Preprocess audio parts via STT (fail-open)
+              if (config.artifactStore) {
+                try {
+                  userParts = await captureMultimodalArtifacts(userParts, {
+                    artifactStore: config.artifactStore,
+                    downloader: createGenericMediaDownloader(),
+                    sourceKind: "uploaded-file",
+                    sourceIdPrefix: `${config.appName}:${tenant.tenantId}:${userId}:web`,
+                    producerName: "gateway-web-ingress",
+                  });
+                } catch (err) {
+                  ws.send(JSON.stringify({
+                    type: "error",
+                    message: err instanceof Error ? err.message : String(err),
+                  }));
+                  return;
+                }
+              }
+
+              // Governed audio transform route via STT.
               if (config.sttAdapter && hasModality(userParts, "audio")) {
                 try {
-                  userParts = await preprocessAudio(userParts, config.sttAdapter, createGenericMediaDownloader());
-                } catch {
-                  // fail-open
+                  if (!config.artifactStore) {
+                    throw new AudioTransformError("Audio transform artifact store is not configured.", []);
+                  }
+                  const transformed = await transformAudioParts(userParts, config.sttAdapter, createGenericMediaDownloader(), {
+                    artifactStore: config.artifactStore,
+                    sourceIdPrefix: `${config.appName}:${tenant.tenantId}:${userId}`,
+                  });
+                  userParts = transformed.parts;
+                  emitAudioTransformRoutingEvents({
+                    eventBus: config.eventBus,
+                    sessionId: createGatewayAudioTransformSessionId(config.appName, tenant.tenantId, userId),
+                    tenantId: tenant.tenantId,
+                    model: config.sttAdapter.name,
+                  }, transformed.transforms);
+                } catch (err) {
+                  if (err instanceof AudioTransformError) {
+                    emitAudioTransformRoutingEvents({
+                      eventBus: config.eventBus,
+                      sessionId: createGatewayAudioTransformSessionId(config.appName, tenant.tenantId, userId),
+                      tenantId: tenant.tenantId,
+                      model: config.sttAdapter.name,
+                    }, err.transforms);
+                    ws.send(JSON.stringify({
+                      type: "error",
+                      message: "I could not process that voice note. Please try again or send text.",
+                    }));
+                    return;
+                  }
+                  throw err;
                 }
               }
 
