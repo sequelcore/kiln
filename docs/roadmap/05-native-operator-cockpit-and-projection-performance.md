@@ -60,7 +60,9 @@ lives in the native/browser sequence:
 
 - completed browser operator foundations in `docs/architecture/developer-tools.md`
   and `docs/guides/tool-use.md`
-- `02-native-operator-surface-foundation.md`
+- completed native operator surface foundation in
+  `docs/architecture/operator-surfaces.md`,
+  `docs/architecture/runtime-surfaces.md`, and `@kilnai/native`
 - `03-embedded-browser-host-capability.md`
 - `04-embedded-browser-operator-surface.md`
 
@@ -736,9 +738,9 @@ must not remove the web GUI's remote-access role.
 
 ## Relationship to Native Surface Foundation
 
-`02-native-operator-surface-foundation.md` owns the native surface stack and
-gateway-only boundary. This roadmap owns the later cockpit and projection
-performance proof.
+The completed native operator surface foundation owns the accepted
+`@kilnai/native` stack and gateway-only boundary. This roadmap owns the later
+cockpit and projection-performance proof.
 
 The native surface foundation is not a wrapper decision. It establishes a
 first-class local operator surface. This roadmap validates whether that surface

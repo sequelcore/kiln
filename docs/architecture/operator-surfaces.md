@@ -168,9 +168,33 @@ not become a separate runtime, own session state, or bypass tool authority.
 
 ## Native Operator Surface
 
-Native desktop work is a surface decision, not a runtime decision.
+Native desktop work is a surface decision, not a runtime decision. Kiln now has
+an initial first-class native package at `packages/native` / `@kilnai/native`.
 
-The native surface is allowed when product evidence shows a real need for
+The accepted v1 stack is:
+
+- Electron main process for native window lifecycle, process isolation, and the
+  future embedded-browser host adapter.
+- React 19 and Vite renderer for consistency with the web GUI implementation
+  stack.
+- `@kilnai/gateway-contracts` as the shared capability, session-projection,
+  theme, and presentation contract source.
+- Gateway HTTP/WebSocket contracts for all runtime interaction.
+
+The native surface must not import `@kilnai/core` or `@kilnai/runtime`
+implementation modules. It may consume `@kilnai/gateway-contracts` and future
+operator HTTP/WS clients only. The Electron renderer starts with Node
+integration disabled, context isolation enabled, sandbox enabled, web security
+enabled, no preload bridge, denied popup windows, and navigation restricted to
+local file/dev-server origins until a governed runtime policy exists.
+
+The v1 implementation advertises native capability slots for gateway attach,
+session projection, theme projection, native window lifecycle, surface
+performance telemetry, and an unsupported embedded-browser-host slot. The
+embedded browser host remains roadmap `03`; native v1 exposes the extension
+point without claiming that capability.
+
+The native surface is justified when product evidence shows a real need for
 native capabilities that the web GUI cannot provide cleanly, including:
 
 - native window lifecycle
@@ -183,10 +207,17 @@ native capabilities that the web GUI cannot provide cleanly, including:
 - OS credential integration
 - enterprise device-management expectations
 
-If accepted, the native surface must consume the same gateway/operator
-contracts as GUI, TUI, CLI, SDK, and widget. It must not introduce in-process
-imports from runtime/core, a second session model, or a desktop-only execution
-policy.
+The native surface consumes the same gateway/operator contracts as GUI, TUI,
+CLI, SDK, and widget. It must not introduce in-process imports from
+runtime/core, a second session model, or a desktop-only execution policy.
+
+Performance is a v1 design concern. Native projections must render canonical
+bounded data, preserve `instanceId`/`sessionId`/`turnId`/`eventId` identity, use
+resource links for large artifacts, and expose initial telemetry for first
+paint, frame handling, projection update time, memory usage, and dropped
+frames. Rust, WASM, or sidecar acceleration may be added only for measured
+projection/replay hot paths and must never own authority, scheduling, provider
+routing, memory, config, replay truth, or policy.
 
 Completion standard: the native surface can be removed without changing
 core/runtime semantics.

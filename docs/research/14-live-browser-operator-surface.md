@@ -95,10 +95,12 @@ Therefore the browser/native operator work is now split into four concerns:
 1. Completed browser operator foundations in
    `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`:
    snapshot monitor, frame-stream fallback, brokered input, and evidence.
-2. `02-native-operator-surface-foundation.md`
-   First-class native operator surface foundation. This is not a wrapper plan;
-   it establishes the native stack, gateway-only boundary, package shape,
-   performance foundation, and capability extension point.
+2. Completed native operator surface foundation in
+   `docs/architecture/operator-surfaces.md`,
+   `docs/architecture/runtime-surfaces.md`, and `@kilnai/native`.
+   This is not a wrapper plan; it establishes the native stack, gateway-only
+   boundary, package shape, performance foundation, and capability extension
+   point.
 3. `03-embedded-browser-host-capability.md`
    Native browser-host decision and proof. This is narrower than the broad
    high-density native cockpit and projection-performance experiment in
@@ -409,10 +411,7 @@ CDP-backed raw key down/up dispatch, and sanitized operator evidence.
 The browser-foundation work has been absorbed into canonical architecture and
 guide documentation. The next completion work is now split:
 
-1. Execute `02`: establish the native operator surface foundation, including
-   stack, package boundary, performance foundation, security baseline, and
-   ADR-006 amendment.
-2. Execute `03`: decide and prove the embedded browser host capability.
-3. Execute `04`: build and prove the real embedded browser operator surface.
-4. Keep `05` as the broader native cockpit and projection-performance
+1. Execute `03`: decide and prove the embedded browser host capability.
+2. Execute `04`: build and prove the real embedded browser operator surface.
+3. Keep `05` as the broader native cockpit and projection-performance
    experiment.

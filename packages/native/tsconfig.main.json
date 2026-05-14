@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist/main",
+    "rootDir": "src",
+    "types": ["bun"]
+  },
+  "include": ["src/main", "src/shared"],
+  "references": [
+    { "path": "../gateway-contracts" }
+  ]
+}

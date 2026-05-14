@@ -1,0 +1,29 @@
+{
+  "name": "@kilnai/native",
+  "version": "1.0.7",
+  "description": "First-class native operator surface for Kiln",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main/main.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json --noEmit && vite build",
+    "smoke": "electron dist/main/main/main.js --smoke",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kilnai/gateway-contracts": "workspace:*",
+    "electron": "^42.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "^5.6.0",
+    "vite": "^7.0.0",
+    "vitest": "^4.0.18"
+  }
+}

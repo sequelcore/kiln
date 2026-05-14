@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased -- Native Operator Surface
+
+- Added `@kilnai/native` as the first-class Electron-backed native operator
+  surface. It uses an Electron main process, React 19/Vite renderer,
+  `@kilnai/gateway-contracts` projections, and no direct `@kilnai/core` or
+  `@kilnai/runtime` implementation imports.
+- Added native surface capability, projection, hardened window, telemetry, and
+  smoke-test coverage. The native surface advertises the embedded-browser-host
+  slot as unsupported until roadmap `03` proves the real host adapter.
+- Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
+  constrained root TypeScript ambient types to Bun so Electron's Node typings do
+  not leak into Bun-oriented packages.
+- Closed and retired `02-native-operator-surface-foundation.md` on
+  2026-05-14 after native package tests, gateway-contract tests, typecheck,
+  native build, Electron smoke proof, full workspace tests, and full workspace
+  build passed.
+
 ## Unreleased -- Runtime Gateway
 
 - Gateway provider health now evaluates providers without `apiKeyEnv` through

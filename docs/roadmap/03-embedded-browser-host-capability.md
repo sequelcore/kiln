@@ -1,6 +1,8 @@
 # 03 - Embedded Browser Host Capability
 
-Status: blocked on `02-native-operator-surface-foundation.md`.
+Status: deferred. Native operator surface foundation is complete; start this
+only when the embedded browser host proof becomes the active implementation
+track.
 
 ## Objective
 
@@ -14,7 +16,7 @@ browser hosting.
 ## Canonical Placement
 
 ```text
-02      native operator surface foundation
+completed native operator surface foundation
   ->
 03      embedded browser host capability
   ->
@@ -49,8 +51,9 @@ Reasons:
 - Electron exposes `webContents` and `webContents.debugger`, giving Kiln a
   browser view and a Chrome DevTools Protocol control path in the same host.
 - Chromium behavior is consistent across Windows, macOS, and Linux.
-- The native surface foundation already selects Electron for the v1 native
-  process model.
+- The completed native surface foundation selects Electron for the v1 native
+  process model and implements `@kilnai/native` without claiming embedded
+  browser support.
 
 Risks:
 

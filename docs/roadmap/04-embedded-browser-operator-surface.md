@@ -1,7 +1,6 @@
 # 04 - Embedded Browser Operator Surface
 
-Status: blocked on `02-native-operator-surface-foundation.md` and
-`03-embedded-browser-host-capability.md`.
+Status: blocked on `03-embedded-browser-host-capability.md`.
 
 ## Objective
 
@@ -17,9 +16,10 @@ not a CDP screencast canvas, and not an external Chromium window.
 - `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`
   Browser operator contracts, ownership, brokered input, snapshot monitor,
   frame-stream fallback, and evidence baseline.
-- `02-native-operator-surface-foundation.md`
+- `docs/architecture/operator-surfaces.md`,
+  `docs/architecture/runtime-surfaces.md`, and `@kilnai/native`
   First-class native operator surface stack, gateway boundary, performance
-  foundation, and ADR update.
+  foundation, hardened Electron shell, and ADR-006 amendment.
 - `03-embedded-browser-host-capability.md`
   Native browser host decision, prototype, security baseline, and host evidence.
 - `docs/architecture/operator-surfaces.md`

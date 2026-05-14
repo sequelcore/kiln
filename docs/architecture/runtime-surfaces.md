@@ -4,7 +4,7 @@
 
 Kiln has one control-plane runtime and multiple surfaces that operate it. This
 document is the canonical vocabulary for those surfaces across app deployment,
-local GUI workflows, Studio, CLI, TUI, SDK, widget, and MCP.
+local GUI workflows, native desktop, Studio, CLI, TUI, SDK, widget, and MCP.
 
 The control-plane owner for deployed apps is the app gateway started from
 `gateway.yaml`. Operator surfaces may run helper servers or use separate ports,
@@ -19,6 +19,7 @@ but they must not become separate app control planes.
 | Studio Dev Server | `kiln dev` | `.kiln/gateway.yaml` or local `app.yaml` | `/studio/*` and `/dev/*` | Development and inspection surface. With `gateway.yaml`, it runs the App Gateway in dev mode. Without it, it is a lightweight editor/inspector server. |
 | CLI | `@kilnai/cli` commands | CLI flags plus projected global config | Local process, HTTP/WS attach, MCP projection | Automation, validation, launch, sync, and scripting surface. CLI does not own app runtime semantics. |
 | GUI | `@kilnai/gui` | Operator preferences plus gateway attach target | HTTP/WS operator contract | First-party human operator UI. It should attach to an existing App Gateway when operating YAML apps. |
+| Native | `@kilnai/native` | Operator preferences plus gateway attach target | HTTP/WS operator contract plus local Electron process | First-class local desktop operator surface. It owns native window lifecycle and surface telemetry only; runtime truth remains in App/Operator Gateway. |
 | TUI | `@kilnai/tui` | Operator preferences plus gateway attach target | WebSocket operator contract | Frozen legacy terminal surface. It must not define future runtime architecture. |
 | SDK / Widget | `@kilnai/react`, `@kilnai/widget` | Consumer app config | Public app/channel contracts | Embedding and product integration surfaces. |
 | MCP | Gateway MCP endpoint or projected MCP servers | Gateway/config projection | MCP | External tool and host contract for agents, IDEs, and wrappers. MCP is not the internal GUI-to-gateway operator protocol. |
@@ -30,13 +31,13 @@ but they must not become separate app control planes.
    runtime wiring.
 3. `app.yaml` declares a domain app that the App Gateway instantiates at
    runtime.
-4. GUI, CLI, and TUI are operator surfaces. They may launch or attach to a
-   gateway, but they do not redefine session, memory, safety, cost, event, or
-   tool semantics.
+4. GUI, Native, CLI, and TUI are operator surfaces. They may launch or attach
+   to a gateway, but they do not redefine session, memory, safety, cost, event,
+   or tool semantics.
 5. Operator helper gateways may use separate local ports. Separate ports are
    acceptable; duplicate app control planes are not.
-6. MCP is the external tool/host boundary. GUI, CLI, and TUI should use the
-   operator HTTP/WS contract for administrative state, live sessions, logs,
+6. MCP is the external tool/host boundary. GUI, Native, CLI, and TUI should use
+   the operator HTTP/WS contract for administrative state, live sessions, logs,
    replay, approvals, config diagnostics, and telemetry.
 7. A local machine may run multiple App Gateways only when they represent
    distinct environments, projects, or isolation boundaries.
@@ -91,7 +92,7 @@ The canonical relationship is:
 app.yaml + gateway.yaml
   -> App Gateway control plane
   -> operator HTTP/WS contract
-  -> GUI / CLI / TUI
+  -> GUI / Native / CLI / TUI
 
 App Gateway
   -> MCP
@@ -109,7 +110,7 @@ Memory Lattice follows the same ownership model:
 @kilnai/core memory bounded context
   -> memory graph resources
   -> App Gateway / Operator Gateway contract
-  -> GUI / CLI / TUI / SDK / MCP
+  -> GUI / Native / CLI / TUI / SDK / MCP
 ```
 
 The GUI is the first visual consumer, not the owner. No surface may create a
@@ -129,7 +130,10 @@ Use precise names in new docs and code:
 - `App Gateway` for the deployable `startGateway(gateway.yaml)` runtime.
 - `Operator Gateway` for local GUI/TUI bridge servers.
 - `Studio Dev Server` for `kiln dev` without a gateway config.
-- `operator API` or `operator HTTP/WS contract` for GUI/CLI/TUI control.
+- `operator API` or `operator HTTP/WS contract` for GUI/Native/CLI/TUI
+  control.
+- `native operator surface` for the Electron-backed `@kilnai/native` surface;
+  it is not a runtime and not a wrapper around `@kilnai/gui`.
 - `MCP endpoint` for external tool-host integration.
 
 Avoid using "the gateway" without a qualifier when a document discusses both
