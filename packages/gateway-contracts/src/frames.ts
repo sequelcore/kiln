@@ -5,6 +5,8 @@
  * Inbound frames flow from the runtime gateway to the browser.
  */
 
+import type { OperatorSurfaceKind } from "./operator-surface-capability.js";
+
 // --- Dashboard / HTTP response shapes ---
 
 export interface GuiProviderDescriptor {
@@ -320,7 +322,7 @@ export type OperatorAgentInvocationSessionEventKind =
 
 export interface OperatorSessionEventSource {
   readonly actor: "user" | "assistant" | "system" | "tool" | "runtime";
-  readonly surface: "cli" | "tui" | "gui" | "ide" | "gateway" | "runtime";
+  readonly surface: OperatorSurfaceKind;
   readonly component?: string;
 }
 

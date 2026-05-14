@@ -1,48 +1,62 @@
-# Prompt-Driven Recorder Wiring
+# Native Operator Surface Foundation Plan
 
-Status: completed on 2026-05-14.
+Status: active.
 
 ## Objective
 
-Make agent prompts that request QA/showcase videos produce recorder artifacts
-end to end through the normal browser tool path. The runtime must create
-recorder evidence during governed browser use, render the browser WebM, export
-editor sidecars, and return artifact links on session stop.
+Start `docs/roadmap/02-native-operator-surface-foundation.md` with a bounded
+contract-first slice. Establish shared native surface capability vocabulary
+before scaffolding an Electron package.
 
-## Scope
+## Scout Summary
 
-- Wire Playwright browser provider construction to a shared artifact store and
-  `PlaywrightBrowserCaptureRecorder` across GUI/TUI prompt surfaces.
-- Treat `browser_session_start.recordArtifacts=true` as the governed recorder
-  opt-in for a browser session.
-- Finalize capture, render WebM, export editor sidecars, and return one
-  recorder proof payload from `browser_session_stop`.
-- Update model-facing browser tool copy so agents know to set
-  `recordArtifacts` when a user asks for a showcase/video.
-- Preserve existing browser sessions that do not request recorder artifacts.
-- Keep existing artifact resource registry behavior so returned URIs are
-  readable through the normal resource tools and GUI resource path.
+- `@kilnai/gateway-contracts` is the shared boundary for GUI, TUI, SDK/widget,
+  and future native surface contracts.
+- `packages/gateway-contracts/src/frames.ts` currently has surface source
+  labels for `cli`, `tui`, `gui`, `ide`, `gateway`, and `runtime`; it does not
+  yet name `native`.
+- `packages/gui/src/lib/ws-client.ts` duplicates that surface enum for inbound
+  session-event validation.
+- Browser session contracts already model snapshot and frame-stream transports,
+  but not the native foundation capability vocabulary.
+- Existing unrelated dirty files remain out of scope:
+  `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
-## Non-Goals
+## Slice 1 - Shared Surface Capability Contract
 
-- No new in-app browser backend.
-- No editor-specific application automation.
-- No broad GUI redesign.
-- No unrelated config, timeout, or roadmap changes.
+Files:
 
-## Verification
+- `packages/gateway-contracts/src/operator-surface-capability.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/src/frames.ts`
+- `packages/gateway-contracts/tests/operator-surface-capability.test.ts`
+- `packages/gui/src/lib/ws-client.ts`
 
-- Added CLI config coverage proving Playwright provider options include a
-  recorder built from the shared artifact store.
-- Added runtime provider coverage proving recorded session stop returns
-  capture, rendered WebM, captions, markers, editor project, and exported
-  manifest URIs.
-- Added coverage proving unrecorded browser sessions do not emit recorder
-  proofs.
-- Passed `bun run --filter @kilnai/runtime test -- playwright-browser-use-provider`.
-- Passed `bun run --filter @kilnai/cli test -- interactive-use-config builtin-tool-surface-config`.
-- Passed `bun run --filter @kilnai/core test -- default-tool-surface`.
-- Passed `bun run --filter @kilnai/runtime test -- recorder`.
-- Passed `bun run --filter @kilnai/cli test`.
-- Passed `bun run --filter @kilnai/core test`.
+Deliverables:
+
+- Add shared operator surface kind vocabulary including `native`.
+- Add capability snapshot schema for surface negotiation.
+- Include native-first capabilities for gateway attach, session projection,
+  browser host slot, native window lifecycle, and performance telemetry.
+- Add helper functions for capability availability and unsupported states.
+- Update existing session-event source validation to accept `native`.
+
+Verification:
+
+- `bun run --filter @kilnai/gateway-contracts test -- operator-surface-capability`
+- `bun run --filter @kilnai/gateway-contracts test`
+- `bun run typecheck`
+
+Current results:
+
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-surface-capability`.
+- Passed `bun run --filter @kilnai/gateway-contracts test`.
 - Passed `bun run typecheck`.
+
+## Out Of Scope For This Slice
+
+- No `packages/native` scaffold yet.
+- No Electron dependency yet.
+- No embedded browser host implementation.
+- No runtime gateway changes beyond shared contract vocabulary.
+- No Rust/WASM/sidecar module.

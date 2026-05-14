@@ -67,15 +67,12 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-None. Completed programs are absorbed into canonical architecture or guide
-documentation before their roadmap files are deleted.
+- `02-native-operator-surface-foundation.md`
+  Active native operator surface foundation. Current slice establishes shared
+  surface capability contracts before any Electron package or embedded browser
+  host implementation.
 
 ## Deferred Roadmaps
-
-- `02-native-operator-surface-foundation.md`
-  First-class native operator surface foundation. Owns the long-term stack,
-  gateway-only boundary, package shape, performance foundation, and deletion
-  plan before any native-only capability is implemented.
 
 - `03-embedded-browser-host-capability.md`
   Focused native browser-host capability decision. Blocked on `02`; owns the

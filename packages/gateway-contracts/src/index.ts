@@ -4,6 +4,7 @@ export type {
   KilnConfigChangeApproval,
   KilnConfigChangeOperation,
   KilnConfigChangeProposal,
+  KilnConfigChangeApprovalSurface,
   KilnConfigProjectionEffectResult,
   KilnConfigValidationDiagnostic,
 } from "./config-mutation.js";
@@ -185,6 +186,23 @@ export type {
   OperatorIdentityProjection,
   OperatorMessageIdentityRole,
 } from "./operator-identity.js";
+
+export {
+  OPERATOR_SURFACE_CAPABILITIES,
+  OPERATOR_SURFACE_CAPABILITY_STATUSES,
+  OPERATOR_SURFACE_KINDS,
+  OperatorSurfaceCapabilityEntrySchema,
+  OperatorSurfaceCapabilitySnapshotSchema,
+  operatorSurfaceCapabilityStatus,
+  operatorSurfaceSupports,
+} from "./operator-surface-capability.js";
+export type {
+  OperatorSurfaceCapability,
+  OperatorSurfaceCapabilityEntry,
+  OperatorSurfaceCapabilitySnapshot,
+  OperatorSurfaceCapabilityStatus,
+  OperatorSurfaceKind,
+} from "./operator-surface-capability.js";
 
 export {
   formatOperatorEventValue,

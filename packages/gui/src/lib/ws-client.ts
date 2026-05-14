@@ -319,7 +319,7 @@ const GuiSessionEventSchema = z.object({
   parentEventId: z.string().optional(),
   source: z.object({
     actor: z.enum(["user", "assistant", "system", "tool", "runtime"]),
-    surface: z.enum(["cli", "tui", "gui", "ide", "gateway", "runtime"]),
+    surface: z.enum(["cli", "tui", "gui", "native", "ide", "sdk", "widget", "gateway", "runtime"]),
     component: z.string().optional(),
   }).optional(),
   payload: z.record(z.string(), z.unknown()),

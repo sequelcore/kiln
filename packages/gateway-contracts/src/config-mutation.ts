@@ -1,3 +1,5 @@
+import type { OperatorSurfaceKind } from "./operator-surface-capability.js";
+
 export const KILN_CONFIG_CHANGE_OPERATIONS = [
   "skill.upsert",
   "agent.upsert",
@@ -5,6 +7,10 @@ export const KILN_CONFIG_CHANGE_OPERATIONS = [
 ] as const;
 
 export type KilnConfigChangeOperation = typeof KILN_CONFIG_CHANGE_OPERATIONS[number];
+export type KilnConfigChangeApprovalSurface = Extract<
+  OperatorSurfaceKind,
+  "cli" | "tui" | "gui" | "native" | "sdk" | "runtime"
+>;
 
 export interface KilnConfigValidationDiagnostic {
   readonly severity: "error" | "warning";
@@ -32,7 +38,7 @@ export interface KilnConfigChangeApproval {
   readonly proposalHash: string;
   readonly approvedAt: string;
   readonly approvedBy: string;
-  readonly surface: "cli" | "tui" | "gui" | "sdk" | "runtime";
+  readonly surface: KilnConfigChangeApprovalSurface;
 }
 
 export interface KilnConfigAppliedWrite {

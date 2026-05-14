@@ -28,6 +28,19 @@ operator events to display-safe presentation:
 GUI and TUI may render those projections differently, but they should consume
 this shared presenter instead of duplicating event-specific display logic.
 
+## Operator Surface Capabilities
+
+`src/operator-surface-capability.ts` defines the shared surface vocabulary and
+capability negotiation contract for CLI, TUI, GUI, native, IDE, SDK, widget,
+gateway, and runtime consumers.
+
+Capability snapshots advertise what a surface can support without granting
+authority. The native surface starts with explicit capability slots for gateway
+attach, session projection, native window lifecycle, surface performance
+telemetry, and the later embedded-browser host proof. Unsupported capabilities
+must remain explicit so surfaces can render honest unavailable states instead
+of inferring behavior from package names or local feature flags.
+
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted
 route id/health, provider-model proof, adapter/execution mode, authority

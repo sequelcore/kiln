@@ -1,6 +1,6 @@
 # 02 - Native Operator Surface Foundation
 
-Status: deferred design prerequisite.
+Status: active.
 
 ## Objective
 
