@@ -761,6 +761,15 @@ should grow into a specialized high-density cockpit for:
 
 Every option must consume the same gateway/operator contracts.
 
+This roadmap is still not the native packaging and distribution track.
+`@kilnai/native` is the repository package and desktop shell boundary, but
+installer format, code signing, updater transport, release channels, crash/log
+collection, user-data migration, rollback, and uninstall behavior should be
+established only after this roadmap proves the native surface is worth shipping
+as a durable product surface. If that proof succeeds, create a dedicated native
+packaging and distribution roadmap rather than folding release engineering into
+the cockpit/performance decision.
+
 No option may introduce a private runtime.
 
 ## Relationship to IDE and Editor Surfaces

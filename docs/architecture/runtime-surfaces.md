@@ -42,6 +42,12 @@ but they must not become separate app control planes.
 7. A local machine may run multiple App Gateways only when they represent
    distinct environments, projects, or isolation boundaries.
 
+`@kilnai/native` is the package boundary for the native desktop surface.
+Packaged executable distribution is a later release-engineering concern, not a
+runtime-surface contract. Installer targets, signing, update channels, rollback,
+and user-data migration must be decided in a dedicated packaging roadmap after
+the native surface proves it has enough product value to distribute.
+
 ## Canonical Local Topology
 
 For a versioned deployable repo such as `kiln-gateway`:

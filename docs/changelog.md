@@ -18,6 +18,11 @@
   release, and resume controls, ownership-gated runtime dispatch, sanitized
   operator evidence, and a deterministic `embedded-browser-surface:smoke`
   proof.
+- Documented the native packaging boundary: `@kilnai/native` is the package and
+  desktop shell, while installer format, code signing, updater transport,
+  release channels, crash/log collection, user-data migration, rollback, and
+  uninstall behavior remain deferred to a dedicated packaging/distribution
+  roadmap after the native surface is ready to ship.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.

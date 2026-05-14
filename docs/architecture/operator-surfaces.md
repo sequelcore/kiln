@@ -234,6 +234,14 @@ The native surface consumes the same gateway/operator contracts as GUI, TUI,
 CLI, SDK, and widget. It must not introduce in-process imports from
 runtime/core, a second session model, or a desktop-only execution policy.
 
+`@kilnai/native` is the repository package and desktop shell boundary. Product
+distribution will eventually package that surface as OS-native artifacts, but
+installer format, code signing, update transport, release channels, crash/log
+collection, user-data migration, rollback, and uninstall behavior are not part
+of the current surface foundation. Those decisions require a dedicated
+packaging and distribution roadmap once the native surface is functionally
+ready to ship outside developer workspaces.
+
 Performance is a v1 design concern. Native projections must render canonical
 bounded data, preserve `instanceId`/`sessionId`/`turnId`/`eventId` identity, use
 resource links for large artifacts, and expose initial telemetry for first
