@@ -1,5 +1,8 @@
 import { create } from "zustand";
 import type {
+  GuiBrowserLiveViewportFrame,
+  GuiBrowserOperatorInput,
+  GuiBrowserOperatorInputAckFrame,
   GuiBrowserSessionCapture,
   GuiBrowserSessionState,
   GuiInboundFrame,
@@ -122,6 +125,7 @@ const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
 const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 let providerSwitchRequestOrdinal = 0;
 let providerAuthRequestOrdinal = 0;
+let browserInputRequestOrdinal = 0;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -201,6 +205,11 @@ function nextProviderSwitchRequestId(): string {
 function nextProviderAuthRequestId(): string {
   providerAuthRequestOrdinal += 1;
   return `provider-auth:${Date.now()}:${providerAuthRequestOrdinal}`;
+}
+
+function nextBrowserInputRequestId(): string {
+  browserInputRequestOrdinal += 1;
+  return `browser-input:${Date.now()}:${browserInputRequestOrdinal}`;
 }
 
 function providerRequiresSelectedModelMessage(provider: string): string {
@@ -1543,6 +1552,8 @@ interface SessionStoreState {
   readonly authorityStatus: AuthorityStatus | null;
   readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
   readonly browserSessionState: GuiBrowserSessionState | null;
+  readonly browserLiveViewportFrame: GuiBrowserLiveViewportFrame | null;
+  readonly browserOperatorInputAck: GuiBrowserOperatorInputAckFrame | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -1593,6 +1604,11 @@ interface SessionStoreActions {
   disconnect: () => void;
   onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
   onBrowserSessionUpdated: (frame: Extract<GuiInboundFrame, { type: "browser_session_updated" }>) => void;
+  onBrowserLiveViewportFrame: (frame: Extract<GuiInboundFrame, { type: "browser_live_viewport_frame" }>) => void;
+  onBrowserOperatorInputAck: (frame: Extract<GuiInboundFrame, { type: "browser_operator_input_ack" }>) => void;
+  sendBrowserOperatorInput: (
+    request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput },
+  ) => boolean;
   requestBrowserSessionControl: (
     action: "takeover" | "release",
     options?: { readonly sessionId?: string; readonly reason?: string },
@@ -1645,6 +1661,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   authorityStatus: null,
   interactiveUseSnapshot: null,
   browserSessionState: null,
+  browserLiveViewportFrame: null,
+  browserOperatorInputAck: null,
   outboundSend: null,
   clearTimeoutId: null,
   providerSwitchTimeoutId: null,
@@ -3144,7 +3162,40 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const browserSessionState = frame.browserSession.ownership === "released" || frame.browserSession.stream.status === "ended"
       ? null
       : frame.browserSession;
-    set({ browserSessionState });
+    const currentLiveViewportFrame = state.browserLiveViewportFrame;
+    const browserLiveViewportFrame = browserSessionState
+      && currentLiveViewportFrame
+      && currentLiveViewportFrame.sessionId === browserSessionState.sessionId
+      ? currentLiveViewportFrame
+      : null;
+    set({ browserSessionState, browserLiveViewportFrame });
+  },
+
+  onBrowserLiveViewportFrame: (frame) => {
+    const state = get();
+    if (frame.kilnSessionId && !shouldApplySessionScopedFrame(state, frame.kilnSessionId)) {
+      return;
+    }
+    set({ browserLiveViewportFrame: frame });
+  },
+
+  onBrowserOperatorInputAck: (frame) => {
+    set({ browserOperatorInputAck: frame });
+  },
+
+  sendBrowserOperatorInput: (request) => {
+    const state = get();
+    const outboundSend = state.outboundSend;
+    if (!outboundSend) {
+      return false;
+    }
+    outboundSend({
+      type: "browser_operator_input",
+      requestId: nextBrowserInputRequestId(),
+      sessionId: request.sessionId,
+      input: request.input,
+    });
+    return true;
   },
 
   requestBrowserSessionControl: (action, options = {}) => {

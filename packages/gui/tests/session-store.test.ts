@@ -47,6 +47,8 @@ function resetSessionStore(): void {
     activityPhase: "idle",
     interactiveUseSnapshot: null,
     browserSessionState: null,
+    browserLiveViewportFrame: null,
+    browserOperatorInputAck: null,
     outboundSend: null,
     clearTimeoutId: null,
     providerSwitchTimeoutId: null,
@@ -2121,6 +2123,124 @@ describe("session-store", () => {
       action: "takeover",
       sessionId: "browser-1",
       reason: "Inspect before continuing.",
+    });
+  });
+
+  it("stores live viewport frames for the visible browser session", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-browser-live",
+    });
+
+    useSessionStore.getState().onBrowserLiveViewportFrame({
+      type: "browser_live_viewport_frame",
+      sessionId: "browser-1",
+      kilnSessionId: "session-browser-live",
+      frameId: "frame-1",
+      sequence: 1,
+      transport: "cdp-screencast",
+      format: "jpeg",
+      dataUrl: "data:image/jpeg;base64,abc123",
+      width: 1280,
+      height: 720,
+      scale: 1,
+      capturedAt: "2026-05-13T12:00:00.000Z",
+    });
+
+    expect(useSessionStore.getState().browserLiveViewportFrame).toMatchObject({
+      sessionId: "browser-1",
+      frameId: "frame-1",
+      width: 1280,
+      height: 720,
+    });
+  });
+
+  it("clears stale browser live viewport frames when the browser session ends", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-browser-live",
+      browserSessionState: {
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-13T12:00:00.000Z",
+        kilnSessionId: "session-browser-live",
+        provider: "playwright",
+        sessionId: "browser-1",
+        ownership: "operator",
+        viewMode: "live",
+        stream: { status: "live" },
+      },
+      browserLiveViewportFrame: {
+        type: "browser_live_viewport_frame",
+        sessionId: "browser-1",
+        kilnSessionId: "session-browser-live",
+        frameId: "frame-1",
+        sequence: 1,
+        transport: "snapshot-polling",
+        format: "png",
+        dataUrl: "data:image/png;base64,abc123",
+        width: 1280,
+        height: 720,
+        scale: 1,
+        capturedAt: "2026-05-13T12:00:01.000Z",
+      },
+    });
+
+    useSessionStore.getState().onBrowserSessionUpdated({
+      type: "browser_session_updated",
+      browserSession: {
+        target: "browser",
+        status: "succeeded",
+        updatedAt: "2026-05-13T12:00:02.000Z",
+        kilnSessionId: "session-browser-live",
+        provider: "playwright",
+        sessionId: "browser-1",
+        ownership: "released",
+        viewMode: "snapshot",
+        stream: { status: "ended" },
+      },
+    });
+
+    expect(useSessionStore.getState().browserSessionState).toBeNull();
+    expect(useSessionStore.getState().browserLiveViewportFrame).toBeNull();
+  });
+
+  it("sends brokered browser operator input and stores acknowledgements", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({ outboundSend });
+
+    const sent = useSessionStore.getState().sendBrowserOperatorInput({
+      sessionId: "browser-1",
+      input: {
+        kind: "text",
+        text: "hello",
+      },
+    });
+
+    expect(sent).toBe(true);
+    expect(outboundSend).toHaveBeenCalledWith({
+      type: "browser_operator_input",
+      requestId: expect.stringMatching(/^browser-input:/),
+      sessionId: "browser-1",
+      input: {
+        kind: "text",
+        text: "hello",
+      },
+    });
+
+    useSessionStore.getState().onBrowserOperatorInputAck({
+      type: "browser_operator_input_ack",
+      requestId: "browser-input-1",
+      sessionId: "browser-1",
+      status: "blocked",
+      reason: "Operator does not own the session.",
+      handledAt: "2026-05-13T12:00:00.000Z",
+    });
+
+    expect(useSessionStore.getState().browserOperatorInputAck).toMatchObject({
+      requestId: "browser-input-1",
+      status: "blocked",
+      reason: "Operator does not own the session.",
     });
   });
 

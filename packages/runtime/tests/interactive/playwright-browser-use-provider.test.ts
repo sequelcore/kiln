@@ -232,6 +232,8 @@ describe("PlaywrightBrowserUseProvider", () => {
         && update.viewMode === "live"
         && update.stream.status === "live"
         && update.latestCapture?.uri === "kiln://artifacts/live/browser-live/1"
+        && update.latestCapture?.width === 1280
+        && update.latestCapture?.height === 720
     ))).toBe(true);
 
     await provider.execute({
@@ -248,6 +250,124 @@ describe("PlaywrightBrowserUseProvider", () => {
       viewMode: "snapshot",
       stream: { status: "ended" },
     });
+  });
+
+  it("uses Chromium CDP screencast frames as the live browser transport when available", async () => {
+    const events: string[] = [];
+    const updates: PlaywrightBrowserSessionState[] = [];
+    const cdp = fakeCdpSession(events);
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(fakePage(events), events, { cdp }),
+      allowedDomains: ["example.com"],
+      liveStream: {
+        enabled: true,
+        intervalMs: 25,
+      },
+      onBrowserSessionUpdated(update) {
+        updates.push(update);
+      },
+      artifactSink: {
+        async writeInteractiveArtifact(input) {
+          events.push(`artifact:${input.kind}:${input.mimeType}:${input.content.length}`);
+          return `kiln://artifacts/live/${input.sessionId}/${events.filter((event) => event.startsWith("artifact:")).length}`;
+        },
+      },
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      sessionId: "browser-cdp",
+      url: "https://example.com/start",
+      input: {
+        sessionId: "browser-cdp",
+        url: "https://example.com/start",
+      },
+    });
+
+    await cdp.emitScreencastFrame({
+      data: Buffer.from([4, 5, 6]).toString("base64"),
+      sessionId: 7,
+      metadata: {
+        deviceWidth: 1440,
+        deviceHeight: 900,
+        pageScaleFactor: 1,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toContain("cdp.send:Page.startScreencast");
+    expect(events).toContain("cdp.send:Page.screencastFrameAck:7");
+    expect(updates.some((update) => (
+      update.sessionId === "browser-cdp"
+        && update.stream.status === "live"
+        && update.latestCapture?.transport === "cdp-screencast"
+        && update.latestCapture?.uri === "kiln://artifacts/live/browser-cdp/1"
+        && update.latestCapture?.width === 1440
+        && update.latestCapture?.height === 900
+    ))).toBe(true);
+
+    await provider.execute({
+      toolName: "browser_session_stop",
+      target: "browser",
+      operation: "session_stop",
+      sessionId: "browser-cdp",
+      input: { sessionId: "browser-cdp" },
+    });
+
+    expect(events).toContain("cdp.send:Page.stopScreencast");
+    expect(events).toContain("cdp.detach");
+  });
+
+  it("cleans up the CDP session and falls back to polling when screencast start fails", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const updates: PlaywrightBrowserSessionState[] = [];
+    const cdp = fakeCdpSession(events, { failStartScreencast: true });
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(fakePage(events), events, { cdp }),
+      allowedDomains: ["example.com"],
+      liveStream: {
+        enabled: true,
+        intervalMs: 25,
+      },
+      onBrowserSessionUpdated(update) {
+        updates.push(update);
+      },
+      artifactSink: {
+        async writeInteractiveArtifact(input) {
+          events.push(`artifact:${input.kind}:${input.mimeType}:${input.content.length}`);
+          return `kiln://artifacts/live/${input.sessionId}/${events.filter((event) => event.startsWith("artifact:")).length}`;
+        },
+      },
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      sessionId: "browser-cdp-fallback",
+      url: "https://example.com/start",
+      input: {
+        sessionId: "browser-cdp-fallback",
+        url: "https://example.com/start",
+      },
+    });
+
+    expect(events).toContain("cdp.send:Page.startScreencast");
+    expect(events).toContain("cdp.off:Page.screencastFrame");
+    expect(events).toContain("cdp.send:Page.stopScreencast");
+    expect(events).toContain("cdp.detach");
+
+    await advanceTimersByTime(26);
+
+    expect(updates.some((update) => (
+      update.sessionId === "browser-cdp-fallback"
+        && update.stream.status === "live"
+        && update.latestCapture?.transport === "snapshot-polling"
+        && update.latestCapture?.uri === "kiln://artifacts/live/browser-cdp-fallback/1"
+    ))).toBe(true);
   });
 
   it("reports stream capture failure without failing the active browser session", async () => {
@@ -341,15 +461,20 @@ describe("PlaywrightBrowserUseProvider", () => {
       sessionId: "browser-lock",
       ownership: "operator",
       viewMode: "live",
-      stream: {
-        status: "paused",
-        reason: "Inspect page state.",
+      stream: { status: "live" },
+      latestCapture: {
+        uri: "kiln://artifacts/live/browser-lock/1",
+        relation: "snapshot",
+        mimeType: "image/png",
       },
     });
     expect(updates.at(-1)).toMatchObject({
       sessionId: "browser-lock",
       ownership: "operator",
-      stream: { status: "paused" },
+      stream: { status: "live" },
+      latestCapture: {
+        uri: "kiln://artifacts/live/browser-lock/1",
+      },
     });
 
     await expect(provider.execute({
@@ -374,7 +499,7 @@ describe("PlaywrightBrowserUseProvider", () => {
       viewMode: "live",
       stream: { status: "live" },
       latestCapture: {
-        uri: "kiln://artifacts/live/browser-lock/1",
+        uri: "kiln://artifacts/live/browser-lock/2",
         relation: "snapshot",
         mimeType: "image/png",
       },
@@ -390,6 +515,97 @@ describe("PlaywrightBrowserUseProvider", () => {
     })).resolves.toMatchObject({
       sessionId: "browser-lock",
     });
+  });
+
+  it("accepts operator input only while the operator owns the browser session", async () => {
+    const events: string[] = [];
+    const updates: PlaywrightBrowserSessionState[] = [];
+    const provider = new PlaywrightBrowserUseProvider({
+      loader: async () => fakePlaywright(fakePage(events), events),
+      allowedDomains: ["example.com"],
+      onBrowserSessionUpdated(update) {
+        updates.push(update);
+      },
+      artifactSink: {
+        async writeInteractiveArtifact(input) {
+          events.push(`artifact:${input.kind}:${input.mimeType}:${input.content.length}`);
+          return `kiln://artifacts/live/${input.sessionId}/${events.filter((event) => event === "screenshot").length}`;
+        },
+      },
+    });
+
+    await provider.execute({
+      toolName: "browser_session_start",
+      target: "browser",
+      operation: "session_start",
+      sessionId: "browser-input",
+      url: "https://example.com/start",
+      input: {
+        sessionId: "browser-input",
+        url: "https://example.com/start",
+      },
+    });
+
+    await expect(provider.requestBrowserOperatorInput({
+      requestId: "input-before-lock",
+      sessionId: "browser-input",
+      operatorId: "operator-1",
+      input: {
+        kind: "text",
+        text: "blocked",
+      },
+    })).resolves.toMatchObject({
+      requestId: "input-before-lock",
+      sessionId: "browser-input",
+      status: "blocked",
+      reason: "Operator does not own the browser session.",
+    });
+    expect(events).not.toContain("keyboard.type:blocked");
+
+    await provider.requestBrowserSessionControl({
+      action: "takeover",
+      sessionId: "browser-input",
+      operatorId: "operator-1",
+    });
+
+    await expect(provider.requestBrowserOperatorInput({
+      requestId: "input-text",
+      sessionId: "browser-input",
+      operatorId: "operator-1",
+      input: {
+        kind: "text",
+        text: "accepted",
+      },
+    })).resolves.toMatchObject({
+      requestId: "input-text",
+      sessionId: "browser-input",
+      status: "accepted",
+    });
+    await expect(provider.requestBrowserOperatorInput({
+      requestId: "input-wheel",
+      sessionId: "browser-input",
+      operatorId: "operator-1",
+      input: {
+        kind: "wheel",
+        x: 12,
+        y: 20,
+        deltaX: 0,
+        deltaY: 240,
+      },
+    })).resolves.toMatchObject({
+      requestId: "input-wheel",
+      sessionId: "browser-input",
+      status: "accepted",
+    });
+
+    expect(events).toContain("keyboard.type:accepted");
+    expect(events).toContain("wheel:0,240");
+    expect(updates.filter((update) => (
+      update.sessionId === "browser-input"
+        && update.ownership === "operator"
+        && update.stream.status === "live"
+        && update.latestCapture?.uri
+    ))).toHaveLength(3);
   });
 
   it("denies headed browser launch when the provider is configured for headless background sessions", async () => {
@@ -575,7 +791,11 @@ describe("PlaywrightBrowserUseProvider", () => {
   });
 });
 
-function fakePlaywright(page: ReturnType<typeof fakePage>, events: string[]) {
+function fakePlaywright(
+  page: ReturnType<typeof fakePage>,
+  events: string[],
+  fakeOptions: { readonly cdp?: ReturnType<typeof fakeCdpSession> } = {},
+) {
   return {
     chromium: {
       async launch(options?: { readonly headless?: boolean }) {
@@ -592,6 +812,13 @@ function fakePlaywright(page: ReturnType<typeof fakePage>, events: string[]) {
               async close() {
                 events.push("context.close");
               },
+              async newCDPSession() {
+                if (!fakeOptions.cdp) {
+                  throw new Error("CDP not configured");
+                }
+                events.push("newCDPSession");
+                return fakeOptions.cdp;
+              },
             };
           },
           async close() {
@@ -599,6 +826,54 @@ function fakePlaywright(page: ReturnType<typeof fakePage>, events: string[]) {
           },
         };
       },
+    },
+  };
+}
+
+function fakeCdpSession(
+  events: string[],
+  options: { readonly failStartScreencast?: boolean } = {},
+) {
+  const handlers = new Map<string, (event: {
+    readonly data: string;
+    readonly sessionId: number;
+    readonly metadata?: {
+      readonly deviceWidth?: number;
+      readonly deviceHeight?: number;
+      readonly pageScaleFactor?: number;
+    };
+  }) => void>();
+
+  return {
+    async send(method: string, params?: Record<string, unknown>) {
+      events.push(params && "sessionId" in params ? `cdp.send:${method}:${String(params.sessionId)}` : `cdp.send:${method}`);
+      if (method === "Page.startScreencast" && options.failStartScreencast) {
+        throw new Error("start screencast failed");
+      }
+      return {};
+    },
+    on(event: string, handler: (payload: never) => void) {
+      handlers.set(event, handler as never);
+      events.push(`cdp.on:${event}`);
+    },
+    off(event: string) {
+      handlers.delete(event);
+      events.push(`cdp.off:${event}`);
+    },
+    async detach() {
+      events.push("cdp.detach");
+    },
+    async emitScreencastFrame(frame: {
+      readonly data: string;
+      readonly sessionId: number;
+      readonly metadata?: {
+        readonly deviceWidth?: number;
+        readonly deviceHeight?: number;
+        readonly pageScaleFactor?: number;
+      };
+    }) {
+      handlers.get("Page.screencastFrame")?.(frame);
+      await Promise.resolve();
     },
   };
 }
@@ -645,6 +920,9 @@ function fakePage(
         throw options.screenshotError;
       }
       return new Uint8Array([1, 2, 3]);
+    },
+    viewportSize() {
+      return { width: 1280, height: 720 };
     },
     locator(selector: string) {
       return {

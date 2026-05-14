@@ -24,13 +24,14 @@ interface WireRequest {
   readonly request:
     | InteractiveUseRequest
     | { readonly operation: "close_all" }
-    | BrowserSessionControlRequest;
+    | BrowserSessionControlRequest
+    | BrowserOperatorInputRequest;
 }
 
 interface WireResponse {
   readonly id: number;
   readonly ok: boolean;
-  readonly result?: InteractiveUseProviderResult | BrowserSessionState;
+  readonly result?: InteractiveUseProviderResult | BrowserSessionState | BrowserOperatorInputAck;
   readonly error?: string;
 }
 
@@ -40,6 +41,49 @@ interface BrowserSessionControlRequest {
   readonly sessionId?: string;
   readonly operatorId?: string;
   readonly reason?: string;
+}
+
+type BrowserOperatorInput =
+  | {
+      readonly kind: "pointer";
+      readonly phase: "move" | "down" | "up" | "click";
+      readonly x: number;
+      readonly y: number;
+      readonly button?: "left" | "middle" | "right" | "back" | "forward" | "none";
+      readonly clickCount?: number;
+    }
+  | {
+      readonly kind: "wheel";
+      readonly x: number;
+      readonly y: number;
+      readonly deltaX: number;
+      readonly deltaY: number;
+    }
+  | {
+      readonly kind: "key";
+      readonly phase: "down" | "up" | "press";
+      readonly key: string;
+      readonly text?: string;
+    }
+  | {
+      readonly kind: "text";
+      readonly text: string;
+    };
+
+interface BrowserOperatorInputRequest {
+  readonly operation: "browser_operator_input";
+  readonly requestId: string;
+  readonly sessionId: string;
+  readonly operatorId?: string;
+  readonly input: BrowserOperatorInput;
+}
+
+interface BrowserOperatorInputAck {
+  readonly requestId: string;
+  readonly sessionId?: string;
+  readonly status: "accepted" | "blocked" | "failed" | "stale-session";
+  readonly reason?: string;
+  readonly handledAt: string;
 }
 
 interface BrowserSessionUpdatedWireEvent {
@@ -66,8 +110,13 @@ interface BrowserSessionState {
     readonly dataUrl: string;
     readonly relation: "snapshot";
     readonly mimeType: "image/png";
+    readonly width?: number;
+    readonly height?: number;
+    readonly transport?: BrowserLiveViewportTransport;
   };
 }
+
+type BrowserLiveViewportTransport = "snapshot-polling" | "cdp-screencast";
 
 interface PlaywrightModule {
   readonly chromium: BrowserType;
@@ -84,6 +133,7 @@ interface Browser {
 
 interface BrowserContext {
   newPage(): Promise<Page>;
+  newCDPSession?(page: Page): Promise<CdpSession>;
   close(): Promise<void>;
 }
 
@@ -97,9 +147,13 @@ interface Page {
   url(): string;
   title(): Promise<string>;
   screenshot(options?: { readonly type?: "png"; readonly fullPage?: boolean }): Promise<Uint8Array>;
+  viewportSize?(): ViewportSize | null;
   locator(selector: string): Locator;
   mouse: {
     click(x: number, y: number, options?: { readonly button?: "left" | "middle" | "right"; readonly clickCount?: number }): Promise<void>;
+    move?(x: number, y: number): Promise<void>;
+    down?(options?: { readonly button?: "left" | "middle" | "right" }): Promise<void>;
+    up?(options?: { readonly button?: "left" | "middle" | "right" }): Promise<void>;
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
   keyboard: {
@@ -121,12 +175,35 @@ interface BrowserSession {
   readonly page: Page;
 }
 
+interface CdpSession {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  on(event: "Page.screencastFrame", handler: (event: CdpScreencastFrame) => void): void;
+  off?(event: "Page.screencastFrame", handler: (event: CdpScreencastFrame) => void): void;
+  detach?(): Promise<void>;
+}
+
+interface CdpScreencastFrame {
+  readonly data: string;
+  readonly sessionId: number;
+  readonly metadata?: {
+    readonly deviceWidth?: number;
+    readonly deviceHeight?: number;
+    readonly pageScaleFactor?: number;
+  };
+}
+
+interface BrowserCdpScreencastStream {
+  readonly session: CdpSession;
+  readonly handler: (event: CdpScreencastFrame) => void;
+}
+
 const PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE =
   "Playwright browser use provider is not available. Install the optional peer dependency 'playwright' in the runtime host and install a browser before enabling interactiveUse.browserProvider=playwright. For Bun: bun add -d playwright && bun x playwright install chromium.";
 
 const sessions = new Map<string, BrowserSession>();
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const cdpStreams = new Map<string, BrowserCdpScreencastStream>();
 const operatorLocks = new Map<string, { readonly operatorId?: string; readonly reason?: string; readonly acquiredAt: string }>();
 let activeSessionId: string | undefined;
 let sequence = 0;
@@ -151,7 +228,9 @@ async function handleLine(line: string): Promise<void> {
       ? await closeAll()
       : message.request.operation === "browser_session_control"
         ? await controlBrowserSession(message.config, message.request)
-        : await execute(message.config, message.request);
+        : message.request.operation === "browser_operator_input"
+          ? await handleBrowserOperatorInput(message.config, message.request)
+          : await execute(message.config, message.request);
     write({ id: message.id, ok: true, result });
   } catch (error) {
     write({ id: message.id, ok: false, error: errorMessage(error) });
@@ -215,7 +294,7 @@ async function startSession(
       output: `Attached to Playwright browser session ${existingSession.id}.`,
       observation: await observeSession(config, existingSession, request),
     };
-    startLiveStream(config, existingSession, request);
+    await startLiveStream(config, existingSession, request);
     scheduleIdleClose(config, existingSession);
     return result;
   }
@@ -242,7 +321,7 @@ async function startSession(
       output: `Started Playwright browser session ${sessionId}.`,
       observation: await observeSession(config, session, request),
     };
-    startLiveStream(config, session, request);
+    await startLiveStream(config, session, request);
     scheduleIdleClose(config, session);
     return result;
   } catch (error) {
@@ -414,6 +493,11 @@ async function closeAll(): Promise<InteractiveUseProviderResult> {
     clearTimeout(timer);
   }
   idleTimers.clear();
+  for (const timer of streamTimers.values()) {
+    clearTimeout(timer);
+  }
+  streamTimers.clear();
+  await Promise.allSettled([...cdpStreams.keys()].map(stopCdpScreencast));
   operatorLocks.clear();
   activeSessionId = undefined;
   await Promise.allSettled(activeSessions.map(closeSession));
@@ -431,22 +515,44 @@ async function controlBrowserSession(
       ...(request.reason ? { reason: request.reason } : {}),
       acquiredAt: new Date().toISOString(),
     });
-    clearStreamTimer(session.id);
-    return emitBrowserSessionState({
-      session,
-      operation: "operator_takeover",
-      ownership: "operator",
-      viewMode: "live",
-      stream: {
-        status: "paused",
-        reason: request.reason ?? "Operator took control of the browser session.",
-      },
-    });
+    try {
+      const [title, screenshot] = await Promise.all([
+        session.page.title().catch(() => undefined),
+        captureScreenshot(session),
+      ]);
+      const state = emitBrowserSessionState({
+        session,
+        operation: "operator_takeover",
+        title,
+        ownership: "operator",
+        viewMode: "live",
+        stream: { status: "live" },
+        latestCaptureDataUrl: screenshot.dataUrl,
+        latestCaptureWidth: screenshot.width,
+        latestCaptureHeight: screenshot.height,
+      });
+      scheduleStreamCapture(config, session, "observe");
+      scheduleIdleClose(config, session);
+      return state;
+    } catch (error) {
+      const state = emitBrowserSessionState({
+        session,
+        operation: "operator_takeover",
+        ownership: "operator",
+        viewMode: "live",
+        stream: {
+          status: "failed",
+          reason: errorMessage(error),
+        },
+      });
+      scheduleIdleClose(config, session);
+      return state;
+    }
   }
 
   operatorLocks.delete(session.id);
   try {
-    const [title, screenshotDataUrl] = await Promise.all([
+    const [title, screenshot] = await Promise.all([
       session.page.title().catch(() => undefined),
       captureScreenshot(session),
     ]);
@@ -457,7 +563,9 @@ async function controlBrowserSession(
       ownership: "agent",
       viewMode: "live",
       stream: { status: "live" },
-      latestCaptureDataUrl: screenshotDataUrl,
+      latestCaptureDataUrl: screenshot.dataUrl,
+      latestCaptureWidth: screenshot.width,
+      latestCaptureHeight: screenshot.height,
     });
     scheduleStreamCapture(config, session, "observe");
     scheduleIdleClose(config, session);
@@ -475,6 +583,172 @@ async function controlBrowserSession(
     });
     scheduleIdleClose(config, session);
     return state;
+  }
+}
+
+async function handleBrowserOperatorInput(
+  config: PlaywrightNodeSidecarConfig,
+  request: BrowserOperatorInputRequest,
+): Promise<BrowserOperatorInputAck> {
+  const handledAt = new Date().toISOString();
+  const session = sessions.get(request.sessionId);
+  if (!session) {
+    return {
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      status: "stale-session",
+      reason: "Browser session is not active.",
+      handledAt,
+    };
+  }
+  if (!operatorLocks.has(session.id)) {
+    return {
+      requestId: request.requestId,
+      sessionId: session.id,
+      status: "blocked",
+      reason: "Operator does not own the browser session.",
+      handledAt,
+    };
+  }
+  try {
+    assertCurrentUrlAllowed(config, session);
+    await dispatchOperatorInput(session, request.input);
+    await captureAndEmitLiveFrame(config, session, "observe");
+    scheduleIdleClose(config, session);
+    return {
+      requestId: request.requestId,
+      sessionId: session.id,
+      status: "accepted",
+      handledAt,
+    };
+  } catch (error) {
+    return {
+      requestId: request.requestId,
+      sessionId: session.id,
+      status: "failed",
+      reason: errorMessage(error),
+      handledAt,
+    };
+  }
+}
+
+async function dispatchOperatorInput(session: BrowserSession, input: BrowserOperatorInput): Promise<void> {
+  const cdpStream = cdpStreams.get(session.id);
+  if (cdpStream) {
+    await dispatchCdpOperatorInput(cdpStream.session, input);
+    return;
+  }
+  switch (input.kind) {
+    case "pointer": {
+      assertViewportCoordinate(input.x, input.y);
+      const button = input.button === "none" || input.button === "back" || input.button === "forward"
+        ? undefined
+        : input.button;
+      if (input.phase === "click") {
+        await session.page.mouse.click(input.x, input.y, {
+          ...(button ? { button } : {}),
+          ...(input.clickCount ? { clickCount: input.clickCount } : {}),
+        });
+        return;
+      }
+      if (input.phase === "move") {
+        if (!session.page.mouse.move) {
+          throw new Error("Pointer move is not supported by the active browser provider.");
+        }
+        await session.page.mouse.move(input.x, input.y);
+        return;
+      }
+      if (input.phase === "down") {
+        if (!session.page.mouse.move || !session.page.mouse.down) {
+          throw new Error("Pointer down is not supported by the active browser provider.");
+        }
+        await session.page.mouse.move(input.x, input.y);
+        await session.page.mouse.down(button ? { button } : undefined);
+        return;
+      }
+      if (!session.page.mouse.move || !session.page.mouse.up) {
+        throw new Error("Pointer up is not supported by the active browser provider.");
+      }
+      await session.page.mouse.move(input.x, input.y);
+      await session.page.mouse.up(button ? { button } : undefined);
+      return;
+    }
+    case "wheel":
+      assertViewportCoordinate(input.x, input.y);
+      if (session.page.mouse.move) {
+        await session.page.mouse.move(input.x, input.y);
+      }
+      await session.page.mouse.wheel(input.deltaX, input.deltaY);
+      return;
+    case "key":
+      if (input.phase === "press") {
+        await session.page.keyboard.press(input.key);
+        return;
+      }
+      throw new Error("Key down/up operator input requires the CDP transport slice.");
+    case "text":
+      await session.page.keyboard.type(input.text);
+      return;
+    default:
+      throw new Error("Unsupported browser operator input.");
+  }
+}
+
+async function dispatchCdpOperatorInput(cdpSession: CdpSession, input: BrowserOperatorInput): Promise<void> {
+  switch (input.kind) {
+    case "pointer": {
+      assertViewportCoordinate(input.x, input.y);
+      const button = input.button === "none" || input.button === "back" || input.button === "forward"
+        ? "none"
+        : input.button ?? "left";
+      if (input.phase === "click") {
+        await cdpSession.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x: input.x,
+          y: input.y,
+          button,
+          clickCount: input.clickCount ?? 1,
+        });
+        await cdpSession.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x: input.x,
+          y: input.y,
+          button,
+          clickCount: input.clickCount ?? 1,
+        });
+        return;
+      }
+      await cdpSession.send("Input.dispatchMouseEvent", {
+        type: input.phase === "move" ? "mouseMoved" : input.phase === "down" ? "mousePressed" : "mouseReleased",
+        x: input.x,
+        y: input.y,
+        button,
+        clickCount: input.clickCount ?? (input.phase === "move" ? 0 : 1),
+      });
+      return;
+    }
+    case "wheel":
+      assertViewportCoordinate(input.x, input.y);
+      await cdpSession.send("Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x: input.x,
+        y: input.y,
+        deltaX: input.deltaX,
+        deltaY: input.deltaY,
+      });
+      return;
+    case "key":
+      await cdpSession.send("Input.dispatchKeyEvent", {
+        type: input.phase === "up" ? "keyUp" : input.phase === "down" ? "rawKeyDown" : "keyDown",
+        key: input.key,
+        ...(input.text ? { text: input.text } : {}),
+      });
+      return;
+    case "text":
+      await cdpSession.send("Input.insertText", { text: input.text });
+      return;
+    default:
+      throw new Error("Unsupported browser operator input.");
   }
 }
 
@@ -499,20 +773,24 @@ async function observeSession(
     session.page.title().catch(() => undefined),
     session.page.locator("body").innerText({ timeout: 1_000 }).catch(() => undefined),
   ]);
-  const screenshotDataUrl = request.observationRequest?.includeScreenshot === true
+  const screenshot = request.observationRequest?.includeScreenshot === true
     ? await captureScreenshot(session).catch(() => undefined)
     : undefined;
   return {
     url: session.page.url(),
     ...(title ? { title } : {}),
     ...(visibleText ? { visibleText } : {}),
-    ...(screenshotDataUrl ? { screenshotDataUrl } : {}),
+    ...(screenshot?.dataUrl ? { screenshotDataUrl: screenshot.dataUrl } : {}),
   };
 }
 
-async function captureScreenshot(session: BrowserSession): Promise<string> {
+async function captureScreenshot(session: BrowserSession): Promise<{ readonly dataUrl: string; readonly width?: number; readonly height?: number }> {
   const content = await session.page.screenshot({ type: "png", fullPage: false });
-  return `data:image/png;base64,${Buffer.from(content).toString("base64")}`;
+  const viewport = session.page.viewportSize?.();
+  return {
+    dataUrl: `data:image/png;base64,${Buffer.from(content).toString("base64")}`,
+    ...(viewport ? { width: viewport.width, height: viewport.height } : {}),
+  };
 }
 
 async function loadPlaywright(): Promise<PlaywrightModule> {
@@ -602,6 +880,12 @@ function readText(input: Record<string, unknown>): string {
   return value;
 }
 
+function assertViewportCoordinate(x: number, y: number): void {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    throw new Error("Browser operator input coordinates must be finite viewport-relative pixels.");
+  }
+}
+
 function scrollDelta(request: InteractiveUseRequest): { readonly deltaX: number; readonly deltaY: number } {
   if (typeof request.action?.deltaX === "number" || typeof request.action?.deltaY === "number") {
     return {
@@ -654,6 +938,7 @@ function assertUrlAllowed(config: PlaywrightNodeSidecarConfig, value: string): v
 async function closeSession(session: BrowserSession): Promise<void> {
   clearIdleTimer(session.id);
   clearStreamTimer(session.id);
+  await stopCdpScreencast(session.id);
   operatorLocks.delete(session.id);
   sessions.delete(session.id);
   if (activeSessionId === session.id) {
@@ -676,11 +961,11 @@ async function closeBrowserSession(session: BrowserSession): Promise<void> {
   ]);
 }
 
-function startLiveStream(
+async function startLiveStream(
   config: PlaywrightNodeSidecarConfig,
   session: BrowserSession,
   request: InteractiveUseRequest,
-): void {
+): Promise<void> {
   if (config.liveStream?.enabled !== true) {
     return;
   }
@@ -691,7 +976,87 @@ function startLiveStream(
     viewMode: "live",
     stream: { status: "starting" },
   });
+  if (await startCdpScreencast(config, session, request.operation)) {
+    return;
+  }
   scheduleStreamCapture(config, session, request.operation);
+}
+
+async function startCdpScreencast(
+  config: PlaywrightNodeSidecarConfig,
+  session: BrowserSession,
+  operation: InteractiveUseRequest["operation"],
+): Promise<boolean> {
+  if (!session.context.newCDPSession || cdpStreams.has(session.id)) {
+    return false;
+  }
+  try {
+    const cdpSession = await session.context.newCDPSession(session.page);
+    const handler = (frame: CdpScreencastFrame) => {
+      void handleCdpScreencastFrame(config, session, cdpSession, operation, frame);
+    };
+    cdpSession.on("Page.screencastFrame", handler);
+    cdpStreams.set(session.id, { session: cdpSession, handler });
+    await cdpSession.send("Page.startScreencast", {
+      format: "png",
+      everyNthFrame: 1,
+    });
+    return true;
+  } catch {
+    await stopCdpScreencast(session.id);
+    return false;
+  }
+}
+
+async function handleCdpScreencastFrame(
+  config: PlaywrightNodeSidecarConfig,
+  session: BrowserSession,
+  cdpSession: CdpSession,
+  operation: InteractiveUseRequest["operation"],
+  frame: CdpScreencastFrame,
+): Promise<void> {
+  try {
+    if (!sessions.has(session.id)) {
+      return;
+    }
+    assertCurrentUrlAllowed(config, session);
+    const viewport = session.page.viewportSize?.();
+    await cdpSession.send("Page.screencastFrameAck", { sessionId: frame.sessionId });
+    emitBrowserSessionState({
+      session,
+      operation,
+      title: await session.page.title().catch(() => undefined),
+      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
+      viewMode: "live",
+      stream: { status: "live" },
+      latestCaptureDataUrl: `data:image/png;base64,${frame.data}`,
+      latestCaptureWidth: frame.metadata?.deviceWidth ?? viewport?.width,
+      latestCaptureHeight: frame.metadata?.deviceHeight ?? viewport?.height,
+      latestCaptureTransport: "cdp-screencast",
+    });
+  } catch (error) {
+    emitBrowserSessionState({
+      session,
+      operation,
+      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
+      viewMode: "live",
+      stream: {
+        status: "failed",
+        reason: errorMessage(error),
+      },
+    });
+  }
+}
+
+async function stopCdpScreencast(sessionId: string): Promise<void> {
+  const stream = cdpStreams.get(sessionId);
+  if (!stream) {
+    return;
+  }
+  cdpStreams.delete(sessionId);
+  stream.session.off?.("Page.screencastFrame", stream.handler);
+  await stream.session.send("Page.stopScreencast").catch(() => undefined);
+  await stream.session.detach?.().catch(() => undefined);
 }
 
 function scheduleStreamCapture(
@@ -721,7 +1086,7 @@ async function captureAndEmitLiveFrame(
 ): Promise<void> {
   try {
     assertCurrentUrlAllowed(config, session);
-    const [title, screenshotDataUrl] = await Promise.all([
+    const [title, screenshot] = await Promise.all([
       session.page.title().catch(() => undefined),
       captureScreenshot(session),
     ]);
@@ -729,16 +1094,18 @@ async function captureAndEmitLiveFrame(
       session,
       operation,
       title,
-      ownership: "agent",
+      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
       viewMode: "live",
       stream: { status: "live" },
-      latestCaptureDataUrl: screenshotDataUrl,
+      latestCaptureDataUrl: screenshot.dataUrl,
+      latestCaptureWidth: screenshot.width,
+      latestCaptureHeight: screenshot.height,
     });
   } catch (error) {
     emitBrowserSessionState({
       session,
       operation,
-      ownership: "agent",
+      ownership: operatorLocks.has(session.id) ? "operator" : "agent",
       viewMode: "live",
       stream: {
         status: "failed",
@@ -756,6 +1123,9 @@ function emitBrowserSessionState(input: {
   readonly viewMode: BrowserSessionState["viewMode"];
   readonly stream: BrowserSessionState["stream"];
   readonly latestCaptureDataUrl?: string;
+  readonly latestCaptureWidth?: number;
+  readonly latestCaptureHeight?: number;
+  readonly latestCaptureTransport?: BrowserLiveViewportTransport;
 }): BrowserSessionState {
   const url = input.session.page.url();
   const state: BrowserSessionState = {
@@ -776,6 +1146,9 @@ function emitBrowserSessionState(input: {
             dataUrl: input.latestCaptureDataUrl,
             relation: "snapshot",
             mimeType: "image/png",
+            ...(input.latestCaptureWidth ? { width: input.latestCaptureWidth } : {}),
+            ...(input.latestCaptureHeight ? { height: input.latestCaptureHeight } : {}),
+            transport: input.latestCaptureTransport ?? "snapshot-polling",
           },
         }
       : {}),

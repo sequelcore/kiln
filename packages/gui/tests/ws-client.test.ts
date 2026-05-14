@@ -383,6 +383,18 @@ describe("GuiWsClient", () => {
           sessionId: "browser-1",
           requestId: "browser-control-2",
         },
+        {
+          type: "browser_operator_input",
+          requestId: "browser-input-1",
+          sessionId: "browser-1",
+          input: {
+            kind: "wheel",
+            x: 640,
+            y: 360,
+            deltaX: 0,
+            deltaY: 420,
+          },
+        },
         { type: "approve", approvalId: "approval-123" },
         { type: "reject", reason: "not approved", approvalId: "approval-123" },
         { type: "execution_mode_transition", toMode: "execute" },
@@ -668,6 +680,7 @@ describe("GuiWsClient", () => {
               latestCapture: {
                 uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
                 relation: "snapshot",
+                transport: "cdp-screencast",
               },
             },
           },
@@ -708,6 +721,7 @@ describe("GuiWsClient", () => {
               latestCapture: {
                 uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
                 relation: "snapshot",
+                transport: "cdp-screencast",
               },
             },
           },
@@ -730,6 +744,7 @@ describe("GuiWsClient", () => {
               latestCapture: {
                 uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
                 relation: "snapshot",
+                transport: "cdp-screencast",
               },
             },
           },
@@ -750,8 +765,109 @@ describe("GuiWsClient", () => {
               latestCapture: {
                 uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
                 relation: "snapshot",
+                transport: "cdp-screencast",
               },
             },
+          },
+        },
+        {
+          json: {
+            type: "session_event",
+            event: {
+              eventId: "sess-1:browser-operator:1",
+              kilnSessionId: "sess-1",
+              sequence: 1,
+              timestamp: "2026-05-13T12:00:00.000Z",
+              kind: "browser_operator_evidence",
+              source: {
+                actor: "runtime",
+                surface: "gui",
+                component: "gui-gateway",
+              },
+              payload: {
+                action: "operator_input",
+                browserSessionId: "browser-1",
+                input: {
+                  kind: "text",
+                  textLength: 3,
+                },
+                acknowledgement: {
+                  status: "accepted",
+                },
+              },
+            },
+          },
+          expected: {
+            type: "session_event",
+            event: {
+              eventId: "sess-1:browser-operator:1",
+              kilnSessionId: "sess-1",
+              sequence: 1,
+              timestamp: "2026-05-13T12:00:00.000Z",
+              kind: "browser_operator_evidence",
+              source: {
+                actor: "runtime",
+                surface: "gui",
+                component: "gui-gateway",
+              },
+              payload: {
+                action: "operator_input",
+                browserSessionId: "browser-1",
+                input: {
+                  kind: "text",
+                  textLength: 3,
+                },
+                acknowledgement: {
+                  status: "accepted",
+                },
+              },
+            },
+          },
+        },
+        {
+          json: {
+            type: "browser_live_viewport_frame",
+            sessionId: "browser-1",
+            kilnSessionId: "sess-1",
+            frameId: "frame-1",
+            sequence: 1,
+            transport: "cdp-screencast",
+            format: "jpeg",
+            dataUrl: "data:image/jpeg;base64,abc123",
+            width: 1280,
+            height: 720,
+            scale: 1,
+            capturedAt: "2026-05-13T12:00:00.000Z",
+          },
+          expected: {
+            type: "browser_live_viewport_frame",
+            sessionId: "browser-1",
+            kilnSessionId: "sess-1",
+            frameId: "frame-1",
+            sequence: 1,
+            transport: "cdp-screencast",
+            format: "jpeg",
+            dataUrl: "data:image/jpeg;base64,abc123",
+            width: 1280,
+            height: 720,
+            scale: 1,
+            capturedAt: "2026-05-13T12:00:00.000Z",
+          },
+        },
+        {
+          json: {
+            type: "browser_operator_input_ack",
+            requestId: "browser-input-1",
+            sessionId: "browser-1",
+            status: "accepted",
+            handledAt: "2026-05-13T12:00:00.000Z",
+          },
+          expected: {
+            type: "browser_operator_input_ack",
+            requestId: "browser-input-1",
+            sessionId: "browser-1",
+            status: "accepted",
+            handledAt: "2026-05-13T12:00:00.000Z",
           },
         },
         {

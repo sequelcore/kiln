@@ -15,6 +15,7 @@ type PlaywrightLoader = () => Promise<PlaywrightModule>;
 type PlaywrightNodeSidecarRunner = {
   execute(request: InteractiveUseRequest): Promise<InteractiveUseProviderResult>;
   control(request: PlaywrightBrowserSessionControlRequest): Promise<PlaywrightBrowserSessionState>;
+  operatorInput(request: PlaywrightBrowserOperatorInputRequest): Promise<PlaywrightBrowserOperatorInputAck>;
   closeAll(): Promise<void>;
 };
 
@@ -48,6 +49,8 @@ export interface PlaywrightBrowserLiveStreamOptions {
   readonly intervalMs?: number;
 }
 
+type PlaywrightBrowserLiveViewportTransport = "snapshot-polling" | "cdp-screencast";
+
 export interface PlaywrightBrowserSessionState {
   readonly target: "browser";
   readonly status: "running" | "succeeded" | "failed";
@@ -67,6 +70,9 @@ export interface PlaywrightBrowserSessionState {
     readonly uri: string;
     readonly relation: "snapshot";
     readonly mimeType: "image/png";
+    readonly width?: number;
+    readonly height?: number;
+    readonly transport?: PlaywrightBrowserLiveViewportTransport;
   };
 }
 
@@ -75,6 +81,48 @@ export interface PlaywrightBrowserSessionControlRequest {
   readonly sessionId?: string;
   readonly operatorId?: string;
   readonly reason?: string;
+}
+
+export type PlaywrightBrowserOperatorInput =
+  | {
+      readonly kind: "pointer";
+      readonly phase: "move" | "down" | "up" | "click";
+      readonly x: number;
+      readonly y: number;
+      readonly button?: "left" | "middle" | "right" | "back" | "forward" | "none";
+      readonly clickCount?: number;
+    }
+  | {
+      readonly kind: "wheel";
+      readonly x: number;
+      readonly y: number;
+      readonly deltaX: number;
+      readonly deltaY: number;
+    }
+  | {
+      readonly kind: "key";
+      readonly phase: "down" | "up" | "press";
+      readonly key: string;
+      readonly text?: string;
+    }
+  | {
+      readonly kind: "text";
+      readonly text: string;
+    };
+
+export interface PlaywrightBrowserOperatorInputRequest {
+  readonly requestId: string;
+  readonly sessionId: string;
+  readonly operatorId?: string;
+  readonly input: PlaywrightBrowserOperatorInput;
+}
+
+export interface PlaywrightBrowserOperatorInputAck {
+  readonly requestId: string;
+  readonly sessionId?: string;
+  readonly status: "accepted" | "blocked" | "failed" | "stale-session";
+  readonly reason?: string;
+  readonly handledAt: string;
 }
 
 interface BrowserSessionOperatorLock {
@@ -88,6 +136,9 @@ interface PlaywrightNodeSidecarBrowserSessionState extends Omit<PlaywrightBrowse
     readonly dataUrl: string;
     readonly relation: "snapshot";
     readonly mimeType: "image/png";
+    readonly width?: number;
+    readonly height?: number;
+    readonly transport?: PlaywrightBrowserLiveViewportTransport;
   };
 }
 
@@ -111,6 +162,7 @@ interface Browser {
 
 interface BrowserContext {
   newPage(): Promise<Page>;
+  newCDPSession?(page: Page): Promise<CdpSession>;
   close(): Promise<void>;
 }
 
@@ -124,9 +176,13 @@ interface Page {
   url(): string;
   title(): Promise<string>;
   screenshot(options?: { readonly type?: "png"; readonly fullPage?: boolean }): Promise<Uint8Array>;
+  viewportSize?(): ViewportSize | null;
   locator(selector: string): Locator;
   mouse: {
     click(x: number, y: number, options?: { readonly button?: "left" | "middle" | "right"; readonly clickCount?: number }): Promise<void>;
+    move?(x: number, y: number): Promise<void>;
+    down?(options?: { readonly button?: "left" | "middle" | "right" }): Promise<void>;
+    up?(options?: { readonly button?: "left" | "middle" | "right" }): Promise<void>;
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
   keyboard: {
@@ -146,6 +202,29 @@ interface BrowserSession {
   readonly browser: Browser;
   readonly context: BrowserContext;
   readonly page: Page;
+  readonly viewport?: ViewportSize;
+}
+
+interface CdpSession {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  on(event: "Page.screencastFrame", handler: (event: CdpScreencastFrame) => void): void;
+  off?(event: "Page.screencastFrame", handler: (event: CdpScreencastFrame) => void): void;
+  detach?(): Promise<void>;
+}
+
+interface CdpScreencastFrame {
+  readonly data: string;
+  readonly sessionId: number;
+  readonly metadata?: {
+    readonly deviceWidth?: number;
+    readonly deviceHeight?: number;
+    readonly pageScaleFactor?: number;
+  };
+}
+
+interface BrowserCdpScreencastStream {
+  readonly session: CdpSession;
+  readonly handler: (event: CdpScreencastFrame) => void;
 }
 
 export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
@@ -163,6 +242,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly streamTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly cdpStreams = new Map<string, BrowserCdpScreencastStream>();
   private readonly operatorLocks = new Map<string, BrowserSessionOperatorLock>();
   private activeSessionId: string | undefined;
   private sequence = 0;
@@ -252,17 +332,39 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         ...(request.reason ? { reason: request.reason } : {}),
         acquiredAt: new Date().toISOString(),
       });
-      this.clearStreamTimer(session.id);
-      return this.emitBrowserSessionState({
-        session,
-        operation: "operator_takeover",
-        ownership: "operator",
-        viewMode: "live",
-        stream: {
-          status: "paused",
-          reason: request.reason ?? "Operator took control of the browser session.",
-        },
-      });
+      try {
+        const [title, screenshot] = await Promise.all([
+          session.page.title().catch(() => undefined),
+          this.captureScreenshot(session),
+        ]);
+        const state = this.emitBrowserSessionState({
+          session,
+          operation: "operator_takeover",
+          title,
+          ownership: "operator",
+          viewMode: "live",
+          stream: { status: "live" },
+          latestCaptureUri: screenshot.uri,
+          latestCaptureWidth: screenshot.width,
+          latestCaptureHeight: screenshot.height,
+        });
+        this.scheduleStreamCapture(session, "observe");
+        this.scheduleIdleClose(session);
+        return state;
+      } catch (error) {
+        const state = this.emitBrowserSessionState({
+          session,
+          operation: "operator_takeover",
+          ownership: "operator",
+          viewMode: "live",
+          stream: {
+            status: "failed",
+            reason: error instanceof Error ? error.message : String(error),
+          },
+        });
+        this.scheduleIdleClose(session);
+        return state;
+      }
     }
 
     this.operatorLocks.delete(session.id);
@@ -279,6 +381,8 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         viewMode: "live",
         stream: { status: "live" },
         latestCaptureUri: screenshot.uri,
+        latestCaptureWidth: screenshot.width,
+        latestCaptureHeight: screenshot.height,
       });
       this.scheduleStreamCapture(session, "observe");
       this.scheduleIdleClose(session);
@@ -299,6 +403,58 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     }
   }
 
+  async requestBrowserOperatorInput(request: PlaywrightBrowserOperatorInputRequest): Promise<PlaywrightBrowserOperatorInputAck> {
+    if (this.sidecarRunner) {
+      return this.sidecarRunner.operatorInput(request).catch((error) => ({
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        status: "failed" as const,
+        reason: error instanceof Error ? error.message : String(error),
+        handledAt: new Date().toISOString(),
+      }));
+    }
+    const handledAt = new Date().toISOString();
+    const session = this.sessions.get(request.sessionId);
+    if (!session) {
+      return {
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        status: "stale-session",
+        reason: "Browser session is not active.",
+        handledAt,
+      };
+    }
+    if (!this.operatorLocks.has(session.id)) {
+      return {
+        requestId: request.requestId,
+        sessionId: session.id,
+        status: "blocked",
+        reason: "Operator does not own the browser session.",
+        handledAt,
+      };
+    }
+    try {
+      this.assertCurrentUrlAllowed(session);
+      await this.dispatchOperatorInput(session, request.input);
+      await this.captureAndEmitLiveFrame(session, "observe");
+      this.scheduleIdleClose(session);
+      return {
+        requestId: request.requestId,
+        sessionId: session.id,
+        status: "accepted",
+        handledAt,
+      };
+    } catch (error) {
+      return {
+        requestId: request.requestId,
+        sessionId: session.id,
+        status: "failed",
+        reason: error instanceof Error ? error.message : String(error),
+        handledAt,
+      };
+    }
+  }
+
   async closeAll(): Promise<void> {
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
@@ -310,6 +466,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       clearTimeout(timer);
     }
     this.streamTimers.clear();
+    await Promise.allSettled([...this.cdpStreams.keys()].map((sessionId) => this.stopCdpScreencast(sessionId)));
     this.operatorLocks.clear();
     this.activeSessionId = undefined;
     await Promise.allSettled([
@@ -340,7 +497,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         output: `Attached to Playwright browser session ${existingSession.id}.`,
         observation: await this.observeSession(existingSession, request),
       };
-      this.startLiveStream(existingSession, request);
+      await this.startLiveStream(existingSession, request);
       this.scheduleIdleClose(existingSession);
       return result;
     }
@@ -348,9 +505,10 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     const playwright = await this.loader();
     const sessionId = request.sessionId ?? `browser-${++this.sequence}`;
     const browser = await this.launchBrowser(playwright, request);
-    const context = await browser.newContext({ viewport: readViewport(request.input) });
+    const viewport = readViewport(request.input);
+    const context = await browser.newContext({ viewport });
     const page = await context.newPage();
-    const session: BrowserSession = { id: sessionId, browser, context, page };
+    const session: BrowserSession = { id: sessionId, browser, context, page, ...(viewport ? { viewport } : {}) };
     this.sessions.set(sessionId, session);
     this.activeSessionId = sessionId;
 
@@ -368,7 +526,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         output: `Started Playwright browser session ${sessionId}.`,
         observation: await this.observeSession(session, request),
       };
-      this.startLiveStream(session, request);
+      await this.startLiveStream(session, request);
       this.scheduleIdleClose(session);
       return result;
     } catch (error) {
@@ -527,6 +685,126 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     return session;
   }
 
+  private async dispatchOperatorInput(session: BrowserSession, input: PlaywrightBrowserOperatorInput): Promise<void> {
+    const cdpStream = this.cdpStreams.get(session.id);
+    if (cdpStream) {
+      await this.dispatchCdpOperatorInput(cdpStream.session, input);
+      return;
+    }
+    switch (input.kind) {
+      case "pointer": {
+        assertViewportCoordinate(input.x, input.y);
+        const button = input.button === "none" || input.button === "back" || input.button === "forward"
+          ? undefined
+          : input.button;
+        if (input.phase === "click") {
+          await session.page.mouse.click(input.x, input.y, {
+            ...(button ? { button } : {}),
+            ...(input.clickCount ? { clickCount: input.clickCount } : {}),
+          });
+          return;
+        }
+        if (input.phase === "move") {
+          if (!session.page.mouse.move) {
+            throw new Error("Pointer move is not supported by the active browser provider.");
+          }
+          await session.page.mouse.move(input.x, input.y);
+          return;
+        }
+        if (input.phase === "down") {
+          if (!session.page.mouse.move || !session.page.mouse.down) {
+            throw new Error("Pointer down is not supported by the active browser provider.");
+          }
+          await session.page.mouse.move(input.x, input.y);
+          await session.page.mouse.down(button ? { button } : undefined);
+          return;
+        }
+        if (!session.page.mouse.move || !session.page.mouse.up) {
+          throw new Error("Pointer up is not supported by the active browser provider.");
+        }
+        await session.page.mouse.move(input.x, input.y);
+        await session.page.mouse.up(button ? { button } : undefined);
+        return;
+      }
+      case "wheel":
+        assertViewportCoordinate(input.x, input.y);
+        if (session.page.mouse.move) {
+          await session.page.mouse.move(input.x, input.y);
+        }
+        await session.page.mouse.wheel(input.deltaX, input.deltaY);
+        return;
+      case "key":
+        if (input.phase === "press") {
+          await session.page.keyboard.press(input.key);
+          return;
+        }
+        throw new Error("Key down/up operator input requires the CDP transport slice.");
+      case "text":
+        await session.page.keyboard.type(input.text);
+        return;
+      default:
+        throw new Error("Unsupported browser operator input.");
+    }
+  }
+
+  private async dispatchCdpOperatorInput(cdpSession: CdpSession, input: PlaywrightBrowserOperatorInput): Promise<void> {
+    switch (input.kind) {
+      case "pointer": {
+        assertViewportCoordinate(input.x, input.y);
+        const button = input.button === "none" || input.button === "back" || input.button === "forward"
+          ? "none"
+          : input.button ?? "left";
+        if (input.phase === "click") {
+          await cdpSession.send("Input.dispatchMouseEvent", {
+            type: "mousePressed",
+            x: input.x,
+            y: input.y,
+            button,
+            clickCount: input.clickCount ?? 1,
+          });
+          await cdpSession.send("Input.dispatchMouseEvent", {
+            type: "mouseReleased",
+            x: input.x,
+            y: input.y,
+            button,
+            clickCount: input.clickCount ?? 1,
+          });
+          return;
+        }
+        await cdpSession.send("Input.dispatchMouseEvent", {
+          type: input.phase === "move" ? "mouseMoved" : input.phase === "down" ? "mousePressed" : "mouseReleased",
+          x: input.x,
+          y: input.y,
+          button,
+          clickCount: input.clickCount ?? (input.phase === "move" ? 0 : 1),
+        });
+        return;
+      }
+      case "wheel":
+        assertViewportCoordinate(input.x, input.y);
+        await cdpSession.send("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          x: input.x,
+          y: input.y,
+          deltaX: input.deltaX,
+          deltaY: input.deltaY,
+        });
+        return;
+      case "key":
+        await cdpSession.send("Input.dispatchKeyEvent", {
+          type: input.phase === "up" ? "keyUp" : input.phase === "down" ? "rawKeyDown" : "keyDown",
+          key: input.key,
+          ...(input.text ? { text: input.text } : {}),
+        });
+        return;
+      case "text":
+        await cdpSession.send("Input.insertText", { text: input.text });
+        return;
+      default:
+        throw new Error("Unsupported browser operator input.");
+    }
+  }
+
   private async observeSession(
     session: BrowserSession,
     request: InteractiveUseRequest,
@@ -548,9 +826,12 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     };
   }
 
-  private async captureScreenshot(session: BrowserSession): Promise<{ readonly uri?: string; readonly dataUrl: string }> {
+  private async captureScreenshot(
+    session: BrowserSession,
+  ): Promise<{ readonly uri?: string; readonly dataUrl: string; readonly width?: number; readonly height?: number }> {
     const content = await session.page.screenshot({ type: "png", fullPage: false });
     const dataUrl = `data:image/png;base64,${Buffer.from(content).toString("base64")}`;
+    const viewport = session.page.viewportSize?.() ?? session.viewport;
     const uri = this.artifactSink
       ? await this.artifactSink.writeInteractiveArtifact({
           sessionId: session.id,
@@ -562,6 +843,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     return {
       dataUrl,
       ...(uri ? { uri } : {}),
+      ...(viewport ? { width: viewport.width, height: viewport.height } : {}),
     };
   }
 
@@ -597,6 +879,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
   private async closeSession(session: BrowserSession): Promise<void> {
     this.clearIdleTimer(session.id);
     this.clearStreamTimer(session.id);
+    await this.stopCdpScreencast(session.id);
     this.operatorLocks.delete(session.id);
     this.sessions.delete(session.id);
     if (this.activeSessionId === session.id) {
@@ -615,7 +898,7 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     });
   }
 
-  private startLiveStream(session: BrowserSession, request: InteractiveUseRequest): void {
+  private async startLiveStream(session: BrowserSession, request: InteractiveUseRequest): Promise<void> {
     if (!this.liveStream.enabled || !this.onBrowserSessionUpdated) {
       return;
     }
@@ -626,7 +909,91 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
       viewMode: "live",
       stream: { status: "starting" },
     });
+    if (await this.startCdpScreencast(session, request.operation)) {
+      return;
+    }
     this.scheduleStreamCapture(session, request.operation);
+  }
+
+  private async startCdpScreencast(session: BrowserSession, operation: InteractiveUseRequest["operation"]): Promise<boolean> {
+    if (!this.artifactSink || !session.context.newCDPSession || this.cdpStreams.has(session.id)) {
+      return false;
+    }
+    try {
+      const cdpSession = await session.context.newCDPSession(session.page);
+      const handler = (frame: CdpScreencastFrame) => {
+        void this.handleCdpScreencastFrame(session, cdpSession, operation, frame);
+      };
+      cdpSession.on("Page.screencastFrame", handler);
+      this.cdpStreams.set(session.id, { session: cdpSession, handler });
+      await cdpSession.send("Page.startScreencast", {
+        format: "png",
+        everyNthFrame: 1,
+      });
+      return true;
+    } catch {
+      await this.stopCdpScreencast(session.id);
+      return false;
+    }
+  }
+
+  private async handleCdpScreencastFrame(
+    session: BrowserSession,
+    cdpSession: CdpSession,
+    operation: InteractiveUseRequest["operation"],
+    frame: CdpScreencastFrame,
+  ): Promise<void> {
+    try {
+      if (!this.sessions.has(session.id) || !this.artifactSink) {
+        return;
+      }
+      this.assertCurrentUrlAllowed(session);
+      const content = Buffer.from(frame.data, "base64");
+      const viewport = session.page.viewportSize?.() ?? session.viewport;
+      const width = frame.metadata?.deviceWidth ?? viewport?.width;
+      const height = frame.metadata?.deviceHeight ?? viewport?.height;
+      const uri = await this.artifactSink.writeInteractiveArtifact({
+        sessionId: session.id,
+        kind: "screenshot",
+        mimeType: "image/png",
+        content,
+      });
+      await cdpSession.send("Page.screencastFrameAck", { sessionId: frame.sessionId });
+      this.emitBrowserSessionState({
+        session,
+        operation,
+        title: await session.page.title().catch(() => undefined),
+        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
+        viewMode: "live",
+        stream: { status: "live" },
+        latestCaptureUri: uri,
+        latestCaptureWidth: width,
+        latestCaptureHeight: height,
+        latestCaptureTransport: "cdp-screencast",
+      });
+    } catch (error) {
+      this.emitBrowserSessionState({
+        session,
+        operation,
+        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
+        viewMode: "live",
+        stream: {
+          status: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async stopCdpScreencast(sessionId: string): Promise<void> {
+    const stream = this.cdpStreams.get(sessionId);
+    if (!stream) {
+      return;
+    }
+    this.cdpStreams.delete(sessionId);
+    stream.session.off?.("Page.screencastFrame", stream.handler);
+    await stream.session.send("Page.stopScreencast").catch(() => undefined);
+    await stream.session.detach?.().catch(() => undefined);
   }
 
   private scheduleStreamCapture(session: BrowserSession, operation: InteractiveUseRequest["operation"]): void {
@@ -656,16 +1023,18 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         session,
         operation,
         title,
-        ownership: "agent",
+        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
         viewMode: "live",
         stream: { status: "live" },
         latestCaptureUri: screenshot.uri,
+        latestCaptureWidth: screenshot.width,
+        latestCaptureHeight: screenshot.height,
       });
     } catch (error) {
       this.emitBrowserSessionState({
         session,
         operation,
-        ownership: "agent",
+        ownership: this.operatorLocks.has(session.id) ? "operator" : "agent",
         viewMode: "live",
         stream: {
           status: "failed",
@@ -683,6 +1052,9 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
     readonly viewMode: PlaywrightBrowserSessionState["viewMode"];
     readonly stream: PlaywrightBrowserSessionState["stream"];
     readonly latestCaptureUri?: string;
+    readonly latestCaptureWidth?: number;
+    readonly latestCaptureHeight?: number;
+    readonly latestCaptureTransport?: PlaywrightBrowserLiveViewportTransport;
   }): PlaywrightBrowserSessionState {
     const url = input.session.page.url();
     const state: PlaywrightBrowserSessionState = {
@@ -703,6 +1075,9 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
               uri: input.latestCaptureUri,
               relation: "snapshot",
               mimeType: "image/png",
+              ...(input.latestCaptureWidth ? { width: input.latestCaptureWidth } : {}),
+              ...(input.latestCaptureHeight ? { height: input.latestCaptureHeight } : {}),
+              transport: input.latestCaptureTransport ?? "snapshot-polling",
             },
           }
         : {}),
@@ -745,6 +1120,9 @@ export class PlaywrightBrowserUseProvider implements InteractiveUseProvider {
         uri,
         relation: latestCapture.relation,
         mimeType: latestCapture.mimeType,
+        ...(latestCapture.width ? { width: latestCapture.width } : {}),
+        ...(latestCapture.height ? { height: latestCapture.height } : {}),
+        transport: latestCapture.transport ?? "snapshot-polling",
       },
     };
   }
@@ -868,6 +1246,12 @@ function readText(input: Record<string, unknown>): string {
   return value;
 }
 
+function assertViewportCoordinate(x: number, y: number): void {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    throw new Error("Browser operator input coordinates must be finite viewport-relative pixels.");
+  }
+}
+
 function scrollDelta(request: InteractiveUseRequest): { readonly deltaX: number; readonly deltaY: number } {
   if (typeof request.action?.deltaX === "number" || typeof request.action?.deltaY === "number") {
     return {
@@ -934,13 +1318,14 @@ interface PlaywrightNodeSidecarWireRequest {
   readonly request:
     | InteractiveUseRequest
     | { readonly operation: "close_all" }
-    | ({ readonly operation: "browser_session_control" } & PlaywrightBrowserSessionControlRequest);
+    | ({ readonly operation: "browser_session_control" } & PlaywrightBrowserSessionControlRequest)
+    | ({ readonly operation: "browser_operator_input" } & PlaywrightBrowserOperatorInputRequest);
 }
 
 interface PlaywrightNodeSidecarWireResponse {
   readonly id: number;
   readonly ok: boolean;
-  readonly result?: InteractiveUseProviderResult | PlaywrightBrowserSessionState;
+  readonly result?: InteractiveUseProviderResult | PlaywrightBrowserSessionState | PlaywrightBrowserOperatorInputAck;
   readonly error?: string;
 }
 
@@ -956,7 +1341,7 @@ function createPlaywrightNodeSidecarRunner(
   let child: ChildProcessWithoutNullStreams | undefined;
   let sequence = 0;
   const pending = new Map<number, {
-    readonly resolve: (value: InteractiveUseProviderResult | PlaywrightBrowserSessionState) => void;
+    readonly resolve: (value: InteractiveUseProviderResult | PlaywrightBrowserSessionState | PlaywrightBrowserOperatorInputAck) => void;
     readonly reject: (error: Error) => void;
     readonly timer: ReturnType<typeof setTimeout>;
   }>();
@@ -1011,7 +1396,7 @@ function createPlaywrightNodeSidecarRunner(
     return child;
   }
 
-  async function send<TResult extends InteractiveUseProviderResult | PlaywrightBrowserSessionState>(
+  async function send<TResult extends InteractiveUseProviderResult | PlaywrightBrowserSessionState | PlaywrightBrowserOperatorInputAck>(
     config: PlaywrightNodeSidecarConfig,
     request: PlaywrightNodeSidecarWireRequest["request"],
     timeoutMs: number,
@@ -1045,6 +1430,13 @@ function createPlaywrightNodeSidecarRunner(
       return send<PlaywrightBrowserSessionState>(
         readConfig(),
         { operation: "browser_session_control", ...request },
+        5_000,
+      );
+    },
+    operatorInput(request) {
+      return send<PlaywrightBrowserOperatorInputAck>(
+        readConfig(),
+        { operation: "browser_operator_input", ...request },
         5_000,
       );
     },

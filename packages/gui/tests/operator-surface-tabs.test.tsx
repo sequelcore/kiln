@@ -394,6 +394,172 @@ describe("OperatorSurfaceTabs", () => {
     expect(screen.queryByText("No browser screenshot has been captured yet.")).not.toBeInTheDocument();
   });
 
+  it("renders live viewport frames and sends brokered operator input", async () => {
+    const onBrowserOperatorInput = vi.fn();
+    const loadResourceDataUrl = vi.fn(async (uri: string) => {
+      if (uri === "kiln://artifacts/live/browser/frame-1") {
+        return "data:image/png;base64,live";
+      }
+      return null;
+    });
+    render(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSession={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-13T12:00:00.000Z",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          title: "QA Browser",
+          ownership: "operator",
+          viewMode: "live",
+          stream: { status: "paused" },
+        }}
+        browserLiveViewportFrame={{
+          type: "browser_live_viewport_frame",
+          sessionId: "qa-browser",
+          frameId: "frame-1",
+          sequence: 1,
+          transport: "snapshot-polling",
+          format: "png",
+          artifactUri: "kiln://artifacts/live/browser/frame-1",
+          width: 1280,
+          height: 720,
+          capturedAt: "2026-05-13T12:00:01.000Z",
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        loadResourceDataUrl={loadResourceDataUrl}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+        onBrowserSessionControl={vi.fn()}
+        onBrowserOperatorInput={onBrowserOperatorInput}
+      />,
+    );
+
+    const viewport = await screen.findByTestId("browser-live-viewport");
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 10,
+      left: 20,
+      bottom: 370,
+      right: 660,
+      width: 640,
+      height: 360,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    expect(screen.getByRole("img", { name: "Live browser viewport for QA Browser" })).toHaveAttribute(
+      "src",
+      "data:image/png;base64,live",
+    );
+
+    fireEvent.click(viewport, { clientX: 340, clientY: 190 });
+    fireEvent.wheel(viewport, { clientX: 340, clientY: 190, deltaX: 0, deltaY: 240 });
+    fireEvent.keyDown(viewport, { key: "a" });
+    fireEvent.keyDown(viewport, { key: "Enter" });
+
+    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
+      sessionId: "qa-browser",
+      input: {
+        kind: "pointer",
+        phase: "click",
+        x: 640,
+        y: 360,
+        button: "left",
+        clickCount: 1,
+      },
+    });
+    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
+      sessionId: "qa-browser",
+      input: {
+        kind: "wheel",
+        x: 640,
+        y: 360,
+        deltaX: 0,
+        deltaY: 240,
+      },
+    });
+    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
+      sessionId: "qa-browser",
+      input: {
+        kind: "text",
+        text: "a",
+      },
+    });
+    expect(onBrowserOperatorInput).toHaveBeenCalledWith({
+      sessionId: "qa-browser",
+      input: {
+        kind: "key",
+        phase: "press",
+        key: "Enter",
+      },
+    });
+  });
+
+  it("does not send live viewport input until the operator owns the session", () => {
+    const onBrowserOperatorInput = vi.fn();
+    render(
+      <OperatorSurfaceTabs
+        activeSurface="browser"
+        chatContent={<div>Chat transcript</div>}
+        memoryContent={<div>Memory Lattice surface</div>}
+        browserSession={{
+          target: "browser",
+          status: "running",
+          updatedAt: "2026-05-13T12:00:00.000Z",
+          provider: "playwright",
+          sessionId: "qa-browser",
+          title: "QA Browser",
+          ownership: "agent",
+          viewMode: "live",
+          stream: { status: "live" },
+        }}
+        browserLiveViewportFrame={{
+          type: "browser_live_viewport_frame",
+          sessionId: "qa-browser",
+          frameId: "frame-1",
+          transport: "snapshot-polling",
+          format: "png",
+          dataUrl: "data:image/png;base64,live",
+          width: 1280,
+          height: 720,
+          capturedAt: "2026-05-13T12:00:01.000Z",
+        }}
+        memoryOpen={false}
+        files={[]}
+        selectedPath={null}
+        loadingPath={null}
+        error={null}
+        onSelectChat={vi.fn()}
+        onSelectBrowser={vi.fn()}
+        onSelectMemory={vi.fn()}
+        onCloseMemory={vi.fn()}
+        onSelectFile={vi.fn()}
+        onCloseFile={vi.fn()}
+        onBrowserSessionControl={vi.fn()}
+        onBrowserOperatorInput={onBrowserOperatorInput}
+      />,
+    );
+
+    const viewport = screen.getByTestId("browser-live-viewport");
+    fireEvent.click(viewport, { clientX: 10, clientY: 10 });
+    fireEvent.keyDown(viewport, { key: "a" });
+
+    expect(onBrowserOperatorInput).not.toHaveBeenCalled();
+  });
+
   it("renders markdown through the safe markdown renderer", () => {
     render(
       <OperatorSurfaceTabs

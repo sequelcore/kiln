@@ -1456,6 +1456,8 @@ describe("startGuiGateway static mount", () => {
         readonly uri: string;
         readonly relation: "snapshot";
         readonly mimeType: "image/png";
+        readonly width?: number;
+        readonly height?: number;
       };
     }) => void) | undefined;
     const browserProvider = {
@@ -1480,6 +1482,8 @@ describe("startGuiGateway static mount", () => {
           uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
           relation: "snapshot",
           mimeType: "image/png",
+          width: 1280,
+          height: 720,
         },
       });
       await input.turnCapture?.finish?.("gui-browser-session");
@@ -1538,6 +1542,9 @@ describe("startGuiGateway static mount", () => {
       const browserFrame = mockWs.send.mock.calls
         .map(([payload]) => JSON.parse(payload as string) as { type: string; browserSession?: Record<string, unknown> })
         .find((frame) => frame.type === "browser_session_updated");
+      const liveFrame = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as { type: string; [key: string]: unknown })
+        .find((frame) => frame.type === "browser_live_viewport_frame");
 
       expect(browserProvider.setBrowserSessionUpdateHandler).toHaveBeenCalledWith(expect.any(Function));
       expect(browserFrame).toEqual({
@@ -1556,8 +1563,149 @@ describe("startGuiGateway static mount", () => {
             uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
             relation: "snapshot",
             mimeType: "image/png",
+            width: 1280,
+            height: 720,
           },
         },
+      });
+      expect(liveFrame).toEqual({
+        type: "browser_live_viewport_frame",
+        sessionId: "browser-live",
+        kilnSessionId: "gui-browser-session",
+        frameId: "browser-live:2026-05-12T12:00:00.000Z",
+        transport: "snapshot-polling",
+        format: "png",
+        artifactUri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
+        width: 1280,
+        height: 720,
+        capturedAt: "2026-05-12T12:00:00.000Z",
+      });
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves CDP screencast transport in forwarded browser live viewport frames", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    let browserSessionUpdateHandler: ((state: {
+      readonly target: "browser";
+      readonly status: "running";
+      readonly updatedAt: string;
+      readonly provider: "playwright";
+      readonly sessionId: string;
+      readonly ownership: "operator";
+      readonly viewMode: "live";
+      readonly stream: { readonly status: "live" };
+      readonly latestCapture: {
+        readonly uri: string;
+        readonly relation: "snapshot";
+        readonly mimeType: "image/png";
+        readonly width: number;
+        readonly height: number;
+        readonly transport: "cdp-screencast";
+      };
+    }) => void) | undefined;
+    const browserProvider = {
+      execute: vi.fn(),
+      setBrowserSessionUpdateHandler: vi.fn((handler) => {
+        browserSessionUpdateHandler = handler;
+      }),
+    };
+    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input: {
+      readonly turnCapture?: {
+        readonly start: (sessionId: string, nextSequence: number) => void;
+        readonly finish: (sessionId: string) => void;
+      };
+    }) => {
+      input.turnCapture?.start("gui-browser-session", 1);
+      input.turnCapture?.finish("gui-browser-session");
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "watching" }],
+          inputTokens: 1,
+          outputTokens: 1,
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        builtinToolOptions: {
+          browserUse: {
+            provider: browserProvider,
+          },
+        } as never,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "open the browser" }),
+        }),
+        wsCtx,
+      );
+
+      browserSessionUpdateHandler?.({
+        target: "browser",
+        status: "running",
+        updatedAt: "2026-05-13T12:00:00.000Z",
+        provider: "playwright",
+        sessionId: "browser-live",
+        ownership: "operator",
+        viewMode: "live",
+        stream: { status: "live" },
+        latestCapture: {
+          uri: "kiln://artifacts/interactive-screenshots/artifact_2/content",
+          relation: "snapshot",
+          mimeType: "image/png",
+          width: 1440,
+          height: 900,
+          transport: "cdp-screencast",
+        },
+      });
+
+      const liveFrame = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as { type: string; [key: string]: unknown })
+        .find((frame) => frame.type === "browser_live_viewport_frame" && frame.frameId === "browser-live:2026-05-13T12:00:00.000Z");
+
+      expect(liveFrame).toMatchObject({
+        type: "browser_live_viewport_frame",
+        sessionId: "browser-live",
+        kilnSessionId: "gui-browser-session",
+        transport: "cdp-screencast",
+        artifactUri: "kiln://artifacts/interactive-screenshots/artifact_2/content",
+        width: 1440,
+        height: 900,
       });
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
@@ -1677,6 +1825,148 @@ describe("startGuiGateway static mount", () => {
         },
       }));
     } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes browser operator input requests to the configured provider and forwards acknowledgements", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const requestBrowserOperatorInput = vi.fn(async () => ({
+      requestId: "browser-input-1",
+      sessionId: "browser-live",
+      status: "accepted" as const,
+      handledAt: "2026-05-13T12:00:00.000Z",
+    }));
+    const browserProvider = {
+      execute: vi.fn(),
+      requestBrowserOperatorInput,
+    };
+    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input: {
+      readonly turnCapture?: {
+        readonly start: (sessionId: string, nextSequence: number) => void;
+        readonly finish: (sessionId: string) => void;
+      };
+    }) => {
+      input.turnCapture?.start("gui-browser-session", 1);
+      input.turnCapture?.finish("gui-browser-session");
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "ready" }],
+          inputTokens: 1,
+          outputTokens: 1,
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        builtinToolOptions: {
+          browserUse: {
+            provider: browserProvider,
+          },
+        } as never,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start browser work" }),
+        }),
+        wsCtx,
+      );
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "browser_operator_input",
+            requestId: "browser-input-1",
+            sessionId: "browser-live",
+            input: {
+              kind: "pointer",
+              phase: "down",
+              x: 120,
+              y: 80,
+              button: "left",
+            },
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(requestBrowserOperatorInput).toHaveBeenCalledWith({
+        requestId: "browser-input-1",
+        sessionId: "browser-live",
+        operatorId: "operator-1",
+        input: {
+          kind: "pointer",
+          phase: "down",
+          x: 120,
+          y: 80,
+          button: "left",
+        },
+      });
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "browser_operator_input_ack",
+        requestId: "browser-input-1",
+        sessionId: "browser-live",
+        status: "accepted",
+        handledAt: "2026-05-13T12:00:00.000Z",
+      }));
+      const evidenceFrame = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          event?: {
+            kind: string;
+            kilnSessionId: string;
+            payload: Record<string, unknown>;
+          };
+        })
+        .find((frame) => frame.type === "session_event" && frame.event?.kind === "browser_operator_evidence");
+      expect(evidenceFrame?.event).toMatchObject({
+        kilnSessionId: "gui-browser-session",
+        kind: "browser_operator_evidence",
+        payload: {
+          action: "operator_input",
+          browserSessionId: "browser-live",
+          input: {
+            kind: "pointer",
+            phase: "down",
+          },
+          acknowledgement: {
+            status: "accepted",
+          },
+        },
+      });
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });

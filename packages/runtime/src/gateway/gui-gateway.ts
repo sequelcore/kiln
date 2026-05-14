@@ -62,6 +62,8 @@ import {
   isGuiProviderModeless,
   isOperatorThemeName,
   type GuiDashboardSnapshot,
+  type GuiBrowserOperatorInput,
+  type GuiBrowserOperatorInputAckFrame,
   type GuiBrowserSessionState,
   type GuiInboundFrame,
   type GuiOutboundFrame,
@@ -147,6 +149,15 @@ interface BrowserSessionControlConsumer {
     readonly operatorId?: string;
     readonly reason?: string;
   }): Promise<Omit<GuiBrowserSessionState, "kilnSessionId">>;
+}
+
+interface BrowserOperatorInputConsumer {
+  requestBrowserOperatorInput(request: {
+    readonly requestId: string;
+    readonly sessionId: string;
+    readonly operatorId?: string;
+    readonly input: GuiBrowserOperatorInput;
+  }): Promise<Omit<GuiBrowserOperatorInputAckFrame, "type">>;
 }
 
 function guiProviderAuthDebug(message: string, context?: Record<string, unknown>): void {
@@ -277,11 +288,26 @@ function getBrowserSessionControlConsumer(
   return isBrowserSessionControlConsumer(provider) ? provider : undefined;
 }
 
+function getBrowserOperatorInputConsumer(
+  builtinToolOptions: DefaultBuiltinToolRegistryOptions | undefined,
+): BrowserOperatorInputConsumer | undefined {
+  const provider = builtinToolOptions?.browserUse?.provider;
+  return isBrowserOperatorInputConsumer(provider) ? provider : undefined;
+}
+
 function isBrowserSessionControlConsumer(value: unknown): value is BrowserSessionControlConsumer {
   return Boolean(
     value
       && typeof value === "object"
       && typeof (value as { requestBrowserSessionControl?: unknown }).requestBrowserSessionControl === "function",
+  );
+}
+
+function isBrowserOperatorInputConsumer(value: unknown): value is BrowserOperatorInputConsumer {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && typeof (value as { requestBrowserOperatorInput?: unknown }).requestBrowserOperatorInput === "function",
   );
 }
 
@@ -965,16 +991,84 @@ function wireOperatorTransport(
                 return;
               }
               try {
-                await provider.requestBrowserSessionControl({
+                const state = await provider.requestBrowserSessionControl({
                   action,
                   ...(typeof frame.sessionId === "string" ? { sessionId: frame.sessionId } : {}),
                   operatorId: userId,
                   ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
                 });
+                activityStreamer.recordBrowserOperatorEvidence({
+                  action,
+                  browserSessionId: state.sessionId,
+                  status: "accepted",
+                  ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
+                });
               } catch (error) {
+                activityStreamer.recordBrowserOperatorEvidence({
+                  action,
+                  ...(typeof frame.sessionId === "string" ? { browserSessionId: frame.sessionId } : {}),
+                  status: "failed",
+                  reason: error instanceof Error ? error.message : "Browser session control failed.",
+                });
                 ws.send(JSON.stringify({
                   type: "error",
                   message: error instanceof Error ? error.message : "Browser session control failed.",
+                } satisfies GuiInboundFrame));
+              }
+              return;
+            }
+
+            if (frame.type === "browser_operator_input") {
+              const requestId = typeof frame.requestId === "string" ? frame.requestId : "";
+              const sessionId = typeof frame.sessionId === "string" ? frame.sessionId : "";
+              const operatorInput = frame.input as GuiBrowserOperatorInput;
+              const provider = getBrowserOperatorInputConsumer(input.builtinToolOptions);
+              if (!provider) {
+                ws.send(JSON.stringify({
+                  type: "browser_operator_input_ack",
+                  requestId,
+                  sessionId,
+                  status: "failed",
+                  reason: "Browser operator input is not available for the configured provider.",
+                  handledAt: new Date().toISOString(),
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              try {
+                const ack = await provider.requestBrowserOperatorInput({
+                  requestId,
+                  sessionId,
+                  operatorId: userId,
+                  input: operatorInput,
+                });
+                activityStreamer.recordBrowserOperatorEvidence({
+                  action: "operator_input",
+                  browserSessionId: ack.sessionId ?? sessionId,
+                  input: operatorInput,
+                  acknowledgement: ack,
+                });
+                ws.send(JSON.stringify({
+                  type: "browser_operator_input_ack",
+                  ...ack,
+                } satisfies GuiInboundFrame));
+              } catch (error) {
+                activityStreamer.recordBrowserOperatorEvidence({
+                  action: "operator_input",
+                  browserSessionId: sessionId,
+                  input: operatorInput,
+                  acknowledgement: {
+                    status: "failed",
+                    reason: error instanceof Error ? error.message : "Browser operator input failed.",
+                    handledAt: new Date().toISOString(),
+                  },
+                });
+                ws.send(JSON.stringify({
+                  type: "browser_operator_input_ack",
+                  requestId,
+                  sessionId,
+                  status: "failed",
+                  reason: error instanceof Error ? error.message : "Browser operator input failed.",
+                  handledAt: new Date().toISOString(),
                 } satisfies GuiInboundFrame));
               }
               return;
@@ -1294,6 +1388,43 @@ async function applyResumeSelection(
   await onResumeSession(sessionId, provider);
 }
 
+function summarizeBrowserOperatorInput(input: GuiBrowserOperatorInput): Record<string, unknown> {
+  switch (input.kind) {
+    case "pointer":
+      return {
+        kind: input.kind,
+        phase: input.phase,
+        x: input.x,
+        y: input.y,
+        ...(input.button ? { button: input.button } : {}),
+        ...(input.clickCount ? { clickCount: input.clickCount } : {}),
+      };
+    case "wheel":
+      return {
+        kind: input.kind,
+        x: input.x,
+        y: input.y,
+        deltaX: input.deltaX,
+        deltaY: input.deltaY,
+      };
+    case "key":
+      return {
+        kind: input.kind,
+        phase: input.phase,
+        key: input.key,
+        ...(input.code ? { code: input.code } : {}),
+        ...(input.text ? { textLength: input.text.length } : {}),
+      };
+    case "text":
+      return {
+        kind: input.kind,
+        textLength: input.text.length,
+      };
+    default:
+      return { kind: "unknown" };
+  }
+}
+
 class GuiActivityStreamer {
   private readonly pendingApprovals = new Set<string>();
   private capture: {
@@ -1313,6 +1444,8 @@ class GuiActivityStreamer {
   private modelRoutedHandler: ((event: KilnEvent) => void) | null = null;
   private authorizedHandler: ((event: KilnEvent) => void) | null = null;
   private memoryLatticeHandler: ((event: KilnEvent) => void) | null = null;
+  private lastKnownKilnSessionId: string | undefined;
+  private outOfTurnBrowserEvidenceSequence = 0;
   private approvalBridge: {
     approve: (approvalId: string) => void;
     reject: (approvalId: string, reason: string) => void;
@@ -1331,6 +1464,7 @@ class GuiActivityStreamer {
   }
 
   beginTurnCapture(sessionId: string, nextSequence: number): void {
+    this.lastKnownKilnSessionId = sessionId;
     this.capture = {
       sessionId,
       nextSequence,
@@ -1370,7 +1504,7 @@ class GuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated";
+    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated" | "browser_operator_evidence";
     timestamp: string;
     payload: Record<string, unknown>;
   }): void {
@@ -1729,14 +1863,81 @@ class GuiActivityStreamer {
     }
   }
 
+  recordBrowserOperatorEvidence(input: {
+    readonly action: "takeover" | "release" | "operator_input";
+    readonly browserSessionId?: string;
+    readonly input?: GuiBrowserOperatorInput;
+    readonly acknowledgement?: Pick<GuiBrowserOperatorInputAckFrame, "status" | "reason" | "handledAt">;
+    readonly reason?: string;
+    readonly status?: "accepted" | "failed";
+  }): void {
+    if (!this.ws) return;
+    const kilnSessionId = this.capture?.sessionId ?? this.lastKnownKilnSessionId;
+    if (!kilnSessionId) return;
+    const sequence = this.nextLiveSequence() ?? ++this.outOfTurnBrowserEvidenceSequence;
+    this.ws.send(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: `${kilnSessionId}:browser-operator:${sequence}`,
+        kilnSessionId,
+        sequence,
+        timestamp: input.acknowledgement?.handledAt ?? new Date().toISOString(),
+        kind: "browser_operator_evidence",
+        ...(this.capture?.sessionId === kilnSessionId ? { turnId: `${kilnSessionId}:turn:live` } : {}),
+        source: {
+          actor: "runtime",
+          surface: "gui",
+          component: "gui-gateway",
+        },
+        payload: {
+          action: input.action,
+          ...(input.browserSessionId ? { browserSessionId: input.browserSessionId } : {}),
+          ...(input.reason ? { reason: input.reason } : {}),
+          ...(input.status ? { status: input.status } : {}),
+          ...(input.input ? { input: summarizeBrowserOperatorInput(input.input) } : {}),
+          ...(input.acknowledgement
+            ? {
+                acknowledgement: {
+                  status: input.acknowledgement.status,
+                  ...(input.acknowledgement.reason ? { reason: input.acknowledgement.reason } : {}),
+                },
+              }
+            : {}),
+        },
+      },
+    } satisfies GuiInboundFrame));
+  }
+
   forwardBrowserSessionState(state: Omit<GuiBrowserSessionState, "kilnSessionId">): void {
     if (!this.ws) return;
+    const kilnSessionId = this.capture?.sessionId ?? this.lastKnownKilnSessionId;
     this.ws.send(JSON.stringify({
       type: "browser_session_updated",
       browserSession: {
         ...state,
-        ...(this.capture?.sessionId ? { kilnSessionId: this.capture.sessionId } : {}),
+        ...(kilnSessionId ? { kilnSessionId } : {}),
       },
     } satisfies GuiInboundFrame));
+    if (
+      state.viewMode === "live"
+      && state.stream.status === "live"
+      && state.sessionId
+      && state.latestCapture?.uri
+      && state.latestCapture.width
+      && state.latestCapture.height
+    ) {
+      this.ws.send(JSON.stringify({
+        type: "browser_live_viewport_frame",
+        sessionId: state.sessionId,
+        ...(kilnSessionId ? { kilnSessionId } : {}),
+        frameId: `${state.sessionId}:${state.updatedAt}`,
+        transport: state.latestCapture.transport ?? "snapshot-polling",
+        format: state.latestCapture.mimeType === "image/jpeg" ? "jpeg" : "png",
+        artifactUri: state.latestCapture.uri,
+        width: state.latestCapture.width,
+        height: state.latestCapture.height,
+        capturedAt: state.updatedAt,
+      } satisfies GuiInboundFrame));
+    }
   }
 }

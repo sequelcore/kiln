@@ -145,12 +145,16 @@ function readCapture(value: unknown): GuiBrowserSessionCapture | null {
     return null;
   }
   const sizeBytes = typeof record.sizeBytes === "number" && Number.isFinite(record.sizeBytes) ? record.sizeBytes : null;
+  const width = typeof record.width === "number" && Number.isFinite(record.width) ? record.width : null;
+  const height = typeof record.height === "number" && Number.isFinite(record.height) ? record.height : null;
   return {
     uri,
     ...stringField("label", record.label),
     ...stringField("relation", record.relation),
     ...stringField("mimeType", record.mimeType),
     ...(sizeBytes !== null ? { sizeBytes } : {}),
+    ...(width !== null ? { width } : {}),
+    ...(height !== null ? { height } : {}),
   };
 }
 

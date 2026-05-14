@@ -304,6 +304,7 @@ export type OperatorSessionEventKind =
   | "agent_invocation_completed"
   | "agent_invocation_failed"
   | "agent_invocation_cancelled"
+  | "browser_operator_evidence"
   | "continuity_decided"
   | "error_recorded"
   | "turn_completed";
@@ -474,6 +475,10 @@ export type GuiBrowserSessionOwnership = "agent" | "operator" | "released";
 export type GuiBrowserSessionViewMode = "snapshot" | "live";
 export type GuiBrowserSessionStreamStatus = "unavailable" | "starting" | "live" | "paused" | "ended" | "failed";
 export type GuiBrowserSessionControlAction = "takeover" | "release";
+export type GuiBrowserLiveViewportTransport = "snapshot-polling" | "cdp-screencast" | "webrtc" | "hosted-url";
+export type GuiBrowserLiveViewportFormat = "jpeg" | "png";
+export type GuiBrowserOperatorInputAckStatus = "accepted" | "blocked" | "failed" | "stale-session";
+export type GuiBrowserOperatorPointerButton = "left" | "middle" | "right" | "back" | "forward" | "none";
 
 export interface GuiInteractiveUseSnapshot {
   readonly target: GuiInteractiveUseTarget;
@@ -503,6 +508,9 @@ export interface GuiBrowserSessionCapture {
   readonly relation?: string;
   readonly mimeType?: string;
   readonly sizeBytes?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly transport?: GuiBrowserLiveViewportTransport;
 }
 
 export interface GuiBrowserSessionStream {
@@ -550,6 +558,69 @@ export interface GuiBrowserSessionControlFrame {
   readonly requestId?: string;
 }
 
+export interface GuiBrowserLiveViewportFrame {
+  readonly type: "browser_live_viewport_frame";
+  readonly sessionId: string;
+  readonly kilnSessionId?: string;
+  readonly frameId: string;
+  readonly sequence?: number;
+  readonly transport: GuiBrowserLiveViewportTransport;
+  readonly format: GuiBrowserLiveViewportFormat;
+  readonly dataUrl?: string;
+  readonly artifactUri?: string;
+  readonly width: number;
+  readonly height: number;
+  readonly scale?: number;
+  readonly capturedAt: string;
+}
+
+export type GuiBrowserOperatorInput =
+  | {
+      readonly kind: "pointer";
+      readonly phase: "move" | "down" | "up" | "click";
+      readonly x: number;
+      readonly y: number;
+      readonly button?: GuiBrowserOperatorPointerButton;
+      readonly clickCount?: number;
+      readonly modifiers?: readonly string[];
+    }
+  | {
+      readonly kind: "wheel";
+      readonly x: number;
+      readonly y: number;
+      readonly deltaX: number;
+      readonly deltaY: number;
+      readonly modifiers?: readonly string[];
+    }
+  | {
+      readonly kind: "key";
+      readonly phase: "down" | "up" | "press";
+      readonly key: string;
+      readonly code?: string;
+      readonly text?: string;
+      readonly modifiers?: readonly string[];
+    }
+  | {
+      readonly kind: "text";
+      readonly text: string;
+    };
+
+export interface GuiBrowserOperatorInputFrame {
+  readonly type: "browser_operator_input";
+  readonly requestId: string;
+  readonly sessionId: string;
+  readonly input: GuiBrowserOperatorInput;
+}
+
+export interface GuiBrowserOperatorInputAckFrame {
+  readonly type: "browser_operator_input_ack";
+  readonly requestId: string;
+  readonly sessionId?: string;
+  readonly status: GuiBrowserOperatorInputAckStatus;
+  readonly reason?: string;
+  readonly handledAt: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -575,6 +646,7 @@ export type GuiOutboundFrame =
   | OperatorThemeSetResultFrame
   | { type: "resume"; sessionId: string }
   | GuiBrowserSessionControlFrame
+  | GuiBrowserOperatorInputFrame
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }
   | {
@@ -593,6 +665,8 @@ export type GuiInboundFrame =
   | OperatorActivityPhaseFrame
   | GuiInteractiveUseUpdatedFrame
   | GuiBrowserSessionUpdatedFrame
+  | GuiBrowserLiveViewportFrame
+  | GuiBrowserOperatorInputAckFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";

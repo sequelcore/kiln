@@ -603,6 +603,7 @@ export function AppShell() {
   const activityPhase = useSessionStore((state) => state.activityPhase);
   const interactiveUseSnapshot = useSessionStore((state) => state.interactiveUseSnapshot);
   const browserSessionState = useSessionStore((state) => state.browserSessionState);
+  const browserLiveViewportFrame = useSessionStore((state) => state.browserLiveViewportFrame);
   const setConnectionStatus = useSessionStore((state) => state.setConnectionStatus);
   const setSender = useSessionStore((state) => state.setSender);
   const setSessionList = useSessionStore((state) => state.setSessionList);
@@ -626,7 +627,10 @@ export function AppShell() {
   const onActivityPhase = useSessionStore((state) => state.onActivityPhase);
   const onInteractiveUseUpdated = useSessionStore((state) => state.onInteractiveUseUpdated);
   const onBrowserSessionUpdated = useSessionStore((state) => state.onBrowserSessionUpdated);
+  const onBrowserLiveViewportFrame = useSessionStore((state) => state.onBrowserLiveViewportFrame);
+  const onBrowserOperatorInputAck = useSessionStore((state) => state.onBrowserOperatorInputAck);
   const requestBrowserSessionControl = useSessionStore((state) => state.requestBrowserSessionControl);
+  const sendBrowserOperatorInput = useSessionStore((state) => state.sendBrowserOperatorInput);
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const sendClear = useSessionStore((state) => state.sendClear);
@@ -899,6 +903,10 @@ export function AppShell() {
           onInteractiveUseUpdated(frame);
         } else if (frame.type === "browser_session_updated") {
           onBrowserSessionUpdated(frame);
+        } else if (frame.type === "browser_live_viewport_frame") {
+          onBrowserLiveViewportFrame(frame);
+        } else if (frame.type === "browser_operator_input_ack") {
+          onBrowserOperatorInputAck(frame);
         } else if (frame.type === "memory_lattice_invalidated") {
           setMemoryLatticeInvalidationTick((tick) => tick + 1);
         }
@@ -1474,9 +1482,13 @@ export function AppShell() {
             activeSurface={activeSurface}
             browserSnapshot={interactiveUseSnapshot?.target === "browser" ? interactiveUseSnapshot : null}
             browserSession={browserSessionState}
+            browserLiveViewportFrame={browserLiveViewportFrame}
             loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri)}
             onBrowserSessionControl={(action, options) => {
               requestBrowserSessionControl(action, options);
+            }}
+            onBrowserOperatorInput={(request) => {
+              sendBrowserOperatorInput(request);
             }}
             memoryOpen={memorySurfaceOpen}
             files={workspaceDocuments}
