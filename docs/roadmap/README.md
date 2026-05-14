@@ -52,6 +52,9 @@ Read the relevant architecture or guide document before using a roadmap:
   `docs/architecture/coordination.md` for plan mode, goal/work-item execution,
   orchestration preference, workflow profiles, evidence closeout, and
   cross-surface coordination.
+- `docs/architecture/benchmark-validation.md` and `docs/guides/eval.md` for
+  benchmark-facing profiles, internal baseline readiness, benchmark adapters,
+  public report evidence, and operator benchmark commands.
 
 ## Roadmap Layers
 
@@ -65,10 +68,6 @@ None. Completed programs are absorbed into canonical architecture or guide
 documentation before their roadmap files are deleted.
 
 ## Deferred Roadmaps
-
-- `00-external-benchmark-validation.md`
-  Deferred public benchmark and governed external-validation milestone after
-  the product surface stabilizes.
 
 - `01-browser-operator-foundations-and-snapshot-monitor.md`
   Browser operator foundation track. Kiln currently has governed browser
@@ -224,15 +223,20 @@ documentation before their roadmap files are deleted.
   Windows computer capture proof, local timeline adjustments, voice input, TTS
   narration, microphone capture, voiceover tracks, and neutral external-editor
   handoff artifacts for SRT, VTT, marker JSON, and editor-project metadata.
+- External benchmark validation platform completed on 2026-05-08. Stable
+  doctrine lives in `docs/architecture/benchmark-validation.md`; operator usage
+  lives in `docs/guides/eval.md`. Implementation covers benchmark-facing
+  profiles, baseline readiness gates, internal seed datasets, baseline runner,
+  structural scorers, BFCL/AgentDojo/tau projection adapters, benchmark CLI
+  commands, public report generation, and the blocked coding-benchmark decision
+  for SWE-bench-style tracks.
 
 ## Execution Priority
 
-1. Keep `00-external-benchmark-validation.md` deferred until the evaluated
-   product surface is stable.
-2. Keep the late browser/native sequence deferred until the earlier foundations
+1. Keep the late browser/native sequence deferred until the earlier foundations
    are stable: `01` browser operator foundations, `02` native browser host,
    `03` embedded browser operator surface, then `04` native operator surface.
-3. Keep `04-native-operator-surface-experiment.md` deferred until managed
+2. Keep `04-native-operator-surface-experiment.md` deferred until managed
    agents create real high-density workloads and config projection makes
    local/cloud/team/CI instance boundaries explicit.
 
