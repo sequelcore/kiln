@@ -49,10 +49,13 @@ package names or local feature flags.
 high-density cockpit comparison. `src/operator-cockpit-projection.ts` defines
 the shared read-only cockpit projection over canonical events and explicit
 attach targets. GUI and native must use the same synthetic event fixtures,
-shared presentation baseline, read-only instance/session/timeline/invocation/
-tool/cost projections, explicit instance/session targets, read-only action
-intents, and cancellation request validation before any native cockpit or Rust
-hot-path claim is considered. Read-only action intents are target-checked plans
+shared presentation baseline, shared read-only projection baseline, read-only
+instance/session/timeline/invocation/tool/cost projections, explicit
+instance/session targets, read-only action intents, and cancellation request
+validation before any native cockpit or Rust hot-path claim is considered. The
+read-only projection baseline measures the same shared projection substrate
+later surfaces and Rust/WASM/sidecar candidates must match; it is not a
+browser-rendering benchmark. Read-only action intents are target-checked plans
 only; they do not dispatch gateway mutations and explicitly exclude
 cancellation.
 

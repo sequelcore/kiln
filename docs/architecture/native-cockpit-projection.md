@@ -3,9 +3,10 @@
 Status: early read-only projection architecture. Roadmap 05 has target,
 precondition, benchmark-fixture, shared projection-baseline,
 cancellation-target, shared read-only cockpit projection, and native
-read-only projection wrapper/action-intent contracts. No native cockpit UI,
-network attach loop, cancellation dispatch, or Rust projection kernel is
-promoted.
+read-only projection wrapper/action-intent contracts. It also has a shared
+TypeScript read-only projection baseline over the same projection substrate. No
+native cockpit UI, network attach loop, browser-rendering benchmark,
+cancellation dispatch, or Rust projection kernel is promoted.
 
 ## Purpose
 
@@ -144,7 +145,12 @@ Required fixtures:
 Benchmarks must compare the web GUI and native surface on equivalent canonical
 event fixtures before promotion. The current baseline measures the shared
 operator-event presentation path consumed by GUI; it is a projection baseline,
-not a browser-rendering benchmark.
+not a browser-rendering benchmark. The current read-only cockpit baseline
+measures `projectOperatorCockpitReadOnlyView` over explicit attach targets and
+reports instance, session, timeline, invocation, tool, cost, provider-route,
+and target summaries. Later GUI/native rendering benchmarks and any
+Rust/WASM/sidecar candidate must compare against that shared TypeScript output
+instead of inventing a private projection model.
 
 ## Rust Boundary
 
@@ -165,6 +171,7 @@ Implemented:
 - benchmark fixture threshold definitions
 - shared synthetic high-density event fixture generator
 - shared GUI projection baseline measurement
+- shared read-only cockpit projection baseline measurement
 - gateway-mediated cancellation request schema
 - shared read-only cockpit projection over canonical events and explicit attach
   targets

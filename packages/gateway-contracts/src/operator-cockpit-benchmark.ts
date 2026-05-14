@@ -9,6 +9,13 @@ import type {
   OperatorSessionEventKind,
   OperatorSessionEventSource,
 } from "./frames.js";
+import type {
+  OperatorCockpitAttachTarget,
+  OperatorCockpitTimelineEntry,
+} from "./operator-cockpit-projection.js";
+import {
+  projectOperatorCockpitReadOnlyView,
+} from "./operator-cockpit-projection.js";
 
 export interface OperatorCockpitBenchmarkFixtureInput {
   readonly fixtureId: string;
@@ -54,6 +61,36 @@ export interface OperatorCockpitProjectionBaseline {
   readonly durationMs: number;
   readonly firstProjection?: OperatorCockpitProjectionSummary;
   readonly lastProjection?: OperatorCockpitProjectionSummary;
+}
+
+export interface OperatorCockpitReadOnlyProjectionBaselineInput {
+  readonly fixture: OperatorCockpitBenchmarkFixture;
+  readonly measuredAt: string;
+  readonly attachTargets: readonly OperatorCockpitAttachTarget[];
+}
+
+export interface OperatorCockpitReadOnlyTimelineSummary {
+  readonly eventId: string;
+  readonly title: string;
+  readonly tone: OperatorCockpitTimelineEntry["tone"];
+  readonly target: OperatorCockpitTimelineEntry["target"];
+}
+
+export interface OperatorCockpitReadOnlyProjectionBaseline {
+  readonly surface: "shared-read-only-cockpit-projection";
+  readonly measuredAt: string;
+  readonly fixture: OperatorCockpitBenchmarkFixtureSummary;
+  readonly projectedEventCount: number;
+  readonly durationMs: number;
+  readonly instanceCount: number;
+  readonly sessionCount: number;
+  readonly timelineCount: number;
+  readonly invocationCount: number;
+  readonly toolSummaryCount: number;
+  readonly totalCostUsd: number;
+  readonly providerRoutes: readonly string[];
+  readonly firstTimelineEntry?: OperatorCockpitReadOnlyTimelineSummary;
+  readonly lastTimelineEntry?: OperatorCockpitReadOnlyTimelineSummary;
 }
 
 export function createOperatorCockpitBenchmarkFixture(
@@ -147,6 +184,52 @@ export function measureOperatorCockpitProjectionBaseline(
     durationMs,
     ...(projections[0] ? { firstProjection: projections[0] } : {}),
     ...(projections[projections.length - 1] ? { lastProjection: projections[projections.length - 1] } : {}),
+  };
+}
+
+export function measureOperatorCockpitReadOnlyProjectionBaseline(
+  input: OperatorCockpitReadOnlyProjectionBaselineInput,
+): OperatorCockpitReadOnlyProjectionBaseline {
+  const startedAt = performance.now();
+  const projection = projectOperatorCockpitReadOnlyView({
+    projectedAt: input.measuredAt,
+    attachTargets: input.attachTargets,
+    events: input.fixture.events,
+  });
+  const durationMs = performance.now() - startedAt;
+  const firstTimelineEntry = projection.timeline[0];
+  const lastTimelineEntry = projection.timeline[projection.timeline.length - 1];
+
+  return {
+    surface: "shared-read-only-cockpit-projection",
+    measuredAt: input.measuredAt,
+    fixture: input.fixture.summary,
+    projectedEventCount: projection.timeline.length,
+    durationMs,
+    instanceCount: projection.instances.length,
+    sessionCount: projection.sessions.length,
+    timelineCount: projection.timeline.length,
+    invocationCount: projection.invocations.length,
+    toolSummaryCount: projection.toolSummaries.length,
+    totalCostUsd: projection.cost.totalUsd,
+    providerRoutes: projection.cost.providerRoutes,
+    ...(firstTimelineEntry
+      ? { firstTimelineEntry: summarizeTimelineEntry(firstTimelineEntry) }
+      : {}),
+    ...(lastTimelineEntry
+      ? { lastTimelineEntry: summarizeTimelineEntry(lastTimelineEntry) }
+      : {}),
+  };
+}
+
+function summarizeTimelineEntry(
+  entry: OperatorCockpitTimelineEntry,
+): OperatorCockpitReadOnlyTimelineSummary {
+  return {
+    eventId: entry.eventId,
+    title: entry.title,
+    tone: entry.tone,
+    target: entry.target,
   };
 }
 

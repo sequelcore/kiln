@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createOperatorCockpitBenchmarkFixture,
   measureOperatorCockpitProjectionBaseline,
+  measureOperatorCockpitReadOnlyProjectionBaseline,
 } from "../src/operator-cockpit-benchmark.js";
 
 describe("operator cockpit benchmark fixtures", () => {
@@ -65,5 +66,82 @@ describe("operator cockpit benchmark fixtures", () => {
     expect(fixture.events[0]?.payload).toMatchObject({
       instanceId: "projection-small:instance:1",
     });
+  });
+
+  it("measures the shared read-only cockpit projection baseline with explicit attach targets", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "read-only-baseline",
+      instanceCount: 2,
+      sessionCount: 3,
+      activeManagedSessionCount: 2,
+      childInvocationCount: 5,
+      eventCount: 30,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const baseline = measureOperatorCockpitReadOnlyProjectionBaseline({
+      fixture,
+      measuredAt: "2026-05-14T12:02:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "read-only-baseline:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+        {
+          instanceId: "read-only-baseline:instance:2",
+          label: "Simulated remote",
+          kind: "simulated-remote",
+        },
+      ],
+    });
+
+    expect(baseline.surface).toBe("shared-read-only-cockpit-projection");
+    expect(baseline.measuredAt).toBe("2026-05-14T12:02:00.000Z");
+    expect(baseline.fixture).toEqual(fixture.summary);
+    expect(baseline.projectedEventCount).toBe(30);
+    expect(baseline.instanceCount).toBe(2);
+    expect(baseline.sessionCount).toBe(3);
+    expect(baseline.timelineCount).toBe(30);
+    expect(baseline.invocationCount).toBeGreaterThan(0);
+    expect(baseline.toolSummaryCount).toBeGreaterThan(0);
+    expect(baseline.totalCostUsd).toBeGreaterThan(0);
+    expect(baseline.providerRoutes).toContain("synthetic/fixture");
+    expect(baseline.durationMs).toBeGreaterThanOrEqual(0);
+    expect(baseline.firstTimelineEntry).toMatchObject({
+      eventId: "read-only-baseline:event:1",
+      target: {
+        instanceId: "read-only-baseline:instance:1",
+        sessionId: "read-only-baseline:session:1",
+      },
+      title: "Turn Started",
+    });
+    expect(baseline.lastTimelineEntry).toMatchObject({
+      eventId: "read-only-baseline:event:30",
+      target: {
+        instanceId: "read-only-baseline:instance:1",
+        sessionId: "read-only-baseline:session:3",
+      },
+    });
+    expect(fixture.events[0]?.payload).toMatchObject({
+      instanceId: "read-only-baseline:instance:1",
+    });
+  });
+
+  it("fails the read-only projection baseline when attach targets are missing", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "missing-targets",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 0,
+      childInvocationCount: 0,
+      eventCount: 1,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+
+    expect(() => measureOperatorCockpitReadOnlyProjectionBaseline({
+      fixture,
+      measuredAt: "2026-05-14T12:03:00.000Z",
+      attachTargets: [],
+    })).toThrow("requires at least one attach target");
   });
 });

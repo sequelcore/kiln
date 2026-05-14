@@ -26,6 +26,9 @@ canonical gateway events.
   benchmarks, gateway attach loops, native UI, Rust acceleration, and
   cancellation dispatch remain out of scope for the next read-only prototype
   step.
+- The next benchmark slice belongs in `@kilnai/gateway-contracts`: measure the
+  shared read-only projection itself over explicit attach targets before any
+  surface-specific rendering or Rust/WASM/sidecar candidate is considered.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
@@ -174,6 +177,31 @@ Deliverables:
 - Add a native wrapper with `surfaceId`, `runtimeBoundary: gateway-contracts`,
   and `mutationDispatch: disabled`.
 
+### Slice 8 - Shared Read-Only Projection Benchmark Baseline
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/gateway-contracts/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Define `measureOperatorCockpitReadOnlyProjectionBaseline` over
+  `projectOperatorCockpitReadOnlyView`.
+- Require explicit attach targets and preserve fail-closed projection behavior.
+- Report projection-level counts for instances, sessions, timeline entries,
+  managed invocations, tool summaries, total cost, provider routes, and
+  first/last target summaries.
+- Keep browser rendering, native UI rendering, gateway networking,
+  cancellation dispatch, and Rust/WASM/sidecar acceleration out of scope.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -190,3 +218,13 @@ Deliverables:
 - Passed `bun run test`.
 - Passed `bun run build`.
 - Passed `git diff --check`.
+- Re-passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 8.
+- Re-passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 8.
+- Re-passed `bun run --filter @kilnai/gateway-contracts build` after Slice 8.
+- Re-passed `bun run --cwd packages/native test` after Slice 8.
+- Re-passed `bun run --cwd packages/native typecheck` after Slice 8.
+- Re-passed `bun run --cwd packages/native build` after Slice 8.
+- Re-passed `bun run typecheck` after Slice 8.
+- Re-passed `bun run test` after Slice 8.
+- Re-passed `bun run build` after Slice 8.
+- Re-passed `git diff --check` after Slice 8.

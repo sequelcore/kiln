@@ -131,10 +131,14 @@ export type {
   OperatorCockpitProjectionBaseline,
   OperatorCockpitProjectionBaselineInput,
   OperatorCockpitProjectionSummary,
+  OperatorCockpitReadOnlyProjectionBaseline,
+  OperatorCockpitReadOnlyProjectionBaselineInput,
+  OperatorCockpitReadOnlyTimelineSummary,
 } from "./operator-cockpit-benchmark.js";
 export {
   createOperatorCockpitBenchmarkFixture,
   measureOperatorCockpitProjectionBaseline,
+  measureOperatorCockpitReadOnlyProjectionBaseline,
 } from "./operator-cockpit-benchmark.js";
 
 export type {

@@ -45,6 +45,10 @@
   focus, filter, and open-resource intents are target-checked and
   `not-dispatched`; cancellation is rejected until gateway-mediated dispatch is
   implemented in a later roadmap slice.
+- Added the shared read-only cockpit projection baseline in
+  `@kilnai/gateway-contracts`, measuring `projectOperatorCockpitReadOnlyView`
+  over canonical fixture events and explicit attach targets before any
+  browser-rendering, native-rendering, or Rust/WASM/sidecar optimization claim.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.

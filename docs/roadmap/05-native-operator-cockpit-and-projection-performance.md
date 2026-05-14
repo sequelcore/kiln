@@ -7,9 +7,10 @@ Active experimental roadmap. Started on 2026-05-14 in contract-only Phase 0/1.
 Current scope is precondition review, explicit target/action admission,
 benchmark fixture definitions, shared projection baselines, cancellation target
 contracts, a shared read-only projection substrate, a native read-only
-projection wrapper, read-only action intents, and Rust hot-path boundaries. Do
-not build a native cockpit UI, browser rendering benchmark runner, gateway
-attach loop, cancellation dispatch, or Rust/WASM/sidecar module until this
+projection wrapper, read-only action intents, a shared read-only projection
+baseline measurement, and Rust hot-path boundaries. Do not build a native
+cockpit UI, browser rendering benchmark runner, gateway attach loop,
+cancellation dispatch, or Rust/WASM/sidecar module until this
 contract/projection phase and baseline measurements justify them.
 
 Do not start this program before the completed plan/goal workflow-control
@@ -1085,6 +1086,12 @@ Started 2026-05-14:
   attach targets. It groups instance, session, timeline, managed-invocation,
   tool-call, cost, provider, and authority summaries without network attach,
   UI rendering, cancellation dispatch, or Rust acceleration.
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts` now measures
+  the shared read-only cockpit projection baseline over explicit attach
+  targets. The result records instance, session, timeline, invocation, tool,
+  cost, provider-route, and first/last target summaries without browser
+  rendering, native rendering, networking, cancellation dispatch, or
+  Rust/WASM/sidecar acceleration.
 - `packages/native/src/shared/native-cockpit-contract.ts` now wraps the shared
   projection as a native read-only surface projection with disabled mutation
   dispatch and an explicit `gateway-contracts` runtime boundary.
@@ -1111,7 +1118,8 @@ Started 2026-05-14:
 - `packages/native/src/shared/native-cockpit-contract.ts` defines explicit
   target/action admission and benchmark fixture thresholds.
 - `packages/gateway-contracts/src/operator-cockpit-benchmark.ts` defines shared
-  synthetic cockpit fixtures and GUI projection baseline measurement.
+  synthetic cockpit fixtures, GUI projection baseline measurement, and shared
+  read-only cockpit projection baseline measurement.
 - `packages/gateway-contracts/src/operator-cockpit-target.ts` defines shared
   target/action admission and cancellation request validation.
 - `packages/native/tests/native-boundary.test.ts` proves the contract fails
@@ -1148,6 +1156,11 @@ Started 2026-05-14:
 - `@kilnai/native` consumes read-only action intents through
   `createNativeCockpitReadOnlyActionIntent`, adding native surface metadata
   while keeping `mutationDispatch: disabled`.
+- `@kilnai/gateway-contracts` exposes
+  `measureOperatorCockpitReadOnlyProjectionBaseline`, which measures the shared
+  TypeScript projection over canonical events and explicit attach targets. This
+  is the benchmark baseline later native rendering, GUI rendering, and
+  Rust/WASM/sidecar experiments must match before claiming an optimization.
 
 ### Phase 3 - Benchmark and Compare
 

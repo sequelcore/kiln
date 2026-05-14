@@ -73,7 +73,9 @@ explicitly parked until their prerequisite product surface exists.
   fixture thresholds, shared GUI projection baselines, cancellation target
   contracts, a shared read-only cockpit projection substrate, and the native
   wrapper over that shared projection/action-intent contract before any native
-  cockpit UI. Gateway attach loops, cancellation dispatch, browser-rendering
+  cockpit UI. It also defines the shared TypeScript read-only projection
+  baseline that later GUI/native rendering and Rust/WASM/sidecar candidates
+  must match. Gateway attach loops, cancellation dispatch, browser-rendering
   benchmarks, and Rust/WASM/sidecar modules remain out of scope until
   measurement justifies them.
 
