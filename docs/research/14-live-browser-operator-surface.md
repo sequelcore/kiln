@@ -2,9 +2,10 @@
 
 ## Purpose
 
-This note records the research basis for the late browser operator sequence:
-browser operator foundations, native browser-host decision, and the real
-embedded browser operator surface. It informs future architecture and
+This note records the research basis for the late native/browser operator
+sequence: browser operator foundations, native operator surface foundation,
+embedded browser host capability, and the real embedded browser operator
+surface. It informs future architecture and
 implementation slices; it does not override the operator-surface doctrine in
 `docs/architecture/operator-surfaces.md` or runtime taxonomy in
 `docs/architecture/runtime-surfaces.md`.
@@ -42,10 +43,21 @@ time-sensitive:
   https://playwright.dev/docs/api/class-cdpsession
   and
   https://playwright.dev/docs/api/class-browsercontext#browser-context-new-cdp-session
-- OpenAI Codex plan/app notes:
-  https://help.openai.com/en/articles/11369540
-  and
-  https://openai.com/index/introducing-the-codex-app
+- OpenAI Codex app, in-app browser, and Chrome extension:
+  https://developers.openai.com/codex/app/
+  https://developers.openai.com/codex/app/browser
+  https://developers.openai.com/codex/app/chrome-extension
+- Claude Code desktop and Chrome extension:
+  https://code.claude.com/docs/en/desktop
+  https://code.claude.com/docs/en/chrome
+- Electron `WebContentsView`, process model, debugger, and security:
+  https://www.electronjs.org/docs/latest/api/web-contents-view
+  https://www.electronjs.org/docs/latest/tutorial/process-model
+  https://www.electronjs.org/docs/latest/api/debugger
+  https://www.electronjs.org/docs/latest/tutorial/security
+- Tauri architecture and webview runtime versions:
+  https://v2.tauri.app/concept/architecture/
+  https://v2.tauri.app/reference/webview-versions/
 
 ## 2026-05-13 Reassessment
 
@@ -78,15 +90,20 @@ browser:
 - If the runtime starts a headed session, the visible browser can compete with
   the chat surface instead of living inside the operator transcript.
 
-Therefore the browser operator work is now split into three concerns:
+Therefore the browser/native operator work is now split into four concerns:
 
 1. Completed browser operator foundations in
    `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`:
    snapshot monitor, frame-stream fallback, brokered input, and evidence.
-2. `02-native-browser-host-decision.md`
+2. `02-native-operator-surface-foundation.md`
+   First-class native operator surface foundation. This is not a wrapper plan;
+   it establishes the native stack, gateway-only boundary, package shape,
+   performance foundation, and capability extension point.
+3. `03-embedded-browser-host-capability.md`
    Native browser-host decision and proof. This is narrower than the broad
-   high-density native operator-surface experiment in Roadmap 04.
-3. `03-embedded-browser-operator-surface.md`
+   high-density native cockpit and projection-performance experiment in
+   Roadmap 05.
+4. `04-embedded-browser-operator-surface.md`
    Real embedded browser operator surface.
 
 Snapshot evidence, CDP frame streams, brokered input, sanitized evidence, and
@@ -268,12 +285,23 @@ Kiln should use a split browser operator model:
    fallback, not live browser.
 7. Local CDP screencast is an acceptable frame-stream fallback/diagnostic
    transport, not a real embedded browser.
-8. A real in-app browser requires a native browser host decision before
-   implementation.
+8. A real in-app browser requires a first-class native surface foundation and
+   native browser host capability before implementation.
 9. Remote provider live URLs or WebRTC streams should be represented as
    sensitive resource-backed transports behind the same gateway contract.
 10. Operator takeover requires explicit lock transition, audit event, timeout,
-   release, and a fresh post-release observation.
+    release, and a fresh post-release observation.
+
+The native surface foundation should use Electron for the first implementation
+because the first native-only capability is embedded Chromium browser hosting.
+This does not move runtime truth into Electron. Electron owns native window and
+browser-view lifecycle; runtime owns session truth, authority, policy, evidence,
+and replay.
+
+Performance is part of the first native version. The surface contract should
+support batched projections, virtualized views, resource-link rendering, and
+measurement hooks from the start. Rust/WASM/sidecar modules remain bounded
+projection accelerators; they must not own governance or control-plane logic.
 
 This rejects treating screenshot polling or CDP screencast as completion.
 Snapshot evidence must remain sufficient for replay, terminal surfaces, SDK
@@ -381,7 +409,10 @@ CDP-backed raw key down/up dispatch, and sanitized operator evidence.
 The browser-foundation work has been absorbed into canonical architecture and
 guide documentation. The next completion work is now split:
 
-1. Execute `02`: decide and prove the native browser host, including any
+1. Execute `02`: establish the native operator surface foundation, including
+   stack, package boundary, performance foundation, security baseline, and
    ADR-006 amendment.
-2. Execute `03`: build and prove the real embedded browser operator surface.
-3. Keep `04` as the broader native high-density operator surface experiment.
+2. Execute `03`: decide and prove the embedded browser host capability.
+3. Execute `04`: build and prove the real embedded browser operator surface.
+4. Keep `05` as the broader native cockpit and projection-performance
+   experiment.

@@ -1,4 +1,4 @@
-# 04 - Native Operator Surface Experiment
+# 05 - Native Operator Cockpit And Projection Performance
 
 ## Status
 
@@ -18,9 +18,15 @@ foundation has produced real high-density workloads, especially:
 
 This is a validation track, not a commitment to replace the web GUI.
 
-This roadmap validates whether Kiln needs a native, GPU-accelerated, and
-potentially Rust-assisted operator cockpit for supervising parallel agent work,
-simultaneous sessions, high-volume event streams, and multi-instance operation.
+This roadmap validates the high-density native cockpit and projection
+performance layer that may grow after the native surface foundation and embedded
+browser capability exist.
+
+Performance is a version-1 design concern for every surface. This roadmap does
+not postpone performance architecture. It owns the later proof that native
+rendering, GPU paths, Rust/WASM/sidecar projection kernels, or specialized
+cockpit layouts materially outperform the web GUI on approved high-density
+operator workloads.
 
 It must not become:
 
@@ -36,8 +42,8 @@ It must not become:
 
 ## Canonical Placement
 
-This file is the canonical roadmap for the deferred native operator surface
-experiment.
+This file is the canonical roadmap for the deferred native cockpit and
+projection-performance experiment.
 
 Do not create a separate `03.5-pre-04.md` for Rust, parallelism, or simultaneous
 session supervision.
@@ -50,16 +56,17 @@ This roadmap depends on the completed plan/goal workflow-control foundation. It
 does not supersede that canonical workflow doctrine.
 
 It also does not own the focused real embedded browser work. That work now
-lives in the late browser sequence:
+lives in the native/browser sequence:
 
 - completed browser operator foundations in `docs/architecture/developer-tools.md`
   and `docs/guides/tool-use.md`
-- `02-native-browser-host-decision.md`
-- `03-embedded-browser-operator-surface.md`
+- `02-native-operator-surface-foundation.md`
+- `03-embedded-browser-host-capability.md`
+- `04-embedded-browser-operator-surface.md`
 
-The native browser-host decision may use native shell technology earlier than
-this broad high-density cockpit experiment. That does not promote the whole
-native operator surface roadmap.
+The native surface foundation and embedded browser host may use native shell
+technology earlier than this broad high-density cockpit experiment. That does
+not promote the whole cockpit or Rust/GPU projection program.
 
 ```text
 completed plan/goal workflow-control foundation
@@ -70,7 +77,7 @@ completed plan/goal workflow-control foundation
   -> managed invocation
   -> traces and evidence
 
-04
+05
   -> high-density supervision of those workloads
   -> multi-session and multi-instance cockpit validation
   -> optional Rust/GPU projection acceleration
@@ -727,22 +734,15 @@ If it repeatedly wins against the web GUI on measured real workloads, a later
 ADR may promote it to a first-class power-user surface. That promotion still
 must not remove the web GUI's remote-access role.
 
-## Relationship to Tauri
+## Relationship to Native Surface Foundation
 
-Tauri is a desktop wrapper option for the web GUI.
+`02-native-operator-surface-foundation.md` owns the native surface stack and
+gateway-only boundary. This roadmap owns the later cockpit and projection
+performance proof.
 
-It is not the same thing as a native GPU operator surface.
-
-Use Tauri when the product need is:
-
-- packaged install and update flow
-- native window lifecycle
-- tray/background operation
-- native notifications
-- OS credential integration
-- enterprise device-management expectations
-
-Use a native GPU surface experiment when the product need is:
+The native surface foundation is not a wrapper decision. It establishes a
+first-class local operator surface. This roadmap validates whether that surface
+should grow into a specialized high-density cockpit for:
 
 - high-density rendering
 - low-latency interaction over very large event sets
@@ -753,9 +753,9 @@ Use a native GPU surface experiment when the product need is:
 - multi-instance dashboards
 - Rust/WASM/sidecar projection acceleration
 
-Both approaches must consume the same gateway/operator contracts.
+Every option must consume the same gateway/operator contracts.
 
-Neither may introduce a private runtime.
+No option may introduce a private runtime.
 
 ## Relationship to IDE and Editor Surfaces
 
@@ -1108,7 +1108,7 @@ Deliver:
 - promote
 - defer
 - abandon
-- convert to Tauri/package wrapper only
+- keep only the native surface foundation and embedded browser capability
 - keep as internal diagnostic prototype
 
 ## Open Questions

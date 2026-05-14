@@ -118,7 +118,7 @@ is documented by concern, not as a single monolith.
 
 - `operator-surfaces.md`
   Canonical human operator surface model: GUI, CLI, TUI, IDE, remote, future
-  desktop wrapper, supervision evidence, and surface ownership rules.
+  native operator surface, supervision evidence, and surface ownership rules.
 
 - `benchmark-validation.md`
   Canonical benchmark validation contract: benchmark-facing profiles, internal

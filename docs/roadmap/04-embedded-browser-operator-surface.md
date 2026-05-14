@@ -1,11 +1,12 @@
-# 03 - Embedded Browser Operator Surface
+# 04 - Embedded Browser Operator Surface
 
-Status: blocked on `02-native-browser-host-decision.md`.
+Status: blocked on `02-native-operator-surface-foundation.md` and
+`03-embedded-browser-host-capability.md`.
 
 ## Objective
 
-Build the real in-app browser operator surface after the native browser host is
-chosen and proven.
+Build the real in-app browser operator surface after the native surface
+foundation exists and the native browser host capability is chosen and proven.
 
 This is the product capability users expect when they say "live browser inside
 Kiln": a browser view embedded in the operator app, not a polling screenshot,
@@ -16,8 +17,11 @@ not a CDP screencast canvas, and not an external Chromium window.
 - `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`
   Browser operator contracts, ownership, brokered input, snapshot monitor,
   frame-stream fallback, and evidence baseline.
-- `02-native-browser-host-decision.md`
-  Native browser host decision, prototype, security baseline, and ADR update.
+- `02-native-operator-surface-foundation.md`
+  First-class native operator surface stack, gateway boundary, performance
+  foundation, and ADR update.
+- `03-embedded-browser-host-capability.md`
+  Native browser host decision, prototype, security baseline, and host evidence.
 - `docs/architecture/operator-surfaces.md`
   Surface ownership and runtime ownership invariants.
 - `docs/adr/ADR-006-gui-stack-and-binding-contract.md`
@@ -47,7 +51,7 @@ The agent/runtime can:
 ## Architecture Shape
 
 ```text
-GUI / native operator shell
+native operator surface
   -> reserves browser region and sends layout/focus intent
   -> gateway/operator contract
   -> runtime browser session authority

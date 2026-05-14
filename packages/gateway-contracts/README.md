@@ -2,7 +2,12 @@
 
 Shared HTTP and WebSocket frame contracts for the Kiln operator gateway.
 
-Both the runtime gateway (`@kilnai/runtime`) and the operator clients (`@kilnai/gui`, `@kilnai/tui`) depend on this package so that frame shapes and shared operator projections are defined once and consumed by every surface. Neither side defines its own copy of these types; any shape change is made here and takes effect on the next build for all consumers.
+Both the runtime gateway (`@kilnai/runtime`) and the operator clients
+(`@kilnai/gui`, future `@kilnai/native`, `@kilnai/tui`, SDK, and widget)
+depend on this package so that frame shapes and shared operator projections are
+defined once and consumed by every surface. Neither side defines its own copy of
+these types; any shape change is made here and takes effect on the next build
+for all consumers.
 
 ## Operator Event Presentation
 

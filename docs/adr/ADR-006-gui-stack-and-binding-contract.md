@@ -7,6 +7,15 @@
 **Supersedes:** none
 **Follows:** ADR-005 (Freeze TUI, Prioritize GUI)
 
+**2026-05-14 amendment:** This ADR remains authoritative for the web GUI stack
+and gateway binding contract. Its Electron rejection applies to using Electron
+as the general GUI substrate. The late native/browser roadmaps supersede that
+rejection only for the first-class native operator surface and embedded browser
+host capability:
+`docs/roadmap/02-native-operator-surface-foundation.md`,
+`docs/roadmap/03-embedded-browser-host-capability.md`, and
+`docs/roadmap/04-embedded-browser-operator-surface.md`.
+
 ---
 
 ## Context
@@ -35,9 +44,9 @@ The decisions below resolve seven questions left open by ADR-005: runtime substr
 
 The GUI ships as a **Vite-built single-page web application**, served by a Kiln gateway-backed process on `http://localhost:<port>/gui/`. In local developer mode, `kiln gui` starts an Operator Gateway that owns the operator session bridge. When operating deployable YAML apps, the GUI attaches to the App Gateway started from `gateway.yaml` instead of creating a second app control plane. The operator opens the GUI in their existing browser. This is the primary and only supported substrate in Phase 1.
 
-Tauri is **deferred**, not rejected. Once the web surface stabilizes and a concrete need for OS integration surfaces (tray icon, file-system access, notifications, offline install), a Tauri wrapper can be added as a thin shell over the same bundle. Electron is rejected outright: heavier runtime, weaker security defaults, no integration advantage over Tauri, and no category peer in the governed-AI space ships Electron.
+Native desktop surfaces are **deferred from Phase 1**, not rejected. Phase 1 keeps the web GUI as the primary gateway-backed surface. Later native work must be a first-class operator surface over the same gateway contracts, not a direct runtime import path or a private control plane.
 
-**Rationale.** Web-first gives us the broadest reach with one build, the fastest inner loop (Vite HMR), zero install friction for a single-operator setup, and a trivial path to remote operation later via SSH port-forward or a future authenticated daemon. Tauri as a wrapper, not a replacement, preserves that path.
+**Rationale.** Web-first gives us the broadest reach with one build, the fastest inner loop (Vite HMR), zero install friction for a single-operator setup, and a trivial path to remote operation later via SSH port-forward or a future authenticated daemon. The gateway contract preserves the path to future native surfaces without changing runtime semantics.
 
 ### 2. Framework stack: React 19 + TanStack + Tailwind v4 + shadcn/ui
 
@@ -176,7 +185,7 @@ Any PR that introduces a custom interactive component without an a11y review is 
 
 ### Positive
 
-- Single binding shape (gateway HTTP/WS) for every operator surface today and every wrapper tomorrow. Zero parallel control planes, satisfying ADR-005 structurally.
+- Single binding shape (gateway HTTP/WS) for every operator surface today and every future surface tomorrow. Zero parallel control planes, satisfying ADR-005 structurally.
 - Stack matches Sequel-wide standards, so engineers moving between Kiln and other Sequel projects pay no context tax.
 - WCAG 2.1 AA commitment from day one lets us truthfully keep the accessibility argument that justified ADR-005.
 - Phase 1 scope is a closed, testable set. Parity with the TUI is a yes/no question, which gives GUI-primary status an unambiguous validation point.
@@ -212,11 +221,14 @@ Rejected as the primary substrate. It would let the GUI skip the gateway and cal
 - It forks the binding shape: CLI/TUI speak gateway, GUI speaks in-process. ADR-005 §Decision #1 is then satisfied only nominally.
 - When remote operation eventually matters, the Tauri GUI has to be rewritten against a gateway anyway.
 
-Tauri remains viable as a *wrapper* over the web build, which is the deferred path in §1.
+Native desktop remains viable only through the same gateway contract, which is
+the deferred path in §1.
 
 ### B. Electron
 
-Rejected. Heavier runtime, weaker security defaults, larger binary, no category-peer precedent in governed-AI tooling, and no advantage over Tauri-as-wrapper when we eventually want desktop packaging.
+Rejected for the Phase 1 web GUI substrate. The 2026-05-14 amendment allows
+Electron to be reconsidered for a first-class native operator surface and
+embedded browser-host capability, while preserving the gateway boundary.
 
 ### C. tRPC instead of Hono + Zod
 

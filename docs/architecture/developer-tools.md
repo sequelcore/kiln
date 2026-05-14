@@ -429,8 +429,8 @@ Protocol. Future transports such as `webrtc`, `hosted-url`, or an embedded
 host must be represented as transport evidence rather than hidden behind a
 generic "live" label. Snapshot polling and CDP screencast are useful monitor
 and diagnostic transports; they are not a real embedded browser. A true
-in-app browser requires a native browser host that is selected and proven by
-the dedicated browser-host roadmap.
+in-app browser requires the native operator surface foundation and a native
+browser host capability selected and proven by the dedicated roadmaps.
 
 Operator browser evidence is sanitized. Takeover, release, and input
 acknowledgement events may be persisted as session evidence, but raw text input

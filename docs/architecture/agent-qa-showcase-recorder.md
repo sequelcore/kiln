@@ -56,8 +56,8 @@ The implemented baseline supports:
 Embedded in-app browser capture is a future backend, not a recorder
 prerequisite. Real video can be recorded from a runtime-owned browser session
 before Kiln has a native embedded browser view. Future embedded browser work is
-owned by `docs/roadmap/02-native-browser-host-decision.md` and
-`docs/roadmap/03-embedded-browser-operator-surface.md`.
+owned by `docs/roadmap/03-embedded-browser-host-capability.md` and
+`docs/roadmap/04-embedded-browser-operator-surface.md`.
 
 ## Computer Capture
 

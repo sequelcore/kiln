@@ -128,7 +128,7 @@ It preserves:
 - fast local iteration
 - browser accessibility
 - straightforward remote deployment later
-- a thin path to Tauri without changing core/runtime semantics
+- a path for first-class native surfaces without changing core/runtime semantics
 
 The GUI may start a local Operator Gateway for local coding/dev sessions. When
 operating deployable YAML apps, it must attach to the App Gateway instead of
@@ -166,29 +166,35 @@ navigation, inline diffs, and file context naturally live in the editor.
 An IDE extension must be a client of Kiln gateway and/or MCP contracts. It must
 not become a separate runtime, own session state, or bypass tool authority.
 
-## Desktop Wrapper
+## Native Operator Surface
 
-Native desktop packaging is a wrapper decision, not a runtime decision.
+Native desktop work is a surface decision, not a runtime decision.
 
-Tauri may become appropriate when product evidence shows a real need for:
+The native surface is allowed when product evidence shows a real need for
+native capabilities that the web GUI cannot provide cleanly, including:
 
 - native window lifecycle
 - tray or background operation
 - native notifications
 - packaged install and update flow
 - multi-window desktop review
+- embedded browser hosting
+- local high-density projection
 - OS credential integration
 - enterprise device-management expectations
 
-If accepted, Tauri must wrap the existing GUI and gateway contract. It must not
-introduce in-process GUI imports from runtime/core, a second session model, or a
-desktop-only execution policy.
+If accepted, the native surface must consume the same gateway/operator
+contracts as GUI, TUI, CLI, SDK, and widget. It must not introduce in-process
+imports from runtime/core, a second session model, or a desktop-only execution
+policy.
 
-Completion standard: the desktop wrapper can be removed without changing
+Completion standard: the native surface can be removed without changing
 core/runtime semantics.
 
-Electron remains rejected unless future evidence materially changes the product
-category. Kiln is a governed control plane, not an editor fork.
+Electron remains rejected as the general web GUI substrate. It may be accepted
+for a first-class native operator surface when a native-only capability, such as
+embedded Chromium browser hosting, justifies the desktop stack and still
+preserves runtime ownership.
 
 ## Remote GUI
 
@@ -228,7 +234,7 @@ behavior, or a provider-owned session namespace.
 
 - One control-plane runtime; many operator surfaces.
 - Surfaces are clients of contracts, not owners of runtime semantics.
-- Gateway/operator contracts are the boundary for GUI/TUI/CLI control.
+- Gateway/operator contracts are the boundary for GUI/native/TUI/CLI control.
 - MCP is the external tool/host boundary, not the GUI-to-gateway protocol.
 - Session selection means active continuation unless a surface explicitly
   implements a read-only preview mode.

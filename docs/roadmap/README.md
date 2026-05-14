@@ -72,20 +72,25 @@ documentation before their roadmap files are deleted.
 
 ## Deferred Roadmaps
 
-- `02-native-browser-host-decision.md`
-  Focused native browser-host decision track. This sits before the broad native
-  operator-surface experiment because a real embedded browser requires a host
-  decision before Kiln can claim in-app browser parity.
+- `02-native-operator-surface-foundation.md`
+  First-class native operator surface foundation. Owns the long-term stack,
+  gateway-only boundary, package shape, performance foundation, and deletion
+  plan before any native-only capability is implemented.
 
-- `03-embedded-browser-operator-surface.md`
-  Real embedded browser operator-surface track. Blocked on `02`; owns the
-  product capability where the operator interacts with an actual browser view
-  inside Kiln.
+- `03-embedded-browser-host-capability.md`
+  Focused native browser-host capability decision. Blocked on `02`; owns the
+  Electron `WebContentsView` proof, host security baseline, control protocol,
+  evidence model, and ADR update.
 
-- `04-native-operator-surface-experiment.md`
-  Deferred native, GPU-accelerated operator-surface experiment for high-density
-  managed-agent supervision, replay, timeline, graph, and multi-instance
-  workloads.
+- `04-embedded-browser-operator-surface.md`
+  Real embedded browser operator-surface track. Blocked on `02` and `03`; owns
+  the product capability where the operator interacts with an actual browser
+  view inside Kiln.
+
+- `05-native-operator-cockpit-and-projection-performance.md`
+  Deferred native cockpit and projection-performance experiment for
+  high-density managed-agent supervision, replay, timeline, graph,
+  multi-instance workloads, and optional Rust/WASM/sidecar acceleration.
 
 - OS-pack packaging for web extraction/browser helpers.
   Deferred until controlled web primitives and research capability need
@@ -239,12 +244,16 @@ documentation before their roadmap files are deleted.
 
 ## Execution Priority
 
-1. Keep the late browser/native sequence deferred until the native browser host
-   is decided: `02` native browser host, `03` embedded browser operator surface,
-   then `04` native operator surface.
-2. Keep `04-native-operator-surface-experiment.md` deferred until managed
-   agents create real high-density workloads and config projection makes
-   local/cloud/team/CI instance boundaries explicit.
+1. Keep the late native/browser sequence ordered as: `02` native operator
+   surface foundation, `03` embedded browser host capability, `04` embedded
+   browser operator surface, then `05` native cockpit and projection
+   performance.
+2. Treat performance architecture as part of `02` from the start: shared
+   projections, batching, resource links, virtualization, and metrics are not
+   late cleanup.
+3. Keep `05-native-operator-cockpit-and-projection-performance.md` deferred
+   until managed agents create real high-density workloads and config
+   projection makes local/cloud/team/CI instance boundaries explicit.
 
 ## Deferred Candidates
 

@@ -1,41 +1,30 @@
-# 02 - Native Browser Host Decision
+# 03 - Embedded Browser Host Capability
 
-Status: deferred design prerequisite.
+Status: blocked on `02-native-operator-surface-foundation.md`.
 
 ## Objective
 
-Decide and prove the native browser host required for a real in-app browser
-operator surface.
+Choose and prove the native browser-host capability that lets Kiln embed a real
+browser view inside the native operator surface.
 
-This roadmap exists because a normal web GUI cannot host an arbitrary real
-browser tab with reliable interaction, automation, and inspection. Iframes are
-not sufficient because target sites can block embedding and browser
-same-origin policy prevents the GUI from owning cross-origin page control.
-
-This track is narrower than `04-native-operator-surface-experiment.md`.
-Roadmap `04` remains the deferred high-density native cockpit experiment.
-This file only decides the browser-host substrate needed before Kiln can claim a
-real embedded browser.
+This roadmap is narrower than the native surface foundation and narrower than
+the high-density cockpit. It proves one native capability: governed embedded
+browser hosting.
 
 ## Canonical Placement
 
-This roadmap runs after the completed browser operator foundations documented
-in `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`, and
-before `03-embedded-browser-operator-surface.md`.
-
 ```text
-completed multimodal transport foundation
+02      native operator surface foundation
   ->
-completed agent QA showcase recorder
+03      embedded browser host capability
   ->
-completed browser operator foundations and snapshot monitor
+04      embedded browser operator surface
   ->
-02      native browser host decision
-  ->
-03      real embedded browser operator surface
-  ->
-04      high-density native operator surface experiment
+05      native cockpit and projection performance
 ```
+
+The selected host capability becomes an adapter behind the same runtime-owned
+browser session contract used by the web GUI, CLI, TUI, SDK, and widget.
 
 ## Candidate Hosts
 
@@ -43,9 +32,11 @@ Research references for this decision:
 
 - Electron `WebContentsView`: https://www.electronjs.org/docs/latest/api/web-contents-view
 - Electron `BrowserView` deprecation notice: https://www.electronjs.org/docs/latest/api/browser-view
+- Electron `webContents.debugger`: https://www.electronjs.org/docs/latest/api/debugger
+- Electron security checklist: https://www.electronjs.org/docs/latest/tutorial/security
 - Tauri `WebviewWindow`: https://tauri.app/reference/javascript/api/namespacewebviewwindow/
 - Tauri webview runtime versions: https://v2.tauri.app/reference/webview-versions/
-- OpenAI Codex in-app browser reference: https://help.openai.com/en/articles/11369540
+- Chromium Embedded Framework: https://chromiumembedded.github.io/cef/
 
 ### Electron WebContentsView
 
@@ -58,13 +49,17 @@ Reasons:
 - Electron exposes `webContents` and `webContents.debugger`, giving Kiln a
   browser view and a Chrome DevTools Protocol control path in the same host.
 - Chromium behavior is consistent across Windows, macOS, and Linux.
+- The native surface foundation already selects Electron for the v1 native
+  process model.
 
 Risks:
 
 - ADR-006 rejected Electron for the web GUI substrate. This roadmap must amend
-  that decision only for the browser-host requirement, not for the whole GUI.
+  that decision only for the native operator surface and browser-host
+  capability, not for runtime ownership.
 - Remote content must never receive Node or privileged Electron APIs.
-- Packaging and update burden is higher than the current web-first GUI.
+- Packaging and update burden is accepted only if the native surface remains a
+  first-class product surface, not a wrapper.
 
 ### Tauri Webview
 
@@ -72,8 +67,8 @@ Secondary candidate.
 
 Reasons:
 
-- Tauri aligns better with the existing desktop-wrapper direction.
-- Tauri can create webviews and load remote URLs.
+- Strong desktop security model and OS integration story.
+- Useful reference for permissions, capabilities, and small desktop packaging.
 
 Risks:
 
@@ -81,6 +76,23 @@ Risks:
   and automation/control are less uniform than Chromium.
 - A first-class CDP-style control path is not as direct as Electron
   `webContents.debugger`.
+- Better fit for packaging than for the first governed embedded-browser proof.
+
+### Chromium Embedded Framework
+
+Reserved alternative if Electron fails the proof.
+
+Reasons:
+
+- Purpose-built Chromium embedding.
+- Deep control over browser process and rendering lifecycle.
+
+Risks:
+
+- Higher C++/native maintenance burden.
+- Larger packaging and build-system cost.
+- Too heavy for the first TypeScript-first native surface unless Electron
+  cannot satisfy security or control requirements.
 
 ### External Playwright Browser
 
@@ -95,7 +107,7 @@ Reasons:
 Risks:
 
 - Not an in-app browser.
-- Does not satisfy the product target.
+- Does not satisfy the native embedded capability.
 
 ### Screenshot Or Screencast Stream
 
@@ -113,20 +125,20 @@ Reasons:
 The decision must produce:
 
 - chosen host substrate
-- package boundary
+- host package boundary
 - runtime adapter boundary
 - security baseline
 - control protocol
 - evidence model
-- rollback/deletion plan
+- deletion plan
 - ADR update or replacement for the Electron/Tauri part of ADR-006
 
 ## Boundary Rules
 
-- Runtime owns session identity, authority, ownership, audit, replay, policy,
-  provider routing, and tool execution.
+- Runtime owns browser session identity, authority, ownership, audit, replay,
+  policy, provider routing, and tool execution.
 - Native browser host owns browser process/view lifecycle only as an adapter.
-- GUI owns layout reservation and presentation state only.
+- Native surface owns layout reservation, focus, resize, and presentation state.
 - The host must communicate through explicit gateway/runtime contracts.
 - No browser host may import provider credentials or resolve policy locally.
 - No browser host may introduce a second session model.
@@ -142,13 +154,15 @@ The decision must produce:
   protocol opens fail closed until explicitly designed.
 - DevTools/CDP access is owned by the browser host adapter and audited through
   runtime events.
+- Cookies and persistent profile state are ephemeral by default unless a later
+  governed profile policy explicitly accepts persistence.
 
 ## Proof Requirements
 
 The proof must demonstrate:
 
-- a real browser view embedded in the Kiln-controlled window
-- navigation to an allowed URL
+- a real browser view embedded in the Kiln native surface
+- navigation to an allowed local deterministic URL
 - direct operator click/type/scroll inside the embedded browser view
 - runtime observation of URL/title/viewport state
 - runtime-side action dispatch through the selected host control channel
@@ -159,6 +173,7 @@ The proof must demonstrate:
 
 ## Non-Goals
 
+- Do not build the full embedded browser operator product surface.
 - Do not implement high-density multi-session cockpit UI.
 - Do not replace the web GUI.
 - Do not build an editor.
