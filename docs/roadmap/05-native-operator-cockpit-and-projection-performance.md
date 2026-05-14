@@ -8,10 +8,11 @@ Current scope is precondition review, explicit target/action admission,
 benchmark fixture definitions, shared projection baselines, cancellation target
 contracts, a shared read-only projection substrate, a native read-only
 projection wrapper, read-only action intents, a shared read-only projection
-baseline measurement, a read-only attach plan, and Rust hot-path boundaries.
-Do not build a native cockpit UI, browser rendering benchmark runner, live
-gateway attach loop, cancellation dispatch, or Rust/WASM/sidecar module until
-this
+baseline measurement, a read-only attach plan, target-aware resource-link
+projection, and Rust hot-path boundaries. Do not build a native cockpit UI,
+browser rendering benchmark runner, live gateway attach loop,
+resource-opening dispatch, cancellation dispatch, or Rust/WASM/sidecar module
+until this
 contract/projection phase and baseline measurements justify them.
 
 Do not start this program before the completed plan/goal workflow-control
@@ -1085,8 +1086,9 @@ Started 2026-05-14:
 - `packages/gateway-contracts/src/operator-cockpit-projection.ts` now defines
   the shared read-only cockpit projection over canonical events and explicit
   attach targets. It groups instance, session, timeline, managed-invocation,
-  tool-call, cost, provider, and authority summaries without network attach,
-  UI rendering, cancellation dispatch, or Rust acceleration.
+  tool-call, target-aware resource-link, cost, provider, and authority
+  summaries without network attach, UI rendering, resource-opening dispatch,
+  cancellation dispatch, or Rust acceleration.
 - `packages/gateway-contracts/src/operator-cockpit-projection.ts` now defines
   a shared read-only attach plan over explicit attach targets. It validates
   supported target kinds, duplicate targets, labels, and `http://` or
@@ -1110,6 +1112,11 @@ Started 2026-05-14:
   read-only action intents for inspect, replay, focus, filter, and
   open-resource affordances. These intents are target-checked and explicitly
   `not-dispatched`; cancellation remains outside this phase.
+- Tool resource links emitted through the shared operator-event presenter are
+  now projected into timeline entries and tool summaries with `resourceUri`
+  encoded in each action target. This supports read-only open-resource
+  affordances without parsing raw payloads or dispatching resource-opening
+  behavior.
 
 ### Phase 1 - Contract-Only Design
 
@@ -1158,7 +1165,7 @@ Started 2026-05-14:
 - `@kilnai/gateway-contracts` exposes
   `projectOperatorCockpitReadOnlyView`, which accepts explicit attach targets
   plus canonical session events and returns read-only instance, session,
-  timeline, invocation, tool, and cost/provider projections.
+  timeline, invocation, tool, resource-link, and cost/provider projections.
 - Projection fails closed when an event references an unattached instance.
 - This is not yet gateway networking or a native cockpit UI. It is the shared
   surface-neutral projection substrate that local, remote, GUI, native, TUI,
@@ -1172,6 +1179,9 @@ Started 2026-05-14:
 - `@kilnai/native` consumes the shared read-only attach plan through
   `createNativeCockpitReadOnlyAttachPlan`, adding native surface metadata while
   keeping `networkAttach: not-started` and `mutationDispatch: disabled`.
+- Resource links remain shared projection data. Native, GUI, TUI, SDK, and
+  future IDE/editor surfaces must consume those targets instead of parsing tool
+  payloads or opening resources directly from projection code.
 - `@kilnai/gateway-contracts` exposes
   `measureOperatorCockpitReadOnlyProjectionBaseline`, which measures the shared
   TypeScript projection over canonical events and explicit attach targets. This

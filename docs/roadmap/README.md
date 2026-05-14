@@ -76,9 +76,11 @@ explicitly parked until their prerequisite product surface exists.
   cockpit UI. It also defines the shared TypeScript read-only projection
   baseline that later GUI/native rendering and Rust/WASM/sidecar candidates
   must match, plus a read-only attach plan that validates explicit local and
-  simulated remote gateway URLs without opening network connections. Live
-  gateway attach loops, cancellation dispatch, browser-rendering benchmarks,
-  and Rust/WASM/sidecar modules remain out of scope until measurement justifies
+  simulated remote gateway URLs without opening network connections. Shared
+  projection now includes target-aware resource links for open-resource
+  affordances without dispatch. Live gateway attach loops, resource-opening
+  dispatch, cancellation dispatch, browser-rendering benchmarks, and
+  Rust/WASM/sidecar modules remain out of scope until measurement justifies
   them.
 
 ## Deferred Roadmaps

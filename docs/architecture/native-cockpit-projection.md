@@ -6,8 +6,10 @@ cancellation-target, shared read-only cockpit projection, and native
 read-only projection wrapper/action-intent contracts. It also has a shared
 TypeScript read-only projection baseline over the same projection substrate and
 a read-only attach plan for explicit local and simulated remote gateway
-targets. No native cockpit UI, network attach loop, browser-rendering
-benchmark, cancellation dispatch, or Rust projection kernel is promoted.
+targets. Shared projection now includes target-aware resource links for
+read-only open-resource affordances. No native cockpit UI, network attach loop,
+browser-rendering benchmark, resource-opening dispatch, cancellation dispatch,
+or Rust projection kernel is promoted.
 
 ## Purpose
 
@@ -118,11 +120,18 @@ by explicit attach target and session, then emits:
 - timeline entries
 - managed-invocation summaries
 - tool-call summaries
+- target-aware resource links
 - cost and provider-route summaries
 
 Every projected row preserves an `OperatorCockpitActionTarget` with at least
 `instanceId` and the relevant `sessionId`, `eventId`, or
 `managedInvocationId`.
+
+Tool resource links emitted through the shared operator-event presenter are
+projected into timeline and tool-summary resources with `resourceUri` encoded
+in the target. This is still read-only planning data. Surfaces may render
+resource affordances from it, but opening a resource remains a separate
+target-checked intent and is not dispatched by this projection.
 
 Projection fails closed when an event references an instance that is not in the
 attach target list. This prevents local, remote, team, cloud, CI, and simulated
@@ -187,6 +196,7 @@ Implemented:
 - shared GUI projection baseline measurement
 - shared read-only cockpit projection baseline measurement
 - shared read-only attach plan for local and simulated remote gateway targets
+- target-aware read-only resource-link projection from canonical tool events
 - gateway-mediated cancellation request schema
 - shared read-only cockpit projection over canonical events and explicit attach
   targets
@@ -200,6 +210,7 @@ Not implemented:
 - multi-session cockpit UI
 - multi-instance dashboard UI
 - cancellation dispatch
+- resource-opening dispatch
 - browser rendering benchmark runner
 - Rust/WASM/sidecar projection kernel
 - native packaging/distribution

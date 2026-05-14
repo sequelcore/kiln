@@ -243,4 +243,115 @@ describe("operator cockpit read-only projection", () => {
       ],
     })).toThrow("must use http:// or https://");
   });
+
+  it("projects tool resource links as target-aware read-only cockpit resources", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "resource-links",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 0,
+      childInvocationCount: 0,
+      eventCount: 2,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const toolEvent: OperatorSessionEvent = {
+      ...fixture.events[1]!,
+      eventId: "resource-links:event:2",
+      kind: "tool_call_completed",
+      payload: {
+        fixtureId: "resource-links",
+        instanceId: "resource-links:instance:1",
+        sessionId: "resource-links:session:1",
+        toolCallId: "resource-links:tool:read-many",
+        toolName: "read_many",
+        output: JSON.stringify({
+          result: {
+            output: "2 files read",
+            metadata: {
+              operation: "read_many",
+              fileCount: 2,
+              resourceLinks: [
+                {
+                  uri: "kiln://artifacts/read-many/content",
+                  title: "Read Many Content",
+                  mimeType: "application/json",
+                  relation: "full_output",
+                },
+                {
+                  uri: "kiln://artifacts/read-many/summary",
+                  title: "Read Many Summary",
+                  relation: "summary",
+                },
+              ],
+            },
+          },
+        }),
+        state: "succeeded",
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-14T12:05:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "resource-links:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+      events: [
+        fixture.events[0]!,
+        toolEvent,
+      ],
+    });
+
+    expect(projection.instances[0]).toMatchObject({
+      resourceLinkCount: 2,
+    });
+    expect(projection.sessions[0]).toMatchObject({
+      resourceLinkCount: 2,
+    });
+    expect(projection.timeline[1]?.resourceLinks).toEqual([
+      {
+        uri: "kiln://artifacts/read-many/content",
+        title: "Read Many Content",
+        mimeType: "application/json",
+        relation: "full_output",
+        target: {
+          instanceId: "resource-links:instance:1",
+          sessionId: "resource-links:session:1",
+          eventId: "resource-links:event:2",
+          resourceUri: "kiln://artifacts/read-many/content",
+        },
+      },
+      {
+        uri: "kiln://artifacts/read-many/summary",
+        title: "Read Many Summary",
+        relation: "summary",
+        target: {
+          instanceId: "resource-links:instance:1",
+          sessionId: "resource-links:session:1",
+          eventId: "resource-links:event:2",
+          resourceUri: "kiln://artifacts/read-many/summary",
+        },
+      },
+    ]);
+    expect(projection.toolSummaries[0]).toMatchObject({
+      resourceLinkCount: 2,
+      resourceLinks: [
+        expect.objectContaining({
+          uri: "kiln://artifacts/read-many/content",
+          target: {
+            instanceId: "resource-links:instance:1",
+            sessionId: "resource-links:session:1",
+            eventId: "resource-links:event:2",
+            resourceUri: "kiln://artifacts/read-many/content",
+          },
+        }),
+        expect.objectContaining({
+          uri: "kiln://artifacts/read-many/summary",
+        }),
+      ],
+    });
+  });
 });

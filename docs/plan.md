@@ -32,6 +32,9 @@ canonical gateway events.
 - The next attach slice belongs in `@kilnai/gateway-contracts` and
   `@kilnai/native`: validate read-only local/simulated-remote gateway attach
   targets and record planned connection intent without opening sockets.
+- The next projection slice belongs in `@kilnai/gateway-contracts`: surface
+  target-aware resource links from canonical tool events so native/GUI/TUI/SDK
+  resource affordances do not parse raw tool payloads.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
@@ -236,6 +239,30 @@ Deliverables:
 - Keep live gateway networking, UI rendering, cancellation dispatch, and
   Rust/WASM/sidecar acceleration out of scope.
 
+### Slice 10 - Target-Aware Resource-Link Projection
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
+- `packages/gateway-contracts/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Project shared operator-event resource links into cockpit timeline entries
+  and tool summaries.
+- Add `resourceLinkCount` to instance, session, and tool summaries.
+- Encode `resourceUri` into each resource-link target so open-resource
+  affordances can reuse shared target validation.
+- Keep resource-opening dispatch, live gateway networking, UI rendering, and
+  Rust/WASM/sidecar acceleration out of scope.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -272,3 +299,13 @@ Deliverables:
 - Passed `bun run test` after Slice 9.
 - Passed `bun run build` after Slice 9.
 - Passed `git diff --check` after Slice 9.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-projection` after Slice 10.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 10.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 10.
+- Passed `bun run --cwd packages/native test` after Slice 10.
+- Passed `bun run --cwd packages/native typecheck` after Slice 10.
+- Passed `bun run --cwd packages/native build` after Slice 10.
+- Passed `bun run typecheck` after Slice 10.
+- Passed `bun run test` after Slice 10.
+- Passed `bun run build` after Slice 10.
+- Passed `git diff --check` after Slice 10.

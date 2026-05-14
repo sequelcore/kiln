@@ -3,6 +3,7 @@ import type {
 } from "./frames.js";
 import type {
   OperatorEventTone,
+  ToolResultResourceLinkPresentation,
 } from "./operator-event-presentation.js";
 import {
   presentOperatorSessionEvent,
@@ -77,6 +78,7 @@ export interface OperatorCockpitInstanceProjection {
   readonly eventCount: number;
   readonly managedInvocationCount: number;
   readonly toolCallCount: number;
+  readonly resourceLinkCount: number;
   readonly totalCostUsd: number;
 }
 
@@ -87,10 +89,22 @@ export interface OperatorCockpitSessionProjection {
   readonly eventCount: number;
   readonly managedInvocationCount: number;
   readonly toolCallCount: number;
+  readonly resourceLinkCount: number;
   readonly totalCostUsd: number;
   readonly authority: string;
   readonly latestEventId: string;
   readonly latestEventTitle: string;
+}
+
+export interface OperatorCockpitResourceLinkProjection {
+  readonly uri: string;
+  readonly title?: string;
+  readonly label?: string;
+  readonly sequence?: number;
+  readonly mimeType?: string;
+  readonly size?: number;
+  readonly relation?: string;
+  readonly target: OperatorCockpitActionTarget;
 }
 
 export interface OperatorCockpitTimelineEntry {
@@ -104,6 +118,7 @@ export interface OperatorCockpitTimelineEntry {
   readonly title: string;
   readonly compactText: string;
   readonly tone: OperatorEventTone;
+  readonly resourceLinks?: readonly OperatorCockpitResourceLinkProjection[];
 }
 
 export type OperatorCockpitInvocationStatus =
@@ -139,6 +154,8 @@ export interface OperatorCockpitToolSummaryProjection {
   readonly target: OperatorCockpitActionTarget;
   readonly status: OperatorCockpitToolStatus;
   readonly eventCount: number;
+  readonly resourceLinkCount: number;
+  readonly resourceLinks: readonly OperatorCockpitResourceLinkProjection[];
   readonly latestEventId: string;
 }
 
@@ -165,6 +182,7 @@ interface InstanceAccumulator {
   readonly sessions: Set<string>;
   readonly invocations: Set<string>;
   readonly tools: Set<string>;
+  readonly resourceLinks: Set<string>;
   eventCount: number;
   totalCostUsd: number;
 }
@@ -174,6 +192,7 @@ interface SessionAccumulator {
   readonly sessionId: string;
   readonly invocations: Set<string>;
   readonly tools: Set<string>;
+  readonly resourceLinks: Set<string>;
   eventCount: number;
   totalCostUsd: number;
   authority: string;
@@ -198,6 +217,7 @@ interface ToolAccumulator {
   readonly instanceId: string;
   readonly sessionId: string;
   readonly target: OperatorCockpitActionTarget;
+  readonly resourceLinks: Map<string, OperatorCockpitResourceLinkProjection>;
   status: OperatorCockpitToolStatus;
   eventCount: number;
   latestEventId: string;
@@ -239,6 +259,7 @@ export function projectOperatorCockpitReadOnlyView(
       sessions: new Set<string>(),
       invocations: new Set<string>(),
       tools: new Set<string>(),
+      resourceLinks: new Set<string>(),
       eventCount: 0,
       totalCostUsd: 0,
     });
@@ -271,10 +292,15 @@ export function projectOperatorCockpitReadOnlyView(
     };
     const presentation = presentOperatorSessionEvent(event);
     const costDeltaUsd = readCostDeltaUsd(payload);
+    const resourceLinks = projectResourceLinks(
+      presentation.toolPresentation?.resourceLinks ?? [],
+      target,
+    );
 
     instance.eventCount += 1;
     instance.sessions.add(sessionId);
     instance.totalCostUsd += costDeltaUsd;
+    addResourceUris(instance.resourceLinks, resourceLinks);
 
     const session = getOrCreateSession(sessions, {
       instanceId,
@@ -287,6 +313,7 @@ export function projectOperatorCockpitReadOnlyView(
     session.latestEventId = event.eventId;
     session.latestEventTitle = presentation.title;
     session.authority = readAuthority(payload) ?? session.authority;
+    addResourceUris(session.resourceLinks, resourceLinks);
 
     const managedInvocationId = readString(payload.managedInvocationId);
     if (managedInvocationId) {
@@ -332,6 +359,7 @@ export function projectOperatorCockpitReadOnlyView(
       tool.eventCount += 1;
       tool.latestEventId = event.eventId;
       tool.status = readToolStatus(event, payload);
+      addResourceLinks(tool.resourceLinks, resourceLinks);
       instance.tools.add(toolCallId);
       session.tools.add(toolCallId);
     }
@@ -355,6 +383,7 @@ export function projectOperatorCockpitReadOnlyView(
       title: presentation.title,
       compactText: presentation.compactText ?? presentation.title,
       tone: presentation.tone,
+      ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     });
   }
 
@@ -451,6 +480,7 @@ function getOrCreateSession(
     sessionId: input.sessionId,
     invocations: new Set<string>(),
     tools: new Set<string>(),
+    resourceLinks: new Set<string>(),
     eventCount: 0,
     totalCostUsd: 0,
     authority: "unknown",
@@ -509,6 +539,7 @@ function getOrCreateTool(
     instanceId: input.instanceId,
     sessionId: input.sessionId,
     target: input.target,
+    resourceLinks: new Map<string, OperatorCockpitResourceLinkProjection>(),
     status: "unknown",
     eventCount: 0,
     latestEventId: input.latestEventId,
@@ -527,6 +558,7 @@ function projectInstance(input: InstanceAccumulator): OperatorCockpitInstancePro
     eventCount: input.eventCount,
     managedInvocationCount: input.invocations.size,
     toolCallCount: input.tools.size,
+    resourceLinkCount: input.resourceLinks.size,
     totalCostUsd: input.totalCostUsd,
   };
 }
@@ -542,6 +574,7 @@ function projectSession(input: SessionAccumulator): OperatorCockpitSessionProjec
     eventCount: input.eventCount,
     managedInvocationCount: input.invocations.size,
     toolCallCount: input.tools.size,
+    resourceLinkCount: input.resourceLinks.size,
     totalCostUsd: input.totalCostUsd,
     authority: input.authority,
     latestEventId: input.latestEventId,
@@ -571,8 +604,47 @@ function projectTool(input: ToolAccumulator): OperatorCockpitToolSummaryProjecti
     target: input.target,
     status: input.status,
     eventCount: input.eventCount,
+    resourceLinkCount: input.resourceLinks.size,
+    resourceLinks: Array.from(input.resourceLinks.values()).sort(compareResourceLinks),
     latestEventId: input.latestEventId,
   };
+}
+
+function projectResourceLinks(
+  links: readonly ToolResultResourceLinkPresentation[],
+  target: OperatorCockpitActionTarget,
+): readonly OperatorCockpitResourceLinkProjection[] {
+  return links.map((link) => ({
+    uri: link.uri,
+    ...(link.title ? { title: link.title } : {}),
+    ...(link.label ? { label: link.label } : {}),
+    ...(link.sequence !== undefined ? { sequence: link.sequence } : {}),
+    ...(link.mimeType ? { mimeType: link.mimeType } : {}),
+    ...(link.size !== undefined ? { size: link.size } : {}),
+    ...(link.relation ? { relation: link.relation } : {}),
+    target: {
+      ...target,
+      resourceUri: link.uri,
+    },
+  }));
+}
+
+function addResourceUris(
+  target: Set<string>,
+  resourceLinks: readonly OperatorCockpitResourceLinkProjection[],
+): void {
+  for (const resourceLink of resourceLinks) {
+    target.add(resourceLink.uri);
+  }
+}
+
+function addResourceLinks(
+  target: Map<string, OperatorCockpitResourceLinkProjection>,
+  resourceLinks: readonly OperatorCockpitResourceLinkProjection[],
+): void {
+  for (const resourceLink of resourceLinks) {
+    target.set(resourceLink.uri, resourceLink);
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -685,6 +757,13 @@ function compareByInstanceThenSessionThenTool(
 ): number {
   const sessionCompare = compareProjectionLocation(a, b);
   return sessionCompare === 0 ? a.toolCallId.localeCompare(b.toolCallId) : sessionCompare;
+}
+
+function compareResourceLinks(
+  a: OperatorCockpitResourceLinkProjection,
+  b: OperatorCockpitResourceLinkProjection,
+): number {
+  return a.uri.localeCompare(b.uri);
 }
 
 function compareProjectionLocation(

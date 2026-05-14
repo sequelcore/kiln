@@ -155,6 +155,7 @@ export type {
   OperatorCockpitReadOnlyAttachPlanTarget,
   OperatorCockpitReadOnlyProjection,
   OperatorCockpitReadOnlyProjectionInput,
+  OperatorCockpitResourceLinkProjection,
   OperatorCockpitSessionProjection,
   OperatorCockpitTimelineEntry,
   OperatorCockpitToolStatus,

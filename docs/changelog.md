@@ -53,6 +53,11 @@
   Gateway, App Gateway, and simulated App Gateway targets now validate explicit
   HTTP(S) gateway URLs and record planned connection intent without opening
   sockets, dispatching mutations, or starting a native attach loop.
+- Added target-aware resource-link projection to the shared read-only cockpit
+  view. Tool resource links now appear on timeline entries and tool summaries
+  with `resourceUri` encoded in their action targets, enabling read-only
+  open-resource affordances without parsing raw payloads or dispatching
+  resource-opening behavior.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.
