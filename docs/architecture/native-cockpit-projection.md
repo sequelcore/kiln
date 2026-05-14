@@ -1,9 +1,10 @@
 # Native Cockpit Projection
 
-Status: contract-only architecture. Roadmap 05 has target, precondition,
-benchmark-fixture, shared projection-baseline, and cancellation-target
-contracts. No native cockpit prototype, cancellation dispatch, or Rust
-projection kernel is promoted.
+Status: early read-only projection architecture. Roadmap 05 has target,
+precondition, benchmark-fixture, shared projection-baseline,
+cancellation-target, and read-only cockpit projection contracts. No native
+cockpit UI, network attach loop, cancellation dispatch, or Rust projection
+kernel is promoted.
 
 ## Purpose
 
@@ -17,11 +18,16 @@ memory policy engine, config resolver, or packaging/distribution track.
 
 ## Package Boundary
 
-The contract lives in `@kilnai/native` because the experiment belongs to the
-native operator surface. The current implementation is
-`packages/native/src/shared/native-cockpit-contract.ts`.
+The native-specific contract lives in `@kilnai/native` because the experiment
+belongs to the native operator surface. The current native contract
+implementation is `packages/native/src/shared/native-cockpit-contract.ts`.
 
-The native package may define projection, target, and benchmark contracts. It
+Shared target, benchmark, and read-only projection contracts live in
+`@kilnai/gateway-contracts` so GUI, native, TUI, SDK, and future surfaces can
+consume the same canonical event projections instead of maintaining private
+cockpit models.
+
+The native package may define native-specific readiness and shell contracts. It
 must not import `@kilnai/core` or `@kilnai/runtime` implementation modules.
 Runtime facts must arrive through gateway/operator contracts or shared
 operator-facing contract packages.
@@ -65,6 +71,33 @@ contract validates `instanceId`, `sessionId`, and either `workItemId` or
 `managedInvocationId` before any future surface can ask runtime to cancel
 work. The current contract does not dispatch cancellation.
 
+## Read-Only Projection
+
+The first Phase 2 substrate is a shared read-only cockpit projection over
+canonical `OperatorSessionEvent` records.
+
+`packages/gateway-contracts/src/operator-cockpit-projection.ts` groups events
+by explicit attach target and session, then emits:
+
+- instance summaries
+- session summaries
+- timeline entries
+- managed-invocation summaries
+- tool-call summaries
+- cost and provider-route summaries
+
+Every projected row preserves an `OperatorCockpitActionTarget` with at least
+`instanceId` and the relevant `sessionId`, `eventId`, or
+`managedInvocationId`.
+
+Projection fails closed when an event references an instance that is not in the
+attach target list. This prevents local, remote, team, cloud, CI, and simulated
+remote events from collapsing into hidden global state.
+
+This projection is still not a native prototype. It does not open sockets,
+attach to gateways, dispatch cancellation, schedule work, resolve authority,
+read config, read memory, route providers, or render a cockpit UI.
+
 ## Benchmark Fixtures
 
 Promotion requires shared fixture definitions before UI claims are made.
@@ -105,6 +138,8 @@ Implemented:
 - shared synthetic high-density event fixture generator
 - shared GUI projection baseline measurement
 - gateway-mediated cancellation request schema
+- shared read-only cockpit projection over canonical events and explicit attach
+  targets
 - native boundary tests proving the contract fails closed
 
 Not implemented:

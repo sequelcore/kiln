@@ -5,9 +5,10 @@ Status: active.
 ## Objective
 
 Start `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
-without prematurely building a cockpit UI, scheduler, Rust module, or
-packaging track. Deliver Phase 0/1 contract foundations for precondition review,
-explicit targets, benchmark fixtures, and Rust boundaries.
+without prematurely building a cockpit UI, scheduler, Rust module, network
+attach loop, cancellation dispatch, or packaging track. Deliver Phase 0/1
+contract foundations and the first Phase 2 read-only projection substrate over
+canonical gateway events.
 
 ## Scout Summary
 
@@ -19,9 +20,11 @@ explicit targets, benchmark fixtures, and Rust boundaries.
 - GUI already has work-item and session-store projections. The current baseline
   now measures the shared operator-event presentation path; a browser-rendering
   benchmark remains future work.
-- Shared GUI projection baselines and gateway-mediated cancellation target
-  semantics now exist; browser-rendering benchmarks and cancellation dispatch
-  remain out of scope for the next read-only prototype step.
+- Shared GUI projection baselines, gateway-mediated cancellation target
+  semantics, and read-only cockpit projections now exist; browser-rendering
+  benchmarks, gateway attach loops, native UI, Rust acceleration, and
+  cancellation dispatch remain out of scope for the next read-only prototype
+  step.
 - Existing unrelated dirty files remain out of scope:
   `.kiln/kiln.yaml` and `packages/gui/tests/memory-lattice-panel.test.tsx`.
 
@@ -93,11 +96,38 @@ Deliverables:
 - Move action target semantics to `@kilnai/gateway-contracts` and keep native as
   a consumer.
 
+### Slice 5 - Shared Read-Only Cockpit Projection
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
+- `packages/gateway-contracts/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Define `projectOperatorCockpitReadOnlyView` as a surface-neutral projection
+  over canonical `OperatorSessionEvent` records.
+- Preserve explicit attach targets for local, remote, simulated remote, team,
+  cloud, and CI instances.
+- Emit read-only instance, session, timeline, managed-invocation, tool-call,
+  and cost/provider summaries.
+- Fail closed when an event references an unattached instance.
+- Keep gateway attach networking, native UI rendering, cancellation dispatch,
+  and Rust/WASM/sidecar acceleration out of scope.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
 - Passed `bun run --filter @kilnai/gateway-contracts test -- operator-surface-capability`.
 - Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-target operator-cockpit-benchmark`.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-projection`.
 - Passed `bun run --filter @kilnai/gateway-contracts typecheck`.
 - Passed `bun run --filter @kilnai/gateway-contracts build`.
 - Passed `bun run --cwd packages/native typecheck`.

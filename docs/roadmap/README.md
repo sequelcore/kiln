@@ -68,11 +68,13 @@ explicitly parked until their prerequisite product surface exists.
 ## Active Roadmaps
 
 - `05-native-operator-cockpit-and-projection-performance.md`
-  Active in contract-only Phase 0/1. The current scope defines precondition
-  review, explicit target/action admission, benchmark fixture thresholds, and
-  Rust hot-path boundaries before any native cockpit prototype. Shared GUI
-  projection baselines and cancellation target contracts are now available;
-  cancellation dispatch and browser-rendering benchmarks remain out of scope.
+  Active in early Phase 2 after contract-only Phase 0/1. The current scope
+  defines precondition review, explicit target/action admission, benchmark
+  fixture thresholds, shared GUI projection baselines, cancellation target
+  contracts, and a shared read-only cockpit projection substrate before any
+  native cockpit UI. Gateway attach loops, cancellation dispatch,
+  browser-rendering benchmarks, and Rust/WASM/sidecar modules remain out of
+  scope until measurement justifies them.
 
 ## Deferred Roadmaps
 

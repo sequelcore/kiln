@@ -138,6 +138,25 @@ export {
 } from "./operator-cockpit-benchmark.js";
 
 export type {
+  OperatorCockpitAttachTarget,
+  OperatorCockpitAttachTargetKind,
+  OperatorCockpitCostProjection,
+  OperatorCockpitInstanceProjection,
+  OperatorCockpitInvocationProjection,
+  OperatorCockpitInvocationStatus,
+  OperatorCockpitReadOnlyProjection,
+  OperatorCockpitReadOnlyProjectionInput,
+  OperatorCockpitSessionProjection,
+  OperatorCockpitTimelineEntry,
+  OperatorCockpitToolStatus,
+  OperatorCockpitToolSummaryProjection,
+} from "./operator-cockpit-projection.js";
+export {
+  OPERATOR_COCKPIT_ATTACH_TARGET_KINDS,
+  projectOperatorCockpitReadOnlyView,
+} from "./operator-cockpit-projection.js";
+
+export type {
   OperatorCockpitAction,
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,

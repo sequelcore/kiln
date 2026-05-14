@@ -6,10 +6,10 @@ Active experimental roadmap. Started on 2026-05-14 in contract-only Phase 0/1.
 
 Current scope is precondition review, explicit target/action admission,
 benchmark fixture definitions, shared projection baselines, cancellation target
-contracts, and Rust hot-path boundaries. Do not build a native cockpit
-prototype, browser rendering benchmark runner, cancellation dispatch, or
-Rust/WASM/sidecar module until this contract phase and baseline measurements
-justify them.
+contracts, a shared read-only projection substrate, and Rust hot-path
+boundaries. Do not build a native cockpit UI, browser rendering benchmark
+runner, gateway attach loop, cancellation dispatch, or Rust/WASM/sidecar module
+until this contract/projection phase and baseline measurements justify them.
 
 Do not start this program before the completed plan/goal workflow-control
 foundation has produced real high-density workloads, especially:
@@ -1079,6 +1079,11 @@ Started 2026-05-14:
 - Shared GUI projection baseline and gateway-mediated cancellation target
   contracts are now available. Browser-rendering benchmarks and cancellation
   dispatch remain out of scope for the read-only prototype.
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts` now defines
+  the shared read-only cockpit projection over canonical events and explicit
+  attach targets. It groups instance, session, timeline, managed-invocation,
+  tool-call, cost, provider, and authority summaries without network attach,
+  UI rendering, cancellation dispatch, or Rust acceleration.
 
 ### Phase 1 - Contract-Only Design
 
@@ -1108,6 +1113,7 @@ Started 2026-05-14:
 
 Deliver:
 
+- shared read-only projection over canonical events and explicit attach targets
 - attach to local Operator Gateway
 - attach to remote App Gateway or simulated remote
 - render sessions
@@ -1117,6 +1123,17 @@ Deliver:
 - render cost/provider/authority metadata
 - no mutating actions except safe replay/focus
 - no Rust unless Phase 2 benchmarks justify it
+
+Started 2026-05-14:
+
+- `@kilnai/gateway-contracts` exposes
+  `projectOperatorCockpitReadOnlyView`, which accepts explicit attach targets
+  plus canonical session events and returns read-only instance, session,
+  timeline, invocation, tool, and cost/provider projections.
+- Projection fails closed when an event references an unattached instance.
+- This is not yet gateway networking or a native cockpit UI. It is the shared
+  surface-neutral projection substrate that local, remote, GUI, native, TUI,
+  SDK, and future IDE/editor surfaces can reuse.
 
 ### Phase 3 - Benchmark and Compare
 

@@ -31,6 +31,11 @@
   measurement, and gateway-mediated cancellation target validation in
   `@kilnai/gateway-contracts` so native and GUI compare against the same
   canonical event inputs.
+- Added the shared read-only operator cockpit projection in
+  `@kilnai/gateway-contracts`, grouping canonical events by explicit attach
+  target/session into instance, session, timeline, managed-invocation,
+  tool-call, and cost/provider summaries while failing closed for unattached
+  instances.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.
