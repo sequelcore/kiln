@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  createOperatorCockpitBenchmarkFixture,
+} from "@kilnai/gateway-contracts";
+import {
   createNativeBrowserWindowOptions,
   createNativeSurfaceCapabilitySnapshot,
   createNativeSurfaceProjection,
@@ -24,6 +27,7 @@ import {
 import {
   NATIVE_COCKPIT_BENCHMARK_FIXTURES,
   createNativeCockpitPreconditionReview,
+  createNativeCockpitReadOnlyProjection,
   nativeCockpitActionAllowed,
 } from "../src/shared/native-cockpit-contract.js";
 
@@ -46,7 +50,7 @@ describe("native operator surface foundation", () => {
     expect(snapshot.capabilities).toContainEqual({
       capability: "native-cockpit-contract",
       status: "available",
-      reason: "Contract-only target, precondition, and benchmark fixture definitions are available for roadmap 05.",
+      reason: "Roadmap 05 target, precondition, benchmark, and read-only projection contracts are available.",
     });
     expect(snapshot.capabilities).toContainEqual({
       capability: "embedded-browser-host",
@@ -350,6 +354,74 @@ describe("native operator surface foundation", () => {
         sessionId: "session-1",
       },
     })).toBe(false);
+  });
+
+  it("projects native cockpit read-only views through shared gateway contracts", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "native-read-only",
+      instanceCount: 2,
+      sessionCount: 3,
+      activeManagedSessionCount: 2,
+      childInvocationCount: 4,
+      eventCount: 24,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-14T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-read-only:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+          gatewayUrl: "http://127.0.0.1:4810",
+        },
+        {
+          instanceId: "native-read-only:instance:2",
+          label: "Simulated remote",
+          kind: "simulated-remote",
+          gatewayUrl: "https://example.invalid",
+        },
+      ],
+      events: fixture.events,
+    });
+
+    expect(projection.surfaceMode).toBe("operator-cockpit");
+    expect(projection.surfaceId).toBe("native:local");
+    expect(projection.runtimeBoundary).toBe("gateway-contracts");
+    expect(projection.mutationDispatch).toBe("disabled");
+    expect(projection.view.mode).toBe("read-only");
+    expect(projection.view.instances).toHaveLength(2);
+    expect(projection.view.sessions).toHaveLength(3);
+    expect(projection.view.timeline[0]).toMatchObject({
+      eventId: "native-read-only:event:1",
+      target: {
+        instanceId: "native-read-only:instance:1",
+        sessionId: "native-read-only:session:1",
+        eventId: "native-read-only:event:1",
+      },
+    });
+    expect(projection.view.invocations.length).toBeGreaterThan(0);
+    expect(JSON.stringify(projection)).not.toContain("prompt");
+  });
+
+  it("inherits fail-closed attach target validation for native cockpit projection", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "native-missing-target",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 1,
+      childInvocationCount: 1,
+      eventCount: 4,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+
+    expect(() => createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-14T12:01:00.000Z",
+      attachTargets: [],
+      events: fixture.events,
+    })).toThrow("requires at least one attach target");
   });
 
   it("defines high-density benchmark fixtures before native cockpit promotion", () => {

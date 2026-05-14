@@ -2,9 +2,13 @@ import type {
   OperatorCockpitAction,
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,
+  OperatorCockpitAttachTarget,
+  OperatorCockpitReadOnlyProjection,
+  OperatorCockpitReadOnlyProjectionInput,
 } from "@kilnai/gateway-contracts";
 import {
   operatorCockpitActionAllowed,
+  projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
 
 export type NativeCockpitHighDensityWorkloadStatus =
@@ -61,6 +65,37 @@ export function nativeCockpitActionAllowed(
   input: NativeCockpitActionAdmissionInput,
 ): boolean {
   return operatorCockpitActionAllowed(input);
+}
+
+export type NativeCockpitAttachTarget = OperatorCockpitAttachTarget;
+export type NativeCockpitReadOnlyView = OperatorCockpitReadOnlyProjection;
+
+export interface NativeCockpitReadOnlyProjectionInput extends OperatorCockpitReadOnlyProjectionInput {
+  readonly surfaceId: string;
+}
+
+export interface NativeCockpitReadOnlyProjection {
+  readonly surfaceMode: "operator-cockpit";
+  readonly surfaceId: string;
+  readonly runtimeBoundary: "gateway-contracts";
+  readonly mutationDispatch: "disabled";
+  readonly view: NativeCockpitReadOnlyView;
+}
+
+export function createNativeCockpitReadOnlyProjection(
+  input: NativeCockpitReadOnlyProjectionInput,
+): NativeCockpitReadOnlyProjection {
+  return {
+    surfaceMode: "operator-cockpit",
+    surfaceId: input.surfaceId,
+    runtimeBoundary: "gateway-contracts",
+    mutationDispatch: "disabled",
+    view: projectOperatorCockpitReadOnlyView({
+      projectedAt: input.projectedAt,
+      attachTargets: input.attachTargets,
+      events: input.events,
+    }),
+  };
 }
 
 export interface NativeCockpitBenchmarkFixtureDefinition {

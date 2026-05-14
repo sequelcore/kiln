@@ -59,7 +59,7 @@ export function createNativeSurfaceCapabilitySnapshot(
       {
         capability: "native-cockpit-contract",
         status: "available",
-        reason: "Contract-only target, precondition, and benchmark fixture definitions are available for roadmap 05.",
+        reason: "Roadmap 05 target, precondition, benchmark, and read-only projection contracts are available.",
       },
       {
         capability: "embedded-browser-host",

@@ -2,9 +2,9 @@
 
 Status: early read-only projection architecture. Roadmap 05 has target,
 precondition, benchmark-fixture, shared projection-baseline,
-cancellation-target, and read-only cockpit projection contracts. No native
-cockpit UI, network attach loop, cancellation dispatch, or Rust projection
-kernel is promoted.
+cancellation-target, shared read-only cockpit projection, and native
+read-only projection wrapper contracts. No native cockpit UI, network attach
+loop, cancellation dispatch, or Rust projection kernel is promoted.
 
 ## Purpose
 
@@ -31,6 +31,12 @@ The native package may define native-specific readiness and shell contracts. It
 must not import `@kilnai/core` or `@kilnai/runtime` implementation modules.
 Runtime facts must arrive through gateway/operator contracts or shared
 operator-facing contract packages.
+
+`packages/native/src/shared/native-cockpit-contract.ts` may wrap the shared
+gateway projection to add native surface metadata such as `surfaceId`,
+`surfaceMode`, and disabled mutation dispatch. It must not fork session,
+timeline, invocation, tool, cost, provider, authority, or target projection
+logic.
 
 ## Phase Gate
 
@@ -98,6 +104,11 @@ This projection is still not a native prototype. It does not open sockets,
 attach to gateways, dispatch cancellation, schedule work, resolve authority,
 read config, read memory, route providers, or render a cockpit UI.
 
+The native wrapper exposes the same read-only view as
+`runtimeBoundary: gateway-contracts` with `mutationDispatch: disabled`. This
+lets the native surface prove it can consume canonical cockpit projections
+without introducing native-owned runtime truth or private dispatch behavior.
+
 ## Benchmark Fixtures
 
 Promotion requires shared fixture definitions before UI claims are made.
@@ -140,6 +151,7 @@ Implemented:
 - gateway-mediated cancellation request schema
 - shared read-only cockpit projection over canonical events and explicit attach
   targets
+- native read-only cockpit projection wrapper over the shared gateway contract
 - native boundary tests proving the contract fails closed
 
 Not implemented:

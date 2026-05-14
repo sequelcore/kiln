@@ -36,6 +36,11 @@
   target/session into instance, session, timeline, managed-invocation,
   tool-call, and cost/provider summaries while failing closed for unattached
   instances.
+- Added the native read-only cockpit projection wrapper in `@kilnai/native`.
+  Native now consumes the shared gateway cockpit view with explicit native
+  surface metadata and disabled mutation dispatch, without introducing a
+  cockpit UI, gateway attach loop, cancellation dispatch, or private runtime
+  model.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.
