@@ -136,6 +136,19 @@ skills:
       - benchmark-readiness-review
 ```
 
+## Repository Hygiene
+
+Global config and global instruction profiles are the right place for personal
+operator preferences and durable self-improvement notes that apply across
+projects. Keep repo-root agent memory such as `memory/lessons.md` out of shared
+repositories; it is operator state, not project doctrine.
+
+Project `.kiln/kiln.yaml`, `.kiln/project-context.md`,
+`.kiln/instructions/**`, `.kiln/agents/**`, and `.kiln/skills/**` are
+versionable only when they define durable project behavior. Runtime state under
+`.kiln/`, local databases, sessions, logs, backups, and repo-root `memory/**`
+should be ignored. See [Repository Hygiene](repo-hygiene.md).
+
 Supported operator themes are `kiln-dark`, `kiln-graphite`, `kiln-light`, and
 `system-follow`. `kiln-dark` is the Obsidian default, `kiln-graphite` is a
 slightly lifted dark surface, and `kiln-light` is the Paper light variant. GUI

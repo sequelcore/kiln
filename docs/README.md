@@ -20,6 +20,9 @@
   `docs/architecture/`; guides focus on configuration, workflows, and runtime
   behavior.
 
+- [Repository Hygiene](guides/repo-hygiene.md)
+  Versioned Kiln project files, ignored operator state, and gitignore guidance.
+
 - [Roadmap](roadmap/README.md)
   Active, deferred, and completed implementation tracks.
 
@@ -70,6 +73,7 @@ High-use guides today:
 - [Tool Use](guides/tool-use.md)
 - [Observability](guides/observability.md)
 - [TUI](guides/tui.md)
+- [Repository Hygiene](guides/repo-hygiene.md)
 
 ## SDK And Development Surfaces
 
