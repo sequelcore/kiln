@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveProviderRouteCandidates } from "./provider-route-candidates.js";
+import { inferRouteTask, resolveProviderRouteCandidates } from "./provider-route-candidates.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 
 describe("resolveProviderRouteCandidates", () => {
@@ -45,20 +45,101 @@ describe("resolveProviderRouteCandidates", () => {
       routing: {
         routes: [
           { provider: "codex-oauth", model: "gpt-5.4-mini" },
+          { provider: "opencode-zen" },
+          { provider: "opencode-zen", model: "kimi-k2.6" },
           { provider: "openrouter", model: "openrouter/free" },
           { provider: "codex" },
         ],
       },
       models: {
+        "opencode-zen": "minimax-m2.7",
         codex: "gpt-5.3-codex-spark",
       },
     };
 
     expect(resolveProviderRouteCandidates({ globalConfig })).toEqual([
       { provider: "codex-oauth", model: "gpt-5.4-mini" },
+      { provider: "opencode-zen", model: "minimax-m2.7" },
+      { provider: "opencode-zen", model: "kimi-k2.6" },
       { provider: "openrouter", model: "openrouter/free" },
       { provider: "codex", model: "gpt-5.3-codex-spark" },
     ]);
+  });
+
+  it("keeps an explicit flag provider authoritative even when another route better matches the task", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      routing: {
+        routes: [
+          { provider: "codex-oauth", model: "gpt-5.5" },
+          { provider: "opencode-zen", model: "kimi-k2.6" },
+        ],
+      },
+    };
+
+    expect(resolveProviderRouteCandidates({
+      globalConfig,
+      flagProvider: "codex-oauth",
+      taskText: "Build a polished React frontend layout",
+    })).toEqual([
+      { provider: "codex-oauth", model: "gpt-5.5" },
+    ]);
+  });
+
+  it("orders configured routes by inferred task suitability while preserving stable fallback order", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      routing: {
+        routes: [
+          { provider: "codex-oauth", model: "gpt-5.5" },
+          { provider: "opencode-zen", model: "minimax-m2.7" },
+          { provider: "opencode-zen", model: "kimi-k2.6" },
+        ],
+      },
+    };
+
+    expect(resolveProviderRouteCandidates({
+      globalConfig,
+      taskText: "Create a responsive React UI with polished visual design",
+    })).toEqual([
+      { provider: "opencode-zen", model: "kimi-k2.6" },
+      { provider: "codex-oauth", model: "gpt-5.5" },
+      { provider: "opencode-zen", model: "minimax-m2.7" },
+    ]);
+  });
+
+  it("uses operator task suitability overrides when ranking configured routes", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      routing: {
+        routes: [
+          { provider: "codex-oauth", model: "gpt-5.5" },
+          { provider: "opencode-zen", model: "minimax-m2.7" },
+        ],
+      },
+      modelTaskSuitability: [{
+        provider: "opencode-zen",
+        model: "minimax-m2.7",
+        task: "research",
+        level: "preferred",
+        reason: "Operator prefers MiniMax for broad synthesis.",
+      }],
+    };
+
+    expect(resolveProviderRouteCandidates({
+      globalConfig,
+      taskText: "Research and compare current model rankings",
+    })).toEqual([
+      { provider: "opencode-zen", model: "minimax-m2.7" },
+      { provider: "codex-oauth", model: "gpt-5.5" },
+    ]);
+  });
+
+  it("infers route task from agent affinity before prompt keywords", () => {
+    expect(inferRouteTask({
+      agentTaskAffinity: ["mechanical-edit"],
+      text: "Research the latest frontend benchmarks",
+    })).toBe("mechanical-edit");
   });
 
   it("uses defaultWorker and fallback when ordered routes are absent", () => {

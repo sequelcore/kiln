@@ -453,6 +453,8 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     globalConfig,
     flagProvider: flags.provider,
     flagModel: flags.model,
+    taskText: task,
+    agentTaskAffinity: resolvedAgent?.taskAffinity,
   }).map((candidate) => (
     candidate.model || !resolvedAgent?.model
       ? candidate

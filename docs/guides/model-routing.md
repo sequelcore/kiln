@@ -19,9 +19,10 @@ call. Each routing decision is emitted as both an internal EventBus event
 ## Model Capability Registry
 
 The `ModelCapabilityRegistry` maintains static capability profiles for built-in
-models across 5 providers. These profiles are capability and cost metadata, not
-the execution source of truth. Operator surfaces and direct CLI execution must
-use runtime provider discovery for available model IDs before admitting work.
+models across known providers. These profiles are capability and cost metadata,
+not the execution source of truth. Operator surfaces and direct CLI execution
+must use runtime provider discovery for available model IDs before admitting
+work.
 
 Provider/model route health is evaluated after discovery and before execution.
 If a route recently failed with a retryable provider outcome, Kiln treats that
@@ -36,6 +37,14 @@ discovery and provider/model route health before they enter the execution loop.
 Harness candidates are evaluated by provider availability and registry health.
 Explicit CLI `--provider` requests remain a single authoritative route; omit
 the flag to use the configured route hierarchy.
+
+For CLI run, the configured route hierarchy is task-aware. Kiln infers one
+coarse task from the selected agent's `taskAffinity` before prompt keywords,
+then ranks the configured candidates with `ModelCapabilityRegistry` task
+suitability plus `modelTaskSuitability` overrides. This does not create a
+second router: discovery, route health, credential health, and execution
+admission still decide whether a candidate may run. Suitability only orders the
+already configured candidates.
 
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|
@@ -71,6 +80,11 @@ Task suitability is not an execution gate. It is model-selection evidence for
 parent sessions, managed child routing, and future settings surfaces. A route
 still has to pass provider discovery, route health, authority admission, and
 tool-capability checks before execution.
+
+Operator overrides supersede static suitability for the same
+provider/model/task. If both routes have the same suitability level, an
+operator override outranks a static profile and the original `routing.routes`
+order breaks any remaining tie.
 
 ## Complexity Scoring
 

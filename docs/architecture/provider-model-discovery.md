@@ -172,6 +172,16 @@ health, provider availability, authority profile admission, configured agent
 profiles, and skill admission. Suitability can choose between eligible routes;
 it cannot make an unavailable or unauthorized route admissible.
 
+CLI run uses the same evidence when `routing.routes` declares multiple
+provider/model candidates and the operator has not passed an explicit
+`--provider`. Kiln infers a coarse task from the selected agent profile first
+and from the prompt text second, then ranks configured candidates by resolved
+task suitability. Static profiles, live proof, and operator overrides are
+merged before ranking. Operator overrides win ties at the same suitability
+level because they are local routing policy. The original `routing.routes`
+order remains the stable fallback order for unknown tasks, equal scores, and
+models without suitability evidence.
+
 ## Provider Classes
 
 Wrapper providers and direct providers use provider-specific discovery because

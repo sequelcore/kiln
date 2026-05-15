@@ -116,6 +116,43 @@ describe("ModelCapabilityRegistry", () => {
   });
 
   it("returns static task suitability evidence for configured model routes", () => {
+    expect(registry.taskSuitability("codex-oauth", "gpt-5.5")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task: "backend-coding",
+          level: "preferred",
+          source: "static-profile",
+        }),
+        expect.objectContaining({
+          task: "frontend-design",
+          level: "capable",
+          source: "static-profile",
+        }),
+      ]),
+    );
+    expect(registry.taskSuitability("opencode-zen", "kimi-k2.6")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task: "frontend-design",
+          level: "preferred",
+          source: "static-profile",
+        }),
+        expect.objectContaining({
+          task: "backend-coding",
+          level: "preferred",
+          source: "static-profile",
+        }),
+      ]),
+    );
+    expect(registry.taskSuitability("opencode-zen", "minimax-m2.7")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task: "mechanical-edit",
+          level: "preferred",
+          source: "static-profile",
+        }),
+      ]),
+    );
     expect(registry.taskSuitability("codex-oauth", "gpt-5.4-mini")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

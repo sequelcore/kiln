@@ -34,7 +34,7 @@ usage view.
 | `engines` | `Record<string, KilnGlobalEngineConfig>` | Engine availability and billing metadata. |
 | `routing.defaultWorker` | `string` | Default engine/provider route for operator sessions. |
 | `routing.fallback` | `string` | Optional fallback route for budget-aware routing. |
-| `routing.routes` | `{ provider: string, model?: string }[]` | Ordered provider/model execution candidates. When present, the first healthy route is the default and later entries are fallbacks. |
+| `routing.routes` | `{ provider: string, model?: string }[]` | Ordered provider/model execution candidates. When present, the first healthy route is the default fallback order. CLI run may reorder configured candidates by task suitability when no explicit provider is requested. |
 | `routing.budgetAware` | `boolean` | Enables budget-aware route selection when configured. |
 | `routing.budget` | `Record<string, KilnGlobalRoutingBudgetConfig>` | Optional per-engine budget ceilings. |
 | `models.default` | `string` | Default model used when a route-specific model does not override it. |
@@ -97,6 +97,11 @@ defaults. The resolved route catalog also carries first-party evaluation
 evidence, live route proof, and configured skill recommendations. Skill
 recommendations are advisory; a parent may request a skill only when the skill
 exists in the admitted skill catalog or on the selected agent profile.
+CLI run uses the same resolved suitability records to rank configured
+`routing.routes` when no explicit `--provider` is passed. Agent
+`taskAffinity` wins over prompt keyword inference, operator overrides win
+same-level ties over static profiles, and the original route order remains the
+fallback order for unknown tasks or equal scores.
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
 `.kiln/agents`, `~/.kiln/agents`, `.kiln/instructions`,
@@ -260,10 +265,11 @@ components:
 ## Sanitized Personal Setup Example
 
 This example reflects a local operator setup where direct Codex OAuth is the
-primary route, OpenRouter is an inexpensive direct-provider fallback, native
-Codex CLI is a harness fallback, OpenCode is available for mechanical child
-work, and Claude is disabled until a valid subscription is available. It is a
-shape example only; secrets stay in environment variables or credential pools.
+primary deep-reasoning route, OpenCode Zen contributes task-specialized direct
+models, native Codex CLI is a harness fallback, OpenCode harness remains
+available for mechanical child work, and Claude is disabled until a valid
+subscription is available. It is a shape example only; secrets stay in
+environment variables or credential pools.
 
 ```yaml
 version: "1"
@@ -274,7 +280,7 @@ engines:
   codex-oauth:
     enabled: true
     billing: subscription
-  openrouter:
+  opencode-zen:
     enabled: true
     billing: api-key
   codex:
@@ -286,20 +292,33 @@ engines:
 routing:
   routes:
     - provider: codex-oauth
-      model: gpt-5.4-mini
-    - provider: openrouter
-      model: openrouter/free
+      model: gpt-5.5
+    - provider: opencode-zen
+      model: kimi-k2.6
+    - provider: opencode-zen
+      model: glm-5.1
+    - provider: opencode-zen
+      model: minimax-m2.7
+    - provider: opencode-zen
+      model: deepseek-v4-flash-free
+    - provider: opencode-zen
+      model: minimax-m2.5-free
     - provider: codex
       model: gpt-5.3-codex-spark
     - provider: opencode
       model: opencode/minimax-m2.5-free
   budgetAware: false
 modelTaskSuitability:
-  - provider: codex-oauth
-    model: gpt-5.4-mini
+  - provider: opencode-zen
+    model: kimi-k2.6
     task: frontend-design
-    level: limited
-    reason: Prefer a visual-design-specialized route when available.
+    level: preferred
+    reason: Operator benchmark preference for frontend and visual implementation tasks.
+  - provider: opencode-zen
+    model: minimax-m2.7
+    task: mechanical-edit
+    level: preferred
+    reason: Operator preference for broad, low-friction mechanical work.
 permissions:
   approval: on-request
   sandbox: read-only

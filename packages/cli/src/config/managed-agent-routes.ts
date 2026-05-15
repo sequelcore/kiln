@@ -6,7 +6,6 @@ import type {
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
   ManagedAgentAuthorityProfile,
-  ModelTaskSuitability,
   ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
@@ -14,7 +13,6 @@ import {
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
   isDirectProviderId,
-  ModelCapabilityRegistry,
 } from "@kilnai/core";
 import {
   ManagedCliHarnessAdapter,
@@ -39,6 +37,7 @@ import type {
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
 import { createConfiguredSkillRegistry } from "./skill-registry.js";
+import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
 
 export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
@@ -113,7 +112,6 @@ const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] |
   codex: "*",
   opencode: ["opencode/minimax-m2.5-free"],
 };
-const MODEL_CAPABILITIES = new ModelCapabilityRegistry();
 
 export async function resolveManagedInvocationToolOptions(
   config: ManagedAgentRouteConfigSource | null | undefined,
@@ -679,44 +677,13 @@ function resolveTaskSuitability(
   model: string,
   overrides: readonly KilnModelTaskSuitabilityOverride[] | undefined,
   liveProof: ModelTaskSuitabilityEvidence | undefined,
-): readonly ModelTaskSuitability[] {
-  const merged = new Map<string, ModelTaskSuitability>();
-  for (const entry of MODEL_CAPABILITIES.taskSuitability(provider, model)) {
-    merged.set(entry.task, appendSuitabilityEvidence(entry, liveProof));
-  }
-  for (const override of overrides ?? []) {
-    if (override.provider !== provider || override.model !== model) {
-      continue;
-    }
-    merged.set(override.task, {
-      task: override.task,
-      level: override.level,
-      source: "operator-override",
-      reason: override.reason,
-      evidence: [
-        {
-          source: "operator-override",
-          status: "declared",
-          summary: override.reason,
-        },
-        ...(liveProof ? [liveProof] : []),
-      ],
-    });
-  }
-  return [...merged.values()];
-}
-
-function appendSuitabilityEvidence(
-  entry: ModelTaskSuitability,
-  evidence: ModelTaskSuitabilityEvidence | undefined,
-): ModelTaskSuitability {
-  if (!evidence) {
-    return entry;
-  }
-  return {
-    ...entry,
-    evidence: [...(entry.evidence ?? []), evidence],
-  };
+): ReturnType<typeof resolveConfiguredModelTaskSuitability> {
+  return resolveConfiguredModelTaskSuitability({
+    provider,
+    model,
+    overrides,
+    liveProof,
+  });
 }
 
 function liveProofEvidence(

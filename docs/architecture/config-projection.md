@@ -339,6 +339,13 @@ harness proof, and optional managed-agent overrides, then passes the same
 `ManagedInvocationToolOptions` to
 GUI, TUI, CLI run, and operator gateway sessions.
 
+CLI run also consumes the same provider/model task suitability contract when
+ordering configured `routing.routes`. This is a ranking step over canonical
+config, not a native harness projection and not a second route graph. Explicit
+`managedAgents.routes` remains the allowlist for child invocation; task
+suitability can explain and rank healthy child routes but cannot synthesize
+write authority or bypass managed-agent admission.
+
 When at least one healthy route exists, runtime tool projection exposes
 `managed_agent.invoke`. Missing or unhealthy routes fail closed with operator
 diagnostics. Surfaces do not decide their own child-agent provider list.
