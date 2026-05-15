@@ -21,11 +21,11 @@ export function useKilnState(): UseStateReturn {
       const [stateData, costData, appsData] = await Promise.all([
         client.get<Record<string, unknown>>("/dev/state"),
         client.get<Record<string, unknown>>("/dev/cost"),
-        client.get<string[]>("/dev/apps"),
+        client.get<{ readonly apps?: readonly string[] }>("/dev/apps"),
       ]);
       setState(stateData);
       setCost(costData);
-      setApps(appsData);
+      setApps([...(appsData.apps ?? [])]);
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));
     } finally {

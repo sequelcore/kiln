@@ -9,7 +9,6 @@ Development UI for [Kiln](https://github.com/sequelcore/kiln). Private package -
 | Graph | Interactive flow visualization of app structure (agents, teams, routing) via `@xyflow/react` |
 | Playground | Send messages, test tools, inspect responses in real-time |
 | Timeline | Chronological event stream with filtering and search |
-| Memory | Browse, search, and inspect memory entries across all scopes |
 | Eval | Run experiments, compare scorers, view dataset results |
 | Cost | Per-model and per-role cost breakdown with usage charts |
 | Safety | PII detections, content classifications, policy rail triggers |
@@ -35,5 +34,5 @@ In normal usage, Studio is accessed through `bunx kiln dev` which serves the bui
 
 ## Documentation
 
-- [Studio Overview](https://github.com/sequelcore/kiln/blob/main/docs/sdk/studio.md)
+- [Studio Overview](https://github.com/sequelcore/kiln/blob/main/docs/guides/studio.md)
 - [Dev Mode](https://github.com/sequelcore/kiln/blob/main/docs/getting-started.md)

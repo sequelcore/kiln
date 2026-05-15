@@ -23,7 +23,8 @@
 bun add @kilnai/react
 ```
 
-Requires `react >= 19.0.0` and `@kilnai/core` as peer dependencies.
+Requires `react >= 19.0.0`, `@kilnai/core`, and
+`@kilnai/gateway-contracts` as peer dependencies.
 
 ## Quick start
 
@@ -32,21 +33,22 @@ import { KilnProvider, useKilnWsChat } from "@kilnai/react";
 
 function App() {
   return (
-    <KilnProvider config={{ gatewayUrl: "ws://localhost:3000", appName: "my-agent" }}>
+    <KilnProvider config={{ baseUrl: "http://localhost:3000", appName: "my-agent" }}>
       <Chat />
     </KilnProvider>
   );
 }
 
 function Chat() {
-  const { messages, send, isConnected } = useKilnWsChat({ userId: "user-1" });
+  const { messages, send, isLoading, error } = useKilnWsChat();
 
   return (
     <div>
       {messages.map((msg, i) => (
         <div key={i}>{msg.role}: {msg.content}</div>
       ))}
-      <button onClick={() => send("Hello!")}>Send</button>
+      <button disabled={isLoading} onClick={() => send("Hello!")}>Send</button>
+      {error && <div>{error.message}</div>}
     </div>
   );
 }
@@ -56,21 +58,18 @@ function Chat() {
 
 ### `useKilnChat`
 
-HTTP-based chat with SSE streaming.
+HTTP-based chat through the app message endpoint.
 
 ```tsx
-const { messages, send, isLoading } = useKilnChat({ userId: "user-1" });
+const { messages, send, isLoading } = useKilnChat();
 ```
 
 ### `useKilnWsChat`
 
-WebSocket-based chat with auto-reconnect.
+WebSocket-based chat with a persistent connection while the component is mounted.
 
 ```tsx
-const { messages, send, isConnected, connectionStatus } = useKilnWsChat({
-  userId: "user-1",
-  widgetId: "my-widget", // for multi-tenant
-});
+const { messages, send, identify, isLoading, error } = useKilnWsChat();
 ```
 
 ### `useKilnEvents`
@@ -97,8 +96,8 @@ locally executable tool backends.
 
 ```tsx
 const { approve, reject, isLoading, error } = useApproval();
-await approve("session-123");
-await reject("Not safe to run", "session-123");
+await approve("approval-123");
+await reject("Not safe to run", "approval-123");
 ```
 
 ## Clients
@@ -108,13 +107,17 @@ For non-React usage, the package also exports low-level clients:
 ```typescript
 import { ApiClient, SseClient } from "@kilnai/react";
 
-const api = new ApiClient({ baseUrl: "http://localhost:3000" });
-const sse = new SseClient({ url: "http://localhost:3000/dev/events" });
+const api = new ApiClient("http://localhost:3000");
+const sse = new SseClient("http://localhost:3000/dev/events", {
+  onEvent(event) { console.log(event); },
+  onConnect() { console.log("connected"); },
+  onDisconnect() { console.log("disconnected"); },
+});
 ```
 
 ## Documentation
 
-- [React SDK Guide](https://github.com/sequelcore/kiln/blob/main/docs/sdk/react-hooks.md)
+- [React SDK Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/react-sdk.md)
 - [Examples](https://github.com/sequelcore/kiln/tree/main/docs/examples)
 
 ## License

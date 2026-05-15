@@ -2,8 +2,8 @@ import { useCallback, useState } from "react";
 import { useKilnContext } from "./provider.js";
 
 export interface UseApprovalReturn {
-  readonly approve: (sessionId: string) => Promise<void>;
-  readonly reject: (reason: string, sessionId: string) => Promise<void>;
+  readonly approve: (approvalId: string) => Promise<void>;
+  readonly reject: (reason: string, approvalId: string) => Promise<void>;
   readonly isLoading: boolean;
   readonly error: Error | null;
 }
@@ -14,11 +14,11 @@ export function useApproval(): UseApprovalReturn {
   const [error, setError] = useState<Error | null>(null);
 
   const approve = useCallback(
-    async (sessionId: string) => {
+    async (approvalId: string) => {
       setIsLoading(true);
       setError(null);
       try {
-        await client.post<{ ok: true }>("/dev/approve", { sessionId });
+        await client.post<{ ok: true }>("/dev/approve", { approvalId });
       } catch (e) {
         setError(e instanceof Error ? e : new Error(String(e)));
       } finally {
@@ -29,11 +29,11 @@ export function useApproval(): UseApprovalReturn {
   );
 
   const reject = useCallback(
-    async (reason: string, sessionId: string) => {
+    async (reason: string, approvalId: string) => {
       setIsLoading(true);
       setError(null);
       try {
-        await client.post<{ ok: true }>("/dev/reject", { reason, sessionId });
+        await client.post<{ ok: true }>("/dev/reject", { reason, approvalId });
       } catch (e) {
         setError(e instanceof Error ? e : new Error(String(e)));
       } finally {

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ReactNode, type FormEvent } from "rea
 import { useKilnWsChat, useKilnEvents, useKilnContext } from "@kilnai/react";
 
 interface ApprovalRequest {
+  approvalId: string;
   sessionId: string;
   description: string;
 }
@@ -29,7 +30,7 @@ function ApprovalCard({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await client.post("/dev/approve", { sessionId: request.sessionId });
+      await client.post("/dev/approve", { approvalId: request.approvalId });
       onResolved();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Approve failed");
@@ -43,7 +44,7 @@ function ApprovalCard({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await client.post("/dev/reject", { sessionId: request.sessionId, reason: reason.trim() || undefined });
+      await client.post("/dev/reject", { approvalId: request.approvalId, reason: reason.trim() || undefined });
       onResolved();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Reject failed");
@@ -168,23 +169,22 @@ export function PlaygroundView(): ReactNode {
     };
   }, null);
 
-  const receivedSessionIds = new Set(
+  const receivedApprovalIds = new Set(
     events
       .filter((ev) => ev.type === "approval_received")
-      .map((ev) => ev.data.sessionId as string),
+      .map((ev) => ev.data.approvalId as string),
   );
 
-  const pendingApprovals = events
-    .filter(
-      (ev) =>
-        ev.type === "approval_requested" &&
-        !receivedSessionIds.has(ev.data.sessionId as string) &&
-        !resolvedApprovals.has(ev.data.sessionId as string),
-    )
-    .map((ev) => ({
-      sessionId: ev.data.sessionId as string,
-      description: ev.data.description as string,
-    }));
+  const pendingApprovals = events.flatMap((ev) => {
+    if (ev.type !== "approval_requested") return [];
+    const approvalId = typeof ev.data.approvalId === "string" ? ev.data.approvalId : "";
+    if (!approvalId || receivedApprovalIds.has(approvalId) || resolvedApprovals.has(approvalId)) return [];
+    return [{
+      approvalId,
+      sessionId: typeof ev.data.sessionId === "string" ? ev.data.sessionId : "",
+      description: typeof ev.data.description === "string" ? ev.data.description : "Approval required",
+    }];
+  });
 
   const toolEvents = events.filter(
     (e) => e.type === "tool_called" || e.type === "tool_result",
@@ -257,10 +257,10 @@ export function PlaygroundView(): ReactNode {
           ))}
           {pendingApprovals.map((req) => (
             <ApprovalCard
-              key={req.sessionId}
+              key={req.approvalId}
               request={req}
               onResolved={() =>
-                setResolvedApprovals((prev) => new Set([...prev, req.sessionId]))
+                setResolvedApprovals((prev) => new Set([...prev, req.approvalId]))
               }
             />
           ))}

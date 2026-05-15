@@ -68,10 +68,10 @@ High-use guides today:
 - [Observability](guides/observability.md)
 - [TUI](guides/tui.md)
 
-## SDK
+## SDK And Development Surfaces
 
-- [React Hooks](sdk/react-hooks.md)
-- [Studio](sdk/studio.md)
+- [React SDK](guides/react-sdk.md)
+- [Studio](guides/studio.md)
 
 ## ADR
 

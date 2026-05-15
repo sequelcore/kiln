@@ -2,7 +2,9 @@
 
 `@kilnai/react` is a React hooks library for building frontends that communicate with a Kiln Gateway. It provides typed hooks for chat, event streaming, approvals, and dev state. Memory is exposed through Gateway and resource-plane contracts rather than SDK-owned memory CRUD hooks.
 
-The SDK imports only **types** from `@kilnai/core` — never implementations or runtime code. Peer dependency: React 19+.
+The SDK imports only **types** from `@kilnai/core` -- never implementations or
+runtime code. Peer dependencies: React 19+, `@kilnai/core`, and
+`@kilnai/gateway-contracts`.
 
 ## Installation
 
@@ -126,7 +128,10 @@ function Chat() {
 - `error` -- server-side error with `message`
 - `chunk` -- reserved for future streaming (not handled yet)
 
-**Connection lifecycle:** Connects on mount, disconnects on unmount. The `userId` is encoded in the WebSocket URL query parameter at connection time. If `config.userId` is not set, a stable random UUID is generated once per component lifetime.
+**Connection lifecycle:** Connects on mount and disconnects on unmount. The
+`userId` is encoded in the WebSocket URL query parameter at connection time. If
+`config.userId` is not set, a stable random UUID is generated once per
+component lifetime.
 
 **When to use which:**
 - `useKilnWsChat` -- Studio Playground and real-time UIs where low latency matters
@@ -217,8 +222,8 @@ Provides approve/reject actions for pending phase gates via the dev API.
 function useApproval(): UseApprovalReturn
 
 interface UseApprovalReturn {
-  readonly approve: (sessionId?: string) => Promise<void>;
-  readonly reject: (reason: string, sessionId?: string) => Promise<void>;
+  readonly approve: (approvalId: string) => Promise<void>;
+  readonly reject: (reason: string, approvalId: string) => Promise<void>;
   readonly isLoading: boolean;
   readonly error: Error | null;
 }
@@ -229,18 +234,22 @@ import { useApproval } from "@kilnai/react";
 
 function ApprovalPanel() {
   const { approve, reject, isLoading, error } = useApproval();
+  const approvalId = "approval-123";
 
   return (
     <div>
-      <button onClick={() => approve()} disabled={isLoading}>Approve</button>
-      <button onClick={() => reject("not ready")} disabled={isLoading}>Reject</button>
+      <button onClick={() => approve(approvalId)} disabled={isLoading}>Approve</button>
+      <button onClick={() => reject("not ready", approvalId)} disabled={isLoading}>Reject</button>
       {error && <p>Error: {error.message}</p>}
     </div>
   );
 }
 ```
 
-`approve(sessionId?)` calls `POST /dev/approve`. `reject(reason, sessionId?)` calls `POST /dev/reject`. When `sessionId` is omitted, the gateway targets the first session in `awaiting_approval` state.
+`approve(approvalId)` calls `POST /dev/approve` with `{ approvalId }`.
+`reject(reason, approvalId)` calls `POST /dev/reject` with
+`{ reason, approvalId }`. Approval identity is not the session identity; the
+gateway rejects approval requests without an active `approvalId`.
 
 ## ApiClient and SseClient
 

@@ -40,7 +40,7 @@ describe("useKilnState", () => {
   it("refresh() fetches state, cost, and apps from /dev/* endpoints", async () => {
     const stateData = { sessions: 3, uptime: 120 };
     const costData = { totalTokens: 5000, totalCost: 0.05 };
-    const appsData = ["app-1", "app-2"];
+    const appsData = { apps: ["app-1", "app-2"] };
 
     let callIndex = 0;
     vi.stubGlobal(
@@ -69,7 +69,7 @@ describe("useKilnState", () => {
 
     expect(result.current.state).toEqual(stateData);
     expect(result.current.cost).toEqual(costData);
-    expect(result.current.apps).toEqual(appsData);
+    expect(result.current.apps).toEqual(appsData.apps);
   });
 
   it("refresh() calls correct URLs from baseUrl", async () => {

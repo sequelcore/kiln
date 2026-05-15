@@ -162,7 +162,7 @@ experiments:
     compare: baseline
 ```
 
-The Eval Dashboard in Kiln Studio displays the comparison as a score table with delta indicators. See [studio](../sdk/studio.md).
+The Eval Dashboard in Kiln Studio displays the comparison as a score table with delta indicators. See [Studio](studio.md).
 
 ## Consistency Runner (pass^k)
 

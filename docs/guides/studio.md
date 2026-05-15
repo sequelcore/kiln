@@ -1,8 +1,11 @@
 # Kiln Studio
 
-Kiln Studio is a development UI served in dev mode. It provides a visual interface for inspecting app topology, running agent conversations, monitoring events, managing memory, and reviewing evaluation results.
+Kiln Studio is the private development UI served by `kiln dev`. It inspects
+App Gateway development state through `/studio/*` and `/dev/*`; it is not an
+SDK package and is not published to npm.
 
-Studio is an internal package (`@kilnai/studio`, private) built with React 19, Vite, TanStack Query, and `@xyflow/react`. It is not published to npm.
+Studio is implemented by `@kilnai/studio` with React 19, Vite, TanStack Query,
+and `@xyflow/react`.
 
 ## Accessing Studio
 
@@ -18,9 +21,12 @@ kiln dev --playground
 
 ### Two Startup Modes
 
-**With `gateway.yaml`** (provider-adapter consumers): `kiln dev` calls `startGateway()` with full app loading, channels, providers, and triggers. Studio has access to live sessions and the Playground view.
+**With `gateway.yaml`**: `kiln dev` starts an App Gateway in dev mode with app
+loading, channels, providers, triggers, dev routes, and Studio static assets.
 
-**Without `gateway.yaml`** (subprocess-runtime consumers): `kiln dev` calls `startDevServer()` -- a lightweight Bun/Hono server with Studio + dev API endpoints only. No providers, channels, or sessions. Graph View and YAML editor work from `app.yaml` if present.
+**Without `gateway.yaml`**: `kiln dev` starts the Studio Dev Server, a
+lightweight Bun/Hono editor and inspector server. It is not an App Gateway and
+does not own deployable app runtime semantics.
 
 Both modes serve the built SPA at `/studio/*` using Hono's `serveStatic` middleware with SPA fallback. The `/dev/` path redirects to `/studio/` when the SPA is available.
 
@@ -51,7 +57,7 @@ const config: KilnAppConfig = {
 
 ## Views
 
-### Graph View
+### App Graph
 
 Renders the app topology as an interactive `@xyflow/react` canvas. Nodes represent the Router, Teams, and Agents. Edges show routing relationships and agent-to-capability bindings.
 
@@ -73,15 +79,15 @@ A waterfall visualization of `trace_span` events received from `useKilnEvents`. 
 
 Click a span to open a detail inspector showing the full span payload: phase, agent, tool, tokens, and cost.
 
-### Cost Dashboard
+### Cost
 
 Displays cost tracking data from `GET /dev/cost`. Summary grid shows total cost (USD), input tokens, output tokens, cache read/write tokens, and tool calls. A by-role breakdown table shows per-agent-role usage with model, token counts, and call counts. Auto-refreshes via `cost_update` SSE events from `useKilnEvents`.
 
-### Safety Dashboard
+### Safety
 
 Displays safety pipeline metrics from `GET /dev/safety`. When the pipeline is configured, shows per-app metric cards in a 3-column grid: input/output scans, input/output blocks, PII detections, content blocks, and policy evaluations. Non-zero warning metrics are highlighted. Auto-refreshes every 5 seconds. Shows "Safety pipeline is not configured" when no pipeline is active.
 
-### Eval Dashboard
+### Eval
 
 Displays experiment configurations and score comparisons. Experiments are fetched from `GET /dev/eval/experiments`.
 
@@ -96,15 +102,15 @@ All dev endpoints are mounted at `/dev/` when the Gateway starts in dev mode (`d
 | `GET` | `/dev/state` | Current gateway and session state. |
 | `GET` | `/dev/events` | SSE stream of all engine events (31 types). |
 | `GET` | `/dev/cost` | Cumulative cost tracking data by role and model. |
-| `GET` | `/dev/apps` | List loaded App names. |
+| `GET` | `/dev/apps` | List loaded App names as `{ apps: string[] }`. |
 | `GET` | `/dev/triggers` | List all registered triggers across all Apps. |
 | `GET` | `/dev/app-graph` | Serialized App composite for the Graph View. |
 | `GET` | `/dev/yaml` | Read the current `app.yaml` content. |
 | `PUT` | `/dev/yaml` | Write and validate an updated `app.yaml`. |
 | `GET` | `/dev/safety` | Safety pipeline metrics (enabled, counters). |
 | `GET` | `/dev/eval/experiments` | List all configured experiments. |
-| `POST` | `/dev/approve` | Approve a pending phase gate. Body: `{ sessionId? }`. |
-| `POST` | `/dev/reject` | Reject a pending phase gate. Body: `{ reason?, sessionId? }`. |
+| `POST` | `/dev/approve` | Approve a pending phase gate. Body: `{ approvalId }`. |
+| `POST` | `/dev/reject` | Reject a pending phase gate. Body: `{ reason?, approvalId }`. |
 | `POST` | `/dev/token` | Issue a dev-mode WebSocket auth token. Body: `{ userId? }`. |
 | `POST` | `/dev/run` | Start a dev orchestrator run. Body: `{ task }`. |
 | `GET` | `/dev/run` | Current orchestrator run status. |
