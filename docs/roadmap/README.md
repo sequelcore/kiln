@@ -68,9 +68,10 @@ explicitly parked until their prerequisite product surface exists.
 ## Active Roadmaps
 
 - [06-native-cockpit-benchmark-validation.md](./06-native-cockpit-benchmark-validation.md)
-  started on 2026-05-15. This active track begins Phase 3 runner admission and
-  workload validation only. It does not execute live browser/native rendering
-  benchmarks and does not promote the native cockpit experiment.
+  started on 2026-05-15. This active track currently covers Phase 3
+  runner-admission plus orchestration-planning contracts only. It does not
+  execute live browser/native rendering benchmarks and does not promote the
+  native cockpit experiment.
 
 ## Deferred Roadmaps
 

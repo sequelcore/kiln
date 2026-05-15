@@ -296,6 +296,33 @@ export interface OperatorCockpitBenchmarkRunnerAdmission {
   readonly networkAttach: "not-started";
 }
 
+export type OperatorCockpitBenchmarkRunnerOrchestrationPlanBlockedReason =
+  | "web-admission-blocked"
+  | "native-admission-blocked"
+  | "web-admission-surface-mismatch"
+  | "native-admission-surface-mismatch"
+  | "workload-kind-mismatch"
+  | "fixture-summary-mismatch";
+
+export interface OperatorCockpitBenchmarkRunnerOrchestrationPlanInput {
+  readonly measuredAt: string;
+  readonly webAdmission: OperatorCockpitBenchmarkRunnerAdmission;
+  readonly nativeAdmission: OperatorCockpitBenchmarkRunnerAdmission;
+}
+
+export interface OperatorCockpitBenchmarkRunnerOrchestrationPlan {
+  readonly measuredAt: string;
+  readonly status: "planned" | "blocked";
+  readonly blockedReasons: readonly OperatorCockpitBenchmarkRunnerOrchestrationPlanBlockedReason[];
+  readonly workloadKind?: OperatorCockpitBenchmarkWorkloadKind;
+  readonly fixtureSummary?: OperatorCockpitBenchmarkFixtureSummary;
+  readonly execution: "not-started";
+  readonly mutationDispatch: "disabled";
+  readonly networkAttach: "not-started";
+  readonly recommendation: "not-promoted";
+  readonly evidence: "not-promoted";
+}
+
 export function createOperatorCockpitBenchmarkFixture(
   input: OperatorCockpitBenchmarkFixtureInput,
 ): OperatorCockpitBenchmarkFixture {
@@ -600,6 +627,61 @@ export function createOperatorCockpitBenchmarkRunnerAdmission(
   };
 }
 
+export function createOperatorCockpitBenchmarkRunnerOrchestrationPlan(
+  input: OperatorCockpitBenchmarkRunnerOrchestrationPlanInput,
+): OperatorCockpitBenchmarkRunnerOrchestrationPlan {
+  const measuredAtMs = Date.parse(input.measuredAt);
+  if (!Number.isFinite(measuredAtMs)) {
+    throw new RangeError("measuredAt must be a valid ISO timestamp.");
+  }
+
+  const blockedReasons: OperatorCockpitBenchmarkRunnerOrchestrationPlanBlockedReason[] = [];
+  if (input.webAdmission.status !== "admitted") {
+    blockedReasons.push("web-admission-blocked");
+  }
+  if (input.nativeAdmission.status !== "admitted") {
+    blockedReasons.push("native-admission-blocked");
+  }
+  if (input.webAdmission.surface !== "web-gui" || input.webAdmission.runnerKind !== "browser-rendering") {
+    blockedReasons.push("web-admission-surface-mismatch");
+  }
+  if (input.nativeAdmission.surface !== "native-cockpit"
+    || input.nativeAdmission.runnerKind !== "native-rendering") {
+    blockedReasons.push("native-admission-surface-mismatch");
+  }
+
+  const workloadKindMatches = input.webAdmission.workloadKind === input.nativeAdmission.workloadKind;
+  if (!workloadKindMatches) {
+    blockedReasons.push("workload-kind-mismatch");
+  }
+
+  const fixtureSummaryMatches = fixtureSummaryEquals(
+    input.webAdmission.fixtureSummary,
+    input.nativeAdmission.fixtureSummary,
+  );
+  if (!fixtureSummaryMatches) {
+    blockedReasons.push("fixture-summary-mismatch");
+  }
+
+  const status = blockedReasons.length === 0 ? "planned" : "blocked";
+  return {
+    measuredAt: input.measuredAt,
+    status,
+    blockedReasons,
+    ...(status === "planned"
+      ? {
+        workloadKind: input.webAdmission.workloadKind,
+        fixtureSummary: input.webAdmission.fixtureSummary,
+      }
+      : {}),
+    execution: "not-started",
+    mutationDispatch: "disabled",
+    networkAttach: "not-started",
+    recommendation: "not-promoted",
+    evidence: "not-promoted",
+  };
+}
+
 function summarizeTimelineEntry(
   entry: OperatorCockpitTimelineEntry,
 ): OperatorCockpitReadOnlyTimelineSummary {
@@ -766,4 +848,16 @@ function surfaceRunnerPairMatches(
     return runnerKind === "browser-rendering";
   }
   return runnerKind === "native-rendering";
+}
+
+function fixtureSummaryEquals(
+  left: OperatorCockpitBenchmarkFixtureSummary,
+  right: OperatorCockpitBenchmarkFixtureSummary,
+): boolean {
+  return left.fixtureId === right.fixtureId
+    && left.instanceCount === right.instanceCount
+    && left.sessionCount === right.sessionCount
+    && left.activeManagedSessionCount === right.activeManagedSessionCount
+    && left.childInvocationCount === right.childInvocationCount
+    && left.eventCount === right.eventCount;
 }

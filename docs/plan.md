@@ -487,6 +487,46 @@ Verification checklist:
 - Confirm no Playwright/Electron runner execution, gateway attach loop,
   dispatch path, or Rust/WASM/sidecar module was added.
 
+### Slice 18 - Phase 3 Slice 2 Orchestration Planning Contracts
+
+Files:
+
+- `docs/roadmap/06-native-cockpit-benchmark-validation.md`
+- `docs/roadmap/README.md`
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/gateway-contracts/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Add a typed benchmark-runner orchestration planning contract that composes
+  web and native runner admissions.
+- Keep orchestration `planned` only when both admissions are `admitted` with
+  the expected web GUI/browser-rendering and native cockpit/native-rendering
+  roles, the same `workloadKind`, and same fixture summary.
+- Fail closed when either admission is blocked, workload kinds differ, or
+  fixture summaries differ, or admissions are role-swapped.
+- Keep scope contract-only with `execution: not-started`,
+  `mutationDispatch: disabled`, `networkAttach: not-started`, and
+  recommendation/evidence state `not-promoted`.
+
+Verification checklist:
+
+- Confirm tests cover planned path only for coherent admitted web/native inputs.
+- Confirm tests cover blocked path for admission blocked, workload mismatch, and
+  fixture-summary mismatch.
+- Confirm tests cover role-swapped admissions so web/native order is not
+  inferred only from the caller parameter names.
+- Confirm no Playwright/Electron execution logic, no gateway attach loop, no
+  dispatch, no Rust/WASM/sidecar execution path, and no promotion evidence were
+  introduced.
+- Confirm `.kiln/kiln.yaml` and
+  `packages/gui/tests/memory-lattice-panel.test.tsx` remain untouched.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -627,3 +667,14 @@ Verification checklist:
 - Re-passed `bun run build` after Slice 17 fixture-summary coherence fix.
 - Re-passed `bun run test` after Slice 17 fixture-summary coherence fix.
 - Re-passed `git diff --check` after Slice 17 fixture-summary coherence fix.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 18.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 18.
+- Re-passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 18 role-order fix.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 18 role-order fix.
+- Passed `bun run --cwd packages/native test` after Slice 18 role-order fix.
+- Passed `bun run --cwd packages/native typecheck` after Slice 18 role-order fix.
+- Passed `bun run --cwd packages/native build` after Slice 18 role-order fix.
+- Passed `bun run typecheck` after Slice 18 role-order fix.
+- Passed `bun run build` after Slice 18 role-order fix.
+- Passed `bun run test` after Slice 18 role-order fix.
+- Passed `git diff --check` after Slice 18 role-order fix.

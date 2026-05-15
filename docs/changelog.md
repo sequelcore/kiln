@@ -2,6 +2,14 @@
 
 ## Unreleased -- Native Operator Surface
 
+- Completed Roadmap 06 Phase 3 Slice 2 on 2026-05-15 with benchmark-runner
+  orchestration planning contracts in `@kilnai/gateway-contracts`. Added
+  `createOperatorCockpitBenchmarkRunnerOrchestrationPlan` and typed blocked
+  reasons for blocked admission, workload mismatch, and fixture mismatch.
+  Planning remains contract-only with `execution: not-started`,
+  `mutationDispatch: disabled`, `networkAttach: not-started`, and
+  `recommendation/evidence: not-promoted`; no live runner execution, gateway
+  attach loop, dispatch path, or promotion evidence was added.
 - Started Roadmap 06 Phase 3 Slice 1 on 2026-05-15 for native cockpit
   benchmark validation admission/workload contracts. Added shared runner
   admission in `@kilnai/gateway-contracts` for `web-gui` and

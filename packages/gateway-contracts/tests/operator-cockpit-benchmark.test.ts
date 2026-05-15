@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createOperatorCockpitBenchmarkRunnerOrchestrationPlan,
   type OperatorCockpitBrowserRenderingBenchmarkEvidenceReport,
   type OperatorCockpitInteractionLatencyReport,
   type OperatorCockpitMemoryReport,
@@ -917,5 +918,206 @@ describe("operator cockpit benchmark runner admission", () => {
     expect(admission.execution).toBe("not-started");
     expect(admission.mutationDispatch).toBe("disabled");
     expect(admission.networkAttach).toBe("not-started");
+  });
+});
+
+describe("operator cockpit benchmark runner orchestration plan", () => {
+  const fixtureSummary = {
+    fixtureId: "phase3-orchestration",
+    instanceCount: 2,
+    sessionCount: 10,
+    activeManagedSessionCount: 3,
+    childInvocationCount: 50,
+    eventCount: 100_000,
+  } as const;
+
+  function createAdmittedRunnerInputs() {
+    return {
+      web: createOperatorCockpitBenchmarkRunnerAdmission({
+        measuredAt: "2026-05-15T10:00:00.000Z",
+        surface: "web-gui",
+        runnerKind: "browser-rendering",
+        workloadKind: "multi-session",
+        fixtureSummary,
+        prerequisites: {
+          runnerAvailable: true,
+          rendererAvailable: true,
+          fixtureApproved: true,
+          baselineEvidencePresent: true,
+        },
+      }),
+      native: createOperatorCockpitBenchmarkRunnerAdmission({
+        measuredAt: "2026-05-15T10:00:10.000Z",
+        surface: "native-cockpit",
+        runnerKind: "native-rendering",
+        workloadKind: "multi-session",
+        fixtureSummary,
+        prerequisites: {
+          runnerAvailable: true,
+          rendererAvailable: true,
+          fixtureApproved: true,
+          baselineEvidencePresent: true,
+        },
+      }),
+    };
+  }
+
+  it("creates a comparison orchestration plan only when web and native admissions are both admitted with coherent workload and fixture", () => {
+    const admissions = createAdmittedRunnerInputs();
+
+    const plan = createOperatorCockpitBenchmarkRunnerOrchestrationPlan({
+      measuredAt: "2026-05-15T10:01:00.000Z",
+      webAdmission: admissions.web,
+      nativeAdmission: admissions.native,
+    });
+
+    expect(plan.status).toBe("planned");
+    expect(plan.blockedReasons).toEqual([]);
+    expect(plan.workloadKind).toBe("multi-session");
+    expect(plan.fixtureSummary).toEqual(fixtureSummary);
+    expect(plan.execution).toBe("not-started");
+    expect(plan.mutationDispatch).toBe("disabled");
+    expect(plan.networkAttach).toBe("not-started");
+    expect(plan.recommendation).toBe("not-promoted");
+    expect(plan.evidence).toBe("not-promoted");
+  });
+
+  it("blocks orchestration when either admission is blocked", () => {
+    const admissions = createAdmittedRunnerInputs();
+    const blockedNative = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T10:02:00.000Z",
+      surface: "native-cockpit",
+      runnerKind: "native-rendering",
+      workloadKind: "multi-session",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: false,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    const plan = createOperatorCockpitBenchmarkRunnerOrchestrationPlan({
+      measuredAt: "2026-05-15T10:02:30.000Z",
+      webAdmission: admissions.web,
+      nativeAdmission: blockedNative,
+    });
+
+    expect(plan.status).toBe("blocked");
+    expect(plan.blockedReasons).toContain("native-admission-blocked");
+    expect(plan.execution).toBe("not-started");
+    expect(plan.mutationDispatch).toBe("disabled");
+    expect(plan.networkAttach).toBe("not-started");
+    expect(plan.recommendation).toBe("not-promoted");
+    expect(plan.evidence).toBe("not-promoted");
+  });
+
+  it("blocks orchestration when workload kinds differ", () => {
+    const admissions = createAdmittedRunnerInputs();
+    const nativeMultiInstance = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T10:03:00.000Z",
+      surface: "native-cockpit",
+      runnerKind: "native-rendering",
+      workloadKind: "multi-instance",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    const plan = createOperatorCockpitBenchmarkRunnerOrchestrationPlan({
+      measuredAt: "2026-05-15T10:03:30.000Z",
+      webAdmission: admissions.web,
+      nativeAdmission: nativeMultiInstance,
+    });
+
+    expect(plan.status).toBe("blocked");
+    expect(plan.blockedReasons).toContain("workload-kind-mismatch");
+    expect(plan.workloadKind).toBeUndefined();
+  });
+
+  it("blocks orchestration when fixture summaries differ", () => {
+    const admissions = createAdmittedRunnerInputs();
+    const nativeDifferentFixture = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T10:04:00.000Z",
+      surface: "native-cockpit",
+      runnerKind: "native-rendering",
+      workloadKind: "multi-session",
+      fixtureSummary: {
+        ...fixtureSummary,
+        fixtureId: "phase3-orchestration-alt",
+      },
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    const plan = createOperatorCockpitBenchmarkRunnerOrchestrationPlan({
+      measuredAt: "2026-05-15T10:04:30.000Z",
+      webAdmission: admissions.web,
+      nativeAdmission: nativeDifferentFixture,
+    });
+
+    expect(plan.status).toBe("blocked");
+    expect(plan.blockedReasons).toContain("fixture-summary-mismatch");
+    expect(plan.fixtureSummary).toBeUndefined();
+    expect(plan.execution).toBe("not-started");
+    expect(plan.mutationDispatch).toBe("disabled");
+    expect(plan.networkAttach).toBe("not-started");
+    expect(plan.recommendation).toBe("not-promoted");
+    expect(plan.evidence).toBe("not-promoted");
+  });
+
+  it("fails closed when admissions are role-swapped even if both are admitted", () => {
+    const nativePassedAsWeb = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T10:05:00.000Z",
+      surface: "native-cockpit",
+      runnerKind: "native-rendering",
+      workloadKind: "multi-session",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+    const webPassedAsNative = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T10:05:10.000Z",
+      surface: "web-gui",
+      runnerKind: "browser-rendering",
+      workloadKind: "multi-session",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    const plan = createOperatorCockpitBenchmarkRunnerOrchestrationPlan({
+      measuredAt: "2026-05-15T10:05:30.000Z",
+      webAdmission: nativePassedAsWeb,
+      nativeAdmission: webPassedAsNative,
+    });
+
+    expect(plan.status).toBe("blocked");
+    expect(plan.blockedReasons).toEqual(expect.arrayContaining([
+      "web-admission-surface-mismatch",
+      "native-admission-surface-mismatch",
+    ]));
+    expect(plan.execution).toBe("not-started");
+    expect(plan.mutationDispatch).toBe("disabled");
+    expect(plan.networkAttach).toBe("not-started");
+    expect(plan.recommendation).toBe("not-promoted");
+    expect(plan.evidence).toBe("not-promoted");
   });
 });

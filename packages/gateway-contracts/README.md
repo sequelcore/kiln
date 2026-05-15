@@ -91,6 +91,13 @@ pairs via `surface-runner-mismatch`. It also fails closed on contradictory or
 invalid fixture summaries (for example,
 `activeManagedSessionCount > sessionCount`) before workload thresholds are
 evaluated.
+Phase 3 Slice 2 adds orchestration planning through
+`createOperatorCockpitBenchmarkRunnerOrchestrationPlan`. Planning becomes
+`planned` only when both web and native admissions are already `admitted` for
+the same workload kind and fixture summary; otherwise it fails closed with typed
+blocked reasons. It keeps `execution: not-started`,
+`mutationDispatch: disabled`, `networkAttach: not-started`, and
+`recommendation/evidence: not-promoted`.
 It is not a rendering runner, network attach runner, dispatch mechanism, or
 Rust proof implementation.
 

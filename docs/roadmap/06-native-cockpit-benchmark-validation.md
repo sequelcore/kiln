@@ -60,3 +60,22 @@ Complete on 2026-05-15:
 
 This slice is contract-only admission and workload validation. It does not run
 browser or native benchmarks and does not provide measured rendering evidence.
+
+## Slice 2 Status (Phase 3 Slice 2)
+
+Complete on 2026-05-15:
+
+- Added typed orchestration planning contract in `@kilnai/gateway-contracts`
+  through `createOperatorCockpitBenchmarkRunnerOrchestrationPlan`.
+- Added tests that require both web GUI browser-rendering and native cockpit
+  native-rendering admissions to be `admitted` before status can become
+  `planned`.
+- Added fail-closed orchestration blocking when either admission is blocked,
+  workload kinds differ, or fixture summaries differ.
+- Kept orchestration planning contract-only with invariant
+  `execution: not-started`, `mutationDispatch: disabled`,
+  `networkAttach: not-started`, and `recommendation/evidence: not-promoted`.
+
+This slice is orchestration planning only. It does not execute Playwright or
+Electron runners, does not attach to gateways, does not dispatch mutations, and
+does not provide promotion evidence.

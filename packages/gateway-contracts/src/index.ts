@@ -137,6 +137,9 @@ export type {
   OperatorCockpitBenchmarkRunnerAdmissionInput,
   OperatorCockpitBenchmarkRunnerAdmissionMissingPrerequisite,
   OperatorCockpitBenchmarkRunnerAdmissionPrerequisites,
+  OperatorCockpitBenchmarkRunnerOrchestrationPlan,
+  OperatorCockpitBenchmarkRunnerOrchestrationPlanBlockedReason,
+  OperatorCockpitBenchmarkRunnerOrchestrationPlanInput,
   OperatorCockpitBenchmarkRunnerKind,
   OperatorCockpitBenchmarkSurface,
   OperatorCockpitBenchmarkWorkloadKind,
@@ -160,6 +163,7 @@ export type {
 export {
   createOperatorCockpitBenchmarkFixture,
   createOperatorCockpitBenchmarkRunnerAdmission,
+  createOperatorCockpitBenchmarkRunnerOrchestrationPlan,
   createOperatorCockpitBenchmarkEvidenceReport,
   measureOperatorCockpitProjectionBaseline,
   measureOperatorCockpitReadOnlyProjectionBaseline,
