@@ -2,7 +2,7 @@
 
 ## Unreleased -- Native Operator Surface
 
-- Completed Roadmap 06 Phase 3 Slice 2 on 2026-05-15 with benchmark-runner
+- Completed Roadmap 01 Slice 2 on 2026-05-15 with benchmark-runner
   orchestration planning contracts in `@kilnai/gateway-contracts`. Added
   `createOperatorCockpitBenchmarkRunnerOrchestrationPlan` and typed blocked
   reasons for blocked admission, workload mismatch, and fixture mismatch.
@@ -10,7 +10,7 @@
   `mutationDispatch: disabled`, `networkAttach: not-started`, and
   `recommendation/evidence: not-promoted`; no live runner execution, gateway
   attach loop, dispatch path, or promotion evidence was added.
-- Started Roadmap 06 Phase 3 Slice 1 on 2026-05-15 for native cockpit
+- Started Roadmap 01 Slice 1 on 2026-05-15 for native cockpit
   benchmark validation admission/workload contracts. Added shared runner
   admission in `@kilnai/gateway-contracts` for `web-gui` and
   `native-cockpit` surfaces, `browser-rendering` and `native-rendering` runner
@@ -18,18 +18,18 @@
   slice is contract-only and keeps `execution: not-started`,
   `mutationDispatch: disabled`, and `networkAttach: not-started`; no live
   browser/native benchmark execution or promotion evidence is produced.
-- Closed Roadmap 05 on 2026-05-15 by Phase 5 decision closeout
-  (Slice 16): complete with defer/no-promotion status. Keep the typed
+- Closed the native cockpit projection foundation on 2026-05-15 by decision
+  closeout with defer/no-promotion status. Keep the typed
   contract/projection foundation and Phase 3 evidence contracts as canonical
   gates, but do not start live Phase 3 benchmark runners, native cockpit UI,
   dispatch path, gateway attach loop, or Rust/WASM/sidecar modules under this
   roadmap. Any such execution scope now requires a dedicated validation roadmap
   or ADR.
-- Closed the Roadmap 05 contract/projection documentation slice after the typed
-  Phase 3 evidence contracts commit. Closeout is evidence-gated and limited to
-  shared contract/projection baselines; it does not promote the full native
-  cockpit experiment. Phase 3+ remains blocked on real benchmark runners and
-  measured browser/native rendering evidence, and no live runner, dispatch
+- Closed the native cockpit contract/projection documentation slice after the
+  typed Phase 3 evidence contracts commit. Closeout is evidence-gated and
+  limited to shared contract/projection baselines; it does not promote the full
+  native cockpit experiment. Phase 3+ remains blocked on real benchmark runners
+  and measured browser/native rendering evidence, and no live runner, dispatch
   path, gateway attach loop, or Rust/WASM/sidecar module exists yet.
 - Added `@kilnai/native` as the first-class Electron-backed native operator
   surface. It uses an Electron main process, React 19/Vite renderer,
@@ -52,10 +52,10 @@
   release channels, crash/log collection, user-data migration, rollback, and
   uninstall behavior remain deferred to a dedicated packaging/distribution
   roadmap after the native surface is ready to ship.
-- Started roadmap `05-native-operator-cockpit-and-projection-performance.md`
-  in contract-only mode with native cockpit precondition review, explicit
-  target/action admission, benchmark fixture thresholds, Rust hot-path
-  boundaries, and canonical architecture documentation.
+- Started the native cockpit projection foundation in contract-only mode with
+  native cockpit precondition review, explicit target/action admission,
+  benchmark fixture thresholds, Rust hot-path boundaries, and canonical
+  architecture documentation.
 - Added shared operator cockpit benchmark fixtures, GUI projection baseline
   measurement, and gateway-mediated cancellation target validation in
   `@kilnai/gateway-contracts` so native and GUI compare against the same

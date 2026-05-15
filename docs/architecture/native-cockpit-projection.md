@@ -1,7 +1,8 @@
 # Native Cockpit Projection
 
-Status: Roadmap 05 is complete on 2026-05-15 with defer/no-promotion closeout.
-Roadmap 05 delivered target/precondition/benchmark-fixture contracts, shared
+Status: the native cockpit projection foundation is complete as of 2026-05-15
+with defer/no-promotion closeout. The foundation delivered
+target/precondition/benchmark-fixture contracts, shared
 projection baselines, cancellation-target contracts, shared read-only cockpit
 projection, native read-only projection and action-intent wrappers, read-only
 attach-plan contracts, target-aware resource-link projection, and shared/native
@@ -12,9 +13,9 @@ resource-opening dispatch, cancellation dispatch, dispatch path, or Rust
 projection kernel is promoted. Any live Phase 3 benchmark runner, native
 cockpit, attach-loop, dispatch, or Rust/WASM/sidecar execution requires a new
 dedicated validation roadmap or ADR.
-Roadmap 06 started on 2026-05-15 for Phase 3 benchmark validation. Slices 1 and
-2 currently cover runner admission plus orchestration planning contracts only,
-with execution still `not-started`.
+Roadmap 01 started on 2026-05-15 for native cockpit benchmark validation.
+Slices 1 and 2 currently cover runner admission plus orchestration planning
+contracts only, with execution still `not-started`.
 
 ## Purpose
 
@@ -55,7 +56,7 @@ native process connections.
 
 ## Phase Gate
 
-Roadmap 05 starts in contract-only mode.
+The native cockpit projection foundation started in contract-only mode.
 
 The contract phase may begin when:
 

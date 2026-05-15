@@ -1,309 +1,89 @@
 # Roadmap
 
-This directory contains active and deferred execution tracks only. Completed
-programs are not archived here; their stable doctrine belongs in
-`docs/architecture/` or `docs/guides/`.
+This directory contains active and deferred implementation tracks only.
+Completed programs are promoted into stable architecture, guide, or changelog
+documentation instead of being archived here.
+
+## How To Read This Roadmap
+
+- Active roadmap files describe scoped work that is still in progress.
+- Deferred items are parked until their product or architecture trigger exists.
+- Completed work is summarized here only to point readers to stable doctrine.
+- Historical implementation detail belongs in `docs/changelog.md`.
 
 ## Canonical References
 
-Read the relevant architecture or guide document before using a roadmap:
+Use these documents as the stable source of truth before starting roadmap work:
 
-- `docs/architecture/memory.md` and `docs/guides/memory.md` for governed
-  memory, Memory Lattice, lifecycle policy, recall, and memory resource
-  projection.
-- `docs/architecture/context-governance.md` for model-context admission,
-  budgets, overflow, and audit.
-- `docs/architecture/work-governance.md` for operator-work posture,
-  orchestration preference, direct-execution envelopes, delegated work, and
-  evidence closeout.
-- `docs/architecture/context-resource-plane.md` for read-only resource
-  contracts.
-- `docs/architecture/agent-context.md` for operator identity, instruction
-  profiles, agent profiles, skills, managed child context, precedence, and
-  surface parity.
+- `docs/architecture/work-governance.md` for work admission, delegation,
+  verification, and evidence closeout.
+- `docs/architecture/operator-surfaces.md` for GUI, TUI, CLI, native, IDE,
+  desktop, and remote operator surfaces.
+- `docs/architecture/native-cockpit-projection.md` for native cockpit
+  projection boundaries and promotion gates.
+- `docs/architecture/benchmark-validation.md` and `docs/guides/eval.md` for
+  benchmark-facing profiles, baseline readiness, benchmark adapters, and public
+  report evidence.
+- `docs/architecture/managed-agents.md` for managed invocation, child
+  authority, write evidence, and replay invariants.
 - `docs/architecture/config-projection.md`,
   `docs/architecture/harness-integration-capabilities.md`, and
-  `docs/guides/global-config.md` for canonical global config, harness
-  integration capabilities, native harness projection, install-state,
-  drift-aware sync/uninstall/import-native behavior, managed-agent route
-  projection, and governed config mutation.
-- `docs/architecture/managed-agents.md` for managed invocation, child authority,
-  write evidence, live adapter proofs, and replay invariants.
-- `docs/architecture/multimodal-transport.md` and
-  `docs/adr/ADR-010-multimodal-transport-and-capability-delegation.md` for
-  governed multimodal artifact transport, capability-aware route admission,
-  transforms, managed capability delegation, provider constraints,
-  cross-surface projection, and replay evidence.
-- `docs/architecture/agent-qa-showcase-recorder.md` for governed recorder
-  capture manifests, browser/computer capture evidence, auto-edit tracks,
-  voice/audio tracks, external-editor handoff, and recorder security
-  invariants.
-- `docs/architecture/tool-execution.md`,
-  `docs/architecture/developer-tools.md`,
-  `docs/architecture/controlled-web-research.md`,
-  `docs/architecture/provider-credential-pools.md`,
-  `docs/architecture/shared-tooling-intelligence.md`, and
-  `docs/architecture/provider-model-discovery.md` for provider, tool, MCP, and
-  model-discovery work.
+  `docs/guides/global-config.md` for config projection, harness capabilities,
+  native projection, and governed config mutation.
 - `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md` for
-  browser operator foundations, snapshot monitoring, frame-stream fallback,
-  takeover/release, brokered browser input, and durable browser evidence.
-- `docs/architecture/operator-surfaces.md`, `docs/guides/gui-parity.md`, and
-  `docs/guides/tui-maintenance.md` for GUI, TUI, CLI, IDE, desktop, and remote
-  operator surfaces, including presentation-intent doctrine.
-- `docs/guides/plan-mode.md`, `docs/architecture/work-governance.md`, and
-  `docs/architecture/coordination.md` for plan mode, goal/work-item execution,
-  orchestration preference, workflow profiles, evidence closeout, and
-  cross-surface coordination.
-- `docs/architecture/benchmark-validation.md` and `docs/guides/eval.md` for
-  benchmark-facing profiles, internal baseline readiness, benchmark adapters,
-  public report evidence, and operator benchmark commands.
-
-## Roadmap Layers
-
-Active roadmap files describe implementation tracks that have not yet been
-absorbed into stable architecture or guide documentation. Deferred tracks remain
-explicitly parked until their prerequisite product surface exists.
+  browser/computer use, controlled web research, tool execution, and operator
+  evidence.
+- `docs/architecture/memory.md` and `docs/guides/memory.md` for governed
+  memory, Memory Lattice, lifecycle policy, recall, and memory resources.
 
 ## Active Roadmaps
 
-- [06-native-cockpit-benchmark-validation.md](./06-native-cockpit-benchmark-validation.md)
-  started on 2026-05-15. This active track currently covers Phase 3
-  runner-admission plus orchestration-planning contracts only. It does not
-  execute live browser/native rendering benchmarks and does not promote the
-  native cockpit experiment.
+1. [Native Cockpit Benchmark Validation](./01-native-cockpit-benchmark-validation.md)
+   Started on 2026-05-15. Current scope is contract-only benchmark runner
+   admission, orchestration planning, workload governance, and approval
+   evidence before any live browser or native benchmark execution.
 
 ## Deferred Roadmaps
 
-- OS-pack packaging for web extraction/browser helpers.
-  Deferred until controlled web primitives and research capability need
-  platform-specific helper binaries or dependencies. Stable boundaries live in
-  `docs/architecture/controlled-web-research.md`.
+- OS-pack packaging for web extraction and browser helpers.
+  Deferred until controlled web primitives need platform-specific helper
+  binaries or dependencies.
+- Binary and PDF source artifacts for controlled web research.
+  Deferred until research workflows need reliable PDF text extraction, OCR, or
+  binary artifact handling.
+- Learning-based governance and routing.
+  Deferred until there are enough real workflow traces, eval data, and stable
+  runtime policies to justify machine-learned routing or governance advice.
+- Full external benchmark expansion.
+  Deferred until a stable product surface can support public benchmark claims
+  without benchmark-only prompt paths, tool schemas, or authority shortcuts.
 
-- Binary/PDF source artifacts for controlled web research.
-  Deferred until the research capability needs reliable PDF text extraction or
-  OCR. Stable authority boundaries live in
-  `docs/architecture/controlled-web-research.md`.
+## Completed Areas
 
-## Completed Programs
+Stable doctrine for completed work lives in the architecture and guide docs,
+not in roadmap files. Current completed areas include:
 
-- GUI Phase 1 parity is closed. Stable status lives in
-  `docs/guides/gui-parity.md`.
-- Shared developer tools completed on 2026-04-29. Stable doctrine lives in
-  `docs/architecture/developer-tools.md`.
-- Shared tooling intelligence completed on 2026-04-29. Stable doctrine lives in
-  `docs/architecture/shared-tooling-intelligence.md`.
-- Interactive browser and computer use completed on 2026-05-08. Stable
-  doctrine lives in `docs/architecture/developer-tools.md`,
-  `docs/architecture/tool-execution.md`, `docs/architecture/session-model.md`,
-  `docs/guides/tool-use.md`, `docs/guides/gui.md`, and `docs/guides/tui.md`.
-  Implementation covers core contracts, project config projection, Playwright
-  browser automation, artifact-backed browser evidence, GUI Browser snapshot
-  projection, optional low-level Windows computer control, Kiln-owned Microsoft
-  UI Automation semantic control, explicit browser/computer environment policy,
-  application aliases, and cross-surface resume/projection semantics.
-- Context resource plane completed on 2026-04-30. Stable doctrine lives in
-  `docs/architecture/context-resource-plane.md`.
-- Memory Lattice and governed memory completed on 2026-05-01. Stable doctrine
-  lives in `docs/architecture/memory.md` and `docs/guides/memory.md`.
-- Memory lifecycle policy completed on 2026-05-01. Stable doctrine lives in
-  `docs/architecture/memory.md` and operator-facing resource usage lives in
-  `docs/guides/memory.md`.
-- Provider credential pooling completed on 2026-05-02. Stable doctrine lives
-  in `docs/architecture/provider-credential-pools.md` and operator-facing
-  credential usage lives in `docs/guides/provider-credentials.md`.
-- Managed agent invocation, write authority, and live adapter hardening
-  completed on 2026-05-06. Stable doctrine lives in
-  `docs/architecture/managed-agents.md`.
-- Config projection unification completed on 2026-05-06. Stable doctrine lives
-  in `docs/architecture/config-projection.md`; operator usage lives in
-  `docs/guides/global-config.md`.
-- Harness integration capability model completed on 2026-05-07. Stable
-  doctrine lives in `docs/architecture/harness-integration-capabilities.md`;
-  operator usage lives in `docs/guides/global-config.md`, and `kiln sync`
-  prints runtime injection, native projection, native import, MCP, and hook
-  capability diagnostics.
-- Agent context capability model completed on 2026-05-07. Stable doctrine lives
-  in `docs/architecture/agent-context.md`; operator usage lives in
-  `docs/guides/global-config.md`; implementation covers governed operator
-  identity, instruction profiles, agent profiles, skills, managed child context
-  admission, and native harness projection references.
-- Presentation intent contract completed on 2026-05-07. Stable doctrine lives
-  in `docs/architecture/session-model.md`,
-  `docs/architecture/operator-surfaces.md`,
-  `docs/architecture/developer-tools.md`, and
-  `packages/gateway-contracts/README.md`; implementation covers the closed
-  `PresentationIntent` union, validation, tool-result projection, GUI native
-  rendering, CLI/TUI text fallback, and managed invocation route evidence.
-- Governed config mutation tools completed on 2026-05-08. Stable doctrine
-  lives in `docs/architecture/config-projection.md`; operator usage lives in
-  `docs/guides/global-config.md`; implementation covers `kiln_config.read`,
-  structured `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
-  proposals, approval-gated apply, canonical `.kiln/agents` and
-  `.kiln/skills` writes only, native projection effects, config mutation
-  session events, and operator presentation across surfaces.
-- Managed-agent platform productization completed on 2026-05-08. Stable
-  doctrine lives in `docs/architecture/managed-agents.md`,
-  `docs/architecture/agent-context.md`,
-  `docs/architecture/provider-model-discovery.md`,
-  `docs/architecture/operator-surfaces.md`, and
-  `docs/guides/global-config.md`; implementation covers immutable capability
-  snapshots, cross-surface invocation evidence, natural child selection,
-  first-party agent defaults, route/model task-suitability evidence with live
-  proof and evaluated skill recommendations, write-capable managed profiles,
-  repo-shim projection, setup read models, and simplified GUI operator chrome.
-- Kiln core built-in skills completed on 2026-05-08. Stable doctrine lives in
-  `docs/architecture/agent-context.md`; operator usage lives in
-  `docs/guides/skills.md` and `docs/guides/global-config.md`; implementation
-  covers neutral removable core skill defaults, explicit `skills.builtin`
-  activation policy, project/user override precedence, managed-agent skill
-  catalogs, skill listing, and native harness projection through `kiln sync`.
-- Controlled web search/extract diagnostics and provider adapters completed on
-  2026-05-08. Stable doctrine lives in
-  `docs/architecture/controlled-web-research.md` and
-  `docs/architecture/developer-tools.md`; operator usage lives in
-  `docs/guides/tool-use.md`; implementation covers typed web error metadata,
-  `kiln status` diagnostics, `http`, `searxng`, `brave`, `tavily`, and `exa`
-  search-provider adapters, and `http`, `tavily`, and `firecrawl`
-  extraction-provider adapters.
-- Work-governance posture and orchestration preference completed on
-  2026-05-08. Stable doctrine lives in
-  `docs/architecture/work-governance.md`, `docs/architecture/flows.md`,
-  `docs/architecture/coordination.md`, and
-  `docs/architecture/agent-context.md`; operator usage lives in
-  `docs/guides/global-config.md`; implementation covers canonical
-  `workGovernance` config, CLI/GUI/TUI/benchmark required context projection,
-  repo-shim projection, direct-execution envelope, delegation triggers,
-  workflow profiles, session work items, `work_item_updated` canonical events,
-  `kiln://session/work-items` resources, GUI/TUI work-item projections,
-  evidence-gated closeout, and managed-child handoff contract fields.
-- Plan/goal workflow control completed on 2026-05-13. Stable
-  doctrine has been absorbed through
-  `docs/guides/plan-mode.md`, `docs/architecture/work-governance.md`,
-  `docs/architecture/managed-agents.md`,
-  `docs/architecture/agent-context.md`, `docs/architecture/flows.md`,
-  `docs/architecture/tool-execution.md`,
-  `docs/architecture/config-projection.md`,
-  `docs/architecture/operator-surfaces.md`, and
-  `docs/architecture/invariants.md`. Completed implementation covers structured
-  specification events, clarification gates, structured plans, analysis and
-  approval gates, effective turn authority, model routing rationale, goal runs,
-  work-item materialization, execution attempts, managed-agent handoff, evidence
-  and review gates, cross-surface operator UX, and native harness workflow
-  snapshot projection. Closure certified slices 1 through 13 as complete before
-  the implementation roadmap was retired from this directory.
-- Multimodal transport and capability delegation completed on 2026-05-13.
-  Stable doctrine lives in `docs/architecture/multimodal-transport.md` and the
-  accepted decision record lives in
-  `docs/adr/ADR-010-multimodal-transport-and-capability-delegation.md`.
-  Implementation covers canonical multimodal artifacts, provider/model
-  capability projection, runtime route admission, fail-closed provider
-  adapters, managed capability delegation, governed OCR/document/audio/image
-  transforms, `multimodal_routed` evidence, cross-surface artifact
-  normalization, and replayable resource URIs.
-- Agent QA showcase recorder completed on 2026-05-14. Stable doctrine lives in
-  `docs/architecture/agent-qa-showcase-recorder.md`. Implementation covers
-  capture manifests, governed browser raw-capture proof, transcript screenshot
-  galleries, browser WebM rendering with captions and click zooms, governed
-  Windows computer capture proof, local timeline adjustments, voice input, TTS
-  narration, microphone capture, voiceover tracks, and neutral external-editor
-  handoff artifacts for SRT, VTT, marker JSON, and editor-project metadata.
-- External benchmark validation platform completed on 2026-05-08. Stable
-  doctrine lives in `docs/architecture/benchmark-validation.md`; operator usage
-  lives in `docs/guides/eval.md`. Implementation covers benchmark-facing
-  profiles, baseline readiness gates, internal seed datasets, baseline runner,
-  structural scorers, BFCL/AgentDojo/tau projection adapters, benchmark CLI
-  commands, public report generation, and the blocked coding-benchmark decision
-  for SWE-bench-style tracks.
-- Browser operator foundations and snapshot monitor completed on 2026-05-14.
-  Stable doctrine lives in `docs/architecture/developer-tools.md`; operator
-  usage lives in `docs/guides/tool-use.md`. Implementation covers governed
-  browser session state, artifact-backed observations, transcript screenshot
-  galleries, Browser tab snapshot and frame-stream projection,
-  takeover/release ownership, brokered pointer/wheel/text/key input,
-  provider-side mutation blocking while the operator owns the session, fresh
-  post-release observations, sanitized browser operator evidence, and explicit
-  transport labels for `snapshot-polling` and `cdp-screencast`.
-- Native operator surface foundation completed on 2026-05-14. Stable doctrine
-  lives in `docs/architecture/operator-surfaces.md`,
-  `docs/architecture/runtime-surfaces.md`, and
-  `docs/adr/ADR-006-gui-stack-and-binding-contract.md`. Implementation covers
-  `@kilnai/native`, an Electron main process, React 19/Vite renderer, shared
-  `@kilnai/gateway-contracts` capability/projection/telemetry functions,
-  hardened renderer defaults, no direct `@kilnai/core` or `@kilnai/runtime`
-  package dependency, workspace test/typecheck/build wiring, and an Electron
-  smoke proof with clean shutdown.
-- Embedded browser host capability completed on 2026-05-14. Stable doctrine
-  lives in `docs/architecture/operator-surfaces.md`,
-  `docs/architecture/developer-tools.md`, and
-  `docs/adr/ADR-006-gui-stack-and-binding-contract.md`. Implementation covers
-  the native Electron `WebContentsView` host adapter, `electron-webcontents`
-  transport vocabulary, fail-closed local navigation policy, isolated ephemeral
-  web preferences, denied popups, denied permissions, blocked downloads, CDP
-  observation/control, typed operator input dispatch, gateway-shaped browser
-  session projection, sanitized browser operator evidence, and a deterministic
-  smoke proof with clean shutdown.
-- Embedded browser operator surface completed on 2026-05-14. Stable doctrine
-  lives in `docs/architecture/operator-surfaces.md` and
-  `docs/architecture/developer-tools.md`. Implementation covers the native
-  renderer product panel, reserved Electron `WebContentsView` region, narrow
-  preload IPC, open/takeover/input/release/resume controls, ownership-gated
-  runtime dispatch, `electron-webcontents` projection, sanitized evidence, and
-  a deterministic product smoke proof with clean shutdown.
-- Native operator cockpit/projection roadmap 05 decision closeout completed on
-  2026-05-15 with defer/no-promotion status. Contract/projection foundations
-  remain canonical in `docs/architecture/native-cockpit-projection.md`, and
-  typed Phase 3 evidence contracts exist, but no measured browser/native
-  rendering evidence exists. Future live Phase 3 benchmark runner work, native
-  cockpit UI, dispatch path, gateway attach loop, and Rust/WASM/sidecar modules
-  are deferred to Roadmap 06 slices after admission/workload validation and may
-  still require ADR approval for promotion.
+- GUI parity and operator surface foundations.
+- TUI maintenance and gateway-backed operation.
+- Managed agent invocation, write authority, and live adapter hardening.
+- Work governance, plan mode, goal execution, and evidence-gated closeout.
+- Config projection, native harness projection, and governed config mutation.
+- Agent context, instruction profiles, skills, and repo shims.
+- Memory Lattice, memory lifecycle policy, and context resource projection.
+- Provider credential pooling and provider/model discovery.
+- Controlled web research, browser/computer use, and tool execution.
+- Multimodal artifact transport and capability-aware route admission.
+- Agent QA showcase recorder.
+- External benchmark validation platform.
+- Native operator surface foundation and embedded browser operator capability.
+- Native cockpit projection foundation with defer/no-promotion status.
 
 ## Execution Priority
 
-1. Keep native performance architecture grounded in the completed foundation:
-   shared projections, batching, resource links, virtualization, and metrics are
-   v1 surface requirements, not late cleanup.
-2. Keep `05-native-operator-cockpit-and-projection-performance.md` limited to
-   closed defer/no-promotion status until a dedicated
-   benchmark-runner/native-cockpit validation roadmap or ADR is approved.
-3. Keep `06-native-cockpit-benchmark-validation.md` limited to Phase 3
-   admission and workload validation until live runner execution slices are
-   explicitly approved.
-
-## Deferred Candidates
-
-The following ideas were removed from the retired plan/goal workflow-control
-roadmap as active phases because they are not required to close the implemented
-plan/goal workflow-control substrate:
-
-- `OperationalMode`
-- `AllostaticLoad`
-- `KilnStateSnapshot`
-- monolithic `GovernanceDecision`
-- governance ML advisor
-- ML-based routing
-- dataset generation pipeline
-- fine-tuning
-- full external benchmark validation
-
-These are candidate future tracks only. Do not turn them into active roadmap
-phases until there is a concrete product/runtime trigger:
-
-- shared state/control modeling needed by multiple runtime policies
-- enough real workflow traces and eval data to justify learning-based routing
-  or fine-tuning
-- a stable product surface that can support external benchmark validation
-- an ADR-worthy architecture decision that cannot be expressed by the current
-  workflow, authority, routing, or evidence contracts
-
-Until one of those triggers exists, keep them as deferred candidates rather
-than extending a retired roadmap.
-
-## Rules
-
-- Do not add roadmap files for completed doctrine.
-- Do not keep completed implementation plans as roadmap history.
-- Do not split one concern across multiple near-duplicate plan files.
-- Delete superseded roadmap docs once their stable doctrine is absorbed into
-  canonical architecture or guide documentation.
+1. Keep active roadmap work limited to the explicit scope in its roadmap file.
+2. Promote stable results into architecture or guide docs when a track closes.
+3. Delete completed roadmap files after doctrine is absorbed.
+4. Do not create near-duplicate roadmap files for one concern.
+5. Do not start live native cockpit benchmark execution, native cockpit UI,
+   dispatch paths, gateway attach loops, or Rust/WASM/sidecar modules without an
+   approved roadmap slice or ADR.
