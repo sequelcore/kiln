@@ -4,21 +4,19 @@
 
 GUI Phase 1 parity is closed as of 2026-04-30.
 
-The GUI is Kiln's primary operator surface for interactive local work. The TUI
-remains available as a frozen maintenance surface for terminal-first workflows
-and fallback usage.
+This document is a validation record for the GUI reaching the former TUI
+baseline. It is not a product policy that freezes the TUI or makes one surface
+the permanent owner of operator work.
 
 ## Policy
 
-- `kiln gui` is the focused operator surface for ongoing product work.
-- `kiln tui` remains supported in maintenance mode.
-- New operator-facing capabilities should target the GUI first.
+- `kiln gui` is the rich web operator surface.
+- `kiln tui` is the interactive terminal operator surface.
 - Shared runtime, session, provider, tool, and gateway contracts must remain
   surface-neutral.
-- TUI changes are limited to critical fixes, compatibility repairs, and small
-  maintenance updates needed to keep the frozen surface usable.
-- Any renewed TUI investment requires an explicit product or architecture
-  decision.
+- New operator-facing capabilities should be implemented in shared contracts
+  first when more than one surface can use them.
+- Surface-specific UX belongs in the surface package that needs it.
 
 ## Completed Parity Scope
 
@@ -68,6 +66,6 @@ contracts, or shared guides.
 - `docs/guides/gui.md`
 - `docs/guides/gui-parity-walkthrough.md`
 - `docs/guides/tui.md`
-- `docs/guides/tui-maintenance.md`
+- `docs/guides/operator-surfaces.md`
 - `docs/architecture/runtime-surfaces.md`
 - `docs/architecture/session-model.md`

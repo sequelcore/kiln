@@ -216,4 +216,4 @@ Mark complete only when all conditions below are true:
 - `docs/guides/gui.md`
 - `docs/architecture/session-model.md`
 - `docs/guides/gui-parity.md`
-- `docs/guides/tui-maintenance.md`
+- `docs/guides/operator-surfaces.md`

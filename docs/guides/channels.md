@@ -505,7 +505,8 @@ All messages use `parts: readonly ContentPart[]` -- a discriminated union of fou
 | `AudioPart` | `type: "audio"`, `mimeType`, `data?`, `url?`, `durationMs?` |
 | `FilePart` | `type: "file"`, `mimeType`, `data?`, `url?`, `filename?` |
 
-See [Architecture Reference](../architecture.md) for the full TypeScript interface definitions.
+See [Multimodal Transport](../architecture/multimodal-transport.md) for the
+current artifact and modality transport model.
 
 Helper functions from `@kilnai/core`:
 

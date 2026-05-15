@@ -64,7 +64,7 @@ Stable doctrine for completed work lives in the architecture and guide docs,
 not in roadmap files. Current completed areas include:
 
 - GUI parity and operator surface foundations.
-- TUI maintenance and gateway-backed operation.
+- TUI and GUI gateway-backed operation.
 - Managed agent invocation, write authority, and live adapter hardening.
 - Work governance, plan mode, goal execution, and evidence-gated closeout.
 - Config projection, native harness projection, and governed config mutation.

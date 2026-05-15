@@ -1,13 +1,9 @@
 # TUI
 
-> **⚠ EXPERIMENTAL — Frozen surface.** Per [ADR-005](../adr/ADR-005-freeze-tui-prioritize-gui.md),
-> the TUI is in maintenance mode. No new features; only critical bug fixes (crashes, data
-> loss, security) and shared-contract compatibility repairs. The primary operator surface
-> going forward is the GUI (see Phase G in `STRATEGY.md`). The TUI remains available as a
-> frozen terminal surface until renewed demand justifies product investment.
-> 6-month review checkpoint: 2026-10-17.
->
-> Maintenance policy is tracked in `docs/guides/tui-maintenance.md`.
+> The TUI is Kiln's interactive terminal operator surface. It remains a
+> projection of shared runtime and gateway contracts. Terminal-specific feature
+> work is valid when it does not create private provider, memory, tool,
+> authority, or session semantics.
 
 ## Overview
 
@@ -292,4 +288,4 @@ cost, changed files, and replay.
 
 The TUI owns no orchestration logic by design. ADR-002 TUI formalizes the reason: the terminal client should stay a thin rendering surface over gateway-owned session state and execution, so memory, safety, approvals, routing, and provider handling are implemented once and reused consistently across clients.
 
-See [ADR-007 TUI](../adr/ADR-007-tui-gateway-architecture.md).
+See [ADR-002 TUI](../adr/ADR-002-tui-gateway-architecture.md).

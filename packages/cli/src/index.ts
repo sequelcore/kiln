@@ -41,7 +41,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   const APP_NAME = "kiln";
   const DIR_NAME = ".kiln";
   const VERSION = pkg.version as string;
-  const DESCRIPTION = "Domain-agnostic AI orchestration engine";
+  const DESCRIPTION = "Governed AI control-plane CLI";
 
   const COMMANDS: Record<string, string> = {
     init: `Initialize ${APP_NAME} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,

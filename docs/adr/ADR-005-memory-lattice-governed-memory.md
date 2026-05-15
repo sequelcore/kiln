@@ -1,11 +1,11 @@
-# ADR-008: Memory Lattice governed memory graph
+# ADR-005: Memory Lattice governed memory graph
 
 **Status:** Accepted (2026-04-30)
 **Date:** 2026-04-30
 **Author:** Ricardo Armenta
 **Scope:** `packages/core/src/memory/`, `packages/core/src/context/`, `packages/core/src/tools/`, `packages/runtime/src/gateway/`, `packages/gateway-contracts/`, `packages/gui/`, `packages/cli/`, `packages/tui/`, `docs/architecture/memory.md`, `docs/architecture/context-resource-plane.md`
 **Supersedes:** none
-**Follows:** ADR-004 (Budgeted Sufficient Context Orchestration), ADR-006 (GUI stack, boundaries, and binding contract)
+**Follows:** ADR-003 (Budgeted Sufficient Context Orchestration), ADR-004 (GUI stack, boundaries, and binding contract)
 
 ---
 
@@ -330,37 +330,8 @@ turning the product into a toy visual metaphor.
 
 ---
 
-## Implementation Sequence
+## Verification
 
-1. Freeze this ADR and update architecture docs.
-2. Implement the memory domain contracts in `@kilnai/core`.
-3. Implement SQLite persistence through the repository port.
-4. Add reconsolidation and relation services.
-5. Link memory records to `ContextGovernor` admission evidence.
-6. Add bounded core graph projection.
-7. Expose graph resources through `ToolResourceProvider`.
-8. Add runtime/gateway contracts backed by core resources.
-9. Build the GUI Memory Lattice view.
-10. Add Memory Lattice live invalidation through core memory domain events,
-    runtime event-bus bridging, and GUI/TUI/CLI resource-query invalidation.
-11. Upgrade the GUI renderer with Ehrlich-inspired pseudo-3D graph motion while
-    keeping topology, ranking, scope, and relations owned by core contracts.
-12. Add minimal CLI/TUI/MCP/YAML projection only through shared contracts:
-    CLI reads `kiln://memory/...` through the resource registry, MCP/model
-    consumers use shared resource tools through `kiln tools --mcp`,
-    model-callable writes use the core governed `memory_save` builtin backed by
-    `MemoryMutationService`, and YAML remains policy-only.
-13. Keep tenant conversation exchanges as governed `episodic` tenant records
-    and MCP swarm coordination as governed `coordination` records.
-
----
-
-## Verification Requirements
-
-Each implementation slice must prove:
-
-- `bun run typecheck` passes
-- `bun run test` passes for touched packages
 - scope isolation is tested
 - graph reads are bounded
 - resource reads are read-only

@@ -1,4 +1,4 @@
-# ADR-009: Agent context surfaces
+# ADR-006: Agent context surfaces
 
 **Status:** Accepted (2026-05-07)
 **Date:** 2026-05-07
@@ -10,7 +10,7 @@
 `docs/architecture/managed-agents.md`, `docs/architecture/config-projection.md`,
 `docs/guides/global-config.md`, `docs/guides/skills.md`
 **Supersedes:** none
-**Follows:** ADR-004 (Budgeted Sufficient Context Orchestration), ADR-008
+**Follows:** ADR-003 (Budgeted Sufficient Context Orchestration), ADR-005
 (Memory Lattice governed memory graph)
 
 ---

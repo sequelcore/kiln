@@ -13,10 +13,9 @@
 
 ---
 
-Kiln is a biocybernetic control plane, not an orchestration engine, agent
-shell, or literal organism model. Its contracts are expressed through
-cybernetic control structures, and its architecture is informed by biological
-and neural regulation.
+Kiln is a biocybernetic control plane for governed AI work. Its contracts are
+expressed through cybernetic control structures, and its architecture is
+informed by biological and neural regulation.
 
 It regulates AI work the way a thermostat regulates temperature: sense state,
 compare it against policy and goals, apply bounded control, and recover safely
@@ -32,11 +31,11 @@ Kiln exists to answer one question reliably:
 
 That framing changes the product boundary:
 
-- Kiln is not "a wrapper around models"
-- Kiln is not "a literal multi-agent organism"
-- Kiln is not "a bag of orchestration primitives"
-- Kiln is a regulatory layer over AI work with biocybernetic and neurotech
-  lineage
+- Kiln admits, routes, and constrains work through explicit control policy.
+- Kiln governs context as a bounded resource.
+- Kiln coordinates agents and tools through auditable runtime contracts.
+- Kiln keeps safety, memory, telemetry, and adaptation inside one regulatory
+  layer.
 
 ## Architecture
 
@@ -60,9 +59,11 @@ Core subsystems:
 Start here:
 
 - [Documentation Index](docs/README.md)
+- [Getting Started](docs/getting-started.md)
 - [Architecture Overview](docs/architecture/README.md)
 - [Research Index](docs/research/README.md)
 - [Roadmap](docs/roadmap/README.md)
+- [Changelog](docs/changelog.md)
 
 Most important architecture documents:
 

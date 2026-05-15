@@ -5,17 +5,16 @@
 Kiln is a domain-agnostic, biocybernetic AI control plane that governs the
 lifecycle of autonomous agent sessions.
 
-It is not best described as an orchestration engine, a model router, or a tool
-executor. Those are capabilities inside the system. The canonical framing is a
-cybernetic control system that maintains a bounded operational envelope around
-agents that act through providers, tools, channels, and tenant policy.
+The canonical framing is a cybernetic control system that maintains a bounded
+operational envelope around agents that act through providers, tools, channels,
+and tenant policy.
 
 Kiln is biocybernetic because its operational contracts are expressed through
 cybernetic control structures while its architecture is informed by biological
-and neural regulation. The useful result of the research is not a literal
-organism model. It is a disciplined mechanism lineage that includes feedback
-loops, threshold gating, layered inhibition, adaptive regulation, memory
-policy, reconsolidation, salience, threat memory, and failure containment.
+and neural regulation. The research contributes a disciplined mechanism lineage
+that includes feedback loops, threshold gating, layered inhibition, adaptive
+regulation, memory policy, reconsolidation, salience, threat memory, and
+failure containment.
 
 ## What Kiln Is
 
@@ -30,15 +29,6 @@ the `startGateway(gateway.yaml)` process that loads bound `app.yaml` files and
 owns app sessions, tenant state, memory, safety, channels, events, triggers, and
 MCP exposure. GUI/TUI helper servers are Operator Gateways. They may use
 separate local ports, but they are not separate app control planes.
-
-## What Kiln Is Not
-
-- Not an LLM provider.
-- Not a code generator.
-- Not a workflow engine as its primary definition.
-- Not a monolithic agent.
-- Not a literal organism or colony model.
-- Not a meta-orchestrator as canonical identity.
 
 ## Core Purpose
 
@@ -109,9 +99,9 @@ For the full surface taxonomy, see [`runtime-surfaces.md`](runtime-surfaces.md).
   explicit control-plane behavior.
 - Kiln may use biocybernetic, neurotech, and cyberpunk language for product and
   brand expression when that language remains grounded in the architecture.
-- Do not describe Kiln primarily as a meta-orchestrator.
-- Do not describe Kiln as a literal biological system.
-- Do not define Kiln by downstream product surfaces.
+- Define Kiln by control-plane responsibilities before product surfaces.
+- Keep biological and neural language tied to explicit mechanisms.
+- Keep downstream product surfaces subordinate to the shared runtime contract.
 
 ## Visual Identity
 

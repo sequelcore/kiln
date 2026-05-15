@@ -6,7 +6,7 @@ Kiln uses a layered memory architecture with explicit retention, decay,
 mutation, and deletion rules.
 
 Memory Lattice is the product and architecture name for Kiln's governed memory
-graph. It is defined by `docs/adr/ADR-008-memory-lattice-governed-memory.md`.
+graph. It is defined by `docs/adr/ADR-005-memory-lattice-governed-memory.md`.
 The implementation belongs to the `memory` bounded context in `@kilnai/core`;
 GUI, CLI, TUI, SDK, YAML apps, and MCP are projections over that core contract.
 

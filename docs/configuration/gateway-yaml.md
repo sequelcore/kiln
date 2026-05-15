@@ -62,6 +62,6 @@ the control plane.
 
 If this reference is rebuilt in detail later, it should:
 
-- align configuration terms to the frozen taxonomy
+- align configuration terms to the canonical runtime-surface taxonomy
 - distinguish stable doctrine from implementation residue
 - describe runtime surfaces as subordinate to the control plane

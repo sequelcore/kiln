@@ -2,9 +2,9 @@
 
 ## Overview
 
-`kiln gui` is the primary operator surface for Kiln Phase 1. In local operator
-mode, it starts the local GUI Operator Gateway, serves the web UI, and launches
-the interface in a managed app-mode browser window so the Kiln process can shut
+`kiln gui` is Kiln's rich web operator surface. In local operator mode, it
+starts the local GUI Operator Gateway, serves the web UI, and launches the
+interface in a managed app-mode browser window so the Kiln process can shut
 down cleanly when the window closes.
 
 This is intentionally different from `kiln dev --playground` or manually opening a URL in an arbitrary browser tab. `kiln gui` owns the operator session lifecycle.

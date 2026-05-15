@@ -63,7 +63,6 @@ Names to remove from active doctrine:
 - `CascadeController`
 - `TaskChannel`
 - `SwarmStore`
-- `meta-orchestrator`
 
 ## What Is Not Kiln
 
@@ -73,10 +72,8 @@ Names to remove from active doctrine:
 - Kiln is not a workflow engine in its primary definition.
 - Kiln is not a literal biological organism.
 
-## Temporary Extraction Rule
+## Doctrine Placement
 
-During the architecture extraction:
-
-- this directory becomes the target canonical structure
-- `docs/architecture.md` remains temporary only
-- no new doctrine should be authored in guides or research docs
+- This directory is the canonical architecture structure.
+- New doctrine belongs here first, then guides can reference it for usage.
+- Roadmaps sequence active work; they do not define stable architecture.

@@ -109,7 +109,10 @@ See [Gateway YAML Reference](../configuration/gateway-yaml.md#session--handoff) 
 
 ## Budget Enforcement
 
-Apps that declare a `billing` block in their YAML get budget enforcement on every `POST /message` request. All three budget checks are fail-open by design -- billing outages never block users.
+Apps that declare a `billing` block in their YAML get budget enforcement on
+every `POST /message` request. Budget checks fail closed: if the budget service
+is unavailable or the tenant is over budget, request execution is blocked to
+prevent uncontrolled spend.
 
 For the complete billing configuration reference (YAML fields, endpoint contracts, tier definitions), see [Gateway YAML Reference](../configuration/gateway-yaml.md#mode-b-details).
 
@@ -124,7 +127,10 @@ The Gateway exposes CRUD routes for managing tenants at runtime. These are mount
 | `PATCH` | `/admin/tenants/:id` | Update tenant configuration. |
 | `DELETE` | `/admin/tenants/:id` | Remove a tenant. |
 
-Sensitive tenant fields (API keys, webhook secrets) are automatically encrypted by `AesSecretStore` before persistence. See [architecture](../architecture.md#security-architecture) for encryption details.
+Sensitive tenant fields (API keys, webhook secrets) are automatically encrypted
+by `AesSecretStore` before persistence. Runtime security boundaries are
+described in [Safety](../architecture/safety.md) and
+[Tool Execution](../architecture/tool-execution.md).
 
 ### Mutable Tenant Config Fields
 

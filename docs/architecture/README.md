@@ -122,7 +122,7 @@ is documented by concern, not as a single monolith.
   rules.
 
 - `native-cockpit-projection.md`
-  Contract-only architecture for roadmap 05 native cockpit projection:
+  Contract-only architecture for native cockpit projection:
   precondition gates, explicit instance/session targets, benchmark fixtures,
   and Rust hot-path boundaries.
 
@@ -136,13 +136,3 @@ is documented by concern, not as a single monolith.
 
 - `invariants.md`
   Architectural laws, invariants, naming rules, and what is not Kiln.
-
-## Temporary State During Refactor
-
-`docs/architecture.md` remains present during extraction. It is temporary.
-
-During Slice 2:
-
-- new architecture docs become the target canonical structure
-- the monolith is reduced only after modular coverage is complete
-- no new doctrine should be added outside this directory

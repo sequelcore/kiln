@@ -2,6 +2,9 @@
 
 ## Entry Points
 
+- [Getting Started](getting-started.md)
+  Fast setup, verification, and documentation map for new contributors.
+
 - [Architecture](architecture/README.md)
   Canonical architecture doctrine for Kiln as a biocybernetic control plane.
 
@@ -19,6 +22,9 @@
 
 - [Roadmap](roadmap/README.md)
   Active, deferred, and completed implementation tracks.
+
+- [Changelog](changelog.md)
+  Historical engineering log. Public release notes live under `docs/releases/`.
 
 ## Architecture
 
@@ -55,12 +61,12 @@ High-use guides today:
 - [GUI](guides/gui.md)
 - [GUI Parity](guides/gui-parity.md)
 - [GUI Parity Walkthrough](guides/gui-parity-walkthrough.md)
+- [Operator Surfaces](guides/operator-surfaces.md)
 - [Channels](guides/channels.md)
 - [Knowledge](guides/knowledge.md)
 - [Tool Use](guides/tool-use.md)
 - [Observability](guides/observability.md)
 - [TUI](guides/tui.md)
-- [TUI Maintenance](guides/tui-maintenance.md)
 
 ## SDK
 
@@ -69,10 +75,10 @@ High-use guides today:
 
 ## ADR
 
-Architecture decisions live under `docs/adr/` as the normalized decision log.
+Architecture decisions live under [ADR](adr/README.md) as the normalized
+decision log.
 
 ## Other
 
 - [FAQ](faq.md)
-- [Changelog](changelog.md)
 - [Contributing](../CONTRIBUTING.md)

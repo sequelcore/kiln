@@ -1,8 +1,8 @@
-# ADR-004: Budgeted Sufficient Context Orchestration
+# ADR-003: Budgeted Sufficient Context Orchestration
 
-**Status:** Active  
-**Date:** 2026-04-03  
-**Author:** Ricardo Armenta  
+**Status:** Accepted
+**Date:** 2026-04-03
+**Author:** Ricardo Armenta
 **Scope:** `packages/cli/src/application/`, `packages/cli/src/wrapper/`, `packages/runtime/src/gateway/`, `packages/core/src/memory/`, `packages/core/src/field/`, `packages/tui/src/`
 
 ---
@@ -55,16 +55,6 @@ These findings support a simple architectural conclusion:
 **Context must be managed as an external working set with explicit budget,
 selection, retrieval, compression, and continuity policies.**
 
-### Relationship to ADR-001
-
-[ADR-001](ADR-001-neural-field-orchestration.md) proposes `FieldStore` as a
-continuous coordination layer over memory and routing. That remains valid, but
-it is not the first problem Kiln needs to solve.
-
-The immediate user pain is token burn, context bloat, and weak resumability.
-Therefore, field dynamics must become an **advanced salience layer** on top of a
-stronger discrete context-governance architecture, not a replacement for it.
-
 ---
 
 ## Decision
@@ -85,12 +75,6 @@ maintain a larger, externalized **virtual context window** composed of:
 Before every model call, Kiln will build a **projected working set**: the
 minimum sufficient context needed for the current turn under a configurable
 token budget.
-
-ADR-001 is retained and reframed:
-
-- **ADR-004** defines the discrete context-governance and virtual-window model
-- **ADR-001** becomes the future field/salience overlay that modulates recall,
-  routing, and task traversal on top of ADR-004
 
 ---
 
@@ -381,28 +365,6 @@ policies.
 
 ---
 
-## Relationship to ADR-001 Field Layer
-
-ADR-001 remains deferred but changes role:
-
-- It is no longer the primary answer to token burn
-- It becomes a future salience engine over the discrete memory substrate
-
-After ADR-004 foundations exist, `FieldStore` can modulate:
-
-- which memory regions become hotter/colder
-- which retrieved candidates get boosted/suppressed
-- which routes are favored for repeated similar tasks
-- which task branches are explored vs inhibited
-
-In short:
-
-- **ADR-004 answers:** what belongs in the working set?
-- **ADR-001 later helps answer:** what is becoming important or saturated over
-  time?
-
----
-
 ## Consequences
 
 ### Positive
@@ -411,8 +373,7 @@ In short:
 - Stronger resume behavior because Kiln owns the session ledger outside the
   provider
 - Better compatibility with provider prompt caching and session reuse
-- Cleaner path to TUI context-pressure visibility and cost forecasting
-- ADR-001 gains a practical substrate instead of remaining abstract theory
+- Cleaner path to cross-surface context-pressure visibility and cost forecasting
 
 ### Negative
 
@@ -439,53 +400,12 @@ In short:
 
 ---
 
-## Implementation Status
-
-All phases in `docs/plan-context-governance.md` are now landed:
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| CG1 | Explicit projected context types + preamble builder | ✅ Done |
-| CG2 | Deterministic token-budget selection | ✅ Done |
-| CG3 | Session ledger + exact-artifact inputs | ✅ Done |
-| CG4 | Cacheable context artifacts (session, project, plan, module) | ✅ Done |
-| CG5 | Cache-first vs provider-native resume policy + feedback signal | ✅ Done |
-| CG6 | Runtime context-pressure visibility in TUI sidebar | ✅ Done |
-| CG7 | `contextGovernance` YAML config surface (turnBudget, cachePolicy, preferredSources, summaryAggressiveness, previewBeforeApply) | ✅ Done |
-| F1 | Field substrate (FieldSignal, FieldVector, FieldSnapshot, InMemoryFieldStore, SqliteFieldStore) | ✅ Done |
-| F2 | FieldUpdater (EventBus → field signals for tool/memory/task/agent events) | ✅ Done |
-| F3 | Field-modulated recall (context-governor boosts optional block scores by category field strength) | ✅ Done |
-| F4 | Field-modulated routing (SessionRegistry scores providers via `provider:<id>` field strength, +0..15 soft bonus) | ✅ Done |
-| F5 | Propagation, inhibition, stability (FieldInhibitor lateral suppression + StabilityMonitor runaway/starvation detection) | ✅ Done |
-| F6 | TUI field observability (dominant regions, saturation %, entropy, stability status in sidebar) | ✅ Done |
-
-Remaining gap: ADR-001 field routing integration (salience overlay into retrieval
-and multi-agent routing) is deferred until the field substrate proves stable in
-production use.
-
-## Implementation Strategy
-
-This ADR should be implemented **before** ADR-001 field routing/memory.
-
-Recommended sequence:
-
-1. Add discrete context-governance and projection
-2. Add cacheable context artifacts and summary policies
-3. Add TUI visibility for context pressure / projected burn
-4. Revisit ADR-001 as a salience overlay once the discrete layer is stable
-
-Detailed file-by-file work: `docs/plan-context-governance.md`.
-
----
-
-## Success Criteria
+## Verification
 
 - Kiln can explain what context will be injected next turn and why
 - Resume reconstructs a bounded working set instead of naive replay
-- TUI can show current context pressure and projected prompt cost
+- Operator surfaces can show current context pressure and projected prompt cost
 - Prompt assembly uses explicit projected context, not ad hoc merged strings
-- ADR-001 can later plug into retrieval/routing salience without replacing the
-  discrete context substrate
 
 ---
 
@@ -502,6 +422,4 @@ Detailed file-by-file work: `docs/plan-context-governance.md`.
 
 ---
 
-*ADR-004 establishes context governance as a first-class Kiln primitive. ADR-001
-remains the advanced field layer, but only after Kiln can already manage a
-budgeted, sufficient, externalized working set.*
+*This ADR establishes context governance as a first-class Kiln primitive.*

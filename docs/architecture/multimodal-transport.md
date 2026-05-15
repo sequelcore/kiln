@@ -5,7 +5,7 @@
 This is the canonical architecture record for Kiln's multimodal transport
 foundation as of 2026-05-13.
 
-ADR-010 is the accepted decision record for this subsystem. The implementation
+ADR-007 is the accepted decision record for this subsystem. The implementation
 covers the foundation contract, runtime admission, provider adapter
 fail-closed behavior, routing evidence, governed transforms, managed capability
 delegation, and cross-surface artifact normalization.

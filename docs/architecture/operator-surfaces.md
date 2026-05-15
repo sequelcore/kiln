@@ -116,10 +116,10 @@ surfaces may degrade to deterministic initials or text labels. Avatar libraries,
 colors, and glyphs are presentation choices only. They must not create new
 agent IDs, profile names, routing semantics, or authority boundaries.
 
-## Local GUI
+## GUI
 
-The local GUI is the first rich operator surface. It is web-first and
-gateway-backed by design.
+The GUI is the rich web operator surface. It is web-first and gateway-backed by
+design.
 
 This is not a temporary mistake to replace with a monolithic desktop runtime.
 It preserves:
@@ -141,9 +141,9 @@ code directly, speak to providers directly, or duplicate control-plane logic.
 
 CLI and TUI remain durable terminal operator surfaces.
 
-The CLI is the automation and scripting surface. The TUI is a frozen
-maintenance surface, but it still represents a valid terminal operator mode for
-users who need SSH, worktree, and keyboard-first workflows.
+The CLI is the automation and scripting surface. The TUI is the interactive
+terminal supervision surface for users who need SSH, worktree, low-bandwidth,
+or keyboard-first workflows.
 
 Terminal surfaces must preserve:
 
@@ -155,8 +155,8 @@ Terminal surfaces must preserve:
 - test/build automation
 - the same canonical session and operator event contracts as GUI
 
-The TUI must not define future runtime architecture or private operator
-semantics.
+The TUI may evolve when there is real terminal-facing demand, but it must not
+define private runtime architecture or private operator semantics.
 
 ## IDE Surfaces
 
@@ -250,9 +250,10 @@ frames. Rust, WASM, or sidecar acceleration may be added only for measured
 projection/replay hot paths and must never own authority, scheduling, provider
 routing, memory, config, replay truth, or policy.
 
-Native cockpit projection is contract-only until roadmap 05 proves value with
-benchmark fixtures. Stable target, precondition, benchmark, and Rust-boundary
-rules live in `native-cockpit-projection.md`.
+Native cockpit projection is contract-only until the active native cockpit
+benchmark-validation roadmap proves value with benchmark fixtures. Stable
+target, precondition, benchmark, and Rust-boundary rules live in
+`native-cockpit-projection.md`.
 
 Completion standard: the native surface can be removed without changing
 core/runtime semantics.

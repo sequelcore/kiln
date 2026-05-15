@@ -1,5 +1,11 @@
 # Changelog
 
+This file is the historical engineering log for changes already made in Kiln.
+It is not a roadmap and it is not the source of current product strategy. Active
+and deferred execution tracks live in [`docs/roadmap/`](roadmap/README.md);
+stable doctrine lives in [`docs/architecture/`](architecture/README.md); public
+release notes live in [`docs/releases/`](releases/).
+
 ## Unreleased -- Native Operator Surface
 
 - Completed Roadmap 01 Slice 2 on 2026-05-15 with benchmark-runner

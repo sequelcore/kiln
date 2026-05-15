@@ -1,10 +1,8 @@
-# ADR-007: TUI Gateway Architecture
+# ADR-002: TUI Gateway Architecture
 
-**Status:** Accepted (amended 2026-04-09)  
-**Date:** 2026-04-02  
+**Status:** Accepted (amended 2026-04-09)
+**Date:** 2026-04-02
 **Deciders:** Ricardo Armenta
-
-> **Number corrected 2026-04-17:** originally filed as ADR-002 in conflict with `ADR-002-subprocess-integration.md`. Renumbered to ADR-007 to resolve the duplication. No content changed except the title and this note. Content substantially informs (and is partially superseded by) ADR-006.
 
 ## Context
 
@@ -95,15 +93,8 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 - `cost_update` → `handleCostUpdate` (accumulates cost + tokens; preferred token source for subscription sessions)
 - Late-arriving frames (after turn completes) are dropped by a `status !== "running"` guard
 
-**Heartbeat**: ping/pong (30s interval, 90s timeout)  
+**Heartbeat**: ping/pong (30s interval, 90s timeout)
 **Auto-reconnect**: exponential backoff (1s → 30s max)
-
-### Migration Path
-
-- **Phase 1 (historical, v0.23.x)**: Direct provider sessions. Useful as the first prototype. No memory, safety, or MCP.
-- **Phase 2 (delivered, Phase 7c / v0.24.2)**: `kiln tui` auto-starts `startTuiGateway()` on port 4801, connects via WS. TUI is now the rendering layer. Gateway owns the pipeline and invokes execution through the injected session manager. Full Kiln pipeline.
-- **Phase 3 (partially delivered, Phase 7d-7f / v0.24.3-v0.24.5)**: Budget visibility, routing indicator, and interactive-default CLI entrypoint are now shipped. Remaining future work is remote attach and richer streaming, not the base TUI gateway path.
-- **Phase 4 (delivered, 2026-04-09)**: Gateway transport is now the default startup path again, provider/model route labels are derived from actual completion metadata, and execution identity is injected at invocation time so model/provider self-reporting matches the real backend for the turn.
 
 ## Consequences
 
@@ -121,30 +112,7 @@ TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no ten
 - Each turn spawns a subprocess (1-3s latency per spawn)
 - No mid-turn MCP tool calls from the subprocess (stateless one-shot mode)
 - Gateway must reconstruct full history each turn (same as API calls — not a new cost)
-- Done-only frames in Phase 7c (no token-by-token streaming until Phase 7d)
 
 ### Neutral
 - Direct provider fallback remains useful for `kiln run` and explicit `KILN_TUI_TRANSPORT=direct` debugging
-- Widget WsClient can be adapted for TUI package (remove browser-specific code)
 - `ProviderAdapter` continues to serve deployed/web channels unchanged
-
-## Key Files
-
-| File | Role | Status |
-|------|------|--------|
-| `packages/tui/src/app.tsx` | TUI rendering layer (OpenTUI) | ✅ Implemented (v0.24.1) |
-| `packages/tui/src/ui.ts` | UI components (layout, input, sidebar) | ✅ Implemented |
-| `packages/tui/src/state.ts` | Reactive state management | ✅ Implemented |
-| `packages/tui/src/handlers.ts` | Session event handlers | ✅ Implemented |
-| `packages/tui/src/render.ts` | Render helpers | ✅ Implemented |
-| `packages/tui/src/ws-client.ts` | WebSocket client (adapted from widget) | ✅ Implemented |
-| `packages/tui/src/gateway-session.ts` | SessionLike over WS (maps frames to events) | ✅ Implemented |
-| `packages/tui/src/theme.ts` | 12 built-in themes | ✅ Implemented |
-| `packages/runtime/src/gateway/tui-gateway.ts` | TUI gateway logic (WS handler, RuntimeSessionOrchestrator) | ✅ Implemented |
-| `packages/runtime/src/execution/cli-subscription-executor.ts` | CLI subprocess execution | ✅ Implemented |
-| `packages/runtime/src/execution/api-executor.ts` | API-backed execution (for web channels) | ✅ Implemented |
-| `packages/runtime/src/execution/model-executor.ts` | ModelExecutor interface | ✅ Implemented |
-| `packages/runtime/src/gateway/gateway-server.ts` | startTuiGateway() entrypoint | ✅ Existing |
-| `packages/runtime/src/session/runtime-session-orchestrator.ts` | Multi-turn orchestration | ✅ Existing |
-| `packages/runtime/src/session/runtime-session.ts` | Session persistence | ✅ Existing |
-| `packages/widget/src/ws-client.ts` | Reference WS client implementation | ✅ Existing |

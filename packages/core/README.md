@@ -9,24 +9,26 @@
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
-<p align="center">Domain-agnostic AI orchestration engine. 7 primitives, 3 composites, YAML-configured.</p>
+<p align="center">Core contracts and services for the Kiln governed AI control plane.</p>
 
 ---
 
 ## What is this?
 
-`@kilnai/core` is the engine behind [Kiln](https://github.com/sequelcore/kiln) -- a control-plane core for building governed AI agents, teams, and workflows. It provides:
+`@kilnai/core` is the contract and domain package behind
+[Kiln](https://github.com/sequelcore/kiln), a control plane for governed AI
+work. It provides:
 
-- **7 primitives**: Agent, Capability, Workflow, Memory, Task, Channel, Trigger
-- **3 composites**: Team, Router, App
-- **4 provider adapters**: Anthropic, OpenAI, DeepSeek, Ollama
-- **Phase-gated orchestrator** with checkpoint/resume, 3 team strategies
+- Agent, capability, workflow, memory, task, channel, trigger, routing, and app
+  contracts
+- Provider adapter boundaries for direct and executable provider routes
+- Governed execution, approval, authority, and verification contracts
 - **MCP client** (Streamable HTTP) for external tool integration
 - **Memory Lattice** governed memory records with scopes, layers, provenance, revisions, relations, lifecycle policy, recall, and bounded resource projection
 - **Knowledge (RAG)** with chunkers, embedding adapters, and retrieval pipeline
 - **Safety pipeline**: PII detection (6 types), content classification (6 categories), 4 policy rails
 - **Eval framework**: 12 scorer types, YAML-configured experiments
-- **55 typed error codes** with context-aware suggestions
+- Typed error codes with context-aware suggestions
 
 ## Install
 
@@ -99,7 +101,7 @@ Engine.validateApp(app);
 - [Getting Started](https://github.com/sequelcore/kiln/blob/main/docs/getting-started.md)
 - [Core Concepts](https://github.com/sequelcore/kiln/blob/main/docs/concepts.md)
 - [App Configuration](https://github.com/sequelcore/kiln/blob/main/docs/configuration/app-yaml.md)
-- [Architecture](https://github.com/sequelcore/kiln/blob/main/docs/architecture.md)
+- [Architecture](https://github.com/sequelcore/kiln/blob/main/docs/architecture/README.md)
 
 ## License
 

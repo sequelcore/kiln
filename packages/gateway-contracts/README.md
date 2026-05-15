@@ -45,8 +45,8 @@ native embedded hosts, and remote live views without inferring behavior from
 package names or local feature flags.
 
 `src/operator-cockpit-benchmark.ts` and
-`src/operator-cockpit-target.ts` define shared roadmap 05 contracts for
-high-density cockpit comparison. `src/operator-cockpit-projection.ts` defines
+`src/operator-cockpit-target.ts` define shared native cockpit benchmark
+contracts for high-density cockpit comparison. `src/operator-cockpit-projection.ts` defines
 the shared read-only cockpit projection over canonical events and explicit
 attach targets. GUI and native must use the same synthetic event fixtures,
 shared presentation baseline, shared read-only projection baseline, read-only

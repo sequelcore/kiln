@@ -1,4 +1,4 @@
-# ADR-010: Multimodal transport and capability delegation
+# ADR-007: Multimodal transport and capability delegation
 
 **Status:** Accepted (2026-05-13)
 **Date:** 2026-05-13
@@ -10,7 +10,7 @@
 `docs/architecture/context-resource-plane.md`,
 `docs/architecture/provider-model-discovery.md`,
 `docs/architecture/managed-agents.md`
-**Follows:** ADR-004, ADR-009
+**Follows:** ADR-003, ADR-006
 
 ---
 
@@ -21,11 +21,10 @@ content parts. Provider adapters can serialize images in selected paths, webhook
 routes can normalize attachments, and the resource plane can store session
 artifacts. These parts are not yet one governed end-to-end contract.
 
-The active roadmap track requires images, documents, audio, screenshots, and
-future modalities to preserve operator intent and replay evidence across
-surfaces, tools, providers, managed agents, and transforms. Silent OCR,
-provider-specific behavior, or string-only projection would make the control
-plane unreviewable.
+Images, documents, audio, screenshots, and future modalities must preserve
+operator intent and replay evidence across surfaces, tools, providers, managed
+agents, and transforms. Silent OCR, provider-specific behavior, or string-only
+projection would make the control plane unreviewable.
 
 ## Decision
 

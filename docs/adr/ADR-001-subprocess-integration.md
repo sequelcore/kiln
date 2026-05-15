@@ -1,4 +1,4 @@
-# ADR-002: Subprocess Integration Model
+# ADR-001: Subprocess Integration Model
 
 ## Status
 Accepted (v0.23.2, 2026-03-31)

@@ -1,14 +1,37 @@
 # Getting Started
 
-This document is the shortest safe entry into Kiln's current documentation.
+This document is the shortest safe entry into Kiln's current repository and
+documentation.
 
-Kiln is a biocybernetic control plane for governed AI work. If you start from older
-material that frames it as an orchestration engine, a meta-orchestrator, or a
-set of biological primitives, you will inherit the wrong model.
+Kiln is a biocybernetic control plane for governed AI work.
+
+## Install
+
+```bash
+git clone https://github.com/sequelcore/kiln.git
+cd kiln
+bun install
+```
+
+## Verify The Workspace
+
+Run the same baseline checks used for repo hygiene:
+
+```bash
+bun run typecheck
+bun run test
+bun run build
+```
+
+For GUI-only work, also use:
+
+```bash
+bun run --cwd packages/gui lint
+```
 
 ## Read This First
 
-Start in this order:
+Read the doctrine in this order:
 
 1. [Architecture Index](architecture/README.md)
 2. [Identity](architecture/identity.md)
@@ -52,3 +75,4 @@ doc overlap, the architecture doc defines doctrine and the guide defines usage.
 - If you need rationale: [Research](research/README.md)
 - If you need sequencing: [Roadmap](roadmap/README.md)
 - If you need runtime configuration details: [Configuration](configuration/app-yaml.md)
+- If you need historical release detail: [Changelog](changelog.md)

@@ -9,13 +9,16 @@
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
-<p align="center">CLI and MCP server for the Kiln AI orchestration engine.</p>
+<p align="center">CLI, GUI launcher, and MCP tooling for the Kiln governed AI control plane.</p>
 
 ---
 
 ## What is this?
 
-`@kilnai/cli` is the command-line interface for [Kiln](https://github.com/sequelcore/kiln). It provides an interactive setup wizard, dev mode with YAML hot-reload, and an MCP server for Claude Code integration.
+`@kilnai/cli` is the command-line interface for
+[Kiln](https://github.com/sequelcore/kiln). It provides local operator
+commands, GUI/TUI launchers, config projection tools, workflow commands, and
+the dev-tools MCP server.
 
 ## Install
 
@@ -40,9 +43,9 @@ kiln init
 ```
 
 Walks you through:
-- Provider selection (Anthropic, OpenAI, DeepSeek, Ollama)
-- Channel selection (CLI, Web, WhatsApp, Slack, API)
-- Team mode (sequential, supervisor, swarm)
+- Provider selection
+- Channel selection
+- Team mode selection for YAML app scaffolding
 - Quality gates (test, lint, typecheck)
 - Domain detection (React, Python, docs, etc.)
 
