@@ -286,6 +286,10 @@ cost, changed files, and replay.
 
 ## Architecture Note
 
-The TUI owns no orchestration logic by design. ADR-002 TUI formalizes the reason: the terminal client should stay a thin rendering surface over gateway-owned session state and execution, so memory, safety, approvals, routing, and provider handling are implemented once and reused consistently across clients.
+The TUI owns no orchestration logic by design. ADR-002 formalizes the
+cross-surface operator gateway model: terminal clients, GUI, native, CLI, IDE,
+and remote surfaces are projections over gateway-owned session state and
+execution, so memory, safety, approvals, routing, and provider handling are
+implemented once and reused consistently.
 
-See [ADR-002 TUI](../adr/ADR-002-tui-gateway-architecture.md).
+See [ADR-002](../adr/ADR-002-operator-surface-gateway.md).

@@ -13,7 +13,7 @@ Execution sequencing belongs in `docs/roadmap/`. Stable doctrine belongs in
 | ADR | Decision |
 |---|---|
 | [ADR-001](ADR-001-subprocess-integration.md) | Subprocess integration model |
-| [ADR-002](ADR-002-tui-gateway-architecture.md) | TUI gateway architecture |
+| [ADR-002](ADR-002-operator-surface-gateway.md) | Operator surface gateway architecture |
 | [ADR-003](ADR-003-budgeted-sufficient-context-orchestration.md) | Budgeted sufficient context orchestration |
 | [ADR-004](ADR-004-gui-stack-and-binding-contract.md) | GUI stack, boundaries, and binding contract |
 | [ADR-005](ADR-005-memory-lattice-governed-memory.md) | Memory Lattice governed memory graph |
