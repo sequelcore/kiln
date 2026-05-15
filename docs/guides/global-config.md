@@ -20,11 +20,23 @@ The architecture contracts are `docs/architecture/config-projection.md` and
 `docs/architecture/harness-integration-capabilities.md`. Agent-context doctrine
 is `docs/architecture/agent-context.md`. This guide is the operator-facing
 usage view.
+For the shortest setup path for personality, engineering standards, and
+work-governance posture, use [Operator Doctrine](operator-doctrine.md).
 
 ## File Location
 
 - Default: `~/.kiln/config.yaml`
 - Linux with `XDG_CONFIG_HOME` set: `$XDG_CONFIG_HOME/kiln/config.yaml`
+
+Common operator-doctrine fields can be edited without hand-editing YAML:
+
+```bash
+kiln config set --global identity.name Ricardo
+kiln config set --global identity.timezone America/Tijuana
+kiln config set --global activeInstructionProfiles sequel-engineering
+kiln config set --global workGovernance.defaultPosture orchestrate
+kiln config set --global skills.selection.mode auto
+```
 
 ## Schema
 

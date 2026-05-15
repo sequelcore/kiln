@@ -5,6 +5,7 @@ import {
   defaultKilnYaml,
   type KilnYaml,
 } from "../kiln-yaml.js";
+import type { KilnWorkGovernanceConfig } from "../kiln-yaml-types.js";
 import type { KilnAppConfig } from "../config.js";
 import {
   isConfigReadView,
@@ -12,8 +13,23 @@ import {
   readConfigStatusView,
 } from "../application/config-status.js";
 import { approveConfigChangeProposal } from "../application/config-approval.js";
+import {
+  defaultGlobalConfig,
+  readGlobalConfig,
+  writeGlobalConfig,
+  type KilnGlobalConfig,
+  type KilnGlobalIdentity,
+} from "../config/global-config.js";
 
 type KilnYamlKey =
+  | "identity.name"
+  | "identity.timezone"
+  | "activeInstructionProfiles"
+  | "workGovernance.defaultPosture"
+  | "workGovernance.directExecution.maxFiles"
+  | "workGovernance.directExecution.maxRisk"
+  | "workGovernance.requireDelegationFor"
+  | "workGovernance.requiredEvidence"
   | "domain"
   | "provider"
   | "channels"
@@ -40,9 +56,18 @@ type KilnYamlKey =
   | "interactiveUse.browserProvider"
   | "interactiveUse.computerProvider"
   | "interactiveUse.browserEnvironment"
-  | "interactiveUse.computerEnvironment";
+  | "interactiveUse.computerEnvironment"
+  | "skills.selection.mode";
 
 const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
+  "identity.name",
+  "identity.timezone",
+  "activeInstructionProfiles",
+  "workGovernance.defaultPosture",
+  "workGovernance.directExecution.maxFiles",
+  "workGovernance.directExecution.maxRisk",
+  "workGovernance.requireDelegationFor",
+  "workGovernance.requiredEvidence",
   "domain",
   "provider",
   "channels",
@@ -70,6 +95,7 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "interactiveUse.computerProvider",
   "interactiveUse.browserEnvironment",
   "interactiveUse.computerEnvironment",
+  "skills.selection.mode",
 ]);
 
 export async function configCommand(
@@ -132,16 +158,12 @@ export async function configCommand(
     }
 
     case "set": {
-      const config = readKilnYaml(kilnDir);
-      if (!config) {
-        console.log(`Not initialized. Run 'kiln init' first.`);
-        return;
-      }
-      const key = args[0];
-      const value = args[1];
+      const positionals = readPositionalArgs(args);
+      const key = positionals[0];
+      const value = positionals[1];
 
       if (!key || value === undefined) {
-        console.log(`Usage: kiln config set <key> <value>`);
+        console.log(`Usage: kiln config set [--global] <key> <value>`);
         return;
       }
 
@@ -151,10 +173,22 @@ export async function configCommand(
         return;
       }
 
-      const updated = setNestedKey(config, key as KilnYamlKey, value);
-      writeKilnYaml(kilnDir, updated);
+      const scopedKey = key as KilnYamlKey;
+      const projectConfig = hasGlobalFlag(args) ? undefined : readKilnYaml(kilnDir);
+      if (!hasGlobalFlag(args) && !projectConfig) {
+        console.log(`Not initialized. Run 'kiln init' first.`);
+        return;
+      }
+      const updated = hasGlobalFlag(args)
+        ? setGlobalNestedKey(readGlobalConfig() ?? defaultGlobalConfig(), scopedKey, value)
+        : setProjectNestedKey(projectConfig!, scopedKey, value);
+      if (hasGlobalFlag(args)) {
+        writeGlobalConfig(updated as KilnGlobalConfig);
+      } else {
+        writeKilnYaml(kilnDir, updated as KilnYaml);
+      }
 
-      const displayVal = getNestedKey(updated, key as KilnYamlKey);
+      const displayVal = getNestedKey(updated, scopedKey);
       console.log(`Set ${key} = ${String(displayVal)}`);
       break;
     }
@@ -171,7 +205,21 @@ export async function configCommand(
   }
 }
 
-function setNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
+function setProjectNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
+  if (key.startsWith("identity.")) {
+    console.error(`Config key ${key} is global-only. Use 'kiln config set --global ${key} <value>'.`);
+    process.exit(1);
+  }
+  if (key === "activeInstructionProfiles") {
+    return {
+      ...config,
+      activeInstructionProfiles: parseStringList(rawValue),
+    };
+  }
+  const governed = setGovernanceOrSkillKey(config, key, rawValue);
+  if (governed) {
+    return governed;
+  }
   if (key === "permissions.approval") {
     const val = rawValue as "never" | "on-request" | "on-failure" | "untrusted";
     if (val !== "never" && val !== "on-request" && val !== "on-failure" && val !== "untrusted") {
@@ -232,35 +280,153 @@ function setNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): Kil
   };
 }
 
-function getNestedKey(config: KilnYaml, key: KilnYamlKey): unknown {
-  if (key === "permissions.approval") return config.permissions?.approval;
-  if (key === "permissions.sandbox") return config.permissions?.sandbox;
-  if (key === "permissions.safeDefaults") return config.permissions?.safeDefaults;
-  if (key === "permissions.auditLog") return config.permissions?.auditLog;
-  if (key === "permissions.tools") return config.permissions?.tools;
-  if (key === "permissions.commands") return config.permissions?.commands;
-  if (key === "permissions.fileGovernance") return config.permissions?.fileGovernance;
-  if (key === "permissions.dataFirewall") return config.permissions?.dataFirewall;
-  if (key === "permissions.agentScopes") return config.permissions?.agentScopes;
-  if (key === "interactiveUse.enabled") return config.interactiveUse?.enabled;
-  if (key === "interactiveUse.allowedDomains") return config.interactiveUse?.allowedDomains;
-  if (key === "interactiveUse.allowedApplications") return config.interactiveUse?.allowedApplications;
-  if (key === "interactiveUse.applicationAliases") return config.interactiveUse?.applicationAliases;
-  if (key === "interactiveUse.allowExternalBrowser") return config.interactiveUse?.allowExternalBrowser;
-  if (key === "interactiveUse.allowComputer") return config.interactiveUse?.allowComputer;
-  if (key === "interactiveUse.browserProvider") return config.interactiveUse?.browserProvider;
-  if (key === "interactiveUse.computerProvider") return config.interactiveUse?.computerProvider;
-  if (key === "interactiveUse.browserEnvironment") return config.interactiveUse?.browserEnvironment;
-  if (key === "interactiveUse.computerEnvironment") return config.interactiveUse?.computerEnvironment;
+function setGlobalNestedKey(config: KilnGlobalConfig, key: KilnYamlKey, rawValue: string): KilnGlobalConfig {
+  if (key === "identity.name" || key === "identity.timezone") {
+    const identityKey = key.slice("identity.".length) as keyof KilnGlobalIdentity;
+    return {
+      ...config,
+      identity: {
+        ...(config.identity ?? {}),
+        [identityKey]: rawValue,
+      },
+    };
+  }
+  if (key === "activeInstructionProfiles") {
+    return {
+      ...config,
+      activeInstructionProfiles: parseStringList(rawValue),
+    };
+  }
+  const governed = setGovernanceOrSkillKey(config, key, rawValue);
+  if (governed) {
+    return governed;
+  }
+  console.error(`Config key ${key} is project-only. Omit --global to set it in .kiln/kiln.yaml.`);
+  process.exit(1);
+}
+
+function setGovernanceOrSkillKey<T extends { readonly workGovernance?: KilnWorkGovernanceConfig; readonly skills?: KilnYaml["skills"] }>(
+  config: T,
+  key: KilnYamlKey,
+  rawValue: string,
+): T | undefined {
+  if (key === "workGovernance.defaultPosture") {
+    if (rawValue !== "orchestrate" && rawValue !== "direct") {
+      console.error(`Invalid work governance posture: ${rawValue}. Must be orchestrate or direct.`);
+      process.exit(1);
+    }
+    return {
+      ...config,
+      workGovernance: {
+        ...(config.workGovernance ?? {}),
+        defaultPosture: rawValue,
+      },
+    };
+  }
+  if (key === "workGovernance.directExecution.maxFiles") {
+    return {
+      ...config,
+      workGovernance: {
+        ...(config.workGovernance ?? {}),
+        directExecution: {
+          ...(config.workGovernance?.directExecution ?? {}),
+          maxFiles: parsePositiveInteger(rawValue, key),
+        },
+      },
+    };
+  }
+  if (key === "workGovernance.directExecution.maxRisk") {
+    if (rawValue !== "low" && rawValue !== "medium" && rawValue !== "high") {
+      console.error(`Invalid direct execution risk: ${rawValue}. Must be low, medium, or high.`);
+      process.exit(1);
+    }
+    return {
+      ...config,
+      workGovernance: {
+        ...(config.workGovernance ?? {}),
+        directExecution: {
+          ...(config.workGovernance?.directExecution ?? {}),
+          maxRisk: rawValue,
+        },
+      },
+    };
+  }
+  if (key === "workGovernance.requireDelegationFor") {
+    return {
+      ...config,
+      workGovernance: {
+        ...(config.workGovernance ?? {}),
+        requireDelegationFor: parseStringList(rawValue) as NonNullable<KilnWorkGovernanceConfig["requireDelegationFor"]>,
+      },
+    };
+  }
+  if (key === "workGovernance.requiredEvidence") {
+    return {
+      ...config,
+      workGovernance: {
+        ...(config.workGovernance ?? {}),
+        requiredEvidence: parseStringList(rawValue) as NonNullable<KilnWorkGovernanceConfig["requiredEvidence"]>,
+      },
+    };
+  }
+  if (key === "skills.selection.mode") {
+    if (rawValue !== "advisory" && rawValue !== "auto") {
+      console.error(`Invalid skill selection mode: ${rawValue}. Must be advisory or auto.`);
+      process.exit(1);
+    }
+    return {
+      ...config,
+      skills: {
+        ...(config.skills ?? {}),
+        selection: {
+          ...(config.skills?.selection ?? {}),
+          mode: rawValue,
+        },
+      },
+    };
+  }
+  return undefined;
+}
+
+function getNestedKey(config: KilnYaml | KilnGlobalConfig, key: KilnYamlKey): unknown {
+  if (key === "identity.name") return (config as KilnGlobalConfig).identity?.name;
+  if (key === "identity.timezone") return (config as KilnGlobalConfig).identity?.timezone;
+  if (key === "activeInstructionProfiles") return config.activeInstructionProfiles;
+  if (key === "workGovernance.defaultPosture") return config.workGovernance?.defaultPosture;
+  if (key === "workGovernance.directExecution.maxFiles") return config.workGovernance?.directExecution?.maxFiles;
+  if (key === "workGovernance.directExecution.maxRisk") return config.workGovernance?.directExecution?.maxRisk;
+  if (key === "workGovernance.requireDelegationFor") return config.workGovernance?.requireDelegationFor;
+  if (key === "workGovernance.requiredEvidence") return config.workGovernance?.requiredEvidence;
+  if (key === "skills.selection.mode") return config.skills?.selection?.mode;
+  const projectConfig = config as KilnYaml;
+  if (key === "permissions.approval") return projectConfig.permissions?.approval;
+  if (key === "permissions.sandbox") return projectConfig.permissions?.sandbox;
+  if (key === "permissions.safeDefaults") return projectConfig.permissions?.safeDefaults;
+  if (key === "permissions.auditLog") return projectConfig.permissions?.auditLog;
+  if (key === "permissions.tools") return projectConfig.permissions?.tools;
+  if (key === "permissions.commands") return projectConfig.permissions?.commands;
+  if (key === "permissions.fileGovernance") return projectConfig.permissions?.fileGovernance;
+  if (key === "permissions.dataFirewall") return projectConfig.permissions?.dataFirewall;
+  if (key === "permissions.agentScopes") return projectConfig.permissions?.agentScopes;
+  if (key === "interactiveUse.enabled") return projectConfig.interactiveUse?.enabled;
+  if (key === "interactiveUse.allowedDomains") return projectConfig.interactiveUse?.allowedDomains;
+  if (key === "interactiveUse.allowedApplications") return projectConfig.interactiveUse?.allowedApplications;
+  if (key === "interactiveUse.applicationAliases") return projectConfig.interactiveUse?.applicationAliases;
+  if (key === "interactiveUse.allowExternalBrowser") return projectConfig.interactiveUse?.allowExternalBrowser;
+  if (key === "interactiveUse.allowComputer") return projectConfig.interactiveUse?.allowComputer;
+  if (key === "interactiveUse.browserProvider") return projectConfig.interactiveUse?.browserProvider;
+  if (key === "interactiveUse.computerProvider") return projectConfig.interactiveUse?.computerProvider;
+  if (key === "interactiveUse.browserEnvironment") return projectConfig.interactiveUse?.browserEnvironment;
+  if (key === "interactiveUse.computerEnvironment") return projectConfig.interactiveUse?.computerEnvironment;
   switch (key) {
-    case "domain": return config.domain;
-    case "provider": return config.provider;
-    case "channels": return config.channels;
-    case "teamMode": return config.teamMode;
-    case "requireApproval": return config.requireApproval;
-    case "maxDepth": return config.maxDepth;
-    case "parallelWorkers": return config.parallelWorkers;
-    case "mode": return config.mode;
+    case "domain": return projectConfig.domain;
+    case "provider": return projectConfig.provider;
+    case "channels": return projectConfig.channels;
+    case "teamMode": return projectConfig.teamMode;
+    case "requireApproval": return projectConfig.requireApproval;
+    case "maxDepth": return projectConfig.maxDepth;
+    case "parallelWorkers": return projectConfig.parallelWorkers;
+    case "mode": return projectConfig.mode;
     default: return undefined;
   }
 }
@@ -364,6 +530,15 @@ function parseBoolean(value: string, key: string): boolean {
   process.exit(1);
 }
 
+function parsePositiveInteger(value: string, key: string): number {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1) {
+    console.error(`Invalid integer value for ${key}: ${value}. Must be a positive integer.`);
+    process.exit(1);
+  }
+  return number;
+}
+
 function parseJson(value: string, key: string): unknown {
   try {
     return JSON.parse(value);
@@ -381,11 +556,15 @@ function printConfigHelp(): void {
   console.log("  show              Print current config");
   console.log("  read [view]       Print canonical config/status view as JSON");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
-  console.log("  set <key> <value> Update a config value");
+  console.log("  set [--global] <key> <value> Update a project or global config value");
   console.log("  reset             Reset config to defaults");
   console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
   console.log(`\nValid keys: ${[...VALID_KEYS].join(", ")}`);
   console.log("");
+}
+
+function hasGlobalFlag(args: readonly string[]): boolean {
+  return args.includes("--global");
 }
 
 function readProjectFlag(args: readonly string[]): string | undefined {
@@ -403,6 +582,9 @@ function readPositionalArgs(args: readonly string[]): readonly string[] {
     const arg = args[index]!;
     if (arg === "--project" || arg === "--cwd") {
       index += 1;
+      continue;
+    }
+    if (arg === "--global") {
       continue;
     }
     if (arg.startsWith("--project=") || arg.startsWith("--cwd=")) {

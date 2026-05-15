@@ -77,6 +77,7 @@ High-use guides today:
 - [GUI Parity](guides/gui-parity.md)
 - [GUI Parity Walkthrough](guides/gui-parity-walkthrough.md)
 - [Operator Surfaces](guides/operator-surfaces.md)
+- [Operator Doctrine](guides/operator-doctrine.md)
 - [Channels](guides/channels.md)
 - [Knowledge](guides/knowledge.md)
 - [Tool Use](guides/tool-use.md)

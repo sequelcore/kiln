@@ -117,6 +117,7 @@ published artifacts were experimental and are not the current public contract.
 ## Where To Go Next
 
 - If you need doctrine: [Architecture](architecture/README.md)
+- If you need operator/team standards setup: [Operator Doctrine](guides/operator-doctrine.md)
 - If you need rationale: [Research](research/README.md)
 - If you need sequencing: [Roadmap](roadmap/README.md)
 - If you need surface selection: [Operator Surfaces](guides/operator-surfaces.md)
