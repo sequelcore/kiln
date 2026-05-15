@@ -73,6 +73,12 @@ filters require their enclosing instance/session target.
 view-state derivation over that shared projection substrate. It is contract
 measurement only and not a browser benchmark, native rendering benchmark,
 network attach benchmark, dispatch benchmark, or Rust/WASM/sidecar proof.
+`createOperatorCockpitBenchmarkEvidenceReport` is the shared promotion gate
+over those benchmark outputs. It records implemented evidence, missing evidence,
+promotion eligibility, and Rust-candidate eligibility while defaulting to
+contract-only recommendations when only shared TypeScript baselines exist.
+It is not a rendering runner, network attach runner, dispatch mechanism, or
+Rust proof implementation.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted

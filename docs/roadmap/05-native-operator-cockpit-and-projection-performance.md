@@ -1207,6 +1207,15 @@ Started 2026-05-14:
   `createNativeCockpitReadOnlyViewStateBaseline`, preserving
   `runtimeBoundary: gateway-contracts`, `mutationDispatch: disabled`, and
   fail-closed selector behavior for unknown focus/filter/replay targets.
+- `@kilnai/gateway-contracts` now exposes
+  `createOperatorCockpitBenchmarkEvidenceReport`, a contract-only promotion
+  gate over shared benchmark outputs. The gate marks shared TypeScript
+  projection/view-state evidence as contract evidence only, defaults to
+  `run-rendering-benchmarks`, and keeps promotion blocked until browser and
+  native rendering evidence, target-clarity, interaction-latency, memory, and
+  native-advantage proof are all present. Rust candidate/promotion flags remain
+  blocked unless projection/view-state bottleneck evidence and Rust hot-path
+  proof are explicitly provided.
 
 ### Phase 3 - Benchmark and Compare
 

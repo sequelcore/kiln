@@ -125,6 +125,80 @@ export interface OperatorCockpitReadOnlyViewStateBaseline {
   readonly toolSummaryCount: number;
 }
 
+export type OperatorCockpitBenchmarkEvidenceStatus =
+  | "contract-only"
+  | "insufficient-evidence"
+  | "promotion-candidate"
+  | "rejected";
+
+export type OperatorCockpitBenchmarkEvidenceRecommendation =
+  | "continue-contract-only"
+  | "run-rendering-benchmarks"
+  | "improve-web-gui"
+  | "continue-native-without-rust"
+  | "continue-native-with-rust-candidate"
+  | "abandon";
+
+export interface OperatorCockpitRenderingEvidence {
+  readonly measured: boolean;
+}
+
+export interface OperatorCockpitNativeRenderingEvidence {
+  readonly measured: boolean;
+  readonly nativeAdvantageConfirmed?: boolean;
+}
+
+export interface OperatorCockpitDispatchEvidence {
+  readonly measured: boolean;
+}
+
+export interface OperatorCockpitBenchmarkGovernanceReport {
+  readonly complete: boolean;
+}
+
+export interface OperatorCockpitRustHotPathEvidence {
+  readonly present: boolean;
+  readonly advantageous?: boolean;
+}
+
+export interface OperatorCockpitProjectionViewStateBottleneckReport {
+  readonly reported: boolean;
+}
+
+export interface OperatorCockpitBenchmarkEvidenceReportInput {
+  readonly measuredAt: string;
+  readonly fixture?: OperatorCockpitBenchmarkFixture;
+  readonly fixtureSummary?: OperatorCockpitBenchmarkFixtureSummary;
+  readonly projectionBaseline?: OperatorCockpitProjectionBaseline;
+  readonly readOnlyProjectionBaseline?: OperatorCockpitReadOnlyProjectionBaseline;
+  readonly readOnlyViewStateBaseline?: OperatorCockpitReadOnlyViewStateBaseline;
+  readonly browserRenderingEvidence?: OperatorCockpitRenderingEvidence;
+  readonly nativeRenderingEvidence?: OperatorCockpitNativeRenderingEvidence;
+  readonly resourceOpeningDispatchEvidence?: OperatorCockpitDispatchEvidence;
+  readonly cancellationDispatchEvidence?: OperatorCockpitDispatchEvidence;
+  readonly targetClarityReport?: OperatorCockpitBenchmarkGovernanceReport;
+  readonly interactionLatencyReport?: OperatorCockpitBenchmarkGovernanceReport;
+  readonly memoryReport?: OperatorCockpitBenchmarkGovernanceReport;
+  readonly projectionViewStateBottleneck?: OperatorCockpitProjectionViewStateBottleneckReport;
+  readonly rustHotPathEvidence?: OperatorCockpitRustHotPathEvidence;
+  readonly rustHotPathRequested?: boolean;
+}
+
+export interface OperatorCockpitBenchmarkEvidenceReport {
+  readonly measuredAt: string;
+  readonly fixture: OperatorCockpitBenchmarkFixtureSummary;
+  readonly status: OperatorCockpitBenchmarkEvidenceStatus;
+  readonly recommendation: OperatorCockpitBenchmarkEvidenceRecommendation;
+  readonly implementedEvidence: readonly string[];
+  readonly missingEvidence: readonly string[];
+  readonly promotionAllowed: boolean;
+  readonly rustCandidateAllowed: boolean;
+  readonly rustPromotionAllowed: boolean;
+  readonly mutationDispatch: "disabled";
+  readonly networkAttach: "not-started" | "measured";
+  readonly renderingBenchmark: "not-run" | "partial" | "measured";
+}
+
 export function createOperatorCockpitBenchmarkFixture(
   input: OperatorCockpitBenchmarkFixtureInput,
 ): OperatorCockpitBenchmarkFixture {
@@ -286,6 +360,105 @@ export function measureOperatorCockpitReadOnlyViewStateBaseline(
     timelineCount: projection.timeline.length,
     invocationCount: projection.invocations.length,
     toolSummaryCount: projection.toolSummaries.length,
+  };
+}
+
+export function createOperatorCockpitBenchmarkEvidenceReport(
+  input: OperatorCockpitBenchmarkEvidenceReportInput,
+): OperatorCockpitBenchmarkEvidenceReport {
+  const fixture = input.fixture?.summary ?? input.fixtureSummary;
+  if (!fixture) {
+    throw new RangeError("fixture or fixtureSummary is required.");
+  }
+
+  const implementedEvidence: string[] = [];
+  if (input.projectionBaseline) implementedEvidence.push("shared-projection-baseline");
+  if (input.readOnlyProjectionBaseline) implementedEvidence.push("shared-read-only-projection-baseline");
+  if (input.readOnlyViewStateBaseline) implementedEvidence.push("shared-read-only-view-state-baseline");
+
+  const hasProjectionBaselines = Boolean(
+    input.projectionBaseline
+    && input.readOnlyProjectionBaseline
+    && input.readOnlyViewStateBaseline,
+  );
+  const hasBrowserRendering = input.browserRenderingEvidence?.measured === true;
+  const hasNativeRendering = input.nativeRenderingEvidence?.measured === true;
+  const hasNativeAdvantage = input.nativeRenderingEvidence?.nativeAdvantageConfirmed === true;
+  const hasTargetClarity = input.targetClarityReport?.complete === true;
+  const hasInteractionLatency = input.interactionLatencyReport?.complete === true;
+  const hasMemoryReport = input.memoryReport?.complete === true;
+  const promotionAllowed = hasProjectionBaselines
+    && hasBrowserRendering
+    && hasNativeRendering
+    && hasNativeAdvantage
+    && hasTargetClarity
+    && hasInteractionLatency
+    && hasMemoryReport;
+
+  const rustRelevant = input.projectionViewStateBottleneck?.reported === true
+    || input.rustHotPathRequested === true
+    || input.rustHotPathEvidence?.present === true;
+  const rustCandidateAllowed = hasProjectionBaselines
+    && input.projectionViewStateBottleneck?.reported === true
+    && input.rustHotPathEvidence?.present === true;
+  const rustPromotionAllowed = promotionAllowed
+    && input.projectionViewStateBottleneck?.reported === true
+    && input.rustHotPathEvidence?.present === true
+    && input.rustHotPathEvidence.advantageous === true;
+
+  const missingEvidence: string[] = [];
+  if (!hasBrowserRendering) missingEvidence.push("browser-rendering-benchmark");
+  if (!hasNativeRendering) missingEvidence.push("native-rendering-benchmark");
+  if (!hasTargetClarity) missingEvidence.push("target-clarity-report");
+  if (!hasInteractionLatency) missingEvidence.push("interaction-latency-report");
+  if (!hasMemoryReport) missingEvidence.push("memory-report");
+  if (!hasNativeAdvantage) missingEvidence.push("native-advantage-proof");
+  if (rustRelevant && input.rustHotPathEvidence?.present !== true) {
+    missingEvidence.push("rust-hot-path-proof");
+  }
+
+  const hasExternalEvidence = hasBrowserRendering
+    || hasNativeRendering
+    || hasTargetClarity
+    || hasInteractionLatency
+    || hasMemoryReport;
+  const status: OperatorCockpitBenchmarkEvidenceStatus = !hasProjectionBaselines
+    ? "rejected"
+    : promotionAllowed
+      ? "promotion-candidate"
+      : hasExternalEvidence
+        ? "insufficient-evidence"
+        : "contract-only";
+
+  const recommendation: OperatorCockpitBenchmarkEvidenceRecommendation = status === "rejected"
+    ? "abandon"
+    : rustPromotionAllowed
+      ? "continue-native-with-rust-candidate"
+      : promotionAllowed
+        ? "continue-native-without-rust"
+        : (!hasBrowserRendering || !hasNativeRendering)
+          ? "run-rendering-benchmarks"
+          : !hasNativeAdvantage
+            ? "improve-web-gui"
+            : "continue-contract-only";
+
+  return {
+    measuredAt: input.measuredAt,
+    fixture,
+    status,
+    recommendation,
+    implementedEvidence,
+    missingEvidence,
+    promotionAllowed,
+    rustCandidateAllowed,
+    rustPromotionAllowed,
+    mutationDispatch: "disabled",
+    networkAttach: "not-started",
+    renderingBenchmark: hasBrowserRendering && hasNativeRendering
+      ? "measured"
+      : hasBrowserRendering || hasNativeRendering
+        ? "partial"
+        : "not-run",
   };
 }
 

@@ -330,6 +330,34 @@ Deliverables:
 - Keep scope contract-only: no browser or native rendering benchmark, no
   network attach loop, no dispatch, and no Rust/WASM/sidecar claim.
 
+### Slice 13 - Benchmark Evidence Report And Promotion Gate
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/gateway-contracts/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Define `createOperatorCockpitBenchmarkEvidenceReport` in shared gateway
+  contracts as an evidence gate over existing benchmark outputs.
+- Keep this slice contract-only: no UI, network attach loop, mutation dispatch,
+  cancellation dispatch, or Rust/WASM/sidecar implementation.
+- Prevent TypeScript projection and read-only view-state baselines from being
+  interpreted as browser rendering, native rendering, or Rust proof.
+- Emit explicit gate outputs for status, recommendation, implemented evidence,
+  missing evidence, promotion eligibility, and Rust-candidate eligibility.
+- Default shared-baseline-only reports to rendering benchmark follow-up with
+  promotion blocked until rendering plus target-clarity, interaction-latency,
+  memory, and native-advantage evidence exists.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -387,6 +415,33 @@ Deliverables:
 - Passed `bun run build` after Slice 11.
 - Passed `git diff --check` after Slice 11.
 - Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 12.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 13.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 13.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 13.
+- Passed `bun run --cwd packages/native test` after Slice 13.
+- Passed `bun run --cwd packages/native typecheck` after Slice 13.
+- Passed `bun run --cwd packages/native build` after Slice 13.
+- Passed `bun run typecheck` after Slice 13.
+- Passed `bun run test` after Slice 13.
+- Passed `bun run build` after Slice 13.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 13 review fixes.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 13 review fixes.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 13 review fixes.
+- Passed `bun run --cwd packages/native test` after Slice 13 review fixes.
+- Passed `bun run --cwd packages/native typecheck` after Slice 13 review fixes.
+- Passed `bun run --cwd packages/native build` after Slice 13 review fixes.
+- Passed `bun run typecheck` after Slice 13 review fixes.
+- Passed `bun run test` after Slice 13 review fixes.
+- Passed `bun run build` after Slice 13 review fixes.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after final Slice 13 Rust-gate fix.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after final Slice 13 Rust-gate fix.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after final Slice 13 Rust-gate fix.
+- Passed `bun run --cwd packages/native test` after final Slice 13 Rust-gate fix.
+- Passed `bun run --cwd packages/native typecheck` after final Slice 13 Rust-gate fix.
+- Passed `bun run --cwd packages/native build` after final Slice 13 Rust-gate fix.
+- Passed `bun run typecheck` after final Slice 13 Rust-gate fix.
+- Passed `bun run test` after final Slice 13 Rust-gate fix.
+- Passed `bun run build` after final Slice 13 Rust-gate fix.
 - Passed `bun run --cwd packages/native test` after Slice 12.
 - Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 12.
 - Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 12.

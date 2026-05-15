@@ -191,6 +191,10 @@ instead of inventing a private projection model.
 The view-state baseline measures only
 `createOperatorCockpitReadOnlyViewState` after the shared projection is built;
 it is not a rendering benchmark, network benchmark, or dispatch benchmark.
+The benchmark evidence gate is also shared:
+`createOperatorCockpitBenchmarkEvidenceReport` lives in
+`@kilnai/gateway-contracts` and is consumed by native directly. This slice does
+not add a native wrapper for that report.
 
 ## Rust Boundary
 
@@ -221,6 +225,8 @@ Implemented:
 - shared and native read-only cockpit action intents with no dispatch
 - shared TypeScript read-only cockpit view-state baseline measurement
 - native read-only cockpit view-state baseline wrapper metadata
+- shared benchmark evidence report and promotion gate contract (consumed
+  directly by native without a wrapper)
 - native boundary tests proving the contract fails closed
 
 Not implemented:
@@ -231,5 +237,6 @@ Not implemented:
 - cancellation dispatch
 - resource-opening dispatch
 - browser rendering benchmark runner
+- benchmark evidence report wrappers outside shared gateway contracts
 - Rust/WASM/sidecar projection kernel
 - native packaging/distribution

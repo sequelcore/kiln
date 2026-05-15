@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createOperatorCockpitBenchmarkFixture,
+  createOperatorCockpitBenchmarkEvidenceReport,
   measureOperatorCockpitProjectionBaseline,
   measureOperatorCockpitReadOnlyProjectionBaseline,
   measureOperatorCockpitReadOnlyViewStateBaseline,
@@ -247,5 +248,286 @@ describe("operator cockpit benchmark fixtures", () => {
     expect(baseline.replayEventId).toBeUndefined();
     expect(baseline.previousEventId).toBeUndefined();
     expect(baseline.nextEventId).toBeUndefined();
+  });
+});
+
+describe("operator cockpit benchmark evidence report", () => {
+  function createSharedBaselines() {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "evidence-shared-only",
+      instanceCount: 2,
+      sessionCount: 3,
+      activeManagedSessionCount: 2,
+      childInvocationCount: 5,
+      eventCount: 30,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const attachTargets = [
+      {
+        instanceId: "evidence-shared-only:instance:1",
+        label: "Local / kiln",
+        kind: "local" as const,
+      },
+      {
+        instanceId: "evidence-shared-only:instance:2",
+        label: "Simulated remote",
+        kind: "simulated-remote" as const,
+      },
+    ];
+    return {
+      fixture,
+      projectionBaseline: measureOperatorCockpitProjectionBaseline({
+        fixture,
+        measuredAt: "2026-05-14T12:01:00.000Z",
+      }),
+      readOnlyProjectionBaseline: measureOperatorCockpitReadOnlyProjectionBaseline({
+        fixture,
+        measuredAt: "2026-05-14T12:02:00.000Z",
+        attachTargets,
+      }),
+      readOnlyViewStateBaseline: measureOperatorCockpitReadOnlyViewStateBaseline({
+        fixture,
+        measuredAt: "2026-05-14T12:03:00.000Z",
+        attachTargets,
+        viewState: {
+          focusTarget: {
+            instanceId: "evidence-shared-only:instance:1",
+            sessionId: "evidence-shared-only:session:1",
+          },
+          filters: {
+            instanceId: "evidence-shared-only:instance:1",
+            sessionId: "evidence-shared-only:session:1",
+          },
+        },
+      }),
+    };
+  }
+
+  it("defaults to contract-only evidence and blocks promotion", () => {
+    const baselines = createSharedBaselines();
+    const report = createOperatorCockpitBenchmarkEvidenceReport({
+      measuredAt: "2026-05-14T13:00:00.000Z",
+      fixture: baselines.fixture,
+      projectionBaseline: baselines.projectionBaseline,
+      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
+      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
+    });
+
+    expect(report.status).toBe("contract-only");
+    expect(report.recommendation).toBe("run-rendering-benchmarks");
+    expect(report.promotionAllowed).toBe(false);
+    expect(report.rustCandidateAllowed).toBe(false);
+    expect(report.implementedEvidence).toEqual([
+      "shared-projection-baseline",
+      "shared-read-only-projection-baseline",
+      "shared-read-only-view-state-baseline",
+    ]);
+    expect(report.missingEvidence).toEqual(expect.arrayContaining([
+      "browser-rendering-benchmark",
+      "native-rendering-benchmark",
+      "target-clarity-report",
+      "interaction-latency-report",
+      "memory-report",
+      "native-advantage-proof",
+    ]));
+    expect(report.mutationDispatch).toBe("disabled");
+    expect(report.networkAttach).toBe("not-started");
+    expect(report.renderingBenchmark).toBe("not-run");
+    expect(report.rustPromotionAllowed).toBe(false);
+  });
+
+  it("keeps promotion blocked when browser and native benchmarks exist without governance reports", () => {
+    const baselines = createSharedBaselines();
+    const report = createOperatorCockpitBenchmarkEvidenceReport({
+      measuredAt: "2026-05-14T13:05:00.000Z",
+      fixtureSummary: baselines.fixture.summary,
+      projectionBaseline: baselines.projectionBaseline,
+      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
+      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
+      browserRenderingEvidence: {
+        measured: true,
+      },
+      nativeRenderingEvidence: {
+        measured: true,
+        nativeAdvantageConfirmed: true,
+      },
+      resourceOpeningDispatchEvidence: {
+        measured: true,
+      },
+      cancellationDispatchEvidence: {
+        measured: true,
+      },
+    });
+
+    expect(report.promotionAllowed).toBe(false);
+    expect(report.recommendation).toBe("continue-contract-only");
+    expect(report.mutationDispatch).toBe("disabled");
+    expect(report.networkAttach).toBe("not-started");
+    expect(report.missingEvidence).toEqual(expect.arrayContaining([
+      "target-clarity-report",
+      "interaction-latency-report",
+      "memory-report",
+    ]));
+  });
+
+  it("allows promotion only with complete rendering and governance evidence plus native advantage", () => {
+    const baselines = createSharedBaselines();
+    const report = createOperatorCockpitBenchmarkEvidenceReport({
+      measuredAt: "2026-05-14T13:10:00.000Z",
+      fixtureSummary: baselines.fixture.summary,
+      projectionBaseline: baselines.projectionBaseline,
+      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
+      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
+      browserRenderingEvidence: {
+        measured: true,
+      },
+      nativeRenderingEvidence: {
+        measured: true,
+        nativeAdvantageConfirmed: true,
+      },
+      targetClarityReport: {
+        complete: true,
+      },
+      interactionLatencyReport: {
+        complete: true,
+      },
+      memoryReport: {
+        complete: true,
+      },
+    });
+
+    expect(report.status).toBe("promotion-candidate");
+    expect(report.promotionAllowed).toBe(true);
+    expect(report.recommendation).toBe("continue-native-without-rust");
+    expect(report.rustPromotionAllowed).toBe(false);
+  });
+
+  it("blocks promotion when shared baselines are missing even if external evidence is present", () => {
+    const baselines = createSharedBaselines();
+    const report = createOperatorCockpitBenchmarkEvidenceReport({
+      measuredAt: "2026-05-14T13:12:00.000Z",
+      fixtureSummary: baselines.fixture.summary,
+      browserRenderingEvidence: {
+        measured: true,
+      },
+      nativeRenderingEvidence: {
+        measured: true,
+        nativeAdvantageConfirmed: true,
+      },
+      targetClarityReport: {
+        complete: true,
+      },
+      interactionLatencyReport: {
+        complete: true,
+      },
+      memoryReport: {
+        complete: true,
+      },
+      projectionViewStateBottleneck: {
+        reported: true,
+      },
+      rustHotPathEvidence: {
+        present: true,
+        advantageous: true,
+      },
+    });
+
+    expect(report.status).toBe("rejected");
+    expect(report.promotionAllowed).toBe(false);
+    expect(report.rustCandidateAllowed).toBe(false);
+    expect(report.rustPromotionAllowed).toBe(false);
+  });
+
+  it("blocks Rust promotion when Rust proof exists without a reported projection bottleneck", () => {
+    const baselines = createSharedBaselines();
+    const report = createOperatorCockpitBenchmarkEvidenceReport({
+      measuredAt: "2026-05-14T13:13:00.000Z",
+      fixtureSummary: baselines.fixture.summary,
+      projectionBaseline: baselines.projectionBaseline,
+      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
+      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
+      browserRenderingEvidence: {
+        measured: true,
+      },
+      nativeRenderingEvidence: {
+        measured: true,
+        nativeAdvantageConfirmed: true,
+      },
+      targetClarityReport: {
+        complete: true,
+      },
+      interactionLatencyReport: {
+        complete: true,
+      },
+      memoryReport: {
+        complete: true,
+      },
+      rustHotPathEvidence: {
+        present: true,
+        advantageous: true,
+      },
+    });
+
+    expect(report.promotionAllowed).toBe(true);
+    expect(report.rustCandidateAllowed).toBe(false);
+    expect(report.rustPromotionAllowed).toBe(false);
+    expect(report.recommendation).toBe("continue-native-without-rust");
+  });
+
+  it("blocks Rust candidacy when Rust is requested without hot-path proof", () => {
+    const baselines = createSharedBaselines();
+    const report = createOperatorCockpitBenchmarkEvidenceReport({
+      measuredAt: "2026-05-14T13:14:00.000Z",
+      fixtureSummary: baselines.fixture.summary,
+      projectionBaseline: baselines.projectionBaseline,
+      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
+      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
+      projectionViewStateBottleneck: {
+        reported: true,
+      },
+      rustHotPathRequested: true,
+    });
+
+    expect(report.rustCandidateAllowed).toBe(false);
+    expect(report.rustPromotionAllowed).toBe(false);
+    expect(report.missingEvidence).toContain("rust-hot-path-proof");
+  });
+
+  it("gates Rust candidate and Rust promotion on bottleneck plus Rust evidence", () => {
+    const baselines = createSharedBaselines();
+    const report = createOperatorCockpitBenchmarkEvidenceReport({
+      measuredAt: "2026-05-14T13:15:00.000Z",
+      fixtureSummary: baselines.fixture.summary,
+      projectionBaseline: baselines.projectionBaseline,
+      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
+      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
+      browserRenderingEvidence: {
+        measured: true,
+      },
+      nativeRenderingEvidence: {
+        measured: true,
+        nativeAdvantageConfirmed: true,
+      },
+      targetClarityReport: {
+        complete: true,
+      },
+      interactionLatencyReport: {
+        complete: true,
+      },
+      memoryReport: {
+        complete: true,
+      },
+      projectionViewStateBottleneck: {
+        reported: true,
+      },
+      rustHotPathEvidence: {
+        present: true,
+        advantageous: true,
+      },
+    });
+
+    expect(report.rustCandidateAllowed).toBe(true);
+    expect(report.rustPromotionAllowed).toBe(true);
+    expect(report.recommendation).toBe("continue-native-with-rust-candidate");
   });
 });

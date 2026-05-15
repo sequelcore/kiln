@@ -67,6 +67,13 @@
   `@kilnai/gateway-contracts`, measuring only TypeScript read-only
   focus/filter/replay derivation over the existing shared projection substrate
   (not browser/native rendering, networking, dispatch, or Rust proof).
+- Added `createOperatorCockpitBenchmarkEvidenceReport` in
+  `@kilnai/gateway-contracts` as a contract-only evidence gate over shared
+  benchmark outputs. The gate prevents TypeScript projection/view-state
+  baselines from being treated as browser/native rendering or Rust proof, keeps
+  promotion blocked until rendering plus target-clarity/interaction/memory
+  reports and native-advantage proof exist, and keeps Rust promotion blocked
+  until explicit bottleneck and Rust hot-path evidence are provided.
 - Added the native read-only cockpit view-state baseline wrapper in
   `@kilnai/native`, preserving `runtimeBoundary: gateway-contracts`,
   `mutationDispatch: disabled`, and fail-closed selector behavior.

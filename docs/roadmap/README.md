@@ -81,7 +81,10 @@ explicitly parked until their prerequisite product surface exists.
   affordances without dispatch and read-only view-state helpers for
   target-safe focus/filter/replay selection, plus a shared TypeScript
   read-only view-state baseline and native metadata wrapper for cross-surface
-  contract parity. Live gateway attach loops,
+  contract parity. It also defines a shared benchmark evidence report and
+  promotion gate contract that keeps TypeScript projection/view-state baselines
+  as contract-only evidence until rendering and governance reports exist. Live
+  gateway attach loops,
   resource-opening dispatch, cancellation dispatch, browser-rendering benchmarks, and
   Rust/WASM/sidecar modules remain out of scope until measurement justifies
   them.
