@@ -65,9 +65,9 @@ session update the canonical row instead of creating duplicate rows in operator
 history. Clear/new-session operations must not delete the index and must not
 treat it as a disposable "last session" pointer.
 
-`.kiln/resume-targets.json` is a legacy/advisory operator cursor. Surfaces may
-use it to display resume hints or support explicit resume commands, but they
-must not load it as hidden active continuation state at startup.
+`.kiln/resume-targets.json` is an advisory operator cursor. Surfaces may use it
+to display resume hints or support explicit resume commands, but they must not
+load it as hidden active continuation state at startup.
 Provider-specific cursors may record the last session used by a provider, but
 they are still references to canonical Kiln sessions, not provider-owned
 session history.
@@ -314,8 +314,8 @@ operational state.
   session's operational state.
 - Session selection must clear or replace visible operational projections before
   the selected transcript finishes loading.
-- Legacy activity frames without session identity are not valid for new runtime
-  activity contracts.
+- Activity frames without session identity are not valid for runtime activity
+  contracts.
 
 ## Transcript Persistence
 

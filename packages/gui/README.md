@@ -1,6 +1,6 @@
 # @kilnai/gui
 
-Primary web operator surface for the Kiln control plane.
+Rich web operator surface for the Kiln control plane.
 
 ## Development
 

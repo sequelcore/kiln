@@ -20,7 +20,7 @@ but they must not become separate app control planes.
 | CLI | `@kilnai/cli` commands | CLI flags plus projected global config | Local process, HTTP/WS attach, MCP projection | Automation, validation, launch, sync, and scripting surface. CLI does not own app runtime semantics. |
 | GUI | `@kilnai/gui` | Operator preferences plus gateway attach target | HTTP/WS operator contract | First-party human operator UI. It should attach to an existing App Gateway when operating YAML apps. |
 | Native | `@kilnai/native` | Operator preferences plus gateway attach target | HTTP/WS operator contract plus local Electron process | First-class local desktop operator surface. It owns native window lifecycle and surface telemetry only; runtime truth remains in App/Operator Gateway. |
-| TUI | `@kilnai/tui` | Operator preferences plus gateway attach target | WebSocket operator contract | Frozen legacy terminal surface. It must not define future runtime architecture. |
+| TUI | `@kilnai/tui` | Operator preferences plus gateway attach target | WebSocket operator contract | First-class terminal operator surface. It projects the shared runtime contract and must not define independent runtime architecture. |
 | SDK / Widget | `@kilnai/react`, `@kilnai/widget` | Consumer app config | Public app/channel contracts | Embedding and product integration surfaces. |
 | MCP | Gateway MCP endpoint or projected MCP servers | Gateway/config projection | MCP | External tool and host contract for agents, IDEs, and wrappers. MCP is not the internal GUI-to-gateway operator protocol. |
 

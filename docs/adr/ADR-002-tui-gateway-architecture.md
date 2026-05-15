@@ -1,118 +1,70 @@
 # ADR-002: TUI Gateway Architecture
 
-**Status:** Accepted (amended 2026-04-09)
-**Date:** 2026-04-02
-**Deciders:** Ricardo Armenta
+## Status
+
+Accepted
 
 ## Context
 
-The Kiln TUI (`kiln tui`) needs multi-turn conversation, memory, safety pipeline, MCP tools, knowledge RAG, cost tracking, and multi-provider support. The initial prototype spawns provider sessions directly from the CLI package, bypassing the gateway orchestration layer.
+Kiln has multiple operator surfaces: GUI, native, TUI, CLI, IDE integration,
+remote GUI, and gateway integrations. The TUI is a first-class terminal
+projection of the same runtime contract. It is neither an independent runtime
+nor a lower-priority maintenance branch.
 
-The gateway already provides all of these capabilities through `RuntimeSessionOrchestrator`, `RuntimeSession`, and the WebSocket protocol proven by `@kilnai/widget`. Building a second orchestration path in the CLI would violate DDD bounded context boundaries and duplicate stable, tested code.
-
-### Amendment: Subscription-Backed Execution
-
-The original ADR assumed the gateway would call LLMs via `ProviderAdapter` (direct HTTP API calls with API keys, pay-per-token). However, Kiln's core differentiator is **subscription arbitrage** — routing through flat-rate CLI subscriptions ($20/mo Claude Code, $20/mo Codex, $10/mo OpenCode) via subprocess execution.
-
-The gateway must support **subscription-backed CLI execution** for local developer channels (TUI) rather than assuming API-key adapters for all channels. The execution backend is a runtime concern, not a TUI concern.
+The TUI needs low-latency terminal interaction, provider/model selection,
+session streaming, approvals, managed-agent tool presentation, and diagnostics.
+Those capabilities must remain consistent with GUI and native surfaces.
 
 ## Decision
 
-The TUI will connect to a local Kiln Operator Gateway via WebSocket. The TUI becomes a pure rendering layer (OpenTUI) with no orchestration logic. The gateway-backed runtime owns all orchestration, session state, memory, and safety.
+The TUI connects to the Operator Gateway and renders terminal state from the
+shared operator contract. `startTuiGateway()` is the runtime entrypoint for the
+TUI bridge. The gateway owns session orchestration, provider routing, memory
+and context governance, tool authority, approvals, managed-agent invocation,
+and event framing.
 
-This ADR predates the explicit App Gateway / Operator Gateway taxonomy. The
-local gateway described here is an Operator Gateway for the TUI path, not the
-deployable App Gateway that loads `gateway.yaml` and bound `app.yaml` files.
+The TUI owns only terminal concerns:
 
-For local developer channels (TUI), the gateway uses an injected session-manager-backed execution path. Harness providers still execute through CLI subprocesses where appropriate, while direct providers execute through Kiln's provider-session path. For deployed/web channels (widget, WhatsApp, etc.), the gateway uses API-backed `ProviderAdapter` executors. The execution backend is chosen by the runtime based on channel type.
+- rendering and keyboard interaction
+- local terminal layout state
+- provider/model selection UI
+- command composition
+- gateway connection lifecycle
+- display of typed operator events
 
-### Architecture
+The TUI must consume shared contracts from `@kilnai/gateway-contracts` and
+runtime gateway frames. TUI-specific protocol extensions are allowed only when
+they represent terminal presentation state and do not change runtime semantics.
 
-```
-kiln tui (thin client)
-  - OpenTUI rendering (Yoga flexbox, styled text)
-  - Keyboard input
-  - WebSocket connection to local gateway
-  - Event-to-renderable mapping
+Direct provider transport is permitted only as an explicit development or
+debug path. It is not the canonical operator path for governed execution.
 
-        | WebSocket (widget protocol)
+## Boundaries
 
-Local Kiln Operator Gateway (auto-started on port 4801)
-  - RuntimeSessionOrchestrator (provider routing, tool auth, AI guard)
-  - SessionRegistry (multi-turn, persistence, concurrency)
-  - Safety pipeline (PII, content, rails)
-  - Memory Lattice resources, governed recall, and lifecycle evidence
-  - Knowledge RAG (if configured)
-  - MCP tools (25 gateway tools)
-  - Cost tracking (per-role:model)
-  - Enrichment (post-conversation)
-        |
-  Execution Backend (per-channel)
-  ├── Session-manager-backed executor (TUI channel)
-  │     wraps harness sessions and direct provider sessions
-  │     gateway remains the owner of session continuity and orchestration
-  │     harness backends may spawn claude/codex/opencode subprocesses per turn
-  └── ApiExecutor (widget/web channels)
-        direct HTTP to LLM API
-        uses API keys (pay-per-token)
-```
-
-### Execution Model
-
-The gateway is the sole owner of interactive continuity:
-
-1. Gateway recalls memory, assembles context, runs input safety
-2. Gateway reconstructs full prompt: system prompt + memory + conversation history + user message
-3. Gateway invokes the selected backend through the injected session manager
-4. Harness backends may spawn a CLI binary in one-shot mode, while direct providers call Kiln adapters directly
-5. Gateway runs output safety, stores turn in session history, tracks cost
-6. Gateway sends response to TUI over WebSocket
-
-The execution backend does NOT own conversation state for the TUI path. The gateway is the sole owner of session history, memory, and context management. This avoids the "two masters of session state" problem.
-
-### Protocol
-
-TUI-specific WebSocket protocol (not the widget protocol — no widgetId, no tenant, stateless per userId):
-
-**Outbound (TUI → gateway)**
-- `{ type: "message", content: string }` — user turn
-- `{ type: "clear" }` — reset session; gateway replies `cleared`
-- `{ type: "provider", provider: string, model?: string }` — switch provider/model for the next turn; gateway replies `provider_changed`
-
-**Inbound (gateway → TUI)**
-- `{ type: "thinking" }` — work started (triggers spinner)
-- `{ type: "activity", activity: "tool_use" | "tool_result" | "cost_update", toolName?, output?, usd?, inputTokens?, outputTokens?, input? }` — streamed mid-turn events
-- `{ type: "done", content, inputTokens, outputTokens, routedProvider?, routedModel? }` — full response text + token counts + actual execution route
-- `{ type: "error", message }` — turn failed
-- `{ type: "cleared" }` — session reset acknowledged
-- `{ type: "provider_changed", provider }` — provider selection acknowledged for subsequent turns
-
-**Activity routing in TUI (`handleActivity`)**
-- `tool_use` → `handleToolUse` (renders `⟳ tool [args]` in chat + sidebar counter)
-- `tool_result` → `handleToolResult` (updates tool row with truncated output)
-- `cost_update` → `handleCostUpdate` (accumulates cost + tokens; preferred token source for subscription sessions)
-- Late-arriving frames (after turn completes) are dropped by a `status !== "running"` guard
-
-**Heartbeat**: ping/pong (30s interval, 90s timeout)
-**Auto-reconnect**: exponential backoff (1s → 30s max)
+- The Operator Gateway is a local human-operator bridge. It is not an App
+  Gateway and not a deployable application host.
+- TUI rendering must not call provider adapters, memory repositories, or tool
+  execution services directly.
+- `managed_agent.invoke` authority is attached by the runtime surface. The TUI
+  may present it, but it does not decide child-agent admission.
+- Approvals, file-change evidence, cost evidence, and safety events must remain
+  gateway events before terminal presentation.
 
 ## Consequences
 
-### Positive
-- Single orchestration path for the TUI operator client without duplicating rendering-side logic
-- TUI gets memory, safety, knowledge, MCP, cost tracking, enrichment for free
-- No duplication of session management, provider routing, or tool authorization
-- **Subscription arbitrage preserved** — TUI can still use flat-rate CLI subscriptions when the selected backend is harness-backed
-- Multi-turn conversation = RuntimeSession (proven, tested)
-- TUI stays thin (~200 lines rendering code)
-- Execution backend is a runtime concern — clean DDD boundary
+The TUI can evolve alongside GUI and native without duplicating runtime logic.
+Terminal-specific polish stays cheap because the shared gateway contract carries
+the hard execution state. The cost is a strict separation between terminal UI
+state and runtime ownership.
 
-### Negative
-- Requires local gateway process (mitigated: in-process `startTuiGateway()`)
-- Each turn spawns a subprocess (1-3s latency per spawn)
-- No mid-turn MCP tool calls from the subprocess (stateless one-shot mode)
-- Gateway must reconstruct full history each turn (same as API calls — not a new cost)
+## Verification
 
-### Neutral
-- Direct provider fallback remains useful for `kiln run` and explicit `KILN_TUI_TRANSPORT=direct` debugging
-- `ProviderAdapter` continues to serve deployed/web channels unchanged
+Professional acceptance for this ADR requires tests that cover:
+
+- TUI connection to `startTuiGateway()`
+- session event streaming through shared gateway frames
+- provider/model selection projected through gateway state
+- approval and managed-agent event presentation
+- no TUI-only runtime authority paths
+
+Canonical architecture reference: `docs/architecture/operator-surfaces.md`.

@@ -1,52 +1,65 @@
 # ADR-001: Subprocess Integration Model
 
 ## Status
-Accepted (v0.23.2, 2026-03-31)
+
+Accepted
 
 ## Context
-Kiln orchestrates 3 CLI backends (Claude Code, Codex CLI, OpenCode) as subprocesses. This is legally safe (real CLI binary handles its own auth) but introduces 5 confirmed technical limitations that required architectural solutions.
+
+Kiln can execute work through native provider sessions and through external
+agent harnesses such as Claude Code, Codex, and OpenCode. Those harnesses own
+their own authentication, process model, provider affordances, and session
+metadata. Kiln still needs one control-plane model for context admission,
+authority, events, replay, cost evidence, and cross-surface presentation.
+
+Treating a harness CLI as the runtime owner would fragment policy and make
+operator evidence depend on implementation details of each tool. Treating a
+harness as a governed adapter keeps Kiln's runtime model stable while allowing
+provider-specific execution behavior.
 
 ## Decision
-Kiln spawns CLIs as subprocesses with --bare mode and compensates for
-limitations through preamble injection, permission policy, explicit handoff
-artifacts, and governed coordination memory.
 
-## Limitations and Solutions
+Kiln integrates external harness CLIs as subprocess execution adapters. The
+Kiln session remains the source of truth for projected context, authority,
+events, memory admission, and operator evidence.
 
-### 1. Stateless Between Calls
-**Problem:** Subprocess calls do not preserve state across invocations.
-**Status:** Partially mitigated. Claude Code has --resume/--session-id. Codex has resume. OpenCode has --session/--continue.
-**Solution:** Hybrid approach: --session-id for intra-CLI chains, explicit
-handoff artifacts for cross-CLI handoffs, and governed coordination memory
-records rather than implicit subprocess state.
+The integration model has these boundaries:
 
-### 2. Startup Latency vs Hook/Skill Loss
-**Problem:** --bare flag skips hooks, skills, plugins, auto-memory. Without it, startup is slow.
-**Status:** Confirmed. CLAUDE.md still loads even with --bare.
-**Solution:** Always use --bare. KilnHookProxy reimplements PreToolUse (security) and Stop (completion). Skills injected as XML block in prompt (max 2000 tokens). OpenCode: opencode serve + --attach eliminates cold boot.
-
-### 3. Permission Prompts in Non-Interactive Mode
-**Problem:** stdout parsing for permission prompts is fragile and fails with stream-json output.
-**Status:** Confirmed with active bugs (#35718, #36192, #37181).
-**Solution:** bypassPermissions + dedicated sandbox directory with pre-configured settings.json. --allowedTools pre-filtered. Memory dirs outside ~/.claude/. Do NOT rely on CLI flags alone.
-
-### 4. Auto Mode Classifier Abort
-**Problem:** 3 consecutive or 20 total classifier blocks cause abort in -p mode. Task decomposition does NOT reliably avoid this.
-**Status:** Confirmed. Classifier evaluates subagents at spawn, during execution, AND on return independently.
-**Solution:** bypassPermissions makes this a non-issue. If auto mode needed: detect exit code, max 2 retries, escalate to interactive.
-
-### 5. Model Unaware of Subprocess Context
-**Problem:** Mode flag is not passed to the model. The model does not know it is running as a Kiln subprocess.
-**Status:** Confirmed.
-**Solution:** kiln-preamble XML injected on every prompt via buildPreamble(). Sections: role, task, domain, constraints, memory (200-line cap), instructions. Sections omitted when empty. XML-escaped.
+- `packages/cli/src/wrapper/*` owns harness process/session adapters,
+  provider-session abstractions, preamble construction, permission
+  normalization, and provider-specific event translation.
+- A harness subprocess may own its native session id, resume token, model
+  selector, and process lifecycle. Those values are provider metadata inside
+  the Kiln event stream, not canonical Kiln session identity.
+- Every harness turn receives explicit Kiln context through the projected
+  preamble and admitted resources. Ambient harness memory is never a substitute
+  for `DefaultContextGovernor` evidence.
+- Permission prompts and tool decisions are normalized into Kiln authority
+  records before execution. Provider-side permission flags may reduce risk, but
+  they are not the control-plane policy source.
+- Harness stdout, stderr, usage, file-change evidence, approvals, and failures
+  are translated into typed Kiln events before any GUI, TUI, native, or CLI
+  surface renders them.
+- Cross-harness handoff uses Kiln sessions, resources, managed invocation
+  context, and coordination memory. It must not depend on hidden CLI state.
 
 ## Consequences
-- All backends run in --bare mode, reducing startup time but requiring Kiln to compensate for lost hooks/skills
-- Permission management is centralized in Kiln KilnPermissionPolicy, not delegated to backends
-- Cross-CLI handoff requires explicit handoff artifacts or governed
-  coordination-memory writes, not implicit state sharing
 
-## References
-- Claude Code issues: #35718, #36192, #37181
-- IKilnSession contract: packages/cli/src/wrapper/session.ts
-- Preamble builder: packages/cli/src/wrapper/preamble-builder.ts
+Kiln can support different harnesses without changing the runtime contract, but
+each adapter must pay the cost of explicit process management and event
+normalization. Runtime features must be designed against Kiln contracts first;
+provider-native affordances are projected only when they can be represented
+with evidence.
+
+## Verification
+
+Professional acceptance for this ADR requires tests that cover:
+
+- preamble/context projection into harness turns
+- permission normalization and fail-closed denial behavior
+- session resume metadata without changing Kiln session identity
+- subprocess failure normalization
+- file-change and usage event projection
+- managed invocation calls routed through governed authority
+
+Canonical architecture reference: `docs/architecture/harness-integration-capabilities.md`.

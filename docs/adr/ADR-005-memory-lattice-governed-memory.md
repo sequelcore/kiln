@@ -1,346 +1,67 @@
-# ADR-005: Memory Lattice governed memory graph
+# ADR-005: Memory Lattice Governed Memory Graph
 
-**Status:** Accepted (2026-04-30)
-**Date:** 2026-04-30
-**Author:** Ricardo Armenta
-**Scope:** `packages/core/src/memory/`, `packages/core/src/context/`, `packages/core/src/tools/`, `packages/runtime/src/gateway/`, `packages/gateway-contracts/`, `packages/gui/`, `packages/cli/`, `packages/tui/`, `docs/architecture/memory.md`, `docs/architecture/context-resource-plane.md`
-**Supersedes:** none
-**Follows:** ADR-003 (Budgeted Sufficient Context Orchestration), ADR-004 (GUI stack, boundaries, and binding contract)
+## Status
 
----
+Accepted
 
 ## Context
 
-Kiln already has early memory primitives: SQLite-backed saved entries, topic
-keys, recall under token budget, context candidates, and `ContextGovernor`
-audit trails. Those pieces are useful, but they are not yet a single governed
-memory model.
+Kiln needs durable memory across sessions, agents, and surfaces. A simple saved
+text list cannot support recall evidence, context admission, lifecycle policy,
+relationship traversal, operator inspection, or multi-agent coordination.
 
-The product direction now requires Memory Lattice: an explorable, scoped,
-provenance-aware memory graph that shows how memory records, relations,
-revisions, and context-admission decisions connect. The first visible consumer
-will be the GUI, but the feature cannot be GUI-owned. CLI, TUI, YAML apps, SDK,
-MCP, and model-callable resources must be able to consume the same contracts.
-
-There are no external consumers for intermediate memory contracts. Kiln can
-move directly to the canonical domain model and keep implementation slices
-focused on the target architecture.
-
-Research and product inputs converge on the same shape:
-
-- persistent agent memory should be external and selectively recalled, not
-  replayed as raw transcript
-- memory needs scope, provenance, revision, and user/operator control
-- graph and temporal relationships help surface conflicts, supersession, and
-  continuity
-- larger context windows do not remove the need for governed retrieval and
-  budgeted admission
-
----
+Memory must be a governed bounded context, not a GUI feature and not an
+implicit provider memory cache.
 
 ## Decision
 
-Kiln will implement **Memory Lattice** as the product name for a governed memory
-graph. The technical bounded context is `memory` under `@kilnai/core`.
+Kiln models memory as a governed graph in `packages/core/src/memory`. Memory
+records, scopes, revisions, relations, authority, lifecycle policy, recall,
+resources, and context-admission evidence are domain concerns owned by core.
 
-Memory Lattice is not a separate GUI system. It is a core domain and resource
-projection with one first-party GUI view.
+The memory model has these rules:
 
-### 1. Bounded context and package boundary
+- `MemoryRecord` is the durable unit of memory with scope, layer, provenance,
+  confidence, importance, lifecycle state, and revision metadata.
+- Memory layers include working, episodic, semantic, procedural, coordination,
+  and audit memory.
+- `MemoryMutationService` is the write boundary for memory changes.
+- `MemoryRepository` and `SqliteMemoryRepository` provide persistence behind
+  the domain contract.
+- Relation, lifecycle, reconsolidation, recall, and graph projection services
+  operate on the core memory model.
+- `MemoryContextAdmission` records how memory entered or was deferred from a
+  governed turn.
+- Memory resources are exposed through `kiln://` resource providers so
+  surfaces and managed children consume governed projections, not raw tables.
 
-The memory bounded context owns:
+## Boundaries
 
-- memory domain entities
-- scope validation
-- provenance
-- revision lineage
-- relation semantics
-- reconsolidation policy
-- persistence repository ports and adapters
-- graph projection
-- memory resource provider
-
-Target core layout:
-
-```text
-packages/core/src/memory/
-  domain/
-  repository/
-  reconsolidation/
-  relations/
-  graph/
-  resources/
-```
-
-`packages/core/src/context/` owns context-admission decisions. Memory may
-produce candidates and record admission evidence, but it must not decide what
-enters the model context. That remains `ContextGovernor`'s responsibility.
-
-Runtime and GUI packages may adapt memory contracts, but they do not own memory
-rules.
-
-### 2. Public domain contracts
-
-The core memory domain must expose these concepts:
-
-- `MemoryRecord`
-- `MemoryScope`
-- `MemoryLayerKind`
-- `MemoryProvenance`
-- `MemoryRevision`
-- `MemoryRelation`
-- `MemoryContextAdmission`
-- `MemoryGraphSnapshot`
-
-Required memory layers:
-
-- `working`
-- `episodic`
-- `semantic`
-- `procedural`
-- `coordination`
-- `audit`
-
-Required relation types:
-
-- `related_to`
-- `supports`
-- `contradicts`
-- `supersedes`
-- `revises`
-- `derived_from`
-- `same_topic`
-- `admitted_to_context`
-- `linked_resource`
-- `belongs_to_scope`
-
-These are domain contracts, not GUI DTOs. Gateway and GUI contracts can project
-smaller shapes only when a consumer needs them.
-
-### 3. Persistence replacement, not migration
-
-SQLite remains the first authoritative local persistence adapter.
-
-Target tables:
-
-- `memory_records`
-- `memory_revisions`
-- `memory_relations`
-- `memory_sources`
-- `memory_context_admissions`
-- `memory_fts`
-- `memory_archive`
-
-Because the memory contract has no external consumers, implementation should
-move directly to the target model instead of preserving transitional internal
-shapes.
-
-Research-backed capabilities such as decay, retention, forgetting, and
-compaction are governed policies over `MemoryRecord`,
-`MemoryScope`, `MemoryLayerKind`, provenance, revisions, relations, archive
-state, and mutation events.
-
-Future decay and compaction work must not mutate memory silently inside a
-repository adapter. It must run through a memory application service so policy
-selection, affected records, revisions, derived summaries, archival decisions,
-and emitted events are auditable.
-
-### 4. Context admission is auditable memory evidence
-
-Memory records may become context candidates, but the model only sees memory
-after `ContextGovernor` admits it.
-
-Every memory-derived context block must carry enough stable identity to record:
-
-- memory record ID
-- relation or source evidence when relevant
-- estimated tokens
-- score and effective score
-- admitted or deferred decision
-- reason
-- session or turn provenance when available
-
-Memory Lattice must make these decisions explorable. The graph is not only
-"what Kiln remembers"; it also shows what Kiln chose to use or defer.
-
-### 5. Resource projection is the shared read contract
-
-Memory Lattice data is exposed first through the context resource plane.
-
-Canonical read-only URI templates:
-
-```text
-kiln://memory/graph{?scope,scopeKind,scopeId,layer,query,depth,limit}
-kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}
-kiln://memory/nodes/{id}/lifecycle{?scope,scopeKind,scopeId}
-kiln://memory/nodes/{id}/neighbors{?scope,scopeKind,scopeId,depth,limit}
-kiln://memory/nodes/{id}/provenance{?scope,scopeKind,scopeId}
-kiln://memory/relations/{id}{?scope,scopeKind,scopeId}
-kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}
-```
-
-All reads must be bounded, scope-validated, authority-filtered when exposed to
-model-facing callers, deterministic, and read-only.
-
-These resources are the shared contract for CLI, GUI, TUI, SDK, runtime, and
-MCP. The GUI may have convenience gateway endpoints, but those endpoints must
-adapt the core resource contract. They must not read SQLite directly or create
-a private graph registry.
-
-### 6. GUI view is a projection
-
-The GUI may render Memory Lattice as an animated graph with node detail,
-filters, provenance, revisions, relations, admissions, and a reduced-motion
-fallback. The GUI must not:
-
-- invent memory records
-- infer relation semantics locally
-- bypass scope rules
-- own graph ranking
-- own context-admission decisions
-- persist memory state outside the core memory repository
-
-The Ehrlich hero animation may inspire rendering behavior only after the core
-graph contract exists. Motion is presentation, not architecture.
-
-### 7. YAML, CLI, TUI, SDK, and MCP
-
-YAML may declare model-facing memory authority through `permissions.memory`.
-Retention, sync policy, and admission-policy references remain separate memory
-policy concerns. YAML must not declare GUI layout.
-
-CLI and TUI consume Memory Lattice through the same resource contracts or
-thin operator contracts. MCP consumes the same resources through standard
-resource projection and model-callable resource tools.
-
-Model-facing CLI, TUI, GUI, `kiln run`, and `kiln tools --mcp` surfaces must
-derive memory read/write authority from the effective permission policy. A
-generic `tools: [{ tool: memory_save, action: allow }]` rule only exposes the
-tool; it does not authorize memory mutation. Mutation requires
-`permissions.memory.write` for the requested operation, scope, and layer.
-
-### 8. Memory changes are domain events
-
-Manual refresh is only an operator fallback. The long-term Memory Lattice flow
-must be event-driven from the core memory application layer.
-
-Memory persistence adapters must not emit events directly. Repository methods
-store and retrieve state only. A governed memory application service or memory
-tool service coordinates validation, repository writes, relation updates,
-revision recording, context-admission evidence, and domain-event emission.
-
-Required event families:
-
-- `memory_record_created`
-- `memory_record_updated`
-- `memory_record_deleted`
-- `memory_relation_created`
-- `memory_relation_deleted`
-- `memory_revision_created`
-- `memory_context_admitted`
-- `memory_context_deferred`
-
-Runtime adapters bridge these events into operator-surface frames. GUI, TUI,
-CLI, SDK, and MCP consumers may then invalidate or re-read their resource
-projection without polling or private storage.
-
-The GUI should receive a bounded invalidation frame, not raw repository rows.
-The frame communicates that a Memory Lattice projection changed for a scope,
-layer, record, relation, or admission. The GUI then invalidates the relevant
-resource query and re-reads through the same gateway-backed resource contract.
-
-### 9. Animated graph rendering remains projection-only
-
-The GUI graph may adopt the Ehrlich hero animation language: pseudo-3D
-projection, rotation, depth sorting, glow, cursor tilt, shimmer, and
-reduced-motion fallback. That renderer must remain a presentation component
-over `MemoryGraphSnapshot`.
-
-The renderer must not:
-
-- create synthetic production records
-- connect records by visual proximity when no memory relation exists
-- rank records independently of the core graph projector
-- persist layout state as memory
-- hide provenance, scope, relation type, or admission evidence behind pure
-  ornament
-
-Demo fixtures may use synthetic memory records only in tests, fixtures, or
-explicit local seed scripts. Production rendering must remain driven by real
-core records and relations.
-
----
+- GUI, TUI, CLI, native, and MCP surfaces may request and render memory
+  projections. They do not own memory semantics.
+- A `memory_save` tool call is not sufficient authority by itself. Runtime
+  policy and memory authority decide whether a write is allowed.
+- Lifecycle operations such as decay, promotion, compaction, forgetting, and
+  reconsolidation must be explicit domain operations with evidence.
+- Graph rendering is projection-only. Three.js scene state must never become
+  canonical memory state.
 
 ## Consequences
 
-### Positive
-
-- One memory bounded context instead of per-surface memory models.
-- Context admission becomes visible and auditable, not hidden prompt assembly.
-- GUI, CLI, TUI, SDK, YAML apps, and MCP can converge on one graph contract.
-- Operator surfaces can update automatically from memory domain events without
-  manual refresh as the primary workflow.
-- Memory Lattice stays aligned with Kiln's biocybernetic control-plane identity
-  without using informal "brain" contracts.
-
-### Negative / risks
-
-- The graph model can become ornamental if relation semantics are weak.
-  Mitigation: relation types and provenance are domain contracts before GUI
-  work begins.
-- Resource payloads can grow quickly. Mitigation: graph depth, node count,
-  byte caps, and deterministic ordering are required in the core projector.
-- Memory events can leak implementation details if gateway frames mirror
-  repository rows. Mitigation: emit bounded domain events and bridge them to
-  invalidation frames, then re-read through resources.
-- A rich graph renderer can become misleading if it invents visual relations.
-  Mitigation: graph edges come only from `MemoryRelation`; proximity and glow
-  may be visual effects, not relation semantics.
-- Memory and knowledge overlap conceptually. Mitigation: memory owns durable
-  records, provenance, relations, and recall evidence; knowledge retrieval
-  remains a separate source that may link into memory through explicit
-  relations.
-
----
-
-## Alternatives Considered
-
-### A. GUI-only Memory Lattice
-
-Rejected. It would produce a compelling visual surface quickly, but it would
-create a second memory model and violate the resource-plane rule that surfaces
-project core capabilities instead of owning them.
-
-### B. Keep simple saved-text memory and add graph metadata around it
-
-Rejected. Saved text with loose tags does not represent the target
-layer/scope/provenance/relation model.
-
-### C. Add transitional migration surfaces
-
-Rejected. There are no external consumers for intermediate internal shapes.
-The implementation can move directly to the canonical model.
-
-### D. Use "Atlas" as the feature name
-
-Rejected. "Atlas" communicates map/exploration but does not fit Kiln's
-biocybernetic, cybernetic, control-plane identity as well as "Memory Lattice."
-The term "lattice" better communicates structured interconnection without
-turning the product into a toy visual metaphor.
-
----
+Kiln gets auditable recall, inspectable memory state, and a shared surface for
+human and managed-agent context. The cost is stricter write policy and more
+explicit domain modeling than a flat note store.
 
 ## Verification
 
-- scope isolation is tested
-- graph reads are bounded
-- resource reads are read-only
-- context admission remains owned by `ContextGovernor`
-- memory write flows emit domain events from a service layer, not from
-  repository side effects
-- GUI/TUI/CLI resource projections invalidate from memory events without
-  private memory stores
-- GUI slices are browser-tested before completion
-- animated graph slices prove reduced-motion behavior and do not invent
-  production graph topology
-- no GUI-private memory state exists
+Professional acceptance for this ADR requires tests that cover:
+
+- memory record validation and repository persistence
+- mutation authority and revision behavior
+- relation and graph projection behavior
+- lifecycle and reconsolidation operations
+- recall scoring and resource projection
+- context admission evidence linked to governed turns
+- GUI projection using gateway/resource data only
+
+Canonical architecture reference: `docs/architecture/memory.md`.

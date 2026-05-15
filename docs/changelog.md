@@ -272,8 +272,8 @@ release notes live in [`docs/releases/`](releases/).
   `docs/architecture/developer-tools.md`; the roadmap directory now contains
   only active or deferred numbered tracks.
 - Promoted GUI Phase 1 parity into `docs/guides/gui-parity.md`, replaced the
-  obsolete TUI removal checklist with `docs/guides/tui-maintenance.md`, and
-  updated the roadmap to treat the TUI as frozen maintenance.
+  obsolete surface-specific checklist with `docs/guides/operator-surfaces.md`,
+  and aligned the roadmap with the cross-surface operator model.
 
 ## Unreleased -- Operator Workspace Explorer
 
@@ -344,7 +344,7 @@ release notes live in [`docs/releases/`](releases/).
   files, approvals, or diff state from leaking across conversations.
 - TUI gateway activity now emits canonical session events for tools, file
   changes, cost updates, assistant deltas, and approvals instead of relying on
-  unscoped legacy activity frames.
+  unscoped activity frames.
 - TUI direct-session projections now preserve `sessionId` and `turnId` when the
   provider session supplies them.
 - Runtime gateway exports now load Bun/Hono adapters only when a gateway surface
