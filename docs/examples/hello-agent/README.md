@@ -1,19 +1,22 @@
 # Hello Agent
 
-Your first Kiln AI agent in 60 seconds.
+Smallest gateway-backed Kiln app.
 
-A minimal example: one agent, one web channel, zero custom code. Everything is defined in YAML.
+This example keeps the runtime surface deliberately small: one app declaration,
+one gateway binding, one web channel, and one HTML client. It is the fastest way
+to see the current governed session path from source.
 
 ## What this demonstrates
 
-- YAML-first agent configuration (`app.yaml`)
-- Gateway setup (`gateway.yaml`)
-- WebSocket web channel with conversation memory
-- 3-line server entry point
+- App declaration through `app.yaml`
+- Gateway app binding through `gateway.yaml`
+- WebSocket web channel over the runtime session pipeline
+- Governed user-scoped memory
+- Minimal `startGateway()` entry point
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) 1.1+
+- [Bun](https://bun.sh) 1.3+
 - Anthropic API key
 
 ## Quick start
@@ -45,16 +48,18 @@ hello-agent/
 ## How it works
 
 1. `server.ts` calls `startGateway()` which loads `gateway.yaml`
-2. The gateway parses `app.yaml` and creates a Mode B runtime (direct LLM calls)
+2. The gateway parses `app.yaml` and creates a provider-adapter runtime path
 3. A WebSocket endpoint is mounted at `/apps/hello-agent/ws`
 4. `index.html` connects to the WebSocket and exchanges JSON frames:
    - Send: `{ "type": "message", "content": "Hello!" }`
    - Receive: `{ "type": "done", "content": "Hi there! How can I help?" }`
-5. Conversation memory persists across messages (SQLite + FTS5)
+5. User-scoped conversation memory persists across messages
 
 ## Customizing
 
-**Change the model:** Edit `provider.model` in `app.yaml`. Supports `claude-haiku-4-5-20251001`, `claude-sonnet-4-6-20250514`, or any Anthropic model.
+**Change the model:** Edit `provider.model` in `app.yaml`. The current default
+uses the model configured in the file; see the model-routing guide for the
+registered model catalog.
 
 **Change the provider:** Set `provider.name` to `openai`, `deepseek`, or `ollama` and update the model accordingly.
 
@@ -62,6 +67,6 @@ hello-agent/
 
 ## Next steps
 
-- [support-agent](../support-agent/) -- Add tool calling, safety pipeline, and mock data
-- [booking-assistant](../booking-assistant/) -- Multi-tenant, billing, webhook triggers
-- [multi-app-gateway](../multi-app-gateway/) -- Host multiple apps in production with Docker
+- [support-agent](../support-agent/) -- Add MCP tools, safety policy, and mock data
+- [booking-assistant](../booking-assistant/) -- Add tenants, billing hooks, widget, and webhook triggers
+- [multi-app-gateway](../multi-app-gateway/) -- Host multiple apps behind one gateway

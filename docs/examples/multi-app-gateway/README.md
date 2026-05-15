@@ -1,20 +1,22 @@
 # Multi-App Gateway
 
-Production gateway hosting multiple AI apps with Docker.
+Gateway hosting multiple Kiln apps.
 
-A single Kiln gateway process hosting two independent apps (support + booking), each with multi-tenant configuration, isolated governed memory, and independent channel bindings. Includes Docker deployment files.
+A single Kiln gateway process hosts two independent apps, each with its own app
+declaration, tenant data, governed memory, and channel bindings. The Docker
+files show the deployment shape, not a complete production security profile.
 
 ## What this demonstrates
 
 - **Multi-app hosting** -- Two apps on one gateway, one port, shared infrastructure
 - **Multi-tenant per app** -- Each app has its own tenant registry and configurations
 - **Independent routing** -- WebSocket and API paths scoped per app
-- **Docker deployment** -- Production-ready Dockerfile with health checks
+- **Docker shape** -- Dockerfile and compose file for local deployment practice
 - **Tenant provisioning** -- Auto-provisions demo tenants on startup via admin API
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) 1.1+
+- [Bun](https://bun.sh) 1.3+
 - Anthropic API key
 - Docker (optional, for containerized deployment)
 
@@ -53,7 +55,7 @@ multi-app-gateway/
     support-demo.json           # TechShop support tenant
     booking-demo.json           # Bella Salon booking tenant
   server.ts                     # Gateway startup + tenant provisioning
-  Dockerfile                    # Bun Alpine production image
+  Dockerfile                    # Bun image for local deployment practice
   docker-compose.yml            # Single service + persistent volume
 ```
 
@@ -120,13 +122,16 @@ curl -X POST http://localhost:3000/admin/support/tenants \
   }'
 ```
 
-## Production considerations
+## Deployment considerations
 
 - **Secrets**: Use Doppler, Vault, or environment variables for API keys
 - **Persistence**: Mount `~/.kiln/gateway` as a Docker volume for tenant configs and memory
 - **Monitoring**: The `/health` endpoint reports per-app and per-subsystem status
 - **Scaling**: One gateway per machine; scale horizontally behind a load balancer
 - **Admin auth**: Set `adminTokenEnv` on channels in `gateway.yaml` to require bearer auth
+- **Network exposure**: Add TLS, authentication, origin controls, rate limits,
+  and remote-safe tool authority before exposing a gateway outside a trusted
+  network.
 
 ## Related examples
 

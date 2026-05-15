@@ -1,20 +1,22 @@
 # WhatsApp Business Bot
 
-A complete WhatsApp chatbot for a small business, built with Kiln in under 50 lines of config.
+A WhatsApp channel example for a small business.
 
-The bot answers questions about services, prices, and hours. It remembers returning customers across conversations (persistent SQLite memory) and notifies the business owner via WhatsApp when a customer wants to book an appointment.
+The bot answers questions about services, prices, and hours. It uses
+tenant-scoped governed memory and can notify the business owner through the
+WhatsApp channel when a customer wants to book an appointment.
 
 ## What this demonstrates
 
 - **Multi-tenant gateway** -- one process serves multiple businesses
 - **WhatsApp channel** -- Meta Business API webhook integration
-- **Persistent memory** -- SQLite + FTS5, per-tenant, auto-created
+- **Governed memory** -- per-tenant memory, auto-created by the gateway
 - **Builtin tools** -- `notify_owner` sends a real WhatsApp message to the owner
 - **Structured tenant config** -- services, prices, hours, FAQs injected into the agent prompt
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) 1.1+
+- [Bun](https://bun.sh) 1.3+
 - Anthropic API key (`ANTHROPIC_API_KEY`)
 - Meta Developer account with a WhatsApp Business app ([setup guide](../../guides/channels.md))
 - [ngrok](https://ngrok.com) (for local development)
@@ -96,7 +98,8 @@ whatsapp-bot/
 
 ## Customizing
 
-**Change the model:** Edit `provider.model` in `apps/my-shop/app.yaml`. Default is `claude-haiku-4-5-20251001` (fast, cheap). Use `claude-sonnet-4-5-20250514` for higher quality.
+**Change the model:** Edit `provider.model` in `apps/my-shop/app.yaml`. Use a
+model from the current model-routing guide or the provider discovery surface.
 
 **Add more businesses:** Create another tenant JSON in `~/.kiln/gateway/my-shop/tenants/`. Each tenant gets isolated governed memory, its own system prompt, and WhatsApp credentials. One gateway process serves all of them.
 

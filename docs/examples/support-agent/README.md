@@ -1,19 +1,21 @@
 # Support Agent
 
-E-commerce customer support with tool calling and safety.
+E-commerce support flow with MCP tools and safety policy.
 
-An AI agent for TechShop that can look up orders, check accounts, and create support tickets -- using MCP tools with mock data. Includes PII redaction and topic rails.
+This example shows how Kiln admits a customer-support turn, exposes only the
+declared tools, applies safety policy, and records the exchange through the
+runtime session path.
 
 ## What this demonstrates
 
-- **MCP tool integration** -- Agent calls tools hosted on a separate MCP server
-- **Safety pipeline** -- PII (email, phone, credit card) is redacted; financial/legal advice is blocked
-- **Conversation memory** -- SQLite + FTS5 persists chat history per user
+- **MCP tool integration** -- the runtime calls tools hosted on a separate MCP server
+- **Safety policy** -- PII is redacted and configured topics are blocked
+- **Governed memory** -- user-scoped chat history is persisted for recall
 - **Realistic mock data** -- 5 orders, 3 accounts, ticket creation
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) 1.1+
+- [Bun](https://bun.sh) 1.3+
 - Anthropic API key
 
 ## Quick start
@@ -23,7 +25,8 @@ An AI agent for TechShop that can look up orders, check accounts, and create sup
 cd ../../.. && bun install && cd docs/examples/support-agent
 
 # 2. Set your API key
-export ANTHROPIC_API_KEY=sk-ant-...
+cp .env.example .env
+# Edit .env with your ANTHROPIC_API_KEY
 
 # 3. Start (launches MCP tools server + gateway)
 bun run start
@@ -54,9 +57,9 @@ Browser (index.html)
   │ WebSocket
   ▼
 Gateway (port 3000)
-  │ receives message, passes to ModeBOrchestrator
+  │ receives message, admits it into the runtime pipeline
   ▼
-Anthropic API (Claude Haiku)
+Provider adapter
   │ returns tool_use: check_order_status({ orderId: "ORD-1002" })
   ▼
 Gateway executes tool via MCP
@@ -65,7 +68,7 @@ Gateway executes tool via MCP
 MCP Tools Server (port 3100)
   │ looks up mock data, returns order details
   ▼
-Anthropic API (with tool result)
+Provider adapter with tool result
   │ generates final response
   ▼
 Browser (displays response)
@@ -105,5 +108,5 @@ The safety pipeline runs on both input and output:
 
 ## Next steps
 
-- [booking-assistant](../booking-assistant/) -- Multi-tenant, billing, webhook triggers
-- [multi-app-gateway](../multi-app-gateway/) -- Host multiple apps in production with Docker
+- [booking-assistant](../booking-assistant/) -- Add tenants, billing hooks, widget, and webhook triggers
+- [multi-app-gateway](../multi-app-gateway/) -- Host multiple apps behind one gateway

@@ -16,6 +16,10 @@
 - [Configuration](configuration/app-yaml.md)
   Runtime configuration reference.
 
+- [Examples](examples/README.md)
+  Source-run examples for gateway apps, MCP tools, widgets, tenants, and
+  channels.
+
 - [Guides](guides/channels.md)
   Operational and usage documentation. Architecture doctrine lives under
   `docs/architecture/`; guides focus on configuration, workflows, and runtime

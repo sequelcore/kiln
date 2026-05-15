@@ -95,7 +95,7 @@ async function handleMessage(body: Record<string, unknown>): Promise<Response> {
       return jsonRpc(id, {
         protocolVersion: "2025-03-26",
         capabilities: { tools: {} },
-        serverInfo: { name: "booking-tools", version: "1.0.0" },
+        serverInfo: { name: "booking-tools", version: "2.0.0" },
       });
 
     case "notifications/initialized":

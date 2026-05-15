@@ -117,6 +117,7 @@ Start here:
 
 - [Documentation Index](docs/README.md)
 - [Getting Started](docs/getting-started.md)
+- [Examples](docs/examples/README.md)
 - [Architecture Overview](docs/architecture/README.md)
 - [Research Index](docs/research/README.md)
 - [Roadmap](docs/roadmap/README.md)
@@ -163,6 +164,12 @@ Most important research documents:
 | [`@kilnai/native`](packages/native) | Private Electron-backed native operator surface |
 | [`@kilnai/studio`](packages/studio) | Internal and development-facing inspection tooling |
 | [`@kilnai/tools`](packages/tools) | Vendored developer-tool resolver and platform package coordinator |
+
+## Examples
+
+Start with [docs/examples](docs/examples/README.md) for source-run examples of
+gateway apps, MCP tools, tenant isolation, widget embedding, WhatsApp channels,
+and multi-app hosting.
 
 ## Development
 

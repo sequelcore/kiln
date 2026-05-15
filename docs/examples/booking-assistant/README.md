@@ -2,20 +2,23 @@
 
 Appointment scheduling with billing, multi-tenant, and webhook triggers.
 
-A hair salon booking agent that can check availability, create appointments, and cancel bookings. Includes per-tenant billing enforcement, webhook triggers for booking confirmations, and the embeddable Kiln chat widget.
+A hair salon booking assistant that checks availability, creates appointments,
+and cancels bookings through declared MCP tools. It also demonstrates
+per-tenant context, billing hooks, webhook triggers, and the embeddable Kiln
+widget from the source tree.
 
 ## What this demonstrates
 
-- **MCP tool calling** -- Agent uses calendar tools to check and manage bookings
+- **MCP tool calling** -- runtime calls calendar tools to check and manage bookings
 - **Multi-tenant** -- Per-business configuration with custom personas, services, and hours
 - **Billing middleware** -- Per-tenant token budgets with automatic enforcement
 - **Webhook triggers** -- External systems can fire booking confirmations
-- **Chat widget** -- Embeddable `@kilnai/widget` with greeting and suggestion chips
+- **Chat widget** -- source-built `@kilnai/widget` with greeting and suggestion chips
 - **Capability annotations** -- `readOnly` for listing, `destructive` for booking/cancelling
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) 1.1+
+- [Bun](https://bun.sh) 1.3+
 - Anthropic API key
 
 ## Quick start
@@ -25,7 +28,8 @@ A hair salon booking agent that can check availability, create appointments, and
 cd ../../.. && bun install && cd docs/examples/booking-assistant
 
 # 2. Set your API key
-export ANTHROPIC_API_KEY=sk-ant-...
+cp .env.example .env
+# Edit .env with your ANTHROPIC_API_KEY
 
 # 3. Start (launches tools server + billing server + gateway + provisions demo tenant)
 bun run start
@@ -64,13 +68,13 @@ Gateway (port 3000)
   |-- Tenant lookup --> TenantRegistry (bella-salon)
   |-- System prompt injection (services, hours, FAQs)
   v
-Anthropic API (Claude Haiku)
+Provider adapter
   | tool_use: list_available_slots({ date: "2026-03-05" })
   v
 MCP Tools Server (port 3200)
   | mock calendar data
   v
-Anthropic API (with tool results)
+Provider adapter with tool results
   |-- Usage report --> Mock Billing (port 3300)
   v
 Browser (response + suggestions)
@@ -78,7 +82,7 @@ Browser (response + suggestions)
 
 ## Multi-tenant configuration
 
-The `tenant-example.json` shows the full tenant schema used in production by Kilvo:
+The `tenant-example.json` shows the tenant fields this example uses:
 
 | Field | Purpose |
 |-------|---------|
@@ -119,6 +123,11 @@ curl http://localhost:3300/budget?tenantId=bella-salon
 
 **Add WhatsApp**: See the [whatsapp-bot](../whatsapp-bot/) example for WhatsApp channel configuration.
 
+**Publish CDN widget later**: The demo HTML loads
+`../../../packages/widget/dist/widget.js` from the source tree. After the
+`2.0.0` package line is published, public HTML can switch to
+`@kilnai/widget@2.0.0`.
+
 ## Next steps
 
-- [multi-app-gateway](../multi-app-gateway/) -- Host this + support-agent together in production with Docker
+- [multi-app-gateway](../multi-app-gateway/) -- Host this and support-agent together behind one gateway

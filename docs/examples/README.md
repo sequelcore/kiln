@@ -1,0 +1,52 @@
+# Kiln Examples
+
+These examples show Kiln's current 2.0 source baseline from the deployable
+runtime side: app declarations, gateway bindings, tenant isolation, MCP tools,
+safety policy, triggers, and embeddable surfaces.
+
+The examples are source examples. Until `v2.0.0` is published, run them from
+this repository with workspace packages.
+
+## Example Map
+
+| Example | Focus | Demonstrates |
+|---|---|---|
+| [hello-agent](hello-agent/) | Smallest gateway app | App YAML, gateway binding, web channel, governed session path |
+| [support-agent](support-agent/) | Tool-using support flow | MCP tools, PII redaction, topic rails, tool authority |
+| [booking-assistant](booking-assistant/) | Tenant-aware booking flow | Multi-tenant widget, MCP tools, billing hooks, webhook trigger |
+| [multi-app-gateway](multi-app-gateway/) | Multi-app hosting | App isolation, tenant provisioning, web/API channels, Docker shape |
+| [whatsapp-bot](whatsapp-bot/) | WhatsApp channel | Meta webhook, tenant resolution, governed memory, owner escalation |
+| [configs](configs/) | Operator config | Global routing, managed agents, skills, and work-governance policy |
+
+## Run From Source
+
+From the repository root:
+
+```bash
+bun install
+bun run typecheck
+bun run test
+bun run build
+```
+
+Then enter an example directory and run its start script:
+
+```bash
+cd docs/examples/hello-agent
+bun run start
+```
+
+Most examples expect provider credentials in environment variables such as
+`ANTHROPIC_API_KEY`. Example `.env.example` files list the variables each
+example uses.
+
+## Current Boundaries
+
+- App and gateway YAML are runtime wiring examples, not Kiln's architecture
+  source of truth.
+- GUI, TUI, CLI, native, and gateway integrations are operator surfaces over
+  shared runtime contracts.
+- Tenant files in these examples are demo data. Do not put production secrets in
+  tenant JSON or committed YAML.
+- Published npm package examples should target `@kilnai/*@2.0.0` after the
+  `v2.0.0` release. Before that, use workspace packages from this repository.
