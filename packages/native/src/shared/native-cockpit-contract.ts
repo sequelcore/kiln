@@ -3,6 +3,9 @@ import type {
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,
   OperatorCockpitAttachTarget,
+  OperatorCockpitBenchmarkFixture,
+  OperatorCockpitReadOnlyViewStateBaseline,
+  OperatorCockpitReadOnlyViewStateBaselineInput,
   OperatorCockpitReadOnlyAttachPlan,
   OperatorCockpitReadOnlyAttachPlanInput,
   OperatorCockpitReadOnlyProjection,
@@ -16,6 +19,7 @@ import {
   createOperatorCockpitReadOnlyAttachPlan,
   createOperatorCockpitReadOnlyActionIntent,
   createOperatorCockpitReadOnlyViewState,
+  measureOperatorCockpitReadOnlyViewStateBaseline,
   operatorCockpitActionAllowed,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
@@ -186,6 +190,37 @@ export function createNativeCockpitReadOnlyViewState(
     mutationDispatch: "disabled",
     view: createOperatorCockpitReadOnlyViewState({
       projection: input.projection,
+      viewState: input.viewState,
+    }),
+  };
+}
+
+export interface NativeCockpitReadOnlyViewStateBaselineInput extends Pick<
+  OperatorCockpitReadOnlyViewStateBaselineInput,
+  "measuredAt" | "attachTargets" | "viewState"
+> {
+  readonly surfaceId: string;
+  readonly fixture: OperatorCockpitBenchmarkFixture;
+}
+
+export interface NativeCockpitReadOnlyViewStateBaseline {
+  readonly surfaceId: string;
+  readonly runtimeBoundary: "gateway-contracts";
+  readonly mutationDispatch: "disabled";
+  readonly baseline: OperatorCockpitReadOnlyViewStateBaseline;
+}
+
+export function createNativeCockpitReadOnlyViewStateBaseline(
+  input: NativeCockpitReadOnlyViewStateBaselineInput,
+): NativeCockpitReadOnlyViewStateBaseline {
+  return {
+    surfaceId: input.surfaceId,
+    runtimeBoundary: "gateway-contracts",
+    mutationDispatch: "disabled",
+    baseline: measureOperatorCockpitReadOnlyViewStateBaseline({
+      fixture: input.fixture,
+      measuredAt: input.measuredAt,
+      attachTargets: input.attachTargets,
       viewState: input.viewState,
     }),
   };

@@ -299,6 +299,37 @@ Deliverables:
 - Add `createNativeCockpitReadOnlyViewState` as a thin wrapper preserving
   `runtimeBoundary: gateway-contracts` and fail-closed semantics.
 
+### Slice 12 - Read-Only View-State Benchmark Baseline
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/native/src/shared/native-cockpit-contract.ts`
+- `packages/native/tests/native-boundary.test.ts`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+- `packages/gateway-contracts/README.md`
+
+Deliverables:
+
+- Define `measureOperatorCockpitReadOnlyViewStateBaseline` over the existing
+  shared read-only projection and view-state helpers.
+- Build projection first, then measure only
+  `createOperatorCockpitReadOnlyViewState` with `performance.now`.
+- Record fixture summary, measured timestamp, duration, focus/timeline/replay
+  resolution state, replay cursor neighbors, and projection workload counts.
+- Preserve fail-closed behavior for invalid view-state targets without throwing
+  unless projection/attach validation fails.
+- Add `createNativeCockpitReadOnlyViewStateBaseline` as a thin metadata wrapper
+  with `runtimeBoundary: gateway-contracts` and `mutationDispatch: disabled`.
+- Keep scope contract-only: no browser or native rendering benchmark, no
+  network attach loop, no dispatch, and no Rust/WASM/sidecar claim.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -355,3 +386,12 @@ Deliverables:
 - Passed `bun run test` after Slice 11.
 - Passed `bun run build` after Slice 11.
 - Passed `git diff --check` after Slice 11.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 12.
+- Passed `bun run --cwd packages/native test` after Slice 12.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 12.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 12.
+- Passed `bun run --cwd packages/native typecheck` after Slice 12.
+- Passed `bun run --cwd packages/native build` after Slice 12.
+- Passed `bun run typecheck` after Slice 12.
+- Passed `bun run test` after Slice 12.
+- Passed `bun run build` after Slice 12.

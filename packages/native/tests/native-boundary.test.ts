@@ -26,6 +26,7 @@ import {
 } from "../src/shared/native-browser-operator-surface.js";
 import {
   NATIVE_COCKPIT_BENCHMARK_FIXTURES,
+  createNativeCockpitReadOnlyViewStateBaseline,
   createNativeCockpitPreconditionReview,
   createNativeCockpitReadOnlyAttachPlan,
   createNativeCockpitReadOnlyActionIntent,
@@ -597,6 +598,84 @@ describe("native operator surface foundation", () => {
     expect(viewState.view.focus.resolved).toBe(false);
     expect(viewState.view.replay.resolved).toBe(false);
     expect(viewState.view.replay.entry).toBeUndefined();
+  });
+
+  it("wraps shared read-only view-state baseline with native boundary metadata", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "native-view-state-baseline",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 1,
+      childInvocationCount: 2,
+      eventCount: 10,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const baseline = createNativeCockpitReadOnlyViewStateBaseline({
+      surfaceId: "native:local",
+      measuredAt: "2026-05-14T12:07:00.000Z",
+      fixture,
+      attachTargets: [
+        {
+          instanceId: "native-view-state-baseline:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+      viewState: {
+        focusTarget: {
+          instanceId: "native-view-state-baseline:instance:1",
+          sessionId: "native-view-state-baseline:session:1",
+        },
+      },
+    });
+
+    expect(baseline.surfaceId).toBe("native:local");
+    expect(baseline.runtimeBoundary).toBe("gateway-contracts");
+    expect(baseline.mutationDispatch).toBe("disabled");
+    expect(baseline.baseline.surface).toBe("shared-read-only-cockpit-view-state");
+    expect(baseline.baseline.focusResolved).toBe(true);
+  });
+
+  it("fails closed in native view-state baseline for invalid selectors without throwing", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "native-view-state-baseline-fail",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 1,
+      childInvocationCount: 1,
+      eventCount: 6,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const baseline = createNativeCockpitReadOnlyViewStateBaseline({
+      surfaceId: "native:local",
+      measuredAt: "2026-05-14T12:08:00.000Z",
+      fixture,
+      attachTargets: [
+        {
+          instanceId: "native-view-state-baseline-fail:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+      viewState: {
+        focusTarget: {
+          instanceId: "native-view-state-baseline-fail:instance:missing",
+          sessionId: "native-view-state-baseline-fail:session:missing",
+        },
+        filters: {
+          sessionId: "native-view-state-baseline-fail:session:1",
+        },
+        replayCursor: {
+          instanceId: "native-view-state-baseline-fail:instance:missing",
+          sessionId: "native-view-state-baseline-fail:session:missing",
+          eventId: "native-view-state-baseline-fail:event:missing",
+        },
+      },
+    });
+
+    expect(baseline.baseline.focusResolved).toBe(false);
+    expect(baseline.baseline.timelineValid).toBe(false);
+    expect(baseline.baseline.replayResolved).toBe(false);
   });
 
   it("defines high-density benchmark fixtures before native cockpit promotion", () => {

@@ -3,6 +3,7 @@ import {
   createOperatorCockpitBenchmarkFixture,
   measureOperatorCockpitProjectionBaseline,
   measureOperatorCockpitReadOnlyProjectionBaseline,
+  measureOperatorCockpitReadOnlyViewStateBaseline,
 } from "../src/operator-cockpit-benchmark.js";
 
 describe("operator cockpit benchmark fixtures", () => {
@@ -143,5 +144,108 @@ describe("operator cockpit benchmark fixtures", () => {
       measuredAt: "2026-05-14T12:03:00.000Z",
       attachTargets: [],
     })).toThrow("requires at least one attach target");
+  });
+
+  it("measures read-only view-state baseline over shared projection substrate", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "read-only-view-state-baseline",
+      instanceCount: 2,
+      sessionCount: 3,
+      activeManagedSessionCount: 2,
+      childInvocationCount: 5,
+      eventCount: 30,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const baseline = measureOperatorCockpitReadOnlyViewStateBaseline({
+      fixture,
+      measuredAt: "2026-05-14T12:05:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "read-only-view-state-baseline:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+        {
+          instanceId: "read-only-view-state-baseline:instance:2",
+          label: "Simulated remote",
+          kind: "simulated-remote",
+        },
+      ],
+      viewState: {
+        focusTarget: {
+          instanceId: "read-only-view-state-baseline:instance:1",
+          sessionId: "read-only-view-state-baseline:session:1",
+        },
+        filters: {
+          instanceId: "read-only-view-state-baseline:instance:1",
+          sessionId: "read-only-view-state-baseline:session:1",
+        },
+        replayCursor: {
+          instanceId: "read-only-view-state-baseline:instance:1",
+          sessionId: "read-only-view-state-baseline:session:1",
+          eventId: "read-only-view-state-baseline:event:1",
+        },
+      },
+    });
+
+    expect(baseline.surface).toBe("shared-read-only-cockpit-view-state");
+    expect(baseline.measuredAt).toBe("2026-05-14T12:05:00.000Z");
+    expect(baseline.fixture).toEqual(fixture.summary);
+    expect(baseline.durationMs).toBeGreaterThanOrEqual(0);
+    expect(baseline.focusResolved).toBe(true);
+    expect(baseline.timelineValid).toBe(true);
+    expect(baseline.filteredTimelineCount).toBeGreaterThan(0);
+    expect(baseline.replayResolved).toBe(true);
+    expect(baseline.replayEventId).toBe("read-only-view-state-baseline:event:1");
+    expect(baseline.instanceCount).toBe(2);
+    expect(baseline.sessionCount).toBe(3);
+    expect(baseline.timelineCount).toBe(30);
+    expect(baseline.invocationCount).toBeGreaterThan(0);
+    expect(baseline.toolSummaryCount).toBeGreaterThan(0);
+  });
+
+  it("fails closed for invalid view-state selectors without throwing", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "read-only-view-state-fail-closed",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 1,
+      childInvocationCount: 1,
+      eventCount: 8,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const baseline = measureOperatorCockpitReadOnlyViewStateBaseline({
+      fixture,
+      measuredAt: "2026-05-14T12:06:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "read-only-view-state-fail-closed:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+      viewState: {
+        focusTarget: {
+          instanceId: "read-only-view-state-fail-closed:instance:missing",
+          sessionId: "read-only-view-state-fail-closed:session:missing",
+        },
+        filters: {
+          sessionId: "read-only-view-state-fail-closed:session:1",
+        },
+        replayCursor: {
+          instanceId: "read-only-view-state-fail-closed:instance:missing",
+          sessionId: "read-only-view-state-fail-closed:session:missing",
+          eventId: "read-only-view-state-fail-closed:event:missing",
+        },
+      },
+    });
+
+    expect(baseline.focusResolved).toBe(false);
+    expect(baseline.timelineValid).toBe(false);
+    expect(baseline.filteredTimelineCount).toBe(0);
+    expect(baseline.replayResolved).toBe(false);
+    expect(baseline.replayEventId).toBeUndefined();
+    expect(baseline.previousEventId).toBeUndefined();
+    expect(baseline.nextEventId).toBeUndefined();
   });
 });

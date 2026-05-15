@@ -79,7 +79,9 @@ explicitly parked until their prerequisite product surface exists.
   simulated remote gateway URLs without opening network connections. Shared
   projection now includes target-aware resource links for open-resource
   affordances without dispatch and read-only view-state helpers for
-  target-safe focus/filter/replay selection. Live gateway attach loops,
+  target-safe focus/filter/replay selection, plus a shared TypeScript
+  read-only view-state baseline and native metadata wrapper for cross-surface
+  contract parity. Live gateway attach loops,
   resource-opening dispatch, cancellation dispatch, browser-rendering benchmarks, and
   Rust/WASM/sidecar modules remain out of scope until measurement justifies
   them.

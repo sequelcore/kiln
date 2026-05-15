@@ -1196,6 +1196,17 @@ Started 2026-05-14:
   `createNativeCockpitReadOnlyViewState`, preserving
   `runtimeBoundary: gateway-contracts` and fail-closed behavior for unknown
   focus/replay targets.
+- `@kilnai/gateway-contracts` now exposes
+  `measureOperatorCockpitReadOnlyViewStateBaseline`, which builds the shared
+  read-only cockpit projection and measures only TypeScript read-only
+  focus/filter/replay derivation via
+  `createOperatorCockpitReadOnlyViewState`. The baseline records fixture
+  summary, measured timestamp, duration, focus/timeline/replay resolution, and
+  projection workload counts.
+- `@kilnai/native` now wraps that baseline through
+  `createNativeCockpitReadOnlyViewStateBaseline`, preserving
+  `runtimeBoundary: gateway-contracts`, `mutationDispatch: disabled`, and
+  fail-closed selector behavior for unknown focus/filter/replay targets.
 
 ### Phase 3 - Benchmark and Compare
 

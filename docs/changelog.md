@@ -63,6 +63,13 @@
   shared projection. The contracts are explicit `read-only`,
   `dispatch: not-dispatched`, and `mutationDispatch: disabled`, and fail closed
   for unknown focus/filter/replay targets.
+- Added the shared read-only cockpit view-state baseline in
+  `@kilnai/gateway-contracts`, measuring only TypeScript read-only
+  focus/filter/replay derivation over the existing shared projection substrate
+  (not browser/native rendering, networking, dispatch, or Rust proof).
+- Added the native read-only cockpit view-state baseline wrapper in
+  `@kilnai/native`, preserving `runtimeBoundary: gateway-contracts`,
+  `mutationDispatch: disabled`, and fail-closed selector behavior.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.

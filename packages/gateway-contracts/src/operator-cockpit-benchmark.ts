@@ -16,6 +16,12 @@ import type {
 import {
   projectOperatorCockpitReadOnlyView,
 } from "./operator-cockpit-projection.js";
+import type {
+  OperatorCockpitReadOnlyViewStateInput,
+} from "./operator-cockpit-view-state.js";
+import {
+  createOperatorCockpitReadOnlyViewState,
+} from "./operator-cockpit-view-state.js";
 
 export interface OperatorCockpitBenchmarkFixtureInput {
   readonly fixtureId: string;
@@ -91,6 +97,32 @@ export interface OperatorCockpitReadOnlyProjectionBaseline {
   readonly providerRoutes: readonly string[];
   readonly firstTimelineEntry?: OperatorCockpitReadOnlyTimelineSummary;
   readonly lastTimelineEntry?: OperatorCockpitReadOnlyTimelineSummary;
+}
+
+export interface OperatorCockpitReadOnlyViewStateBaselineInput {
+  readonly fixture: OperatorCockpitBenchmarkFixture;
+  readonly measuredAt: string;
+  readonly attachTargets: readonly OperatorCockpitAttachTarget[];
+  readonly viewState: OperatorCockpitReadOnlyViewStateInput["viewState"];
+}
+
+export interface OperatorCockpitReadOnlyViewStateBaseline {
+  readonly surface: "shared-read-only-cockpit-view-state";
+  readonly measuredAt: string;
+  readonly fixture: OperatorCockpitBenchmarkFixtureSummary;
+  readonly durationMs: number;
+  readonly focusResolved: boolean;
+  readonly timelineValid: boolean;
+  readonly filteredTimelineCount: number;
+  readonly replayResolved: boolean;
+  readonly replayEventId?: string;
+  readonly previousEventId?: string;
+  readonly nextEventId?: string;
+  readonly instanceCount: number;
+  readonly sessionCount: number;
+  readonly timelineCount: number;
+  readonly invocationCount: number;
+  readonly toolSummaryCount: number;
 }
 
 export function createOperatorCockpitBenchmarkFixture(
@@ -219,6 +251,41 @@ export function measureOperatorCockpitReadOnlyProjectionBaseline(
     ...(lastTimelineEntry
       ? { lastTimelineEntry: summarizeTimelineEntry(lastTimelineEntry) }
       : {}),
+  };
+}
+
+export function measureOperatorCockpitReadOnlyViewStateBaseline(
+  input: OperatorCockpitReadOnlyViewStateBaselineInput,
+): OperatorCockpitReadOnlyViewStateBaseline {
+  const projection = projectOperatorCockpitReadOnlyView({
+    projectedAt: input.measuredAt,
+    attachTargets: input.attachTargets,
+    events: input.fixture.events,
+  });
+  const startedAt = performance.now();
+  const view = createOperatorCockpitReadOnlyViewState({
+    projection,
+    viewState: input.viewState,
+  });
+  const durationMs = performance.now() - startedAt;
+
+  return {
+    surface: "shared-read-only-cockpit-view-state",
+    measuredAt: input.measuredAt,
+    fixture: input.fixture.summary,
+    durationMs,
+    focusResolved: view.focus.resolved,
+    timelineValid: view.timeline.valid,
+    filteredTimelineCount: view.timeline.entries.length,
+    replayResolved: view.replay.resolved,
+    ...(view.replay.entry ? { replayEventId: view.replay.entry.eventId } : {}),
+    ...(view.replay.previousEventId ? { previousEventId: view.replay.previousEventId } : {}),
+    ...(view.replay.nextEventId ? { nextEventId: view.replay.nextEventId } : {}),
+    instanceCount: projection.instances.length,
+    sessionCount: projection.sessions.length,
+    timelineCount: projection.timeline.length,
+    invocationCount: projection.invocations.length,
+    toolSummaryCount: projection.toolSummaries.length,
   };
 }
 

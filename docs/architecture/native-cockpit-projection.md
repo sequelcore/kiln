@@ -8,7 +8,10 @@ TypeScript read-only projection baseline over the same projection substrate and
 a read-only attach plan for explicit local and simulated remote gateway
 targets. Shared projection now includes target-aware resource links for
 read-only open-resource affordances and a shared read-only view-state helper
-for target-safe focus, filtering, and replay cursor selection. No native
+for target-safe focus, filtering, and replay cursor selection. A shared
+TypeScript read-only view-state baseline now measures only view-state
+derivation over that projection and is wrapped by native metadata for
+cross-surface parity. No native
 cockpit UI, network attach loop, browser-rendering benchmark,
 resource-opening dispatch, cancellation dispatch, or Rust projection kernel is
 promoted.
@@ -185,6 +188,9 @@ reports instance, session, timeline, invocation, tool, cost, provider-route,
 and target summaries. Later GUI/native rendering benchmarks and any
 Rust/WASM/sidecar candidate must compare against that shared TypeScript output
 instead of inventing a private projection model.
+The view-state baseline measures only
+`createOperatorCockpitReadOnlyViewState` after the shared projection is built;
+it is not a rendering benchmark, network benchmark, or dispatch benchmark.
 
 ## Rust Boundary
 
@@ -213,6 +219,8 @@ Implemented:
   targets
 - native read-only cockpit projection wrapper over the shared gateway contract
 - shared and native read-only cockpit action intents with no dispatch
+- shared TypeScript read-only cockpit view-state baseline measurement
+- native read-only cockpit view-state baseline wrapper metadata
 - native boundary tests proving the contract fails closed
 
 Not implemented:

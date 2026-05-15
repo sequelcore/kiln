@@ -69,6 +69,10 @@ fails closed when targets do not resolve. Timeline filters use projected
 targets such as `managedInvocationId`, `toolCallId`, and `resourceUri` rather
 than raw event payload parsing. Session, managed-invocation, and tool-call
 filters require their enclosing instance/session target.
+`measureOperatorCockpitReadOnlyViewStateBaseline` measures only TypeScript
+view-state derivation over that shared projection substrate. It is contract
+measurement only and not a browser benchmark, native rendering benchmark,
+network attach benchmark, dispatch benchmark, or Rust/WASM/sidecar proof.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted
