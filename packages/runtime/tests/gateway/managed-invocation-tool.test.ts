@@ -765,14 +765,15 @@ describe("managed invocation runtime tool", () => {
 
   it("admits requested agent profile and skills through the configured context resolver", async () => {
     const adapter = makeAdapter();
+    const contextResolver = vi.fn(async () => ({
+      promptPrefix: "## Child Agent Profile\nname: architecture-reviewer\n\nSkill\nname: ddd-review",
+      admittedAgentProfile: "architecture-reviewer",
+      admittedSkills: ["ddd-review"],
+    }));
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
-        contextResolver: vi.fn(async () => ({
-          promptPrefix: "## Child Agent Profile\nname: architecture-reviewer\n\nSkill\nname: ddd-review",
-          admittedAgentProfile: "architecture-reviewer",
-          admittedSkills: ["ddd-review"],
-        })),
+        contextResolver,
       },
     });
     const session = makeSession();
@@ -811,6 +812,12 @@ describe("managed invocation runtime tool", () => {
       admittedAgentProfile: "architecture-reviewer",
       admittedSkills: ["ddd-review"],
     });
+    expect(contextResolver).toHaveBeenCalledWith(expect.objectContaining({
+      providerRoute: {
+        providerId: "opencode",
+        model: "model-a",
+      },
+    }));
     expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request.input).toMatchObject({
       context: result.metadata.context,
       prompt: expect.stringContaining("## Child Agent Profile"),

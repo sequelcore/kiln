@@ -53,6 +53,7 @@ usage view.
 | `web.extractProvider` | `KilnYamlWebExtractProvider` | Global default web extraction provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `skills.builtin` | `{ enabled?: boolean, include?: string[], exclude?: string[] }` | First-party built-in skill activation policy. Built-in skill content lives in Kiln core; config only admits or narrows it. |
+| `skills.selection.mode` | `advisory \| auto` | Controls whether task/model recommended skills are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
 MCP server entries may include `requestTimeoutMs` to override the default
@@ -112,9 +113,17 @@ closed instead of falling back to ambient parent context.
 Built-in skill activation is configured under `skills.builtin`. Project and
 user skill files override built-ins with the same id. This keeps Kiln useful by
 default without turning generated harness files into a second source of truth.
+Skill selection defaults to `advisory`: task/model recommendations are visible
+to parent agents, but only explicit agent/profile skills are loaded. Set
+`skills.selection.mode: auto` when the operator wants Kiln to admit available
+recommended skills for the selected task and route. Auto-selection never grants
+tools or authority, skips unavailable recommended skills, and still fails
+closed for explicitly requested missing skills.
 
 ```yaml
 skills:
+  selection:
+    mode: auto
   builtin:
     enabled: true
     include:
@@ -136,6 +145,8 @@ Project `.kiln/kiln.yaml` may disable or narrow the same catalog:
 
 ```yaml
 skills:
+  selection:
+    mode: advisory
   builtin:
     exclude:
       - benchmark-readiness-review
@@ -270,6 +281,9 @@ models, native Codex CLI is a harness fallback, OpenCode harness remains
 available for mechanical child work, and Claude is disabled until a valid
 subscription is available. It is a shape example only; secrets stay in
 environment variables or credential pools.
+For a complete sanitized file that includes task-aware skill selection and
+managed read-only routes, see
+`docs/examples/configs/task-aware-model-team.yaml`.
 
 ```yaml
 version: "1"
@@ -319,6 +333,11 @@ modelTaskSuitability:
     task: mechanical-edit
     level: preferred
     reason: Operator preference for broad, low-friction mechanical work.
+skills:
+  selection:
+    mode: auto
+  builtin:
+    enabled: true
 permissions:
   approval: on-request
   sandbox: read-only
@@ -424,8 +443,8 @@ goal: Find structural risks and propose clean, durable corrections.
 tier: reasoning
 mode: managed-child
 skills:
-  - architecture-review
-  - ddd-review
+  - clean-architecture-boundary-review
+  - ddd-boundary-review
 instructionProfiles:
   - sequel-engineering
 providerRoute:
@@ -444,7 +463,7 @@ invocation may request a profile, skills, and context mode:
 ```text
 Use managed_agent.invoke with profile foundation-readonly-plan,
 providerRoute.providerId codex-oauth, agentProfile architecture-reviewer,
-skills ["ddd-review"], and contextMode isolated.
+skills ["ddd-boundary-review"], and contextMode isolated.
 Task: inspect docs/architecture/managed-agents.md and report architectural
 risks. Do not modify files.
 ```

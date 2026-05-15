@@ -244,6 +244,11 @@ Skills are not permissions. A skill may teach an agent how to use a tool, but
 tool authority still comes from Kiln's tool and managed invocation policy.
 Agent default skills are resolved through `SkillRegistry`, loaded as governed
 procedural context, and fail closed when a referenced skill is unavailable.
+Task/model recommended skills are advisory by default. When
+`skills.selection.mode: auto` is configured, Kiln may load recommended skills
+for the selected route and inferred task after the same registry admission
+check. Auto-selected skills do not grant tool authority and are recorded as
+admitted procedural context.
 
 ## First-Party Skill Defaults
 

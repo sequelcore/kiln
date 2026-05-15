@@ -1,17 +1,18 @@
 import { homedir } from "node:os";
-import { skillConfigToContextCandidate } from "@kilnai/core";
 import type {
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolution,
 } from "@kilnai/runtime";
+import type { ModelTaskSuitabilityTask } from "@kilnai/core";
 import { findAgent, loadAgentDefinitions } from "../application/agent-loader.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { readGlobalConfig } from "./global-config.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import type { KilnYaml, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
+import type { KilnModelTaskSuitabilityOverride, KilnYaml, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { join } from "node:path";
-import { createConfiguredSkillRegistry } from "./skill-registry.js";
+import { inferRouteTask } from "./provider-route-candidates.js";
+import { resolveTaskSkillSelection } from "./task-skill-selection.js";
 
 export function createManagedInvocationContextResolver(
   projectPath: string,
@@ -20,6 +21,7 @@ export function createManagedInvocationContextResolver(
     readonly globalConfig?: KilnGlobalConfig | null;
     readonly projectConfig?: KilnYaml | null;
     readonly skillConfig?: KilnYamlSkillsConfig | null;
+    readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   } = {},
 ): ManagedInvocationContextResolver {
   return async (input) => {
@@ -31,6 +33,7 @@ export function createManagedInvocationContextResolver(
     let admittedAgentProfile: string | undefined;
     let profileSkills: readonly string[] = [];
     let agentInstructionProfiles: readonly string[] = [];
+    let agentTaskAffinity: readonly ModelTaskSuitabilityTask[] = [];
     if (input.agentProfile) {
       const definitions = await loadAgentDefinitions(projectPath);
       const agent = findAgent(definitions, input.agentProfile);
@@ -40,6 +43,7 @@ export function createManagedInvocationContextResolver(
       admittedAgentProfile = agent.name;
       profileSkills = agent.skills ?? [];
       agentInstructionProfiles = agent.instructionProfiles ?? [];
+      agentTaskAffinity = agent.taskAffinity ?? [];
       sections.push([
         "## Child Agent Profile",
         `name: ${agent.name}`,
@@ -64,21 +68,33 @@ export function createManagedInvocationContextResolver(
       config,
     );
 
-    const admittedSkills = resolveManagedInvocationSkills(
-      unique([
+    const skillSelection = resolveTaskSkillSelection({
+      explicitSkills: unique([
         ...profileSkills,
         ...input.skills,
       ]),
       projectPath,
       userHome,
-      sections,
-      config.skillConfig,
-    );
+      skillConfig: config.skillConfig,
+      selection: config.skillConfig?.selection,
+      task: inferRouteTask({
+        text: input.task,
+        agentTaskAffinity,
+      }),
+      provider: input.providerRoute?.providerId,
+      model: input.providerRoute?.model,
+      taskSuitability: input.taskSuitability,
+      modelTaskSuitability: config.modelTaskSuitability,
+      requesterLabel: "Managed invocation",
+    });
+    for (const candidate of skillSelection.contextCandidates) {
+      sections.push(candidate.content);
+    }
 
     return {
       ...(sections.length > 0 ? { promptPrefix: sections.join("\n\n") } : {}),
       ...(admittedAgentProfile ? { admittedAgentProfile } : {}),
-      ...(admittedSkills.length > 0 ? { admittedSkills } : {}),
+      ...(skillSelection.skillNames.length > 0 ? { admittedSkills: skillSelection.skillNames } : {}),
       ...(admittedInstructionProfiles.length > 0 ? { admittedInstructionProfiles } : {}),
     } satisfies ManagedInvocationContextResolution;
   };
@@ -116,38 +132,4 @@ function resolveManagedInstructionProfiles(
 
 function unique(values: readonly string[]): readonly string[] {
   return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
-}
-
-function resolveManagedInvocationSkills(
-  skills: readonly string[],
-  projectPath: string,
-  userHome: string,
-  sections: string[],
-  skillConfig: KilnYamlSkillsConfig | null | undefined,
-): readonly string[] {
-  if (skills.length === 0) {
-    return [];
-  }
-
-  const registry = createConfiguredSkillRegistry({ projectPath, userHome, skillConfig });
-  const resolved = registry.resolve(skills);
-  const resolvedNames = new Set(resolved.map((skill) => skill.name));
-  const missing = skills.filter((skill) => !resolvedNames.has(skill));
-  if (missing.length > 0) {
-    throw new Error(`Managed invocation skill(s) not found: ${missing.join(", ")}`);
-  }
-
-  const admittedSkills: string[] = [];
-  for (const index of resolved) {
-    const skill = registry.load(index.name);
-    if (!skill) {
-      throw new Error(`Managed invocation skill could not be loaded: ${index.name}`);
-    }
-    admittedSkills.push(skill.name);
-    sections.push(skillConfigToContextCandidate(skill, {
-      required: true,
-      score: 0.95,
-    }).content);
-  }
-  return admittedSkills;
 }

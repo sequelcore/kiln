@@ -107,8 +107,15 @@ export interface KilnYamlBuiltinSkillsConfig {
   readonly exclude?: readonly string[];
 }
 
+export type KilnYamlSkillSelectionMode = "advisory" | "auto";
+
+export interface KilnYamlSkillSelectionConfig {
+  readonly mode?: KilnYamlSkillSelectionMode;
+}
+
 export interface KilnYamlSkillsConfig {
   readonly builtin?: KilnYamlBuiltinSkillsConfig;
+  readonly selection?: KilnYamlSkillSelectionConfig;
 }
 
 export type KilnWorkGovernancePosture = "orchestrate" | "direct";

@@ -67,6 +67,9 @@ describe("config-merger", () => {
           enabled: true,
           include: ["tdd-workflow"],
         },
+        selection: {
+          mode: "auto",
+        },
       },
       workGovernance: {
         defaultPosture: "orchestrate",
@@ -103,6 +106,9 @@ describe("config-merger", () => {
         builtin: {
           enabled: true,
           include: ["tdd-workflow"],
+        },
+        selection: {
+          mode: "auto",
         },
       },
       workGovernance: {
@@ -258,6 +264,9 @@ describe("config-merger", () => {
         builtin: {
           exclude: ["frontend-ux-review"],
         },
+        selection: {
+          mode: "advisory",
+        },
       },
       workGovernance: {
         defaultPosture: "orchestrate",
@@ -289,6 +298,9 @@ describe("config-merger", () => {
       skills: {
         builtin: {
           exclude: ["frontend-ux-review"],
+        },
+        selection: {
+          mode: "advisory",
         },
       },
       workGovernance: {

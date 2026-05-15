@@ -461,26 +461,42 @@ function validateSkills(value: unknown): void {
     throw new KilnYamlError("skills must be an object");
   }
   for (const key of Object.keys(value)) {
-    if (key !== "builtin") {
+    if (key !== "builtin" && key !== "selection") {
       throw new KilnYamlError(`Unknown skills field: ${key}`);
     }
   }
-  if (value.builtin === undefined) {
-    return;
+  if (value.builtin !== undefined) {
+    if (!isRecord(value.builtin)) {
+      throw new KilnYamlError("skills.builtin must be an object");
+    }
+    for (const key of Object.keys(value.builtin)) {
+      if (key !== "enabled" && key !== "include" && key !== "exclude") {
+        throw new KilnYamlError(`Unknown skills.builtin field: ${key}`);
+      }
+    }
+    if (value.builtin.enabled !== undefined && typeof value.builtin.enabled !== "boolean") {
+      throw new KilnYamlError("skills.builtin.enabled must be a boolean");
+    }
+    validateOptionalStringArray(value.builtin.include, "skills.builtin.include");
+    validateOptionalStringArray(value.builtin.exclude, "skills.builtin.exclude");
   }
-  if (!isRecord(value.builtin)) {
-    throw new KilnYamlError("skills.builtin must be an object");
-  }
-  for (const key of Object.keys(value.builtin)) {
-    if (key !== "enabled" && key !== "include" && key !== "exclude") {
-      throw new KilnYamlError(`Unknown skills.builtin field: ${key}`);
+  if (value.selection !== undefined) {
+    if (!isRecord(value.selection)) {
+      throw new KilnYamlError("skills.selection must be an object");
+    }
+    for (const key of Object.keys(value.selection)) {
+      if (key !== "mode") {
+        throw new KilnYamlError(`Unknown skills.selection field: ${key}`);
+      }
+    }
+    if (
+      value.selection.mode !== undefined
+      && value.selection.mode !== "advisory"
+      && value.selection.mode !== "auto"
+    ) {
+      throw new KilnYamlError("skills.selection.mode must be advisory or auto");
     }
   }
-  if (value.builtin.enabled !== undefined && typeof value.builtin.enabled !== "boolean") {
-    throw new KilnYamlError("skills.builtin.enabled must be a boolean");
-  }
-  validateOptionalStringArray(value.builtin.include, "skills.builtin.include");
-  validateOptionalStringArray(value.builtin.exclude, "skills.builtin.exclude");
 }
 
 function validateManagedAgents(value: unknown): void {

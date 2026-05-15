@@ -107,6 +107,11 @@ export interface ManagedInvocationContextResolverInput {
   readonly skills: readonly string[];
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly task: string;
+  readonly providerRoute?: {
+    readonly providerId: string;
+    readonly model?: string;
+  };
+  readonly taskSuitability?: readonly ModelTaskSuitability[];
 }
 
 export interface ManagedInvocationContextResolution {
@@ -449,7 +454,7 @@ async function executeManagedInvocationTool(
     });
   }
 
-  const contextResolution = await resolveInvocationContext(parsed.input, options);
+  const contextResolution = await resolveInvocationContext(parsed.input, options, route);
   if (!contextResolution.ok) {
     return errorResult(contextResolution.error);
   }
@@ -1092,6 +1097,7 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
 async function resolveInvocationContext(
   input: ManagedInvocationToolInput,
   options: ManagedInvocationToolOptions,
+  route: ManagedInvocationToolRoute | undefined,
 ): Promise<
   | { readonly ok: true; readonly resolution: ManagedInvocationContextResolution }
   | { readonly ok: false; readonly error: string }
@@ -1112,6 +1118,11 @@ async function resolveInvocationContext(
       skills: input.skills ?? [],
       contextMode: input.contextMode,
       task: input.task,
+      providerRoute: {
+        providerId: route?.providerId ?? input.providerRoute.providerId,
+        ...(input.providerRoute.model ?? route?.model ? { model: input.providerRoute.model ?? route?.model } : {}),
+      },
+      ...(route?.taskSuitability ? { taskSuitability: route.taskSuitability } : {}),
     });
     if (resolution.deniedSkills && resolution.deniedSkills.length > 0) {
       return {

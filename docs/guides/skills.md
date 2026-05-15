@@ -124,6 +124,8 @@ Use global config to make the policy explicit:
 
 ```yaml
 skills:
+  selection:
+    mode: advisory
   builtin:
     enabled: true
     include:
@@ -147,6 +149,23 @@ Built-ins are projected to supported native harness skill directories during
 `kiln sync --skills`, unless disabled by config. Generated native skill files
 remain projections; canonical user and project skills live under
 `~/.kiln/skills` and `.kiln/skills`.
+
+## Task-Aware Selection
+
+Models and routes may advertise recommended skills for task classes such as
+`architecture-review`, `backend-coding`, `frontend-design`, `mechanical-edit`,
+`research`, and `test-writing`. Recommendations are advisory by default. Kiln
+loads skills automatically only when `skills.selection.mode: auto` is set and
+the recommended skill exists in the admitted project, user, or built-in skill
+catalog.
+
+Auto-selection is still governed admission:
+
+- it does not grant tool, filesystem, network, provider, or write authority
+- it does not invent unknown skills
+- unavailable recommended skills are skipped
+- explicitly requested missing skills fail closed
+- admitted skills are recorded in managed invocation context metadata
 
 Future official packs are deferred. They may later provide web, backend,
 security, data, or opinionated engineering workflows, but packs must be

@@ -52,7 +52,7 @@ import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
-import { resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
+import { inferRouteTask, resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -486,16 +486,22 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       agent: resolvedAgent,
     }),
   );
-  if (resolvedAgent) {
-    try {
-      identityAppConfig = withContextCandidates(
-        identityAppConfig,
-        resolveAgentSkillContextCandidates(resolvedAgent, cwd, undefined, appConfig.kilnYaml?.skills),
-      );
-    } catch (error) {
-      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
-    }
+  try {
+    identityAppConfig = withContextCandidates(
+      identityAppConfig,
+      resolveAgentSkillContextCandidates(resolvedAgent, cwd, undefined, resolvedKilnConfig?.skills, {
+        task: inferRouteTask({
+          text: task,
+          agentTaskAffinity: resolvedAgent?.taskAffinity,
+        }),
+        provider: preferredProvider,
+        model: effectiveModel,
+        modelTaskSuitability: resolvedKilnConfig?.modelTaskSuitability,
+      }),
+    );
+  } catch (error) {
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
   }
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(identityAppConfig, resolvedAgent);
   const sessionId = randomUUID();

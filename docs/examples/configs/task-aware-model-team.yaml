@@ -1,0 +1,146 @@
+# Sanitized task-aware model team example.
+# Copy the shape, not the exact model list. Credentials stay in environment
+# variables or Kiln credential pools, never in this file.
+version: "1"
+engines:
+  codex-oauth:
+    enabled: true
+    billing: subscription
+  opencode-zen:
+    enabled: true
+    billing: api-key
+  codex:
+    enabled: true
+    billing: plus-quota
+  opencode:
+    enabled: true
+    billing: free
+routing:
+  defaultWorker: codex-oauth
+  fallback: codex
+  routes:
+    - provider: codex-oauth
+      model: gpt-5.5
+    - provider: opencode-zen
+      model: kimi-k2.6
+    - provider: opencode-zen
+      model: glm-5.1
+    - provider: opencode-zen
+      model: minimax-m2.7
+    - provider: opencode-zen
+      model: minimax-m2.5-free
+    - provider: codex
+      model: gpt-5.4-mini
+    - provider: opencode
+      model: opencode/minimax-m2.5-free
+  budgetAware: false
+models:
+  codex-oauth: gpt-5.5
+  opencode-zen: minimax-m2.7
+  codex: gpt-5.4-mini
+  opencode: opencode/minimax-m2.5-free
+modelTaskSuitability:
+  - provider: opencode-zen
+    model: kimi-k2.6
+    task: frontend-design
+    level: preferred
+    reason: Prefer the frontend-specialized route for UI, layout, and visual implementation.
+  - provider: opencode-zen
+    model: glm-5.1
+    task: backend-coding
+    level: preferred
+    reason: Prefer the backend-specialized route for services, adapters, and data flow.
+  - provider: opencode-zen
+    model: minimax-m2.7
+    task: mechanical-edit
+    level: preferred
+    reason: Prefer the efficient all-rounder route for repetitive or low-risk edits.
+skills:
+  selection:
+    mode: auto
+  builtin:
+    enabled: true
+    include:
+      - repo-context-review
+      - codebase-scouting
+      - implementation-planning
+      - tdd-workflow
+      - code-review-findings
+      - clean-architecture-boundary-review
+      - ddd-boundary-review
+      - refactoring-safety
+      - security-scope-review
+      - managed-agent-risk-review
+      - benchmark-readiness-review
+      - config-projection-review
+managedAgents:
+  enabled: true
+  defaultProvider: codex-oauth
+  defaultProfile: foundation-readonly-plan
+  requireApproval: true
+  routes:
+    - id: codex-oauth-readonly
+      kind: direct
+      provider: codex-oauth
+      model: gpt-5.5
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+    - id: opencode-zen-kimi-readonly
+      kind: direct
+      provider: opencode-zen
+      model: kimi-k2.6
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+    - id: opencode-readonly
+      kind: harness
+      provider: opencode
+      model: opencode/minimax-m2.5-free
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+permissions:
+  approval: on-request
+  sandbox: read-only
+activeInstructionProfiles:
+  - sequel-engineering

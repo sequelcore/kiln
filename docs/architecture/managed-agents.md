@@ -396,6 +396,11 @@ routes, unhealthy provider/model pairs, unknown agent profiles, missing skills,
 or denied authority profiles still fail closed. Recommended skills are shown to
 the parent only when they are also present in the admitted skill catalog or on a
 configured agent profile.
+If `skills.selection.mode: auto` is configured, CLI-owned managed invocation
+may admit recommended skills for the selected route/task without requiring the
+parent model to repeat them in the tool call. This is still admission, not
+ambient context: only configured skills can be loaded, explicitly requested
+missing skills fail closed, and the invocation context records admitted skills.
 
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Transcript and result handoff URIs emitted

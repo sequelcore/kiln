@@ -11,6 +11,7 @@ import type {
   KilnYamlInteractiveUseConfig,
   KilnYamlSkillsConfig,
   KilnYamlBuiltinSkillsConfig,
+  KilnYamlSkillSelectionConfig,
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
@@ -36,6 +37,8 @@ export type {
   KilnYamlSkillGeneration,
   KilnYamlSkillsConfig,
   KilnYamlBuiltinSkillsConfig,
+  KilnYamlSkillSelectionConfig,
+  KilnYamlSkillSelectionMode,
   KilnWorkGovernanceConfig,
   KilnWorkGovernancePosture,
   KilnWorkGovernanceRisk,
@@ -195,6 +198,17 @@ function mergeSkills(
   if (!base && !override) return undefined;
   return {
     builtin: mergeBuiltinSkills(base?.builtin, override?.builtin),
+    selection: mergeSkillSelection(base?.selection, override?.selection),
+  };
+}
+
+function mergeSkillSelection(
+  base: KilnYamlSkillSelectionConfig | undefined,
+  override: KilnYamlSkillSelectionConfig | undefined,
+): KilnYamlSkillSelectionConfig | undefined {
+  if (!base && !override) return undefined;
+  return {
+    mode: override?.mode ?? base?.mode,
   };
 }
 

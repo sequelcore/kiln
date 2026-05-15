@@ -55,6 +55,24 @@ function writeSkill(root: string): void {
   );
 }
 
+function writeFrontendSkill(root: string): void {
+  const skillDir = join(root, ".kiln", "skills", "frontend-design");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, "SKILL.md"),
+    [
+      "---",
+      "name: frontend-design",
+      "description: Frontend design implementation",
+      "---",
+      "",
+      "Build polished UI.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
 describe("managed invocation context resolver", () => {
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
@@ -100,5 +118,41 @@ describe("managed invocation context resolver", () => {
       contextMode: "fork",
       task: "Inspect architecture.",
     })).rejects.toThrow("Managed invocation fork context is not enabled for this surface.");
+  });
+
+  it("auto-admits selected route recommended skills when skill selection policy allows it", async () => {
+    const root = createTempRoot();
+    writeFrontendSkill(root);
+    const resolver = createManagedInvocationContextResolver(root, root, {
+      globalConfig: null,
+      projectConfig: null,
+      skillConfig: {
+        selection: {
+          mode: "auto",
+        },
+      },
+    });
+
+    const resolved = await resolver({
+      skills: [],
+      contextMode: "isolated",
+      task: "Build a responsive React UI.",
+      providerRoute: {
+        providerId: "custom-provider",
+        model: "custom-model",
+      },
+      taskSuitability: [{
+        task: "frontend-design",
+        level: "preferred",
+        source: "live-proof",
+        reason: "Selected route declares frontend suitability.",
+        recommendedSkills: ["frontend-design"],
+      }],
+    });
+
+    expect(resolved).toMatchObject({
+      admittedSkills: ["frontend-design"],
+    });
+    expect(resolved.promptPrefix).toContain("Build polished UI.");
   });
 });

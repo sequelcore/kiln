@@ -172,6 +172,7 @@ export async function resolveManagedInvocationToolOptions(
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
         contextResolver: createManagedInvocationContextResolver(context.cwd, userHome, {
           skillConfig: config.skills,
+          modelTaskSuitability: config.modelTaskSuitability,
         }),
       },
     } : {}),

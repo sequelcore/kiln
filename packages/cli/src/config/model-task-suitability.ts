@@ -24,11 +24,13 @@ export function resolveConfiguredModelTaskSuitability(
     if (override.provider !== input.provider || override.model !== input.model) {
       continue;
     }
+    const existing = merged.get(override.task);
     merged.set(override.task, {
       task: override.task,
       level: override.level,
       source: "operator-override",
       reason: override.reason,
+      ...(existing?.recommendedSkills ? { recommendedSkills: existing.recommendedSkills } : {}),
       evidence: [
         {
           source: "operator-override",

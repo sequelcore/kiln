@@ -452,9 +452,9 @@ function suitability(
 function recommendedSkillsForTask(task: ModelTaskSuitabilityTask): readonly string[] {
   switch (task) {
     case "architecture-review":
-      return ["repo-context-review", "ddd-review"];
+      return ["repo-context-review", "ddd-boundary-review", "clean-architecture-boundary-review"];
     case "backend-coding":
-      return ["repo-context-review", "tdd"];
+      return ["repo-context-review", "tdd-workflow"];
     case "frontend-design":
       return ["frontend-design"];
     case "mechanical-edit":
@@ -462,6 +462,6 @@ function recommendedSkillsForTask(task: ModelTaskSuitabilityTask): readonly stri
     case "research":
       return ["repo-context-review"];
     case "test-writing":
-      return ["tdd"];
+      return ["tdd-workflow"];
   }
 }

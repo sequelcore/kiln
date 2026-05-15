@@ -79,6 +79,72 @@ describe("agent skill context", () => {
     expect(candidates[0]?.content).toContain("Use clean-architecture carefully.");
   });
 
+  it("auto-admits available recommended skills for the selected task and route when policy allows it", () => {
+    const root = createTempRoot();
+    writeSkill(root, "frontend-design");
+
+    const candidates = resolveAgentSkillContextCandidates({
+      name: "frontend-worker",
+      role: "frontend",
+      goal: "Build UI",
+      tier: "coding",
+      taskAffinity: ["frontend-design"],
+      scope: "project",
+    }, root, root, {
+      selection: {
+        mode: "auto",
+      },
+    }, {
+      task: "frontend-design",
+      provider: "opencode-zen",
+      model: "kimi-k2.6",
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      kind: "procedural",
+      required: true,
+      score: 0.95,
+    });
+    expect(candidates[0]?.content).toContain("name: frontend-design");
+  });
+
+  it("auto-admits recommended skills without an explicit agent when policy allows it", () => {
+    const root = createTempRoot();
+    writeSkill(root, "frontend-design");
+
+    const candidates = resolveAgentSkillContextCandidates(undefined, root, root, {
+      selection: {
+        mode: "auto",
+      },
+    }, {
+      task: "frontend-design",
+      provider: "opencode-zen",
+      model: "kimi-k2.6",
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.content).toContain("name: frontend-design");
+  });
+
+  it("keeps recommended skills advisory by default", () => {
+    const root = createTempRoot();
+    writeSkill(root, "frontend-design");
+
+    expect(resolveAgentSkillContextCandidates({
+      name: "frontend-worker",
+      role: "frontend",
+      goal: "Build UI",
+      tier: "coding",
+      taskAffinity: ["frontend-design"],
+      scope: "project",
+    }, root, root, undefined, {
+      task: "frontend-design",
+      provider: "opencode-zen",
+      model: "kimi-k2.6",
+    })).toEqual([]);
+  });
+
   it("fails closed when an agent references an unavailable skill", () => {
     const root = createTempRoot();
 

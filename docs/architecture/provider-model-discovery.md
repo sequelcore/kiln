@@ -162,9 +162,13 @@ shape. A healthy managed route therefore carries one normalized view combining
 static profile knowledge, first-party evaluation evidence, route live proof,
 and operator overrides when present.
 
-Recommended skills are not permissions and not implicit context. Parent
-sessions may request a recommended skill only when it appears in the admitted
-skill catalog or on the selected agent profile. Unknown skills fail closed.
+Recommended skills are not permissions. In the default `advisory` skill
+selection mode, parent sessions may request a recommended skill only when it
+appears in the admitted skill catalog or on the selected agent profile. When
+`skills.selection.mode: auto` is configured, Kiln may admit the selected
+route/task's recommended skills automatically, but only after the same skill
+catalog admission check. Unknown recommended skills are skipped; unknown
+explicitly requested skills fail closed.
 
 Parent sessions and managed invocation tool descriptions may use task
 suitability to choose among admitted routes. They must still respect route

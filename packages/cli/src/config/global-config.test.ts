@@ -202,6 +202,8 @@ describe("global-config", () => {
         "      - tdd-workflow",
         "    exclude:",
         "      - frontend-ux-review",
+        "  selection:",
+        "    mode: auto",
       ].join("\n"),
     );
     expect(readGlobalConfig()?.skills).toEqual({
@@ -209,6 +211,9 @@ describe("global-config", () => {
         enabled: true,
         include: ["tdd-workflow"],
         exclude: ["frontend-ux-review"],
+      },
+      selection: {
+        mode: "auto",
       },
     });
 
@@ -221,6 +226,16 @@ describe("global-config", () => {
       ].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("skills.builtin.enabled must be a boolean");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "skills:",
+        "  selection:",
+        "    mode: eager",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow("skills.selection.mode must be advisory or auto");
   });
 
   it("readGlobalConfig() validates work governance policy", () => {
