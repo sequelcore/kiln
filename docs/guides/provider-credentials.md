@@ -65,6 +65,16 @@ multiple accounts or named workspaces. `status` and `logout` accept the same
 `--tier` and `--id` filters so operators can inspect or remove one credential
 without touching the other tier.
 
+OpenCode has two execution namespaces:
+
+- `opencode` is the native harness provider. Its model catalog comes from
+  `opencode models`, and model IDs keep OpenCode's provider prefix, such as
+  `opencode/minimax-m2.5-free`.
+- `opencode-go` and `opencode-zen` are direct Kiln subscription providers.
+  Their credentials come from the tiered OpenCode pool, and their selectable
+  model IDs come from the tier endpoint without the harness prefix, such as
+  `minimax-m2.5-free`.
+
 Logout commands remove the provider's linked credential files. They do not
 modify unrelated provider directories.
 

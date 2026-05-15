@@ -182,13 +182,17 @@ Wrapper providers:
 - `claude` is model-less when the harness is available
 - `codex` discovers local Codex CLI models from the local Codex model surface
 - `opencode` discovers local OpenCode CLI models from the OpenCode command
-  surface
+  surface. These model IDs are provider-prefixed exactly as OpenCode reports
+  them, for example `opencode/minimax-m2.5-free` or
+  `opencode-go/minimax-m2.5`.
 
 Subscription-auth providers:
 
 - `codex-oauth` discovers models from the OAuth-backed Codex model endpoint
 - `opencode-go` and `opencode-zen` discover models from the authenticated
-  OpenCode subscription tier
+  OpenCode subscription tier. These are direct Kiln provider IDs and their
+  selectable model IDs are the tier endpoint IDs without the harness prefix,
+  for example `minimax-m2.5-free` for `opencode-zen`.
 
 Direct API providers:
 

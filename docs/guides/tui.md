@@ -125,12 +125,19 @@ Printable-first key routing means normal printable characters are appended to th
 The provider picker is split into two sections:
 
 - `Harness`: `claude`, `codex`, `opencode`
-- `Direct API`: `codex-oauth`, `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`
+- `Direct API`: `codex-oauth`, `opencode-go`, `opencode-zen`,
+  `anthropic`, `openai`, `deepseek`, `openrouter`, `ollama`, `lmstudio`
 
 `codex-oauth` is still selected from the direct-provider family, but it is no
 longer text-only. Kiln now routes it through an executable direct-provider
 session, so local tool execution, approvals, and file-change telemetry come
 from Kiln's own runtime rather than from an external harness process.
+
+OpenCode appears in both sections with different model namespaces. The harness
+provider `opencode` uses `opencode models` and keeps prefixed model IDs such as
+`opencode/minimax-m2.5-free`. Direct providers `opencode-go` and
+`opencode-zen` use Kiln's tiered OpenCode credential pool and select unprefixed
+tier model IDs such as `minimax-m2.5-free`.
 
 Selecting a provider in the picker sends a `{ type: "provider", provider, model? }` frame through the WebSocket session. The gateway updates the injected session manager with `setProvider()` and, when present, `setModel()`, then acknowledges with `{ type: "provider_changed", provider }`.
 

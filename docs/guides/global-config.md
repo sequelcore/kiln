@@ -513,9 +513,9 @@ identifiers remain available for direct runtime sessions.
 | `deepseek` | DeepSeek API. Requires `DEEPSEEK_API_KEY` or `~/.kiln/auth/deepseek/`. |
 | `openrouter` | OpenRouter aggregation gateway. Requires `OPENROUTER_API_KEY` or `~/.kiln/auth/openrouter/`. |
 | `ollama` | Ollama local inference. No key required; configure endpoint in `~/.kiln/auth/ollama/`. |
-| `codex-oauth` | OpenAI Codex via ChatGPT Plus device-code OAuth. Manage with `kiln auth codex-oauth`. |
-| `opencode-go` | OpenCode Go subscription — flat-rate access ($10/mo) to Go-tier model set. Manage with `kiln auth opencode --tier go`. |
-| `opencode-zen` | OpenCode Zen gateway — pay-per-request credits, access to Zen-tier model set. Manage with `kiln auth opencode --tier zen`. |
+| `codex-oauth` | OpenAI Codex via ChatGPT Plus device-code OAuth. Manage with `kiln auth codex login`, `kiln auth codex status`, and `kiln auth codex logout`. |
+| `opencode-go` | OpenCode Go subscription — flat-rate access to Go-tier models. Manage with `kiln auth opencode link --tier go`, `kiln auth opencode status --tier go`, and `kiln auth opencode logout --tier go`. |
+| `opencode-zen` | OpenCode Zen gateway — credit-backed access to Zen-tier models. Manage with `kiln auth opencode link --tier zen`, `kiln auth opencode status --tier zen`, and `kiln auth opencode logout --tier zen`. |
 
 Provider credentials are not global-config fields. Keep API keys in the
 operator environment or in credential-pool files under `~/.kiln/auth/`; keep
