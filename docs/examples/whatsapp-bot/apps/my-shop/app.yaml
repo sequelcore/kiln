@@ -5,9 +5,8 @@ runtime: provider-adapter
 channels: [whatsapp]
 
 provider:
-  name: anthropic
-  model: claude-haiku-4-5-20251001
-  apiKeyEnv: ANTHROPIC_API_KEY
+  name: codex-oauth
+  model: gpt-5.4-mini
 
 memory:
   scopes: [user]

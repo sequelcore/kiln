@@ -17,7 +17,7 @@ files show the deployment shape, not a complete production security profile.
 ## Prerequisites
 
 - [Bun](https://bun.sh) 1.3+
-- Anthropic API key
+- Codex OAuth credentials (`kiln auth codex login`)
 - Docker (optional, for containerized deployment)
 
 ## Quick start (local)
@@ -26,8 +26,8 @@ files show the deployment shape, not a complete production security profile.
 # 1. Install (from monorepo root)
 cd ../../.. && bun install && cd docs/examples/multi-app-gateway
 
-# 2. Set your API key
-export ANTHROPIC_API_KEY=sk-ant-...
+# 2. Verify provider credentials
+kiln auth codex status
 
 # 3. Start
 bun run start
@@ -36,8 +36,9 @@ bun run start
 ## Quick start (Docker)
 
 ```bash
-# 1. Create .env file
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+# 1. Configure the host auth directory for the container
+cp .env.example .env
+# Edit KILN_AUTH_DIR to the absolute host path of your ~/.kiln/auth directory.
 
 # 2. Build and run
 docker compose up --build
@@ -124,7 +125,9 @@ curl -X POST http://localhost:3000/admin/support/tenants \
 
 ## Deployment considerations
 
-- **Secrets**: Use Doppler, Vault, or environment variables for API keys
+- **Provider credentials**: `codex-oauth` reads from `~/.kiln/auth/codex-oauth/`;
+  mount that credential directory into containers instead of copying tokens into
+  app config.
 - **Persistence**: Mount `~/.kiln/gateway` as a Docker volume for tenant configs and memory
 - **Monitoring**: The `/health` endpoint reports per-app and per-subsystem status
 - **Scaling**: One gateway per machine; scale horizontally behind a load balancer

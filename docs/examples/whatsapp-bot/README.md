@@ -17,7 +17,7 @@ WhatsApp channel when a customer wants to book an appointment.
 ## Prerequisites
 
 - [Bun](https://bun.sh) 1.3+
-- Anthropic API key (`ANTHROPIC_API_KEY`)
+- Codex OAuth credentials (`kiln auth codex login`)
 - Meta Developer account with a WhatsApp Business app ([setup guide](../../guides/channels.md))
 - [ngrok](https://ngrok.com) (for local development)
 
@@ -34,7 +34,7 @@ bun install
 
 ```bash
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your WhatsApp webhook secret and access token env value
 ```
 
 ### 3. Create your tenant
@@ -91,8 +91,8 @@ whatsapp-bot/
 3. Gateway resolves the tenant by `phone_number_id`
 4. `buildTenantSystemPrompt()` assembles the prompt from tenant JSON (persona + services + hours + FAQs)
 5. Governed tenant memory recalls past conversations with this customer
-6. Claude generates a response (with access to `notify_owner` tool)
-7. If the customer books an appointment, Claude calls `notify_owner` → owner gets a WhatsApp message
+6. The provider adapter generates a response with access to `notify_owner`
+7. If the customer books an appointment, the model calls `notify_owner` and the owner gets a WhatsApp message
 8. Response is sent back to the customer via Meta Cloud API
 9. The exchange is saved to memory for future recall
 

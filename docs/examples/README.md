@@ -16,6 +16,8 @@ this repository with workspace packages.
 | [booking-assistant](booking-assistant/) | Tenant-aware booking flow | Multi-tenant widget, MCP tools, billing hooks, webhook trigger |
 | [multi-app-gateway](multi-app-gateway/) | Multi-app hosting | App isolation, tenant provisioning, web/API channels, Docker shape |
 | [whatsapp-bot](whatsapp-bot/) | WhatsApp channel | Meta webhook, tenant resolution, governed memory, owner escalation |
+| [research-brief](research-brief/) | Evidence-backed research | Source-grounded MCP tools, citations, saved briefs, API channel |
+| [incident-triage](incident-triage/) | Internal operations triage | Runbooks, service status, incident mutations, API channel |
 | [configs](configs/) | Operator config | Global routing, managed agents, skills, and work-governance policy |
 
 ## Run From Source
@@ -36,9 +38,16 @@ cd docs/examples/hello-agent
 bun run start
 ```
 
-Most examples expect provider credentials in environment variables such as
-`ANTHROPIC_API_KEY`. Example `.env.example` files list the variables each
-example uses.
+The examples default to `codex-oauth`, backed by the local ChatGPT Plus OAuth
+credential pool. Sign in once before running provider-backed examples:
+
+```bash
+kiln auth codex login
+kiln auth codex status
+```
+
+Example `.env.example` files list only non-provider variables, such as webhook
+secrets or demo gateway secrets.
 
 ## Current Boundaries
 

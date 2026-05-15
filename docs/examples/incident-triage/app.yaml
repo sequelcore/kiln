@@ -1,0 +1,139 @@
+name: incident-triage
+
+runtime: provider-adapter
+
+channels: [web, api]
+
+provider:
+  name: codex-oauth
+  model: gpt-5.4-mini
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+mcp:
+  servers:
+    - name: incident-tools
+      url: http://localhost:3500/mcp
+
+safety:
+  pii:
+    detect: [email, phone, credit_card]
+    action: redact
+  rails:
+    - type: topic
+      block: [credential disclosure, secret rotation bypass, destructive shell commands]
+
+router:
+  fallback: incident
+
+teams:
+  incident:
+    agents:
+      assistant:
+        name: Incident Triage Assistant
+        role: Operations incident coordinator
+        goal: >
+          Triage service incidents, inspect current service state, retrieve the
+          relevant runbook, and open an incident record when the operator asks
+          for escalation.
+        backstory: >
+          You coordinate incidents for a small platform team. You are concise,
+          operational, and careful with authority. You never claim that you
+          executed infrastructure changes. You can only inspect mock service
+          state, read runbooks, open incident records, and append timeline
+          notes through declared tools.
+        instructions: >
+          Start by reading service status and the matching runbook. Treat
+          open_incident and append_timeline_note as auditable mutations.
+        tier: fast
+        tools:
+          - list_services
+          - get_service_status
+          - get_runbook
+          - open_incident
+          - append_timeline_note
+
+    workflow:
+      phases: [respond]
+
+    capabilities:
+      - name: list_services
+        description: List services known to the operations catalog
+        tags: [ops, services]
+        annotations:
+          readOnly: true
+          cacheTtl: 30
+        schema:
+          type: object
+          properties: {}
+
+      - name: get_service_status
+        description: Read current mock health and signals for one service
+        tags: [ops, status]
+        annotations:
+          readOnly: true
+          cacheTtl: 15
+        schema:
+          type: object
+          properties:
+            service:
+              type: string
+              description: Service ID from list_services
+          required: [service]
+
+      - name: get_runbook
+        description: Read the runbook for a service and symptom
+        tags: [ops, runbook]
+        annotations:
+          readOnly: true
+          cacheTtl: 300
+        schema:
+          type: object
+          properties:
+            service:
+              type: string
+              description: Service ID
+            symptom:
+              type: string
+              description: Incident symptom or alert name
+          required: [service, symptom]
+
+      - name: open_incident
+        description: Open an incident record for operator follow-up
+        tags: [ops, incident]
+        annotations:
+          destructive: true
+        schema:
+          type: object
+          properties:
+            service:
+              type: string
+              description: Service ID
+            severity:
+              type: string
+              enum: [sev1, sev2, sev3]
+              description: Incident severity
+            summary:
+              type: string
+              description: Operator-facing incident summary
+          required: [service, severity, summary]
+
+      - name: append_timeline_note
+        description: Append an auditable timeline note to an incident record
+        tags: [ops, incident]
+        annotations:
+          destructive: true
+        schema:
+          type: object
+          properties:
+            incidentId:
+              type: string
+              description: Incident ID returned by open_incident
+            note:
+              type: string
+              description: Timeline note
+          required: [incidentId, note]
+
+    qualityGates: []

@@ -16,7 +16,7 @@ runtime session path.
 ## Prerequisites
 
 - [Bun](https://bun.sh) 1.3+
-- Anthropic API key
+- Codex OAuth credentials (`kiln auth codex login`)
 
 ## Quick start
 
@@ -24,9 +24,8 @@ runtime session path.
 # 1. Install (from monorepo root)
 cd ../../.. && bun install && cd docs/examples/support-agent
 
-# 2. Set your API key
-cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY
+# 2. Verify provider credentials
+kiln auth codex status
 
 # 3. Start (launches MCP tools server + gateway)
 bun run start

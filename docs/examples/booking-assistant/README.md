@@ -19,7 +19,7 @@ widget from the source tree.
 ## Prerequisites
 
 - [Bun](https://bun.sh) 1.3+
-- Anthropic API key
+- Codex OAuth credentials (`kiln auth codex login`)
 
 ## Quick start
 
@@ -27,11 +27,13 @@ widget from the source tree.
 # 1. Install (from monorepo root)
 cd ../../.. && bun install && cd docs/examples/booking-assistant
 
-# 2. Set your API key
+# 2. Configure demo gateway secret
 cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY
 
-# 3. Start (launches tools server + billing server + gateway + provisions demo tenant)
+# 3. Verify provider credentials
+kiln auth codex status
+
+# 4. Start (launches tools server + billing server + gateway + provisions demo tenant)
 bun run start
 ```
 

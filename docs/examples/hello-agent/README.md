@@ -17,7 +17,7 @@ to see the current governed session path from source.
 ## Prerequisites
 
 - [Bun](https://bun.sh) 1.3+
-- Anthropic API key
+- Codex OAuth credentials (`kiln auth codex login`)
 
 ## Quick start
 
@@ -25,9 +25,8 @@ to see the current governed session path from source.
 # 1. Install dependencies (from monorepo root)
 cd ../../.. && bun install && cd docs/examples/hello-agent
 
-# 2. Set your API key
-cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY
+# 2. Verify provider credentials
+kiln auth codex status
 
 # 3. Start
 bun run start
@@ -61,7 +60,8 @@ hello-agent/
 uses the model configured in the file; see the model-routing guide for the
 registered model catalog.
 
-**Change the provider:** Set `provider.name` to `openai`, `deepseek`, or `ollama` and update the model accordingly.
+**Change the provider:** Set `provider.name` to another supported provider and
+update the model and credential source accordingly.
 
 **Add personality:** Edit the `backstory` field in `app.yaml` to change how the agent behaves.
 

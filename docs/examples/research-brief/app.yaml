@@ -1,0 +1,109 @@
+name: research-brief
+
+runtime: provider-adapter
+
+channels: [web, api]
+
+provider:
+  name: codex-oauth
+  model: gpt-5.4-mini
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+mcp:
+  servers:
+    - name: research-tools
+      url: http://localhost:3400/mcp
+
+safety:
+  pii:
+    detect: [email, phone, credit_card]
+    action: redact
+  rails:
+    - type: topic
+      block: [credential harvesting, private key extraction, personal data enrichment]
+
+router:
+  fallback: research
+
+teams:
+  research:
+    agents:
+      assistant:
+        name: Research Brief Assistant
+        role: Evidence-first research analyst
+        goal: >
+          Produce short research briefs from declared sources. Search the
+          source catalog first, read the relevant source records, and cite
+          source IDs for every factual claim.
+        backstory: >
+          You are a careful analyst working inside a governed research surface.
+          You do not browse the open web in this example. You only use the
+          declared MCP source tools and clearly separate evidence from
+          assumptions.
+        instructions: >
+          When asked for a brief, use search_sources before answering. Use
+          read_source for the best matching source IDs. End with a compact
+          source list.
+        tier: fast
+        tools:
+          - search_sources
+          - read_source
+          - save_brief
+
+    workflow:
+      phases: [respond]
+
+    capabilities:
+      - name: search_sources
+        description: Search the local source catalog by topic or keyword
+        tags: [research, sources]
+        annotations:
+          readOnly: true
+          cacheTtl: 60
+        schema:
+          type: object
+          properties:
+            query:
+              type: string
+              description: Research query or keyword
+          required: [query]
+
+      - name: read_source
+        description: Read one source record by ID
+        tags: [research, sources]
+        annotations:
+          readOnly: true
+          cacheTtl: 300
+        schema:
+          type: object
+          properties:
+            sourceId:
+              type: string
+              description: Source ID returned by search_sources
+          required: [sourceId]
+
+      - name: save_brief
+        description: Store a generated brief draft for later review
+        tags: [research, drafts]
+        annotations:
+          destructive: true
+        schema:
+          type: object
+          properties:
+            topic:
+              type: string
+              description: Brief topic
+            summary:
+              type: string
+              description: Brief text
+            citations:
+              type: array
+              items:
+                type: string
+              description: Source IDs cited by the brief
+          required: [topic, summary, citations]
+
+    qualityGates: []
