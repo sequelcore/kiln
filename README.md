@@ -21,7 +21,47 @@ It regulates AI work the way a thermostat regulates temperature: sense state,
 compare it against policy and goals, apply bounded control, and recover safely
 when conditions drift.
 
-Its job is to govern execution, context, coordination, safety, and adaptation across tools and agents without letting any single model, prompt, or workflow become the system's source of truth.
+Its job is to govern execution, context, coordination, safety, and adaptation
+across tools and agents without letting any single model, prompt, or workflow
+become the system's source of truth.
+
+In practical terms, Kiln is for running governed local or remote agent sessions
+with explicit admission, bounded context, auditable tool use, memory evidence,
+provider routing, and operator-facing control surfaces.
+
+## Current Baseline
+
+Kiln is preparing a `2.0.0` public baseline. The repository is public and
+buildable from source, but the supported `2.0.0` npm line should be considered
+draft until the `v2.0.0` tag is published.
+
+Use this repo today if you want to:
+
+- inspect or contribute to the control-plane architecture
+- run workspace verification from source
+- work on the CLI, GUI, TUI, runtime, gateway contracts, or native surface
+- evaluate Kiln's governance model before depending on a published package
+
+Wait for the `2.0.0` release if you need a stable external package contract.
+
+## First Path
+
+```bash
+git clone https://github.com/sequelcore/kiln.git
+cd kiln
+bun install
+bun run typecheck
+bun run test
+bun run build
+```
+
+Then choose the surface that matches the workflow:
+
+```bash
+bun --cwd packages/cli src/index.ts tui
+bun --cwd packages/cli src/index.ts gui
+bun --cwd packages/cli src/index.ts run "Inspect this repository"
+```
 
 ## Thesis
 
@@ -53,6 +93,23 @@ Core subsystems:
 - **ModeController** manages operating modes such as `NORMAL`, `DEGRADED`, and `LOCKED`
 - **TelemetryLoop** closes feedback loops through measurement, anomaly detection, and tuning
 - **AdaptationEngine** updates policy and behavior without letting the system drift into self-corruption
+
+## Supported Surfaces
+
+| Surface | Status | Use it for |
+|---------|--------|------------|
+| CLI | Source-supported | Automation, local runs, config, auth, sync, project context, gateway launch |
+| TUI | Source-supported | Terminal-first supervision over the shared runtime session path |
+| GUI | Source-supported, private package | Rich local or gateway-attached operator supervision |
+| Runtime | Source-supported | Gateway, sessions, channels, triggers, interactive tools, provider routing |
+| Gateway contracts | Source-supported | Shared HTTP, WebSocket, projection, and operator-surface contracts |
+| React SDK | Source-supported | React integration over Kiln gateway contracts |
+| Widget | Source-supported | Embeddable interface components |
+| Native | Experimental/private | Electron-backed desktop capability and projection work |
+| Studio | Internal/private | Development inspection and topology views |
+
+See [Operator Surfaces](docs/guides/operator-surfaces.md) for when to use GUI,
+native, TUI, CLI, IDE, or gateway integrations.
 
 ## Documentation
 

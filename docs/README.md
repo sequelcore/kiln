@@ -3,7 +3,8 @@
 ## Entry Points
 
 - [Getting Started](getting-started.md)
-  Fast setup, verification, and documentation map for new contributors.
+  Fast setup, source verification, surface selection, and documentation map for
+  new contributors.
 
 - [Architecture](architecture/README.md)
   Canonical architecture doctrine for Kiln as a biocybernetic control plane.
@@ -31,6 +32,14 @@
 
 - [Release Notes](releases/README.md)
   Curated notes for supported public releases.
+
+## Public Baseline
+
+Kiln is preparing a `2.0.0` public baseline. The repository is public and
+source-buildable today, but the supported npm package line starts when the
+`v2.0.0` tag is published. Use [Getting Started](getting-started.md) to verify
+the repo from source and [Operator Surfaces](guides/operator-surfaces.md) to
+choose the right runtime surface.
 
 ## Architecture
 

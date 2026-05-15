@@ -6,12 +6,23 @@ Kiln is a biocybernetic control plane for governed AI work. It regulates work
 admission, context exposure, coordination, safety, memory, provider routing,
 tool authority, and evidence closeout across operator surfaces.
 
+In practical terms, Kiln is for running governed local or remote agent sessions
+with explicit policy, bounded context, auditable tools, memory evidence, and
+operator-facing control surfaces.
+
+## Is Kiln 2.0 published?
+
+Not yet. The repo is prepared for a `2.0.0` public baseline, but the supported
+`@kilnai/*` npm package line starts only after the `v2.0.0` tag is published.
+Build and verify from source until then.
+
 ## Where should a new contributor start?
 
-Start with [Getting Started](getting-started.md), then read the architecture
-index and roadmap:
+Start with [Getting Started](getting-started.md), run the source verification
+commands, then read the architecture index and operator surface guide:
 
 - [Architecture](architecture/README.md)
+- [Operator Surfaces](guides/operator-surfaces.md)
 - [Roadmap](roadmap/README.md)
 - [Engineering Standards](architecture/engineering-standards.md)
 - [Contributing](../CONTRIBUTING.md)

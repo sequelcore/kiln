@@ -5,6 +5,15 @@ documentation.
 
 Kiln is a biocybernetic control plane for governed AI work.
 
+## Current Baseline
+
+Kiln is preparing a `2.0.0` public baseline. The repo can be built and tested
+from source today, but the `2.0.0` npm package line is not supported until the
+`v2.0.0` tag is published.
+
+Use this guide for source checkout, verification, and contribution. Do not
+treat older `@kilnai/*` npm versions as the supported public baseline.
+
 ## Install
 
 ```bash
@@ -13,9 +22,20 @@ cd kiln
 bun install
 ```
 
+## First Verification Path
+
+The first successful experience should prove the repo is coherent before
+running any operator surface:
+
+```bash
+bun run typecheck
+bun run test
+bun run build
+```
+
 ## Verify The Workspace
 
-Run the same baseline checks used for repo hygiene:
+Run the same baseline checks before claiming work is complete:
 
 ```bash
 bun run typecheck
@@ -28,6 +48,28 @@ For GUI-only work, also use:
 ```bash
 bun run --cwd packages/gui lint
 ```
+
+## Run A Surface From Source
+
+Use the CLI source entry point before the `2.0.0` package line is published:
+
+```bash
+bun --cwd packages/cli src/index.ts tui
+bun --cwd packages/cli src/index.ts gui
+bun --cwd packages/cli src/index.ts run "Inspect this repository"
+```
+
+Choose the surface by workflow:
+
+| Workflow | Surface |
+|---|---|
+| Terminal-first supervision | TUI |
+| Rich local or remote browser supervision | GUI |
+| Automation, scripting, setup, and one-shot runs | CLI |
+| Gateway, channels, and remote attach patterns | Runtime and gateway contracts |
+| Desktop-specific capability experiments | Native |
+
+See [Operator Surfaces](guides/operator-surfaces.md).
 
 ## Read This First
 
@@ -69,10 +111,14 @@ Operational guides under `docs/guides/` complement those docs with
 configuration, workflow, and runtime details. If a guide and an architecture
 doc overlap, the architecture doc defines doctrine and the guide defines usage.
 
+Release notes and the changelog start at the supported `2.0` baseline. Older
+published artifacts were experimental and are not the current public contract.
+
 ## Where To Go Next
 
 - If you need doctrine: [Architecture](architecture/README.md)
 - If you need rationale: [Research](research/README.md)
 - If you need sequencing: [Roadmap](roadmap/README.md)
+- If you need surface selection: [Operator Surfaces](guides/operator-surfaces.md)
 - If you need runtime configuration details: [Configuration](configuration/app-yaml.md)
-- If you need historical release detail: [Changelog](changelog.md)
+- If you need release status: [Changelog](changelog.md)
