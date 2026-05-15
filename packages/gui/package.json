@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/gui",
-  "version": "1.0.7",
+  "version": "2.0.0",
   "description": "Rich web operator surface for the Kiln control plane",
   "private": true,
   "type": "module",

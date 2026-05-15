@@ -53,7 +53,7 @@ const CODEX_OAUTH_MODELS_URL = "https://chatgpt.com/backend-api/codex/models";
 const CODEX_OAUTH_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
 const CODEX_OAUTH_MODEL_DISCOVERY_CACHE_TTL_MS = 30_000;
 const CODEX_OAUTH_MODELS_CLIENT_VERSION =
-  process.env.KILN_CODEX_OAUTH_CLIENT_VERSION?.trim() || "1.0.7";
+  process.env.KILN_CODEX_OAUTH_CLIENT_VERSION?.trim() || "2.0.0";
 const CODEX_OAUTH_MODEL_DISCOVERY_DEBUG =
   /^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "");
 

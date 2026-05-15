@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/react",
-  "version": "1.0.7",
+  "version": "2.0.0",
   "description": "React hooks SDK for building apps on the Kiln control plane",
   "type": "module",
   "exports": {
@@ -36,8 +36,8 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@kilnai/core": "^1.0.7",
-    "@kilnai/gateway-contracts": "^1.0.7",
+    "@kilnai/core": "^2.0.0",
+    "@kilnai/gateway-contracts": "^2.0.0",
     "react": "^19.0.0"
   },
   "devDependencies": {

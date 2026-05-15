@@ -3590,7 +3590,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
         ok: (
           requestedUrl.origin === "https://chatgpt.com"
           && requestedUrl.pathname === "/backend-api/codex/models"
-          && requestedUrl.searchParams.get("client_version") === "1.0.7"
+          && requestedUrl.searchParams.get("client_version") === "2.0.0"
         ),
         json: async () => ({
           models: [
@@ -3661,7 +3661,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       const requestedUrl = new URL(String(url));
       expect(requestedUrl.origin).toBe("https://chatgpt.com");
       expect(requestedUrl.pathname).toBe("/backend-api/codex/models");
-      expect(requestedUrl.searchParams.get("client_version")).toBe("1.0.7");
+      expect(requestedUrl.searchParams.get("client_version")).toBe("2.0.0");
       expect(options).toEqual(expect.objectContaining({
         headers: { Authorization: "Bearer test-codex-token" },
       }));

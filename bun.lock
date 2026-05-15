@@ -22,7 +22,7 @@
     },
     "packages/cli": {
       "name": "@kilnai/cli",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "bin": {
         "kiln": "./dist/index.js",
       },
@@ -38,17 +38,17 @@
         "yaml": "^2.8.2",
       },
       "peerDependencies": {
-        "@kilnai/core": "^1.0.7",
-        "@kilnai/runtime": "^1.0.7",
-        "@kilnai/tui": "^1.0.7",
+        "@kilnai/core": "^2.0.0",
+        "@kilnai/runtime": "^2.0.0",
+        "@kilnai/tui": "^2.0.0",
       },
     },
     "packages/core": {
       "name": "@kilnai/core",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
-        "@kilnai/tools": "^1.0.7",
+        "@kilnai/tools": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "yaml": "^2.8.2",
       },
@@ -68,7 +68,7 @@
     },
     "packages/gateway-contracts": {
       "name": "@kilnai/gateway-contracts",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "dependencies": {
         "zod": "^3.24.3",
       },
@@ -79,7 +79,7 @@
     },
     "packages/gui": {
       "name": "@kilnai/gui",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "dependencies": {
         "@base-ui/react": "^1.4.1",
         "@fontsource-variable/geist": "^5.2.8",
@@ -131,7 +131,7 @@
     },
     "packages/native": {
       "name": "@kilnai/native",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "dependencies": {
         "@kilnai/gateway-contracts": "workspace:*",
         "electron": "^42.0.1",
@@ -149,7 +149,7 @@
     },
     "packages/runtime": {
       "name": "@kilnai/runtime",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "dependencies": {
         "@kilnai/gateway-contracts": "workspace:*",
         "hono": "^4.7.0",
@@ -158,7 +158,7 @@
         "unpdf": "^1.6.2",
       },
       "peerDependencies": {
-        "@kilnai/core": "^1.0.7",
+        "@kilnai/core": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.12.0",
         "@nut-tree/nut-js": "^5.1.1",
         "@opentelemetry/api": "^1.9.0",
@@ -175,7 +175,7 @@
     },
     "packages/sdk": {
       "name": "@kilnai/react",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "devDependencies": {
         "@kilnai/gateway-contracts": "workspace:*",
         "@testing-library/react": "^16.1.0",
@@ -186,14 +186,14 @@
         "vitest": "^4.0.18",
       },
       "peerDependencies": {
-        "@kilnai/core": "^1.0.7",
-        "@kilnai/gateway-contracts": "^1.0.7",
+        "@kilnai/core": "^2.0.0",
+        "@kilnai/gateway-contracts": "^2.0.0",
         "react": "^19.0.0",
       },
     },
     "packages/studio": {
       "name": "@kilnai/studio",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "devDependencies": {
         "@kilnai/react": "workspace:*",
         "@tanstack/react-query": "^5.64.0",
@@ -209,33 +209,33 @@
     },
     "packages/tools": {
       "name": "@kilnai/tools",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "optionalDependencies": {
-        "@kilnai/tools-darwin-arm64": "1.0.7",
-        "@kilnai/tools-darwin-x64": "1.0.7",
-        "@kilnai/tools-linux-x64": "1.0.7",
-        "@kilnai/tools-win32-x64": "1.0.7",
+        "@kilnai/tools-darwin-arm64": "2.0.0",
+        "@kilnai/tools-darwin-x64": "2.0.0",
+        "@kilnai/tools-linux-x64": "2.0.0",
+        "@kilnai/tools-win32-x64": "2.0.0",
       },
     },
     "packages/tools-darwin-arm64": {
       "name": "@kilnai/tools-darwin-arm64",
-      "version": "1.0.7",
+      "version": "2.0.0",
     },
     "packages/tools-darwin-x64": {
       "name": "@kilnai/tools-darwin-x64",
-      "version": "1.0.7",
+      "version": "2.0.0",
     },
     "packages/tools-linux-x64": {
       "name": "@kilnai/tools-linux-x64",
-      "version": "1.0.7",
+      "version": "2.0.0",
     },
     "packages/tools-win32-x64": {
       "name": "@kilnai/tools-win32-x64",
-      "version": "1.0.7",
+      "version": "2.0.0",
     },
     "packages/tui": {
       "name": "@kilnai/tui",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "dependencies": {
         "@kilnai/gateway-contracts": "workspace:*",
         "@opentui/core": "0.1.92",
@@ -253,14 +253,14 @@
         "@opentui/core-win32-x64": "0.1.92",
       },
       "peerDependencies": {
-        "@kilnai/cli": "^1.0.7",
-        "@kilnai/core": "^1.0.7",
+        "@kilnai/cli": "^2.0.0",
+        "@kilnai/core": "^2.0.0",
         "react": "^19.0.0",
       },
     },
     "packages/widget": {
       "name": "@kilnai/widget",
-      "version": "1.0.7",
+      "version": "2.0.0",
       "devDependencies": {
         "jsdom": "^25.0.0",
         "vitest": "^4.0.18",

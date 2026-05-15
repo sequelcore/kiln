@@ -60,8 +60,8 @@ instead of being archived as stale roadmap files.
 
 ## How are release notes different from the changelog?
 
-`docs/changelog.md` is the full engineering log. Curated release notes live
-under `docs/releases/`.
+`docs/changelog.md` tracks supported public changes from the 2.0 baseline.
+Curated release notes live under `docs/releases/`.
 
 ## How does configuration work?
 

@@ -3,11 +3,15 @@ name: Publish
 on:
   push:
     tags:
-      - "v*"
+      - "v2.*"
 
 permissions:
   contents: read
   id-token: write
+
+concurrency:
+  group: publish-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -19,7 +23,57 @@ jobs:
         with:
           bun-version: latest
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
       - run: bun install --frozen-lockfile
+
+      - name: Validate release tag and package graph
+        run: |
+          VERSION=$(node -p "require('./packages/core/package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package version ${VERSION}."
+            exit 1
+          fi
+
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+
+          const packagesDir = "packages";
+          const packages = fs.readdirSync(packagesDir)
+            .map((name) => path.join(packagesDir, name, "package.json"))
+            .filter((file) => fs.existsSync(file))
+            .map((file) => ({ file, manifest: JSON.parse(fs.readFileSync(file, "utf8")) }));
+
+          const version = packages.find((pkg) => pkg.manifest.name === "@kilnai/core").manifest.version;
+          const published = packages.filter((pkg) => pkg.manifest.private !== true);
+          const failures = [];
+
+          for (const { file, manifest } of published) {
+            if (manifest.version !== version) {
+              failures.push(`${file}: expected version ${version}, found ${manifest.version}`);
+            }
+
+            for (const section of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+              for (const [name, range] of Object.entries(manifest[section] ?? {})) {
+                if (!name.startsWith("@kilnai/")) {
+                  continue;
+                }
+                if (range !== `^${version}` && range !== version && range !== "workspace:*") {
+                  failures.push(`${file}: ${section}.${name} must target ${version}, found ${range}`);
+                }
+              }
+            }
+          }
+
+          if (failures.length > 0) {
+            console.error(failures.join("\n"));
+            process.exit(1);
+          }
+          NODE
 
       - name: Typecheck
         run: bun run typecheck
@@ -27,115 +81,114 @@ jobs:
       - name: Test
         run: bun run test
 
-      - name: Build core
-        run: bun run --filter @kilnai/core build
+      - name: Build
+        run: bun run build
 
-      - name: Build runtime
-        run: bun run --filter @kilnai/runtime build
-
-      - name: Build tools
-        run: bun run --filter @kilnai/tools build
-
-      - name: Build sdk
-        run: bun run --filter @kilnai/react build
-
-      - name: Build tui
-        run: bun run --filter @kilnai/tui build
-
-      - name: Build cli
-        run: bun run --filter @kilnai/cli build
-
-      - name: Build widget
-        run: bun run --filter @kilnai/widget build
-
-      - name: Configure npm auth
+      - name: Resolve workspace versions for publish
         run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-          cp .npmrc packages/tools/.npmrc
-          cp .npmrc packages/tools-darwin-arm64/.npmrc
-          cp .npmrc packages/tools-darwin-x64/.npmrc
-          cp .npmrc packages/tools-linux-x64/.npmrc
-          cp .npmrc packages/tools-win32-x64/.npmrc
-          cp .npmrc packages/core/.npmrc
-          cp .npmrc packages/runtime/.npmrc
-          cp .npmrc packages/sdk/.npmrc
-          cp .npmrc packages/cli/.npmrc
-          cp .npmrc packages/tui/.npmrc
-          cp .npmrc packages/widget/.npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
 
-      - name: Resolve workspace versions
-        run: |
-          VERSION=$(jq -r .version packages/core/package.json)
-          for pkg in packages/*; do
-            if [ "$(jq -r '.private // false' "$pkg/package.json")" = "true" ]; then
-              continue
-            fi
-            jq --arg v "^$VERSION" '
-              if has("peerDependencies") then
-                .peerDependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
-              else
-                .
-              end
-              | if has("dependencies") then
-                  .dependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
-                else
-                  .
-                end
-              | if has("optionalDependencies") then
-                  .optionalDependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
-                else
-                  .
-                end
-              | if has("devDependencies") then
-                  .devDependencies |= with_entries(if .value == "workspace:*" then .value = $v else . end)
-                else
-                  .
-                end
-            ' "$pkg/package.json" > tmp.json && mv tmp.json "$pkg/package.json"
-          done
+          const packagesDir = "packages";
+          const version = JSON.parse(fs.readFileSync("packages/core/package.json", "utf8")).version;
+
+          for (const packageName of fs.readdirSync(packagesDir)) {
+            const manifestPath = path.join(packagesDir, packageName, "package.json");
+            if (!fs.existsSync(manifestPath)) {
+              continue;
+            }
+
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+            if (manifest.private === true) {
+              continue;
+            }
+
+            for (const section of ["dependencies", "peerDependencies", "optionalDependencies", "devDependencies"]) {
+              const deps = manifest[section];
+              if (!deps) {
+                continue;
+              }
+
+              for (const name of Object.keys(deps)) {
+                if (name.startsWith("@kilnai/") && deps[name] === "workspace:*") {
+                  deps[name] = `^${version}`;
+                }
+              }
+            }
+
+            fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+          }
+          NODE
 
       - name: Publish @kilnai/tools-darwin-arm64
         working-directory: packages/tools-darwin-arm64
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/tools-darwin-x64
         working-directory: packages/tools-darwin-x64
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/tools-linux-x64
         working-directory: packages/tools-linux-x64
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/tools-win32-x64
         working-directory: packages/tools-win32-x64
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/tools
         working-directory: packages/tools
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @kilnai/gateway-contracts
+        working-directory: packages/gateway-contracts
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/core
         working-directory: packages/core
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/runtime
         working-directory: packages/runtime
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/react
         working-directory: packages/sdk
-        run: bun publish --access public --no-git-checks
-
-      - name: Publish @kilnai/tui
-        working-directory: packages/tui
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/cli
         working-directory: packages/cli
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @kilnai/tui
+        working-directory: packages/tui
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @kilnai/widget
         working-directory: packages/widget
-        run: bun publish --access public --no-git-checks
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

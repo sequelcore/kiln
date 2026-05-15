@@ -24,7 +24,10 @@
   Active, deferred, and completed implementation tracks.
 
 - [Changelog](changelog.md)
-  Historical engineering log. Public release notes live under `docs/releases/`.
+  Supported public change log beginning with the 2.0 baseline.
+
+- [Release Notes](releases/README.md)
+  Curated notes for supported public releases.
 
 ## Architecture
 

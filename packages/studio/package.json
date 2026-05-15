@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/studio",
-  "version": "1.0.7",
+  "version": "2.0.0",
   "description": "Private development UI for inspecting Kiln gateway state",
   "private": true,
   "type": "module",
