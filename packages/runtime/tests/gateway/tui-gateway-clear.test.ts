@@ -208,6 +208,20 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
   };
 }
 
+function makeTuiOperatorDiscoveryFromModels(
+  modelsByProvider: Record<string, readonly string[]>,
+): GuiProviderDiscoveryResult[] {
+  return Object.entries(modelsByProvider).map(([provider, models]) => ({
+    provider,
+    available: true,
+    models: [...models],
+    status: "available",
+    reason: `${provider} models discovered.`,
+    authState: "authenticated",
+    lastCheckedAt: "2026-04-28T12:00:00.000Z",
+  }));
+}
+
 async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -335,9 +349,13 @@ describe("TUI gateway startup discovery", () => {
   it("starts listening before provider discovery resolves", async () => {
     vi.resetModules();
     stubBunServe();
+    let resolveDiscovery: ((discovery: GuiProviderDiscoveryResult[]) => void) | undefined;
+    const pendingDiscovery = new Promise<GuiProviderDiscoveryResult[]>((resolve) => {
+      resolveDiscovery = resolve;
+    });
     const discoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockImplementation(() => new Promise(() => undefined));
+      .mockImplementation(() => pendingDiscovery);
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
@@ -347,6 +365,8 @@ describe("TUI gateway startup discovery", () => {
       expect(gateway.providerDiscovery).toEqual([]);
       expect(discoverySpy).toHaveBeenCalledTimes(1);
     } finally {
+      resolveDiscovery?.([]);
+      await flushAsyncWork();
       discoverySpy.mockRestore();
       gateway.shutdown();
     }
@@ -355,8 +375,11 @@ describe("TUI gateway startup discovery", () => {
 
 describe("TUI gateway provider switching", () => {
   it("echoes provider switch requestId on provider_changed", async () => {
+    vi.resetModules();
     stubBunServe();
-    vi.mocked(execSync).mockReturnValue("openai/gpt-5\n");
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }));
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
@@ -385,6 +408,7 @@ describe("TUI gateway provider switching", () => {
         requestId: "request-1",
       });
     } finally {
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
