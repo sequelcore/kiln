@@ -83,8 +83,9 @@ explicitly parked until their prerequisite product surface exists.
   read-only view-state baseline and native metadata wrapper for cross-surface
   contract parity. It also defines a shared benchmark evidence report and
   promotion gate contract that keeps TypeScript projection/view-state baselines
-  as contract-only evidence until rendering and governance reports exist. Live
-  gateway attach loops,
+  as contract-only evidence until rendering and governance reports exist.
+  Phase 3 evidence is represented as typed contract reports, not runners or
+  measured benchmark outputs. Live gateway attach loops,
   resource-opening dispatch, cancellation dispatch, browser-rendering benchmarks, and
   Rust/WASM/sidecar modules remain out of scope until measurement justifies
   them.

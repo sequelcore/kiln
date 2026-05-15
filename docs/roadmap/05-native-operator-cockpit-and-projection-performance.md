@@ -1216,6 +1216,10 @@ Started 2026-05-14:
   native-advantage proof are all present. Rust candidate/promotion flags remain
   blocked unless projection/view-state bottleneck evidence and Rust hot-path
   proof are explicitly provided.
+- Phase 3 evidence inputs are now typed contract reports (browser rendering,
+  native rendering, target clarity, interaction latency, memory) with auditable
+  metadata fields. These are evidence contracts only; they are not benchmark
+  runners, live measurements, or promotion proofs by themselves.
 
 ### Phase 3 - Benchmark and Compare
 

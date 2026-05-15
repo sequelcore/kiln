@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  type OperatorCockpitBrowserRenderingBenchmarkEvidenceReport,
+  type OperatorCockpitInteractionLatencyReport,
+  type OperatorCockpitMemoryReport,
+  type OperatorCockpitNativeRenderingBenchmarkEvidenceReport,
+  type OperatorCockpitTargetClarityReport,
   createOperatorCockpitBenchmarkFixture,
   createOperatorCockpitBenchmarkEvidenceReport,
   measureOperatorCockpitProjectionBaseline,
@@ -252,6 +257,53 @@ describe("operator cockpit benchmark fixtures", () => {
 });
 
 describe("operator cockpit benchmark evidence report", () => {
+  const browserRenderingEvidenceFixture: OperatorCockpitBrowserRenderingBenchmarkEvidenceReport = {
+    measuredAt: "2026-05-14T13:00:00.000Z",
+    workloadId: "operator-cockpit-phase3",
+    measured: true,
+    environment: "playwright-ci",
+    sampleCount: 5,
+  };
+  const nativeRenderingEvidenceFixture: OperatorCockpitNativeRenderingBenchmarkEvidenceReport = {
+    measuredAt: "2026-05-14T13:00:10.000Z",
+    workloadId: "operator-cockpit-phase3",
+    measured: true,
+    environment: "electron-ci",
+    sampleCount: 5,
+    nativeAdvantageConfirmed: true,
+  };
+  const targetClarityReportFixture: OperatorCockpitTargetClarityReport = {
+    measuredAt: "2026-05-14T13:00:20.000Z",
+    workloadId: "operator-cockpit-phase3",
+    measured: true,
+    complete: true,
+    targetCount: 3,
+  };
+  const interactionLatencyReportFixture: OperatorCockpitInteractionLatencyReport = {
+    measuredAt: "2026-05-14T13:00:30.000Z",
+    workloadId: "operator-cockpit-phase3",
+    measured: true,
+    complete: true,
+    sampleCount: 250,
+    p95LatencyMs: 45,
+  };
+  const memoryReportFixture: OperatorCockpitMemoryReport = {
+    measuredAt: "2026-05-14T13:00:40.000Z",
+    workloadId: "operator-cockpit-phase3",
+    measured: true,
+    complete: true,
+    sampleCount: 40,
+    peakRssMb: 512,
+  };
+
+  it("defines typed phase 3 evidence report contracts", () => {
+    expect(browserRenderingEvidenceFixture.measured).toBe(true);
+    expect(nativeRenderingEvidenceFixture.nativeAdvantageConfirmed).toBe(true);
+    expect(targetClarityReportFixture.complete).toBe(true);
+    expect(interactionLatencyReportFixture.p95LatencyMs).toBeGreaterThan(0);
+    expect(memoryReportFixture.peakRssMb).toBeGreaterThan(0);
+  });
+
   function createSharedBaselines() {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "evidence-shared-only",
@@ -345,10 +397,18 @@ describe("operator cockpit benchmark evidence report", () => {
       readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
       readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
       browserRenderingEvidence: {
+        measuredAt: "2026-05-14T13:05:00.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "playwright-ci",
+        sampleCount: 5,
       },
       nativeRenderingEvidence: {
+        measuredAt: "2026-05-14T13:05:10.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "electron-ci",
+        sampleCount: 5,
         nativeAdvantageConfirmed: true,
       },
       resourceOpeningDispatchEvidence: {
@@ -379,20 +439,42 @@ describe("operator cockpit benchmark evidence report", () => {
       readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
       readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
       browserRenderingEvidence: {
+        measuredAt: "2026-05-14T13:10:00.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "playwright-ci",
+        sampleCount: 5,
       },
       nativeRenderingEvidence: {
+        measuredAt: "2026-05-14T13:10:10.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "electron-ci",
+        sampleCount: 5,
         nativeAdvantageConfirmed: true,
       },
       targetClarityReport: {
+        measuredAt: "2026-05-14T13:10:20.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        targetCount: 3,
       },
       interactionLatencyReport: {
+        measuredAt: "2026-05-14T13:10:30.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 250,
+        p95LatencyMs: 45,
       },
       memoryReport: {
+        measuredAt: "2026-05-14T13:10:40.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 40,
+        peakRssMb: 512,
       },
     });
 
@@ -402,26 +484,93 @@ describe("operator cockpit benchmark evidence report", () => {
     expect(report.rustPromotionAllowed).toBe(false);
   });
 
+  it("blocks promotion when governance reports are complete but unmeasured", () => {
+    const baselines = createSharedBaselines();
+    const completeInput = {
+      measuredAt: "2026-05-14T13:11:00.000Z",
+      fixtureSummary: baselines.fixture.summary,
+      projectionBaseline: baselines.projectionBaseline,
+      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
+      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
+      browserRenderingEvidence: browserRenderingEvidenceFixture,
+      nativeRenderingEvidence: nativeRenderingEvidenceFixture,
+      targetClarityReport: targetClarityReportFixture,
+      interactionLatencyReport: interactionLatencyReportFixture,
+      memoryReport: memoryReportFixture,
+    };
+
+    const targetClarityReport = createOperatorCockpitBenchmarkEvidenceReport({
+      ...completeInput,
+      targetClarityReport: {
+        ...targetClarityReportFixture,
+        measured: false,
+      },
+    });
+    const interactionLatencyReport = createOperatorCockpitBenchmarkEvidenceReport({
+      ...completeInput,
+      interactionLatencyReport: {
+        ...interactionLatencyReportFixture,
+        measured: false,
+      },
+    });
+    const memoryReport = createOperatorCockpitBenchmarkEvidenceReport({
+      ...completeInput,
+      memoryReport: {
+        ...memoryReportFixture,
+        measured: false,
+      },
+    });
+
+    expect(targetClarityReport.promotionAllowed).toBe(false);
+    expect(targetClarityReport.missingEvidence).toContain("target-clarity-report");
+    expect(interactionLatencyReport.promotionAllowed).toBe(false);
+    expect(interactionLatencyReport.missingEvidence).toContain("interaction-latency-report");
+    expect(memoryReport.promotionAllowed).toBe(false);
+    expect(memoryReport.missingEvidence).toContain("memory-report");
+  });
+
   it("blocks promotion when shared baselines are missing even if external evidence is present", () => {
     const baselines = createSharedBaselines();
     const report = createOperatorCockpitBenchmarkEvidenceReport({
       measuredAt: "2026-05-14T13:12:00.000Z",
       fixtureSummary: baselines.fixture.summary,
       browserRenderingEvidence: {
+        measuredAt: "2026-05-14T13:12:00.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "playwright-ci",
+        sampleCount: 5,
       },
       nativeRenderingEvidence: {
+        measuredAt: "2026-05-14T13:12:10.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "electron-ci",
+        sampleCount: 5,
         nativeAdvantageConfirmed: true,
       },
       targetClarityReport: {
+        measuredAt: "2026-05-14T13:12:20.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        targetCount: 3,
       },
       interactionLatencyReport: {
+        measuredAt: "2026-05-14T13:12:30.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 250,
+        p95LatencyMs: 45,
       },
       memoryReport: {
+        measuredAt: "2026-05-14T13:12:40.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 40,
+        peakRssMb: 512,
       },
       projectionViewStateBottleneck: {
         reported: true,
@@ -447,20 +596,42 @@ describe("operator cockpit benchmark evidence report", () => {
       readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
       readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
       browserRenderingEvidence: {
+        measuredAt: "2026-05-14T13:13:00.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "playwright-ci",
+        sampleCount: 5,
       },
       nativeRenderingEvidence: {
+        measuredAt: "2026-05-14T13:13:10.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "electron-ci",
+        sampleCount: 5,
         nativeAdvantageConfirmed: true,
       },
       targetClarityReport: {
+        measuredAt: "2026-05-14T13:13:20.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        targetCount: 3,
       },
       interactionLatencyReport: {
+        measuredAt: "2026-05-14T13:13:30.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 250,
+        p95LatencyMs: 45,
       },
       memoryReport: {
+        measuredAt: "2026-05-14T13:13:40.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 40,
+        peakRssMb: 512,
       },
       rustHotPathEvidence: {
         present: true,
@@ -502,20 +673,42 @@ describe("operator cockpit benchmark evidence report", () => {
       readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
       readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
       browserRenderingEvidence: {
+        measuredAt: "2026-05-14T13:15:00.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "playwright-ci",
+        sampleCount: 5,
       },
       nativeRenderingEvidence: {
+        measuredAt: "2026-05-14T13:15:10.000Z",
+        workloadId: "operator-cockpit-phase3",
         measured: true,
+        environment: "electron-ci",
+        sampleCount: 5,
         nativeAdvantageConfirmed: true,
       },
       targetClarityReport: {
+        measuredAt: "2026-05-14T13:15:20.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        targetCount: 3,
       },
       interactionLatencyReport: {
+        measuredAt: "2026-05-14T13:15:30.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 250,
+        p95LatencyMs: 45,
       },
       memoryReport: {
+        measuredAt: "2026-05-14T13:15:40.000Z",
+        workloadId: "operator-cockpit-phase3",
+        measured: true,
         complete: true,
+        sampleCount: 40,
+        peakRssMb: 512,
       },
       projectionViewStateBottleneck: {
         reported: true,

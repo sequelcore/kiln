@@ -358,6 +358,35 @@ Deliverables:
   promotion blocked until rendering plus target-clarity, interaction-latency,
   memory, and native-advantage evidence exists.
 
+### Slice 14 - Typed Phase 3 Evidence Contracts
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+
+Deliverables:
+
+- Replace coarse boolean Phase 3 placeholders with typed evidence contracts for
+  browser rendering, native rendering, target clarity, interaction latency, and
+  memory reports.
+- Keep this slice contract-only: no benchmark runner, no live attach loop, no
+  dispatch/cancellation implementation, and no Rust/WASM/sidecar execution
+  path.
+- Tighten gate behavior: promotion still requires shared baselines, measured
+  browser/native rendering, native advantage confirmation, and measured plus
+  complete target-clarity/interaction-latency/memory reports.
+- Keep Rust candidacy/promotion evidence-gated: request flags alone cannot
+  allow Rust candidacy or promotion without both bottleneck evidence and Rust
+  hot-path proof.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -450,3 +479,15 @@ Deliverables:
 - Passed `bun run typecheck` after Slice 12.
 - Passed `bun run test` after Slice 12.
 - Passed `bun run build` after Slice 12.
+- Added and observed the expected failing test for unmeasured-but-complete
+  Phase 3 governance reports before tightening the Slice 14 gate.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 14.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 14.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 14.
+- Passed `bun run --cwd packages/native test` after Slice 14.
+- Passed `bun run --cwd packages/native typecheck` after Slice 14.
+- Passed `bun run --cwd packages/native build` after Slice 14.
+- Passed `bun run typecheck` after Slice 14.
+- Passed `bun run test` after Slice 14.
+- Passed `bun run build` after Slice 14.
+- Passed `git diff --check` after Slice 14.

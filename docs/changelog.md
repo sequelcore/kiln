@@ -74,6 +74,11 @@
   promotion blocked until rendering plus target-clarity/interaction/memory
   reports and native-advantage proof exist, and keeps Rust promotion blocked
   until explicit bottleneck and Rust hot-path evidence are provided.
+- Added typed Phase 3 evidence contracts in `@kilnai/gateway-contracts` for
+  browser rendering, native rendering, target clarity, interaction latency, and
+  memory audit reports. These remain contract-only metadata shapes and do not
+  implement benchmark runners, live attach loops, dispatch, cancellation, or
+  Rust/WASM/sidecar execution.
 - Added the native read-only cockpit view-state baseline wrapper in
   `@kilnai/native`, preserving `runtimeBoundary: gateway-contracts`,
   `mutationDispatch: disabled`, and fail-closed selector behavior.

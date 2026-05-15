@@ -195,6 +195,10 @@ The benchmark evidence gate is also shared:
 `createOperatorCockpitBenchmarkEvidenceReport` lives in
 `@kilnai/gateway-contracts` and is consumed by native directly. This slice does
 not add a native wrapper for that report.
+Phase 3 evidence inputs are typed audit contracts (browser/native rendering,
+target clarity, interaction latency, memory) with explicit measurement metadata
+and completion flags. They do not execute benchmarks or replace real runner
+proof.
 
 ## Rust Boundary
 

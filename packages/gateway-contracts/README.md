@@ -77,6 +77,10 @@ network attach benchmark, dispatch benchmark, or Rust/WASM/sidecar proof.
 over those benchmark outputs. It records implemented evidence, missing evidence,
 promotion eligibility, and Rust-candidate eligibility while defaulting to
 contract-only recommendations when only shared TypeScript baselines exist.
+Phase 3 benchmark evidence is expressed through typed report contracts for
+browser rendering, native rendering, target clarity, interaction latency, and
+memory. These contracts are auditable metadata shapes only; they do not run
+benchmarks, attach to gateways, dispatch actions, or provide Rust proof.
 It is not a rendering runner, network attach runner, dispatch mechanism, or
 Rust proof implementation.
 

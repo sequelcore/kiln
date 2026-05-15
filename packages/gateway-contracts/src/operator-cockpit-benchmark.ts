@@ -139,12 +139,22 @@ export type OperatorCockpitBenchmarkEvidenceRecommendation =
   | "continue-native-with-rust-candidate"
   | "abandon";
 
-export interface OperatorCockpitRenderingEvidence {
+export interface OperatorCockpitBrowserRenderingBenchmarkEvidenceReport {
+  readonly measuredAt: string;
+  readonly workloadId: string;
+  readonly fixtureId?: string;
   readonly measured: boolean;
+  readonly environment: string;
+  readonly sampleCount: number;
 }
 
-export interface OperatorCockpitNativeRenderingEvidence {
+export interface OperatorCockpitNativeRenderingBenchmarkEvidenceReport {
+  readonly measuredAt: string;
+  readonly workloadId: string;
+  readonly fixtureId?: string;
   readonly measured: boolean;
+  readonly environment: string;
+  readonly sampleCount: number;
   readonly nativeAdvantageConfirmed?: boolean;
 }
 
@@ -152,8 +162,33 @@ export interface OperatorCockpitDispatchEvidence {
   readonly measured: boolean;
 }
 
-export interface OperatorCockpitBenchmarkGovernanceReport {
+export interface OperatorCockpitTargetClarityReport {
+  readonly measuredAt: string;
+  readonly workloadId: string;
+  readonly fixtureId?: string;
+  readonly measured: boolean;
   readonly complete: boolean;
+  readonly targetCount: number;
+}
+
+export interface OperatorCockpitInteractionLatencyReport {
+  readonly measuredAt: string;
+  readonly workloadId: string;
+  readonly fixtureId?: string;
+  readonly measured: boolean;
+  readonly complete: boolean;
+  readonly sampleCount: number;
+  readonly p95LatencyMs: number;
+}
+
+export interface OperatorCockpitMemoryReport {
+  readonly measuredAt: string;
+  readonly workloadId: string;
+  readonly fixtureId?: string;
+  readonly measured: boolean;
+  readonly complete: boolean;
+  readonly sampleCount: number;
+  readonly peakRssMb: number;
 }
 
 export interface OperatorCockpitRustHotPathEvidence {
@@ -172,13 +207,13 @@ export interface OperatorCockpitBenchmarkEvidenceReportInput {
   readonly projectionBaseline?: OperatorCockpitProjectionBaseline;
   readonly readOnlyProjectionBaseline?: OperatorCockpitReadOnlyProjectionBaseline;
   readonly readOnlyViewStateBaseline?: OperatorCockpitReadOnlyViewStateBaseline;
-  readonly browserRenderingEvidence?: OperatorCockpitRenderingEvidence;
-  readonly nativeRenderingEvidence?: OperatorCockpitNativeRenderingEvidence;
+  readonly browserRenderingEvidence?: OperatorCockpitBrowserRenderingBenchmarkEvidenceReport;
+  readonly nativeRenderingEvidence?: OperatorCockpitNativeRenderingBenchmarkEvidenceReport;
   readonly resourceOpeningDispatchEvidence?: OperatorCockpitDispatchEvidence;
   readonly cancellationDispatchEvidence?: OperatorCockpitDispatchEvidence;
-  readonly targetClarityReport?: OperatorCockpitBenchmarkGovernanceReport;
-  readonly interactionLatencyReport?: OperatorCockpitBenchmarkGovernanceReport;
-  readonly memoryReport?: OperatorCockpitBenchmarkGovernanceReport;
+  readonly targetClarityReport?: OperatorCockpitTargetClarityReport;
+  readonly interactionLatencyReport?: OperatorCockpitInteractionLatencyReport;
+  readonly memoryReport?: OperatorCockpitMemoryReport;
   readonly projectionViewStateBottleneck?: OperatorCockpitProjectionViewStateBottleneckReport;
   readonly rustHotPathEvidence?: OperatorCockpitRustHotPathEvidence;
   readonly rustHotPathRequested?: boolean;
@@ -384,9 +419,12 @@ export function createOperatorCockpitBenchmarkEvidenceReport(
   const hasBrowserRendering = input.browserRenderingEvidence?.measured === true;
   const hasNativeRendering = input.nativeRenderingEvidence?.measured === true;
   const hasNativeAdvantage = input.nativeRenderingEvidence?.nativeAdvantageConfirmed === true;
-  const hasTargetClarity = input.targetClarityReport?.complete === true;
-  const hasInteractionLatency = input.interactionLatencyReport?.complete === true;
-  const hasMemoryReport = input.memoryReport?.complete === true;
+  const hasTargetClarity = input.targetClarityReport?.measured === true
+    && input.targetClarityReport.complete === true;
+  const hasInteractionLatency = input.interactionLatencyReport?.measured === true
+    && input.interactionLatencyReport.complete === true;
+  const hasMemoryReport = input.memoryReport?.measured === true
+    && input.memoryReport.complete === true;
   const promotionAllowed = hasProjectionBaselines
     && hasBrowserRendering
     && hasNativeRendering
