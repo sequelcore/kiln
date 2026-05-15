@@ -67,31 +67,7 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-- `05-native-operator-cockpit-and-projection-performance.md`
-  Active with contract/projection closeout complete after typed Phase 3
-  evidence contracts, still pre-Phase 3 execution. The current scope
-  defines precondition review, explicit target/action admission, benchmark
-  fixture thresholds, shared GUI projection baselines, cancellation target
-  contracts, a shared read-only cockpit projection substrate, and the native
-  wrapper over that shared projection/action-intent contract before any native
-  cockpit UI. It also defines the shared TypeScript read-only projection
-  baseline that later GUI/native rendering and Rust/WASM/sidecar candidates
-  must match, plus a read-only attach plan that validates explicit local and
-  simulated remote gateway URLs without opening network connections. Shared
-  projection now includes target-aware resource links for open-resource
-  affordances without dispatch and read-only view-state helpers for
-  target-safe focus/filter/replay selection, plus a shared TypeScript
-  read-only view-state baseline and native metadata wrapper for cross-surface
-  contract parity. It also defines a shared benchmark evidence report and
-  promotion gate contract that keeps TypeScript projection/view-state baselines
-  as contract-only evidence until rendering and governance reports exist.
-  Phase 3 evidence is represented as typed contract reports, not runners or
-  measured benchmark outputs. Phase 3 and later remain blocked until real
-  benchmark runners produce measured browser/native rendering evidence. Live
-  gateway attach loops,
-  resource-opening dispatch, cancellation dispatch, browser-rendering benchmarks, and
-  Rust/WASM/sidecar modules remain out of scope until measurement justifies
-  them.
+- No active roadmap in this track.
 
 ## Deferred Roadmaps
 
@@ -270,6 +246,13 @@ explicitly parked until their prerequisite product surface exists.
   preload IPC, open/takeover/input/release/resume controls, ownership-gated
   runtime dispatch, `electron-webcontents` projection, sanitized evidence, and
   a deterministic product smoke proof with clean shutdown.
+- Native operator cockpit/projection roadmap 05 decision closeout completed on
+  2026-05-15 with defer/no-promotion status. Contract/projection foundations
+  remain canonical in `docs/architecture/native-cockpit-projection.md`, and
+  typed Phase 3 evidence contracts exist, but no measured browser/native
+  rendering evidence exists. Future live Phase 3 benchmark runner work, native
+  cockpit UI, dispatch path, gateway attach loop, and Rust/WASM/sidecar modules
+  require a dedicated validation roadmap or ADR.
 
 ## Execution Priority
 
@@ -277,8 +260,8 @@ explicitly parked until their prerequisite product surface exists.
    shared projections, batching, resource links, virtualization, and metrics are
    v1 surface requirements, not late cleanup.
 2. Keep `05-native-operator-cockpit-and-projection-performance.md` limited to
-   contract-only Phase 0/1 until GUI baseline benchmarks and
-   gateway-mediated cancellation target semantics exist.
+   closed defer/no-promotion status until a dedicated
+   benchmark-runner/native-cockpit validation roadmap or ADR is approved.
 
 ## Deferred Candidates
 

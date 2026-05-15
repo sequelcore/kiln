@@ -1,6 +1,6 @@
 # Native Cockpit Projection Contract Plan
 
-Status: active.
+Status: complete on 2026-05-15 (defer/no-promotion closeout).
 
 ## Objective
 
@@ -418,6 +418,39 @@ Verification checklist:
 - Confirm unrelated dirty files `.kiln/kiln.yaml` and
   `packages/gui/tests/memory-lattice-panel.test.tsx` remain untouched.
 
+### Slice 16 - Phase 5 Decision Closeout
+
+Files:
+
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Mark Roadmap 05 complete on 2026-05-15 with explicit defer/no-promotion
+  decision.
+- Keep the typed contract/projection foundation and Phase 3 evidence contracts
+  canonical, while explicitly preserving that measured browser/native rendering
+  evidence does not exist yet.
+- Move Roadmap 05 out of active roadmap status and record completion/defer
+  outcome in roadmap index and architecture status.
+- Require a new dedicated benchmark-runner/native-cockpit validation roadmap or
+  ADR before any live Phase 3 benchmark runner, native cockpit UI, dispatch
+  path, gateway attach loop, or Rust/WASM/sidecar module starts.
+
+Verification checklist:
+
+- Confirm only approved docs files changed.
+- Confirm Roadmap 05 no longer reads as actively waiting for Phase 3 execution
+  inside the same roadmap.
+- Confirm README and architecture docs both reflect complete/deferred status.
+- Confirm changelog records Slice 16 Phase 5 decision closeout on 2026-05-15.
+- Confirm `.kiln/kiln.yaml` and
+  `packages/gui/tests/memory-lattice-panel.test.tsx` remain untouched.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -530,3 +563,11 @@ Verification checklist:
 - Passed `git diff --check` after Slice 15.
 - Rechecked roadmap wording so contract/projection closeout does not imply
   permission to start live runners or Rust modules.
+- Confirmed only approved docs files changed for Slice 16; unrelated dirty
+  files remain unstaged and untouched.
+- Passed `bun run typecheck` after Slice 16.
+- Passed `bun run build` after Slice 16.
+- Passed `bun run test` after Slice 16.
+- Passed `git diff --check` after Slice 16.
+- Reviewer rechecked the 2026-05-15 closeout date against the governing
+  session date and reported no findings.

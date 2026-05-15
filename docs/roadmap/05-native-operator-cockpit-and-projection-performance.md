@@ -2,10 +2,11 @@
 
 ## Status
 
-Active experimental roadmap. Started on 2026-05-14 in contract-only Phase 0/1.
-Contract/projection closeout is complete after the typed Phase 3 evidence
-contracts commit. This closeout covers evidence-gated contract surfaces only;
-it does not promote the experiment or start Phase 3 execution.
+Complete on 2026-05-15 by decision closeout. Started on 2026-05-14 in
+contract-only Phase 0/1 and closed in Phase 5 with defer/no-promotion status.
+Roadmap 05 closes with contract/projection foundations retained as canonical
+evidence gates. It does not promote the native cockpit experiment or start
+Phase 3 execution.
 
 Current implemented scope is precondition review, explicit target/action
 admission,
@@ -18,8 +19,9 @@ hot-path boundaries. Do not build a native cockpit UI, browser rendering
 benchmark runner, live gateway attach loop, resource-opening dispatch,
 cancellation dispatch, or Rust/WASM/sidecar module until a later measured
 evidence gate justifies them.
-Phase 3 and later remain future work blocked on real benchmark runners and
-measured browser/native rendering evidence over approved workloads.
+Phase 3 and later remain future work in a separate scope, blocked on real
+benchmark runners and measured browser/native rendering evidence over approved
+workloads.
 
 Do not start this program before the completed plan/goal workflow-control
 foundation has produced real high-density workloads, especially:
@@ -1259,13 +1261,17 @@ Deliver:
 
 ### Phase 5 - ADR Decision
 
-Deliver:
+Decision closeout (2026-05-15):
 
-- promote
-- defer
-- abandon
-- keep only the native surface foundation and embedded browser capability
-- keep as internal diagnostic prototype
+- complete this roadmap with defer/no-promotion status
+- keep the shared contract/projection foundation and typed Phase 3 evidence
+  contracts as canonical prerequisites
+- keep only the native surface foundation and embedded browser capability as
+  completed doctrine
+- do not start a live Phase 3 benchmark runner, native cockpit UI, dispatch
+  path, gateway attach loop, or Rust/WASM/sidecar module under this roadmap
+- require a future dedicated benchmark-runner/native-cockpit validation roadmap
+  or ADR before any of that execution scope can start
 
 ## Open Questions
 

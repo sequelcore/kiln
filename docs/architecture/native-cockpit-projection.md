@@ -1,21 +1,17 @@
 # Native Cockpit Projection
 
-Status: contract/projection closeout complete for the current slice. Roadmap 05
-has target,
-precondition, benchmark-fixture, shared projection-baseline,
-cancellation-target, shared read-only cockpit projection, and native
-read-only projection wrapper/action-intent contracts. It also has a shared
-TypeScript read-only projection baseline over the same projection substrate and
-a read-only attach plan for explicit local and simulated remote gateway
-targets. Shared projection now includes target-aware resource links for
-read-only open-resource affordances and a shared read-only view-state helper
-for target-safe focus, filtering, and replay cursor selection. A shared
-TypeScript read-only view-state baseline now measures only view-state
-derivation over that projection and is wrapped by native metadata for
-cross-surface parity. No native
-cockpit UI, network attach loop, browser-rendering benchmark,
-resource-opening dispatch, cancellation dispatch, or Rust projection kernel is
-promoted.
+Status: Roadmap 05 is complete on 2026-05-15 with defer/no-promotion closeout.
+Roadmap 05 delivered target/precondition/benchmark-fixture contracts, shared
+projection baselines, cancellation-target contracts, shared read-only cockpit
+projection, native read-only projection and action-intent wrappers, read-only
+attach-plan contracts, target-aware resource-link projection, and shared/native
+read-only view-state helpers plus baseline measurement. Typed Phase 3 evidence
+contracts exist, but no measured browser/native rendering evidence exists. No
+native cockpit UI, network attach loop, browser-rendering benchmark runner,
+resource-opening dispatch, cancellation dispatch, dispatch path, or Rust
+projection kernel is promoted. Any live Phase 3 benchmark runner, native
+cockpit, attach-loop, dispatch, or Rust/WASM/sidecar execution requires a new
+dedicated validation roadmap or ADR.
 
 ## Purpose
 

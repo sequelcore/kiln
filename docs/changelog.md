@@ -2,6 +2,13 @@
 
 ## Unreleased -- Native Operator Surface
 
+- Closed Roadmap 05 on 2026-05-15 by Phase 5 decision closeout
+  (Slice 16): complete with defer/no-promotion status. Keep the typed
+  contract/projection foundation and Phase 3 evidence contracts as canonical
+  gates, but do not start live Phase 3 benchmark runners, native cockpit UI,
+  dispatch path, gateway attach loop, or Rust/WASM/sidecar modules under this
+  roadmap. Any such execution scope now requires a dedicated validation roadmap
+  or ADR.
 - Closed the Roadmap 05 contract/projection documentation slice after the typed
   Phase 3 evidence contracts commit. Closeout is evidence-gated and limited to
   shared contract/projection baselines; it does not promote the full native
