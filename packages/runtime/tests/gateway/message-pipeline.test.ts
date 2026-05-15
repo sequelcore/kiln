@@ -9,8 +9,7 @@ import type { SessionRegistry } from "../../src/session/session-registry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
-import * as agentResolver from "../../src/tenant/agent-resolver.js";
-import * as runtimeArtifacts from "../../src/session/support/artifacts/context-artifact-summary.js";
+import type { readRuntimeSupportArtifactsDetailed } from "../../src/session/support/artifacts/context-artifact-summary.js";
 import { buildTenantSystemPrompt } from "../../src/tenant/system-prompt-builder.js";
 
 const processInboundMessage = processAdmittedTurn;
@@ -947,7 +946,9 @@ describe("processAdmittedTurn", () => {
       record: vi.fn(),
     };
 
-    const resolveSpy = vi.spyOn(agentResolver, "resolveAgentContextAsync").mockResolvedValue({
+    const resolveSpy = vi
+      .spyOn(await import("../../src/tenant/agent-resolver.js"), "resolveAgentContextAsync")
+      .mockResolvedValue({
       systemPrompt: "Tenant-specific system prompt",
       tenantToolContext: {
         callBuiltinTools,
@@ -1059,7 +1060,9 @@ describe("processAdmittedTurn", () => {
   });
 
   it("preserves admitted-turn context projection ordering and grounding directive application", async () => {
-    const supportSpy = vi.spyOn(runtimeArtifacts, "readRuntimeSupportArtifactsDetailed").mockReturnValue({
+    const supportSpy = vi
+      .spyOn(await import("../../src/session/support/artifacts/context-artifact-summary.js"), "readRuntimeSupportArtifactsDetailed")
+      .mockReturnValue({
       content: "cached runtime summary",
       supportArtifactCount: 0,
       supportArtifactSources: [],
@@ -1070,7 +1073,7 @@ describe("processAdmittedTurn", () => {
         resumeStrategy: "none",
         cachedResumeSignalCount: 0,
       },
-    } as ReturnType<typeof runtimeArtifacts.readRuntimeSupportArtifactsDetailed>);
+    } as ReturnType<typeof readRuntimeSupportArtifactsDetailed>);
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({
@@ -1101,7 +1104,9 @@ describe("processAdmittedTurn", () => {
   });
 
   it("governs admitted-turn context under the core budget instead of replaying oversized memory", async () => {
-    const supportSpy = vi.spyOn(runtimeArtifacts, "readRuntimeSupportArtifactsDetailed").mockReturnValue({
+    const supportSpy = vi
+      .spyOn(await import("../../src/session/support/artifacts/context-artifact-summary.js"), "readRuntimeSupportArtifactsDetailed")
+      .mockReturnValue({
       content: "cached runtime summary",
       supportArtifactCount: 0,
       supportArtifactSources: [],
@@ -1112,7 +1117,7 @@ describe("processAdmittedTurn", () => {
         resumeStrategy: "none",
         cachedResumeSignalCount: 0,
       },
-    } as ReturnType<typeof runtimeArtifacts.readRuntimeSupportArtifactsDetailed>);
+    } as ReturnType<typeof readRuntimeSupportArtifactsDetailed>);
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const oversizedMemory = `oversized-memory-${"x".repeat(12_000)}`;

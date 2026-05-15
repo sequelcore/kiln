@@ -1,6 +1,17 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import SyntaxHighlighter from "react-syntax-highlighter";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/light";
+import bash from "react-syntax-highlighter/dist/esm/languages/hljs/bash";
+import diff from "react-syntax-highlighter/dist/esm/languages/hljs/diff";
+import javascript from "react-syntax-highlighter/dist/esm/languages/hljs/javascript";
+import json from "react-syntax-highlighter/dist/esm/languages/hljs/json";
+import markdown from "react-syntax-highlighter/dist/esm/languages/hljs/markdown";
+import plaintext from "react-syntax-highlighter/dist/esm/languages/hljs/plaintext";
+import powershell from "react-syntax-highlighter/dist/esm/languages/hljs/powershell";
+import python from "react-syntax-highlighter/dist/esm/languages/hljs/python";
+import shell from "react-syntax-highlighter/dist/esm/languages/hljs/shell";
+import typescript from "react-syntax-highlighter/dist/esm/languages/hljs/typescript";
+import xml from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import type { Components } from "react-markdown";
 import type { ReactNode } from "react";
@@ -11,6 +22,27 @@ import { useSessionStore } from "../lib/session-store.js";
 import { OperatorAvatar } from "./operator-avatar.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+
+SyntaxHighlighter.registerLanguage("bash", bash);
+SyntaxHighlighter.registerLanguage("diff", diff);
+SyntaxHighlighter.registerLanguage("javascript", javascript);
+SyntaxHighlighter.registerLanguage("js", javascript);
+SyntaxHighlighter.registerLanguage("json", json);
+SyntaxHighlighter.registerLanguage("markdown", markdown);
+SyntaxHighlighter.registerLanguage("md", markdown);
+SyntaxHighlighter.registerLanguage("plaintext", plaintext);
+SyntaxHighlighter.registerLanguage("text", plaintext);
+SyntaxHighlighter.registerLanguage("powershell", powershell);
+SyntaxHighlighter.registerLanguage("ps1", powershell);
+SyntaxHighlighter.registerLanguage("python", python);
+SyntaxHighlighter.registerLanguage("py", python);
+SyntaxHighlighter.registerLanguage("shell", shell);
+SyntaxHighlighter.registerLanguage("sh", shell);
+SyntaxHighlighter.registerLanguage("typescript", typescript);
+SyntaxHighlighter.registerLanguage("ts", typescript);
+SyntaxHighlighter.registerLanguage("tsx", typescript);
+SyntaxHighlighter.registerLanguage("xml", xml);
+SyntaxHighlighter.registerLanguage("html", xml);
 
 const markdownComponents: Components = {
   code({ className, children, ...rest }) {

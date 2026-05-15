@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   OPERATOR_THEME_LABELS,
@@ -33,7 +33,6 @@ import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
 import { ErrorBanner } from "./error-banner.js";
 import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
-import { MemoryLatticePanel, MemoryLatticeSurface } from "./memory-lattice/memory-lattice-panel.js";
 import { SetupPanel } from "./setup-panel.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/timeline-visibility.js";
@@ -100,6 +99,27 @@ const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
 };
 const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
+const MemoryLatticePanel = lazy(async () => {
+  const module = await import("./memory-lattice/memory-lattice-panel.js");
+  return { default: module.MemoryLatticePanel };
+});
+const MemoryLatticeSurface = lazy(async () => {
+  const module = await import("./memory-lattice/memory-lattice-panel.js");
+  return { default: module.MemoryLatticeSurface };
+});
+
+function MemoryLatticeFallback() {
+  return (
+    <section aria-label="Loading Memory Lattice" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
+      <div className="flex min-h-12 shrink-0 items-center border-b border-border/60 bg-workspace-viewer-panel px-4">
+        <p className="text-sm font-semibold text-foreground">Loading Memory Lattice</p>
+      </div>
+      <div className="grid min-h-0 flex-1 place-items-center p-6 text-sm text-muted-foreground">
+        Preparing graph surface.
+      </div>
+    </section>
+  );
+}
 
 function readSidebarCollapsedPreference(): boolean {
   try {
@@ -1525,14 +1545,16 @@ export function AppShell() {
               />
             )}
             memoryContent={(
-              <MemoryLatticeSurface
-                response={memoryLatticeQuery.data ?? null}
-                loading={Boolean(memoryLatticeQuery.isFetching)}
-                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                selectedRecordId={selectedMemoryRecordId}
-                onRefresh={() => void memoryLatticeQuery.refetch()}
-                onSelectRecord={setSelectedMemoryRecordId}
-              />
+              <Suspense fallback={<MemoryLatticeFallback />}>
+                <MemoryLatticeSurface
+                  response={memoryLatticeQuery.data ?? null}
+                  loading={Boolean(memoryLatticeQuery.isFetching)}
+                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                  selectedRecordId={selectedMemoryRecordId}
+                  onRefresh={() => void memoryLatticeQuery.refetch()}
+                  onSelectRecord={setSelectedMemoryRecordId}
+                />
+              </Suspense>
             )}
           />
               )}
@@ -1624,26 +1646,28 @@ export function AppShell() {
               <ActivityLogPanel entries={timelineEntries} />
             </div>
           ) : workbenchSurface === "memory" ? (
-            <div className="grid min-h-0 flex-1 grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] overflow-hidden bg-workspace-viewer">
-              <MemoryLatticePanel
-                filters={memoryFilters}
-                response={memoryLatticeQuery.data ?? null}
-                loading={Boolean(memoryLatticeQuery.isFetching)}
-                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                selectedRecordId={selectedMemoryRecordId}
-                onRefresh={() => void memoryLatticeQuery.refetch()}
-                onFiltersChange={setMemoryFilters}
-                onSelectRecord={setSelectedMemoryRecordId}
-              />
-              <MemoryLatticeSurface
-                response={memoryLatticeQuery.data ?? null}
-                loading={Boolean(memoryLatticeQuery.isFetching)}
-                error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                selectedRecordId={selectedMemoryRecordId}
-                onRefresh={() => void memoryLatticeQuery.refetch()}
-                onSelectRecord={setSelectedMemoryRecordId}
-              />
-            </div>
+            <Suspense fallback={<MemoryLatticeFallback />}>
+              <div className="grid min-h-0 flex-1 grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] overflow-hidden bg-workspace-viewer">
+                <MemoryLatticePanel
+                  filters={memoryFilters}
+                  response={memoryLatticeQuery.data ?? null}
+                  loading={Boolean(memoryLatticeQuery.isFetching)}
+                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                  selectedRecordId={selectedMemoryRecordId}
+                  onRefresh={() => void memoryLatticeQuery.refetch()}
+                  onFiltersChange={setMemoryFilters}
+                  onSelectRecord={setSelectedMemoryRecordId}
+                />
+                <MemoryLatticeSurface
+                  response={memoryLatticeQuery.data ?? null}
+                  loading={Boolean(memoryLatticeQuery.isFetching)}
+                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
+                  selectedRecordId={selectedMemoryRecordId}
+                  onRefresh={() => void memoryLatticeQuery.refetch()}
+                  onSelectRecord={setSelectedMemoryRecordId}
+                />
+              </div>
+            </Suspense>
           ) : (
             <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
               <SetupPanel

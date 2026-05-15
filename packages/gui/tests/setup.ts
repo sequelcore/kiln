@@ -1,5 +1,8 @@
-import * as matchers from "@testing-library/jest-dom/matchers";
+import { createRequire } from "node:module";
 import { expect } from "vitest";
+
+const require = createRequire(import.meta.url);
+const matchers = require("@testing-library/jest-dom/matchers") as Parameters<typeof expect.extend>[0];
 
 expect.extend(matchers);
 

@@ -42,7 +42,7 @@ function inferEditKind(item: TimelinePresentationItem): RecorderTimelineEditKind
 }
 
 function captionText(item: TimelinePresentationItem): string {
-  const match = /^caption\s*[:\-]\s*(?<caption>.+)$/iu.exec(item.label);
+  const match = /^caption\s*[:-]\s*(?<caption>.+)$/iu.exec(item.label);
   return match?.groups?.caption?.trim() ?? item.summary ?? item.label;
 }
 
@@ -109,7 +109,6 @@ export function TranscriptTimelineEditor(props: { readonly intent: TimelinePrese
 
   return (
     <section
-      role="region"
       aria-label="Recorder timeline editor"
       className="mt-2 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
     >

@@ -94,13 +94,17 @@ Most important research documents:
 
 | Package | Description |
 |---------|-------------|
+| [`@kilnai/gateway-contracts`](packages/gateway-contracts) | Shared HTTP, WebSocket, projection, and operator-surface contracts |
 | [`@kilnai/core`](packages/core) | Core control-plane types, policies, safety, memory, routing, evaluation, and runtime contracts |
 | [`@kilnai/runtime`](packages/runtime) | Runtime surfaces, channel handling, registries, triggers, and execution plumbing |
 | [`@kilnai/cli`](packages/cli) | CLI surface for local operation, inspection, and controlled execution |
 | [`@kilnai/tui`](packages/tui) | Terminal interface for interacting with Kiln as an operator-facing control surface |
 | [`@kilnai/react`](packages/sdk) | React integration surface for applications using Kiln capabilities |
 | [`@kilnai/widget`](packages/widget) | Embeddable interface components |
+| [`@kilnai/gui`](packages/gui) | Primary private web operator surface |
+| [`@kilnai/native`](packages/native) | Private Electron-backed native operator surface |
 | [`@kilnai/studio`](packages/studio) | Internal and development-facing inspection tooling |
+| [`@kilnai/tools`](packages/tools) | Vendored developer-tool resolver and platform package coordinator |
 
 ## Development
 

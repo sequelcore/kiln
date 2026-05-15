@@ -19,7 +19,6 @@ import type { UpgradeWebSocket } from "hono/ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
 import { mountGuiStaticAssetsIfPresent } from "../../src/gateway/gui-static-assets.js";
-import * as guiProviderModelsModule from "../../src/gateway/gui-provider-models.js";
 import {
   buildGuiOperatorDiscoveryResults,
   buildWelcomeProviderDescriptors,
@@ -524,7 +523,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockImplementation(() => new Promise(() => undefined));
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
@@ -616,7 +615,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
     let activeProvider = "openai";
     let activeModel = "gpt-4o";
@@ -691,7 +690,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     let activeProvider = "openai";
     let activeModel = storedModel;
@@ -762,7 +761,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
     const factory = vi.fn() as never;
     vi.mocked(processAdmittedTurn).mockReset();
@@ -820,7 +819,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     const factory = vi.fn() as never;
     vi.mocked(processAdmittedTurn).mockReset();
@@ -877,7 +876,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
     const setModel = vi.fn();
     vi.mocked(processAdmittedTurn).mockReset();
@@ -948,7 +947,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
     const setProvider = vi.fn();
     const setModel = vi.fn();
@@ -1004,7 +1003,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
       .mockImplementationOnce(() => new Promise(() => undefined));
     const setProvider = vi.fn();
@@ -1065,7 +1064,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }))
       .mockImplementationOnce(() => new Promise(() => undefined));
     const setProvider = vi.fn();
@@ -1133,7 +1132,7 @@ describe("startGuiGateway static mount", () => {
     const stop = vi.fn();
     let openAiAvailable = false;
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockImplementation(async () => [
         {
           provider: "openai",
@@ -1205,7 +1204,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
       .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
     const factory = vi.fn() as never;
@@ -1311,7 +1310,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     vi.mocked(processAdmittedTurn).mockReset();
     vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
@@ -1441,7 +1440,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     let browserSessionUpdateHandler: ((state: {
       readonly target: "browser";
@@ -1592,7 +1591,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     let browserSessionUpdateHandler: ((state: {
       readonly target: "browser";
@@ -1719,7 +1718,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     let browserSessionUpdateHandler: ((state: {
       readonly target: "browser";
@@ -1835,7 +1834,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     const requestBrowserOperatorInput = vi.fn(async () => ({
       requestId: "browser-input-1",
@@ -1980,7 +1979,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     const factory = vi.fn() as never;
     const setModel = vi.fn();
@@ -2046,7 +2045,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     const setProvider = vi.fn();
     const setModel = vi.fn();
@@ -2228,7 +2227,7 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({
         "codex-oauth": ["gpt-5.4-mini"],
       }));

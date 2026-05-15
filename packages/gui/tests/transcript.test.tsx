@@ -738,8 +738,8 @@ describe("Transcript", () => {
     expect(screen.getByText("Kiln session identity is provider-agnostic.")).toBeInTheDocument();
     expect(screen.getByText("packages/")).toBeInTheDocument();
     expect(screen.getByText("tree full output")).toBeInTheDocument();
-    expect(screen.queryByText(/\"output\"/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/\"metadata\"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"output"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
   });
 
   it("renders stat metadata as fields instead of JSON text preview", () => {

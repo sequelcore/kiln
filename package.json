@@ -1,13 +1,15 @@
 {
   "name": "kiln",
+  "description": "Kiln control-plane monorepo",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "build": "bun run --filter '*' build",
-    "typecheck": "tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit",
+    "typecheck": "tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit",
     "test": "bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/native test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test",
     "test:e2e": "bun run --cwd packages/gui test:e2e",
     "test:managed-agents:live": "vitest run packages/runtime/tests/managed-agent/*.live.test.ts --maxWorkers=1"

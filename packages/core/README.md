@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@kilnai/core"><img src="https://img.shields.io/npm/v/@kilnai/core.svg" alt="npm version" /></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
 <p align="center">Domain-agnostic AI orchestration engine. 7 primitives, 3 composites, YAML-configured.</p>
@@ -103,4 +103,4 @@ Engine.validateApp(app);
 
 ## License
 
-[MIT](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)

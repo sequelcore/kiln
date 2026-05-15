@@ -1,22 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { join } from "node:path";
-import * as fs from "node:fs";
-import * as os from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { syncNativeHookProjections } from "../../src/config/native-hook-projection.js";
 
-const testDir = join(os.tmpdir(), "kiln-hook-test-" + Date.now());
+const testDir = join(tmpdir(), "kiln-hook-test-" + Date.now());
 const projectPath = testDir;
 const kilnDir = join(testDir, ".kiln");
 
 describe("syncNativeHookProjections", () => {
   beforeEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
-    fs.mkdirSync(join(kilnDir, "hooks"), { recursive: true });
+    rmSync(testDir, { recursive: true, force: true });
+    mkdirSync(join(kilnDir, "hooks"), { recursive: true });
   });
 
   afterEach(() => {
     try {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      rmSync(testDir, { recursive: true, force: true });
     } catch { /* ignore */ }
   });
 
@@ -27,23 +27,23 @@ describe("syncNativeHookProjections", () => {
     expect(result.errors).toHaveLength(0);
 
     const hookPath = join(kilnDir, "hooks", "autoformat.sh");
-    expect(fs.existsSync(hookPath)).toBe(true);
-    const content = fs.readFileSync(hookPath, "utf-8");
+    expect(existsSync(hookPath)).toBe(true);
+    const content = readFileSync(hookPath, "utf-8");
     expect(content).toContain("Kiln autoformat hook");
   });
 
   it("uses existing hook content", async () => {
     const customContent = "#!/bin/sh\necho 'custom hook'\n";
     const sourcePath = join(kilnDir, "hooks", "autoformat.sh");
-    fs.writeFileSync(sourcePath, customContent, "utf-8");
+    writeFileSync(sourcePath, customContent, "utf-8");
 
     const result = await syncNativeHookProjections(projectPath, kilnDir);
 
     expect(result.claudeHook).toBe(true);
 
     const destPath = join(projectPath, ".claude", "hooks", "autoformat.sh");
-    expect(fs.existsSync(destPath)).toBe(true);
-    const content = fs.readFileSync(destPath, "utf-8");
+    expect(existsSync(destPath)).toBe(true);
+    const content = readFileSync(destPath, "utf-8");
     expect(content).toBe(customContent);
   });
 
@@ -51,20 +51,20 @@ describe("syncNativeHookProjections", () => {
     await syncNativeHookProjections(projectPath, kilnDir);
 
     const settingsPath = join(projectPath, ".claude", "settings.json");
-    expect(fs.existsSync(settingsPath)).toBe(true);
-    const content = fs.readFileSync(settingsPath, "utf-8");
+    expect(existsSync(settingsPath)).toBe(true);
+    const content = readFileSync(settingsPath, "utf-8");
     expect(content).toContain("hooks");
     expect(content).toContain("autoformat");
   });
 
   it("merges with existing settings.json", async () => {
     const settingsPath = join(projectPath, ".claude", "settings.json");
-    fs.mkdirSync(join(projectPath, ".claude"), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify({ mcpServers: { kiln: {} } }), "utf-8");
+    mkdirSync(join(projectPath, ".claude"), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify({ mcpServers: { kiln: {} } }), "utf-8");
 
     await syncNativeHookProjections(projectPath, kilnDir);
 
-    const content = fs.readFileSync(settingsPath, "utf-8");
+    const content = readFileSync(settingsPath, "utf-8");
     expect(content).toContain("mcpServers");
     expect(content).toContain("hooks");
   });
@@ -73,18 +73,18 @@ describe("syncNativeHookProjections", () => {
     await syncNativeHookProjections(projectPath, kilnDir);
 
     const hooksDir = join(projectPath, ".claude", "hooks");
-    expect(fs.existsSync(hooksDir)).toBe(true);
+    expect(existsSync(hooksDir)).toBe(true);
   });
 
   it("records install state and aborts the drifted hook file target only", async () => {
-    const isolated = fs.mkdtempSync(join(os.tmpdir(), "kiln-hook-drift-"));
+    const isolated = mkdtempSync(join(tmpdir(), "kiln-hook-drift-"));
     const isolatedKilnDir = join(isolated, ".kiln");
     try {
       const first = await syncNativeHookProjections(isolated, isolatedKilnDir);
       expect(first.errors).toHaveLength(0);
 
       const hookPath = join(isolated, ".claude", "hooks", "autoformat.sh");
-      fs.writeFileSync(hookPath, "#!/bin/sh\necho user drift\n", "utf-8");
+      writeFileSync(hookPath, "#!/bin/sh\necho user drift\n", "utf-8");
 
       const second = await syncNativeHookProjections(isolated, isolatedKilnDir);
 
@@ -92,15 +92,15 @@ describe("syncNativeHookProjections", () => {
       expect(second.errors).toEqual([
         "Claude Code: managed file drift detected: $file",
       ]);
-      expect(fs.readFileSync(hookPath, "utf-8")).toContain("user drift");
+      expect(readFileSync(hookPath, "utf-8")).toContain("user drift");
 
       const settings = JSON.parse(
-        fs.readFileSync(join(isolated, ".claude", "settings.json"), "utf-8"),
+        readFileSync(join(isolated, ".claude", "settings.json"), "utf-8"),
       ) as Record<string, unknown>;
       expect(settings.hooks).toBeDefined();
 
       const state = JSON.parse(
-        fs.readFileSync(join(isolatedKilnDir, "install-state.json"), "utf-8"),
+        readFileSync(join(isolatedKilnDir, "install-state.json"), "utf-8"),
       ) as { targets: Record<string, unknown> };
       const expectedTargets = [
         "claude-autoformat-hook",
@@ -109,25 +109,25 @@ describe("syncNativeHookProjections", () => {
       ];
       expect(Object.keys(state.targets).sort()).toEqual(expectedTargets.sort());
     } finally {
-      fs.rmSync(isolated, { recursive: true, force: true });
+      rmSync(isolated, { recursive: true, force: true });
     }
   });
 
   it("force overwrites drifted managed hook files", async () => {
-    const isolated = fs.mkdtempSync(join(os.tmpdir(), "kiln-hook-force-"));
+    const isolated = mkdtempSync(join(tmpdir(), "kiln-hook-force-"));
     const isolatedKilnDir = join(isolated, ".kiln");
     try {
       await syncNativeHookProjections(isolated, isolatedKilnDir);
       const hookPath = join(isolated, ".claude", "hooks", "autoformat.sh");
-      fs.writeFileSync(hookPath, "#!/bin/sh\necho user drift\n", "utf-8");
+      writeFileSync(hookPath, "#!/bin/sh\necho user drift\n", "utf-8");
 
       const result = await syncNativeHookProjections(isolated, isolatedKilnDir, { force: true });
 
       expect(result.errors).toHaveLength(0);
       expect(result.claudeHook).toBe(true);
-      expect(fs.readFileSync(hookPath, "utf-8")).toContain("Kiln autoformat hook");
+      expect(readFileSync(hookPath, "utf-8")).toContain("Kiln autoformat hook");
     } finally {
-      fs.rmSync(isolated, { recursive: true, force: true });
+      rmSync(isolated, { recursive: true, force: true });
     }
   });
 });

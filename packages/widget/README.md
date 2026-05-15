@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@kilnai/widget"><img src="https://img.shields.io/npm/v/@kilnai/widget.svg" alt="npm version" /></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
 <p align="center">Embeddable AI chat widget. One script tag, zero dependencies.</p>
@@ -101,4 +101,4 @@ AI Agent responds with text + suggestion chips
 
 ## License
 
-[MIT](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)

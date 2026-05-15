@@ -224,25 +224,27 @@ function BrowserUsePanel(props: {
   readonly onBrowserSessionControl?: (action: "takeover" | "release", options?: { readonly sessionId?: string; readonly reason?: string }) => void;
   readonly onBrowserOperatorInput?: (request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput }) => void;
 }) {
+  const snapshot = props.snapshot;
+  const loadResourceDataUrl = props.loadResourceDataUrl;
   const label = props.browserSession?.title
-    ?? props.snapshot?.title
+    ?? snapshot?.title
     ?? props.browserSession?.url
-    ?? props.snapshot?.url
+    ?? snapshot?.url
     ?? props.browserSession?.sessionId
-    ?? props.snapshot?.sessionId
+    ?? snapshot?.sessionId
     ?? "Browser";
-  const url = props.browserSession?.url ?? props.snapshot?.url;
-  const status = props.browserSession?.status ?? props.snapshot?.status ?? "succeeded";
-  const screenshotUri = props.browserSession?.latestCapture?.uri ?? props.snapshot?.screenshotUri;
-  const browserSessionId = props.browserSession?.sessionId ?? props.snapshot?.sessionId;
-  const browserSurfaceKey = browserSessionId ?? `${props.browserSession?.provider ?? props.snapshot?.provider ?? "browser"}:${url ?? label}`;
+  const url = props.browserSession?.url ?? snapshot?.url;
+  const status = props.browserSession?.status ?? snapshot?.status ?? "succeeded";
+  const screenshotUri = props.browserSession?.latestCapture?.uri ?? snapshot?.screenshotUri;
+  const browserSessionId = props.browserSession?.sessionId ?? snapshot?.sessionId;
+  const browserSurfaceKey = browserSessionId ?? `${props.browserSession?.provider ?? snapshot?.provider ?? "browser"}:${url ?? label}`;
   const operatorOwnsBrowser = props.browserSession?.ownership === "operator";
   const liveViewportFrame = props.browserLiveViewportFrame?.sessionId === browserSessionId ? props.browserLiveViewportFrame : null;
   const [loadedScreenshot, setLoadedScreenshot] = useState<{ readonly sessionKey: string; readonly dataUrl: string } | null>(null);
   const [loadedLiveViewport, setLoadedLiveViewport] = useState<{ readonly frameId: string; readonly dataUrl: string } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const retainedScreenshotDataUrl = loadedScreenshot?.sessionKey === browserSurfaceKey ? loadedScreenshot.dataUrl : null;
-  const screenshotDataUrl = props.snapshot?.screenshotDataUrl ?? retainedScreenshotDataUrl;
+  const screenshotDataUrl = snapshot?.screenshotDataUrl ?? retainedScreenshotDataUrl;
   const liveViewportDataUrl = liveViewportFrame
     ? liveViewportFrame.dataUrl
       ?? (loadedLiveViewport?.frameId === liveViewportFrame.frameId ? loadedLiveViewport.dataUrl : null)
@@ -323,18 +325,18 @@ function BrowserUsePanel(props: {
   }
 
   useEffect(() => {
-    if (props.snapshot?.screenshotDataUrl) {
-      setLoadedScreenshot({ sessionKey: browserSurfaceKey, dataUrl: props.snapshot.screenshotDataUrl });
+    if (snapshot?.screenshotDataUrl) {
+      setLoadedScreenshot({ sessionKey: browserSurfaceKey, dataUrl: snapshot.screenshotDataUrl });
     }
-  }, [browserSurfaceKey, props.snapshot?.screenshotDataUrl]);
+  }, [browserSurfaceKey, snapshot?.screenshotDataUrl]);
 
   useEffect(() => {
     setLoadFailed(false);
-    if (props.snapshot?.screenshotDataUrl || !screenshotUri || !props.loadResourceDataUrl) {
+    if (snapshot?.screenshotDataUrl || !screenshotUri || !loadResourceDataUrl) {
       return;
     }
     let cancelled = false;
-    props.loadResourceDataUrl(screenshotUri).then((dataUrl) => {
+    loadResourceDataUrl(screenshotUri).then((dataUrl) => {
       if (cancelled) return;
       if (dataUrl) {
         setLoadedScreenshot({ sessionKey: browserSurfaceKey, dataUrl });
@@ -349,7 +351,7 @@ function BrowserUsePanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [browserSurfaceKey, props.loadResourceDataUrl, props.snapshot?.screenshotDataUrl, screenshotUri]);
+  }, [browserSurfaceKey, loadResourceDataUrl, screenshotUri, snapshot?.screenshotDataUrl]);
 
   useEffect(() => {
     if (!liveViewportFrame) {
@@ -360,18 +362,18 @@ function BrowserUsePanel(props: {
       setLoadedLiveViewport({ frameId: liveViewportFrame.frameId, dataUrl: liveViewportFrame.dataUrl });
       return;
     }
-    if (!liveViewportFrame.artifactUri || !props.loadResourceDataUrl) {
+    if (!liveViewportFrame.artifactUri || !loadResourceDataUrl) {
       return;
     }
     let cancelled = false;
-    props.loadResourceDataUrl(liveViewportFrame.artifactUri).then((dataUrl) => {
+    loadResourceDataUrl(liveViewportFrame.artifactUri).then((dataUrl) => {
       if (cancelled || !dataUrl) return;
       setLoadedLiveViewport({ frameId: liveViewportFrame.frameId, dataUrl });
     }).catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [liveViewportFrame, props.loadResourceDataUrl]);
+  }, [liveViewportFrame, loadResourceDataUrl]);
 
   return (
     <section aria-label="Browser use" className="flex h-full min-h-0 flex-col bg-workspace-viewer">
@@ -429,13 +431,14 @@ function BrowserUsePanel(props: {
       <div className="min-h-0 flex-1 overflow-auto bg-workspace-viewer p-4">
         {liveViewportFrame && liveViewportDataUrl ? (
           <div className="grid min-h-full place-items-center">
-            <div
-              role="application"
+            <button
+              type="button"
               aria-label="Live browser viewport"
+              aria-disabled={!operatorOwnsBrowser}
               data-testid="browser-live-viewport"
               tabIndex={operatorOwnsBrowser ? 0 : -1}
               className={cn(
-                "relative max-h-full max-w-full overflow-hidden rounded-md border border-border/70 bg-background shadow-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                "relative block max-h-full max-w-full overflow-hidden rounded-md border border-border/70 bg-background p-0 text-left shadow-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
                 operatorOwnsBrowser ? "cursor-crosshair" : "cursor-default",
               )}
               style={{
@@ -452,7 +455,7 @@ function BrowserUsePanel(props: {
                 className="h-full w-full select-none object-contain"
                 draggable={false}
               />
-            </div>
+            </button>
           </div>
         ) : screenshotDataUrl ? (
           <div className="grid min-h-full place-items-center">

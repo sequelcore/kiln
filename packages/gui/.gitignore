@@ -1,7 +1,6 @@
 dist
 node_modules
 .tanstack
-src/routeTree.gen.ts
 playwright-report/
 test-results/
 playwright/.cache/

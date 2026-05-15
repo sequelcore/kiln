@@ -9,6 +9,46 @@ import { fileURLToPath } from "node:url";
 const gatewayPort = Number.parseInt(process.env.GUI_GATEWAY_PORT ?? "4810", 10);
 const resolvedGatewayPort = Number.isFinite(gatewayPort) && gatewayPort > 0 ? gatewayPort : 4810;
 
+function guiManualChunks(id: string): string | undefined {
+  const normalized = id.replace(/\\/g, "/");
+  if (!normalized.includes("/node_modules/")) {
+    return undefined;
+  }
+  if (
+    normalized.includes("/react/")
+    || normalized.includes("/react-dom/")
+    || normalized.includes("/scheduler/")
+  ) {
+    return "vendor-react";
+  }
+  if (normalized.includes("/zod/")) {
+    return "vendor-validation";
+  }
+  if (
+    normalized.includes("/react-syntax-highlighter/")
+    || normalized.includes("/highlight.js/")
+    || normalized.includes("/lowlight/")
+    || normalized.includes("/refractor/")
+    || normalized.includes("/prismjs/")
+  ) {
+    return "vendor-syntax";
+  }
+  if (
+    normalized.includes("/react-markdown/")
+    || normalized.includes("/remark-")
+    || normalized.includes("/rehype-")
+    || normalized.includes("/unified/")
+    || normalized.includes("/micromark")
+    || normalized.includes("/mdast-")
+    || normalized.includes("/hast-")
+    || normalized.includes("/unist-")
+    || normalized.includes("/vfile")
+  ) {
+    return "vendor-markdown";
+  }
+  return undefined;
+}
+
 export default defineConfig({
   base: "/gui/",
   resolve: {
@@ -47,6 +87,14 @@ export default defineConfig({
         target: `ws://localhost:${resolvedGatewayPort}`,
         ws: true,
         changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    chunkSizeWarningLimit: 560,
+    rollupOptions: {
+      output: {
+        manualChunks: guiManualChunks,
       },
     },
   },

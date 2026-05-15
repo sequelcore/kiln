@@ -1,13 +1,15 @@
 {
   "name": "@kilnai/studio",
   "version": "1.0.7",
+  "description": "Private development UI for inspecting Kiln gateway state",
   "private": true,
   "type": "module",
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests yet'"
+    "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
     "@kilnai/react": "workspace:*",

@@ -18,7 +18,7 @@
   behavior.
 
 - [Roadmap](roadmap/README.md)
-  Refactor policy, execution sequence, and taxonomy freeze.
+  Active, deferred, and completed implementation tracks.
 
 ## Architecture
 

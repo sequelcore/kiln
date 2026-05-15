@@ -113,6 +113,17 @@ function conciseUnavailableReason(reason: string): string {
 }
 
 export function ProviderPicker(props: ProviderPickerProps) {
+  const {
+    activeModel,
+    activeProvider,
+    onAuthenticateProvider,
+    onOpenChange,
+    onRefreshProviders,
+    onSwitchProvider,
+    open,
+    providerAuthenticating,
+    providers,
+  } = props;
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const initializedOpenRef = useRef(false);
   const [pane, setPane] = useState<"providers" | "models">("providers");
@@ -127,8 +138,8 @@ export function ProviderPicker(props: ProviderPickerProps) {
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const providerItems = useMemo(
-    () => normalizeProviders(props.providers),
-    [props.providers],
+    () => normalizeProviders(providers),
+    [providers],
   );
   const providerIds = useMemo(
     () => providerItems.map((provider) => provider.id),
@@ -140,9 +151,12 @@ export function ProviderPicker(props: ProviderPickerProps) {
   );
   const currentProvider = providerItems[providerIndex] ?? null;
   const currentProviderId = currentProvider?.id ?? null;
-  const models = selectedProviderId
-    ? (providersById.get(selectedProviderId)?.models ?? [])
-    : [];
+  const models = useMemo(
+    () => selectedProviderId
+      ? (providersById.get(selectedProviderId)?.models ?? [])
+      : [],
+    [providersById, selectedProviderId],
+  );
   const filteredModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     if (query.length === 0) {
@@ -152,7 +166,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
   }, [modelSearch, models]);
 
   useEffect(() => {
-    if (!props.open) {
+    if (!open) {
       initializedOpenRef.current = false;
       return;
     }
@@ -160,8 +174,8 @@ export function ProviderPicker(props: ProviderPickerProps) {
       return;
     }
     initializedOpenRef.current = true;
-    const activeIndex = props.activeProvider
-      ? providerIds.indexOf(props.activeProvider)
+    const activeIndex = activeProvider
+      ? providerIds.indexOf(activeProvider)
       : -1;
     const firstAvailableIndex = providerItems.findIndex((provider) => provider.available);
     const resolvedIndex = activeIndex >= 0
@@ -177,10 +191,10 @@ export function ProviderPicker(props: ProviderPickerProps) {
     setAuthInFlight(false);
     setSwitchError(null);
     setCopyNotice(null);
-  }, [props.activeProvider, props.open, providerItems, providerIds]);
+  }, [activeProvider, open, providerItems, providerIds]);
 
   useEffect(() => {
-    if (!props.open || !initializedOpenRef.current) return;
+    if (!open || !initializedOpenRef.current) return;
     if (providerItems.length === 0) {
       setProviderIndex(0);
       setSelectedProviderId(null);
@@ -195,19 +209,19 @@ export function ProviderPicker(props: ProviderPickerProps) {
       }
       return providerItems[Math.min(providerIndex, providerItems.length - 1)]?.id ?? providerItems[0]?.id ?? null;
     });
-  }, [props.open, providerIndex, providerItems, providersById]);
+  }, [open, providerIndex, providerItems, providersById]);
 
   useEffect(() => {
-    if (!props.open || pane !== "models") return;
+    if (!open || pane !== "models") return;
     if (filteredModels.length === 0) {
       setModelIndex(0);
       return;
     }
     setModelIndex((previous) => Math.min(previous, filteredModels.length - 1));
-  }, [filteredModels.length, pane, props.open]);
+  }, [filteredModels.length, open, pane]);
 
   useEffect(() => {
-    if (!props.open) return;
+    if (!open) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
 
@@ -216,28 +230,28 @@ export function ProviderPicker(props: ProviderPickerProps) {
       (first ?? dialog).focus();
     };
     focusFirst();
-  }, [props.open, pane]);
+  }, [open, pane]);
 
-  const close = (force = false) => {
-    if ((switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating) && !force) return;
-    props.onOpenChange(false);
+  const close = useCallback((force = false) => {
+    if ((switchInFlight || refreshInFlight || authInFlight || providerAuthenticating) && !force) return;
+    onOpenChange(false);
     setPane("providers");
-  };
+  }, [authInFlight, onOpenChange, providerAuthenticating, refreshInFlight, switchInFlight]);
 
-  const refreshProviders = async () => {
-    if (!props.onRefreshProviders || refreshInFlight || switchInFlight || authInFlight || props.providerAuthenticating) {
+  const refreshProviders = useCallback(async () => {
+    if (!onRefreshProviders || refreshInFlight || switchInFlight || authInFlight || providerAuthenticating) {
       return;
     }
     setSwitchError(null);
     setRefreshInFlight(true);
     try {
-      await props.onRefreshProviders();
+      await onRefreshProviders();
     } catch (error) {
       setSwitchError(error instanceof Error ? error.message : "Provider refresh failed. Please retry.");
     } finally {
       setRefreshInFlight(false);
     }
-  };
+  }, [authInFlight, onRefreshProviders, providerAuthenticating, refreshInFlight, switchInFlight]);
 
   const copyText = async (text: string, label: string): Promise<void> => {
     setCopyNotice(null);
@@ -261,17 +275,17 @@ export function ProviderPicker(props: ProviderPickerProps) {
     }
   };
 
-  const providerCanAuthenticate = (provider: PickerProvider | undefined): provider is PickerProvider => {
-    if (!provider || provider.available || !provider.authMethod || !props.onAuthenticateProvider) {
+  const providerCanAuthenticate = useCallback((provider: PickerProvider | undefined): provider is PickerProvider => {
+    if (!provider || provider.available || !provider.authMethod || !onAuthenticateProvider) {
       return false;
     }
     return provider.authState === "missing"
       || provider.authState === "expired"
       || /auth|api[_ -]?key|credential/i.test(provider.reason ?? "");
-  };
+  }, [onAuthenticateProvider]);
 
-  const authenticateProvider = async (provider: PickerProvider): Promise<void> => {
-    if (!props.onAuthenticateProvider || authInFlight || switchInFlight || refreshInFlight || props.providerAuthenticating) {
+  const authenticateProvider = useCallback(async (provider: PickerProvider): Promise<void> => {
+    if (!onAuthenticateProvider || authInFlight || switchInFlight || refreshInFlight || providerAuthenticating) {
       return;
     }
     let apiKey: string | undefined;
@@ -284,19 +298,19 @@ export function ProviderPicker(props: ProviderPickerProps) {
     setSwitchError(null);
     setAuthInFlight(true);
     try {
-      await props.onAuthenticateProvider(provider.id, {
+      await onAuthenticateProvider(provider.id, {
         ...(apiKey ? { apiKey } : {}),
         ...(provider.authTier ? { tier: provider.authTier } : {}),
       });
-      await props.onRefreshProviders?.();
+      await onRefreshProviders?.();
     } catch (error) {
       setSwitchError(error instanceof Error ? error.message : "Provider authentication failed. Please retry.");
     } finally {
       setAuthInFlight(false);
     }
-  };
+  }, [authInFlight, onAuthenticateProvider, onRefreshProviders, providerAuthenticating, refreshInFlight, switchInFlight]);
 
-  const openModelsOrCommit = async (targetProviderId?: string) => {
+  const openModelsOrCommit = useCallback(async (targetProviderId?: string) => {
     const providerId = targetProviderId ?? currentProviderId;
     if (!providerId) return;
     const provider = providersById.get(providerId);
@@ -313,7 +327,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
       setSwitchError(null);
       setSwitchInFlight(true);
       try {
-        await props.onSwitchProvider(providerId, undefined);
+        await onSwitchProvider(providerId, undefined);
         close(true);
       } catch (error) {
         setSwitchError(error instanceof Error ? error.message : "Provider switch failed. Please retry.");
@@ -322,18 +336,18 @@ export function ProviderPicker(props: ProviderPickerProps) {
       }
       return;
     }
-    const defaultIndex = providerId === props.activeProvider && props.activeModel
-      ? providerModels.indexOf(props.activeModel)
+    const defaultIndex = providerId === activeProvider && activeModel
+      ? providerModels.indexOf(activeModel)
       : -1;
     setSwitchError(null);
     setSelectedProviderId(providerId);
     setModelIndex(defaultIndex >= 0 ? defaultIndex : 0);
     setModelSearch("");
     setPane("models");
-  };
+  }, [activeModel, activeProvider, close, currentProviderId, onSwitchProvider, providerCanAuthenticate, providersById]);
 
-  const commitModelSelection = async (targetModel?: string) => {
-    if (switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating) return;
+  const commitModelSelection = useCallback(async (targetModel?: string) => {
+    if (switchInFlight || refreshInFlight || authInFlight || providerAuthenticating) return;
     if (!selectedProviderId) return;
     if (!providersById.get(selectedProviderId)?.available) return;
     const selectedModel = targetModel ?? filteredModels[modelIndex];
@@ -341,16 +355,16 @@ export function ProviderPicker(props: ProviderPickerProps) {
     setSwitchError(null);
     setSwitchInFlight(true);
     try {
-      await props.onSwitchProvider(selectedProviderId, selectedModel);
+      await onSwitchProvider(selectedProviderId, selectedModel);
       close(true);
     } catch (error) {
       setSwitchError(error instanceof Error ? error.message : "Provider switch failed. Please retry.");
     } finally {
       setSwitchInFlight(false);
     }
-  };
+  }, [authInFlight, close, filteredModels, modelIndex, onSwitchProvider, providerAuthenticating, providersById, refreshInFlight, selectedProviderId, switchInFlight]);
 
-  const moveProviderIndex = (direction: 1 | -1) => {
+  const moveProviderIndex = useCallback((direction: 1 | -1) => {
     if (providerItems.length === 0) return;
     setProviderIndex((previous) => {
       const total = providerItems.length;
@@ -364,7 +378,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
       }
       return previous;
     });
-  };
+  }, [providerCanAuthenticate, providerItems]);
 
   const onDialogKeyDown = useCallback((event: PickerKeyEvent) => {
     if (event.key === "Tab") {
@@ -404,9 +418,9 @@ export function ProviderPicker(props: ProviderPickerProps) {
       return;
     }
 
-      if (event.key === "Escape") {
-        event.preventDefault();
-      if (switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (switchInFlight || refreshInFlight || authInFlight || providerAuthenticating) {
         return;
       }
       if (pane === "models") {
@@ -458,10 +472,10 @@ export function ProviderPicker(props: ProviderPickerProps) {
       event.preventDefault();
       void commitModelSelection();
     }
-  }, [authInFlight, close, commitModelSelection, filteredModels.length, moveProviderIndex, openModelsOrCommit, pane, props.providerAuthenticating, refreshProviders, switchInFlight, refreshInFlight]);
+  }, [authInFlight, close, commitModelSelection, filteredModels.length, moveProviderIndex, openModelsOrCommit, pane, providerAuthenticating, refreshProviders, switchInFlight, refreshInFlight]);
 
   useEffect(() => {
-    if (!props.open) return;
+    if (!open) return;
 
     const handleDocumentKeyDown = (event: KeyboardEvent) => {
       const dialog = dialogRef.current;
@@ -477,9 +491,9 @@ export function ProviderPicker(props: ProviderPickerProps) {
     return () => {
       document.removeEventListener("keydown", handleDocumentKeyDown);
     };
-  }, [onDialogKeyDown, props.open]);
+  }, [onDialogKeyDown, open]);
 
-  if (!props.open) return null;
+  if (!open) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 px-4">
@@ -760,7 +774,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
               }
               void commitModelSelection();
             }}
-            disabled={switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating || (pane === "providers" ? !(Boolean(currentProvider?.available) || providerCanAuthenticate(currentProvider ?? undefined)) : !Boolean(filteredModels[modelIndex]))}
+            disabled={switchInFlight || refreshInFlight || authInFlight || props.providerAuthenticating || (pane === "providers" ? !(Boolean(currentProvider?.available) || providerCanAuthenticate(currentProvider ?? undefined)) : !filteredModels[modelIndex])}
             className="rounded border border-[var(--color-border-active)] bg-[var(--color-background-element)] px-3 py-1.5 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
           >
             {pane === "providers"

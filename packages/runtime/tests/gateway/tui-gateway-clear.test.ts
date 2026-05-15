@@ -8,8 +8,6 @@ import {
   textParts,
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
-import * as messagePipelineModule from "../../src/gateway/message-pipeline.js";
-import * as guiProviderModelsModule from "../../src/gateway/gui-provider-models.js";
 import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -335,9 +333,10 @@ describe("TUI gateway clear frame handling", () => {
 
 describe("TUI gateway startup discovery", () => {
   it("starts listening before provider discovery resolves", async () => {
+    vi.resetModules();
     stubBunServe();
     const discoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockImplementation(() => new Promise(() => undefined));
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
@@ -584,7 +583,9 @@ describe("TUI gateway message fail-closed behavior", () => {
   it("rejects normal message frames when the stored provider is unavailable", async () => {
     stubBunServe();
     vi.mocked(execSync).mockReturnValue("openai/gpt-5\n");
-    const processSpy = vi.spyOn(messagePipelineModule, "processAdmittedTurn").mockResolvedValue(undefined as never);
+    const processSpy = vi
+      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .mockResolvedValue(undefined as never);
     const sessionManager = {
       ...makeSessionManager(),
       getProvider: vi.fn(() => "openai"),
@@ -627,7 +628,9 @@ describe("TUI gateway message fail-closed behavior", () => {
   ])("rejects normal message frames when the stored model is %s", async (_kind, storedModel) => {
     stubBunServe();
     vi.mocked(execSync).mockReturnValue("openai/gpt-5\n");
-    const processSpy = vi.spyOn(messagePipelineModule, "processAdmittedTurn").mockResolvedValue(undefined as never);
+    const processSpy = vi
+      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .mockResolvedValue(undefined as never);
     const sessionManager = {
       ...makeSessionManager(),
       getProvider: vi.fn(() => "opencode"),
@@ -676,7 +679,9 @@ describe("TUI gateway message fail-closed behavior", () => {
       }
       return "";
     });
-    const processSpy = vi.spyOn(messagePipelineModule, "processAdmittedTurn").mockResolvedValue(undefined as never);
+    const processSpy = vi
+      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .mockResolvedValue(undefined as never);
     const sessionManager = {
       ...makeSessionManager(),
       getProvider: vi.fn(() => "opencode"),
@@ -715,7 +720,9 @@ describe("TUI gateway message fail-closed behavior", () => {
   it("admits normal message frames for model-less Claude without leaking a stale stored model", async () => {
     stubBunServe();
     vi.mocked(execSync).mockReturnValue("");
-    const processSpy = vi.spyOn(messagePipelineModule, "processAdmittedTurn").mockResolvedValue({
+    const processSpy = vi
+      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .mockResolvedValue({
       ok: true,
       result: {
         parts: [{ type: "text", text: "hello" }],
@@ -775,9 +782,10 @@ describe("TUI gateway message fail-closed behavior", () => {
   });
 
   it("streams managed invocation session events from a TUI turn", async () => {
+    vi.resetModules();
     stubBunServe();
     const discoverySpy = vi
-      .spyOn(guiProviderModelsModule, "resolveGuiOperatorDiscoveryResults")
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue([{
         provider: "openai",
         available: true,
@@ -793,7 +801,9 @@ describe("TUI gateway message fail-closed behavior", () => {
         authState: "authenticated",
         lastCheckedAt: "2026-05-06T12:00:00.000Z",
       }]);
-    const processSpy = vi.spyOn(messagePipelineModule, "processAdmittedTurn").mockImplementation(async (input) => {
+    const processSpy = vi
+      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .mockImplementation(async (input) => {
       const session = new RuntimeSession({
         sessionId: "tui-parent-session",
         appName: "kiln-tui",

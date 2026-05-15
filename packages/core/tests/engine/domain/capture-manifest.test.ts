@@ -8,8 +8,8 @@ import {
 import {
   RECORDER_CAPTURE_MANIFEST_VERSION as ROOT_RECORDER_CAPTURE_MANIFEST_VERSION,
   createRecorderCaptureManifest as createRootRecorderCaptureManifest,
+  engine as rootEngine,
 } from "../../../src/index.js";
-import * as kilnCore from "../../../src/index.js";
 
 function completeManifestInput(): RecorderCaptureManifestInput {
   return {
@@ -305,8 +305,8 @@ describe("createRecorderCaptureManifest", () => {
     expect(createRootRecorderCaptureManifest(completeManifestInput()).version).toBe(
       RECORDER_CAPTURE_MANIFEST_VERSION,
     );
-    expect(kilnCore.engine.RECORDER_CAPTURE_MANIFEST_VERSION).toBe(RECORDER_CAPTURE_MANIFEST_VERSION);
-    expect(kilnCore.engine.createRecorderCaptureManifest(completeManifestInput()).version).toBe(
+    expect(rootEngine.RECORDER_CAPTURE_MANIFEST_VERSION).toBe(RECORDER_CAPTURE_MANIFEST_VERSION);
+    expect(rootEngine.createRecorderCaptureManifest(completeManifestInput()).version).toBe(
       RECORDER_CAPTURE_MANIFEST_VERSION,
     );
   });

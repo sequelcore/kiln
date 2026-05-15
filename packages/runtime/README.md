@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@kilnai/runtime"><img src="https://img.shields.io/npm/v/@kilnai/runtime.svg" alt="npm version" /></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
 <p align="center">Multi-app gateway server, multi-tenant management, and channel adapters for Kiln.</p>
@@ -120,4 +120,4 @@ When the gateway starts, it automatically mounts:
 
 ## License
 
-[MIT](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)

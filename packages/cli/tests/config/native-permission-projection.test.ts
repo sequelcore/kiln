@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { parse as parseToml } from "smol-toml";
-import * as fs from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { KilnYaml } from "../../src/kiln-yaml-types.js";
 
@@ -20,7 +27,7 @@ vi.mock("node:os", async () => {
   };
 });
 
-import * as os from "node:os";
+import { tmpdir } from "node:os";
 import { syncNativePermissionProjections } from "../../src/config/native-permission-projection.js";
 
 interface TestPaths {
@@ -47,7 +54,7 @@ function buildKilnYaml(): KilnYaml {
 }
 
 function readJson(filePath: string): Record<string, unknown> {
-  return JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+  return JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -61,11 +68,11 @@ describe("syncNativePermissionProjections", () => {
   let paths: TestPaths;
 
   beforeEach(() => {
-    const rootPath = fs.mkdtempSync(join(os.tmpdir(), "kiln-native-permission-projection-"));
+    const rootPath = mkdtempSync(join(tmpdir(), "kiln-native-permission-projection-"));
     const projectPath = join(rootPath, "project");
     const homePath = join(rootPath, "home");
-    fs.mkdirSync(projectPath, { recursive: true });
-    fs.mkdirSync(homePath, { recursive: true });
+    mkdirSync(projectPath, { recursive: true });
+    mkdirSync(homePath, { recursive: true });
     paths = { rootPath, projectPath, homePath };
     syncMocks.mockedHomedir = homePath;
   });
@@ -73,7 +80,7 @@ describe("syncNativePermissionProjections", () => {
   afterEach(() => {
     syncMocks.mockedHomedir = "";
     try {
-      fs.rmSync(paths.rootPath, { recursive: true, force: true });
+      rmSync(paths.rootPath, { recursive: true, force: true });
     } catch {
       // ignore cleanup errors
     }
@@ -81,8 +88,8 @@ describe("syncNativePermissionProjections", () => {
 
   it("merges Claude settings and writes kiln.permissionSync metadata", { timeout: 10_000 }, async () => {
     const claudeSettingsPath = join(paths.projectPath, ".claude", "settings.json");
-    fs.mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
-    fs.writeFileSync(
+    mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
+    writeFileSync(
       claudeSettingsPath,
       JSON.stringify({
         mcpServers: { kiln: { command: "node", args: ["entry.js"] } },
@@ -112,8 +119,8 @@ describe("syncNativePermissionProjections", () => {
 
   it("merges Codex TOML and writes kiln.permission_sync metadata section", async () => {
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
-    fs.mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
-    fs.writeFileSync(
+    mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
+    writeFileSync(
       codexConfigPath,
       [
         "model = \"gpt-5.4\"",
@@ -132,10 +139,10 @@ describe("syncNativePermissionProjections", () => {
     expect(result.errors).toHaveLength(0);
     expect(result.codex).toBe(true);
     const backupDir = join(paths.projectPath, ".kiln", "backups", "codex-config");
-    const backupFiles = fs.readdirSync(backupDir);
+    const backupFiles = readdirSync(backupDir);
     expect(backupFiles).toHaveLength(1);
-    expect(fs.readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("model = \"gpt-5.4\"");
-    const config = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    expect(readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("model = \"gpt-5.4\"");
+    const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(config.model).toBe("gpt-5.4");
     expect(config.approval_policy).toBe("on-request");
     expect(config.sandbox_mode).toBe("workspace-write");
@@ -152,8 +159,8 @@ describe("syncNativePermissionProjections", () => {
 
   it("merges OpenCode JSON and writes kiln.permissionSync metadata", async () => {
     const opencodeConfigPath = join(paths.homePath, ".config", "opencode", "opencode.json");
-    fs.mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
-    fs.writeFileSync(
+    mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
+    writeFileSync(
       opencodeConfigPath,
       JSON.stringify({
         theme: "ocean",
@@ -192,7 +199,7 @@ describe("syncNativePermissionProjections", () => {
     expect((claudeMetadata.representableRules as unknown[]).length).toBeGreaterThan(0);
     expect((claudeMetadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
 
-    const codexConfig = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    const codexConfig = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     const codexMetadata = asRecord(asRecord(codexConfig.kiln).permission_sync);
     expect((codexMetadata.representableRules as unknown[]).length).toBe(0);
     expect((codexMetadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
@@ -225,8 +232,8 @@ describe("syncNativePermissionProjections", () => {
 
   it("does not project disabled harness permission targets", async () => {
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
-    fs.mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
-    fs.writeFileSync(codexConfigPath, "model = \"gpt-5.4\"\n", "utf-8");
+    mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
+    writeFileSync(codexConfigPath, "model = \"gpt-5.4\"\n", "utf-8");
 
     const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath, {
       disabledHarnesses: ["codex"],
@@ -234,7 +241,7 @@ describe("syncNativePermissionProjections", () => {
 
     expect(result.errors).toHaveLength(0);
     expect(result.codex).toBe(true);
-    expect(fs.readFileSync(codexConfigPath, "utf-8")).toBe("model = \"gpt-5.4\"\n");
+    expect(readFileSync(codexConfigPath, "utf-8")).toBe("model = \"gpt-5.4\"\n");
     const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
     expect(Object.keys(asRecord(state.targets))).not.toContain("codex-config");
   });
@@ -244,8 +251,8 @@ describe("syncNativePermissionProjections", () => {
     expect(first.errors).toHaveLength(0);
 
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
-    const codexConfig = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
-    fs.writeFileSync(
+    const codexConfig = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    writeFileSync(
       codexConfigPath,
       [
         `model = "${codexConfig.model as string}"`,
@@ -266,7 +273,7 @@ describe("syncNativePermissionProjections", () => {
     expect(second.errors).toEqual([
       "Codex: managed field drift detected: approval_policy, kiln.permission_sync",
     ]);
-    const after = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    const after = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(after.approval_policy).toBe("never");
   });
 
@@ -275,7 +282,7 @@ describe("syncNativePermissionProjections", () => {
     expect(first.errors).toHaveLength(0);
 
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
-    fs.writeFileSync(
+    writeFileSync(
       codexConfigPath,
       [
         "model = \"gpt-5.4\"",
@@ -292,7 +299,7 @@ describe("syncNativePermissionProjections", () => {
 
     expect(second.errors).toHaveLength(0);
     expect(second.codex).toBe(true);
-    const after = parseToml(fs.readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    const after = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(after.model).toBe("gpt-5.4");
     expect(after.approval_policy).toBe("on-request");
     expect(after.sandbox_mode).toBe("workspace-write");

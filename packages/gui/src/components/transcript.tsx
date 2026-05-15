@@ -350,25 +350,27 @@ function BrowserCaptureGallery(props: {
   readonly resources: NonNullable<NonNullable<TimelineEventEntry["toolPresentation"]>["resourceLinks"]>;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
-  const captures = props.resources.filter((resource) => resource.relation === "snapshot");
+  const loadResourceDataUrl = props.loadResourceDataUrl;
+  const resources = props.resources;
+  const captures = resources.filter((resource) => resource.relation === "snapshot");
   const [previewDataUrls, setPreviewDataUrls] = useState<Record<string, string | null>>({});
   const loadingCaptureUrisRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const loadableCaptureUris = props.resources
+    const loadableCaptureUris = resources
       .filter((resource) => (
         resource.relation === "snapshot"
         && (resource.mimeType === undefined || resource.mimeType.toLowerCase().startsWith("image/"))
       ))
       .map((resource) => resource.uri);
-    if (!props.loadResourceDataUrl || loadableCaptureUris.length === 0) return;
+    if (!loadResourceDataUrl || loadableCaptureUris.length === 0) return;
     let cancelled = false;
     const loadingCaptureUris = loadingCaptureUrisRef.current;
     for (const uri of loadableCaptureUris) {
       if (Object.prototype.hasOwnProperty.call(previewDataUrls, uri)) continue;
       if (loadingCaptureUris.has(uri)) continue;
       loadingCaptureUris.add(uri);
-      props.loadResourceDataUrl(uri)
+      loadResourceDataUrl(uri)
         .then((dataUrl) => {
           if (cancelled) return;
           setPreviewDataUrls((current) => {
@@ -389,7 +391,7 @@ function BrowserCaptureGallery(props: {
     return () => {
       cancelled = true;
     };
-  }, [previewDataUrls, props.loadResourceDataUrl, props.resources]);
+  }, [loadResourceDataUrl, previewDataUrls, resources]);
 
   return (
     <div role="list" aria-label="Browser screenshot captures" className="grid gap-2 sm:grid-cols-2">

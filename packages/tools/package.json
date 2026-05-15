@@ -37,9 +37,9 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@kilnai/tools-darwin-arm64": "1.0.4",
-    "@kilnai/tools-darwin-x64": "1.0.4",
-    "@kilnai/tools-linux-x64": "1.0.4",
-    "@kilnai/tools-win32-x64": "1.0.4"
+    "@kilnai/tools-darwin-arm64": "1.0.7",
+    "@kilnai/tools-darwin-x64": "1.0.7",
+    "@kilnai/tools-linux-x64": "1.0.7",
+    "@kilnai/tools-win32-x64": "1.0.7"
   }
 }

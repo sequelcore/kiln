@@ -17,6 +17,18 @@
     "test": "vitest run --config vitest.config.ts tests"
   },
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sequelcore/kiln.git",
+    "directory": "packages/tui"
+  },
+  "homepage": "https://github.com/sequelcore/kiln/tree/main/packages/tui",
+  "keywords": [
+    "kiln",
+    "tui",
+    "terminal",
+    "agents"
+  ],
   "publishConfig": {
     "access": "public"
   },

@@ -889,7 +889,7 @@ describe("session-store provider selection", () => {
       model: "mystery-1",
     });
 
-    let state = useSessionStore.getState();
+    const state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
     expect(state.errorBanner).toBe("Provider switch acknowledgement did not match the pending request.");
@@ -933,7 +933,7 @@ describe("session-store provider selection", () => {
       model: "claude-sonnet-4-6",
     });
 
-    let state = useSessionStore.getState();
+    const state = useSessionStore.getState();
     expect(state.activeProvider).toBeNull();
     expect(state.activeModel).toBeNull();
     expect(state.providerSwitching).toBe(false);
@@ -1263,7 +1263,7 @@ describe("session-store provider selection", () => {
       requestId: firstRequestId,
     });
 
-    let state = useSessionStore.getState();
+    const state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
     expect(state.errorBanner).toBe("Provider switch acknowledgement did not match the pending request.");
