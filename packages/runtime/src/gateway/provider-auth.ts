@@ -19,6 +19,7 @@ export interface ProviderAuthRequest {
   readonly requestId?: unknown;
   readonly apiKey?: unknown;
   readonly tier?: unknown;
+  readonly credentialId?: unknown;
 }
 
 export interface ProviderAuthStartResult {
@@ -50,11 +51,13 @@ export async function startProviderAuthRequest(
 ): Promise<ProviderAuthResult> {
   const provider = typeof request.provider === "string" ? request.provider.trim() : "";
   const requestId = typeof request.requestId === "string" ? request.requestId.trim() : "";
+  const credentialId = typeof request.credentialId === "string" ? request.credentialId.trim() : "";
   providerAuthDebug("received provider auth request", {
     provider,
     requestId,
     hasApiKey: typeof request.apiKey === "string" && request.apiKey.trim().length > 0,
     tier: request.tier,
+    credentialId: credentialId || undefined,
   });
   if (!provider) {
     return { ok: false, provider, requestId, error: "Provider auth request must include a provider id" };
@@ -73,6 +76,9 @@ export async function startProviderAuthRequest(
   });
   if (!metadata?.authMethod) {
     return { ok: false, provider, requestId, error: `Provider '${provider}' does not support interactive authentication` };
+  }
+  if (credentialId && !isSafeCredentialId(credentialId)) {
+    return { ok: false, provider, requestId, error: `Invalid credential id '${credentialId}'` };
   }
 
   if (metadata.authMethod === "device_code") {
@@ -148,6 +154,7 @@ export async function startProviderAuthRequest(
         tier,
       });
       await new OpenCodeCredentialPoolService().linkCredential({
+        ...(credentialId ? { id: credentialId } : {}),
         apiKey,
         tier,
         createdAt: new Date().toISOString(),
@@ -170,4 +177,8 @@ function resolveOpenCodeTier(
   if (requestedTier === "go") return "go";
   if (metadataTier) return metadataTier;
   return provider === "opencode-zen" ? "zen" : "go";
+}
+
+function isSafeCredentialId(id: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id);
 }

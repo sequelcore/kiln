@@ -46,6 +46,11 @@ export interface OpenCodeCredentialStatus {
   };
 }
 
+export interface ClearOpenCodeCredentialsOptions {
+  readonly tier?: OpenCodeTier;
+  readonly id?: string;
+}
+
 export interface CreateOpenCodePooledAdapterOptions {
   readonly tier: OpenCodeTier;
   readonly defaultModel: string;
@@ -102,10 +107,26 @@ export class OpenCodeCredentialPoolService {
     });
   }
 
-  async clearCredentials(): Promise<void> {
-    const files = await this.listCredentialFileNames();
-    for (const file of files) {
-      await unlink(join(this.providerDirectory(), file));
+  async clearCredentials(options: ClearOpenCodeCredentialsOptions = {}): Promise<void> {
+    if (options.id === undefined && options.tier === undefined) {
+      const files = await this.listCredentialFileNames();
+      for (const file of files) {
+        await unlink(join(this.providerDirectory(), file));
+      }
+      return;
+    }
+    if (options.id !== undefined) {
+      assertSafeCredentialId(options.id);
+    }
+    const credentials = await this.readCredentials();
+    for (const entry of credentials) {
+      if (options.id !== undefined && entry.id !== options.id) {
+        continue;
+      }
+      if (options.tier !== undefined && entry.auth.tier !== options.tier) {
+        continue;
+      }
+      await unlink(this.credentialFilePath(entry.id));
     }
   }
 

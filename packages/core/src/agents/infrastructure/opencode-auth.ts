@@ -128,7 +128,7 @@ export class OpenCodeAuth {
       return null;
     }
 
-    const opencodeEntry = parsed["opencode"];
+    const opencodeEntry = selectOpenCodeAuthEntry(parsed, tier);
     if (!opencodeEntry) {
       return null;
     }
@@ -154,4 +154,16 @@ export class OpenCodeAuth {
   private isEnoent(error: unknown): boolean {
     return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
   }
+}
+
+function selectOpenCodeAuthEntry(
+  parsed: Record<string, { type: string; key?: string; access?: string }>,
+  tier: OpenCodeTier,
+): { type: string; key?: string; access?: string } | null {
+  const tierProviderId = tier === "zen" ? "opencode-zen" : "opencode-go";
+  const tierEntry = parsed[tierProviderId];
+  if (tierEntry) {
+    return tierEntry;
+  }
+  return parsed["opencode"] ?? null;
 }

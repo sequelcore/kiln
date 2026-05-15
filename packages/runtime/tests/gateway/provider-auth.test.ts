@@ -107,6 +107,7 @@ describe("startProviderAuthRequest", () => {
       provider: "opencode-zen",
       requestId: "provider-auth-2",
       apiKey: "  sk-test  ",
+      credentialId: "zen-primary",
     });
 
     expect(auth.ok).toBe(true);
@@ -115,10 +116,28 @@ describe("startProviderAuthRequest", () => {
     await auth.complete();
 
     expect(coreMocks.linkOpenCodeCredential).toHaveBeenCalledWith({
+      id: "zen-primary",
       apiKey: "sk-test",
       tier: "zen",
       createdAt: "2026-04-28T20:00:00.000Z",
     });
+  });
+
+  it("rejects unsafe OpenCode credential ids before saving API-key auth", async () => {
+    const auth = await startProviderAuthRequest({
+      provider: "opencode-go",
+      requestId: "provider-auth-bad-id",
+      apiKey: "sk-test",
+      credentialId: "../bad",
+    });
+
+    expect(auth).toEqual({
+      ok: false,
+      provider: "opencode-go",
+      requestId: "provider-auth-bad-id",
+      error: "Invalid credential id '../bad'",
+    });
+    expect(coreMocks.linkOpenCodeCredential).not.toHaveBeenCalled();
   });
 
   it("rejects providers without an interactive authentication method", async () => {

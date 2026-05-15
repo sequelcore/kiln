@@ -28,8 +28,9 @@ export async function runAuth(args: string[]): Promise<void> {
     if (subcommand === "opencode") {
       switch (action ?? "link") {
         case "link":   await runOpenCodeLink(args.slice(2)); return;
-        case "status": await runOpenCodeStatus(); return;
-        case "logout": await runOpenCodeLogout(); return;
+        case "import": await runOpenCodeImport(args.slice(2)); return;
+        case "status": await runOpenCodeStatus(args.slice(2)); return;
+        case "logout": await runOpenCodeLogout(args.slice(2)); return;
         case "help":   printUsage(); return;
         default:       printUsage(); return;
       }
@@ -108,35 +109,37 @@ async function runCodexLogout(): Promise<void> {
 }
 
 async function runOpenCodeLink(rest: string[]): Promise<void> {
-  const tier = parseTier(rest);
-  const explicitKey = parseKeyFlag(rest);
+  const options = parseOpenCodeOptions(rest);
+  const id = options.id ?? `${options.tier}-primary`;
   const auth = new OpenCodeAuth();
   const pool = new OpenCodeCredentialPoolService();
 
-  if (explicitKey) {
+  if (options.key) {
     const linked = await startProviderAuthRequest({
-      provider: tier === "zen" ? "opencode-zen" : "opencode-go",
+      provider: options.tier === "zen" ? "opencode-zen" : "opencode-go",
       requestId: `cli-auth:${Date.now()}`,
-      apiKey: explicitKey,
-      tier,
+      apiKey: options.key,
+      tier: options.tier,
+      credentialId: id,
     });
     if (!linked.ok) {
       console.log(linked.error);
       return;
     }
     await linked.complete();
-    console.log(`Linked OpenCode (${tier}) from --key`);
+    console.log(`Linked OpenCode (${options.tier}) as ${id} from --key`);
     return;
   }
 
-  const imported = await auth.readFromOpenCodeConfig({ tier });
+  const imported = await auth.readFromOpenCodeConfig({ tier: options.tier });
   if (imported) {
     await pool.linkCredential({
+      id,
       apiKey: imported.api_key,
       tier: imported.tier,
       createdAt: imported.created_at,
     });
-    console.log(`Linked OpenCode (${tier}) — imported key from OpenCode config`);
+    console.log(`Linked OpenCode (${options.tier}) as ${id} from OpenCode config`);
     return;
   }
 
@@ -148,24 +151,53 @@ async function runOpenCodeLink(rest: string[]): Promise<void> {
     return;
   }
   const linked = await startProviderAuthRequest({
-    provider: tier === "zen" ? "opencode-zen" : "opencode-go",
+    provider: options.tier === "zen" ? "opencode-zen" : "opencode-go",
     requestId: `cli-auth:${Date.now()}`,
     apiKey: key,
-    tier,
+    tier: options.tier,
+    credentialId: id,
   });
   if (!linked.ok) {
     console.log(linked.error);
     return;
   }
   await linked.complete();
-  console.log(`Linked OpenCode (${tier})`);
+  console.log(`Linked OpenCode (${options.tier}) as ${id}`);
 }
 
-async function runOpenCodeStatus(): Promise<void> {
+async function runOpenCodeImport(rest: string[]): Promise<void> {
+  const options = parseOpenCodeOptions(rest, { allowKey: false });
+  const id = options.id ?? `${options.tier}-primary`;
+  const auth = new OpenCodeAuth();
   const pool = new OpenCodeCredentialPoolService();
-  const entries = await pool.listStatus();
+  const imported = await auth.readFromOpenCodeConfig({ tier: options.tier });
+  if (!imported) {
+    console.log(`No OpenCode ${options.tier} API key found in OpenCode config`);
+    return;
+  }
+  await pool.linkCredential({
+    id,
+    apiKey: imported.api_key,
+    tier: imported.tier,
+    createdAt: imported.created_at,
+  });
+  console.log(`Imported OpenCode (${options.tier}) as ${id} from OpenCode config`);
+}
+
+async function runOpenCodeStatus(rest: string[] = []): Promise<void> {
+  const options = parseOpenCodeFilterOptions(rest);
+  const pool = new OpenCodeCredentialPoolService();
+  const entries = (await pool.listStatus()).filter((entry) => {
+    if (options.tier !== undefined && entry.tier !== options.tier) {
+      return false;
+    }
+    if (options.id !== undefined && entry.id !== options.id) {
+      return false;
+    }
+    return true;
+  });
   if (entries.length === 0) {
-    console.log("Not authenticated");
+    console.log(options.tier || options.id ? "No matching OpenCode credentials" : "Not authenticated");
     return;
   }
   console.log("OpenCode");
@@ -182,20 +214,77 @@ async function runOpenCodeStatus(): Promise<void> {
   }
 }
 
-async function runOpenCodeLogout(): Promise<void> {
-  await new OpenCodeCredentialPoolService().clearCredentials();
-  console.log("Logged out of OpenCode");
+async function runOpenCodeLogout(rest: string[] = []): Promise<void> {
+  const options = parseOpenCodeFilterOptions(rest);
+  await new OpenCodeCredentialPoolService().clearCredentials(options);
+  if (!options.tier && !options.id) {
+    console.log("Logged out of OpenCode");
+    return;
+  }
+  console.log(`Logged out of OpenCode credentials matching ${describeOpenCodeCredentialFilter(options)}`);
 }
 
-function parseTier(args: readonly string[]): OpenCodeTier {
-  const idx = args.findIndex((a) => a === "--tier" || a === "-t");
-  const value = idx >= 0 ? args[idx + 1] : undefined;
-  return value === "zen" ? "zen" : "go";
+interface OpenCodeCliOptions {
+  readonly tier: OpenCodeTier;
+  readonly id?: string;
+  readonly key?: string;
 }
 
-function parseKeyFlag(args: readonly string[]): string | null {
-  const idx = args.findIndex((a) => a === "--key" || a === "-k");
-  return idx >= 0 ? (args[idx + 1] ?? null) : null;
+interface OpenCodeCredentialFilter {
+  readonly tier?: OpenCodeTier;
+  readonly id?: string;
+}
+
+function parseOpenCodeOptions(
+  args: readonly string[],
+  options: { readonly allowKey?: boolean } = {},
+): OpenCodeCliOptions {
+  const allowKey = options.allowKey ?? true;
+  const tier = parseTierOption(args) ?? "go";
+  const id = parseValueFlag(args, "--id", "-i");
+  const key = allowKey ? parseValueFlag(args, "--key", "-k") : undefined;
+  return { tier, id, key };
+}
+
+function parseOpenCodeFilterOptions(args: readonly string[]): OpenCodeCredentialFilter {
+  return {
+    tier: parseTierOption(args),
+    id: parseValueFlag(args, "--id", "-i"),
+  };
+}
+
+function parseTierOption(args: readonly string[]): OpenCodeTier | undefined {
+  const value = parseValueFlag(args, "--tier", "-t");
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value !== "go" && value !== "zen") {
+    throw new Error(`Invalid OpenCode tier '${value}'. Expected 'go' or 'zen'.`);
+  }
+  return value;
+}
+
+function parseValueFlag(args: readonly string[], longName: string, shortName: string): string | undefined {
+  const idx = args.findIndex((arg) => arg === longName || arg === shortName);
+  if (idx < 0) {
+    return undefined;
+  }
+  const value = args[idx + 1];
+  if (!value || value.startsWith("-")) {
+    throw new Error(`${longName} requires a value`);
+  }
+  return value;
+}
+
+function describeOpenCodeCredentialFilter(filter: OpenCodeCredentialFilter): string {
+  const parts: string[] = [];
+  if (filter.tier) {
+    parts.push(`tier ${filter.tier}`);
+  }
+  if (filter.id) {
+    parts.push(`id ${filter.id}`);
+  }
+  return parts.join(" and ");
 }
 
 function readLineFromStdin(): Promise<string> {
@@ -316,8 +405,9 @@ function printUsage(): void {
   console.log("  kiln auth codex login");
   console.log("  kiln auth codex status");
   console.log("  kiln auth codex logout");
-  console.log("  kiln auth opencode link [--tier go|zen] [--key <key>]    Link OpenCode API key (imports from OpenCode config if present)");
-  console.log("  kiln auth opencode status                                  Show linked OpenCode account");
-  console.log("  kiln auth opencode logout                                  Remove linked OpenCode account");
+  console.log("  kiln auth opencode link [--tier go|zen] [--id <id>] [--key <key>]    Link OpenCode API key (imports from OpenCode config if present)");
+  console.log("  kiln auth opencode import [--tier go|zen] [--id <id>]                Import OpenCode API key from native OpenCode config");
+  console.log("  kiln auth opencode status [--tier go|zen] [--id <id>]                Show linked OpenCode credentials");
+  console.log("  kiln auth opencode logout [--tier go|zen] [--id <id>]                Remove linked OpenCode credentials");
   console.log("  kiln auth status");
 }

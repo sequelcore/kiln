@@ -281,5 +281,24 @@ describe("OpenCodeAuth", () => {
       expect(result).not.toBeNull();
       expect(result!.api_key).toBe("sk-fallback-key");
     });
+
+    it("prefers tier-specific OpenCode entries over the generic opencode entry", async () => {
+      const sourcePath = join(tempDir, "source-auth.json");
+      const sourceContent = {
+        opencode: { type: "api", key: "sk-generic" },
+        "opencode-go": { type: "api", key: "sk-go" },
+        "opencode-zen": { type: "api", key: "sk-zen" },
+      };
+      await writeFile(sourcePath, JSON.stringify(sourceContent), "utf8");
+
+      const { OpenCodeAuth } = await import("../opencode-auth.js");
+      const auth = new OpenCodeAuth({ tokenPath });
+
+      const go = await auth.readFromOpenCodeConfig({ tier: "go", sourcePath });
+      const zen = await auth.readFromOpenCodeConfig({ tier: "zen", sourcePath });
+
+      expect(go).toEqual(expect.objectContaining({ api_key: "sk-go", tier: "go" }));
+      expect(zen).toEqual(expect.objectContaining({ api_key: "sk-zen", tier: "zen" }));
+    });
   });
 });

@@ -105,6 +105,30 @@ describe("OpenCodeCredentialPoolService", () => {
     expect(await readFile(join(rootDir, "opencode.json"), "utf8")).toContain("sk-singleton");
   });
 
+  it("clears only credentials matching the requested tier and id", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "go-primary", apiKey: "sk-go", tier: "go" });
+    await service.linkCredential({ id: "go-secondary", apiKey: "sk-go-2", tier: "go" });
+    await service.linkCredential({ id: "zen-primary", apiKey: "sk-zen", tier: "zen" });
+
+    await service.clearCredentials({ tier: "go", id: "go-primary" });
+
+    await expect(service.listStatus()).resolves.toEqual([
+      expect.objectContaining({ id: "go-secondary", tier: "go" }),
+      expect.objectContaining({ id: "zen-primary", tier: "zen" }),
+    ]);
+  });
+
+  it("clears all OpenCode credential files without requiring each file to parse", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await mkdir(join(rootDir, "opencode"), { recursive: true });
+    await writeFile(join(rootDir, "opencode", "broken.json"), "{", "utf8");
+
+    await service.clearCredentials();
+
+    await expect(service.listStatus()).resolves.toEqual([]);
+  });
+
   it("creates a pooled adapter that rotates on rate limits", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "first", apiKey: "sk-first", tier: "go" });

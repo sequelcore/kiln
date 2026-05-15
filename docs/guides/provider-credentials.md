@@ -41,9 +41,10 @@ kiln auth codex logout
 OpenCode:
 
 ```bash
-kiln auth opencode link [--tier go|zen] [--key <key>]
-kiln auth opencode status
-kiln auth opencode logout
+kiln auth opencode link [--tier go|zen] [--id <id>] [--key <key>]
+kiln auth opencode import [--tier go|zen] [--id <id>]
+kiln auth opencode status [--tier go|zen] [--id <id>]
+kiln auth opencode logout [--tier go|zen] [--id <id>]
 ```
 
 All providers:
@@ -58,6 +59,11 @@ result under `~/.kiln/auth/codex-oauth/`.
 `kiln auth opencode link` stores an OpenCode API key under
 `~/.kiln/auth/opencode/`. Without `--key`, Kiln first tries to import the key
 from the local OpenCode config and then falls back to an interactive paste.
+OpenCode Go and Zen credentials are stored as separate tiered entries. The
+default credential ids are `go-primary` and `zen-primary`; pass `--id` to manage
+multiple accounts or named workspaces. `status` and `logout` accept the same
+`--tier` and `--id` filters so operators can inspect or remove one credential
+without touching the other tier.
 
 Logout commands remove the provider's linked credential files. They do not
 modify unrelated provider directories.
