@@ -7,9 +7,11 @@ read-only projection wrapper/action-intent contracts. It also has a shared
 TypeScript read-only projection baseline over the same projection substrate and
 a read-only attach plan for explicit local and simulated remote gateway
 targets. Shared projection now includes target-aware resource links for
-read-only open-resource affordances. No native cockpit UI, network attach loop,
-browser-rendering benchmark, resource-opening dispatch, cancellation dispatch,
-or Rust projection kernel is promoted.
+read-only open-resource affordances and a shared read-only view-state helper
+for target-safe focus, filtering, and replay cursor selection. No native
+cockpit UI, network attach loop, browser-rendering benchmark,
+resource-opening dispatch, cancellation dispatch, or Rust projection kernel is
+promoted.
 
 ## Purpose
 
@@ -145,6 +147,15 @@ The native wrapper exposes the same read-only view as
 `runtimeBoundary: gateway-contracts` with `mutationDispatch: disabled`. This
 lets the native surface prove it can consume canonical cockpit projections
 without introducing native-owned runtime truth or private dispatch behavior.
+
+The shared read-only view-state helper consumes the existing shared projection
+and returns target-validated focus/filter/replay selections with explicit
+`dispatch: not-dispatched` and `mutationDispatch: disabled` metadata. Unknown
+focus, filter, and replay targets fail closed. Timeline filters use projected
+targets, including `managedInvocationId`, `toolCallId`, and `resourceUri`,
+instead of parsing raw event payloads. Session, managed-invocation, and
+tool-call filters require their enclosing instance/session target so
+multi-instance dashboards cannot merge same-named ids across scopes.
 
 The native action-intent wrapper follows the same rule. It adds `surfaceId`
 metadata and keeps `mutationDispatch: disabled`; it does not send HTTP,

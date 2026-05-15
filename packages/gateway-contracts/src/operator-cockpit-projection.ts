@@ -285,10 +285,15 @@ export function projectOperatorCockpitReadOnlyView(
       throw new Error(`Operator cockpit attach target ${instanceId} was not initialized.`);
     }
     const sessionId = readString(payload.sessionId) ?? event.kilnSessionId;
+    const managedInvocationId = readString(payload.managedInvocationId);
+    const toolCallId = readString(payload.toolCallId);
+    const toolName = readString(payload.toolName);
     const target: OperatorCockpitActionTarget = {
       instanceId,
       sessionId,
       eventId: event.eventId,
+      ...(managedInvocationId ? { managedInvocationId } : {}),
+      ...(toolCallId ? { toolCallId } : {}),
     };
     const presentation = presentOperatorSessionEvent(event);
     const costDeltaUsd = readCostDeltaUsd(payload);
@@ -315,7 +320,6 @@ export function projectOperatorCockpitReadOnlyView(
     session.authority = readAuthority(payload) ?? session.authority;
     addResourceUris(session.resourceLinks, resourceLinks);
 
-    const managedInvocationId = readString(payload.managedInvocationId);
     if (managedInvocationId) {
       const managedInvocationKey = projectionKey(sessionId, managedInvocationId);
       const invocationTarget: OperatorCockpitActionTarget = {
@@ -340,13 +344,12 @@ export function projectOperatorCockpitReadOnlyView(
       session.invocations.add(managedInvocationId);
     }
 
-    const toolCallId = readString(payload.toolCallId);
-    const toolName = readString(payload.toolName);
     if (toolCallId && toolName) {
       const toolTarget: OperatorCockpitActionTarget = {
         instanceId,
         sessionId,
         eventId: event.eventId,
+        toolCallId,
       };
       const tool = getOrCreateTool(tools, {
         toolCallId,

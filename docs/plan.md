@@ -263,6 +263,42 @@ Deliverables:
 - Keep resource-opening dispatch, live gateway networking, UI rendering, and
   Rust/WASM/sidecar acceleration out of scope.
 
+### Slice 11 - Read-Only Focus/Filter/Replay View State
+
+Files:
+
+- `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts`
+- `packages/gateway-contracts/src/operator-cockpit-target.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
+- `packages/native/src/shared/native-cockpit-contract.ts`
+- `packages/native/tests/native-boundary.test.ts`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+- `packages/gateway-contracts/README.md`
+
+Deliverables:
+
+- Define `createOperatorCockpitReadOnlyViewState` over
+  `OperatorCockpitReadOnlyProjection` without duplicating projection
+  construction.
+- Validate focus, filter, and replay targets against shared projection data and
+  fail closed when targets do not resolve.
+- Preserve `managedInvocationId` and `toolCallId` on projected timeline targets
+  so filters remain target-derived instead of summary-derived.
+- Require enclosing instance/session target scope for session, invocation, and
+  tool filters, and suppress replay resolution when filter state is invalid.
+- Keep the contract read-only with explicit metadata:
+  `mode: read-only`, `dispatch: not-dispatched`, and
+  `mutationDispatch: disabled`.
+- Add `createNativeCockpitReadOnlyViewState` as a thin wrapper preserving
+  `runtimeBoundary: gateway-contracts` and fail-closed semantics.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -309,3 +345,13 @@ Deliverables:
 - Passed `bun run test` after Slice 10.
 - Passed `bun run build` after Slice 10.
 - Passed `git diff --check` after Slice 10.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-view-state operator-cockpit-projection operator-cockpit-target` after Slice 11.
+- Passed `bun run --cwd packages/native test` after Slice 11.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 11.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 11.
+- Passed `bun run --cwd packages/native typecheck` after Slice 11.
+- Passed `bun run --cwd packages/native build` after Slice 11.
+- Passed `bun run typecheck` after Slice 11.
+- Passed `bun run test` after Slice 11.
+- Passed `bun run build` after Slice 11.
+- Passed `git diff --check` after Slice 11.

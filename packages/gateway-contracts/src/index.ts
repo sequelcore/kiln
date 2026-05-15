@@ -168,6 +168,17 @@ export {
 } from "./operator-cockpit-projection.js";
 
 export type {
+  OperatorCockpitFocusTarget,
+  OperatorCockpitReadOnlyViewState,
+  OperatorCockpitReadOnlyViewStateInput,
+  OperatorCockpitReplayCursorTarget,
+  OperatorCockpitTimelineFilters,
+} from "./operator-cockpit-view-state.js";
+export {
+  createOperatorCockpitReadOnlyViewState,
+} from "./operator-cockpit-view-state.js";
+
+export type {
   OperatorCockpitAction,
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,

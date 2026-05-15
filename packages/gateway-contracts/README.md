@@ -62,7 +62,13 @@ links are projected as target-aware read-only resources carrying
 `resourceUri`, so surfaces can prepare open-resource affordances without
 parsing raw tool payloads. Read-only action intents are target-checked plans
 only; they do not dispatch gateway mutations and explicitly exclude
-cancellation.
+cancellation. `src/operator-cockpit-view-state.ts` derives read-only
+focus/filter/replay cursor state from that same projection with explicit
+`dispatch: not-dispatched` and `mutationDispatch: disabled` metadata, and
+fails closed when targets do not resolve. Timeline filters use projected
+targets such as `managedInvocationId`, `toolCallId`, and `resourceUri` rather
+than raw event payload parsing. Session, managed-invocation, and tool-call
+filters require their enclosing instance/session target.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted

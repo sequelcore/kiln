@@ -7,12 +7,15 @@ import type {
   OperatorCockpitReadOnlyAttachPlanInput,
   OperatorCockpitReadOnlyProjection,
   OperatorCockpitReadOnlyProjectionInput,
+  OperatorCockpitReadOnlyViewState,
+  OperatorCockpitReadOnlyViewStateInput,
   OperatorCockpitReadOnlyActionIntent,
   OperatorCockpitReadOnlyActionIntentInput,
 } from "@kilnai/gateway-contracts";
 import {
   createOperatorCockpitReadOnlyAttachPlan,
   createOperatorCockpitReadOnlyActionIntent,
+  createOperatorCockpitReadOnlyViewState,
   operatorCockpitActionAllowed,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
@@ -157,6 +160,33 @@ export function createNativeCockpitReadOnlyActionIntent(
       action: input.action,
       requestedAt: input.requestedAt,
       target: input.target,
+    }),
+  };
+}
+
+export type NativeCockpitReadOnlyViewStateView = OperatorCockpitReadOnlyViewState;
+
+export interface NativeCockpitReadOnlyViewStateInput extends OperatorCockpitReadOnlyViewStateInput {
+  readonly surfaceId: string;
+}
+
+export interface NativeCockpitReadOnlyViewState {
+  readonly surfaceId: string;
+  readonly runtimeBoundary: "gateway-contracts";
+  readonly mutationDispatch: "disabled";
+  readonly view: NativeCockpitReadOnlyViewStateView;
+}
+
+export function createNativeCockpitReadOnlyViewState(
+  input: NativeCockpitReadOnlyViewStateInput,
+): NativeCockpitReadOnlyViewState {
+  return {
+    surfaceId: input.surfaceId,
+    runtimeBoundary: "gateway-contracts",
+    mutationDispatch: "disabled",
+    view: createOperatorCockpitReadOnlyViewState({
+      projection: input.projection,
+      viewState: input.viewState,
     }),
   };
 }

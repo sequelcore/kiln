@@ -30,6 +30,7 @@ import {
   createNativeCockpitReadOnlyAttachPlan,
   createNativeCockpitReadOnlyActionIntent,
   createNativeCockpitReadOnlyProjection,
+  createNativeCockpitReadOnlyViewState,
   nativeCockpitActionAllowed,
 } from "../src/shared/native-cockpit-contract.js";
 
@@ -504,6 +505,98 @@ describe("native operator surface foundation", () => {
         managedInvocationId: "child-1",
       },
     })).toThrow("not available in read-only cockpit mode");
+  });
+
+  it("wraps shared read-only cockpit view-state with native boundary metadata", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "native-view-state",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 1,
+      childInvocationCount: 2,
+      eventCount: 10,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-14T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-view-state:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+      events: fixture.events,
+    });
+    const cursorEvent = projection.view.timeline[1]!;
+    const viewState = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {
+        focusTarget: {
+          instanceId: cursorEvent.instanceId,
+          sessionId: cursorEvent.sessionId,
+        },
+        replayCursor: {
+          instanceId: cursorEvent.instanceId,
+          sessionId: cursorEvent.sessionId,
+          eventId: cursorEvent.eventId,
+        },
+      },
+    });
+
+    expect(viewState.surfaceId).toBe("native:local");
+    expect(viewState.runtimeBoundary).toBe("gateway-contracts");
+    expect(viewState.mutationDispatch).toBe("disabled");
+    expect(viewState.view.mode).toBe("read-only");
+    expect(viewState.view.dispatch).toBe("not-dispatched");
+    expect(viewState.view.focus.resolved).toBe(true);
+    expect(viewState.view.replay.resolved).toBe(true);
+    expect(viewState.view.replay.entry?.eventId).toBe(cursorEvent.eventId);
+  });
+
+  it("fails closed in native wrapper for unknown focus and replay targets", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "native-view-state-fail",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 1,
+      childInvocationCount: 1,
+      eventCount: 6,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-14T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-view-state-fail:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+      events: fixture.events,
+    });
+    const viewState = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {
+        focusTarget: {
+          instanceId: "native-view-state-fail:instance:missing",
+          sessionId: "native-view-state-fail:session:missing",
+        },
+        replayCursor: {
+          instanceId: "native-view-state-fail:instance:missing",
+          sessionId: "native-view-state-fail:session:missing",
+          eventId: "native-view-state-fail:event:missing",
+        },
+      },
+    });
+
+    expect(viewState.view.focus.resolved).toBe(false);
+    expect(viewState.view.replay.resolved).toBe(false);
+    expect(viewState.view.replay.entry).toBeUndefined();
   });
 
   it("defines high-density benchmark fixtures before native cockpit promotion", () => {

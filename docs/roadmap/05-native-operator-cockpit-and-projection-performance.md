@@ -9,10 +9,10 @@ benchmark fixture definitions, shared projection baselines, cancellation target
 contracts, a shared read-only projection substrate, a native read-only
 projection wrapper, read-only action intents, a shared read-only projection
 baseline measurement, a read-only attach plan, target-aware resource-link
-projection, and Rust hot-path boundaries. Do not build a native cockpit UI,
-browser rendering benchmark runner, live gateway attach loop,
-resource-opening dispatch, cancellation dispatch, or Rust/WASM/sidecar module
-until this
+projection, read-only focus/filter/replay view-state helpers, and Rust
+hot-path boundaries. Do not build a native cockpit UI, browser rendering
+benchmark runner, live gateway attach loop, resource-opening dispatch,
+cancellation dispatch, or Rust/WASM/sidecar module until this
 contract/projection phase and baseline measurements justify them.
 
 Do not start this program before the completed plan/goal workflow-control
@@ -1187,6 +1187,15 @@ Started 2026-05-14:
   TypeScript projection over canonical events and explicit attach targets. This
   is the benchmark baseline later native rendering, GUI rendering, and
   Rust/WASM/sidecar experiments must match before claiming an optimization.
+- `@kilnai/gateway-contracts` now exposes
+  `createOperatorCockpitReadOnlyViewState`, a projection-consumer helper for
+  target-safe focus/session selection, validated timeline filters, and replay
+  cursor selection. It is read-only only and returns
+  `dispatch: not-dispatched` plus `mutationDispatch: disabled`.
+- `@kilnai/native` now wraps that helper through
+  `createNativeCockpitReadOnlyViewState`, preserving
+  `runtimeBoundary: gateway-contracts` and fail-closed behavior for unknown
+  focus/replay targets.
 
 ### Phase 3 - Benchmark and Compare
 

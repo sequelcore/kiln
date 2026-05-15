@@ -58,6 +58,11 @@
   with `resourceUri` encoded in their action targets, enabling read-only
   open-resource affordances without parsing raw payloads or dispatching
   resource-opening behavior.
+- Added shared and native read-only cockpit view-state helpers for target-safe
+  focus, timeline filtering, and replay cursor selection over the existing
+  shared projection. The contracts are explicit `read-only`,
+  `dispatch: not-dispatched`, and `mutationDispatch: disabled`, and fail closed
+  for unknown focus/filter/replay targets.
 - Wired `@kilnai/native` into workspace `test`, `typecheck`, and `build`, and
   constrained root TypeScript ambient types to Bun so Electron's Node typings do
   not leak into Bun-oriented packages.
