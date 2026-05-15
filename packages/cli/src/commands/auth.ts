@@ -10,6 +10,7 @@ import {
 
 const AUTH_DIR = join(homedir(), ".kiln", "auth");
 const EXPIRING_SOON_MS = 120 * 1000;
+const POOLED_PROVIDER_AUTH_FILES = new Set(["opencode.json", "codex-oauth.json"]);
 
 export async function runAuth(args: string[]): Promise<void> {
   const [subcommand, action] = args;
@@ -311,7 +312,7 @@ async function printAllProviderStatuses(): Promise<void> {
     throw error;
   }
 
-  const providerFiles = entries.filter((entry) => entry.endsWith(".json"));
+  const providerFiles = entries.filter((entry) => entry.endsWith(".json") && !POOLED_PROVIDER_AUTH_FILES.has(entry));
   const providerDirs = entries.filter((entry) => !entry.endsWith(".json"));
   if (providerFiles.length === 0 && providerDirs.length === 0) {
     console.log("No authenticated providers");
@@ -327,26 +328,6 @@ async function printAllProviderStatuses(): Promise<void> {
 
   for (const file of providerFiles) {
     const tokenPath = join(AUTH_DIR, file);
-
-    if (file === "opencode.json") {
-      const auth = new OpenCodeAuth({ tokenPath });
-      const authFile = await auth.loadAuthFile();
-      if (!authFile) {
-        console.log("OpenCode: unreadable");
-        continue;
-      }
-      console.log("OpenCode");
-      console.log(`  Tier: ${authFile.tier}`);
-      console.log(`  Linked at: ${authFile.created_at}`);
-      continue;
-    }
-
-    if (file === "codex-oauth.json") {
-      const pool = new CodexOAuthCredentialPoolService();
-      await pool.listStatus();
-      await runCodexStatus();
-      continue;
-    }
 
     const provider = file.slice(0, -".json".length);
     const tokenFile = await loadGenericTokenFile(tokenPath);

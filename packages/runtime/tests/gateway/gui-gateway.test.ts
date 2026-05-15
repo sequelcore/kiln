@@ -6,12 +6,13 @@ import { join } from "node:path";
 import {
   buildManagedAgentCapabilitySnapshot,
   GPT4O,
-  OpenCodeAuth,
   OPENCODE_BASE_URL,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   textParts,
   type ManagedAgentInvocationRequest,
+  type OpenCodeAuthFile,
+  type OpenCodeTier,
 } from "@kilnai/core";
 import type { GuiProviderDescriptor } from "@kilnai/gateway-contracts";
 import { Hono } from "hono";
@@ -32,6 +33,7 @@ import {
 import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { CodexOAuthCredentialPoolService } from "../../src/agents/credential-pool/codex-oauth-credential-pool.js";
+import { OpenCodeCredentialPoolService } from "../../src/agents/credential-pool/opencode-credential-pool.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const guiSocketHarness = vi.hoisted(() => {
@@ -313,6 +315,28 @@ function projectDirectProviderDiscoveryForTest(
     providerAvailability,
     directProviderDiscovery,
   }));
+}
+
+function mockOpenCodeCredentialPool(
+  credentialsForTier: (tier: OpenCodeTier) => readonly OpenCodeAuthFile[] = () => [],
+) {
+  type OpenCodePool = Awaited<ReturnType<OpenCodeCredentialPoolService["createPool"]>>;
+  return vi.spyOn(OpenCodeCredentialPoolService.prototype, "createPool").mockImplementation(async (tier) => ({
+    getAllCredentials: () => credentialsForTier(tier).map((auth, index) => ({
+      id: `${tier}-${index}`,
+      label: `${tier}-${index}`,
+      providerId: "opencode",
+      source: "manual",
+      priority: 0,
+      tier: auth.tier,
+      auth,
+      requestCount: 0,
+      lastSuccess: null,
+      lastExhausted: null,
+      cooldownUntil: null,
+      softLeaseCount: 0,
+    })),
+  }) as OpenCodePool);
 }
 
 afterEach(() => {
@@ -3395,14 +3419,14 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
   it.each([
     ["go", "opencode-go", "https://opencode.ai/zen/go/v1/models"],
     ["zen", "opencode-zen", `${OPENCODE_BASE_URL}/models`],
-  ])("discovers %s tier OpenCode models from live auth and /models endpoint", async (tier, providerId, modelsUrl) => {
-    const openCodeAuthSpy = vi
-      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
-      .mockResolvedValue({
-        api_key: "test-opencode-key",
-        tier: tier as "go" | "zen",
-        created_at: "2026-01-01T00:00:00.000Z",
-      });
+  ])("discovers %s tier OpenCode models from the tiered credential pool", async (tier, providerId, modelsUrl) => {
+    const poolSpy = mockOpenCodeCredentialPool((requestedTier) => requestedTier === tier
+      ? [{
+          api_key: "test-opencode-key",
+          tier: tier as "go" | "zen",
+          created_at: "2026-01-01T00:00:00.000Z",
+        }]
+      : []);
     const fetchSpy = vi.fn(async (url: string) => ({
       ok: url === modelsUrl,
       json: async () => ({ data: [{ id: "opencode/live-model" }] }),
@@ -3424,14 +3448,11 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
         }),
       );
     } finally {
-      openCodeAuthSpy.mockRestore();
+      poolSpy.mockRestore();
     }
   });
 
   it("uses OPENCODE_API_KEY to discover both OpenCode Go and Zen requested tiers", async () => {
-    const openCodeAuthSpy = vi
-      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
-      .mockResolvedValue(null);
     const fetchSpy = vi.fn(async (url: string) => ({
       ok: true,
       json: async () => ({
@@ -3441,6 +3462,41 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       }),
     }));
     vi.stubEnv("OPENCODE_API_KEY", "env-opencode-key");
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const providerAvailability = {
+      "opencode-go": true,
+      "opencode-zen": true,
+    };
+    const discovered = await discoverGuiDirectProviderModelDiscovery(providerAvailability);
+    const models = projectDirectProviderDiscoveryForTest(discovered, providerAvailability);
+
+    expect(models["opencode-go"]).toEqual(["go-model"]);
+    expect(models["opencode-zen"]).toEqual(["zen-model"]);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://opencode.ai/zen/go/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer env-opencode-key" } }),
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `${OPENCODE_BASE_URL}/models`,
+      expect.objectContaining({ headers: { Authorization: "Bearer env-opencode-key" } }),
+    );
+  });
+
+  it("uses tiered Kiln OpenCode credential pool entries to discover Go and Zen models", async () => {
+    const poolSpy = mockOpenCodeCredentialPool((tier) => [{
+      api_key: tier === "go" ? "go-pool-key" : "zen-pool-key",
+      tier,
+      created_at: "2026-05-15T00:00:00.000Z",
+    }]);
+    const fetchSpy = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: url.includes("/go/") ? "go-model" : "zen-model" },
+        ],
+      }),
+    }));
     vi.stubGlobal("fetch", fetchSpy);
 
     try {
@@ -3455,21 +3511,19 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       expect(models["opencode-zen"]).toEqual(["zen-model"]);
       expect(fetchSpy).toHaveBeenCalledWith(
         "https://opencode.ai/zen/go/v1/models",
-        expect.objectContaining({ headers: { Authorization: "Bearer env-opencode-key" } }),
+        expect.objectContaining({ headers: { Authorization: "Bearer go-pool-key" } }),
       );
       expect(fetchSpy).toHaveBeenCalledWith(
         `${OPENCODE_BASE_URL}/models`,
-        expect.objectContaining({ headers: { Authorization: "Bearer env-opencode-key" } }),
+        expect.objectContaining({ headers: { Authorization: "Bearer zen-pool-key" } }),
       );
     } finally {
-      openCodeAuthSpy.mockRestore();
+      poolSpy.mockRestore();
     }
   });
 
   it("diagnoses missing OpenCode API credentials for requested subscription tiers", async () => {
-    const openCodeAuthSpy = vi
-      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
-      .mockResolvedValue(null);
+    const poolSpy = mockOpenCodeCredentialPool();
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -3482,57 +3536,27 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       expect(discovered["opencode-go"]).toMatchObject({
         models: [],
         status: "missing_auth",
-        reason: "OpenCode API key is missing.",
+        reason: "No OpenCode Go credential is linked.",
         authState: "missing",
       });
       expect(discovered["opencode-zen"]).toMatchObject({
         models: [],
         status: "missing_auth",
-        reason: "OpenCode API key is missing.",
+        reason: "No OpenCode Zen credential is linked.",
         authState: "missing",
       });
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
-      openCodeAuthSpy.mockRestore();
-    }
-  });
-
-  it("diagnoses stored OpenCode auth tier mismatch without probing the wrong tier endpoint", async () => {
-    const openCodeAuthSpy = vi
-      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
-      .mockResolvedValue({
-        api_key: "test-opencode-key",
-        tier: "go",
-        created_at: "2026-01-01T00:00:00.000Z",
-      });
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-
-    try {
-      const discovered = await discoverGuiDirectProviderModelDiscovery({
-        "opencode-zen": true,
-      });
-
-      expect(discovered["opencode-zen"]).toMatchObject({
-        models: [],
-        status: "missing_auth",
-        reason: "Stored OpenCode auth is for OpenCode Go, not OpenCode Zen.",
-        authState: "missing",
-      });
-      expect(fetchSpy).not.toHaveBeenCalled();
-    } finally {
-      openCodeAuthSpy.mockRestore();
+      poolSpy.mockRestore();
     }
   });
 
   it("diagnoses OpenCode subscription model endpoint failures", async () => {
-    const openCodeAuthSpy = vi
-      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
-      .mockResolvedValue({
-        api_key: "test-opencode-key",
-        tier: "go",
-        created_at: "2026-01-01T00:00:00.000Z",
-      });
+    const poolSpy = mockOpenCodeCredentialPool((tier) => [{
+      api_key: "test-opencode-key",
+      tier,
+      created_at: "2026-01-01T00:00:00.000Z",
+    }]);
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
 
     try {
@@ -3547,18 +3571,16 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
         authState: "unknown",
       });
     } finally {
-      openCodeAuthSpy.mockRestore();
+      poolSpy.mockRestore();
     }
   });
 
   it("diagnoses empty OpenCode subscription model responses", async () => {
-    const openCodeAuthSpy = vi
-      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
-      .mockResolvedValue({
-        api_key: "test-opencode-key",
-        tier: "zen",
-        created_at: "2026-01-01T00:00:00.000Z",
-      });
+    const poolSpy = mockOpenCodeCredentialPool((tier) => [{
+      api_key: "test-opencode-key",
+      tier,
+      created_at: "2026-01-01T00:00:00.000Z",
+    }]);
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: true,
       json: async () => ({ data: [] }),
@@ -3576,7 +3598,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
         authState: "unknown",
       });
     } finally {
-      openCodeAuthSpy.mockRestore();
+      poolSpy.mockRestore();
     }
   });
 
@@ -3842,9 +3864,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
   });
 
   it("does not expose opencode-go/opencode-zen without live OpenCode auth and /models discovery", async () => {
-    const openCodeAuthSpy = vi
-      .spyOn(OpenCodeAuth.prototype, "loadAuthFile")
-      .mockResolvedValue(null);
+    const poolSpy = mockOpenCodeCredentialPool();
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -3862,7 +3882,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
         expect.anything(),
       );
     } finally {
-      openCodeAuthSpy.mockRestore();
+      poolSpy.mockRestore();
     }
   });
 });

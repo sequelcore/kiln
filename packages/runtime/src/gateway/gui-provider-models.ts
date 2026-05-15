@@ -1,10 +1,12 @@
 import { execSync } from "node:child_process";
 import {
-  OpenCodeAuth,
   OPENCODE_BASE_URL,
   formatProviderModelRouteCooldown,
 } from "@kilnai/core";
-import { CodexOAuthCredentialPoolService } from "../agents/credential-pool/index.js";
+import {
+  CodexOAuthCredentialPoolService,
+  OpenCodeCredentialPoolService,
+} from "../agents/credential-pool/index.js";
 import { ProviderModelRouteHealthStore } from "../agents/provider-route-health/index.js";
 import {
   GUI_PROVIDER_DISPLAY_ORDER,
@@ -46,6 +48,10 @@ interface OpenCodeDirectProviderDiscoveryTarget {
   readonly label: string;
   readonly modelsUrl: string;
 }
+
+type OpenCodeDirectCredentialResolution =
+  | { readonly ok: true; readonly token: string }
+  | { readonly ok: false; readonly reason: string };
 
 const OPENCODE_GO_MODELS_URL = "https://opencode.ai/zen/go/v1/models";
 const OPENCODE_ZEN_MODELS_URL = `${OPENCODE_BASE_URL}/models`;
@@ -1349,8 +1355,6 @@ async function discoverOpenCodeDirectModelDiscovery(
   if (targets.length === 0) {
     return {};
   }
-  const auth = new OpenCodeAuth();
-  const authFile = await auth.loadAuthFile().catch(() => null);
   const envToken = env.OPENCODE_API_KEY?.trim() ?? "";
   if (envToken.length > 0) {
     return Object.fromEntries(await Promise.all(
@@ -1361,36 +1365,36 @@ async function discoverOpenCodeDirectModelDiscovery(
     ));
   }
 
-  const fileToken = authFile?.api_key?.trim() ?? "";
-  if (fileToken.length === 0) {
-    return Object.fromEntries(targets.map((target) => [
-      target.provider,
-      unavailableCliProviderDiscovery(
-        "missing_auth",
-        "OpenCode API key is missing.",
-        "missing",
-      ),
-    ] as const));
-  }
-
   return Object.fromEntries(await Promise.all(
     targets.map(async (target) => {
-      if (authFile?.tier !== target.tier) {
+      const credential = await resolveOpenCodeDirectCredential(target);
+      if (!credential.ok) {
         return [
           target.provider,
           unavailableCliProviderDiscovery(
             "missing_auth",
-            `Stored OpenCode auth is for ${openCodeTierLabel(authFile?.tier)}, not ${target.label}.`,
+            credential.reason,
             "missing",
           ),
         ] as const;
       }
       return [
         target.provider,
-        await discoverOpenCodeDirectProviderModels(target, fileToken),
+        await discoverOpenCodeDirectProviderModels(target, credential.token),
       ] as const;
     }),
   ));
+}
+
+async function resolveOpenCodeDirectCredential(
+  target: OpenCodeDirectProviderDiscoveryTarget,
+): Promise<OpenCodeDirectCredentialResolution> {
+  const pool = await new OpenCodeCredentialPoolService().createPool(target.tier);
+  const credential = pool.getAllCredentials().find((candidate) => candidate.auth.api_key.trim().length > 0);
+  if (credential) {
+    return { ok: true, token: credential.auth.api_key.trim() };
+  }
+  return { ok: false, reason: `No ${target.label} credential is linked.` };
 }
 
 async function discoverOpenCodeDirectProviderModels(
@@ -1456,12 +1460,6 @@ function extractProviderModelIds(
     }
     return [];
   }));
-}
-
-function openCodeTierLabel(tier: string | undefined): string {
-  if (tier === "go") return "OpenCode Go";
-  if (tier === "zen") return "OpenCode Zen";
-  return "an unknown OpenCode tier";
 }
 
 export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProviderModelDiscovery> {

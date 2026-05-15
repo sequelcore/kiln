@@ -97,6 +97,37 @@ describe("auth command", () => {
     expect(logs.join("\n")).toContain("exhausted");
   }, 10_000);
 
+  it("uses pooled provider state for aggregate auth status instead of singleton auth files", async () => {
+    await writeFile(
+      join(homeDir, ".kiln", "auth", "opencode.json"),
+      `${JSON.stringify({
+        api_key: "old-opencode-key",
+        tier: "go",
+        created_at: "2026-04-01T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(homeDir, ".kiln", "auth", "codex-oauth.json"),
+      `${JSON.stringify({
+        access_token: "old-codex-token",
+        refresh_token: "old-refresh-token",
+        expires_at: "2026-04-01T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+    const { runAuth } = await import("../../../src/commands/auth.js");
+
+    await runAuth(["status"]);
+
+    const output = logs.join("\n");
+    expect(output).toContain("OpenCode");
+    expect(output).toContain("go-primary");
+    expect(output).toContain("zen-primary");
+    expect(output).not.toContain("Tier: go");
+    expect(output).not.toContain("Codex OAuth");
+  }, 10_000);
+
   it("rejects invalid OpenCode tiers instead of silently falling back to go", async () => {
     const { runAuth } = await import("../../../src/commands/auth.js");
 
