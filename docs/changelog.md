@@ -2,6 +2,14 @@
 
 ## Unreleased -- Native Operator Surface
 
+- Started Roadmap 06 Phase 3 Slice 1 on 2026-05-15 for native cockpit
+  benchmark validation admission/workload contracts. Added shared runner
+  admission in `@kilnai/gateway-contracts` for `web-gui` and
+  `native-cockpit` surfaces, `browser-rendering` and `native-rendering` runner
+  kinds, and single-session-heavy/multi-session/multi-instance workloads. This
+  slice is contract-only and keeps `execution: not-started`,
+  `mutationDispatch: disabled`, and `networkAttach: not-started`; no live
+  browser/native benchmark execution or promotion evidence is produced.
 - Closed Roadmap 05 on 2026-05-15 by Phase 5 decision closeout
   (Slice 16): complete with defer/no-promotion status. Keep the typed
   contract/projection foundation and Phase 3 evidence contracts as canonical

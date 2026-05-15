@@ -451,6 +451,42 @@ Verification checklist:
 - Confirm `.kiln/kiln.yaml` and
   `packages/gui/tests/memory-lattice-panel.test.tsx` remain untouched.
 
+### Slice 17 - Phase 3 Slice 1 Admission Track Start
+
+Files:
+
+- `docs/roadmap/06-native-cockpit-benchmark-validation.md`
+- `docs/roadmap/README.md`
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/gateway-contracts/README.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Start dedicated Roadmap 06 on 2026-05-15 after Roadmap 05 completion.
+- Add Phase 3 runner-admission contract for web/native rendering tracks with
+  explicit workload validation and prerequisite gates.
+- Keep scope admission-only: no benchmark runner execution, no dispatch, no
+  gateway attach loop, and no promotion decision.
+
+Verification checklist:
+
+- Confirm Roadmap 06 is the active Phase 3 validation track and Roadmap 05
+  remains completed/deferred.
+- Confirm runner admission blocks missing prerequisites, failed workload
+  thresholds, impossible single-session summaries, and mismatched
+  surface/runner pairs.
+- Confirm runner admission blocks internally contradictory fixture summaries,
+  including active managed session counts greater than total sessions.
+- Confirm admitted plans still keep `execution: not-started`,
+  `mutationDispatch: disabled`, and `networkAttach: not-started`.
+- Confirm no Playwright/Electron runner execution, gateway attach loop,
+  dispatch path, or Rust/WASM/sidecar module was added.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -571,3 +607,23 @@ Verification checklist:
 - Passed `git diff --check` after Slice 16.
 - Reviewer rechecked the 2026-05-15 closeout date against the governing
   session date and reported no findings.
+- Passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 17.
+- Passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 17.
+- Passed `bun run --filter @kilnai/gateway-contracts build` after Slice 17.
+- Passed `bun run --cwd packages/native test` after Slice 17.
+- Passed `bun run --cwd packages/native typecheck` after Slice 17.
+- Passed `bun run --cwd packages/native build` after Slice 17.
+- Passed `bun run typecheck` after Slice 17.
+- Passed `bun run build` after Slice 17.
+- Passed `bun run test` after Slice 17.
+- Passed `git diff --check` after Slice 17.
+- Re-passed `bun run --filter @kilnai/gateway-contracts test -- operator-cockpit-benchmark` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run --filter @kilnai/gateway-contracts typecheck` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run --filter @kilnai/gateway-contracts build` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run --cwd packages/native test` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run --cwd packages/native typecheck` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run --cwd packages/native build` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run typecheck` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run build` after Slice 17 fixture-summary coherence fix.
+- Re-passed `bun run test` after Slice 17 fixture-summary coherence fix.
+- Re-passed `git diff --check` after Slice 17 fixture-summary coherence fix.

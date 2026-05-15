@@ -67,7 +67,10 @@ explicitly parked until their prerequisite product surface exists.
 
 ## Active Roadmaps
 
-- No active roadmap in this track.
+- [06-native-cockpit-benchmark-validation.md](./06-native-cockpit-benchmark-validation.md)
+  started on 2026-05-15. This active track begins Phase 3 runner admission and
+  workload validation only. It does not execute live browser/native rendering
+  benchmarks and does not promote the native cockpit experiment.
 
 ## Deferred Roadmaps
 
@@ -252,7 +255,8 @@ explicitly parked until their prerequisite product surface exists.
   typed Phase 3 evidence contracts exist, but no measured browser/native
   rendering evidence exists. Future live Phase 3 benchmark runner work, native
   cockpit UI, dispatch path, gateway attach loop, and Rust/WASM/sidecar modules
-  require a dedicated validation roadmap or ADR.
+  are deferred to Roadmap 06 slices after admission/workload validation and may
+  still require ADR approval for promotion.
 
 ## Execution Priority
 
@@ -262,6 +266,9 @@ explicitly parked until their prerequisite product surface exists.
 2. Keep `05-native-operator-cockpit-and-projection-performance.md` limited to
    closed defer/no-promotion status until a dedicated
    benchmark-runner/native-cockpit validation roadmap or ADR is approved.
+3. Keep `06-native-cockpit-benchmark-validation.md` limited to Phase 3
+   admission and workload validation until live runner execution slices are
+   explicitly approved.
 
 ## Deferred Candidates
 

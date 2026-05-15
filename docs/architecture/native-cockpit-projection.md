@@ -12,6 +12,9 @@ resource-opening dispatch, cancellation dispatch, dispatch path, or Rust
 projection kernel is promoted. Any live Phase 3 benchmark runner, native
 cockpit, attach-loop, dispatch, or Rust/WASM/sidecar execution requires a new
 dedicated validation roadmap or ADR.
+Roadmap 06 started on 2026-05-15 for Phase 3 benchmark validation Slice 1.
+Current scope is runner admission and workload validation contracts only, with
+execution still `not-started`.
 
 ## Purpose
 
@@ -196,6 +199,10 @@ Phase 3 evidence inputs are typed audit contracts (browser/native rendering,
 target clarity, interaction latency, memory) with explicit measurement metadata
 and completion flags. They do not execute benchmarks or replace real runner
 proof.
+Phase 3 Slice 1 adds typed runner admission over `web-gui` and
+`native-cockpit` surfaces plus browser/native runner kinds and workload
+thresholds. Admission is fail-closed and keeps mutation dispatch and network
+attach disabled.
 Phase 3 execution is still blocked until real benchmark runners produce measured
 browser/native rendering evidence on approved workloads.
 

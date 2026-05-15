@@ -81,6 +81,16 @@ Phase 3 benchmark evidence is expressed through typed report contracts for
 browser rendering, native rendering, target clarity, interaction latency, and
 memory. These contracts are auditable metadata shapes only; they do not run
 benchmarks, attach to gateways, dispatch actions, or provide Rust proof.
+Phase 3 Slice 1 also adds runner admission/workload validation through
+`createOperatorCockpitBenchmarkRunnerAdmission` for `web-gui` and
+`native-cockpit` surfaces, `browser-rendering` and `native-rendering` runner
+kinds, and single-session-heavy/multi-session/multi-instance workloads. This
+contract keeps `execution: not-started`, `mutationDispatch: disabled`, and
+`networkAttach: not-started`, and fails closed on mismatched surface/runner
+pairs via `surface-runner-mismatch`. It also fails closed on contradictory or
+invalid fixture summaries (for example,
+`activeManagedSessionCount > sessionCount`) before workload thresholds are
+evaluated.
 It is not a rendering runner, network attach runner, dispatch mechanism, or
 Rust proof implementation.
 

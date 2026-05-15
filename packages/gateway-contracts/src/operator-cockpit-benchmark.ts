@@ -234,6 +234,68 @@ export interface OperatorCockpitBenchmarkEvidenceReport {
   readonly renderingBenchmark: "not-run" | "partial" | "measured";
 }
 
+export type OperatorCockpitBenchmarkSurface =
+  | "web-gui"
+  | "native-cockpit";
+
+export type OperatorCockpitBenchmarkRunnerKind =
+  | "browser-rendering"
+  | "native-rendering";
+
+export type OperatorCockpitBenchmarkWorkloadKind =
+  | "single-session-heavy"
+  | "multi-session"
+  | "multi-instance";
+
+export interface OperatorCockpitBenchmarkRunnerAdmissionPrerequisites {
+  readonly runnerAvailable: boolean;
+  readonly rendererAvailable: boolean;
+  readonly fixtureApproved: boolean;
+  readonly baselineEvidencePresent: boolean;
+}
+
+export type OperatorCockpitBenchmarkRunnerAdmissionMissingPrerequisite =
+  | "runnerAvailable"
+  | "rendererAvailable"
+  | "fixtureApproved"
+  | "baselineEvidencePresent";
+
+export type OperatorCockpitBenchmarkRunnerAdmissionFailedThreshold =
+  | "surface-runner-mismatch"
+  | "invalid-instance-count"
+  | "invalid-session-count"
+  | "invalid-event-count"
+  | "invalid-child-invocation-count"
+  | "invalid-active-managed-session-count"
+  | "minimum-instance-count"
+  | "minimum-session-count"
+  | "minimum-active-managed-session-count"
+  | "minimum-child-invocation-count"
+  | "minimum-event-count";
+
+export interface OperatorCockpitBenchmarkRunnerAdmissionInput {
+  readonly measuredAt: string;
+  readonly surface: OperatorCockpitBenchmarkSurface;
+  readonly runnerKind: OperatorCockpitBenchmarkRunnerKind;
+  readonly workloadKind: OperatorCockpitBenchmarkWorkloadKind;
+  readonly fixtureSummary: OperatorCockpitBenchmarkFixtureSummary;
+  readonly prerequisites: OperatorCockpitBenchmarkRunnerAdmissionPrerequisites;
+}
+
+export interface OperatorCockpitBenchmarkRunnerAdmission {
+  readonly measuredAt: string;
+  readonly surface: OperatorCockpitBenchmarkSurface;
+  readonly runnerKind: OperatorCockpitBenchmarkRunnerKind;
+  readonly workloadKind: OperatorCockpitBenchmarkWorkloadKind;
+  readonly fixtureSummary: OperatorCockpitBenchmarkFixtureSummary;
+  readonly status: "admitted" | "blocked";
+  readonly missingPrerequisites: readonly OperatorCockpitBenchmarkRunnerAdmissionMissingPrerequisite[];
+  readonly failedThresholds: readonly OperatorCockpitBenchmarkRunnerAdmissionFailedThreshold[];
+  readonly execution: "not-started";
+  readonly mutationDispatch: "disabled";
+  readonly networkAttach: "not-started";
+}
+
 export function createOperatorCockpitBenchmarkFixture(
   input: OperatorCockpitBenchmarkFixtureInput,
 ): OperatorCockpitBenchmarkFixture {
@@ -500,6 +562,44 @@ export function createOperatorCockpitBenchmarkEvidenceReport(
   };
 }
 
+export function createOperatorCockpitBenchmarkRunnerAdmission(
+  input: OperatorCockpitBenchmarkRunnerAdmissionInput,
+): OperatorCockpitBenchmarkRunnerAdmission {
+  const measuredAtMs = Date.parse(input.measuredAt);
+  if (!Number.isFinite(measuredAtMs)) {
+    throw new RangeError("measuredAt must be a valid ISO timestamp.");
+  }
+
+  const missingPrerequisites: OperatorCockpitBenchmarkRunnerAdmissionMissingPrerequisite[] = [];
+  if (!input.prerequisites.runnerAvailable) missingPrerequisites.push("runnerAvailable");
+  if (!input.prerequisites.rendererAvailable) missingPrerequisites.push("rendererAvailable");
+  if (!input.prerequisites.fixtureApproved) missingPrerequisites.push("fixtureApproved");
+  if (!input.prerequisites.baselineEvidencePresent) missingPrerequisites.push("baselineEvidencePresent");
+
+  const failedThresholds = evaluateWorkloadThresholds(
+    input.surface,
+    input.runnerKind,
+    input.workloadKind,
+    input.fixtureSummary,
+  );
+
+  return {
+    measuredAt: input.measuredAt,
+    surface: input.surface,
+    runnerKind: input.runnerKind,
+    workloadKind: input.workloadKind,
+    fixtureSummary: input.fixtureSummary,
+    status: missingPrerequisites.length === 0 && failedThresholds.length === 0
+      ? "admitted"
+      : "blocked",
+    missingPrerequisites,
+    failedThresholds,
+    execution: "not-started",
+    mutationDispatch: "disabled",
+    networkAttach: "not-started",
+  };
+}
+
 function summarizeTimelineEntry(
   entry: OperatorCockpitTimelineEntry,
 ): OperatorCockpitReadOnlyTimelineSummary {
@@ -608,4 +708,62 @@ function assertNonNegativeInteger(value: number, field: string): void {
   if (!Number.isInteger(value) || value < 0) {
     throw new RangeError(`${field} must be an integer >= 0.`);
   }
+}
+
+function evaluateWorkloadThresholds(
+  surface: OperatorCockpitBenchmarkSurface,
+  runnerKind: OperatorCockpitBenchmarkRunnerKind,
+  workloadKind: OperatorCockpitBenchmarkWorkloadKind,
+  fixture: OperatorCockpitBenchmarkFixtureSummary,
+): OperatorCockpitBenchmarkRunnerAdmissionFailedThreshold[] {
+  const failed: OperatorCockpitBenchmarkRunnerAdmissionFailedThreshold[] = [];
+  const require = (
+    condition: boolean,
+    threshold: OperatorCockpitBenchmarkRunnerAdmissionFailedThreshold,
+  ): void => {
+    if (!condition) failed.push(threshold);
+  };
+
+  require(surfaceRunnerPairMatches(surface, runnerKind), "surface-runner-mismatch");
+  require(Number.isInteger(fixture.instanceCount) && fixture.instanceCount >= 1, "invalid-instance-count");
+  require(Number.isInteger(fixture.sessionCount) && fixture.sessionCount >= 1, "invalid-session-count");
+  require(Number.isInteger(fixture.eventCount) && fixture.eventCount >= 1, "invalid-event-count");
+  require(
+    Number.isInteger(fixture.childInvocationCount) && fixture.childInvocationCount >= 0,
+    "invalid-child-invocation-count",
+  );
+  require(
+    Number.isInteger(fixture.activeManagedSessionCount)
+      && fixture.activeManagedSessionCount >= 0
+      && fixture.activeManagedSessionCount <= fixture.sessionCount,
+    "invalid-active-managed-session-count",
+  );
+
+  if (workloadKind === "single-session-heavy") {
+    require(fixture.sessionCount >= 1, "minimum-session-count");
+    require(fixture.childInvocationCount >= 50, "minimum-child-invocation-count");
+    require(fixture.eventCount >= 100_000, "minimum-event-count");
+    return failed;
+  }
+
+  if (workloadKind === "multi-session") {
+    require(fixture.sessionCount >= 10, "minimum-session-count");
+    require(fixture.activeManagedSessionCount >= 3, "minimum-active-managed-session-count");
+    require(fixture.childInvocationCount >= 50, "minimum-child-invocation-count");
+    require(fixture.eventCount >= 100_000, "minimum-event-count");
+    return failed;
+  }
+
+  require(fixture.instanceCount >= 2, "minimum-instance-count");
+  return failed;
+}
+
+function surfaceRunnerPairMatches(
+  surface: OperatorCockpitBenchmarkSurface,
+  runnerKind: OperatorCockpitBenchmarkRunnerKind,
+): boolean {
+  if (surface === "web-gui") {
+    return runnerKind === "browser-rendering";
+  }
+  return runnerKind === "native-rendering";
 }

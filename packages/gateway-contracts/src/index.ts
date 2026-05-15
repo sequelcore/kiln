@@ -132,6 +132,14 @@ export type {
   OperatorCockpitBenchmarkEvidenceReport,
   OperatorCockpitBenchmarkEvidenceReportInput,
   OperatorCockpitBenchmarkEvidenceStatus,
+  OperatorCockpitBenchmarkRunnerAdmission,
+  OperatorCockpitBenchmarkRunnerAdmissionFailedThreshold,
+  OperatorCockpitBenchmarkRunnerAdmissionInput,
+  OperatorCockpitBenchmarkRunnerAdmissionMissingPrerequisite,
+  OperatorCockpitBenchmarkRunnerAdmissionPrerequisites,
+  OperatorCockpitBenchmarkRunnerKind,
+  OperatorCockpitBenchmarkSurface,
+  OperatorCockpitBenchmarkWorkloadKind,
   OperatorCockpitBrowserRenderingBenchmarkEvidenceReport,
   OperatorCockpitDispatchEvidence,
   OperatorCockpitInteractionLatencyReport,
@@ -151,6 +159,7 @@ export type {
 } from "./operator-cockpit-benchmark.js";
 export {
   createOperatorCockpitBenchmarkFixture,
+  createOperatorCockpitBenchmarkRunnerAdmission,
   createOperatorCockpitBenchmarkEvidenceReport,
   measureOperatorCockpitProjectionBaseline,
   measureOperatorCockpitReadOnlyProjectionBaseline,

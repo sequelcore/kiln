@@ -5,6 +5,7 @@ import {
   type OperatorCockpitMemoryReport,
   type OperatorCockpitNativeRenderingBenchmarkEvidenceReport,
   type OperatorCockpitTargetClarityReport,
+  createOperatorCockpitBenchmarkRunnerAdmission,
   createOperatorCockpitBenchmarkFixture,
   createOperatorCockpitBenchmarkEvidenceReport,
   measureOperatorCockpitProjectionBaseline,
@@ -722,5 +723,199 @@ describe("operator cockpit benchmark evidence report", () => {
     expect(report.rustCandidateAllowed).toBe(true);
     expect(report.rustPromotionAllowed).toBe(true);
     expect(report.recommendation).toBe("continue-native-with-rust-candidate");
+  });
+});
+
+describe("operator cockpit benchmark runner admission", () => {
+  const fixtureSummary = {
+    fixtureId: "phase3-admission",
+    instanceCount: 2,
+    sessionCount: 10,
+    activeManagedSessionCount: 3,
+    childInvocationCount: 50,
+    eventCount: 100_000,
+  } as const;
+
+  it("admits web GUI browser rendering plans only when prerequisites and workload thresholds are met", () => {
+    const admission = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T09:00:00.000Z",
+      surface: "web-gui",
+      runnerKind: "browser-rendering",
+      workloadKind: "multi-session",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    expect(admission.status).toBe("admitted");
+    expect(admission.missingPrerequisites).toEqual([]);
+    expect(admission.failedThresholds).toEqual([]);
+    expect(admission.execution).toBe("not-started");
+    expect(admission.mutationDispatch).toBe("disabled");
+    expect(admission.networkAttach).toBe("not-started");
+  });
+
+  it("blocks native rendering when runner or renderer prerequisites are missing", () => {
+    const admission = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T09:01:00.000Z",
+      surface: "native-cockpit",
+      runnerKind: "native-rendering",
+      workloadKind: "multi-instance",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: false,
+        rendererAvailable: false,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    expect(admission.status).toBe("blocked");
+    expect(admission.missingPrerequisites).toEqual([
+      "runnerAvailable",
+      "rendererAvailable",
+    ]);
+    expect(admission.execution).toBe("not-started");
+    expect(admission.mutationDispatch).toBe("disabled");
+    expect(admission.networkAttach).toBe("not-started");
+  });
+
+  it("blocks workloads that fail threshold requirements", () => {
+    const admission = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T09:02:00.000Z",
+      surface: "web-gui",
+      runnerKind: "browser-rendering",
+      workloadKind: "single-session-heavy",
+      fixtureSummary: {
+        fixtureId: "insufficient-workload",
+        instanceCount: 1,
+        sessionCount: 1,
+        activeManagedSessionCount: 1,
+        childInvocationCount: 49,
+        eventCount: 99_999,
+      },
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    expect(admission.status).toBe("blocked");
+    expect(admission.missingPrerequisites).toEqual([]);
+    expect(admission.failedThresholds).toEqual([
+      "minimum-child-invocation-count",
+      "minimum-event-count",
+    ]);
+    expect(admission.execution).toBe("not-started");
+    expect(admission.mutationDispatch).toBe("disabled");
+    expect(admission.networkAttach).toBe("not-started");
+  });
+
+  it("fails closed for single-session-heavy workload when session count is below minimum", () => {
+    const admission = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T09:05:00.000Z",
+      surface: "web-gui",
+      runnerKind: "browser-rendering",
+      workloadKind: "single-session-heavy",
+      fixtureSummary: {
+        fixtureId: "invalid-single-session",
+        instanceCount: 1,
+        sessionCount: 0,
+        activeManagedSessionCount: 0,
+        childInvocationCount: 50,
+        eventCount: 100_000,
+      },
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    expect(admission.status).toBe("blocked");
+    expect(admission.failedThresholds).toContain("minimum-session-count");
+    expect(admission.execution).toBe("not-started");
+    expect(admission.mutationDispatch).toBe("disabled");
+    expect(admission.networkAttach).toBe("not-started");
+  });
+
+  it("blocks web GUI plans that request native rendering", () => {
+    const admission = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T09:03:00.000Z",
+      surface: "web-gui",
+      runnerKind: "native-rendering",
+      workloadKind: "multi-session",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    expect(admission.status).toBe("blocked");
+    expect(admission.failedThresholds).toContain("surface-runner-mismatch");
+    expect(admission.execution).toBe("not-started");
+    expect(admission.mutationDispatch).toBe("disabled");
+    expect(admission.networkAttach).toBe("not-started");
+  });
+
+  it("blocks native cockpit plans that request browser rendering", () => {
+    const admission = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T09:04:00.000Z",
+      surface: "native-cockpit",
+      runnerKind: "browser-rendering",
+      workloadKind: "multi-instance",
+      fixtureSummary,
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    expect(admission.status).toBe("blocked");
+    expect(admission.failedThresholds).toContain("surface-runner-mismatch");
+    expect(admission.execution).toBe("not-started");
+    expect(admission.mutationDispatch).toBe("disabled");
+    expect(admission.networkAttach).toBe("not-started");
+  });
+
+  it("blocks contradictory fixture summaries when active managed sessions exceed session count", () => {
+    const admission = createOperatorCockpitBenchmarkRunnerAdmission({
+      measuredAt: "2026-05-15T09:06:00.000Z",
+      surface: "web-gui",
+      runnerKind: "browser-rendering",
+      workloadKind: "multi-session",
+      fixtureSummary: {
+        fixtureId: "contradictory-summary",
+        instanceCount: 2,
+        sessionCount: 10,
+        activeManagedSessionCount: 11,
+        childInvocationCount: 50,
+        eventCount: 100_000,
+      },
+      prerequisites: {
+        runnerAvailable: true,
+        rendererAvailable: true,
+        fixtureApproved: true,
+        baselineEvidencePresent: true,
+      },
+    });
+
+    expect(admission.status).toBe("blocked");
+    expect(admission.failedThresholds).toContain("invalid-active-managed-session-count");
+    expect(admission.execution).toBe("not-started");
+    expect(admission.mutationDispatch).toBe("disabled");
+    expect(admission.networkAttach).toBe("not-started");
   });
 });
