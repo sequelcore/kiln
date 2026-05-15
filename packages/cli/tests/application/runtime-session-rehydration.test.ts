@@ -44,7 +44,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       timestamp: "2026-05-08T00:00:02.000Z",
       kind: "assistant_message",
       source: { actor: "assistant", surface: "gui" },
-      payload: { messageId: "a1", content: "Hello Ricardo." },
+      payload: { messageId: "a1", content: "Hello Alex." },
     });
     await transcriptStore.append(sessionId, {
       eventId: "evt-3",
@@ -76,7 +76,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       content: extractText(message.parts),
     }))).toEqual([
       { role: "user", content: "hello" },
-      { role: "assistant", content: "Hello Ricardo." },
+      { role: "assistant", content: "Hello Alex." },
     ]);
   });
 });

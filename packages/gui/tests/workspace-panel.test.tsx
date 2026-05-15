@@ -3,16 +3,16 @@ import { describe, expect, it, vi } from "vitest";
 import { WorkspacePanel } from "../src/components/workspace-panel.js";
 
 const rootTree = {
-  rootPath: "C:\\Proyectos\\Sequel\\kiln",
+  rootPath: "C:\\workspace\\kiln",
   source: "gateway" as const,
   entries: [
     {
-      path: "C:\\Proyectos\\Sequel\\kiln\\packages",
+      path: "C:\\workspace\\kiln\\packages",
       name: "packages",
       kind: "directory" as const,
     },
     {
-      path: "C:\\Proyectos\\Sequel\\kiln\\README.md",
+      path: "C:\\workspace\\kiln\\README.md",
       name: "README.md",
       kind: "file" as const,
       vcs: {
@@ -34,7 +34,7 @@ function renderWorkspace(options: {
   const onOpenFile = options.onOpenFile ?? vi.fn();
   render(
     <WorkspacePanel
-      gatewayWorkingDirectory={"C:\\Proyectos\\Sequel\\kiln"}
+      gatewayWorkingDirectory={"C:\\workspace\\kiln"}
       workspaceTree={rootTree}
       workspaceClient={workspaceClient}
       selectedFilePath={options.selectedFilePath ?? null}
@@ -59,12 +59,12 @@ describe("WorkspacePanel", () => {
     const workspaceClient = {
       loadWorkspaceDirectory: vi.fn().mockResolvedValue({
         rootPath: rootTree.rootPath,
-        directoryPath: "C:\\Proyectos\\Sequel\\kiln\\packages",
+        directoryPath: "C:\\workspace\\kiln\\packages",
         parentPath: rootTree.rootPath,
         source: "gateway" as const,
         entries: [
           {
-            path: "C:\\Proyectos\\Sequel\\kiln\\packages\\gui\\src\\main.tsx",
+            path: "C:\\workspace\\kiln\\packages\\gui\\src\\main.tsx",
             name: "main.tsx",
             kind: "file" as const,
           },
@@ -76,12 +76,12 @@ describe("WorkspacePanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Folder packages" }));
 
-    expect(workspaceClient.loadWorkspaceDirectory).toHaveBeenCalledWith("C:\\Proyectos\\Sequel\\kiln\\packages");
+    expect(workspaceClient.loadWorkspaceDirectory).toHaveBeenCalledWith("C:\\workspace\\kiln\\packages");
     const nestedFile = await screen.findByRole("button", { name: "File main.tsx" });
     fireEvent.click(nestedFile);
 
     expect(onOpenFile).toHaveBeenCalledWith({
-      path: "C:\\Proyectos\\Sequel\\kiln\\packages\\gui\\src\\main.tsx",
+      path: "C:\\workspace\\kiln\\packages\\gui\\src\\main.tsx",
       name: "main.tsx",
       kind: "file",
     });
@@ -101,15 +101,15 @@ describe("WorkspacePanel", () => {
   it("keeps workspace root context visible without duplicating session metadata", () => {
     render(
       <WorkspacePanel
-        gatewayWorkingDirectory={"C:\\Proyectos\\Sequel\\kiln"}
+        gatewayWorkingDirectory={"C:\\workspace\\kiln"}
         workspaceTree={rootTree}
         worktreePath={"C:\\tmp\\kiln-worktree"}
       />,
     );
 
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByLabelText("Workspace root")).toHaveTextContent("C:/Proyectos/Sequel/kiln");
-    expect(screen.getAllByText("C:/Proyectos/Sequel/kiln")).toHaveLength(1);
+    expect(screen.getByLabelText("Workspace root")).toHaveTextContent("C:/workspace/kiln");
+    expect(screen.getAllByText("C:/workspace/kiln")).toHaveLength(1);
     expect(screen.getByText("worktree: C:/tmp/kiln-worktree")).toBeInTheDocument();
     expect(screen.queryByText("Kiln")).not.toBeInTheDocument();
     expect(screen.queryByText("kiln-gui:_gui:test:123")).not.toBeInTheDocument();

@@ -19,7 +19,7 @@ const dashboardData = {
     entropy: 0,
   },
   resumeInfoByProvider: {},
-  workingDirectory: "C:/Proyectos/Sequel/kiln",
+  workingDirectory: "C:/workspace/kiln",
   domainLabel: "Kiln",
 };
 let dashboardQueryResult: {
@@ -65,7 +65,7 @@ vi.mock("../src/api/client.js", () => ({
           entropy: 0,
         },
         resumeInfoByProvider: {},
-        workingDirectory: "C:/Proyectos/Sequel/kiln",
+        workingDirectory: "C:/workspace/kiln",
         domainLabel: "Kiln",
       };
     }
@@ -366,7 +366,7 @@ describe("AppShell command palette and telemetry regressions", () => {
       expect(screen.getByText("Could not load dashboard state.")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
-    expect(screen.queryByText("C:/Proyectos/Sequel/kiln")).not.toBeInTheDocument();
+    expect(screen.queryByText("C:/workspace/kiln")).not.toBeInTheDocument();
     expect(screen.getByText("no dashboard working directory")).toBeInTheDocument();
     expect(screen.queryByText("dom: stale-region")).not.toBeInTheDocument();
 

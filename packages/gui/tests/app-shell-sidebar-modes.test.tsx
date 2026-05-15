@@ -48,14 +48,14 @@ vi.mock("../src/api/client.js", () => ({
           entropy: 0,
         },
         resumeInfoByProvider: {},
-        workingDirectory: "C:/Proyectos/Sequel/kiln",
+        workingDirectory: "C:/workspace/kiln",
         domainLabel: "Kiln",
       };
     }
 
     async loadWorkspaceFile() {
       return {
-        path: "C:/Proyectos/Sequel/kiln/package.json",
+        path: "C:/workspace/kiln/package.json",
         name: "package.json",
         kind: "text",
         sizeBytes: 17,
@@ -87,9 +87,9 @@ vi.mock("../src/api/client.js", () => ({
 
     async loadConfigSetup() {
       return {
-        projectRoot: "C:/Proyectos/Sequel/kiln",
+        projectRoot: "C:/workspace/kiln",
         projectContext: {
-          path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+          path: "C:/workspace/kiln/.kiln/project-context.md",
           status: "valid",
           recommendation: "none",
         },
@@ -97,7 +97,7 @@ vi.mock("../src/api/client.js", () => ({
           {
             target: "agents",
             targetId: "repo-shim:agents",
-            path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+            path: "C:/workspace/kiln/AGENTS.md",
             status: "current",
             recommendation: "none",
           },
@@ -166,7 +166,7 @@ vi.mock("../src/components/workspace-panel.js", () => ({
       <button
         type="button"
         onClick={() => onOpenFile?.({
-          path: "C:/Proyectos/Sequel/kiln/package.json",
+          path: "C:/workspace/kiln/package.json",
           name: "package.json",
           kind: "file",
         })}
@@ -332,9 +332,9 @@ describe("AppShell sidebar modes", () => {
       if (queryKey.includes("setup")) {
         return {
           data: {
-            projectRoot: "C:/Proyectos/Sequel/kiln",
+            projectRoot: "C:/workspace/kiln",
             projectContext: {
-              path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+              path: "C:/workspace/kiln/.kiln/project-context.md",
               status: "valid" as const,
               recommendation: "none" as const,
             },
@@ -342,7 +342,7 @@ describe("AppShell sidebar modes", () => {
               {
                 target: "agents" as const,
                 targetId: "repo-shim:agents",
-                path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+                path: "C:/workspace/kiln/AGENTS.md",
                 status: "current" as const,
                 recommendation: "none" as const,
               },
@@ -366,7 +366,7 @@ describe("AppShell sidebar modes", () => {
             entropy: 0,
           },
           resumeInfoByProvider: {},
-          workingDirectory: "C:/Proyectos/Sequel/kiln",
+          workingDirectory: "C:/workspace/kiln",
           domainLabel: "Kiln",
         },
         error: null,
@@ -417,7 +417,7 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "package.json" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-code")).toHaveTextContent(/"ok":\s*true/);
-    expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Selected file: C:/Proyectos/Sequel/kiln/package.json");
+    expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Selected file: C:/workspace/kiln/package.json");
   });
 
   it("opens approvals in the inspector while keeping sessions persistent", async () => {

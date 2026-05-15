@@ -357,7 +357,7 @@ describe("default builtin tool surface", () => {
         provenance: {
           sourceType: "operator",
           sourceId: "seed",
-          actor: "Ricardo Armenta",
+          actor: "Alex Rivera",
           capturedAt: "2026-04-30T12:00:00.000Z",
         },
         createdAt: "2026-04-30T12:00:00.000Z",

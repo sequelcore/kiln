@@ -241,7 +241,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({
       prompt: "<kiln-preamble><task>inspect</task></kiln-preamble>",
-      system: "## Operator Identity\n- Operator name: Ricardo",
+      system: "## Operator Identity\n- Operator name: Alex",
     }));
 
     emitLine({ type: "thread.started", thread_id: "t1" });
@@ -254,7 +254,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     const promptArg = spawnArgs?.[spawnArgs.length - 1] ?? "";
     expect(promptArg.indexOf("<kiln-preamble>")).toBeLessThan(promptArg.indexOf("## Operator Identity"));
     expect(promptArg).toContain("## Operator Identity");
-    expect(promptArg).toContain("- Operator name: Ricardo");
+    expect(promptArg).toContain("- Operator name: Alex");
     expect(promptArg).toContain("--- Kiln Prepared System Context ---");
     expect(promptArg).toContain("<kiln-preamble>");
     expect(promptArg).toContain("--- Kiln Task To Execute Now ---");

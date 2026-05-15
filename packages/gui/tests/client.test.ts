@@ -144,7 +144,7 @@ describe("GuiGatewayClient", () => {
       },
       resumeInfoByProvider: {},
       workspaceTree: {
-        rootPath: "C:/Proyectos/Sequel/kiln",
+        rootPath: "C:/workspace/kiln",
         entries: "not-an-array",
       },
     }), {
@@ -248,16 +248,16 @@ describe("GuiGatewayClient", () => {
 
   it("loads setup status from the GUI gateway", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      projectRoot: "C:/Proyectos/Sequel/kiln",
+      projectRoot: "C:/workspace/kiln",
       projectContext: {
-        path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+        path: "C:/workspace/kiln/.kiln/project-context.md",
         status: "valid",
         recommendation: "none",
       },
       repoShims: [{
         target: "agents",
         targetId: "repo-shim:agents",
-        path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+        path: "C:/workspace/kiln/AGENTS.md",
         status: "current",
         recommendation: "none",
       }],

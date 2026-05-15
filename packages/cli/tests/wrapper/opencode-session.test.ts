@@ -318,7 +318,7 @@ describe("OpenCodeSession.run() integration", () => {
     const session = new OpenCodeSession(baseConfig());
     for await (const _event of await session.run({
       prompt: "<kiln-preamble><task>inspect</task></kiln-preamble>",
-      system: "## Operator Identity\n- Operator name: Ricardo",
+      system: "## Operator Identity\n- Operator name: Alex",
     })) {
       // consume
     }
@@ -329,7 +329,7 @@ describe("OpenCodeSession.run() integration", () => {
     const promptText = promptCall?.parts?.[0]?.text;
     expect(promptText?.indexOf("<kiln-preamble>")).toBeLessThan(promptText?.indexOf("## Operator Identity") ?? 0);
     expect(promptText).toContain("## Operator Identity");
-    expect(promptText).toContain("- Operator name: Ricardo");
+    expect(promptText).toContain("- Operator name: Alex");
     expect(promptText).toContain("--- Kiln Prepared System Context ---");
     expect(promptText).toContain("<kiln-preamble>");
     expect(promptText).toContain("--- Kiln Task To Execute Now ---");

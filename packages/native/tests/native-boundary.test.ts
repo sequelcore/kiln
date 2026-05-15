@@ -151,11 +151,11 @@ describe("native operator surface foundation", () => {
 
   it("fails closed for unapproved embedded browser navigation", () => {
     const policy = createNativeBrowserHostPolicy({
-      allowedUrls: ["file:///C:/Proyectos/Sequel/kiln/packages/native/proof/browser-host-proof.html"],
+      allowedUrls: ["file:///C:/workspace/kiln/packages/native/proof/browser-host-proof.html"],
     });
 
     expect(isNativeBrowserHostNavigationAllowed(
-      "file:///C:/Proyectos/Sequel/kiln/packages/native/proof/browser-host-proof.html",
+      "file:///C:/workspace/kiln/packages/native/proof/browser-host-proof.html",
       policy,
     )).toBe(true);
     expect(isNativeBrowserHostNavigationAllowed("https://example.com", policy)).toBe(false);

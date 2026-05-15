@@ -26,7 +26,7 @@ const dashboardData = {
     entropy: 0,
   },
   resumeInfoByProvider: {},
-  workingDirectory: "C:/Proyectos/Sequel/kiln",
+  workingDirectory: "C:/workspace/kiln",
   domainLabel: "Kiln",
 };
 const dashboardRefetchMock = vi.fn();
@@ -67,7 +67,7 @@ vi.mock("../src/api/client.js", () => ({
           entropy: 0,
         },
         resumeInfoByProvider: {},
-        workingDirectory: "C:/Proyectos/Sequel/kiln",
+        workingDirectory: "C:/workspace/kiln",
         domainLabel: "Kiln",
       };
     }

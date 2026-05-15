@@ -55,7 +55,7 @@ describe("goal command", () => {
     await goalCommand(
       { createRegistry: (() => undefined) as never },
       "cancel",
-      ["goal-1", "--session", "session-1", "--reason", "Operator stopped this goal.", "--cancelled-by", "ricardo"],
+      ["goal-1", "--session", "session-1", "--reason", "Operator stopped this goal.", "--cancelled-by", "alex"],
       {
         projectPath: root,
         now: () => new Date("2026-05-12T22:00:00.000Z"),
@@ -68,7 +68,7 @@ describe("goal command", () => {
     expect(snapshot.goals[0]).toMatchObject({
       id: "goal-1",
       status: "cancelled",
-      terminalReason: "Operator stopped this goal. (ricardo)",
+      terminalReason: "Operator stopped this goal. (alex)",
       updatedAt: "2026-05-12T22:00:00.000Z",
     });
   });
@@ -103,7 +103,7 @@ describe("goal command", () => {
     await goalCommand(
       { createRegistry: (() => undefined) as never },
       "approve-plan",
-      ["plan-1", "--session", "session-1", "--approved-by", "ricardo"],
+      ["plan-1", "--session", "session-1", "--approved-by", "alex"],
       {
         projectPath: root,
         now: () => new Date("2026-05-12T22:00:00.000Z"),
@@ -122,7 +122,7 @@ describe("goal command", () => {
         planId: "plan-1",
         approvalId: "approval_1",
         planHash: plan.contentHash,
-        approvedBy: "ricardo",
+        approvedBy: "alex",
         approvedAt: "2026-05-12T22:00:00.000Z",
         residualRiskAcknowledged: false,
         fromMode: "plan",

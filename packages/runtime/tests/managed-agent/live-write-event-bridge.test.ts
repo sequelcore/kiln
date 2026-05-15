@@ -38,7 +38,7 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "workspace-write",
       },
       timeoutMs: 120000,
@@ -55,8 +55,8 @@ function makeWriteRequest(): ManagedAgentInvocationRequest {
         scope: defineManagedAgentWriteScope({
           workspace: {
             mode: "apply-approved",
-            allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures"],
-            deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+            allowedPaths: ["C:/workspace/kiln/packages/runtime/tests/fixtures"],
+            deniedPaths: ["C:/workspace/kiln/.git"],
           },
           memory: {
             mode: "propose",
@@ -102,7 +102,7 @@ function makeReadOnlyRequest(): ManagedAgentInvocationRequest {
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "read-only",
       },
       memoryScope: {
@@ -114,7 +114,7 @@ function makeReadOnlyRequest(): ManagedAgentInvocationRequest {
   } as ManagedAgentInvocationRequest);
 }
 
-function fixtureFileChange(path = "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt"): Extract<CliSessionEvent, { readonly type: "file_changed" }> {
+function fixtureFileChange(path = "C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt"): Extract<CliSessionEvent, { readonly type: "file_changed" }> {
   return {
     type: "file_changed",
     path,
@@ -148,7 +148,7 @@ describe("managed agent live write event bridge", () => {
   it("normalizes OpenCode-style session diff changes before collecting write evidence", () => {
     const fileChanges = normalizeManagedAgentLiveWriteChanges([{
       source: "session-diff",
-      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      path: "C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
       changeType: "modified",
       linesAdded: 2,
       linesRemoved: 1,
@@ -164,7 +164,7 @@ describe("managed agent live write event bridge", () => {
 
     expect(fileChanges).toEqual([{
       type: "file_changed",
-      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      path: "C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
       changeType: "modified",
       linesAdded: 2,
       linesRemoved: 1,
@@ -182,13 +182,13 @@ describe("managed agent live write event bridge", () => {
     const result = collectManagedAgentLiveWriteEvidence({
       request: makeWriteRequest(),
       fileChanges: [
-        fixtureFileChange("C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt"),
+        fixtureFileChange("C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt"),
         {
-          ...fixtureFileChange("C:\\Proyectos\\Sequel\\kiln\\packages\\runtime\\tests\\fixtures\\live-write-proof.txt"),
+          ...fixtureFileChange("C:\\workspace\\kiln\\packages\\runtime\\tests\\fixtures\\live-write-proof.txt"),
           resourceUris: ["kiln://managed-invocations/invocation-live-write-1/diffs/opencode-1"],
         },
         {
-          ...fixtureFileChange("C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/./live-write-proof.txt"),
+          ...fixtureFileChange("C:/workspace/kiln/packages/runtime/tests/fixtures/./live-write-proof.txt"),
           resourceUris: ["kiln://managed-invocations/invocation-live-write-1/diffs/opencode-2"],
         },
       ],
@@ -210,7 +210,7 @@ describe("managed agent live write event bridge", () => {
   it("normalizes Codex-style patch update changes without leaking provider vocabulary into evidence", () => {
     const fileChanges = normalizeManagedAgentLiveWriteChanges([{
       source: "patch-update",
-      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      path: "C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
       changeType: "modified",
       linesAdded: 1,
       linesRemoved: 0,
@@ -226,7 +226,7 @@ describe("managed agent live write event bridge", () => {
 
     expect(fileChanges[0]).toMatchObject({
       type: "file_changed",
-      path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
+      path: "C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt",
       changeType: "modified",
     });
     expect(fileChanges[0]).not.toHaveProperty("source");
@@ -247,7 +247,7 @@ describe("managed agent live write event bridge", () => {
   it("rejects live file changes outside the admitted workspace scope", () => {
     expect(() => collectManagedAgentLiveWriteEvidence({
       request: makeWriteRequest(),
-      fileChanges: [fixtureFileChange("C:/Proyectos/Sequel/kiln/packages/core/src/escape.ts")],
+      fileChanges: [fixtureFileChange("C:/workspace/kiln/packages/core/src/escape.ts")],
       recordedAt: "2026-05-05T12:00:00.000Z",
     })).toThrow(ManagedAgentRuntimeAdmissionError);
   });

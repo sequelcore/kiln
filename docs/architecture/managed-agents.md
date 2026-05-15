@@ -426,8 +426,8 @@ usable work.
 The canonical deterministic verification set includes:
 
 ```bash
-cmd.exe /d /s /c "cd /d C:\Proyectos\Sequel\kiln && bun run typecheck"
-cmd.exe /d /s /c "cd /d C:\Proyectos\Sequel\kiln && bun run test"
+cmd.exe /d /s /c "cd /d C:\workspace\kiln && bun run typecheck"
+cmd.exe /d /s /c "cd /d C:\workspace\kiln && bun run test"
 ```
 
 Focused managed invocation checks live under:
@@ -442,7 +442,7 @@ Focused managed invocation checks live under:
 Opt-in live checks use:
 
 ```bash
-cmd.exe /d /s /c "cd /d C:\Proyectos\Sequel\kiln && bun run test:managed-agents:live"
+cmd.exe /d /s /c "cd /d C:\workspace\kiln && bun run test:managed-agents:live"
 ```
 
 Provider-specific live checks require the relevant environment flags and must

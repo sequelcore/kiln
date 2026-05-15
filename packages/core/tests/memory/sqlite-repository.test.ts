@@ -258,8 +258,8 @@ function recordInput(overrides: {
     topicKey: overrides.topicKey,
     provenance: {
       sourceType: "operator",
-      sourceId: "ricardo",
-      actor: "Ricardo Armenta",
+      sourceId: "alex",
+      actor: "Alex Rivera",
       capturedAt: "2026-04-30T09:00:00.000Z",
     },
     confidence: 0.8,

@@ -23,8 +23,8 @@ function makeWriteScope(mode: "propose" | "apply-approved" = "propose") {
   return defineManagedAgentWriteScope({
     workspace: {
       mode,
-      allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src/agents/managed-invocation"],
-      deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+      allowedPaths: ["C:/workspace/kiln/packages/core/src/agents/managed-invocation"],
+      deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
       mode: "propose",
@@ -69,7 +69,7 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: applyApproved ? "workspace-write" : "read-only",
       },
       timeoutMs: 120000,
@@ -283,7 +283,7 @@ describe("managed agent runtime write boundary", () => {
           networkAllowed: false,
         },
         workingDirectory: {
-          path: "C:/Proyectos/Sequel/kiln",
+          path: "C:/workspace/kiln",
           mode: "read-only",
         },
         memoryScope: {

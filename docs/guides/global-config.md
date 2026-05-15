@@ -208,7 +208,7 @@ permissions:
   approval: on-request
   sandbox: read-only
 identity:
-  name: Ricardo
+  name: Alex
   timezone: America/Tijuana
 activeInstructionProfiles:
   - sequel-engineering
@@ -291,7 +291,7 @@ permissions:
   approval: on-request
   sandbox: read-only
 identity:
-  name: Ricardo
+  name: Alex
   timezone: America/Tijuana
 activeInstructionProfiles:
   - sequel-engineering

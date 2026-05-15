@@ -783,13 +783,13 @@ describe("operator event presentation", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-write",
       toolName: "write",
-      output: "Wrote 32 characters to C:\\Proyectos\\Sequel\\kiln\\live_test_visibility.txt",
+      output: "Wrote 32 characters to C:\\workspace\\kiln\\live_test_visibility.txt",
       outputSummary: "{\"output\":\"Wrote 32 characters",
       metadata: {
         toolName: "write",
         kind: "file",
         operation: "write",
-        filePath: "C:\\Proyectos\\Sequel\\kiln\\live_test_visibility.txt",
+        filePath: "C:\\workspace\\kiln\\live_test_visibility.txt",
         changeType: "modified",
         bytesWritten: 32,
         linesAdded: 1,
@@ -803,7 +803,7 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("1 file changed, 1 addition, 1 removal");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "diff",
-      title: "C:\\Proyectos\\Sequel\\kiln\\live_test_visibility.txt",
+      title: "C:\\workspace\\kiln\\live_test_visibility.txt",
       preview: {
         text: "- kiln gui visibility baseline\n+ kiln gui visibility edit passed",
       },
@@ -822,7 +822,7 @@ describe("operator event presentation", () => {
           toolName: "tree",
           kind: "inspection",
           operation: "tree",
-          path: "C:\\Proyectos\\Sequel\\kiln",
+          path: "C:\\workspace\\kiln",
           depth: 2,
           entryCount: 55,
           resourceLinks: [
@@ -840,10 +840,10 @@ describe("operator event presentation", () => {
       status: { state: "succeeded" },
     });
 
-    expect(presentation.summary).toBe("55 entries under C:\\Proyectos\\Sequel\\kiln");
+    expect(presentation.summary).toBe("55 entries under C:\\workspace\\kiln");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "tree",
-      title: "C:\\Proyectos\\Sequel\\kiln",
+      title: "C:\\workspace\\kiln",
       preview: {
         text: ".\npackages/\n  gui/\n    src/",
       },
@@ -861,13 +861,13 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "tree",
       output: JSON.stringify({
-        output: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+        output: "20 entries under C:\\workspace\\kiln",
         isError: false,
         metadata: {
           toolName: "tree",
           kind: "inspection",
           operation: "tree",
-          path: "C:\\Proyectos\\Sequel\\kiln",
+          path: "C:\\workspace\\kiln",
           entryCount: 20,
           verbosity: "summary",
         },
@@ -875,11 +875,11 @@ describe("operator event presentation", () => {
       status: { state: "succeeded" },
     });
 
-    expect(presentation.summary).toBe("20 entries under C:\\Proyectos\\Sequel\\kiln");
+    expect(presentation.summary).toBe("20 entries under C:\\workspace\\kiln");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "tree",
-      title: "C:\\Proyectos\\Sequel\\kiln",
-      summary: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+      title: "C:\\workspace\\kiln",
+      summary: "20 entries under C:\\workspace\\kiln",
     });
     expect(presentation.toolPresentation?.preview).toBeUndefined();
   });
@@ -890,7 +890,7 @@ describe("operator event presentation", () => {
       toolName: "tree",
       output: JSON.stringify({
         output: JSON.stringify({
-          root: "C:\\Proyectos\\Sequel\\kiln",
+          root: "C:\\workspace\\kiln",
           entries: [
             { name: "docs", type: "directory", depth: 1 },
             { name: "architecture.md", type: "file", depth: 2 },
@@ -903,7 +903,7 @@ describe("operator event presentation", () => {
           toolName: "tree",
           kind: "inspection",
           operation: "tree",
-          path: "C:\\Proyectos\\Sequel\\kiln",
+          path: "C:\\workspace\\kiln",
           entryCount: 2,
           verbosity: "structured",
         },
@@ -960,7 +960,7 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "read_many",
       outputSummary: JSON.stringify({
-        output: "--- C:\\Proyectos\\Sequel\\kiln\\docs\\architecture.md\n# Kiln Architecture",
+        output: "--- C:\\workspace\\kiln\\docs\\architecture.md\n# Kiln Architecture",
         isError: false,
         metadata: {
           toolName: "read_many",
@@ -1075,13 +1075,13 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "write",
       output: JSON.stringify({
-        output: "Wrote 9 characters to C:\\Proyectos\\Sequel\\kiln\\example.txt",
+        output: "Wrote 9 characters to C:\\workspace\\kiln\\example.txt",
         isError: false,
         metadata: {
           toolName: "write",
           kind: "file",
           operation: "write",
-          filePath: "C:\\Proyectos\\Sequel\\kiln\\example.txt",
+          filePath: "C:\\workspace\\kiln\\example.txt",
           bytesWritten: 9,
         },
       }),
@@ -1090,7 +1090,7 @@ describe("operator event presentation", () => {
 
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "diff",
-      title: "C:\\Proyectos\\Sequel\\kiln\\example.txt",
+      title: "C:\\workspace\\kiln\\example.txt",
       raw: { available: false },
     });
     expect(presentation.toolPresentation?.preview).toBeUndefined();
@@ -1101,13 +1101,13 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "write",
       output: JSON.stringify({
-        output: "Wrote 9 characters to C:\\Proyectos\\Sequel\\kiln\\example.txt",
+        output: "Wrote 9 characters to C:\\workspace\\kiln\\example.txt",
         isError: false,
         metadata: {
           toolName: "write",
           kind: "file",
           operation: "write",
-          filePath: "C:\\Proyectos\\Sequel\\kiln\\example.txt",
+          filePath: "C:\\workspace\\kiln\\example.txt",
           changeType: "modified",
           bytesWritten: 9,
           linesAdded: 1,
@@ -1133,13 +1133,13 @@ describe("operator event presentation", () => {
       toolCallId: "tool-1",
       toolName: "edit",
       output: JSON.stringify({
-        output: "Applied 1 replacement in C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+        output: "Applied 1 replacement in C:\\workspace\\kiln\\im_alive.txt",
         isError: false,
         metadata: {
           toolName: "edit",
           kind: "file",
           operation: "edit",
-          filePath: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+          filePath: "C:\\workspace\\kiln\\im_alive.txt",
           changeType: "modified",
           replacements: 1,
           linesAdded: 1,
@@ -1153,7 +1153,7 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("1 file changed, 1 addition, 1 removal");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "diff",
-      title: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+      title: "C:\\workspace\\kiln\\im_alive.txt",
       preview: {
         text: "- im alive\n+ im alive and testing diff",
       },
@@ -1166,7 +1166,7 @@ describe("operator event presentation", () => {
       toolName: "stat",
       output: JSON.stringify({
         output: JSON.stringify({
-          path: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+          path: "C:\\workspace\\kiln\\im_alive.txt",
           type: "file",
           size: 25,
           modifiedTime: "2026-04-30T12:33:05.305Z",
@@ -1176,7 +1176,7 @@ describe("operator event presentation", () => {
           toolName: "stat",
           kind: "inspection",
           operation: "stat",
-          path: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+          path: "C:\\workspace\\kiln\\im_alive.txt",
           type: "file",
           size: 25,
           modifiedTime: "2026-04-30T12:33:05.305Z",
@@ -1190,7 +1190,7 @@ describe("operator event presentation", () => {
     expect(presentation.summary).not.toContain("{");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "text",
-      title: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+      title: "C:\\workspace\\kiln\\im_alive.txt",
       summary: "file · 25 bytes",
     });
     expect(presentation.toolPresentation?.fields).toEqual(expect.arrayContaining([
@@ -1206,7 +1206,7 @@ describe("operator event presentation", () => {
       toolName: "ocr_image",
       output: JSON.stringify({
         output: JSON.stringify({
-          path: "C:\\Proyectos\\Sequel\\kiln\\docs\\image.png",
+          path: "C:\\workspace\\kiln\\docs\\image.png",
           mimeType: "image/png",
           language: "eng",
           text: "HELLO",
@@ -1217,7 +1217,7 @@ describe("operator event presentation", () => {
           toolName: "ocr_image",
           kind: "media",
           operation: "ocr",
-          path: "C:\\Proyectos\\Sequel\\kiln\\docs\\image.png",
+          path: "C:\\workspace\\kiln\\docs\\image.png",
           mimeType: "image/png",
           language: "eng",
           textLength: 5,

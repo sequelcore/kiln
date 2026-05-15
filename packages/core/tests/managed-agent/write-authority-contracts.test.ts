@@ -17,8 +17,8 @@ function makeWriteScope() {
   return defineManagedAgentWriteScope({
     workspace: {
       mode: "propose",
-      allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src"],
-      deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+      allowedPaths: ["C:/workspace/kiln/packages/core/src"],
+      deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
       mode: "propose",
@@ -72,7 +72,7 @@ describe("managed agent write authority contracts", () => {
           networkAllowed: false,
         },
         workingDirectory: {
-          path: "C:/Proyectos/Sequel/kiln",
+          path: "C:/workspace/kiln",
           mode: "read-only",
         },
         timeoutMs: 120000,
@@ -98,7 +98,7 @@ describe("managed agent write authority contracts", () => {
       scope: {
         workspace: {
           mode: "propose",
-          allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src"],
+          allowedPaths: ["C:/workspace/kiln/packages/core/src"],
         },
         memory: {
           mode: "propose",
@@ -122,7 +122,7 @@ describe("managed agent write authority contracts", () => {
       childSessionId: "child-session",
       target: {
         kind: "workspace-path",
-        path: "C:/Proyectos/Sequel/kiln/packages/core/src/agents/managed-invocation/index.ts",
+        path: "C:/workspace/kiln/packages/core/src/agents/managed-invocation/index.ts",
       },
       summary: "Add write authority contracts",
       evidenceUris: ["kiln://artifacts/invocation-write-1/proposal"],

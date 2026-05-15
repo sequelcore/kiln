@@ -549,7 +549,7 @@ describe("GatewaySession canonical session events", () => {
               toolName: "tree",
               kind: "inspection",
               operation: "tree",
-              path: "C:\\Proyectos\\Sequel\\kiln",
+              path: "C:\\workspace\\kiln",
               depth: 2,
               entryCount: 55,
               resourceLinks: [
@@ -594,10 +594,10 @@ describe("GatewaySession canonical session events", () => {
         type: "activity",
         activity: "tool_result",
         toolName: "tree",
-        output: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+        output: "55 entries under C:\\workspace\\kiln",
         toolPresentation: expect.objectContaining({
           outputKind: "tree",
-          title: "C:\\Proyectos\\Sequel\\kiln",
+          title: "C:\\workspace\\kiln",
         }),
       }),
     ]));

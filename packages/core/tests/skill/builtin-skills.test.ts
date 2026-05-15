@@ -24,7 +24,7 @@ describe("Kiln core builtin skills", () => {
       "config-projection-review",
     ]);
     expect(KILN_CORE_BUILTIN_SKILLS.every((skill) => skill.filePath.startsWith("builtin://kiln/skills/"))).toBe(true);
-    expect(KILN_CORE_BUILTIN_SKILLS.some((skill) => /sequel|ricardo/i.test(skill.name))).toBe(false);
+    expect(KILN_CORE_BUILTIN_SKILLS.some((skill) => /sequel|internal-only/i.test(skill.name))).toBe(false);
   });
 
   it("applies builtin include and exclude policy", () => {

@@ -101,9 +101,9 @@ const contextArtifactCache = new InMemoryContextArtifactCache();
 const memoryDbDir = mkdtempSync(join(tmpdir(), "kiln-gui-memory-"));
 const memoryRepository = new SqliteMemoryRepository({ dbPath: join(memoryDbDir, "memory.db") });
 const setupSnapshot: KilnConfigSetupSnapshot = {
-  projectRoot: "C:/Proyectos/Sequel/kiln",
+  projectRoot: "C:/workspace/kiln",
   projectContext: {
-    path: "C:/Proyectos/Sequel/kiln/.kiln/project-context.md",
+    path: "C:/workspace/kiln/.kiln/project-context.md",
     status: "valid",
     recommendation: "none",
   },
@@ -111,14 +111,14 @@ const setupSnapshot: KilnConfigSetupSnapshot = {
     {
       target: "agents",
       targetId: "agents",
-      path: "C:/Proyectos/Sequel/kiln/AGENTS.md",
+      path: "C:/workspace/kiln/AGENTS.md",
       status: "current",
       recommendation: "none",
     },
     {
       target: "claude",
       targetId: "claude",
-      path: "C:/Proyectos/Sequel/kiln/CLAUDE.md",
+      path: "C:/workspace/kiln/CLAUDE.md",
       status: "current",
       recommendation: "none",
     },

@@ -141,12 +141,12 @@ describe("global-config", () => {
       [
         "version: \"1\"",
         "identity:",
-        "  name: Ricardo",
+        "  name: Alex",
         "  timezone: America/Tijuana",
       ].join("\n"),
     );
     expect(readGlobalConfig()?.identity).toEqual({
-      name: "Ricardo",
+      name: "Alex",
       timezone: "America/Tijuana",
     });
 

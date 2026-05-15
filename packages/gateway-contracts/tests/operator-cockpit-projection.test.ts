@@ -238,7 +238,7 @@ describe("operator cockpit read-only projection", () => {
           instanceId: "attach-plan:local",
           label: "Local / kiln",
           kind: "local",
-          gatewayUrl: "file:///C:/Proyectos/Sequel/kiln",
+          gatewayUrl: "file:///C:/workspace/kiln",
         },
       ],
     })).toThrow("must use http:// or https://");

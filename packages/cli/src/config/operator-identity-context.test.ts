@@ -14,12 +14,12 @@ describe("operator identity context", () => {
 
   it("formats admitted operator identity with provenance", () => {
     expect(buildOperatorIdentityContext({
-      name: " Ricardo\nArmenta ",
+      name: " Alex\nRivera ",
       timezone: " America/Tijuana ",
     })).toBe([
       "## Operator Identity",
       "Source: ~/.kiln/config.yaml identity.",
-      "- Operator name: Ricardo Armenta",
+      "- Operator name: Alex Rivera",
       "- Timezone: America/Tijuana",
     ].join("\n"));
   });
@@ -34,12 +34,12 @@ describe("operator identity context", () => {
     const wrapped = withGlobalIdentityContext(appConfig, {
       version: "1",
       identity: {
-        name: "Ricardo",
+        name: "Alex",
       },
     });
 
     expect(wrapped.contextCandidates).toEqual([
-      buildOperatorIdentityContextCandidate({ name: "Ricardo" }),
+      buildOperatorIdentityContextCandidate({ name: "Alex" }),
     ]);
     expect(wrapped.buildSystemPrompt?.({
       task: "test",

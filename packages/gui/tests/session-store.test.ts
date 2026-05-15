@@ -890,7 +890,7 @@ describe("session-store", () => {
                 toolName: "tree",
                 kind: "inspection",
                 operation: "tree",
-                path: "C:\\Proyectos\\Sequel\\kiln",
+                path: "C:\\workspace\\kiln",
                 depth: 2,
                 entryCount: 55,
                 resourceLinks: [
@@ -915,10 +915,10 @@ describe("session-store", () => {
       item.type === "event" && item.eventKind === "tool_call_completed"
     ));
     expect(entry).toMatchObject({
-      summary: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+      summary: "55 entries under C:\\workspace\\kiln",
       toolPresentation: {
         outputKind: "tree",
-        title: "C:\\Proyectos\\Sequel\\kiln",
+        title: "C:\\workspace\\kiln",
         preview: {
           text: ".\npackages/\n  gui/",
         },

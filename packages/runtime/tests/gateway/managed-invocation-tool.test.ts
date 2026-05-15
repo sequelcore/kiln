@@ -135,7 +135,7 @@ function makeSurface(
             permissionProfile: "read-only",
             allowedToolNames: ["read", "grep", "glob"],
             workingDirectory: {
-              path: "C:/Proyectos/Sequel/kiln",
+              path: "C:/workspace/kiln",
               mode: "read-only",
             },
             timeoutMs: 120000,
@@ -175,7 +175,7 @@ function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter(
         permissionProfile: "read-only",
         allowedToolNames: ["read", "grep", "glob"],
         workingDirectory: {
-          path: "C:/Proyectos/Sequel/kiln",
+          path: "C:/workspace/kiln",
           mode: "read-only" as const,
         },
         timeoutMs: 120000,
@@ -529,7 +529,7 @@ describe("managed invocation runtime tool", () => {
           networkAllowed: false,
         },
         workingDirectory: {
-          path: "C:/Proyectos/Sequel/kiln",
+          path: "C:/workspace/kiln",
           mode: "read-only",
         },
       },
@@ -680,7 +680,7 @@ describe("managed invocation runtime tool", () => {
               writeAllowed: false,
               networkAllowed: false,
               workingDirectory: {
-                path: "C:/Proyectos/Sequel/kiln",
+                path: "C:/workspace/kiln",
                 mode: "workspace-write",
               },
               timeoutMs: 120000,
@@ -697,7 +697,7 @@ describe("managed invocation runtime tool", () => {
                 scope: {
                   workspace: {
                     mode: "propose",
-                    allowedPaths: ["C:/Proyectos/Sequel/kiln"],
+                    allowedPaths: ["C:/workspace/kiln"],
                     deniedPaths: [],
                   },
                   memory: {

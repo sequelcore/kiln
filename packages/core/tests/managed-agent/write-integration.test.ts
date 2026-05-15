@@ -20,8 +20,8 @@ function makeWriteScope() {
   return defineManagedAgentWriteScope({
     workspace: {
       mode: "propose",
-      allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src/agents/managed-invocation"],
-      deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+      allowedPaths: ["C:/workspace/kiln/packages/core/src/agents/managed-invocation"],
+      deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
       mode: "propose",
@@ -73,7 +73,7 @@ function makeRequest(overrides: Partial<ManagedAgentInvocationRequest["authority
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "read-only",
       },
       timeoutMs: 120000,

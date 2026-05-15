@@ -35,7 +35,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "read-only",
       },
       timeoutMs: 120000,

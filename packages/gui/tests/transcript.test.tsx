@@ -485,7 +485,7 @@ describe("Transcript", () => {
             tone: "success",
             details: {
               result: JSON.stringify({
-                output: "--- C:\\Proyectos\\Sequel\\kiln\\docs\\architecture.md",
+                output: "--- C:\\workspace\\kiln\\docs\\architecture.md",
                 isError: false,
                 metadata: { toolName: "read_many" },
               }),
@@ -522,7 +522,7 @@ describe("Transcript", () => {
     expect(screen.getByText("kiln://artifacts/tool-results/artifact_1/content")).toBeInTheDocument();
     expect(screen.queryByText("Open inspector")).not.toBeInTheDocument();
     expect(screen.queryByText("Raw available")).not.toBeInTheDocument();
-    expect(screen.queryByText("--- C:\\Proyectos\\Sequel\\kiln\\docs\\architecture.md")).not.toBeInTheDocument();
+    expect(screen.queryByText("--- C:\\workspace\\kiln\\docs\\architecture.md")).not.toBeInTheDocument();
   });
 
   it("renders browser screenshot tool presentations as a numbered capture gallery", () => {
@@ -697,16 +697,16 @@ describe("Transcript", () => {
             eventKind: "tool_call_completed",
             createdAt: new Date().toISOString(),
             title: "Completed tree",
-            summary: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+            summary: "55 entries under C:\\workspace\\kiln",
             tone: "success",
             details: {
-              result: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+              result: "55 entries under C:\\workspace\\kiln",
               status: "succeeded",
             },
             toolPresentation: {
               outputKind: "tree",
-              title: "C:\\Proyectos\\Sequel\\kiln",
-              summary: "55 entries under C:\\Proyectos\\Sequel\\kiln",
+              title: "C:\\workspace\\kiln",
+              summary: "55 entries under C:\\workspace\\kiln",
               fields: [{ label: "Entries", value: "55" }],
               preview: {
                 text: ".\npackages/\n  gui/",
@@ -728,7 +728,7 @@ describe("Transcript", () => {
     );
 
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
-    expect(screen.getAllByText("55 entries under C:\\Proyectos\\Sequel\\kiln").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("55 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
 
     const detailButtons = screen.getAllByRole("button", { name: "Show details" });
     fireEvent.click(detailButtons[0]!);
@@ -760,7 +760,7 @@ describe("Transcript", () => {
             },
             toolPresentation: {
               outputKind: "text",
-              title: "C:\\Proyectos\\Sequel\\kiln\\im_alive.txt",
+              title: "C:\\workspace\\kiln\\im_alive.txt",
               summary: "file · 25 bytes",
               fields: [
                 { label: "Type", value: "file" },
@@ -776,7 +776,7 @@ describe("Transcript", () => {
 
     expect(screen.getByText("file · 25 bytes")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show details" }));
-    expect(screen.getByText("C:\\Proyectos\\Sequel\\kiln\\im_alive.txt")).toBeInTheDocument();
+    expect(screen.getByText("C:\\workspace\\kiln\\im_alive.txt")).toBeInTheDocument();
     expect(screen.getByText("Type")).toBeInTheDocument();
     expect(screen.getByText("25 bytes")).toBeInTheDocument();
     expect(screen.queryByText("Text preview")).not.toBeInTheDocument();
@@ -793,16 +793,16 @@ describe("Transcript", () => {
             eventKind: "tool_call_completed",
             createdAt: new Date().toISOString(),
             title: "Completed tree",
-            summary: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+            summary: "20 entries under C:\\workspace\\kiln",
             tone: "success",
             details: {
-              result: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+              result: "20 entries under C:\\workspace\\kiln",
               status: "succeeded",
             },
             toolPresentation: {
               outputKind: "tree",
-              title: "C:\\Proyectos\\Sequel\\kiln",
-              summary: "20 entries under C:\\Proyectos\\Sequel\\kiln",
+              title: "C:\\workspace\\kiln",
+              summary: "20 entries under C:\\workspace\\kiln",
               fields: [{ label: "Entries", value: "20" }],
               raw: { available: false },
             },
@@ -812,7 +812,7 @@ describe("Transcript", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Show details" }));
-    expect(screen.getAllByText("20 entries under C:\\Proyectos\\Sequel\\kiln").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("20 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
     expect(screen.queryByText("Tree preview")).not.toBeInTheDocument();
   });
 

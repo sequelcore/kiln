@@ -374,7 +374,7 @@ function provenance(sourceId: string): MemoryProvenance {
   return {
     sourceType: "operator",
     sourceId,
-    actor: "Ricardo Armenta",
+    actor: "Alex Rivera",
     capturedAt: "2026-04-30T12:00:00.000Z",
   };
 }

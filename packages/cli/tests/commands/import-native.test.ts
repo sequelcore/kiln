@@ -35,7 +35,7 @@ describe("import-native command helpers", () => {
   it("merges imported Codex fields without clobbering unrelated Kiln fields", () => {
     const currentConfig: KilnGlobalConfig = {
       version: "1",
-      identity: { name: "Ricardo", timezone: "America/Tijuana" },
+      identity: { name: "Alex", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },
       },
@@ -53,8 +53,8 @@ describe("import-native command helpers", () => {
 
     const plan = createImportNativePlan({
       target: "codex",
-      nativeConfigPath: "C:/Users/Ricardo/.codex/config.toml",
-      globalConfigPath: "C:/Users/Ricardo/.kiln/config.yaml",
+      nativeConfigPath: "C:/Users/alex/.codex/config.toml",
+      globalConfigPath: "C:/Users/alex/.kiln/config.yaml",
       currentConfig,
       nativeDocument: {
         model: "gpt-5.4",
@@ -65,7 +65,7 @@ describe("import-native command helpers", () => {
 
     expect(plan.after).toEqual({
       version: "1",
-      identity: { name: "Ricardo", timezone: "America/Tijuana" },
+      identity: { name: "Alex", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: true },
@@ -85,8 +85,8 @@ describe("import-native command helpers", () => {
       components: { include: ["baseline:core"] },
     });
     expect(plan.hasChanges).toBe(true);
-    expect(plan.diff).toContain("--- C:/Users/Ricardo/.kiln/config.yaml");
-    expect(plan.diff).toContain("+++ C:/Users/Ricardo/.kiln/config.yaml");
+    expect(plan.diff).toContain("--- C:/Users/alex/.kiln/config.yaml");
+    expect(plan.diff).toContain("+++ C:/Users/alex/.kiln/config.yaml");
     expect(plan.diff).toContain("+  codex: gpt-5.4");
   });
 

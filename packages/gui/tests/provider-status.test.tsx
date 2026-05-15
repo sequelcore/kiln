@@ -70,12 +70,12 @@ describe("ProviderStatus", () => {
       <ProviderStatus
         onOpenPicker={() => undefined}
         domainLabel="Kiln"
-        workingDirectory="C:/Proyectos/Sequel/kiln"
+        workingDirectory="C:/workspace/kiln"
       />,
     );
 
     expect(screen.getByText("domain: Kiln")).toBeInTheDocument();
-    expect(screen.getByText("cwd: C:/Proyectos/Sequel/kiln")).toBeInTheDocument();
+    expect(screen.getByText("cwd: C:/workspace/kiln")).toBeInTheDocument();
   });
 
   it("renders an explicit compact empty state before a provider is selected", () => {

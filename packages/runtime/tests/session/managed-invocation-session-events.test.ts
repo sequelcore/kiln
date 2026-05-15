@@ -53,7 +53,7 @@ function makeRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "read-only",
       },
       timeoutMs: 120000,
@@ -76,8 +76,8 @@ function makeWriteScope() {
   return defineManagedAgentWriteScope({
     workspace: {
       mode: "propose",
-      allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src/agents/managed-invocation"],
-      deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+      allowedPaths: ["C:/workspace/kiln/packages/core/src/agents/managed-invocation"],
+      deniedPaths: ["C:/workspace/kiln/.git"],
     },
     memory: {
       mode: "propose",
@@ -165,7 +165,7 @@ function makeWriteRequest(sessionId = "session-parent", turnId = `${sessionId}:t
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "read-only",
       },
       timeoutMs: 120000,
@@ -506,7 +506,7 @@ describe("appendManagedInvocationSessionEvents", () => {
         scope: {
           workspace: {
             mode: "propose",
-            allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src/agents/managed-invocation"],
+            allowedPaths: ["C:/workspace/kiln/packages/core/src/agents/managed-invocation"],
           },
           memory: {
             mode: "propose",

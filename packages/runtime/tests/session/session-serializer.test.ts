@@ -201,8 +201,8 @@ describe("serializeSession / deserializeSession", () => {
             scope: {
               workspace: {
                 mode: "propose",
-                allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/core/src"],
-                deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+                allowedPaths: ["C:/workspace/kiln/packages/core/src"],
+                deniedPaths: ["C:/workspace/kiln/.git"],
               },
               memory: {
                 mode: "propose",

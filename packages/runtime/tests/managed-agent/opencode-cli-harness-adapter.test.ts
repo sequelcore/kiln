@@ -46,7 +46,7 @@ function makeRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "read-only",
       },
       timeoutMs,
@@ -91,7 +91,7 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
         networkAllowed: false,
       },
       workingDirectory: {
-        path: "C:/Proyectos/Sequel/kiln",
+        path: "C:/workspace/kiln",
         mode: "workspace-write",
       },
       timeoutMs,
@@ -108,8 +108,8 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
         scope: defineManagedAgentWriteScope({
           workspace: {
             mode: "apply-approved",
-            allowedPaths: ["C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures"],
-            deniedPaths: ["C:/Proyectos/Sequel/kiln/.git"],
+            allowedPaths: ["C:/workspace/kiln/packages/runtime/tests/fixtures"],
+            deniedPaths: ["C:/workspace/kiln/.git"],
           },
           memory: {
             mode: "propose",
@@ -180,7 +180,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     expect(result.status).toBe("completed");
     expect(factory).toHaveBeenCalledWith(
       "Inspect the managed invocation contract.",
-      "C:/Proyectos/Sequel/kiln",
+      "C:/workspace/kiln",
       {
         kilnSessionId: "session-parent:managed:invocation-opencode-1",
         permissionPolicy: {
@@ -191,7 +191,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     );
     expect(run.mock.calls[0]?.[0]).toMatchObject({
       kilnSessionId: "session-parent:managed:invocation-opencode-1",
-      cwd: "C:/Proyectos/Sequel/kiln",
+      cwd: "C:/workspace/kiln",
       prompt: "Read the relevant files and return a compact review.",
       system: "Inspect the managed invocation contract.",
     });
@@ -298,7 +298,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       { type: "text_delta", content: "Approved fixture update applied." },
       {
         type: "file_changed",
-        path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
+        path: "C:/workspace/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
         changeType: "modified",
         linesAdded: 1,
         linesRemoved: 0,
@@ -330,7 +330,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     expect(result.status).toBe("completed");
     expect(factory).toHaveBeenCalledWith(
       "Apply an approved fixture update.",
-      "C:/Proyectos/Sequel/kiln",
+      "C:/workspace/kiln",
       {
         kilnSessionId: "session-parent:managed:invocation-opencode-write-1",
         permissionPolicy: {
@@ -507,7 +507,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       (async function* partialWriteThenTimeout(): AsyncGenerator<CliSessionEvent> {
         yield {
           type: "file_changed",
-          path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
+          path: "C:/workspace/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
           changeType: "modified",
           linesAdded: 1,
           linesRemoved: 1,
@@ -633,7 +633,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const run = vi.fn(() => eventStream([
       {
         type: "file_changed",
-        path: "C:/Proyectos/Sequel/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
+        path: "C:/workspace/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
         changeType: "modified",
         linesAdded: 2,
         linesRemoved: 1,
