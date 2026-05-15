@@ -68,7 +68,8 @@ explicitly parked until their prerequisite product surface exists.
 ## Active Roadmaps
 
 - `05-native-operator-cockpit-and-projection-performance.md`
-  Active in early Phase 2 after contract-only Phase 0/1. The current scope
+  Active with contract/projection closeout complete after typed Phase 3
+  evidence contracts, still pre-Phase 3 execution. The current scope
   defines precondition review, explicit target/action admission, benchmark
   fixture thresholds, shared GUI projection baselines, cancellation target
   contracts, a shared read-only cockpit projection substrate, and the native
@@ -85,7 +86,9 @@ explicitly parked until their prerequisite product surface exists.
   promotion gate contract that keeps TypeScript projection/view-state baselines
   as contract-only evidence until rendering and governance reports exist.
   Phase 3 evidence is represented as typed contract reports, not runners or
-  measured benchmark outputs. Live gateway attach loops,
+  measured benchmark outputs. Phase 3 and later remain blocked until real
+  benchmark runners produce measured browser/native rendering evidence. Live
+  gateway attach loops,
   resource-opening dispatch, cancellation dispatch, browser-rendering benchmarks, and
   Rust/WASM/sidecar modules remain out of scope until measurement justifies
   them.

@@ -3,8 +3,12 @@
 ## Status
 
 Active experimental roadmap. Started on 2026-05-14 in contract-only Phase 0/1.
+Contract/projection closeout is complete after the typed Phase 3 evidence
+contracts commit. This closeout covers evidence-gated contract surfaces only;
+it does not promote the experiment or start Phase 3 execution.
 
-Current scope is precondition review, explicit target/action admission,
+Current implemented scope is precondition review, explicit target/action
+admission,
 benchmark fixture definitions, shared projection baselines, cancellation target
 contracts, a shared read-only projection substrate, a native read-only
 projection wrapper, read-only action intents, a shared read-only projection
@@ -12,8 +16,10 @@ baseline measurement, a read-only attach plan, target-aware resource-link
 projection, read-only focus/filter/replay view-state helpers, and Rust
 hot-path boundaries. Do not build a native cockpit UI, browser rendering
 benchmark runner, live gateway attach loop, resource-opening dispatch,
-cancellation dispatch, or Rust/WASM/sidecar module until this
-contract/projection phase and baseline measurements justify them.
+cancellation dispatch, or Rust/WASM/sidecar module until a later measured
+evidence gate justifies them.
+Phase 3 and later remain future work blocked on real benchmark runners and
+measured browser/native rendering evidence over approved workloads.
 
 Do not start this program before the completed plan/goal workflow-control
 foundation has produced real high-density workloads, especially:
@@ -1220,6 +1226,9 @@ Started 2026-05-14:
   native rendering, target clarity, interaction latency, memory) with auditable
   metadata fields. These are evidence contracts only; they are not benchmark
   runners, live measurements, or promotion proofs by themselves.
+- Contract/projection closeout status: complete for this slice only. No live
+  benchmark runner, no live gateway attach loop, no resource-opening dispatch,
+  no cancellation dispatch, and no Rust/WASM/sidecar module exist yet.
 
 ### Phase 3 - Benchmark and Compare
 

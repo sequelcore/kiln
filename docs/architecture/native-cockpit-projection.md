@@ -1,6 +1,7 @@
 # Native Cockpit Projection
 
-Status: early read-only projection architecture. Roadmap 05 has target,
+Status: contract/projection closeout complete for the current slice. Roadmap 05
+has target,
 precondition, benchmark-fixture, shared projection-baseline,
 cancellation-target, shared read-only cockpit projection, and native
 read-only projection wrapper/action-intent contracts. It also has a shared
@@ -199,6 +200,8 @@ Phase 3 evidence inputs are typed audit contracts (browser/native rendering,
 target clarity, interaction latency, memory) with explicit measurement metadata
 and completion flags. They do not execute benchmarks or replace real runner
 proof.
+Phase 3 execution is still blocked until real benchmark runners produce measured
+browser/native rendering evidence on approved workloads.
 
 ## Rust Boundary
 
@@ -235,6 +238,7 @@ Implemented:
 
 Not implemented:
 
+- live benchmark runner execution for browser/native rendering
 - live local or remote gateway attach loop
 - multi-session cockpit UI
 - multi-instance dashboard UI

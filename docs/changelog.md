@@ -2,6 +2,12 @@
 
 ## Unreleased -- Native Operator Surface
 
+- Closed the Roadmap 05 contract/projection documentation slice after the typed
+  Phase 3 evidence contracts commit. Closeout is evidence-gated and limited to
+  shared contract/projection baselines; it does not promote the full native
+  cockpit experiment. Phase 3+ remains blocked on real benchmark runners and
+  measured browser/native rendering evidence, and no live runner, dispatch
+  path, gateway attach loop, or Rust/WASM/sidecar module exists yet.
 - Added `@kilnai/native` as the first-class Electron-backed native operator
   surface. It uses an Electron main process, React 19/Vite renderer,
   `@kilnai/gateway-contracts` projections, and no direct `@kilnai/core` or

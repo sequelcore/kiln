@@ -387,6 +387,37 @@ Deliverables:
   allow Rust candidacy or promotion without both bottleneck evidence and Rust
   hot-path proof.
 
+### Slice 15 - Docs-Only Contract/Projection Closeout
+
+Files:
+
+- `docs/roadmap/05-native-operator-cockpit-and-projection-performance.md`
+- `docs/architecture/native-cockpit-projection.md`
+- `docs/roadmap/README.md`
+- `docs/changelog.md`
+- `docs/plan.md`
+
+Deliverables:
+
+- Mark the current contract/projection phase as closeable after typed Phase 3
+  evidence contracts without promoting the full native cockpit experiment.
+- State explicitly that Phase 3+ remains future work blocked on real benchmark
+  runners and measured browser/native rendering evidence.
+- State explicitly that no live benchmark runner, live attach loop, dispatch
+  path, or Rust/WASM/sidecar module exists.
+- Keep wording canonical, non-duplicative, and aligned with current implemented
+  scope.
+
+Verification checklist:
+
+- Confirm only docs files changed and no code files changed.
+- Confirm roadmap and architecture docs both state contract/projection closeout
+  only, not full experiment promotion.
+- Confirm Phase 3+ blockers and non-implemented live runner/dispatch/Rust scope
+  are explicit in roadmap, architecture, README, and changelog text.
+- Confirm unrelated dirty files `.kiln/kiln.yaml` and
+  `packages/gui/tests/memory-lattice-panel.test.tsx` remain untouched.
+
 ## Verification
 
 - Passed `bun run --cwd packages/native test`.
@@ -491,3 +522,11 @@ Deliverables:
 - Passed `bun run test` after Slice 14.
 - Passed `bun run build` after Slice 14.
 - Passed `git diff --check` after Slice 14.
+- Confirmed only docs files changed for Slice 15; unrelated dirty files remain
+  unstaged and untouched.
+- Passed `bun run typecheck` after Slice 15.
+- Passed `bun run build` after Slice 15.
+- Passed `bun run test` after Slice 15.
+- Passed `git diff --check` after Slice 15.
+- Rechecked roadmap wording so contract/projection closeout does not imply
+  permission to start live runners or Rust modules.
