@@ -230,6 +230,7 @@ export interface ManagedAgentChildIdentitySnapshot {
   readonly requestedAgentProfile?: string;
   readonly admittedAgentProfile?: string;
   readonly displayName?: string;
+  readonly voiceProfile?: string;
 }
 
 export interface ManagedAgentCapabilitySnapshot {
@@ -437,6 +438,9 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
         : {}),
       ...(input.childIdentity.displayName !== undefined
         ? { displayName: requireText(input.childIdentity.displayName, "Managed capability snapshot display name is required") }
+        : {}),
+      ...(input.childIdentity.voiceProfile !== undefined
+        ? { voiceProfile: requireText(input.childIdentity.voiceProfile, "Managed capability snapshot voice profile is required") }
         : {}),
     },
   };

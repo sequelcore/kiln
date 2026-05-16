@@ -27,6 +27,7 @@ export interface KilnAgentDefinition {
   readonly authorityProfile?: string;
   readonly routeId?: string;
   readonly providerRoute?: KilnAgentProviderRoute;
+  readonly voiceProfile?: string;
   readonly instructions?: string;
   readonly scope: "builtin" | "global" | "project";
 }
@@ -173,6 +174,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const authorityProfile = asNonEmptyString(record.authorityProfile);
   const routeId = asNonEmptyString(record.routeId);
   const providerRoute = asProviderRoute(record.providerRoute);
+  const voiceProfile = asNonEmptyString(record.voiceProfile);
   const instructions = parsed.body.length > 0 ? parsed.body : undefined;
 
   return {
@@ -197,6 +199,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(authorityProfile ? { authorityProfile } : {}),
     ...(routeId ? { routeId } : {}),
     ...(providerRoute ? { providerRoute } : {}),
+    ...(voiceProfile ? { voiceProfile } : {}),
     ...(instructions ? { instructions } : {}),
     scope,
   };

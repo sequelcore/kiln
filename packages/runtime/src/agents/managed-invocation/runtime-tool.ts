@@ -46,6 +46,7 @@ export interface ManagedInvocationToolRoute {
   readonly routeId: string;
   readonly providerId: string;
   readonly model?: string;
+  readonly voiceProfile?: string;
   readonly adapter: ManagedAgentRuntimeAdapter;
   readonly surface?: string;
   readonly taskSuitability?: readonly ModelTaskSuitability[];
@@ -87,6 +88,7 @@ export interface ManagedInvocationAgentCatalogEntry {
     readonly model?: string;
     readonly reasoningEffort?: string;
   };
+  readonly voiceProfile?: string;
 }
 
 export interface ManagedInvocationSkillCatalogEntry {
@@ -552,6 +554,7 @@ async function executeManagedInvocationTool(
       ...(managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile)
         ? { displayName: managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile) }
         : {}),
+      ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
     },
   });
   const durationMs = Date.now() - startedAt;
@@ -581,6 +584,7 @@ async function executeManagedInvocationTool(
         status: "denied",
         profile: request.profile,
         providerRoute: request.providerRoute,
+        ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
         adapterKind: request.adapterKind,
         executionMode: request.executionMode,
         requestedAuthority: request.requestedAuthority,
@@ -616,6 +620,7 @@ async function executeManagedInvocationTool(
       status: result.record.lifecycleState,
       profile: result.record.profile,
       providerRoute: result.record.providerRoute,
+      ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
       adapterKind: result.record.adapterKind,
       executionMode: result.record.executionMode,
       requestedAuthority: request.requestedAuthority,

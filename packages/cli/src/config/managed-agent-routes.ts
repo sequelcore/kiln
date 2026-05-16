@@ -139,6 +139,7 @@ export async function resolveManagedInvocationToolOptions(
     ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
     ...(agent.routeId ? { routeId: agent.routeId } : {}),
     ...(agent.providerRoute ? { providerRoute: agent.providerRoute } : {}),
+    ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
   }));
   const userHome = context.userHome ?? homedir();
   const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, config.skills);
@@ -214,6 +215,13 @@ function resolveRouteConfigs(
   }
   const route = synthesizeRouteFromEnabledEngines(config);
   return route ? [route] : [];
+}
+
+function managedAgentVoiceProfile(
+  routeConfig: KilnManagedAgentRouteConfig,
+  config: ManagedAgentRouteConfigSource,
+): string | undefined {
+  return routeConfig.voiceProfile ?? config.managedAgents?.defaultVoiceProfile;
 }
 
 function synthesizeDefaultRoute(
@@ -402,10 +410,12 @@ async function resolveRouteConfig(
     factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context),
     ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
   });
+  const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     providerId: routeConfig.provider,
     model,
+    ...(voiceProfile ? { voiceProfile } : {}),
     adapter,
     surface: "cli-harness",
     taskSuitability: resolveTaskSuitability(
@@ -649,10 +659,12 @@ async function resolveDirectRouteConfig(
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
+  const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     providerId: routeConfig.provider,
     model,
+    ...(voiceProfile ? { voiceProfile } : {}),
     adapter,
     surface: "direct-provider",
     taskSuitability: resolveTaskSuitability(
