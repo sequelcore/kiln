@@ -1,7 +1,8 @@
 {
   "name": "@kilnai/tools-linux-x64",
   "version": "2.0.0",
-  "description": "Vendored rg/fd/jq binaries for @kilnai/tools (linux-x64)",
+  "description": "Reserved Kiln developer tool platform package for linux-x64",
+  "private": true,
   "type": "module",
   "license": "Apache-2.0",
   "os": [
@@ -12,8 +13,5 @@
   ],
   "files": [
     "package.json"
-  ],
-  "publishConfig": {
-    "access": "public"
-  }
+  ]
 }

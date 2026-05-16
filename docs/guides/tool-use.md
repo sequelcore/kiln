@@ -925,13 +925,15 @@ It caches the first successful detection result process-wide, and `clearToolEnvi
 
 ### Resolution order
 
-Kiln's developer tool stack is designed around three layers:
+Kiln's developer tool stack is designed around two layers:
 
-1. Vendored binaries from `@kilnai/tools` platform packages for `rg`, `fd`, and `jq`
-2. System binaries discovered from PATH
-3. Pure TypeScript fallback inside the executor when no binary is available
+1. System binaries discovered from PATH
+2. Pure TypeScript fallback inside the executor when no binary is available
 
-In the current core source, `detectToolEnvironment()` performs the PATH probe and the fallback logic lives in `GrepTool` and `GlobTool`. The vendored resolver is packaged separately in `packages/tools`, which publishes platform-specific optional dependencies such as `@kilnai/tools-win32-x64`.
+In the current core source, `detectToolEnvironment()` performs the PATH probe
+and the fallback logic lives in `GrepTool` and `GlobTool`. The reserved
+`packages/tools` workspace is not part of the 2.0 public package line because
+Kiln does not yet ship vendored binaries.
 
 `git` is different: Kiln detects it from PATH, but there is no pure TypeScript git fallback.
 

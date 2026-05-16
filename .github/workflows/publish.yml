@@ -121,36 +121,6 @@ jobs:
           }
           NODE
 
-      - name: Publish @kilnai/tools-darwin-arm64
-        working-directory: packages/tools-darwin-arm64
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @kilnai/tools-darwin-x64
-        working-directory: packages/tools-darwin-x64
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @kilnai/tools-linux-x64
-        working-directory: packages/tools-linux-x64
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @kilnai/tools-win32-x64
-        working-directory: packages/tools-win32-x64
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @kilnai/tools
-        working-directory: packages/tools
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish @kilnai/gateway-contracts
         working-directory: packages/gateway-contracts
         run: npm publish --access public --provenance

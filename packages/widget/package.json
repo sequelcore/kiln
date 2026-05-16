@@ -22,7 +22,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/gateway-contracts": "workspace:*"
+    "@kilnai/gateway-contracts": "^2.0.0"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",

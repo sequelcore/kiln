@@ -163,7 +163,6 @@ Most important research documents:
 | [`@kilnai/gui`](packages/gui) | Primary private web operator surface |
 | [`@kilnai/native`](packages/native) | Private Electron-backed native operator surface |
 | [`@kilnai/studio`](packages/studio) | Internal and development-facing inspection tooling |
-| [`@kilnai/tools`](packages/tools) | Vendored developer-tool resolver and platform package coordinator |
 
 ## Examples
 

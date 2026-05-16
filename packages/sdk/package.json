@@ -41,7 +41,7 @@
     "react": "^19.0.0"
   },
   "devDependencies": {
-    "@kilnai/gateway-contracts": "workspace:*",
+    "@kilnai/gateway-contracts": "^2.0.0",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "jsdom": "^25.0.0",
