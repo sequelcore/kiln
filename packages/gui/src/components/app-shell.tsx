@@ -637,6 +637,8 @@ export function AppShell() {
   const onProvidersRefreshed = useSessionStore((state) => state.onProvidersRefreshed);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
+  const onVoiceSynthesisCompleted = useSessionStore((state) => state.onVoiceSynthesisCompleted);
+  const onVoiceSynthesisFailed = useSessionStore((state) => state.onVoiceSynthesisFailed);
   const onError = useSessionStore((state) => state.onError);
   const onCleared = useSessionStore((state) => state.onCleared);
   const onProviderChanged = useSessionStore((state) => state.onProviderChanged);
@@ -897,6 +899,10 @@ export function AppShell() {
           onSessionEvent(frame.event);
         } else if (frame.type === "done") {
           onDone(frame);
+        } else if (frame.type === "voice_synthesis_completed") {
+          onVoiceSynthesisCompleted(frame);
+        } else if (frame.type === "voice_synthesis_failed") {
+          onVoiceSynthesisFailed(frame);
         } else if (frame.type === "error") {
         onError(frame);
       } else if (frame.type === "cleared") {
@@ -1313,14 +1319,18 @@ export function AppShell() {
         className="pointer-events-none absolute inset-0 opacity-70 [background-image:linear-gradient(180deg,color-mix(in_srgb,var(--color-background-element)_42%,transparent),transparent_30%),linear-gradient(90deg,color-mix(in_srgb,var(--color-border)_18%,transparent)_1px,transparent_1px),linear-gradient(color-mix(in_srgb,var(--color-border)_14%,transparent)_1px,transparent_1px)] [background-size:100%_100%,48px_48px,48px_48px]"
       />
       {errorBanner ? (
-        <ErrorBanner
-          message={errorBanner}
-          onDismiss={clearErrorBanner}
-          onRetry={() => {
-            clearErrorBanner();
-            setGatewayAttempt((count) => count + 1);
-          }}
-        />
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-50 flex justify-center sm:inset-x-6">
+          <div className="pointer-events-auto w-full max-w-5xl">
+            <ErrorBanner
+              message={errorBanner}
+              onDismiss={clearErrorBanner}
+              onRetry={() => {
+                clearErrorBanner();
+                setGatewayAttempt((count) => count + 1);
+              }}
+            />
+          </div>
+        </div>
       ) : null}
 
       <CommandPalette
@@ -1600,6 +1610,16 @@ export function AppShell() {
             )}
             onSubmit={(text) => {
               sendMessage(text, {
+                ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+                requestedAuthority,
+                ...(selectedAppName ? { appName: selectedAppName } : {}),
+                ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
+              });
+            }}
+            onSubmitParts={(parts, displayContent) => {
+              sendMessage("", {
+                parts,
+                displayContent,
                 ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
                 requestedAuthority,
                 ...(selectedAppName ? { appName: selectedAppName } : {}),

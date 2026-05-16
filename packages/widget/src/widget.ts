@@ -1,11 +1,20 @@
 import { WsClient } from "./ws-client.js";
 import { getStyles } from "./styles.js";
 import { renderMarkdown } from "./markdown.js";
+import { renderVoiceAudioParts } from "./voice-parts.js";
+import {
+  createVoiceInputParts,
+  selectVoiceInputCaptureMimeType,
+  voiceInputDisplayText,
+} from "@kilnai/gateway-contracts/voice-input-parts";
 import type { WidgetConfig, ChatMessage, WsInboundFrame, ConnectionStatus, VisitorInfo, PreChatFormFrame } from "./types.js";
 
 const CHAT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
 const CLOSE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 const SEND_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
+const MIC_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>`;
+const STOP_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>`;
+const FILE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6-8.4 8.4a2 2 0 0 0 2.8 2.8L19 8.6a4 4 0 0 0-5.7-5.7L4.7 11.5a6 6 0 0 0 8.5 8.5l7.8-7.8"/></svg>`;
 
 const VISITOR_STORAGE_PREFIX = "kiln_visitor_";
 
@@ -44,10 +53,18 @@ export class KilnWidget {
   private typingEl!: HTMLDivElement;
   private inputEl!: HTMLTextAreaElement;
   private sendEl!: HTMLButtonElement;
+  private fileEl!: HTMLButtonElement;
+  private fileInputEl!: HTMLInputElement;
+  private voiceEl!: HTMLButtonElement;
   private statusDotEl!: HTMLSpanElement;
   private launcherEl!: HTMLButtonElement;
   private formEl: HTMLDivElement | null = null;
   private chatAreaEl!: HTMLDivElement;
+  private recorder: MediaRecorder | null = null;
+  private voiceStream: MediaStream | null = null;
+  private voiceChunks: Blob[] = [];
+  private voiceStartedAt = 0;
+  private voiceState: "idle" | "recording" | "encoding" = "idle";
 
   constructor(config: WidgetConfig) {
     this.config = config;
@@ -200,7 +217,34 @@ export class KilnWidget {
     sendBtn.addEventListener("click", () => this.sendMessage());
     this.sendEl = sendBtn;
 
+    const fileInput = document.createElement("input");
+    fileInput.id = "kiln-audio-file-input";
+    fileInput.type = "file";
+    fileInput.accept = "audio/*";
+    fileInput.setAttribute("aria-label", "Audio file input");
+    fileInput.addEventListener("change", () => this.handleAudioFileChange());
+    this.fileInputEl = fileInput;
+
+    const fileBtn = document.createElement("button");
+    fileBtn.id = "kiln-file";
+    fileBtn.type = "button";
+    fileBtn.setAttribute("aria-label", "Attach audio file");
+    fileBtn.innerHTML = FILE_ICON_SVG;
+    fileBtn.addEventListener("click", () => this.fileInputEl.click());
+    this.fileEl = fileBtn;
+
+    const voiceBtn = document.createElement("button");
+    voiceBtn.id = "kiln-voice";
+    voiceBtn.type = "button";
+    voiceBtn.setAttribute("aria-label", "Record voice");
+    voiceBtn.innerHTML = MIC_ICON_SVG;
+    voiceBtn.addEventListener("click", () => this.toggleVoiceCapture());
+    this.voiceEl = voiceBtn;
+
     inputArea.appendChild(textarea);
+    inputArea.appendChild(fileInput);
+    inputArea.appendChild(fileBtn);
+    inputArea.appendChild(voiceBtn);
     inputArea.appendChild(sendBtn);
 
     chatArea.appendChild(messagesDiv);
@@ -213,6 +257,8 @@ export class KilnWidget {
 
     this.shadow.appendChild(launcher);
     this.shadow.appendChild(panel);
+    this.updateFileButton();
+    this.updateVoiceButton();
   }
 
   private renderPreChatForm(formConfig: PreChatFormFrame): void {
@@ -365,6 +411,107 @@ export class KilnWidget {
     this.client.send(text);
   }
 
+  private sendVoiceParts(parts: readonly unknown[], displayContent: string): void {
+    if (this.isLoading) return;
+
+    this.removeSuggestions();
+    this.addMessage({
+      id: String(++this.idCounter),
+      role: "user",
+      content: displayContent,
+      parts,
+      timestamp: Date.now(),
+    });
+    this.setLoading(true);
+    this.client.sendParts(parts, displayContent);
+  }
+
+  private voiceCaptureAvailable(): boolean {
+    return typeof navigator !== "undefined"
+      && Boolean(navigator.mediaDevices?.getUserMedia)
+      && typeof MediaRecorder !== "undefined";
+  }
+
+  private async startVoiceCapture(): Promise<void> {
+    if (!this.voiceCaptureAvailable() || this.isLoading) return;
+    try {
+      const mimeType = selectVoiceInputCaptureMimeType((candidate) => MediaRecorder.isTypeSupported(candidate));
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.voiceStream = stream;
+      this.voiceChunks = [];
+      this.voiceStartedAt = performance.now();
+      this.recorder = new MediaRecorder(stream, { mimeType });
+      this.recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          this.voiceChunks.push(event.data);
+        }
+      };
+      this.recorder.onstop = () => {
+        void this.finishVoiceCapture(this.recorder?.mimeType || mimeType);
+      };
+      this.recorder.start();
+      this.voiceState = "recording";
+      this.updateFileButton();
+      this.updateVoiceButton();
+    } catch {
+      this.stopVoiceStream();
+      this.voiceState = "idle";
+      this.updateFileButton();
+      this.updateVoiceButton();
+    }
+  }
+
+  private async finishVoiceCapture(mimeType: string): Promise<void> {
+    const durationMs = Math.max(0, Math.round(performance.now() - this.voiceStartedAt));
+    this.voiceState = "encoding";
+    this.updateFileButton();
+    this.updateVoiceButton();
+    try {
+      const blob = new Blob(this.voiceChunks, { type: mimeType });
+      const parts = await createVoiceInputParts({ audio: blob, durationMs });
+      this.sendVoiceParts(parts, voiceInputDisplayText(durationMs));
+    } finally {
+      this.voiceChunks = [];
+      this.recorder = null;
+      this.stopVoiceStream();
+      this.voiceState = "idle";
+      this.updateFileButton();
+      this.updateVoiceButton();
+    }
+  }
+
+  private stopVoiceStream(): void {
+    for (const track of this.voiceStream?.getTracks() ?? []) {
+      track.stop();
+    }
+    this.voiceStream = null;
+  }
+
+  private toggleVoiceCapture(): void {
+    if (this.voiceState === "recording") {
+      this.recorder?.stop();
+      return;
+    }
+    void this.startVoiceCapture();
+  }
+
+  private async sendAudioFile(file: File): Promise<void> {
+    if (this.isLoading || this.voiceState !== "idle") return;
+    try {
+      const parts = await createVoiceInputParts({ audio: file });
+      this.sendVoiceParts(parts, voiceInputDisplayText());
+    } catch {
+      // Invalid or unreadable audio files are ignored; runtime policy only applies after canonical parts exist.
+    }
+  }
+
+  private handleAudioFileChange(): void {
+    const [file] = Array.from(this.fileInputEl.files ?? []);
+    this.fileInputEl.value = "";
+    if (!file) return;
+    void this.sendAudioFile(file);
+  }
+
   private addMessage(msg: ChatMessage): void {
     this.messages.push(msg);
     this.renderMessage(msg);
@@ -381,6 +528,7 @@ export class KilnWidget {
 
     if (msg.role === "assistant") {
       bubble.appendChild(renderMarkdown(msg.content));
+      renderVoiceAudioParts(bubble, msg.parts ?? []);
     } else {
       // User content: plain text only (XSS prevention)
       bubble.textContent = msg.content;
@@ -408,6 +556,8 @@ export class KilnWidget {
     this.isLoading = loading;
     this.sendEl.disabled = loading;
     this.inputEl.disabled = loading;
+    this.updateFileButton();
+    this.updateVoiceButton();
 
     if (loading) {
       this.typingEl.classList.remove("hidden");
@@ -415,6 +565,22 @@ export class KilnWidget {
     } else {
       this.typingEl.classList.add("hidden");
     }
+  }
+
+  private updateVoiceButton(): void {
+    if (!this.voiceEl) return;
+    const recording = this.voiceState === "recording";
+    this.voiceEl.disabled = (!recording && this.isLoading) || this.voiceState === "encoding" || !this.voiceCaptureAvailable();
+    this.voiceEl.setAttribute("aria-label", recording ? "Stop voice recording" : "Record voice");
+    this.voiceEl.classList.toggle("recording", recording);
+    this.voiceEl.innerHTML = recording ? STOP_ICON_SVG : MIC_ICON_SVG;
+  }
+
+  private updateFileButton(): void {
+    if (!this.fileEl || !this.fileInputEl) return;
+    const disabled = this.isLoading || this.voiceState !== "idle";
+    this.fileEl.disabled = disabled;
+    this.fileInputEl.disabled = disabled;
   }
 
   private scrollToBottom(): void {
@@ -430,6 +596,7 @@ export class KilnWidget {
         id: String(++this.idCounter),
         role: "assistant",
         content: frame.content,
+        ...(frame.parts ? { parts: frame.parts } : {}),
         timestamp: Date.now(),
       });
     } else if (frame.type === "error") {

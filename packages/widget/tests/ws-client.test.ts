@@ -148,6 +148,24 @@ describe("WsClient", () => {
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "message", content: "Hello world" }));
     });
 
+    it("sends voice input parts when connected", () => {
+      const client = new WsClient("https://gw.kilvo.app", "myapp", "wid");
+      client.connect();
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateOpen();
+      const parts = [
+        { type: "audio", mimeType: "audio/webm", data: "YWJj" },
+      ];
+
+      client.sendParts(parts, "Voice input");
+
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "message",
+        content: "Voice input",
+        parts,
+      }));
+    });
+
     it("does not send when not connected", () => {
       const client = new WsClient("https://gw.kilvo.app", "myapp", "wid");
       client.connect();

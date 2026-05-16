@@ -61,6 +61,7 @@ export type TuiInboundFrame =
     }
   | {
       type: "done";
+      sourceMessageId?: string;
       content: string;
       parts?: unknown[];
       inputTokens: number;
@@ -77,6 +78,19 @@ export type TuiInboundFrame =
         usedCachedSupport?: boolean;
         selectionReason?: string;
       };
+    }
+  | {
+      type: "voice_synthesis_completed";
+      requestId: string;
+      sourceMessageId: string;
+      parts: unknown[];
+    }
+  | {
+      type: "voice_synthesis_failed";
+      requestId: string;
+      sourceMessageId: string;
+      message: string;
+      code?: string;
     }
   | { type: "error"; message: string; code?: string }
   | {
@@ -138,6 +152,7 @@ export type TuiOutboundFrame =
       requestedAuthority?: OperatorTurnRequestedAuthority;
       reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
     }
+  | { type: "voice_synthesis_request"; requestId: string; sourceMessageId: string }
   | { type: "clear" }
   | { type: "refresh_providers" }
   | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }

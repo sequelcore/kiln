@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "./routeTree.gen.js";
+import { GuiErrorBoundary } from "./components/gui-error-boundary.js";
 import "./styles.css";
 
 const KILN_LOGO_URL = new URL("../../../docs/assets/logo.svg", import.meta.url).href;
@@ -90,7 +91,9 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <GuiErrorBoundary>
+        <RouterProvider router={router} />
+      </GuiErrorBoundary>
     </QueryClientProvider>
   </StrictMode>,
 );

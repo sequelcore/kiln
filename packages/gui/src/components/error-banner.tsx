@@ -1,35 +1,86 @@
+import { AlertTriangle, RefreshCw, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
 interface ErrorBannerProps {
   readonly message: string;
   readonly onDismiss?: () => void;
   readonly onRetry?: () => void;
 }
 
+interface ErrorBannerPresentation {
+  readonly title: string;
+  readonly detail: string;
+  readonly technicalDetail?: string;
+}
+
+function formatErrorBannerMessage(message: string): ErrorBannerPresentation {
+  if (message.includes("unsupported_modality") && message.includes("required=audio")) {
+    return {
+      title: "Audio is not available on this route",
+      detail: "The selected provider and model cannot accept audio input, and no governed transform route is available for this turn. Use text input, switch to an audio-capable route, or enable a voice transform provider.",
+      technicalDetail: message,
+    };
+  }
+
+  return {
+    title: "Operation failed",
+    detail: message,
+  };
+}
+
 export function ErrorBanner(props: ErrorBannerProps) {
+  const presentation = formatErrorBannerMessage(props.message);
+
   return (
     <div
       role="alert"
-      className="flex w-full items-center gap-3 border-b border-[var(--color-error)]/40 bg-[var(--color-error)]/10 px-4 py-2 text-sm"
+      aria-label={presentation.title}
+      className="flex w-full min-w-0 items-start gap-3 rounded-lg border border-[var(--color-error)]/45 bg-[var(--color-background-panel)]/95 px-3 py-3 text-sm shadow-[0_18px_54px_rgba(0,0,0,0.28)] backdrop-blur"
     >
-      <p className="flex-1 text-[var(--color-text)]">{props.message}</p>
+      <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 text-[var(--color-error)]">
+        <AlertTriangle className="size-4" aria-hidden="true" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-[var(--color-text)]">{presentation.title}</p>
+        <p className="mt-1 break-words text-xs leading-5 text-[var(--color-text-muted)]">
+          {presentation.detail}
+        </p>
+        {presentation.technicalDetail ? (
+          <details className="mt-2 text-xs text-[var(--color-text-muted)]">
+            <summary className="cursor-pointer select-none text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+              Diagnostics
+            </summary>
+            <code className="mt-1 block max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 font-mono text-[11px] leading-4">
+              {presentation.technicalDetail}
+            </code>
+          </details>
+        ) : null}
+      </div>
       {props.onRetry ? (
-        <button
+        <Button
           type="button"
           onClick={props.onRetry}
-          className="rounded border border-[var(--color-border-active)] px-2 py-1 text-xs text-[var(--color-text)] hover:bg-[var(--color-background-element)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+          variant="outline"
+          size="sm"
+          className="shrink-0"
         >
+          <RefreshCw data-icon="inline-start" aria-hidden="true" />
           Retry
-        </button>
+        </Button>
       ) : null}
       {props.onDismiss ? (
-        <button
+        <Button
           type="button"
           onClick={props.onDismiss}
-          className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Dismiss"
+          title="Dismiss"
+          className="shrink-0 text-[var(--color-text-muted)]"
         >
-          Dismiss
-        </button>
+          <X aria-hidden="true" />
+        </Button>
       ) : null}
     </div>
   );
 }
-

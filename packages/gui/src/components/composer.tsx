@@ -1,8 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import {
+  createVoiceInputParts,
+  selectVoiceInputCaptureMimeType,
+  voiceInputDisplayText,
+} from "@kilnai/gateway-contracts/voice-input-parts";
 import type { SessionStatus } from "../lib/session-store.js";
 import { ComposerCommandMenu } from "./composer-command-menu.js";
 import type { CommandPaletteItem } from "./command-menu-surface.js";
-import { ArrowUp, ListChecks } from "lucide-react";
+import { ArrowUp, ListChecks, Mic, Paperclip, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -24,14 +29,27 @@ interface ComposerProps {
   readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly onSubmit: (text: string) => void;
+  readonly onSubmitParts?: (parts: readonly unknown[], displayContent: string) => void;
   readonly onEmptySubmit: () => void;
   readonly onTogglePlanMode: (enabled: boolean) => void;
 }
 
 export function Composer(props: ComposerProps) {
   const [draft, setDraft] = useState("");
+  const [voiceState, setVoiceState] = useState<"idle" | "recording" | "encoding">("idle");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const startedAtRef = useRef<number>(0);
   const canSubmit = props.status === "ready" && draft.trim().length > 0;
   const isBusy = props.status === "running" || props.status === "connecting";
+  const canCaptureVoice = Boolean(props.onSubmitParts)
+    && typeof navigator !== "undefined"
+    && Boolean(navigator.mediaDevices?.getUserMedia)
+    && typeof MediaRecorder !== "undefined";
+  const voiceButtonDisabled = !canCaptureVoice || (isBusy && voiceState !== "recording") || voiceState === "encoding";
+  const fileButtonDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
 
   function handleDraftChange(value: string): void {
     if (value.trim() === "/") {
@@ -40,6 +58,90 @@ export function Composer(props: ComposerProps) {
       return;
     }
     setDraft(value);
+  }
+
+  function stopVoiceStream(): void {
+    for (const track of streamRef.current?.getTracks() ?? []) {
+      track.stop();
+    }
+    streamRef.current = null;
+  }
+
+  async function startVoiceCapture(): Promise<void> {
+    if (!props.onSubmitParts || !canCaptureVoice) {
+      return;
+    }
+
+    try {
+      const mimeType = selectVoiceInputCaptureMimeType((candidate) => MediaRecorder.isTypeSupported(candidate));
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      startedAtRef.current = performance.now();
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        void finishVoiceCapture(recorder.mimeType || mimeType);
+      };
+      recorder.start();
+      setVoiceState("recording");
+    } catch (error) {
+      stopVoiceStream();
+      setVoiceState("idle");
+      console.warn("[Composer] Voice capture failed:", error);
+    }
+  }
+
+  async function finishVoiceCapture(mimeType: string): Promise<void> {
+    const durationMs = Math.max(0, Math.round(performance.now() - startedAtRef.current));
+    setVoiceState("encoding");
+    try {
+      const blob = new Blob(chunksRef.current, { type: mimeType });
+      const parts = await createVoiceInputParts({ audio: blob, durationMs });
+      props.onSubmitParts?.(parts, voiceInputDisplayText(durationMs));
+    } catch (error) {
+      console.warn("[Composer] Voice input encoding failed:", error);
+    } finally {
+      chunksRef.current = [];
+      recorderRef.current = null;
+      stopVoiceStream();
+      setVoiceState("idle");
+    }
+  }
+
+  function toggleVoiceCapture(): void {
+    if (voiceState === "recording") {
+      recorderRef.current?.stop();
+      return;
+    }
+    void startVoiceCapture();
+  }
+
+  async function submitAudioFile(file: File): Promise<void> {
+    if (!props.onSubmitParts || fileButtonDisabled) {
+      return;
+    }
+
+    try {
+      const parts = await createVoiceInputParts({ audio: file });
+      props.onSubmitParts(parts, voiceInputDisplayText());
+    } catch (error) {
+      console.warn("[Composer] Audio file input failed:", error);
+    }
+  }
+
+  function handleAudioFileChange(event: ChangeEvent<HTMLInputElement>): void {
+    const [file] = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (!file) {
+      return;
+    }
+    void submitAudioFile(file);
   }
 
   return (
@@ -120,6 +222,38 @@ export function Composer(props: ComposerProps) {
               onClick={() => props.onTogglePlanMode(!props.planMode)}
             >
               <ListChecks aria-hidden="true" />
+            </Button>
+            <input
+              ref={audioFileInputRef}
+              type="file"
+              accept="audio/*"
+              aria-label="Audio file input"
+              className="sr-only"
+              disabled={fileButtonDisabled}
+              onChange={handleAudioFileChange}
+            />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="outline"
+              disabled={fileButtonDisabled}
+              aria-label="Attach audio file"
+              title="Attach audio file"
+              onClick={() => audioFileInputRef.current?.click()}
+            >
+              <Paperclip aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant={voiceState === "recording" ? "secondary" : "outline"}
+              disabled={voiceButtonDisabled}
+              aria-pressed={voiceState === "recording"}
+              aria-label={voiceState === "recording" ? "Stop voice recording" : "Record voice"}
+              title={voiceState === "recording" ? "Stop voice recording" : "Record voice"}
+              onClick={toggleVoiceCapture}
+            >
+              {voiceState === "recording" ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
             </Button>
             <Button
               type="submit"

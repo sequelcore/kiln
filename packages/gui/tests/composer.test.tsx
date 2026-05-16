@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/components/composer.js";
@@ -7,6 +7,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onSubmit = vi.fn();
   const onEmptySubmit = vi.fn();
   const onTogglePlanMode = vi.fn();
+  const onSubmitParts = vi.fn();
   const onCommandMenuOpenChange = vi.fn();
   const onCommandMenuExecute = vi.fn();
   const onCommandMenuQueryChange = vi.fn();
@@ -35,6 +36,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
       onSubmit={onSubmit}
       onEmptySubmit={onEmptySubmit}
       onTogglePlanMode={onTogglePlanMode}
+      onSubmitParts={onSubmitParts}
       {...overrides}
     />,
   );
@@ -42,6 +44,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
     onSubmit,
     onEmptySubmit,
     onTogglePlanMode,
+    onSubmitParts,
     onCommandMenuOpenChange,
     onCommandMenuExecute,
     onCommandMenuQueryChange,
@@ -201,6 +204,82 @@ describe("Composer", () => {
 
     expect(screen.getByRole("button", { name: "Send message" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send" })).not.toBeInTheDocument();
+  });
+
+  it("records voice input and submits canonical audio parts", async () => {
+    const stopTrack = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    let activeRecorder: MockMediaRecorder | null = null;
+
+    class MockMediaRecorder {
+      static isTypeSupported(mimeType: string): boolean {
+        return mimeType === "audio/webm;codecs=opus";
+      }
+
+      state = "inactive";
+      mimeType = "audio/webm;codecs=opus";
+      ondataavailable: ((event: { readonly data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor() {
+        activeRecorder = this;
+      }
+
+      start(): void {
+        this.state = "recording";
+      }
+
+      stop(): void {
+        this.state = "inactive";
+        this.ondataavailable?.({ data: new Blob(["abc"], { type: this.mimeType }) });
+        this.onstop?.();
+      }
+    }
+    vi.stubGlobal("MediaRecorder", MockMediaRecorder);
+
+    const { onSubmitParts } = renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
+
+    await waitFor(() => expect(activeRecorder).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Stop voice recording" }));
+
+    await waitFor(() => {
+      expect(onSubmitParts).toHaveBeenCalledWith([
+        {
+          type: "audio",
+          mimeType: "audio/webm;codecs=opus",
+          data: "YWJj",
+          durationMs: expect.any(Number),
+        },
+      ], expect.stringMatching(/^Voice input/));
+    });
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
+    expect(stopTrack).toHaveBeenCalled();
+  });
+
+  it("attaches an audio file and submits canonical audio parts", async () => {
+    const { onSubmitParts } = renderComposer();
+    const file = new File(["abc"], "voice.webm", { type: "audio/webm" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach audio file" }));
+    fireEvent.change(screen.getByLabelText("Audio file input"), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => {
+      expect(onSubmitParts).toHaveBeenCalledWith([
+        {
+          type: "audio",
+          mimeType: "audio/webm",
+          data: "YWJj",
+        },
+      ], "Voice input");
+    });
   });
 
   it("renders reasoning effort as part of the composer model controls", () => {

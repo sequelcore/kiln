@@ -239,4 +239,18 @@ describe("AppShell responsive sidebar", () => {
       expect(screen.queryByRole("dialog", { name: "Sessions drawer" })).not.toBeInTheDocument();
     });
   });
+
+  it("renders global errors in an overlay instead of the root flex row", async () => {
+    useSessionStore.setState({ errorBanner: "Gateway failed" });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Gateway failed")).toBeInTheDocument();
+    });
+
+    const overlay = screen.getByText("Gateway failed").parentElement?.parentElement;
+    expect(overlay).toHaveClass("absolute");
+    expect(overlay).toHaveClass("z-50");
+  });
 });

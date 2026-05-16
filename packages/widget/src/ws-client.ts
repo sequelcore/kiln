@@ -65,6 +65,12 @@ export class WsClient {
     this.ws.send(JSON.stringify(frame));
   }
 
+  sendParts(parts: readonly unknown[], content: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const frame: WsOutboundFrame = { type: "message", content, parts };
+    this.ws.send(JSON.stringify(frame));
+  }
+
   identify(visitor: VisitorInfo): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const frame: WsOutboundFrame = { type: "identify", visitor };

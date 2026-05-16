@@ -36,12 +36,13 @@ export function useKilnChat(options?: ChatOptions): UseChatReturn {
           body.requestedAuthority = requestedAuthority;
         }
 
-        const res = await client.post<{ response: string }>(`/apps/${appName}/message`, body);
+        const res = await client.post<{ content: string; parts?: readonly ContentPart[] }>(`/apps/${appName}/message`, body);
 
         const assistantMsg: ChatMessage = {
           id: String(++idCounter.current),
           role: "assistant",
-          content: res.response,
+          content: res.content,
+          ...(res.parts ? { parts: res.parts } : {}),
           timestamp: Date.now(),
         };
 

@@ -16,12 +16,18 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("message"),
     content: z.string(),
+    parts: z.array(z.unknown()).optional(),
     executionMode: z.enum(["execute", "plan"]).optional(),
     requestedAuthority: z.enum(["auto", "read_only", "audited", "destructive"]).optional(),
     resumeSessionId: z.string().optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
     appName: z.string().optional(),
     tenantId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("voice_synthesis_request"),
+    requestId: z.string().trim().min(1),
+    sourceMessageId: z.string().trim().min(1),
   }),
   z.object({ type: z.literal("clear") }),
   z.object({ type: z.literal("refresh_providers") }),
@@ -378,8 +384,10 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("done"),
+    sourceMessageId: z.string().optional(),
     content: z.string(),
     parts: z.array(z.unknown()).optional(),
+    admittedInput: z.object({ content: z.string() }).optional(),
     inputTokens: z.number(),
     outputTokens: z.number(),
     routedProvider: z.string().optional(),
@@ -398,6 +406,19 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
         selectionReason: z.string().optional(),
       })
       .optional(),
+  }),
+  z.object({
+    type: z.literal("voice_synthesis_completed"),
+    requestId: z.string().trim().min(1),
+    sourceMessageId: z.string().trim().min(1),
+    parts: z.array(z.unknown()),
+  }),
+  z.object({
+    type: z.literal("voice_synthesis_failed"),
+    requestId: z.string().trim().min(1),
+    sourceMessageId: z.string().trim().min(1),
+    message: z.string(),
+    code: z.string().optional(),
   }),
   z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
   z.object({

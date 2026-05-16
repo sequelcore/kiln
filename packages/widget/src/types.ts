@@ -38,12 +38,12 @@ export interface PreChatFormFrame {
 
 /** Outbound frame: client -> server */
 export type WsOutboundFrame =
-  | { readonly type: "message"; readonly content: string }
+  | { readonly type: "message"; readonly content: string; readonly parts?: readonly unknown[] }
   | { readonly type: "identify"; readonly visitor: VisitorInfo };
 
 /** Inbound frame: server -> client */
 export type WsInboundFrame =
-  | { readonly type: "done"; readonly content: string; readonly inputTokens: number; readonly outputTokens: number }
+  | { readonly type: "done"; readonly content: string; readonly parts?: readonly unknown[]; readonly inputTokens: number; readonly outputTokens: number }
   | { readonly type: "error"; readonly message: string; readonly code?: string }
   | { readonly type: "welcome"; readonly greeting?: string; readonly suggestions?: readonly string[]; readonly preChatForm?: PreChatFormFrame }
   | { readonly type: "suggestions"; readonly items: readonly string[] };
@@ -53,6 +53,7 @@ export interface ChatMessage {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly content: string;
+  readonly parts?: readonly unknown[];
   readonly timestamp: number;
 }
 

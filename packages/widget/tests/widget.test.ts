@@ -2,11 +2,13 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { WidgetConfig } from "../src/types.js";
+import { renderVoiceAudioParts } from "../src/voice-parts.js";
 
 // --- Mock WsClient ---
 const mockConnect = vi.fn();
 const mockDisconnect = vi.fn();
 const mockSend = vi.fn();
+const mockSendParts = vi.fn();
 
 let capturedMessageHandler: ((frame: unknown) => void) | null = null;
 let capturedStatusHandler: ((status: string) => void) | null = null;
@@ -16,6 +18,7 @@ vi.mock("../src/ws-client.js", () => {
     connect = mockConnect;
     disconnect = mockDisconnect;
     send = mockSend;
+    sendParts = mockSendParts;
     connected = false;
     onMessage(h: (frame: unknown) => void) { capturedMessageHandler = h; }
     onStatusChange(h: (status: string) => void) { capturedStatusHandler = h; }
@@ -150,6 +153,64 @@ describe("KilnWidget", () => {
         type: "error",
         message: "Service unavailable",
       });
+    });
+  });
+
+  describe("voice parts", () => {
+    it("attaches an audio file and sends canonical voice parts", async () => {
+      const attachShadow = Element.prototype.attachShadow;
+      const shadowSpy = vi.spyOn(Element.prototype, "attachShadow").mockImplementation(function openShadowRoot(
+        this: Element,
+        init: ShadowRootInit,
+      ) {
+        return attachShadow.call(this, { ...init, mode: "open" });
+      });
+
+      try {
+        new KilnWidget(makeConfig());
+
+        const shadow = document.querySelector("#kiln-widget-root")?.shadowRoot;
+        expect(shadow).not.toBeNull();
+        const fileButton = shadow!.querySelector<HTMLButtonElement>("[aria-label='Attach audio file']");
+        const fileInput = shadow!.querySelector<HTMLInputElement>("[aria-label='Audio file input']");
+        expect(fileButton).not.toBeNull();
+        expect(fileInput).not.toBeNull();
+
+        const file = new File(["abc"], "voice.webm", { type: "audio/webm" });
+        fileButton!.click();
+        Object.defineProperty(fileInput!, "files", {
+          configurable: true,
+          value: [file],
+        });
+        fileInput!.dispatchEvent(new Event("change", { bubbles: true }));
+
+        await vi.waitFor(() => {
+          expect(mockSendParts).toHaveBeenCalledWith([
+            {
+              type: "audio",
+              mimeType: "audio/webm",
+              data: "YWJj",
+            },
+          ], "Voice input");
+        });
+      } finally {
+        shadowSpy.mockRestore();
+      }
+    });
+
+    it("renders assistant audio parts as audio controls and artifact links", () => {
+      const container = document.createElement("div");
+
+      renderVoiceAudioParts(container, [
+        { type: "text", text: "spoken answer" },
+        { type: "audio", mimeType: "audio/mpeg", data: "AQID", artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content" },
+      ]);
+
+      const audio = container.querySelector("audio");
+      expect(audio).not.toBeNull();
+      expect(audio?.getAttribute("src")).toBe("data:audio/mpeg;base64,AQID");
+      const link = container.querySelector("a");
+      expect(link?.getAttribute("href")).toBe("kiln://artifacts/voice-synthesis/artifact_1/content");
     });
   });
 

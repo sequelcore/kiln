@@ -236,6 +236,39 @@ describe("GatewaySession canonical session events", () => {
     (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket;
   });
 
+  it("projects voice audio parts from done frames as terminal artifact text", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "speak" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "spoken answer",
+      parts: [
+        { type: "text", text: "spoken answer" },
+        { type: "audio", mimeType: "audio/mpeg", data: "AQID", artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content" },
+      ],
+      inputTokens: 3,
+      outputTokens: 4,
+    }));
+
+    await collect;
+    expect(events).toContainEqual({ type: "text_delta", content: "spoken answer" });
+    expect(events).toContainEqual({
+      type: "text_delta",
+      content: "\n[Voice audio: Audio output | audio/mpeg | kiln://artifacts/voice-synthesis/artifact_1/content]",
+    });
+    await session.dispose();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();

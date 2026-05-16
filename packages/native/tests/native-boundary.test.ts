@@ -61,6 +61,21 @@ describe("native operator surface foundation", () => {
       status: "available",
       reason: "Electron WebContentsView host proof is available behind the native host adapter.",
     });
+    expect(snapshot.capabilities).toContainEqual({
+      capability: "voice-output-playback",
+      status: "available",
+      reason: "Native advertises the shared voice output playback surface capability; runtime voice policy remains app-owned.",
+    });
+    expect(snapshot.capabilities).toContainEqual({
+      capability: "voice-output-on-demand",
+      status: "available",
+      reason: "Native advertises the shared on-demand voice output action capability; runtime voice policy remains app-owned.",
+    });
+    expect(snapshot.capabilities).toContainEqual({
+      capability: "voice-input-capture",
+      status: "available",
+      reason: "Native advertises microphone/file capture as a surface capability; STT provider policy remains app-owned.",
+    });
   });
 
   it("uses hardened browser window options for renderer isolation", () => {

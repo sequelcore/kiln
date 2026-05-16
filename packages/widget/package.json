@@ -21,6 +21,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@kilnai/gateway-contracts": "workspace:*"
+  },
   "devDependencies": {
     "jsdom": "^25.0.0",
     "vitest": "^4.0.18"

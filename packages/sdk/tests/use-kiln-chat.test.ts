@@ -59,7 +59,7 @@ describe("useKilnChat", () => {
   });
 
   it("send() with string content adds user message with content field", async () => {
-    mockFetch({ response: "hello back" });
+    mockFetch({ content: "hello back" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -76,7 +76,7 @@ describe("useKilnChat", () => {
   });
 
   it("send() with ContentPart[] sets parts field and empty content", async () => {
-    mockFetch({ response: "I see the image" });
+    mockFetch({ content: "I see the image" });
 
     const parts: ContentPart[] = [
       { type: "image", mimeType: "image/png", data: "abc123" },
@@ -97,7 +97,7 @@ describe("useKilnChat", () => {
   });
 
   it("send() adds assistant message from API response", async () => {
-    mockFetch({ response: "assistant reply" });
+    mockFetch({ content: "assistant reply" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -113,8 +113,27 @@ describe("useKilnChat", () => {
     expect(assistantMsg.content).toBe("assistant reply");
   });
 
+  it("send() preserves REST response parts on assistant message", async () => {
+    const responseParts: ContentPart[] = [
+      { type: "text", text: "spoken answer" },
+      { type: "audio", mimeType: "audio/mpeg", data: "AQID" },
+    ];
+    mockFetch({ content: "spoken answer", parts: responseParts });
+
+    const { result } = renderHook(() => useKilnChat(), {
+      wrapper: createWrapper(config),
+    });
+
+    await act(async () => {
+      await result.current.send("hello");
+    });
+
+    const assistantMsg = result.current.messages[1];
+    expect(assistantMsg.parts).toEqual(responseParts);
+  });
+
   it("send() posts parts in request body when content is ContentPart[]", async () => {
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     const parts: ContentPart[] = [
       { type: "text", text: "describe this" },
@@ -134,7 +153,7 @@ describe("useKilnChat", () => {
   });
 
   it("send() posts requestedAuthority from per-send options", async () => {
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -150,7 +169,7 @@ describe("useKilnChat", () => {
   });
 
   it("send() posts requestedAuthority from hook options", async () => {
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat({ requestedAuthority: "read_only" }), {
       wrapper: createWrapper(config),
@@ -166,7 +185,7 @@ describe("useKilnChat", () => {
   });
 
   it("send() does not include parts in request body for string content", async () => {
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -182,7 +201,7 @@ describe("useKilnChat", () => {
   });
 
   it("clearMessages() empties the messages array and clears error", async () => {
-    mockFetch({ response: "hi" });
+    mockFetch({ content: "hi" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -243,7 +262,7 @@ describe("useKilnChat", () => {
     await act(async () => {
       resolveFetch({
         ok: true,
-        json: () => Promise.resolve({ response: "done" }),
+        json: () => Promise.resolve({ content: "done" }),
       });
       await sendPromise!;
     });
@@ -266,7 +285,7 @@ describe("useKilnChat", () => {
   });
 
   it("message IDs increment across user and assistant messages", async () => {
-    mockFetch({ response: "reply 1" });
+    mockFetch({ content: "reply 1" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -279,7 +298,7 @@ describe("useKilnChat", () => {
     expect(result.current.messages[0].id).toBe("1"); // user
     expect(result.current.messages[1].id).toBe("2"); // assistant
 
-    mockFetch({ response: "reply 2" });
+    mockFetch({ content: "reply 2" });
 
     await act(async () => {
       await result.current.send("second");
@@ -290,7 +309,7 @@ describe("useKilnChat", () => {
   });
 
   it("sends to correct URL with appName from config", async () => {
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -305,7 +324,7 @@ describe("useKilnChat", () => {
   });
 
   it("uses appName from options over config", async () => {
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     const { result } = renderHook(
       () => useKilnChat({ appName: "override-app" }),
@@ -321,7 +340,7 @@ describe("useKilnChat", () => {
   });
 
   it("includes userId and sessionId in request body", async () => {
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     const { result } = renderHook(
       () => useKilnChat({ sessionId: "sess-42" }),
@@ -351,7 +370,7 @@ describe("useKilnChat", () => {
 
     expect(result.current.error).not.toBeNull();
 
-    mockFetch({ response: "ok" });
+    mockFetch({ content: "ok" });
 
     await act(async () => {
       await result.current.send("succeed");
@@ -361,7 +380,7 @@ describe("useKilnChat", () => {
   });
 
   it("messages have timestamps", async () => {
-    mockFetch({ response: "hi" });
+    mockFetch({ content: "hi" });
 
     const before = Date.now();
     const { result } = renderHook(() => useKilnChat(), {

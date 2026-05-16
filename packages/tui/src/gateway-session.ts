@@ -5,10 +5,12 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  formatVoiceAudioOutputForTerminal,
   formatPresentationIntentAsText,
   isGuiProviderModeless,
   operatorEventTargetsSurface,
   presentOperatorSessionEvent,
+  projectVoiceAudioOutputParts,
   type GuiProviderDiscoveryResult,
   type OperatorTurnRequestedAuthority,
   type OperatorSessionEvent,
@@ -241,6 +243,7 @@ export class GatewaySession implements SessionLike {
 
   /** Pending clear callbacks — set while waiting for "cleared" frame. */
   private clearCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
+  private lastAssistantSourceMessageId: string | null = null;
 
   /** Pending provider change callbacks — set while waiting for "provider_changed" frame. */
   private providerChangeCallbacks: {
@@ -345,6 +348,19 @@ export class GatewaySession implements SessionLike {
 
       this.client.send({ type: "clear" });
     });
+  }
+
+  async requestLastVoiceSynthesis(): Promise<boolean> {
+    await this.waitForConnection();
+    if (!this.lastAssistantSourceMessageId) {
+      return false;
+    }
+    this.client.send({
+      type: "voice_synthesis_request",
+      requestId: randomUUID(),
+      sourceMessageId: this.lastAssistantSourceMessageId,
+    });
+    return true;
   }
 
   /**
@@ -517,8 +533,12 @@ export class GatewaySession implements SessionLike {
         linesRemoved: frame.linesRemoved,
       });
     } else if (frame.type === "done") {
+      this.lastAssistantSourceMessageId = frame.sourceMessageId ?? null;
       if (frame.content) {
         this.push({ type: "text_delta", content: frame.content });
+      }
+      for (const part of projectVoiceAudioOutputParts(frame.parts ?? [])) {
+        this.push({ type: "text_delta", content: `\n${formatVoiceAudioOutputForTerminal(part)}` });
       }
       this.push({
         type: "completed",
@@ -530,6 +550,12 @@ export class GatewaySession implements SessionLike {
         runtimeContinuity: frame.runtimeContinuity,
       });
       this.pushStop();
+    } else if (frame.type === "voice_synthesis_completed") {
+      for (const part of projectVoiceAudioOutputParts(frame.parts ?? [])) {
+        this.push({ type: "text_delta", content: `\n${formatVoiceAudioOutputForTerminal(part)}` });
+      }
+    } else if (frame.type === "voice_synthesis_failed") {
+      this.push({ type: "error", message: frame.message });
     } else if (frame.type === "error") {
       const pendingProviderSwitch = this.providerChangeCallbacks;
       if (pendingProviderSwitch) {

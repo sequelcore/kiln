@@ -239,6 +239,50 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function hasAudioPart(parts: readonly unknown[] | undefined): boolean {
+  return Array.isArray(parts)
+    && parts.some((part) => isObjectRecord(part) && part.type === "audio");
+}
+
+function displayAdmittedInputContent(content: string): string {
+  return content.replace(/^\[Voice note transcription\]:\s*/u, "").trim();
+}
+
+function replaceLatestVoicePlaceholder(
+  messages: readonly Message[],
+  admittedContent: string | undefined,
+): readonly Message[] {
+  const displayContent = admittedContent ? displayAdmittedInputContent(admittedContent) : "";
+  if (!displayContent) {
+    return messages;
+  }
+  const index = messages.findLastIndex((message) => (
+    message.role === "user"
+    && hasAudioPart(message.parts)
+    && /^Voice input(?:\s+\d+(?:\.\d+)?s)?$/u.test(message.content.trim())
+  ));
+  if (index < 0) {
+    return messages;
+  }
+  return messages.map((message, messageIndex) => (
+    messageIndex === index
+      ? { ...message, content: displayContent }
+      : message
+  ));
+}
+
+function syncTimelineMessages(
+  timelineEntries: readonly TimelineEntry[],
+  messages: readonly Message[],
+): readonly TimelineEntry[] {
+  const messagesById = new Map(messages.map((message) => [message.id, message]));
+  return timelineEntries.map((entry) => (
+    entry.type === "message"
+      ? { ...entry, message: messagesById.get(entry.message.id) ?? entry.message }
+      : entry
+  ));
+}
+
 function eventPayloadText(payload: Record<string, unknown>): string | null {
   const value = payload.content
     ?? payload.output
@@ -990,6 +1034,9 @@ export interface Message {
   readonly id: string;
   readonly role: "user" | "assistant" | "tool" | "error";
   readonly content: string;
+  readonly parts?: readonly unknown[];
+  readonly sourceMessageId?: string;
+  readonly voiceSynthesisStatus?: "idle" | "pending" | "ready" | "error";
   readonly createdAt: string;
   readonly streaming?: boolean;
   readonly routedProvider?: string;
@@ -1580,6 +1627,8 @@ interface SessionStoreActions {
   onTextDelta: (frame: StoreTextDeltaFrame) => void;
   onActivity: (frame: StoreActivityFrame) => void;
   onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
+  onVoiceSynthesisCompleted: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_completed" }>) => void;
+  onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
   onCleared: () => void;
   onProviderChanged: (frame: Extract<GuiInboundFrame, { type: "provider_changed" }>) => void;
@@ -1592,12 +1641,15 @@ interface SessionStoreActions {
   sendMessage: (
     text: string,
     options?: {
+      parts?: readonly unknown[];
+      displayContent?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       requestedAuthority?: OperatorTurnRequestedAuthority;
       appName?: string;
       tenantId?: string;
     },
   ) => boolean;
+  requestVoiceSynthesis: (messageId: string) => boolean;
   sendClear: () => boolean;
   setPlanMode: (enabled: boolean) => void;
   setResume: (sessionId: string | null) => void;
@@ -2470,6 +2522,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const state = get();
     const finalizedProvider = frame.routedProvider ?? state.respondingProvider ?? state.activeProvider ?? undefined;
     const finalizedModel = frame.routedModel ?? state.respondingModel ?? state.activeModel ?? undefined;
+    const responseParts = frame.parts && frame.parts.length > 0 ? frame.parts : undefined;
+    const voiceSynthesisStatus = responseParts && hasAudioPart(responseParts) ? "ready" as const : "idle" as const;
 
     let nextInputTokens = state.inputTokens;
     let nextOutputTokens = state.outputTokens;
@@ -2482,8 +2536,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       nextOutputTokens += delta;
     }
 
-    let nextMessages = [...state.messages];
-    let nextTimelineEntries = [...state.timelineEntries];
+    let nextMessages = replaceLatestVoicePlaceholder(state.messages, frame.admittedInput?.content);
+    let nextTimelineEntries = syncTimelineMessages(state.timelineEntries, nextMessages);
     if (state.currentAssistant) {
       nextMessages = nextMessages.map((message) => (
         message.id === state.currentAssistant
@@ -2496,6 +2550,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               routedProvider: finalizedProvider,
               routedModel: finalizedModel,
               routingRationale: frame.routingRationale,
+              ...(responseParts ? { parts: responseParts } : {}),
+              ...(frame.sourceMessageId ? { sourceMessageId: frame.sourceMessageId, voiceSynthesisStatus } : {}),
             }
           : message
       ));
@@ -2507,11 +2563,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             }
           : entry
       ));
-    } else if (frame.content.trim().length > 0) {
+    } else if (frame.content.trim().length > 0 || responseParts) {
       const assistantMessage: Message = {
         id: createMessageId(),
         role: "assistant",
         content: frame.content,
+        ...(responseParts ? { parts: responseParts } : {}),
+        ...(frame.sourceMessageId ? { sourceMessageId: frame.sourceMessageId, voiceSynthesisStatus } : {}),
         createdAt: nowIso(),
         streaming: false,
         routedProvider: finalizedProvider,
@@ -2580,6 +2638,40 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnCounter: state.turnCounter + 1,
       clearTimeoutId: null,
       clearPending: false,
+    });
+  },
+
+  onVoiceSynthesisCompleted: (frame) => {
+    const state = get();
+    const nextMessages = state.messages.map((message) => (
+      message.sourceMessageId === frame.sourceMessageId
+        ? {
+            ...message,
+            parts: frame.parts,
+            voiceSynthesisStatus: "ready" as const,
+          }
+        : message
+    ));
+    set({
+      messages: nextMessages,
+      timelineEntries: syncTimelineMessages(state.timelineEntries, nextMessages),
+    });
+  },
+
+  onVoiceSynthesisFailed: (frame) => {
+    const state = get();
+    const nextMessages = state.messages.map((message) => (
+      message.sourceMessageId === frame.sourceMessageId
+        ? {
+            ...message,
+            voiceSynthesisStatus: "error" as const,
+          }
+        : message
+    ));
+    set({
+      messages: nextMessages,
+      timelineEntries: syncTimelineMessages(state.timelineEntries, nextMessages),
+      errorBanner: frame.message,
     });
   },
 
@@ -3003,14 +3095,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return false;
     }
     const normalized = text.trim();
-    if (!normalized) {
+    const outboundParts = options?.parts && options.parts.length > 0 ? options.parts : undefined;
+    const displayContent = options?.displayContent?.trim() || normalized;
+    if (!normalized && !outboundParts) {
       return false;
     }
 
     const userMessage: Message = {
       id: createMessageId(),
       role: "user",
-      content: normalized,
+      content: displayContent,
+      ...(outboundParts ? { parts: outboundParts } : {}),
       createdAt: nowIso(),
     };
     const isPreviewWithoutExplicitResume = state.selectedSessionId !== null && state.resumeTargetId === null;
@@ -3044,6 +3139,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     outboundSend({
       type: "message",
       content: normalized,
+      ...(outboundParts ? { parts: outboundParts } : {}),
       executionMode: state.planMode ? "plan" : "execute",
       resumeSessionId: state.resumeTargetId ?? undefined,
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
@@ -3052,6 +3148,36 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ...(options?.tenantId ? { tenantId: options.tenantId } : {}),
     });
 
+    return true;
+  },
+
+  requestVoiceSynthesis: (messageId) => {
+    const state = get();
+    const outboundSend = state.outboundSend;
+    if (!outboundSend) {
+      return false;
+    }
+    const target = state.messages.find((message) => message.id === messageId);
+    if (!target || target.role !== "assistant" || !target.sourceMessageId || target.voiceSynthesisStatus === "pending") {
+      return false;
+    }
+
+    const requestId = createMessageId();
+    const nextMessages = state.messages.map((message) => (
+      message.id === messageId
+        ? { ...message, voiceSynthesisStatus: "pending" as const }
+        : message
+    ));
+    set({
+      messages: nextMessages,
+      timelineEntries: syncTimelineMessages(state.timelineEntries, nextMessages),
+      errorBanner: null,
+    });
+    outboundSend({
+      type: "voice_synthesis_request",
+      requestId,
+      sourceMessageId: target.sourceMessageId,
+    });
     return true;
   },
 

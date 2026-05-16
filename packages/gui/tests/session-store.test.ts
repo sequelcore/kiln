@@ -114,6 +114,158 @@ describe("session-store", () => {
     expect(state.currentAssistant).not.toBeNull();
   });
 
+  it("onDone preserves assistant response parts for cross-surface media rendering", () => {
+    useSessionStore.getState().onDone({
+      type: "done",
+      sourceMessageId: "runtime-message-1",
+      content: "spoken answer",
+      parts: [
+        { type: "text", text: "spoken answer" },
+        { type: "audio", mimeType: "audio/mpeg", data: "AQID" },
+      ],
+      inputTokens: 3,
+      outputTokens: 4,
+    });
+
+    const message = useSessionStore.getState().messages[0];
+    expect(message?.parts).toEqual([
+      { type: "text", text: "spoken answer" },
+      { type: "audio", mimeType: "audio/mpeg", data: "AQID" },
+    ]);
+    expect(message?.sourceMessageId).toBe("runtime-message-1");
+  });
+
+  it("requests on-demand voice synthesis for canonical assistant messages", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({
+      status: "ready",
+      outboundSend,
+    });
+    useSessionStore.getState().onDone({
+      type: "done",
+      sourceMessageId: "runtime-message-1",
+      content: "Generate audio later.",
+      parts: [{ type: "text", text: "Generate audio later." }],
+      inputTokens: 3,
+      outputTokens: 4,
+    });
+
+    const message = useSessionStore.getState().messages[0];
+    const sent = useSessionStore.getState().requestVoiceSynthesis(message?.id ?? "");
+
+    expect(sent).toBe(true);
+    expect(useSessionStore.getState().messages[0]).toMatchObject({
+      voiceSynthesisStatus: "pending",
+    });
+    expect(outboundSend).toHaveBeenCalledWith(expect.objectContaining({
+      type: "voice_synthesis_request",
+      sourceMessageId: "runtime-message-1",
+      requestId: expect.any(String),
+    }));
+  });
+
+  it("patches on-demand synthesized audio into the source assistant message", () => {
+    useSessionStore.getState().onDone({
+      type: "done",
+      sourceMessageId: "runtime-message-1",
+      content: "Generate audio later.",
+      parts: [{ type: "text", text: "Generate audio later." }],
+      inputTokens: 3,
+      outputTokens: 4,
+    });
+    const messageId = useSessionStore.getState().messages[0]?.id ?? "";
+    useSessionStore.setState({
+      messages: useSessionStore.getState().messages.map((message) => (
+        message.id === messageId
+          ? { ...message, voiceSynthesisStatus: "pending" as const }
+          : message
+      )),
+    });
+
+    useSessionStore.getState().onVoiceSynthesisCompleted({
+      type: "voice_synthesis_completed",
+      requestId: "voice-request-1",
+      sourceMessageId: "runtime-message-1",
+      parts: [
+        { type: "text", text: "Generate audio later." },
+        { type: "audio", mimeType: "audio/wav", data: "BAUG", durationMs: 900 },
+      ],
+    });
+
+    expect(useSessionStore.getState().messages[0]).toMatchObject({
+      sourceMessageId: "runtime-message-1",
+      voiceSynthesisStatus: "ready",
+      parts: [
+        { type: "text", text: "Generate audio later." },
+        { type: "audio", mimeType: "audio/wav", data: "BAUG", durationMs: 900 },
+      ],
+    });
+  });
+
+  it("sendMessage sends voice input parts while displaying a compact local label", () => {
+    const outboundSend = vi.fn();
+    const parts = [
+      { type: "audio", mimeType: "audio/webm", data: "YWJj", durationMs: 1234 },
+    ];
+    useSessionStore.setState({
+      status: "ready",
+      outboundSend,
+    });
+
+    const sent = useSessionStore.getState().sendMessage("", {
+      displayContent: "Voice input 1.2s",
+      parts,
+    });
+
+    expect(sent).toBe(true);
+    expect(useSessionStore.getState().messages[0]).toMatchObject({
+      role: "user",
+      content: "Voice input 1.2s",
+      parts,
+    });
+    expect(outboundSend).toHaveBeenCalledWith(expect.objectContaining({
+      type: "message",
+      content: "",
+      parts,
+    }));
+  });
+
+  it("replaces a local voice placeholder with the admitted transcript when the turn completes", () => {
+    const outboundSend = vi.fn();
+    const parts = [
+      { type: "audio", mimeType: "audio/webm", data: "YWJj", durationMs: 1234 },
+    ];
+    useSessionStore.setState({
+      status: "ready",
+      outboundSend,
+    });
+
+    useSessionStore.getState().sendMessage("", {
+      displayContent: "Voice input 1.2s",
+      parts,
+    });
+    useSessionStore.getState().onDone({
+      type: "done",
+      content: "Sure.",
+      admittedInput: { content: "[Voice note transcription]: Can you summarize this?" },
+      inputTokens: 3,
+      outputTokens: 4,
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.messages[0]).toMatchObject({
+      role: "user",
+      content: "Can you summarize this?",
+      parts,
+    });
+    expect(state.timelineEntries[0]).toMatchObject({
+      type: "message",
+      message: expect.objectContaining({
+        content: "Can you summarize this?",
+      }),
+    });
+  });
+
   it("anchors live tool events to an assistant shell before the first text delta", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);

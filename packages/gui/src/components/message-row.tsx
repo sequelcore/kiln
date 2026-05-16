@@ -14,13 +14,21 @@ import typescript from "react-syntax-highlighter/dist/esm/languages/hljs/typescr
 import xml from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import type { Components } from "react-markdown";
+import { useRef } from "react";
 import type { ReactNode } from "react";
-import { getGuiProviderMetadata, projectMessageIdentity } from "@kilnai/gateway-contracts";
+import { FileAudio, Loader2, Volume2 } from "lucide-react";
+import {
+  getGuiProviderMetadata,
+  projectMessageIdentity,
+  projectVoiceAudioOutputParts,
+  type VoiceAudioOutputProjection,
+} from "@kilnai/gateway-contracts";
 import type { Message } from "../lib/session-store.js";
 import { getStableUserId } from "../lib/stable-user-id.js";
 import { useSessionStore } from "../lib/session-store.js";
 import { OperatorAvatar } from "./operator-avatar.js";
 import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 SyntaxHighlighter.registerLanguage("bash", bash);
@@ -90,10 +98,115 @@ function roleLabel(role: Message["role"]): string {
   }
 }
 
+function VoiceAudioParts(props: { readonly parts: readonly VoiceAudioOutputProjection[] }) {
+  if (props.parts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {props.parts.map((part) => (
+        <VoiceAudioPart key={`${part.index}:${part.source}`} part={part} />
+      ))}
+    </div>
+  );
+}
+
+function VoiceAudioControls(props: {
+  readonly message: Message;
+  readonly parts: readonly VoiceAudioOutputProjection[];
+  readonly onRequest: (messageId: string) => boolean;
+}) {
+  if (props.parts.length > 0) {
+    return <VoiceAudioParts parts={props.parts} />;
+  }
+  if (!props.message.sourceMessageId) {
+    return null;
+  }
+  const pending = props.message.voiceSynthesisStatus === "pending";
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="text-muted-foreground hover:text-foreground"
+        aria-label={pending ? "Generating audio" : "Generate audio"}
+        title={pending ? "Generating audio" : "Generate audio"}
+        disabled={pending}
+        onClick={() => {
+          props.onRequest(props.message.id);
+        }}
+      >
+        {pending ? (
+          <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+        ) : (
+          <Volume2 data-icon="inline-start" aria-hidden="true" />
+        )}
+      </Button>
+    </div>
+  );
+}
+
+function VoiceAudioPart(props: { readonly part: VoiceAudioOutputProjection }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { part } = props;
+
+  return (
+    <div className="flex max-w-full items-center gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 py-1">
+      {part.src ? (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={part.label}
+            title={part.label}
+            onClick={() => {
+              void audioRef.current?.play();
+            }}
+          >
+            <Volume2 data-icon="inline-start" aria-hidden="true" />
+          </Button>
+          <audio ref={audioRef} preload="none" src={part.src} />
+        </>
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="text-muted-foreground"
+          aria-label={part.label}
+          title={part.label}
+          disabled
+        >
+          <Volume2 data-icon="inline-start" aria-hidden="true" />
+        </Button>
+      )}
+      {part.artifactUri ? (
+        <a
+          className={buttonVariants({
+            variant: "ghost",
+            size: "icon-sm",
+            className: "text-muted-foreground hover:text-foreground",
+          })}
+          href={part.artifactUri}
+          aria-label="Open audio artifact"
+          title="Open audio artifact"
+        >
+          <FileAudio data-icon="inline-start" aria-hidden="true" />
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 export function MessageRow(props: MessageRowProps) {
   const { message } = props;
   const activeProvider = useSessionStore((state) => state.activeProvider);
   const activeModel = useSessionStore((state) => state.activeModel);
+  const requestVoiceSynthesis = useSessionStore((state) => state.requestVoiceSynthesis);
   const label = roleLabel(message.role);
   const showMarkdown = message.role === "assistant";
   const assistantProvider = message.routedProvider
@@ -108,6 +221,7 @@ export function MessageRow(props: MessageRowProps) {
   const isOperational = message.role === "tool" || message.role === "error";
   const hasAnchoredOperationalContent = Boolean(props.beforeContent || props.afterContent);
   const hasMessageContent = message.content.trim().length > 0;
+  const voiceAudioParts = isAssistant ? projectVoiceAudioOutputParts(message.parts ?? []) : [];
   const showStreamingCursor = message.streaming && (hasMessageContent || !hasAnchoredOperationalContent);
   const identity = projectMessageIdentity({
     role: message.role,
@@ -184,6 +298,13 @@ export function MessageRow(props: MessageRowProps) {
               ) : null}
             </p>
           )}
+          {isAssistant ? (
+            <VoiceAudioControls
+              message={message}
+              parts={voiceAudioParts}
+              onRequest={requestVoiceSynthesis}
+            />
+          ) : null}
           {isAssistant && props.afterContent ? (
             <div className="mt-2 flex flex-col gap-1.5">
               {props.afterContent}

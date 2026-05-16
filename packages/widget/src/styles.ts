@@ -348,6 +348,32 @@ export function getStyles(theme: string): string {
       opacity: 0.8;
     }
 
+    .kiln-voice-parts {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .kiln-voice-part {
+      display: flex;
+      max-width: 100%;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding-top: 2px;
+    }
+
+    .kiln-voice-part audio {
+      max-width: 100%;
+      height: 32px;
+    }
+
+    .kiln-voice-artifact {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
     /* Error message */
     .kiln-msg.error .kiln-bubble {
       background: #fee2e2;
@@ -475,7 +501,13 @@ export function getStyles(theme: string): string {
       border-color: var(--kiln-accent);
     }
 
-    #kiln-send {
+    #kiln-audio-file-input {
+      display: none;
+    }
+
+    #kiln-send,
+    #kiln-file,
+    #kiln-voice {
       background: var(--kiln-accent);
       color: var(--kiln-accent-text);
       border: none;
@@ -490,20 +522,41 @@ export function getStyles(theme: string): string {
       transition: opacity 0.15s ease, transform 0.1s ease;
     }
 
-    #kiln-send:hover {
+    #kiln-file,
+    #kiln-voice {
+      background: var(--kiln-bg-secondary);
+      color: var(--kiln-text);
+      border: 1px solid var(--kiln-border);
+    }
+
+    #kiln-voice.recording {
+      background: #fee2e2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+
+    #kiln-send:hover,
+    #kiln-file:hover,
+    #kiln-voice:hover {
       opacity: 0.88;
     }
 
-    #kiln-send:active {
+    #kiln-send:active,
+    #kiln-file:active,
+    #kiln-voice:active {
       transform: scale(0.94);
     }
 
-    #kiln-send:disabled {
+    #kiln-send:disabled,
+    #kiln-file:disabled,
+    #kiln-voice:disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
 
-    #kiln-send svg {
+    #kiln-send svg,
+    #kiln-file svg,
+    #kiln-voice svg {
       width: 18px;
       height: 18px;
     }

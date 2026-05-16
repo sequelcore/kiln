@@ -57,6 +57,21 @@ export function createNativeSurfaceCapabilitySnapshot(
         status: "available",
       },
       {
+        capability: "voice-output-playback",
+        status: "available",
+        reason: "Native advertises the shared voice output playback surface capability; runtime voice policy remains app-owned.",
+      },
+      {
+        capability: "voice-output-on-demand",
+        status: "available",
+        reason: "Native advertises the shared on-demand voice output action capability; runtime voice policy remains app-owned.",
+      },
+      {
+        capability: "voice-input-capture",
+        status: "available",
+        reason: "Native advertises microphone/file capture as a surface capability; STT provider policy remains app-owned.",
+      },
+      {
         capability: "native-cockpit-contract",
         status: "available",
         reason: "Roadmap 05 target, precondition, benchmark, read-only attach-plan, projection, and action-intent contracts are available.",
