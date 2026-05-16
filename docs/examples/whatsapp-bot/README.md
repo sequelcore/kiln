@@ -34,7 +34,7 @@ bun install
 
 ```bash
 cp .env.example .env
-# Edit .env with your WhatsApp webhook secret and access token env value
+# Edit .env with your WhatsApp webhook secret, access token, and public media URL settings
 ```
 
 ### 3. Create your tenant
@@ -60,6 +60,10 @@ bun run dev
 ```bash
 ngrok http 3800
 ```
+
+Set `GATEWAY_PUBLIC_URL` in `.env` to the HTTPS ngrok origin. Kiln uses that
+origin to generate short-lived signed media URLs when WhatsApp voice output is
+enabled.
 
 ### 6. Configure Meta webhook
 
@@ -94,7 +98,9 @@ whatsapp-bot/
 6. The provider adapter generates a response with access to `notify_owner`
 7. If the customer books an appointment, the model calls `notify_owner` and the owner gets a WhatsApp message
 8. Response is sent back to the customer via Meta Cloud API
-9. The exchange is saved to memory for future recall
+9. If voice output is enabled for WhatsApp, synthesized audio is exposed through
+   a signed gateway media URL and sent as a WhatsApp `audio.link`
+10. The exchange is saved to memory for future recall
 
 ## Customizing
 

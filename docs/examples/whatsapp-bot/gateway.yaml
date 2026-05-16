@@ -7,3 +7,5 @@ apps:
       - type: whatsapp
         multiTenant: true
         verifyTokenEnv: MY_WHATSAPP_WEBHOOK_SECRET
+        publicMediaBaseUrlEnv: GATEWAY_PUBLIC_URL
+        publicMediaSigningSecretEnv: GATEWAY_MEDIA_SIGNING_SECRET

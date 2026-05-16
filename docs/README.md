@@ -61,6 +61,7 @@ Start here for Kiln identity and system design:
 - [Managed Agents](architecture/managed-agents.md)
 - [Tool Execution](architecture/tool-execution.md)
 - [Agent QA Showcase Recorder](architecture/agent-qa-showcase-recorder.md)
+- [Voice Capability](architecture/voice-capability.md)
 - [Adaptation](architecture/adaptation.md)
 - [Invariants](architecture/invariants.md)
 
@@ -84,6 +85,7 @@ High-use guides today:
 - [Operator Doctrine](guides/operator-doctrine.md)
 - [Channels](guides/channels.md)
 - [Knowledge](guides/knowledge.md)
+- [Voice](guides/voice.md)
 - [Tool Use](guides/tool-use.md)
 - [Observability](guides/observability.md)
 - [TUI](guides/tui.md)

@@ -225,21 +225,27 @@ Reranking adds 200-500ms of latency per query. It is most valuable when precisio
 
 ## Speech-to-Text
 
-Audio messages (e.g., WhatsApp voice notes) are transcribed before processing. Two adapters are available:
+Audio messages, including WhatsApp voice notes, are transcribed before
+processing when the app declares voice input. Configure STT under the top-level
+`voice` key, not under gateway-local configuration.
 
-| Provider | Adapter | Model | Cost |
-|----------|---------|-------|------|
-| OpenAI | `OpenAISttAdapter` | gpt-4o-transcribe | $0.006/min |
-| Deepgram | `DeepgramSttAdapter` | nova-3 | ~$0.0043/min |
+| Provider | Adapter |
+|----------|---------|
+| OpenAI | `OpenAISttAdapter` |
+| Deepgram | `DeepgramSttAdapter` |
 
 ```yaml
-gateway:
+voice:
   stt:
     provider: openai
+    model: gpt-4o-transcribe
     apiKeyEnv: OPENAI_API_KEY
 ```
 
-Transcription is fail-open: if STT fails, the original audio part is passed through unchanged.
+Transcription behavior is governed by `voice.policy`. See
+[Voice](voice.md) for the canonical configuration shape and
+[Voice Capability](../architecture/voice-capability.md) for architecture
+boundaries.
 
 ---
 

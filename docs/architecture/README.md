@@ -93,6 +93,10 @@ is documented by concern, not as a single monolith.
   governed transforms, managed capability delegation, provider serialization
   constraints, cross-surface projection, and replay evidence.
 
+- `voice-capability.md`
+  Canonical voice capability contract for STT input, TTS output, app-level
+  surface policy, artifact retention, cross-surface projection, and evidence.
+
 - `agent-qa-showcase-recorder.md`
   Canonical recorder architecture for governed QA/showcase capture manifests,
   browser/computer capture evidence, auto-edit tracks, voice/audio, external

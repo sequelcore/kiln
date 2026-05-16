@@ -136,8 +136,11 @@ Current transform routes include:
 
 Gateway audio preprocessing is represented as governed transcription evidence.
 If audio cannot be downloaded, decoded, or transcribed under the configured
-route, the channel request fails closed instead of sending placeholder text to
-the model.
+route, the channel request follows the app's voice failure policy instead of
+sending placeholder text to the model.
+
+Voice-specific provider selection, surface policy, artifact retention, and
+output synthesis rules are defined in [Voice Capability](voice-capability.md).
 
 ## Capability Delegation
 

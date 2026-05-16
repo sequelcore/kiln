@@ -22,6 +22,7 @@ runtime configuration surface:
 
 - routing and execution declarations
 - memory and knowledge configuration
+- voice configuration
 - safety and tool configuration
 - channel and trigger wiring
 - evaluation and model-routing settings
@@ -48,6 +49,8 @@ When reading configuration, reinterpret it through the current architecture:
 - workflow and gates map to governed execution flows
 - tool and permission declarations map to safety and tool-execution concerns
 - memory and knowledge blocks map to layered memory and context governance
+- voice blocks map to the shared voice capability, multimodal transform, and
+  artifact evidence model
 - model routing maps to control and adaptation policy, not product identity
 
 Relevant architecture docs:
@@ -60,6 +63,53 @@ Relevant architecture docs:
 - [Context Governance](../architecture/context-governance.md)
 - [Tool Execution](../architecture/tool-execution.md)
 - [Runtime Surfaces](../architecture/runtime-surfaces.md)
+- [Voice Capability](../architecture/voice-capability.md)
+
+## Voice Provider Fields
+
+The current parser accepts app-level voice providers through `voice.stt` and
+`voice.tts`.
+
+STT providers:
+
+- `openai`
+- `deepgram`
+- `whisper-local`
+
+TTS providers:
+
+- `openai`
+- `elevenlabs`
+- `kokoro-local`
+
+Cloud providers use `apiKeyEnv`. Local providers use `command` or
+`commandEnv`, with optional `args`, `modelPath` or `modelPathEnv`, `device`,
+and `timeoutMs`. STT also accepts `language`; TTS also accepts `voice` and
+`format`.
+
+Voice profiles are configured under `voice.ttsProfiles`. A profile must set
+`style` and may set `voice`, `language`, `speed`, `speedRange`, `format`, and
+named `intents`. Supported intent ids are `neutral`, `calm`, `brief`, and
+`careful`; each configured intent must include `delivery` and `appliesWhen`.
+`voice.defaults.ttsProfile` selects the app default, and agents may reference a
+profile with `voiceProfile`. Runtime applies a requested intent only for the
+current synthesis call and validates it against the named profile.
+
+If no valid `voiceOutputIntent` is admitted for a turn, runtime can derive one
+from the final assistant text and runtime escalation evidence. The derived
+intent is still limited to the active profile's declared intents, so app YAML
+remains the authority for which delivery shifts are allowed.
+
+Local operator surfaces use global config instead of app YAML. Configure
+`~/.kiln/config.yaml` top-level `operatorVoice` for `kiln gui`, `kiln tui`, and
+native operator shells when the provider policy belongs to the developer
+machine rather than a deployable app.
+
+Canonical examples:
+
+- [cloud voice capability](../examples/configs/voice-capability.yaml)
+- [local voice capability](../examples/configs/local-voice-capability.yaml)
+- [local operator voice](../examples/configs/local-operator-voice.yaml)
 
 ## Usage Guidance
 

@@ -18,7 +18,7 @@ this repository with workspace packages.
 | [whatsapp-bot](whatsapp-bot/) | WhatsApp channel | Meta webhook, tenant resolution, governed memory, owner escalation |
 | [research-brief](research-brief/) | Evidence-backed research | Source-grounded MCP tools, citations, saved briefs, API channel |
 | [incident-triage](incident-triage/) | Internal operations triage | Runbooks, service status, incident mutations, API channel |
-| [configs](configs/) | Operator config | Global routing, managed agents, skills, and work-governance policy |
+| [configs](configs/) | Operator config | Global routing, managed agents, skills, work-governance policy, app voice policy, and local operator voice policy |
 
 ## Run From Source
 

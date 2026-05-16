@@ -13,8 +13,8 @@ Sources: `packages/runtime/src/channels/`, `packages/core/src/engine/domain/chan
 | CLI | `CliChannel` | full | stdin / stdout | None | text |
 | Web | `WebChannel` | full | WebSocket (Hono) | Origin validation (`allowedOrigins`) | text, image, audio, file |
 | WhatsApp | `WhatsAppChannel` | short | HTTPS (Business API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image, audio, file |
-| Instagram | `InstagramChannel` | short | HTTPS (Graph API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image |
-| Messenger | `MessengerChannel` | short | HTTPS (Graph API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image |
+| Instagram | `InstagramChannel` | short | HTTPS (Graph API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image, audio |
+| Messenger | `MessengerChannel` | short | HTTPS (Graph API v21.0) | HMAC-SHA256 (`appSecretEnv`) + verify token | text, image, audio |
 | Slack | `SlackChannel` | full | HTTPS (Bot Events + Web API) | HMAC-SHA256 (signing secret) | text, image, file |
 | Email | `EmailChannel` | full | API-based (Postmark, Resend, generic) | HMAC-SHA256 (`appSecretEnv`) | text, file |
 | API | `ApiChannel` | structured | HTTP REST + SSE | API key (`apiKeyEnv`) | text, image, audio, file |
@@ -237,6 +237,14 @@ await whatsapp.receive({
 
 **Outgoing messages.** `send()` posts to the Cloud API. `response.target` must be the recipient's E.164 phone number. Content is formatted as `short` before delivery.
 
+**Outgoing voice media.** WhatsApp requires public media URLs. When
+`voice.policy.surfaces.whatsapp.output.modes` includes `audio-response`, set
+`publicMediaBaseUrlEnv` and `publicMediaSigningSecretEnv` on the WhatsApp
+channel binding. Kiln stores synthesized audio as a governed artifact, signs a
+short-lived `/media/.../content` URL, and sends it through the WhatsApp Cloud
+API `audio.link` payload. The channel never sends internal `kiln://` artifact
+URIs to Meta.
+
 **Webhook signature verification.** Configure `appSecretEnv` on the channel binding to verify `X-Hub-Signature-256` HMAC-SHA256 signatures on incoming POST requests from Meta. The gateway applies `requireWebhookSignature` middleware automatically. Requests with missing or invalid signatures receive `401`. If `appSecretEnv` is not configured, a warning is logged at startup and signatures are not verified.
 
 **Gateway YAML:**
@@ -298,9 +306,16 @@ const instagram = new InstagramChannel({
 
 **Webhook verification.** Same flow as WhatsApp -- Meta sends a GET challenge, the handler returns `hub.challenge` when the token matches `verifyTokenEnv`.
 
-**Incoming messages.** Instagram DM webhooks deliver messages via the `messaging` field in `entry[].messaging[]`. Text and image attachments are supported. The webhook route resolves tenants by Instagram Page ID via `TenantRegistry.resolveByInstagramPageId()`.
+**Incoming messages.** Instagram DM webhooks deliver messages via the `messaging` field in `entry[].messaging[]`. Text, image, and audio attachments are supported. The webhook route resolves tenants by Instagram Page ID via `TenantRegistry.resolveByInstagramPageId()`.
 
-**Outgoing messages.** `send()` posts to `graph.facebook.com/v21.0/me/messages` with the recipient's Instagram-scoped ID (IGSID). Content is formatted as `short` (plain text, 1,000 character limit). Image parts are sent as separate attachment messages.
+**Outgoing messages.** `send()` posts to `graph.facebook.com/v21.0/me/messages` with the recipient's Instagram-scoped ID (IGSID). Content is formatted as `short` (plain text, 1,000 character limit). Image and audio URL parts are sent as separate attachment messages.
+
+**Outgoing voice media.** When
+`voice.policy.surfaces.instagram.output.modes` includes `audio-response`, set
+`publicMediaBaseUrlEnv` and `publicMediaSigningSecretEnv` on the Instagram
+channel binding. Kiln stores synthesized audio as a governed artifact, signs a
+short-lived `/media/.../content` URL, and sends it as a Send API `audio`
+attachment. The channel never sends internal `kiln://` artifact URIs to Meta.
 
 **Gateway YAML:**
 
@@ -309,6 +324,8 @@ channels:
   - type: instagram
     appSecretEnv: META_APP_SECRET
     verifyTokenEnv: META_VERIFY_TOKEN
+    publicMediaBaseUrlEnv: GATEWAY_PUBLIC_URL
+    publicMediaSigningSecretEnv: GATEWAY_MEDIA_SIGNING_SECRET
 ```
 
 **Multi-tenant mode.** For SaaS products serving multiple businesses, tenant resolution uses the `instagramPageId` field on `TenantConfig`. Each tenant configures its own `instagramAccessToken` for outbound delivery.
@@ -329,9 +346,16 @@ const messenger = new MessengerChannel({
 
 **Webhook verification.** Same Meta challenge-response flow as WhatsApp and Instagram.
 
-**Incoming messages.** Messenger webhooks deliver messages via `entry[].messaging[]`. Text and image attachments are supported. The webhook route resolves tenants by Facebook Page ID via `TenantRegistry.resolveByMessengerPageId()`.
+**Incoming messages.** Messenger webhooks deliver messages via `entry[].messaging[]`. Text, image, and audio attachments are supported. The webhook route resolves tenants by Facebook Page ID via `TenantRegistry.resolveByMessengerPageId()`.
 
-**Outgoing messages.** `send()` posts to `graph.facebook.com/v21.0/me/messages` with the recipient's Page-Scoped ID (PSID). Content is formatted as `short` (plain text, 2,000 character limit). Image parts are sent as separate attachment messages.
+**Outgoing messages.** `send()` posts to `graph.facebook.com/v21.0/me/messages` with the recipient's Page-Scoped ID (PSID). Content is formatted as `short` (plain text, 2,000 character limit). Image and audio URL parts are sent as separate attachment messages.
+
+**Outgoing voice media.** When
+`voice.policy.surfaces.messenger.output.modes` includes `audio-response`, set
+`publicMediaBaseUrlEnv` and `publicMediaSigningSecretEnv` on the Messenger
+channel binding. Kiln stores synthesized audio as a governed artifact, signs a
+short-lived `/media/.../content` URL, and sends it as a Send API `audio`
+attachment. The channel never sends internal `kiln://` artifact URIs to Meta.
 
 **Gateway YAML:**
 
@@ -340,6 +364,8 @@ channels:
   - type: messenger
     appSecretEnv: META_APP_SECRET
     verifyTokenEnv: META_VERIFY_TOKEN
+    publicMediaBaseUrlEnv: GATEWAY_PUBLIC_URL
+    publicMediaSigningSecretEnv: GATEWAY_MEDIA_SIGNING_SECRET
 ```
 
 **Multi-tenant mode.** Tenant resolution uses the `messengerPageId` field on `TenantConfig`. Each tenant configures its own `messengerAccessToken` for outbound delivery.
