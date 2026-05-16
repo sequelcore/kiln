@@ -627,6 +627,65 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("applies the durable operator provider preference when the session manager has no active selection", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }));
+    const setProvider = vi.fn();
+    const setModel = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        resolveProviderPreference: () => ({ provider: "codex-oauth", model: "gpt-5.4" }),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider,
+            getModel: () => "",
+            setModel,
+          },
+        },
+      });
+      await flushAsyncWork();
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+
+      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+        type: string;
+        activeProvider?: string;
+        activeModel?: string;
+      };
+
+      expect(setProvider).toHaveBeenCalledWith("codex-oauth");
+      expect(setModel).toHaveBeenCalledWith("gpt-5.4");
+      expect(welcomeFrame).toMatchObject({
+        type: "welcome",
+        activeProvider: "codex-oauth",
+        activeModel: "gpt-5.4",
+      });
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("omits stale active provider/model selections from the welcome frame when the authoritative provider model list is empty", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -1085,6 +1144,7 @@ describe("startGuiGateway static mount", () => {
       .mockImplementationOnce(() => new Promise(() => undefined));
     const setProvider = vi.fn();
     const setModel = vi.fn();
+    const updateProviderPreference = vi.fn();
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
         port: port ?? 4810,
@@ -1100,6 +1160,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
+        updateProviderPreference,
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -1129,6 +1190,10 @@ describe("startGuiGateway static mount", () => {
       expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
       expect(setProvider).toHaveBeenCalledWith("codex-oauth");
       expect(setModel).toHaveBeenCalledWith("gpt-5.4");
+      expect(updateProviderPreference).toHaveBeenCalledWith({
+        provider: "codex-oauth",
+        model: "gpt-5.4",
+      });
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
       expect(outboundFrames).toContainEqual({
         type: "provider_changed",

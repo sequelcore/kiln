@@ -115,6 +115,28 @@ describe("global-config", () => {
     });
   });
 
+  it("readGlobalConfig() accepts GUI provider selection preference", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "ui:",
+        "  theme: kiln-dark",
+        "  providerSelection:",
+        "    provider: codex-oauth",
+        "    model: gpt-5.5",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.ui).toEqual({
+      theme: "kiln-dark",
+      providerSelection: {
+        provider: "codex-oauth",
+        model: "gpt-5.5",
+      },
+    });
+  });
+
   it("readGlobalConfig() rejects non-canonical configs", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(["version: \"2\"", "provider: codex"].join("\n"));

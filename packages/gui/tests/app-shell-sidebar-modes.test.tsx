@@ -147,7 +147,12 @@ vi.mock("../src/components/composer.js", () => ({
 }));
 
 vi.mock("../src/components/session-list.js", () => ({
-  SessionList: () => <div data-testid="session-list">Session list</div>,
+  SessionList: ({ onSelect }: { onSelect?: (sessionId: string) => void }) => (
+    <div data-testid="session-list">
+      Session list
+      <button type="button" onClick={() => onSelect?.("session-1")}>Select session one</button>
+    </div>
+  ),
 }));
 
 vi.mock("../src/components/workspace-panel.js", () => ({
@@ -418,6 +423,25 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByRole("tab", { name: "package.json" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-code")).toHaveTextContent(/"ok":\s*true/);
     expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Selected file: C:/workspace/kiln/package.json");
+  });
+
+  it("returns to the chat surface when selecting a session from another surface", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open package.json" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "package.json" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select session one" }));
+
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("opens approvals in the inspector while keeping sessions persistent", async () => {

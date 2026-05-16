@@ -1921,6 +1921,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       routeMode: nextRouteMode,
       providerExplicitSelection: nextProviderExplicitSelection,
     });
+
+    const restore = resolveStoredProviderSelectionRestore(get());
+    if (restore) {
+      get().switchProvider(restore.provider, restore.model ?? undefined);
+    }
   },
 
   onSessionEvent: (event) => {

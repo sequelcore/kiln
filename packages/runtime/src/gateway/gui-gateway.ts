@@ -115,12 +115,19 @@ export interface StartGuiGatewayOptions {
   readonly domainLabel?: string;
   readonly workspaceExplorer?: OperatorWorkspaceExplorer;
   readonly updateThemePreference?: (theme: string) => Promise<void> | void;
+  readonly resolveProviderPreference?: () => OperatorProviderPreference | null | undefined;
+  readonly updateProviderPreference?: (selection: OperatorProviderPreference) => Promise<void> | void;
   readonly onConnectionCountChange?: (count: number) => void;
   readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorSessionTransportOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
+}
+
+export interface OperatorProviderPreference {
+  readonly provider: string;
+  readonly model?: string | null;
 }
 
 export interface GuiGateway {
@@ -501,6 +508,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
       builtinToolOptions,
       managedInvocation: options.managedInvocation,
+      resolveProviderPreference: options.resolveProviderPreference,
+      updateProviderPreference: options.updateProviderPreference,
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -590,6 +599,52 @@ async function resolveOperatorDiscovery(
   return resolveGuiOperatorDiscoveryResults(providerAvailability);
 }
 
+function resolveOperatorActiveProviderSelection(input: {
+  readonly transport: OperatorSessionTransportOptions;
+  readonly discovery: readonly GuiProviderDiscoveryResult[];
+  readonly preference?: OperatorProviderPreference | null;
+}): { readonly provider?: string; readonly model?: string } {
+  const currentProvider = input.transport.sessionManager.getProvider().trim();
+  const currentModel = input.transport.sessionManager.getModel().trim();
+  if (currentProvider.length > 0) {
+    const currentResolution = resolveGuiProviderSwitch({
+      provider: currentProvider,
+      model: currentModel.length > 0 ? currentModel : undefined,
+      discovery: input.discovery,
+    });
+    if (currentResolution.ok) {
+      return {
+        provider: currentResolution.provider,
+        ...(currentResolution.modelForAck ? { model: currentResolution.modelForAck } : {}),
+      };
+    }
+  }
+
+  const preferredProvider = input.preference?.provider?.trim();
+  const preferredModel = typeof input.preference?.model === "string" ? input.preference.model.trim() : "";
+  if (preferredProvider) {
+    const preferredResolution = resolveGuiProviderSwitch({
+      provider: preferredProvider,
+      model: preferredModel.length > 0 ? preferredModel : undefined,
+      discovery: input.discovery,
+    });
+    if (preferredResolution.ok) {
+      input.transport.sessionManager.setProvider(preferredResolution.provider);
+      input.transport.sessionManager.setModel(preferredResolution.modelForSessionManager);
+      return {
+        provider: preferredResolution.provider,
+        ...(preferredResolution.modelForAck ? { model: preferredResolution.modelForAck } : {}),
+      };
+    }
+  }
+
+  if (input.discovery.length > 0) {
+    input.transport.sessionManager.setModel("");
+    input.transport.sessionManager.setProvider("");
+  }
+  return {};
+}
+
 function wireOperatorTransport(
   app: Hono,
   upgradeWebSocket: BunUpgradeWebSocket,
@@ -602,6 +657,8 @@ function wireOperatorTransport(
     onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
     managedInvocation?: ManagedInvocationToolOptions;
+    resolveProviderPreference?: () => OperatorProviderPreference | null | undefined;
+    updateProviderPreference?: (selection: OperatorProviderPreference) => Promise<void> | void;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -707,28 +764,13 @@ function wireOperatorTransport(
           });
           const currentDiscovery = readDiscovery();
           const currentModels = projectGuiOperatorModels(currentDiscovery);
-          const storedProvider = input.transport.sessionManager.getProvider();
-          const providerModels = currentModels[storedProvider];
-          let activeProvider: string | undefined;
-          let activeModel: string | undefined;
-          if (providerModels && providerModels.length > 0) {
-            const storedModel = input.transport.sessionManager.getModel().trim();
-            if (storedModel.length > 0 && providerModels.includes(storedModel)) {
-              activeProvider = storedProvider;
-              activeModel = storedModel;
-            } else {
-              input.transport.sessionManager.setModel("");
-              input.transport.sessionManager.setProvider("");
-            }
-          } else if (providerModels && isGuiProviderModeless(storedProvider)) {
-            activeProvider = storedProvider;
-            input.transport.sessionManager.setModel("");
-          } else {
-            if (currentDiscovery.length > 0) {
-              input.transport.sessionManager.setModel("");
-              input.transport.sessionManager.setProvider("");
-            }
-          }
+          const activeSelection = resolveOperatorActiveProviderSelection({
+            transport: input.transport,
+            discovery: currentDiscovery,
+            preference: input.resolveProviderPreference?.() ?? null,
+          });
+          const activeProvider = activeSelection.provider;
+          const activeModel = activeSelection.model;
           const activeModelCapabilities = findProviderModelCapabilities(
             currentDiscovery,
             activeProvider,
@@ -897,6 +939,10 @@ function wireOperatorTransport(
 
               input.transport.sessionManager.setProvider(resolution.provider);
               input.transport.sessionManager.setModel(resolution.modelForSessionManager);
+              await input.updateProviderPreference?.({
+                provider: resolution.provider,
+                model: resolution.modelForAck ?? null,
+              });
               fireAndForgetProviderSwitch(input.transport.onProviderSwitch, resolution.provider);
               const providerChangedFrame = {
                 type: "provider_changed",

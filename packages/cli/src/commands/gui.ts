@@ -43,6 +43,10 @@ import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";
+import {
+  persistGuiProviderSelectionPreference,
+  resolveGuiProviderSelectionPreference,
+} from "../application/operator-provider-preferences.js";
 import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import type { OperatorWorkspaceExplorer } from "@kilnai/gateway-contracts";
 
@@ -139,6 +143,11 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
+  const startupProviderSelection = resolveGuiProviderSelectionPreference(globalConfig);
+  if (!flags.provider && startupProviderSelection) {
+    sessionManager.setProvider(startupProviderSelection.provider);
+    sessionManager.setModel(startupProviderSelection.model ?? "");
+  }
   const bootstrapContext = await resolveGuiBootstrapContext(runtimeAppConfig, cwd, contextArtifactCache);
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
@@ -164,6 +173,10 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     domainLabel: bootstrapContext.domainLabel,
     workspaceExplorer,
     updateThemePreference: (theme) => persistGuiThemePreference(theme, globalConfig),
+    resolveProviderPreference: () => resolveGuiProviderSelectionPreference(readGlobalConfig() ?? globalConfig),
+    updateProviderPreference: (selection) => {
+      persistGuiProviderSelectionPreference(selection.provider, selection.model ?? null);
+    },
     onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
     builtinToolOptions,

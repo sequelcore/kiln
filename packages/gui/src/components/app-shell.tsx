@@ -1264,6 +1264,8 @@ export function AppShell() {
       onSelect={(sessionId) => {
         setSelectedSessionId(sessionId);
         setWorkbenchSurface("chat");
+        setActiveSurface("chat");
+        setSelectedWorkspacePath(null);
         setDrawerOpen(false);
         setSessionPopoverOpen(false);
       }}

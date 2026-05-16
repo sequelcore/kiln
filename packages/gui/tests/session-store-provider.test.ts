@@ -512,6 +512,42 @@ describe("session-store provider selection", () => {
     expect(useSessionStore.getState().providerSwitching).toBe(true);
   });
 
+  it("restores the last valid GUI provider selection after provider refresh advertises it", () => {
+    const send = vi.fn();
+    localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+    }));
+    useSessionStore.getState().setSender(send);
+
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      providers: [],
+      executionMode: "execute",
+    });
+
+    expect(send).not.toHaveBeenCalled();
+
+    useSessionStore.getState().onProvidersRefreshed([
+      {
+        id: "codex-oauth",
+        label: "Codex OAuth",
+        group: "direct-api",
+        free: false,
+        available: true,
+        models: ["gpt-5.5"],
+      },
+    ]);
+
+    expect(send).toHaveBeenCalledWith({
+      type: "provider",
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      requestId: expect.any(String),
+    });
+    expect(useSessionStore.getState().providerSwitching).toBe(true);
+  });
+
   it("persists acknowledged GUI provider selections", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);

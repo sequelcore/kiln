@@ -211,6 +211,7 @@ export type {
 export type {
   StartGuiGatewayOptions,
   GuiGateway,
+  OperatorProviderPreference,
   GuiDashboardSnapshot,
   GuiSessionDetail,
   GuiSessionEvent,

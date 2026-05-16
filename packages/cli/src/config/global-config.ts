@@ -54,6 +54,12 @@ export interface KilnGlobalModelsConfig {
 
 export interface KilnGlobalUiConfig {
   readonly theme?: string;
+  readonly providerSelection?: KilnGlobalUiProviderSelectionConfig;
+}
+
+export interface KilnGlobalUiProviderSelectionConfig {
+  readonly provider: string;
+  readonly model?: string;
 }
 
 export interface KilnGlobalComponentsConfig {
@@ -247,6 +253,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateModelTaskSuitability(config.modelTaskSuitability);
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
+  validateGlobalUi(config.ui);
 }
 
 function validateIdentity(value: unknown): void {
@@ -469,6 +476,44 @@ function validateComponents(value: unknown): void {
     if (!Array.isArray(value.include) || value.include.some((item) => typeof item !== "string")) {
       throw new KilnYamlError("components.include must be an array of strings");
     }
+  }
+}
+
+const GLOBAL_UI_FIELDS = new Set([
+  "theme",
+  "providerSelection",
+]);
+
+function validateGlobalUi(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("ui must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (!GLOBAL_UI_FIELDS.has(key)) {
+      throw new KilnYamlError(`Unknown global ui field: ${key}`);
+    }
+  }
+  if (value.theme !== undefined && typeof value.theme !== "string") {
+    throw new KilnYamlError("ui.theme must be a string");
+  }
+  if (value.providerSelection === undefined) {
+    return;
+  }
+  if (!isRecord(value.providerSelection)) {
+    throw new KilnYamlError("ui.providerSelection must be an object");
+  }
+  const providerSelectionFields = new Set(["provider", "model"]);
+  for (const key of Object.keys(value.providerSelection)) {
+    if (!providerSelectionFields.has(key)) {
+      throw new KilnYamlError(`Unknown global ui.providerSelection field: ${key}`);
+    }
+  }
+  validateRequiredNonEmptyString(value.providerSelection, "provider", "ui.providerSelection.provider");
+  if (value.providerSelection.model !== undefined && typeof value.providerSelection.model !== "string") {
+    throw new KilnYamlError("ui.providerSelection.model must be a string");
   }
 }
 

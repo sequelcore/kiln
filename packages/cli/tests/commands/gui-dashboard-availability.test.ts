@@ -26,6 +26,13 @@ const gatewayHarness = vi.hoisted(() => ({
   }),
 }));
 
+const sessionManagerMocks = vi.hoisted(() => ({
+  onClear: vi.fn(),
+  setModel: vi.fn(),
+  setProvider: vi.fn(),
+  setResumeSession: vi.fn(),
+}));
+
 const registryMocks = vi.hoisted(() => {
   const mock = {
     providers: [{
@@ -66,10 +73,19 @@ const registryMocks = vi.hoisted(() => {
 
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
+    version?: "1";
     routing?: { defaultProvider?: string };
-    ui?: { theme?: string };
+    ui?: {
+      theme?: string;
+      providerSelection?: {
+        provider: string;
+        model?: string;
+      };
+    };
   } | null,
+  defaultGlobalConfig: vi.fn(() => ({ version: "1" })),
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
+  writeGlobalConfig: vi.fn(),
   resolveGlobalDefaultProvider: vi.fn((config: { routing?: { defaultProvider?: string } } | null) => {
     const provider = config?.routing?.defaultProvider?.trim() ?? "";
     return provider.length > 0 ? provider : undefined;
@@ -124,10 +140,12 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 });
 
 vi.mock("../../src/config/global-config.js", () => ({
+  defaultGlobalConfig: configMocks.defaultGlobalConfig,
   readGlobalConfig: configMocks.readGlobalConfig,
   resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
   resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
   resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
+  writeGlobalConfig: configMocks.writeGlobalConfig,
 }));
 
 vi.mock("../../src/config/env-config.js", () => ({
@@ -145,10 +163,7 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
 }));
 
 vi.mock("../../src/commands/tui.js", () => ({
-  makeMultiProviderSessionFactory: vi.fn().mockResolvedValue({
-    onClear: vi.fn(),
-    setResumeSession: vi.fn(),
-  }),
+  makeMultiProviderSessionFactory: vi.fn().mockResolvedValue(sessionManagerMocks),
 }));
 
 vi.mock("../../src/commands/gui-options.js", () => ({
@@ -350,6 +365,28 @@ describe("GUI dashboard provider availability", () => {
     });
 
     expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
+  });
+
+  it("seeds the GUI session manager from the durable provider preference", async () => {
+    configMocks.globalConfig = {
+      version: "1",
+      ui: {
+        providerSelection: {
+          provider: "codex-oauth",
+          model: "gpt-5.4",
+        },
+      },
+    };
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+    });
+
+    expect(sessionManagerMocks.setProvider).toHaveBeenCalledWith("codex-oauth");
+    expect(sessionManagerMocks.setModel).toHaveBeenCalledWith("gpt-5.4");
   });
 
   it("does not start the local GUI gateway in attach mode", async () => {
