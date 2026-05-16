@@ -7,9 +7,9 @@ Kiln is a biocybernetic control plane for governed AI work.
 
 ## Current Baseline
 
-Kiln is preparing a `2.0.0` public baseline. The repo can be built and tested
-from source today, but the `2.0.0` npm package line is not supported until the
-`v2.0.0` tag is published.
+Kiln `2.0.0` is the first supported public baseline for the current
+biocybernetic control-plane architecture. The repo can be built and tested from
+source, and the supported npm package line starts at `2.0.0`.
 
 Use this guide for source checkout, verification, and contribution. Do not
 treat older `@kilnai/*` npm versions as the supported public baseline.
@@ -51,7 +51,7 @@ bun run --cwd packages/gui lint
 
 ## Run A Surface From Source
 
-Use the CLI source entry point before the `2.0.0` package line is published:
+Use the CLI source entry point when working inside the repository:
 
 ```bash
 bun --cwd packages/cli src/index.ts tui

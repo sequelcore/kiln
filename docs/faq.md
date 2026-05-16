@@ -12,9 +12,8 @@ operator-facing control surfaces.
 
 ## Is Kiln 2.0 published?
 
-Not yet. The repo is prepared for a `2.0.0` public baseline, but the supported
-`@kilnai/*` npm package line starts only after the `v2.0.0` tag is published.
-Build and verify from source until then.
+Yes. The supported `@kilnai/*` npm package line starts at `2.0.0`. Earlier
+published versions were experimental and are not the current public contract.
 
 ## Where should a new contributor start?
 

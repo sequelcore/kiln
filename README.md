@@ -31,18 +31,16 @@ provider routing, and operator-facing control surfaces.
 
 ## Current Baseline
 
-Kiln is preparing a `2.0.0` public baseline. The repository is public and
-buildable from source, but the supported `2.0.0` npm line should be considered
-draft until the `v2.0.0` tag is published.
+Kiln `2.0.0` is the first supported public baseline for the current
+biocybernetic control-plane architecture. The repository is public and
+buildable from source, and the supported npm package line starts at `2.0.0`.
 
 Use this repo today if you want to:
 
 - inspect or contribute to the control-plane architecture
 - run workspace verification from source
 - work on the CLI, GUI, TUI, runtime, gateway contracts, or native surface
-- evaluate Kiln's governance model before depending on a published package
-
-Wait for the `2.0.0` release if you need a stable external package contract.
+- evaluate Kiln's governance model before integrating a published package
 
 ## First Path
 
