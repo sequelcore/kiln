@@ -10,10 +10,11 @@ In practical terms, Kiln is for running governed local or remote agent sessions
 with explicit policy, bounded context, auditable tools, memory evidence, and
 operator-facing control surfaces.
 
-## Is Kiln 2.0 published?
+## Is Kiln published?
 
-Yes. The supported `@kilnai/*` npm package line starts at `2.0.0`. Earlier
-published versions were experimental and are not the current public contract.
+Yes. The current supported public package line is `2.1.0`; `2.0.0` remains the
+first supported public baseline. Earlier published versions were experimental
+and are not the current public contract.
 
 ## Where should a new contributor start?
 
@@ -49,7 +50,7 @@ The workspace packages are under `packages/*`.
   execution plumbing.
 - `@kilnai/cli`: local CLI, GUI/TUI launchers, config projection, and MCP
   tooling.
-- `@kilnai/gui`: rich private web operator surface.
+- `@kilnai/gui`: public web operator surface served by the runtime.
 - `@kilnai/native`: Electron-backed native operator surface experiments and
   projections.
 - `@kilnai/tui`: interactive terminal operator surface.

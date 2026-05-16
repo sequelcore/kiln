@@ -66,8 +66,7 @@ import { CompositeEventStore } from "../observability/composite-event-store.js";
 import { PrometheusCollector } from "../observability/prometheus-collector.js";
 import { createRuntimeToolResultSanitizer } from "./tool-result-sanitizer-factory.js";
 import {
-  mountGuiStaticAssetsIfPresent,
-  resolveGuiDistCandidates,
+  mountGuiStaticAssets,
   resolveGuiDistPath,
 } from "./gui-static-assets.js";
 
@@ -1037,7 +1036,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     : undefined;
 
   const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
-  const guiDistPath = resolveGuiDistPath(options?.guiDistPath, import.meta.url);
+  const guiDistPath = resolveGuiDistPath(options?.guiDistPath);
 
   // Initialize dev-mode swarm coordination store.
   let swarmMemoryRepository: SqliteMemoryRepository | undefined;
@@ -1177,12 +1176,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   if (studioDistPath) {
     mountStudio(honoApp, studioDistPath, serveStatic);
   }
-  if (mountGuiStaticAssetsIfPresent(honoApp, guiDistPath)) {
-    honoApp.get("/gui", (c) => c.redirect("/gui/"));
-  } else if (options?.guiDistPath) {
-    const unresolvedGuiDistPath = resolveGuiDistCandidates(options.guiDistPath, import.meta.url)[0] ?? "<unknown>";
-    console.warn(`GUI: bundle missing at ${join(unresolvedGuiDistPath, "index.html")}; /gui static mount disabled.`);
-  }
+  mountGuiStaticAssets(honoApp, guiDistPath);
+  honoApp.get("/gui", (c) => c.redirect("/gui/"));
 
   // Prometheus metrics endpoint (unauthenticated, before per-app routes)
   honoApp.get("/metrics", async (c) => {
@@ -1489,9 +1484,7 @@ REASONING: <one sentence explanation>`;
 
   const appNames = loadedApps.map((a) => a.name).join(", ");
   console.log(`Gateway started on port ${port} with ${loadedApps.length} apps: ${appNames}`);
-  if (guiDistPath) {
-    console.log(`GUI: http://localhost:${port}/gui/`);
-  }
+  console.log(`GUI: http://localhost:${port}/gui/`);
   if (options?.devMode) {
     console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
   }

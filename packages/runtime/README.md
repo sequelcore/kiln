@@ -32,7 +32,8 @@
 bun add @kilnai/runtime
 ```
 
-Requires `@kilnai/core` as a peer dependency.
+This package depends on `@kilnai/core`, `@kilnai/gateway-contracts`, and the
+public `@kilnai/gui` static asset package.
 
 ## Usage
 

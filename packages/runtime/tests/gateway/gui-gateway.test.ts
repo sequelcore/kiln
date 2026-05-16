@@ -19,7 +19,7 @@ import { Hono } from "hono";
 import type { UpgradeWebSocket } from "hono/ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
-import { mountGuiStaticAssetsIfPresent } from "../../src/gateway/gui-static-assets.js";
+import { mountGuiStaticAssets, resolveGuiDistPath } from "../../src/gateway/gui-static-assets.js";
 import {
   buildGuiOperatorDiscoveryResults,
   buildWelcomeProviderDescriptors,
@@ -350,11 +350,9 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const app = new Hono();
     app.get("/gui", (c) => c.redirect("/gui/"));
-    const mounted = mountGuiStaticAssetsIfPresent(app, distDir);
+    mountGuiStaticAssets(app, distDir);
 
     try {
-      expect(mounted).toBe(true);
-
       const indexResponse = await app.request("http://localhost/gui/index.html");
       expect(indexResponse.status).toBe(200);
       const indexHtml = await indexResponse.text();
@@ -527,17 +525,11 @@ describe("startGuiGateway static mount", () => {
     });
   });
 
-  it("skips the /gui mount when dist index.html is missing", async () => {
+  it("fails fast when an explicit GUI dist path is missing index.html", () => {
     const distDir = createTempDir();
-    const app = new Hono();
-    app.get("/gui", (c) => c.redirect("/gui/"));
-    const mounted = mountGuiStaticAssetsIfPresent(app, distDir);
 
     try {
-      expect(mounted).toBe(false);
-
-      const response = await app.request("http://localhost/gui/index.html");
-      expect(response.status).toBe(404);
+      expect(() => resolveGuiDistPath(distDir)).toThrow("GUI bundle missing");
     } finally {
       rmSync(distDir, { recursive: true, force: true });
     }

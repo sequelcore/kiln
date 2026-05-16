@@ -39,11 +39,12 @@
 
 ## Public Baseline
 
-Kiln `2.0.0` is the first supported public baseline for the current
-biocybernetic control-plane architecture. The repository is public and
-source-buildable. Use [Getting Started](getting-started.md) to verify the repo
-from source and [Operator Surfaces](guides/operator-surfaces.md) to choose the
-right runtime surface.
+Kiln `2.1.0` is the current supported public package line. Kiln `2.0.0`
+remains the first supported public baseline for the current biocybernetic
+control-plane architecture. The repository is public and source-buildable. Use
+[Getting Started](getting-started.md) to install or verify the repo from source
+and [Operator Surfaces](guides/operator-surfaces.md) to choose the right runtime
+surface.
 
 ## Architecture
 

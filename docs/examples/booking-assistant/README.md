@@ -125,10 +125,9 @@ curl http://localhost:3300/budget?tenantId=bella-salon
 
 **Add WhatsApp**: See the [whatsapp-bot](../whatsapp-bot/) example for WhatsApp channel configuration.
 
-**Publish CDN widget later**: The demo HTML loads
-`../../../packages/widget/dist/widget.js` from the source tree. After the
-`2.0.0` package line is published, public HTML can switch to
-`@kilnai/widget@2.0.0`.
+**Use the public widget package**: The demo HTML loads
+`../../../packages/widget/dist/widget.js` from the source tree for repository
+development. Public HTML should target `@kilnai/widget@2.1.0`.
 
 ## Next steps
 

@@ -359,12 +359,11 @@ async function buildDashboardSnapshot(
   };
 }
 
-function resolveGuiMode(cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "prod" {
+function resolveGuiMode(_cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "prod" {
   if (explicitMode) {
     return explicitMode;
   }
-  const distIndexPath = join(cwd, "packages", "gui", "dist", "index.html");
-  return existsSync(distIndexPath) ? "prod" : "dev";
+  return "prod";
 }
 
 function spawnGuiDevServer(cwd: string, guiPort: number, gatewayPort: number): ChildProcess {

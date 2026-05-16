@@ -22,13 +22,17 @@
     },
     "packages/cli": {
       "name": "@kilnai/cli",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "bin": {
         "kiln": "./dist/index.js",
       },
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.45",
-        "@kilnai/gateway-contracts": "workspace:*",
+        "@kilnai/core": "^2.1.0",
+        "@kilnai/gateway-contracts": "^2.1.0",
+        "@kilnai/gui": "^2.1.0",
+        "@kilnai/runtime": "^2.1.0",
+        "@kilnai/tui": "^2.1.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@opencode-ai/sdk": "^1.3.9",
         "smol-toml": "^1.6.1",
@@ -37,15 +41,10 @@
       "devDependencies": {
         "yaml": "^2.8.2",
       },
-      "peerDependencies": {
-        "@kilnai/core": "^2.0.0",
-        "@kilnai/runtime": "^2.0.0",
-        "@kilnai/tui": "^2.0.0",
-      },
     },
     "packages/core": {
       "name": "@kilnai/core",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -67,7 +66,7 @@
     },
     "packages/gateway-contracts": {
       "name": "@kilnai/gateway-contracts",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "dependencies": {
         "zod": "^3.24.3",
       },
@@ -78,36 +77,18 @@
     },
     "packages/gui": {
       "name": "@kilnai/gui",
-      "version": "2.0.0",
-      "dependencies": {
-        "@base-ui/react": "^1.4.1",
-        "@fontsource-variable/geist": "^5.2.8",
-        "@tanstack/react-query": "^5.75.3",
-        "@tanstack/react-router": "^1.120.12",
-        "class-variance-authority": "^0.7.1",
-        "clsx": "^2.1.1",
-        "cmdk": "^1.1.1",
-        "facehash": "^0.1.0",
-        "lucide-react": "^1.8.0",
-        "react": "^19.0.0",
-        "react-dom": "^19.0.0",
-        "react-markdown": "^10.1.0",
-        "react-syntax-highlighter": "^16.1.1",
-        "remark-gfm": "^4.0.1",
-        "shadcn": "^4.4.0",
-        "tailwind-merge": "^3.5.0",
-        "three": "^0.184.0",
-        "tw-animate-css": "^1.4.0",
-        "zod": "^3.24.3",
-        "zustand": "^5.0.4",
-      },
+      "version": "2.1.0",
       "devDependencies": {
+        "@base-ui/react": "^1.4.1",
         "@eslint/js": "^9.26.0",
-        "@kilnai/core": "workspace:*",
-        "@kilnai/gateway-contracts": "workspace:*",
+        "@fontsource-variable/geist": "^5.2.8",
+        "@kilnai/core": "^2.1.0",
+        "@kilnai/gateway-contracts": "^2.1.0",
         "@playwright/test": "^1.52.0",
         "@tailwindcss/vite": "^4.1.5",
+        "@tanstack/react-query": "^5.75.3",
         "@tanstack/react-query-devtools": "^5.75.3",
+        "@tanstack/react-router": "^1.120.12",
         "@tanstack/router-devtools": "^1.120.12",
         "@tanstack/router-plugin": "^1.120.12",
         "@testing-library/jest-dom": "^6.6.3",
@@ -117,15 +98,31 @@
         "@types/react-syntax-highlighter": "^15.5.13",
         "@types/three": "^0.184.0",
         "@vitejs/plugin-react": "^4.4.1",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "cmdk": "^1.1.1",
         "eslint": "^9.26.0",
         "eslint-plugin-jsx-a11y": "^6.10.2",
         "eslint-plugin-react-hooks": "^5.2.0",
+        "facehash": "^0.1.0",
         "jsdom": "^26.1.0",
+        "lucide-react": "^1.8.0",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "react-markdown": "^10.1.0",
+        "react-syntax-highlighter": "^16.1.1",
+        "remark-gfm": "^4.0.1",
+        "shadcn": "^4.4.0",
+        "tailwind-merge": "^3.5.0",
         "tailwindcss": "^4.1.5",
+        "three": "^0.184.0",
+        "tw-animate-css": "^1.4.0",
         "typescript": "^5.6.0",
         "typescript-eslint": "^8.32.1",
         "vite": "^7.0.0",
         "vitest": "^3.2.0",
+        "zod": "^3.24.3",
+        "zustand": "^5.0.4",
       },
     },
     "packages/native": {
@@ -148,16 +145,17 @@
     },
     "packages/runtime": {
       "name": "@kilnai/runtime",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "dependencies": {
-        "@kilnai/gateway-contracts": "workspace:*",
+        "@kilnai/core": "^2.1.0",
+        "@kilnai/gateway-contracts": "^2.1.0",
+        "@kilnai/gui": "^2.1.0",
         "hono": "^4.7.0",
         "jose": "^5.0.0",
         "sharp": "^0.34.5",
         "unpdf": "^1.6.2",
       },
       "peerDependencies": {
-        "@kilnai/core": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.12.0",
         "@nut-tree/nut-js": "^5.1.1",
         "@opentelemetry/api": "^1.9.0",
@@ -174,9 +172,9 @@
     },
     "packages/sdk": {
       "name": "@kilnai/react",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "devDependencies": {
-        "@kilnai/gateway-contracts": "^2.0.0",
+        "@kilnai/gateway-contracts": "^2.1.0",
         "@testing-library/react": "^16.1.0",
         "@types/react": "^19.0.0",
         "jsdom": "^25.0.0",
@@ -185,8 +183,8 @@
         "vitest": "^4.0.18",
       },
       "peerDependencies": {
-        "@kilnai/core": "^2.0.0",
-        "@kilnai/gateway-contracts": "^2.0.0",
+        "@kilnai/core": "^2.1.0",
+        "@kilnai/gateway-contracts": "^2.1.0",
         "react": "^19.0.0",
       },
     },
@@ -234,11 +232,13 @@
     },
     "packages/tui": {
       "name": "@kilnai/tui",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "dependencies": {
-        "@kilnai/gateway-contracts": "workspace:*",
+        "@kilnai/core": "^2.1.0",
+        "@kilnai/gateway-contracts": "^2.1.0",
         "@opentui/core": "0.1.92",
         "@opentui/react": "0.1.92",
+        "react": "^19.0.0",
       },
       "devDependencies": {
         "@types/react": "^19.0.0",
@@ -251,15 +251,10 @@
         "@opentui/core-win32-arm64": "0.1.92",
         "@opentui/core-win32-x64": "0.1.92",
       },
-      "peerDependencies": {
-        "@kilnai/cli": "^2.0.0",
-        "@kilnai/core": "^2.0.0",
-        "react": "^19.0.0",
-      },
     },
     "packages/widget": {
       "name": "@kilnai/widget",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "dependencies": {
         "@kilnai/gateway-contracts": "workspace:*",
       },
@@ -332,7 +327,7 @@
 
     "@babel/preset-typescript": ["@babel/preset-typescript@7.28.5", "", { "dependencies": { "@babel/helper-plugin-utils": "^7.27.1", "@babel/helper-validator-option": "^7.27.1", "@babel/plugin-syntax-jsx": "^7.27.1", "@babel/plugin-transform-modules-commonjs": "^7.27.1", "@babel/plugin-transform-typescript": "^7.28.5" }, "peerDependencies": { "@babel/core": "^7.0.0-0" } }, "sha512-+bQy5WOI2V6LJZpPVxY+yp66XdZ2yifu0Mc1aP5CQKgjn4QM5IN2i5fAZ4xKop47pr8rpVhiAeu+nDQa12C8+g=="],
 
-    "@babel/runtime": ["@babel/runtime@7.28.6", "", {}, "sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA=="],
+    "@babel/runtime": ["@babel/runtime@7.29.2", "", {}, "sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g=="],
 
     "@babel/template": ["@babel/template@7.28.6", "", { "dependencies": { "@babel/code-frame": "^7.28.6", "@babel/parser": "^7.28.6", "@babel/types": "^7.28.6" } }, "sha512-YA6Ma2KsCdGb+WC6UpBVFJGXL58MDA6oyONbjyF/+5sBgxY/dwkhLogbMT2GXXyU84/IhRw/2D1Os1B/giz+BQ=="],
 
@@ -2406,10 +2401,6 @@
 
     "@babel/helper-create-class-features-plugin/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
-    "@base-ui/react/@babel/runtime": ["@babel/runtime@7.29.2", "", {}, "sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g=="],
-
-    "@base-ui/utils/@babel/runtime": ["@babel/runtime@7.29.2", "", {}, "sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g=="],
-
     "@dotenvx/dotenvx/commander": ["commander@11.1.0", "", {}, "sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ=="],
 
     "@dotenvx/dotenvx/execa": ["execa@5.1.1", "", { "dependencies": { "cross-spawn": "^7.0.3", "get-stream": "^6.0.0", "human-signals": "^2.1.0", "is-stream": "^2.0.0", "merge-stream": "^2.0.0", "npm-run-path": "^4.0.1", "onetime": "^5.1.2", "signal-exit": "^3.0.3", "strip-final-newline": "^2.0.0" } }, "sha512-8uSpZZocAZRBAPIEINJj3Lo9HyGitllczc27Eh5YYojjMFMn8yHMDMaUHE2Jqfq05D/wucwI4JGURyXt1vchyg=="],
@@ -2462,9 +2453,13 @@
 
     "@tailwindcss/oxide-wasm32-wasi/tslib": ["tslib@2.8.1", "", { "bundled": true }, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
+    "@testing-library/dom/@babel/runtime": ["@babel/runtime@7.28.6", "", {}, "sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA=="],
+
     "@testing-library/dom/aria-query": ["aria-query@5.3.0", "", { "dependencies": { "dequal": "^2.0.3" } }, "sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A=="],
 
     "@testing-library/dom/dom-accessibility-api": ["dom-accessibility-api@0.5.16", "", {}, "sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg=="],
+
+    "@testing-library/react/@babel/runtime": ["@babel/runtime@7.28.6", "", {}, "sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA=="],
 
     "@ts-morph/common/minimatch": ["minimatch@10.2.5", "", { "dependencies": { "brace-expansion": "^5.0.5" } }, "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="],
 
@@ -2498,6 +2493,8 @@
 
     "image-q/@types/node": ["@types/node@16.9.1", "", {}, "sha512-QpLcX9ZSsq3YYUUnD3nFDY8H7wctAhQj/TFKL8Ya8v5fMm3CFXxo8zStsLAl780ltoYoo1WvKUVGBQK+1ifr7g=="],
 
+    "json-schema-to-ts/@babel/runtime": ["@babel/runtime@7.28.6", "", {}, "sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA=="],
+
     "log-symbols/chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
     "log-symbols/is-unicode-supported": ["is-unicode-supported@1.3.0", "", {}, "sha512-43r2mRvz+8JRIKnWJ+3j8JtjRKZ6GmjzfaE/qiBJnikNnYv/6bagRJ1kUhNk8R5EX/GkobD+r+sfxCPJsiKBLQ=="],
@@ -2529,6 +2526,8 @@
     "react-devtools-core/ws": ["ws@7.5.10", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": "^5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-+dbF1tHwZpXcbOJdVOkzLDxZP1ailvSxM6ZweXTegylPny803bFhA+vqBYw4s31NSAk4S2Qz+AKXK9a4wkdjcQ=="],
 
     "react-reconciler/scheduler": ["scheduler@0.26.0", "", {}, "sha512-NlHwttCI/l5gCPR3D1nNXtWABUmBwvZpEQiD4IXSbIDq8BzLIK/7Ir5gTFSGZDUu37K5cMNp0hFtzO38sC7gWA=="],
+
+    "react-syntax-highlighter/@babel/runtime": ["@babel/runtime@7.28.6", "", {}, "sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA=="],
 
     "readable-web-to-node-stream/readable-stream": ["readable-stream@4.7.0", "", { "dependencies": { "abort-controller": "^3.0.0", "buffer": "^6.0.3", "events": "^3.3.0", "process": "^0.11.10", "string_decoder": "^1.3.0" } }, "sha512-oIGGmcpTLwPga8Bn6/Z75SVaH1z5dUut2ibSyAMVhmUggWpmDn2dapB0n7f8nwaSiRtepAsfJyfXIO5DCVAODg=="],
 

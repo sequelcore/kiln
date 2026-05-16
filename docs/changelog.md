@@ -6,6 +6,20 @@ baseline. Active and deferred execution tracks live in
 [`docs/architecture/`](architecture/README.md); curated release notes live in
 [`docs/releases/`](releases/README.md).
 
+## v2.1.0
+
+- Published `@kilnai/gui` as a public static asset package.
+- Made `@kilnai/cli` the public global install boundary for CLI, GUI, TUI,
+  runtime, gateway contracts, and GUI assets.
+- Moved runtime-owned GUI serving to the installed `@kilnai/gui` package and
+  removed source-tree GUI discovery from production startup.
+- Made `kiln gui` production mode the default from any working directory;
+  `--dev` is now explicitly for source-tree GUI development.
+- Promoted runtime and TUI internal package imports to direct package
+  dependencies instead of peer-only runtime requirements.
+- Added `@kilnai/gui` to the npm publish graph before runtime and CLI publish.
+- Clarified that Native remains source-only experimental work in this release.
+
 ## v2.0.0
 
 - Prepared the workspace for the `2.0.0` public baseline.

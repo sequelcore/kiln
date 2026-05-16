@@ -17,10 +17,10 @@ but they must not become separate app control planes.
 | App Gateway | `startGateway(gateway.yaml)` | `gateway.yaml` plus bound `app.yaml` files | HTTP, WebSocket, channels, MCP | Deployable runtime for real apps, tenants, sessions, memory, safety, events, triggers, and tool gates. |
 | Operator Gateway | `startGuiGateway()` / `startTuiGateway()` | CLI flags and local operator state | HTTP and WebSocket operator contract | Local human-operator bridge for coding/dev sessions. It is not a deployable app host and must attach to an App Gateway when operating deployable YAML apps. |
 | Studio Dev Server | `kiln dev` | `.kiln/gateway.yaml` or local `app.yaml` | `/studio/*` and `/dev/*` | Development and inspection surface. With `gateway.yaml`, it runs the App Gateway in dev mode. Without it, it is a lightweight editor/inspector server. |
-| CLI | `@kilnai/cli` commands | CLI flags plus projected global config | Local process, HTTP/WS attach, MCP projection | Automation, validation, launch, sync, and scripting surface. CLI does not own app runtime semantics. |
-| GUI | `@kilnai/gui` | Operator preferences plus gateway attach target | HTTP/WS operator contract | First-party human operator UI. It should attach to an existing App Gateway when operating YAML apps. |
-| Native | `@kilnai/native` | Operator preferences plus gateway attach target | HTTP/WS operator contract plus local Electron process | First-class local desktop operator surface. It owns native window lifecycle and surface telemetry only; runtime truth remains in App/Operator Gateway. |
-| TUI | `@kilnai/tui` | Operator preferences plus gateway attach target | WebSocket operator contract | First-class terminal operator surface. It projects the shared runtime contract and must not define independent runtime architecture. |
+| CLI | `@kilnai/cli` commands | CLI flags plus projected global config | Local process, HTTP/WS attach, MCP projection | Public install surface for automation, validation, launch, sync, and scripting. CLI does not own app runtime semantics. |
+| GUI | `@kilnai/gui` | Operator preferences plus gateway attach target | HTTP/WS operator contract | Public first-party human operator UI served by runtime. It should attach to an existing App Gateway when operating YAML apps. |
+| Native | `@kilnai/native` | Operator preferences plus gateway attach target | HTTP/WS operator contract plus local Electron process | Source-only experimental desktop operator surface in this release. It owns native window lifecycle and surface telemetry only; runtime truth remains in App/Operator Gateway. |
+| TUI | `@kilnai/tui` | Operator preferences plus gateway attach target | WebSocket operator contract | Public terminal operator surface. It projects the shared runtime contract and must not define independent runtime architecture. |
 | SDK / Widget | `@kilnai/react`, `@kilnai/widget` | Consumer app config | Public app/channel contracts | Embedding and product integration surfaces. |
 | MCP | Gateway MCP endpoint or projected MCP servers | Gateway/config projection | MCP | External tool and host contract for agents, IDEs, and wrappers. MCP is not the internal GUI-to-gateway operator protocol. |
 
@@ -42,11 +42,13 @@ but they must not become separate app control planes.
 7. A local machine may run multiple App Gateways only when they represent
    distinct environments, projects, or isolation boundaries.
 
-`@kilnai/native` is the package boundary for the native desktop surface.
-Packaged executable distribution is a later release-engineering concern, not a
-runtime-surface contract. Installer targets, signing, update channels, rollback,
-and user-data migration must be decided in a dedicated packaging roadmap after
-the native surface proves it has enough product value to distribute.
+`@kilnai/cli` is the public global install boundary for CLI, GUI, TUI, runtime,
+gateway contracts, and GUI static assets. `@kilnai/native` remains source-only
+experimental work in this release. Packaged executable distribution is a later
+release-engineering concern, not a runtime-surface contract. Installer targets,
+signing, update channels, rollback, and user-data migration must be decided in a
+dedicated packaging roadmap after the native surface proves it has enough
+product value to distribute.
 
 ## Canonical Local Topology
 

@@ -31,9 +31,9 @@ provider routing, and operator-facing control surfaces.
 
 ## Current Baseline
 
-Kiln `2.0.0` is the first supported public baseline for the current
-biocybernetic control-plane architecture. The repository is public and
-buildable from source, and the supported npm package line starts at `2.0.0`.
+Kiln `2.1.0` is the current supported public package line for the control-plane
+architecture. The `2.0.0` release remains the first supported public baseline.
+The repository is public and buildable from source.
 
 Use this repo today if you want to:
 
@@ -53,7 +53,16 @@ bun run test
 bun run build
 ```
 
-Then choose the surface that matches the workflow:
+For normal use from any project, install the public CLI package. It brings the
+official CLI, GUI, TUI, runtime, gateway contracts, and GUI static assets:
+
+```bash
+bun add -g @kilnai/cli@2.1.0
+kiln tui
+kiln gui
+```
+
+When contributing inside this repository, use the source entry point:
 
 ```bash
 bun --cwd packages/cli src/index.ts tui
@@ -96,13 +105,13 @@ Core subsystems:
 
 | Surface | Status | Use it for |
 |---------|--------|------------|
-| CLI | Source-supported | Automation, local runs, config, auth, sync, project context, gateway launch |
-| TUI | Source-supported | Terminal-first supervision over the shared runtime session path |
-| GUI | Source-supported, private package | Rich local or gateway-attached operator supervision |
-| Runtime | Source-supported | Gateway, sessions, channels, triggers, interactive tools, provider routing |
-| Gateway contracts | Source-supported | Shared HTTP, WebSocket, projection, and operator-surface contracts |
-| React SDK | Source-supported | React integration over Kiln gateway contracts |
-| Widget | Source-supported | Embeddable interface components |
+| CLI | Public npm + source | Automation, local runs, config, auth, sync, project context, gateway launch |
+| TUI | Public npm + source | Terminal-first supervision over the shared runtime session path |
+| GUI | Public npm + source | Rich local or gateway-attached operator supervision |
+| Runtime | Public npm + source | Gateway, sessions, channels, triggers, interactive tools, provider routing |
+| Gateway contracts | Public npm + source | Shared HTTP, WebSocket, projection, and operator-surface contracts |
+| React SDK | Public npm + source | React integration over Kiln gateway contracts |
+| Widget | Public npm + source | Embeddable interface components |
 | Native | Experimental/private | Electron-backed desktop capability and projection work |
 | Studio | Internal/private | Development inspection and topology views |
 
@@ -158,8 +167,8 @@ Most important research documents:
 | [`@kilnai/tui`](packages/tui) | Terminal interface for interacting with Kiln as an operator-facing control surface |
 | [`@kilnai/react`](packages/sdk) | React integration surface for applications using Kiln capabilities |
 | [`@kilnai/widget`](packages/widget) | Embeddable interface components |
-| [`@kilnai/gui`](packages/gui) | Primary private web operator surface |
-| [`@kilnai/native`](packages/native) | Private Electron-backed native operator surface |
+| [`@kilnai/gui`](packages/gui) | Public web operator surface served by the runtime |
+| [`@kilnai/native`](packages/native) | Experimental Electron-backed native operator surface |
 | [`@kilnai/studio`](packages/studio) | Internal and development-facing inspection tooling |
 
 ## Examples

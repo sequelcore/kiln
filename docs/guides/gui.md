@@ -17,6 +17,18 @@ runtime. See
 
 ## Usage
 
+Install the public CLI package when operating Kiln from another repository,
+local machine, or VPS:
+
+```bash
+bun add -g @kilnai/cli@2.1.0
+kiln gui
+```
+
+The installed CLI carries the public `@kilnai/gui` static asset package through
+the runtime. A normal `kiln gui` run serves those assets in production mode from
+any working directory.
+
 ```bash
 kiln gui
 ```
@@ -24,9 +36,12 @@ kiln gui
 By default, the command:
 
 1. Starts the local GUI Operator Gateway on port `4810`
-2. Serves the GUI in dev mode or built mode, depending on whether `packages/gui/dist/index.html` exists
+2. Serves the installed `@kilnai/gui` static build
 3. Opens the UI in a managed app-mode window using Microsoft Edge, Google Chrome, or Chromium
 4. Shuts down the gateway when that window closes
+
+Use `--dev` only when developing this repository's GUI source. Dev mode expects
+the `packages/gui` workspace to exist in the current Kiln source checkout.
 
 ### App Gateway Attach Mode
 
@@ -64,8 +79,8 @@ switching and full operator controls remain future operator-contract work.
 | `--connect <url>` | Attach to an existing App Gateway instead of starting the local GUI Operator Gateway |
 | `--port <number>` | Override the gateway port |
 | `--gui-port <number>` | Override the Vite dev server port in dev mode |
-| `--dev` | Force Vite dev mode |
-| `--prod` | Force built/static mode |
+| `--dev` | Use the source-tree Vite dev server from `packages/gui` |
+| `--prod` | Use the installed public GUI static build |
 | `--open` | Launch the managed GUI window |
 | `--no-open` | Start the gateway without opening a window |
 

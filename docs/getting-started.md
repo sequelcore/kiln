@@ -7,14 +7,30 @@ Kiln is a biocybernetic control plane for governed AI work.
 
 ## Current Baseline
 
-Kiln `2.0.0` is the first supported public baseline for the current
-biocybernetic control-plane architecture. The repo can be built and tested from
-source, and the supported npm package line starts at `2.0.0`.
+Kiln `2.1.0` is the current supported public package line for the
+biocybernetic control-plane architecture. Kiln `2.0.0` remains the first
+supported public baseline. The repo can be built and tested from source.
 
-Use this guide for source checkout, verification, and contribution. Do not
-treat older `@kilnai/*` npm versions as the supported public baseline.
+Use this guide for public package installation, source checkout, verification,
+and contribution. Do not treat older `@kilnai/*` npm versions as the supported
+public baseline.
 
 ## Install
+
+For normal use from any project or machine, install the public CLI package:
+
+```bash
+bun add -g @kilnai/cli@2.1.0
+kiln auth codex login
+kiln gui
+```
+
+The global CLI installation includes the official CLI, GUI static assets, TUI,
+runtime, and gateway contracts. `kiln gui` uses the installed `@kilnai/gui`
+package by default; source-tree GUI development requires an explicit `--dev`
+run from this repository.
+
+For source development:
 
 ```bash
 git clone https://github.com/sequelcore/kiln.git
@@ -67,7 +83,7 @@ Choose the surface by workflow:
 | Rich local or remote browser supervision | GUI |
 | Automation, scripting, setup, and one-shot runs | CLI |
 | Gateway, channels, and remote attach patterns | Runtime and gateway contracts |
-| Desktop-specific capability experiments | Native |
+| Desktop-specific capability experiments | Native, from source only in this release |
 
 See [Operator Surfaces](guides/operator-surfaces.md).
 

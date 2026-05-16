@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
@@ -30,8 +29,7 @@ import type {
 } from "../session/runtime-turn-record.js";
 import type { OnProviderSwitch, OnResumeSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
 import {
-  mountGuiStaticAssetsIfPresent,
-  resolveGuiDistCandidates,
+  mountGuiStaticAssets,
   resolveGuiDistPath,
 } from "./gui-static-assets.js";
 import {
@@ -325,12 +323,9 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
   const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
-  const guiDistPath = resolveGuiDistPath(options.guiDistPath, import.meta.url);
-  const hasMountedGui = mountGuiStaticAssetsIfPresent(app, guiDistPath);
-  if (!hasMountedGui) {
-    const unresolvedGuiDistPath = resolveGuiDistCandidates(options.guiDistPath, import.meta.url)[0] ?? "<unknown>";
-    console.warn(`[gui-gateway] GUI bundle missing at ${join(unresolvedGuiDistPath, "index.html")}; skipping /gui mount.`);
-  }
+  const guiDistPath = resolveGuiDistPath(options.guiDistPath);
+  mountGuiStaticAssets(app, guiDistPath);
+  const hasMountedGui = true;
   const transportOptions = options.operatorTransport;
   let activeConnections = 0;
 

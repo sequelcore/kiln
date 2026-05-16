@@ -26,6 +26,9 @@ the dev-tools MCP server.
 bun add -g @kilnai/cli
 ```
 
+This installs the official CLI, GUI launcher/assets, TUI, runtime, and gateway
+contracts so `kiln gui` and `kiln tui` can run from any project directory.
+
 Or use directly:
 
 ```bash

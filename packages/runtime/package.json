@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/runtime",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Gateway runtime and channel adapters for the Kiln control plane",
   "type": "module",
   "exports": {
@@ -42,14 +42,15 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/gateway-contracts": "^2.0.0",
+    "@kilnai/gateway-contracts": "^2.1.0",
     "hono": "^4.7.0",
     "jose": "^5.0.0",
     "sharp": "^0.34.5",
-    "unpdf": "^1.6.2"
+    "unpdf": "^1.6.2",
+    "@kilnai/core": "^2.1.0",
+    "@kilnai/gui": "^2.1.0"
   },
   "peerDependencies": {
-    "@kilnai/core": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@opentelemetry/api": "^1.9.0",
     "ioredis": ">=5.0.0",

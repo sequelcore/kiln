@@ -2,6 +2,19 @@
 
 Rich web operator surface for the Kiln control plane.
 
+## Distribution
+
+`@kilnai/gui` publishes the built static GUI assets consumed by
+`@kilnai/runtime`. Install `@kilnai/cli` for normal operator use:
+
+```bash
+bun add -g @kilnai/cli
+kiln gui
+```
+
+The package includes `dist/` for runtime serving. Development dependencies are
+only needed when working on the GUI source in this repository.
+
 ## Development
 
 ```bash

@@ -1,11 +1,11 @@
 # Kiln Examples
 
-These examples show Kiln's current 2.0 source baseline from the deployable
+These examples show Kiln's current 2.1 package line from the deployable
 runtime side: app declarations, gateway bindings, tenant isolation, MCP tools,
 safety policy, triggers, and embeddable surfaces.
 
-The examples are source examples. Until `v2.0.0` is published, run them from
-this repository with workspace packages.
+The examples can be run from source while developing the repository, or adapted
+to the published `@kilnai/*@2.1.0` package line.
 
 ## Example Map
 
@@ -57,5 +57,5 @@ secrets or demo gateway secrets.
   shared runtime contracts.
 - Tenant files in these examples are demo data. Do not put production secrets in
   tenant JSON or committed YAML.
-- Published npm package examples should target `@kilnai/*@2.0.0` after the
-  `v2.0.0` release. Before that, use workspace packages from this repository.
+- Published npm package examples should target `@kilnai/*@2.1.0`. Source
+  development should use workspace packages from this repository.

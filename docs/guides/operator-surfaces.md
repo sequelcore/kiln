@@ -11,13 +11,23 @@ runtime, gateway contracts, core, or CLI layer first.
 
 | Context | Recommended surface | Why |
 |---|---|---|
-| Local rich supervision | GUI | Best fit for session management, approvals, workspace browsing, telemetry, and multi-agent visibility. |
-| Desktop-native operation | Native | Best fit for embedded browser hosting, native window lifecycle, notifications, packaged installs, and OS-level integrations. |
-| SSH or terminal-first work | TUI | Best fit when a browser is unavailable, terminal workflow is preferred, or a remote shell is the control channel. |
-| Automation and scripts | CLI | Best fit for one-shot runs, CI, scheduled jobs, config sync, auth, and machine-readable output. |
+| Local rich supervision | GUI via `kiln gui` | Best fit for session management, approvals, workspace browsing, telemetry, and multi-agent visibility. |
+| Desktop-native operation | Native from source | Future fit for embedded browser hosting, native window lifecycle, notifications, packaged installs, and OS-level integrations. Native is not part of the global install contract in this release. |
+| SSH or terminal-first work | TUI via `kiln tui` | Best fit when a browser is unavailable, terminal workflow is preferred, or a remote shell is the control channel. |
+| Automation and scripts | CLI via `kiln` | Best fit for one-shot runs, CI, scheduled jobs, config sync, auth, and machine-readable output. |
 | Code navigation and review | IDE surface | Best fit for inline diffs, jump-to-definition, editor-native context, and focused review. |
 | Remote team operation | Remote GUI behind a gateway | Best fit for long-running supervised work, shared visibility, and browser access from another machine. |
 | Chat or alert integrations | Gateway channel or connector | Best fit for Discord, Slack, webhook, or product-channel notifications and lightweight operator actions. |
+
+Install the public operator package once per machine:
+
+```bash
+bun add -g @kilnai/cli@2.1.0
+```
+
+That install provides the official CLI, GUI, TUI, runtime, gateway contracts,
+and GUI static assets. It is intended to work from any project directory,
+including local repos, VPS shells, and deployable app repos.
 
 ## GUI
 
@@ -39,7 +49,9 @@ notifications, tray/background behavior, packaged install/update flow, or
 high-density local projection experiments.
 
 Native remains a client of gateway/operator contracts. It must not import
-runtime implementation code or own session authority.
+runtime implementation code or own session authority. In this release, Native
+is source-only experimental work and is not distributed through the global CLI
+install.
 
 ## TUI
 

@@ -14,8 +14,9 @@ its own orchestration layer.
 
 ## Decision
 
-`@kilnai/gui` is a Vite web application served as a local operator surface. It
-uses the Operator Gateway HTTP/WebSocket contract for runtime state and command
+`@kilnai/gui` is a public Vite web application package containing the built GUI
+static assets for the operator surface. Runtime serves those assets through the
+Operator Gateway HTTP/WebSocket contract for runtime state and command
 submission. The GUI must not call provider adapters, memory repositories, or
 runtime services directly.
 

@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/widget",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Embeddable chat widget for apps built on the Kiln control plane",
   "type": "module",
   "main": "dist/widget.js",
@@ -22,7 +22,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/gateway-contracts": "^2.0.0"
+    "@kilnai/gateway-contracts": "^2.1.0"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",

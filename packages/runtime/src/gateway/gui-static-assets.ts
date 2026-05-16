@@ -41,33 +41,17 @@ export function mountGuiStaticAssets(app: Hono, guiDistPath: string): void {
   });
 }
 
-export function mountGuiStaticAssetsIfPresent(app: Hono, guiDistPath: string | undefined): boolean {
-  if (!guiDistPath) {
-    return false;
+export function resolveGuiDistPath(configuredPath?: string): string {
+  const guiDistPath = configuredPath ? resolve(configuredPath) : resolveInstalledGuiDistPath();
+  const indexHtmlPath = join(guiDistPath, "index.html");
+  if (!existsSync(indexHtmlPath)) {
+    throw new Error(`GUI bundle missing at ${indexHtmlPath}. Install @kilnai/gui or provide a built GUI dist path.`);
   }
-  if (!existsSync(join(guiDistPath, "index.html"))) {
-    return false;
-  }
-  mountGuiStaticAssets(app, guiDistPath);
-  return true;
+  return guiDistPath;
 }
 
-export function resolveGuiDistPath(configuredPath?: string, moduleUrl: string = import.meta.url): string | undefined {
-  const candidates = resolveGuiDistCandidates(configuredPath, moduleUrl);
-  for (const candidate of candidates) {
-    if (existsSync(join(candidate, "index.html"))) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
-
-export function resolveGuiDistCandidates(configuredPath?: string, moduleUrl: string = import.meta.url): readonly string[] {
-  if (configuredPath) {
-    return [resolve(configuredPath)];
-  }
-  const runtimePackageRoot = resolve(dirname(fileURLToPath(moduleUrl)), "..", "..");
-  return [resolve(runtimePackageRoot, "..", "gui", "dist")];
+function resolveInstalledGuiDistPath(): string {
+  return dirname(fileURLToPath(import.meta.resolve("@kilnai/gui/dist/index.html")));
 }
 
 function resolveGuiAssetPath(guiDistPath: string, requestPath: string): string | undefined {

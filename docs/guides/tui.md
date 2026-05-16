@@ -13,6 +13,18 @@ Sources: `packages/tui/src/app.tsx`, `packages/tui/src/theme.ts`, `packages/tui/
 
 ## Starting the TUI
 
+Install the public CLI package when operating Kiln from another repository,
+local machine, or remote shell:
+
+```bash
+bun add -g @kilnai/cli@2.1.0
+kiln tui
+```
+
+The global CLI installation includes `@kilnai/tui`, `@kilnai/runtime`,
+`@kilnai/core`, and the shared gateway contracts, so the terminal surface can be
+started from any project directory.
+
 The `kiln tui` command currently accepts these flags from `packages/cli/src/commands/tui.ts`:
 
 | Flag | Purpose |
@@ -253,8 +265,8 @@ Rules:
   projections; new gateway activity should use `session_event` plus
   session-scoped `activity_phase`.
 
-The direct fallback path still uses this wrapper-managed resume state. The
-default gateway path adds runtime-side continuity on top of it.
+The explicit direct transport path still uses this wrapper-managed resume
+state. The default gateway path adds runtime-side continuity on top of it.
 
 ## In-Process Gateway
 

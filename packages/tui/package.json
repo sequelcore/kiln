@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tui",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Interactive terminal operator surface for the Kiln control plane",
   "type": "module",
   "exports": {
@@ -35,9 +35,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/gateway-contracts": "^2.0.0",
+    "@kilnai/gateway-contracts": "^2.1.0",
     "@opentui/core": "0.1.92",
-    "@opentui/react": "0.1.92"
+    "@opentui/react": "0.1.92",
+    "@kilnai/core": "^2.1.0",
+    "react": "^19.0.0"
   },
   "optionalDependencies": {
     "@opentui/core-darwin-arm64": "0.1.92",
@@ -46,11 +48,6 @@
     "@opentui/core-linux-x64": "0.1.92",
     "@opentui/core-win32-arm64": "0.1.92",
     "@opentui/core-win32-x64": "0.1.92"
-  },
-  "peerDependencies": {
-    "@kilnai/core": "^2.0.0",
-    "@kilnai/cli": "^2.0.0",
-    "react": "^19.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0"

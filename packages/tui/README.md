@@ -2,6 +2,13 @@
 
 Terminal interface package for Kiln.
 
+Install `@kilnai/cli` for normal operator use:
+
+```bash
+bun add -g @kilnai/cli
+kiln tui
+```
+
 `@kilnai/tui` owns terminal rendering, keyboard handling, theme application,
 sidebar state, and the WebSocket session adapter used by `kiln tui`.
 It is still intentionally thin: orchestration, routing, persistence, and
