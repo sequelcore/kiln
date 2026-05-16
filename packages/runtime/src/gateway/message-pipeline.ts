@@ -25,8 +25,13 @@ import type {
   CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanWorkItemDraft,
   KilnEvent,
+  SttAdapter,
+  TtsAdapter,
+  VoiceConfig,
+  VoiceFailureMode,
+  VoiceSurface,
 } from "@kilnai/core";
-import { DefaultContextGovernor, extractText, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate } from "@kilnai/core";
+import { DefaultContextGovernor, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type {
@@ -66,8 +71,14 @@ import type { AgentHandoffSummarizer } from "../session/support/summarization/ag
 import type { OperatorExecutionMode, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type { RuntimeSession } from "../session/runtime-session.js";
 import { authorityFromCapability } from "./tool-authority.js";
-import { createGenericMediaDownloader } from "./audio-preprocessor.js";
+import {
+  AudioTransformError,
+  createAudioTransformRoutingEvents,
+  createGenericMediaDownloader,
+  transformAudioParts,
+} from "./audio-preprocessor.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
+import { synthesizeVoiceOutput } from "./voice-output-synthesizer.js";
 
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
@@ -101,6 +112,9 @@ export interface AdmittedTurnContext {
   readonly systemPrompt?: string;
   readonly userParts: readonly ContentPart[];
   readonly artifactStore?: ArtifactResourceStore;
+  readonly voiceConfig?: VoiceConfig;
+  readonly sttAdapter?: SttAdapter;
+  readonly ttsAdapter?: TtsAdapter;
   readonly billing?: BillingConfig;
   readonly eventEmitter?: ConversationEventEmitter;
   readonly channel: string;
@@ -120,6 +134,8 @@ export interface AdmittedTurnContext {
   readonly traceId?: string;
   readonly activeAgentId?: string;
   readonly activeAgentName?: string;
+  readonly voiceProfile?: string;
+  readonly voiceOutputIntent?: string;
   readonly isHandoff?: boolean;
   readonly previousAgentId?: string;
   readonly previousAgentName?: string;
@@ -695,6 +711,9 @@ export interface RuntimeContextAudit extends ContextAuditEntry {
 
 export interface AdmittedTurnResult {
   readonly parts: readonly ContentPart[];
+  readonly admittedInput?: {
+    readonly content: string;
+  };
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -718,6 +737,13 @@ export interface AdmittedTurnResult {
   };
   readonly limitReached?: { type: "tokens" | "turns" | "abuse"; value: number; max?: number };
   readonly groundingResult?: GroundingResult;
+  readonly voiceOutput?: {
+    readonly artifactUris: readonly string[];
+    readonly provider: string;
+    readonly model?: string;
+    readonly surface: string;
+    readonly mode: "audio-response" | "artifact-only" | "audio-on-demand";
+  };
   readonly runtimeContinuity?: {
     readonly strategy: string;
     readonly feedbackLabel?: string;
@@ -1135,6 +1161,126 @@ function appendRuntimeLedgerEvent(
   return true;
 }
 
+async function resolveVoiceInputParts(input: {
+  readonly parts: readonly ContentPart[];
+  readonly voiceConfig?: VoiceConfig;
+  readonly sttAdapter?: SttAdapter;
+  readonly artifactStore?: ArtifactResourceStore;
+  readonly appName: string;
+  readonly tenantId: string;
+  readonly userId: string;
+  readonly channel: string;
+  readonly sessionId: string;
+}): Promise<{
+  readonly parts: readonly ContentPart[];
+  readonly events: readonly RuntimePipelineLedgerEvent[];
+}> {
+  if (!hasModality(input.parts, "audio") || !shouldApplyVoiceInputTransform(input.voiceConfig, input.channel)) {
+    return { parts: input.parts, events: [] };
+  }
+
+  const failureMode = resolveVoiceInputFailureMode(input.voiceConfig, input.channel);
+  if (!input.sttAdapter) {
+    return handleVoiceInputFailure({
+      parts: input.parts,
+      failureMode,
+      message: "Voice input requested but no STT adapter is configured.",
+    });
+  }
+  if (!input.artifactStore) {
+    return handleVoiceInputFailure({
+      parts: input.parts,
+      failureMode,
+      message: "Voice input requested but no artifact store is configured for governed audio evidence.",
+    });
+  }
+
+  try {
+    const transformed = await transformAudioParts(input.parts, input.sttAdapter, createGenericMediaDownloader(), {
+      artifactStore: input.artifactStore,
+      sourceIdPrefix: `${input.appName}:${input.tenantId}:${input.userId}:${input.channel}`,
+      maxArtifacts: input.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+    });
+    return {
+      parts: transformed.parts,
+      events: createAudioTransformRoutingEvents({
+        sessionId: input.sessionId,
+        tenantId: input.tenantId,
+        provider: input.sttAdapter.name,
+        model: input.voiceConfig?.stt.model ?? input.sttAdapter.name,
+      }, transformed.transforms),
+    };
+  } catch (error) {
+    if (error instanceof AudioTransformError) {
+      const events = createAudioTransformRoutingEvents({
+        sessionId: input.sessionId,
+        tenantId: input.tenantId,
+        provider: input.sttAdapter.name,
+        model: input.voiceConfig?.stt.model ?? input.sttAdapter.name,
+      }, error.transforms);
+      if (failureMode === "fail-open") {
+        return { parts: input.parts, events };
+      }
+      throw new KilnError("STT_FAILED", "Voice input transcription failed.", {
+        context: { provider: input.sttAdapter.name, channel: input.channel },
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+function shouldApplyVoiceInputTransform(voiceConfig: VoiceConfig | undefined, channel: string): boolean {
+  if (!voiceConfig) {
+    return false;
+  }
+  const surface = toVoiceSurface(channel);
+  if (!surface) {
+    return false;
+  }
+  const surfacePolicy = voiceConfig.policy?.surfaces?.[surface];
+  if (surfacePolicy?.enabled === false) {
+    return false;
+  }
+  const inputModes = surfacePolicy?.input?.modes;
+  if (inputModes && inputModes.length === 0) {
+    return false;
+  }
+  return true;
+}
+
+function resolveVoiceInputFailureMode(
+  voiceConfig: VoiceConfig | undefined,
+  channel: string,
+): VoiceFailureMode {
+  const surface = toVoiceSurface(channel);
+  return (surface ? voiceConfig?.policy?.surfaces?.[surface]?.input?.failureMode : undefined)
+    ?? voiceConfig?.policy?.defaultInputFailureMode
+    ?? "fail-closed";
+}
+
+function handleVoiceInputFailure(input: {
+  readonly parts: readonly ContentPart[];
+  readonly failureMode: VoiceFailureMode;
+  readonly message: string;
+}): {
+  readonly parts: readonly ContentPart[];
+  readonly events: readonly RuntimePipelineLedgerEvent[];
+} {
+  if (input.failureMode === "fail-open") {
+    return { parts: input.parts, events: [] };
+  }
+  throw new KilnError("STT_FAILED", input.message, {
+    retryable: false,
+  });
+}
+
+function toVoiceSurface(channel: string): VoiceSurface | undefined {
+  return VALID_VOICE_SURFACES.includes(channel as VoiceSurface)
+    ? channel as VoiceSurface
+    : undefined;
+}
+
 function runtimeLedgerEventKey(event: RuntimePipelineLedgerEvent): string {
   const base = `${event.type}|${event.sessionId}|${event.timestamp.toISOString()}`;
   switch (event.type) {
@@ -1160,7 +1306,7 @@ function runtimeLedgerEventKey(event: RuntimePipelineLedgerEvent): string {
 export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<ProcessResult> {
   const trace = new TraceContext(ctx.traceId);
   trace.log("pipeline", "Processing inbound message", { appName: ctx.appName, userId: ctx.userId, channel: ctx.channel });
-  const userParts = ctx.artifactStore
+  let userParts = ctx.artifactStore
     ? await captureMultimodalArtifacts(ctx.userParts, {
       artifactStore: ctx.artifactStore,
       downloader: createGenericMediaDownloader(),
@@ -1169,9 +1315,8 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       producerName: `gateway-${ctx.channel}-ingress`,
     })
     : ctx.userParts;
-  const userText = extractText(userParts);
   const turnStartedAt = new Date();
-  const taskShape = normalizeRuntimeTaskShape(userText);
+  let preAdmissionRuntimeEvents: readonly RuntimePipelineLedgerEvent[] = [];
   const effectiveTenantId = ctx.tenant?.tenantId ?? ctx.tenantId;
   const executionMode = ctx.executionMode ?? "execute";
   const initialSystemPrompt = ctx.tenant
@@ -1240,6 +1385,23 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   if (ctx.userContext && Object.keys(ctx.userContext).length > 0) {
     session.updateUserContext(ctx.userContext);
   }
+
+  const voiceInput = await resolveVoiceInputParts({
+    parts: userParts,
+    voiceConfig: ctx.voiceConfig,
+    sttAdapter: ctx.sttAdapter,
+    artifactStore: ctx.artifactStore,
+    appName: ctx.appName,
+    tenantId: effectiveTenantId,
+    userId: ctx.userId,
+    channel: ctx.channel,
+    sessionId: session.id,
+  });
+  userParts = voiceInput.parts;
+  preAdmissionRuntimeEvents = voiceInput.events;
+
+  const userText = extractText(userParts);
+  const taskShape = normalizeRuntimeTaskShape(userText);
 
   let effectiveKnowledgeContext = ctx.knowledgeContext;
   if (!effectiveKnowledgeContext && ctx.knowledgePipeline && (ctx.knowledgeMode ?? "auto") === "auto") {
@@ -1344,6 +1506,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       ok: true,
       result: {
         parts: [],
+        admittedInput: { content: userText },
         inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
         queued: true,
         sessionId: session.id,
@@ -1378,6 +1541,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       ok: true,
       result: {
         parts: [],
+        admittedInput: { content: userText },
         inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
         queued: true,
         sessionId: session.id,
@@ -1413,6 +1577,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         ok: true,
         result: {
           parts: [],
+          admittedInput: { content: userText },
           inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
           queued: true,
           sessionId: session.id,
@@ -1507,7 +1672,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ctx.orchestrator.eventBus,
     session.id,
     turnStartedAt,
-    ctx.runtimeEvents ?? [],
+    [...(ctx.runtimeEvents ?? []), ...preAdmissionRuntimeEvents],
   );
   const capturedRuntimeEvents = capturedRuntimeReplay.events;
   const capturedRuntimeEventKeys = capturedRuntimeReplay.keys;
@@ -1696,6 +1861,93 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     mergedFileChanges,
   );
 
+  let egressContextSummary = result.contextSummary;
+  let egressToolExecutions = result.toolExecutions;
+  const assistantDecision = await resolveEgressDecision(
+    ctx,
+    effectiveTenantId,
+    session.id,
+    "assistant-response",
+    extractText(resultParts),
+  );
+
+  if (assistantDecision === "deny") {
+    resultParts = textParts(EGRESS_DENIED_FALLBACK_TEXT);
+  } else if (assistantDecision === "redact") {
+    resultParts = redactAssistantParts(resultParts);
+  }
+
+  if (assistantDecision === "deny") {
+    egressContextSummary = undefined;
+  } else if (assistantDecision === "redact" && egressContextSummary !== undefined) {
+    egressContextSummary = EGRESS_REDACTED_TEXT;
+  } else {
+    const summaryDecision = await resolveEgressDecision(
+      ctx,
+      effectiveTenantId,
+      session.id,
+      "context-summary",
+      result.contextSummary,
+    );
+    if (summaryDecision === "deny") {
+      egressContextSummary = undefined;
+    } else if (summaryDecision === "redact" && egressContextSummary !== undefined) {
+      egressContextSummary = EGRESS_REDACTED_TEXT;
+    }
+  }
+
+  if (egressToolExecutions && egressToolExecutions.length > 0) {
+    const mapped: ToolExecutionSummary[] = [];
+    for (const exec of egressToolExecutions) {
+      let summaryDecision: EgressPermissionDecision;
+      if (assistantDecision === "deny") {
+        summaryDecision = "deny";
+      } else if (assistantDecision === "redact") {
+        summaryDecision = "redact";
+      } else {
+        summaryDecision = await resolveEgressDecision(
+          ctx,
+          effectiveTenantId,
+          session.id,
+          "tool-result-summary",
+          exec.resultSummary,
+        );
+      }
+
+      if (summaryDecision === "deny") {
+        mapped.push({ ...exec, resultSummary: "" });
+      } else if (summaryDecision === "redact") {
+        mapped.push({ ...exec, resultSummary: EGRESS_REDACTED_TEXT });
+      } else {
+        mapped.push(exec);
+      }
+    }
+    egressToolExecutions = mapped;
+  }
+
+  const voiceSynthesis = await synthesizeVoiceOutput(
+    resultParts,
+    ctx.voiceConfig,
+    ctx.ttsAdapter,
+    {
+      artifactStore: ctx.artifactStore,
+      appName: ctx.appName,
+      tenantId: effectiveTenantId,
+      userId: ctx.userId,
+      channel: ctx.channel,
+      sessionId: session.id,
+      model: result.routingDecision?.model ?? ctx.orchestrator.model ?? "gateway-transform",
+      voiceProfile: ctx.voiceProfile,
+      voiceOutputIntent: ctx.voiceOutputIntent,
+      escalationReason: result.escalation?.reason,
+      retentionMaxArtifacts: ctx.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+    },
+  );
+  resultParts = voiceSynthesis.parts;
+  for (const event of voiceSynthesis.events) {
+    appendRuntimeLedgerEvent(capturedRuntimeEvents, capturedRuntimeEventKeys, event, session.id);
+  }
+
   applyRuntimeTurnRecord({
     session,
     channel: ctx.channel,
@@ -1732,7 +1984,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     session,
     channel: ctx.channel,
     userMessageContent: userText,
-    assistantMessageContent: extractText(result.parts),
+    assistantMessageContent: extractText(resultParts),
     queued: result.queued,
     turnStartedAt,
     turnCompletedAt: new Date(),
@@ -1760,70 +2012,6 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   }
 
   // Emit events (fire-and-forget)
-  const assistantDecision = await resolveEgressDecision(
-    ctx,
-    effectiveTenantId,
-    session.id,
-    "assistant-response",
-    extractText(resultParts),
-  );
-
-  if (assistantDecision === "deny") {
-    resultParts = textParts(EGRESS_DENIED_FALLBACK_TEXT);
-  } else if (assistantDecision === "redact") {
-    resultParts = redactAssistantParts(resultParts);
-  }
-
-  let egressContextSummary = result.contextSummary;
-  if (assistantDecision === "deny") {
-    egressContextSummary = undefined;
-  } else if (assistantDecision === "redact" && egressContextSummary !== undefined) {
-    egressContextSummary = EGRESS_REDACTED_TEXT;
-  } else {
-    const summaryDecision = await resolveEgressDecision(
-      ctx,
-      effectiveTenantId,
-      session.id,
-      "context-summary",
-      result.contextSummary,
-    );
-    if (summaryDecision === "deny") {
-      egressContextSummary = undefined;
-    } else if (summaryDecision === "redact" && egressContextSummary !== undefined) {
-      egressContextSummary = EGRESS_REDACTED_TEXT;
-    }
-  }
-
-  let egressToolExecutions = result.toolExecutions;
-  if (egressToolExecutions && egressToolExecutions.length > 0) {
-    const mapped: ToolExecutionSummary[] = [];
-    for (const exec of egressToolExecutions) {
-      let summaryDecision: EgressPermissionDecision;
-      if (assistantDecision === "deny") {
-        summaryDecision = "deny";
-      } else if (assistantDecision === "redact") {
-        summaryDecision = "redact";
-      } else {
-        summaryDecision = await resolveEgressDecision(
-          ctx,
-          effectiveTenantId,
-          session.id,
-          "tool-result-summary",
-          exec.resultSummary,
-        );
-      }
-
-      if (summaryDecision === "deny") {
-        mapped.push({ ...exec, resultSummary: "" });
-      } else if (summaryDecision === "redact") {
-        mapped.push({ ...exec, resultSummary: EGRESS_REDACTED_TEXT });
-      } else {
-        mapped.push(exec);
-      }
-    }
-    egressToolExecutions = mapped;
-  }
-
   if (ctx.eventEmitter) {
     ctx.eventEmitter.emit({
       eventType: "MESSAGE_RECEIVED",
@@ -1974,6 +2162,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ok: true,
     result: {
       parts: resultParts,
+      admittedInput: { content: userText },
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       cacheReadTokens: result.cacheReadTokens,
@@ -1998,6 +2187,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
           }
         : undefined,
       groundingResult,
+      voiceOutput: voiceSynthesis.voiceOutput,
       runtimeContinuity: runtimeContinuityPresentation.runtimeContinuity,
       contextAudit: projectedContextAudit,
       effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,

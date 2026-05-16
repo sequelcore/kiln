@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventBus, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, textParts } from "@kilnai/core";
-import type { MultimodalRoutedEvent, TenantConfig } from "@kilnai/core";
+import type { MultimodalRoutedEvent, SttAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import type { SkillConfig } from "@kilnai/core";
 import { processAdmittedTurn, projectAdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
@@ -259,6 +259,95 @@ describe("processAdmittedTurn", () => {
         source: { kind: "uploaded-file", id: "test-app:test-tenant:user-1:api:part:1" },
       },
     });
+  });
+
+  it("transcribes configured voice input before runtime orchestration", async () => {
+    const session = makeMockSession();
+    const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-16T00:00:00.000Z" });
+    const orchestrator = makeMockOrchestrator();
+    const sttAdapter: SttAdapter = {
+      name: "whisper-local",
+      transcribe: vi.fn().mockResolvedValue({
+        text: "hello from microphone",
+        confidence: 0.92,
+        durationMs: 1200,
+      }),
+    };
+    const voiceConfig: VoiceConfig = {
+      stt: { provider: "whisper-local", command: "whisper-local" },
+      tts: { provider: "kokoro-local", command: "kokoro-local", format: "wav" },
+      policy: {
+        artifacts: { storeSourceAudio: true, retentionMaxArtifacts: 10 },
+        surfaces: {
+          gui: {
+            enabled: true,
+            input: { modes: ["microphone", "file"], failureMode: "fail-closed" },
+          },
+        },
+      },
+    };
+
+    const result = await processInboundMessage(makeBaseContext({
+      sessionRegistry: makeMockSessionRegistry(session),
+      orchestrator,
+      artifactStore,
+      voiceConfig,
+      sttAdapter,
+      channel: "gui",
+      userParts: [
+        { type: "audio", mimeType: "audio/webm", data: "AQID" },
+      ],
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.admittedInput).toEqual({
+        content: "[Voice note transcription]: hello from microphone",
+      });
+    }
+    expect(sttAdapter.transcribe).toHaveBeenCalledWith(expect.any(Uint8Array), "audio/webm");
+    expect(orchestrator.processMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      [{ type: "text", text: "[Voice note transcription]: hello from microphone" }],
+      expect.anything(),
+      undefined,
+      undefined,
+    );
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "multimodal_routed",
+      strategy: "transform",
+      reasonCode: "audio_transcription_transform_succeeded",
+      requestedCapability: "transcription",
+      artifactUris: ["kiln://artifacts/inbound-multimodal/artifact_1/content"],
+    }));
+  });
+
+  it("fails closed with a clear STT configuration error before raw audio reaches the model", async () => {
+    const orchestrator = makeMockOrchestrator();
+    const voiceConfig: VoiceConfig = {
+      stt: { provider: "whisper-local", commandEnv: "KILN_WHISPER_COMMAND" },
+      tts: { provider: "kokoro-local", commandEnv: "KILN_KOKORO_COMMAND" },
+      policy: {
+        defaultInputFailureMode: "fail-closed",
+        surfaces: {
+          gui: {
+            enabled: true,
+            input: { modes: ["microphone"] },
+          },
+        },
+      },
+    };
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      voiceConfig,
+      channel: "gui",
+      userParts: [
+        { type: "audio", mimeType: "audio/webm", data: "AQID" },
+      ],
+    }))).rejects.toThrow("Voice input requested but no STT adapter is configured.");
+
+    expect(orchestrator.processMessage).not.toHaveBeenCalled();
   });
 
   it("records submitted plans as canonical session events in plan execution mode", async () => {
@@ -1610,6 +1699,175 @@ describe("processAdmittedTurn", () => {
     expect(escalationEvent?.summary).toBe("[REDACTED]");
     const toolEvent = emitted.find((event) => event.eventType === "TOOL_EXECUTED");
     expect(toolEvent?.resultSummary).toBe("[REDACTED]");
+  });
+
+  it("synthesizes configured API voice output after egress policy and stores governed audio artifact", async () => {
+    const session = makeMockSession();
+    const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-15T00:00:00.000Z" });
+    const ttsAdapter: TtsAdapter = {
+      name: "openai",
+      synthesize: vi.fn().mockResolvedValue({
+        audio: new Uint8Array([1, 2, 3]),
+        mimeType: "audio/mpeg",
+        durationMs: 1234,
+      }),
+    };
+    const voiceConfig: VoiceConfig = {
+      stt: { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" },
+      tts: { provider: "openai", apiKeyEnv: "OPENAI_API_KEY", model: "gpt-4o-mini-tts", voice: "alloy" },
+      policy: {
+        artifacts: { storeSynthesizedAudio: true },
+        surfaces: {
+          api: {
+            output: { modes: ["audio-response"], failureMode: "fail-closed" },
+          },
+        },
+      },
+    };
+    const ctx = makeBaseContext({
+      sessionRegistry: makeMockSessionRegistry(session),
+      artifactStore,
+      voiceConfig,
+      ttsAdapter,
+      evaluateEgressPermission: vi.fn().mockResolvedValue("allow"),
+      orchestrator: {
+        processMessage: vi.fn().mockResolvedValue({
+          parts: textParts("voice response"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult),
+        model: "gpt-5.5",
+      } as unknown as RuntimeSessionOrchestrator,
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.parts).toEqual([
+        { type: "text", text: "voice response" },
+        {
+          type: "audio",
+          mimeType: "audio/mpeg",
+          data: "AQID",
+          artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
+          durationMs: 1234,
+        },
+      ]);
+      expect(result.result.voiceOutput?.artifactUris).toEqual([
+        "kiln://artifacts/voice-synthesis/artifact_1/content",
+      ]);
+    }
+
+    expect(ttsAdapter.synthesize).toHaveBeenCalledWith("voice response", {
+      voice: "alloy",
+    });
+    const artifact = artifactStore.get("voice-synthesis", "artifact_1");
+    expect(artifact?.multimodal).toMatchObject({
+      modality: "audio",
+      durationMs: 1234,
+      source: { kind: "transform-output" },
+    });
+    const routedEvent = session.sessionEvents.find((event) =>
+      event.kind === "multimodal_routed" &&
+      event.reasonCode === "voice_synthesis_transform_succeeded"
+    );
+    expect(routedEvent).toMatchObject({
+      requestedCapability: "speech-synthesis",
+      strategy: "transform",
+      reasonCode: "voice_synthesis_transform_succeeded",
+      artifactUris: ["kiln://artifacts/voice-synthesis/artifact_1/content"],
+    });
+  });
+
+  it("synthesizes voice output with the admitted profile and one-turn intent overlay", async () => {
+    const ttsAdapter: TtsAdapter = {
+      name: "kokoro-local",
+      synthesize: vi.fn().mockResolvedValue({
+        audio: new Uint8Array([4, 5, 6]),
+        mimeType: "audio/wav",
+      }),
+    };
+    const voiceConfig: VoiceConfig = {
+      stt: { provider: "whisper-local", command: "whisper-local" },
+      tts: { provider: "kokoro-local", command: "kokoro-local", format: "wav" },
+      defaults: { ttsProfile: "english-default" },
+      ttsProfiles: {
+        "english-default": {
+          style: "calm, concise technical assistant",
+          voice: "af_bella",
+          language: "en-us",
+          speed: 1,
+          speedRange: [0.95, 1.05],
+          format: "wav",
+          intents: {
+            neutral: {
+              delivery: "Use the profile's normal delivery.",
+              appliesWhen: ["Default spoken response when no more specific intent applies."],
+              speed: 1,
+            },
+            calm: {
+              delivery: "Slightly slower and steadier delivery.",
+              appliesWhen: ["Errors, support friction, or sensitive user messages."],
+              speed: 0.97,
+            },
+          },
+        },
+      },
+      policy: {
+        surfaces: {
+          api: { output: { modes: ["audio-response"] } },
+        },
+      },
+    };
+
+    const result = await processInboundMessage(makeBaseContext({
+      voiceConfig,
+      ttsAdapter,
+      voiceProfile: "english-default",
+      voiceOutputIntent: "calm",
+      artifactStore: new MemoryArtifactResourceStore(),
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock response", {
+      voice: "af_bella",
+      speed: 0.97,
+      format: "wav",
+      language: "en-us",
+    });
+  });
+
+  it("does not call TTS when the surface is configured as transcript-only", async () => {
+    const ttsAdapter: TtsAdapter = {
+      name: "openai",
+      synthesize: vi.fn(),
+    };
+    const voiceConfig: VoiceConfig = {
+      stt: { provider: "openai", apiKeyEnv: "OPENAI_API_KEY" },
+      tts: { provider: "openai", apiKeyEnv: "OPENAI_API_KEY", voice: "alloy" },
+      policy: {
+        surfaces: {
+          api: { output: { modes: ["transcript-only"] } },
+        },
+      },
+    };
+    const ctx = makeBaseContext({
+      voiceConfig,
+      ttsAdapter,
+      artifactStore: new MemoryArtifactResourceStore(),
+    });
+
+    const result = await processInboundMessage(ctx);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.parts).toEqual(textParts("mock response"));
+    }
+    expect(ttsAdapter.synthesize).not.toHaveBeenCalled();
   });
 
   it("captures approval transitions from runtime event bus into canonical turn artifacts", async () => {

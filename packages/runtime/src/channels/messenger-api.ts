@@ -53,18 +53,18 @@ export async function sendMessengerMessage(
 }
 
 /**
- * Send a media message (image) via Messenger Send API.
+ * Send a media message via Messenger Send API.
  *
  * @param accessToken - Page access token
  * @param recipientId - Page-scoped user ID (PSID)
  * @param mediaUrl - Public URL of the media
- * @param mediaType - Type of media ("image")
+ * @param mediaType - Type of media
  */
 export async function sendMessengerMediaMessage(
   accessToken: string,
   recipientId: string,
   mediaUrl: string,
-  mediaType: "image",
+  mediaType: "image" | "audio",
 ): Promise<MessengerSendResult> {
   const res = await fetch(messengerMessagesUrl(), {
     method: "POST",

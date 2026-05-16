@@ -2,9 +2,10 @@
 // Separated from gateway-server.ts so it can be tested without Bun runtime.
 
 import { Hono } from "hono";
-import type { App, ArtifactResourceStore, EventBus, SttAdapter, ContactMemoryService } from "@kilnai/core";
+import type { App, ArtifactResourceStore, EventBus, SttAdapter, TtsAdapter, ContactMemoryService } from "@kilnai/core";
 import type { GatewayAppBinding, SecurityConfig, AuditLog, GatewayMcpConfig } from "@kilnai/core";
-import { extractText, PromptScanner, textParts } from "@kilnai/core";
+import { extractText, PromptScanner } from "@kilnai/core";
+import type { ContentPart } from "@kilnai/core";
 import type { WSContext } from "hono/ws";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
@@ -63,6 +64,8 @@ import {
   projectAdmittedTurnContext,
   resolveCoordinationContextCandidates,
 } from "./message-pipeline.js";
+import { guiOutboundMessageParts } from "./gui-frame-parts.js";
+import { verifySignedArtifactMediaRequest } from "./public-media-delivery.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -79,7 +82,9 @@ export interface LoadedApp {
   webChannel?: WebChannel;
   eventEmitter?: ConversationEventEmitter;
   sttAdapter?: SttAdapter;
+  ttsAdapter?: TtsAdapter;
   artifactStore?: ArtifactResourceStore;
+  publicMediaSigningSecret?: string;
   knowledgePipeline?: KnowledgePipelineResult;
   knowledgeAdminConfig?: KnowledgeAdminRoutesConfig;
   contactMemoryService?: ContactMemoryService;
@@ -111,6 +116,41 @@ export interface GatewayServerConfig {
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
   const app = new Hono();
+
+  app.get("/media/:appName/:namespace/:id/content", (c) => {
+    const appName = c.req.param("appName");
+    const namespace = c.req.param("namespace");
+    const id = c.req.param("id");
+    const loadedApp = config.apps.find((candidate) => candidate.name === appName);
+    if (!loadedApp?.artifactStore || !loadedApp.publicMediaSigningSecret) {
+      return c.text("Not found", 404);
+    }
+
+    const verification = verifySignedArtifactMediaRequest({
+      appName,
+      namespace,
+      id,
+      expires: c.req.query("expires"),
+      signature: c.req.query("sig"),
+      signingSecret: loadedApp.publicMediaSigningSecret,
+    });
+    if (!verification.ok) {
+      return c.text("Forbidden", 403);
+    }
+
+    const artifact = loadedApp.artifactStore.get(namespace, id);
+    if (!artifact || artifact.content.type !== "blob") {
+      return c.text("Not found", 404);
+    }
+
+    return new Response(Buffer.from(artifact.content.blob, "base64"), {
+      status: 200,
+      headers: {
+        "Content-Type": artifact.mimeType,
+        "Cache-Control": "private, max-age=300",
+      },
+    });
+  });
 
   // Security middleware: prompt injection scanning (opt-in via securityConfig)
   if (config.securityConfig?.promptInjection?.enabled) {
@@ -714,7 +754,7 @@ async function processAppGatewayGuiMessage(
     return;
   }
 
-  const content = frame.content.trim();
+  const userParts = guiOutboundMessageParts(frame);
   const sessionId = typeof frame.resumeSessionId === "string" && frame.resumeSessionId.trim()
     ? frame.resumeSessionId.trim()
     : undefined;
@@ -737,7 +777,7 @@ async function processAppGatewayGuiMessage(
         userId: selectedRuntime.userId,
         ...(sessionId ? { sessionId } : {}),
         systemPrompt: selectedRuntime.runtime.systemPrompt,
-        userParts: textParts(content),
+        userParts,
         billing: selectedRuntime.runtime.billing,
         channel: "gui",
         knowledgePipeline: selectedRuntime.runtime.knowledgePipeline,
@@ -751,8 +791,11 @@ async function processAppGatewayGuiMessage(
         coordinationContextProvider: selectedRuntime.runtime.coordinationContextProvider,
         requestedAuthority: frame.requestedAuthority,
         artifactStore: selectedRuntime.loadedApp.artifactStore,
+        voiceConfig: selectedRuntime.loadedApp.app.voice,
+        sttAdapter: selectedRuntime.loadedApp.sttAdapter,
+        ttsAdapter: selectedRuntime.loadedApp.ttsAdapter,
       })
-      : await processTenantAppGatewayGuiTurn(selectedRuntime, content, sessionId, frame.requestedAuthority);
+      : await processTenantAppGatewayGuiTurn(selectedRuntime, userParts, sessionId, frame.requestedAuthority);
 
     if (!processResult.ok) {
       ws.send(JSON.stringify({
@@ -784,7 +827,7 @@ async function processAppGatewayGuiMessage(
 
 async function processTenantAppGatewayGuiTurn(
   selection: Extract<AppGatewayGuiRuntimeSelection, { kind: "tenant" }>,
-  content: string,
+  userParts: readonly ContentPart[],
   sessionId?: string,
   requestedAuthority?: OperatorTurnRequestedAuthority,
 ): ReturnType<typeof processAdmittedTurn> {
@@ -806,7 +849,7 @@ async function processTenantAppGatewayGuiTurn(
     tenantId: selection.tenantId,
     userId: selection.userId,
     ...(sessionId ? { sessionId } : {}),
-    userParts: textParts(content),
+    userParts,
     billing: billingConfig,
     channel: "gui",
     tenant,
@@ -817,6 +860,9 @@ async function processTenantAppGatewayGuiTurn(
     coordinationContextProvider: selection.runtime.coordinationContextProvider,
     requestedAuthority,
     artifactStore: selection.loadedApp.artifactStore,
+    voiceConfig: selection.loadedApp.app.voice,
+    sttAdapter: selection.loadedApp.sttAdapter,
+    ttsAdapter: selection.loadedApp.ttsAdapter,
   });
 }
 

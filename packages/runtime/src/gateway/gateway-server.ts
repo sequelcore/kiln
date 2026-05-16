@@ -26,7 +26,7 @@ import {
   isPooledDirectProviderId,
   OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
 import { AnnotationAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient, CostTracker } from "@kilnai/core";
@@ -49,6 +49,8 @@ import { DevOrchestrator } from "./dev-orchestrator.js";
 import { DevTokenStore } from "./dev-token-store.js";
 import { ConversationEventEmitter } from "./conversation-event-emitter.js";
 import { createSttAdapter } from "./stt-factory.js";
+import { createTtsAdapter } from "./tts-factory.js";
+import { createSignedArtifactMediaPublisher } from "./public-media-delivery.js";
 import { createKnowledgePipeline, createSourceManager, createContactMemoryService } from "./knowledge-factory.js";
 import type { KnowledgePipelineResult } from "./knowledge-factory.js";
 import type { KnowledgeAdminRoutesConfig } from "./knowledge-admin-routes.js";
@@ -76,6 +78,49 @@ export { createDevRoutes } from "./dev-routes.js";
 export type { AppGraphResponse, AppGraphTeam, AppGraphAgent, AppGraphRouter, EvalExperimentSummary } from "./dev-routes-types.js";
 export { createDevInspectorHtml } from "./dev-inspector.js";
 export { ApprovalGateRegistry } from "./approval-registry.js";
+
+type MetaVoiceChannelType = "whatsapp" | "instagram" | "messenger";
+
+export function assertMetaVoicePublicMediaConfig(input: {
+  readonly appName: string;
+  readonly channelType: MetaVoiceChannelType;
+  readonly voiceConfig?: VoiceConfig;
+  readonly publicMediaBaseUrlEnv?: string;
+  readonly publicMediaSigningSecretEnv?: string;
+  readonly publicMediaBaseUrl?: string;
+  readonly publicMediaSigningSecret?: string;
+}): void {
+  const surfacePolicy = input.voiceConfig?.policy?.surfaces?.[input.channelType];
+  if (!input.voiceConfig || surfacePolicy?.enabled === false) {
+    return;
+  }
+  const outputModes = surfacePolicy?.output?.modes ?? ["transcript-only"];
+  if (!outputModes.includes("audio-response")) {
+    return;
+  }
+  if (!input.publicMediaBaseUrlEnv || !input.publicMediaSigningSecretEnv) {
+    throw new KilnError(
+      "CONFIG_INVALID",
+      `App '${input.appName}' enables voice audio-response for ${input.channelType} but the channel binding does not declare publicMediaBaseUrlEnv and publicMediaSigningSecretEnv.`,
+    );
+  }
+  if (!input.publicMediaBaseUrl || !input.publicMediaSigningSecret) {
+    throw new KilnError(
+      "CONFIG_MISSING_ENV",
+      `App '${input.appName}' enables voice audio-response for ${input.channelType} but public media env vars ${input.publicMediaBaseUrlEnv} and ${input.publicMediaSigningSecretEnv} are not both set.`,
+    );
+  }
+  try {
+    if (new URL(input.publicMediaBaseUrl).protocol !== "https:") {
+      throw new Error("not-https");
+    }
+  } catch {
+    throw new KilnError(
+      "CONFIG_INVALID",
+      `App '${input.appName}' public media base URL for ${input.channelType} must be a valid HTTPS origin.`,
+    );
+  }
+}
 export type { ApprovalTarget } from "./approval-registry.js";
 export { DevOrchestrator } from "./dev-orchestrator.js";
 export type { DevOrchestratorConfig, DevRunResult } from "./dev-orchestrator.js";
@@ -463,7 +508,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       webChannel: hasWebChannel ? new WebChannel() : undefined,
       eventEmitter: undefined as undefined | ConversationEventEmitter,
       sttAdapter: undefined as undefined | SttAdapter,
+      ttsAdapter: undefined as undefined | TtsAdapter,
       artifactStore: new MemoryArtifactResourceStore(),
+      publicMediaSigningSecret: undefined as undefined | string,
       knowledgePipeline: undefined as undefined | KnowledgePipelineResult,
       knowledgeAdminConfig: undefined as undefined | KnowledgeAdminRoutesConfig,
       contactMemoryService: undefined as undefined | ContactMemoryService,
@@ -544,6 +591,15 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         console.log(`  ${loaded.name}: STT adapter "${resolved.app.voice.stt.provider}" initialized`);
       } catch (err) {
         console.warn(`  ${loaded.name}: STT initialization failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (resolved.app.voice?.tts) {
+      try {
+        loaded.ttsAdapter = createTtsAdapter(resolved.app.voice.tts);
+        console.log(`  ${loaded.name}: TTS adapter "${resolved.app.voice.tts.provider}" initialized`);
+      } catch (err) {
+        console.warn(`  ${loaded.name}: TTS initialization failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -732,9 +788,46 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         sessionRegistry,
         tenantRegistry,
         artifactStore: loaded.artifactStore,
+        voiceConfig: resolved.app.voice,
+        ttsAdapter: loaded.ttsAdapter,
         billing: resolved.runtimeModeConfig.billing,
         apiKey: resolvedApiKey,
         groundingDeps,
+      };
+
+      const createOutboundMediaPublisher = (channel: (typeof loaded.binding.channels)[number] | undefined) => {
+        const publicMediaBaseUrlEnv = channel?.publicMediaBaseUrlEnv ?? "";
+        const publicMediaSigningSecretEnv = channel?.publicMediaSigningSecretEnv ?? "";
+        const publicMediaBaseUrl = publicMediaBaseUrlEnv ? process.env[publicMediaBaseUrlEnv] : undefined;
+        const publicMediaSigningSecret = publicMediaSigningSecretEnv ? process.env[publicMediaSigningSecretEnv] : undefined;
+        if (channel?.type === "whatsapp" || channel?.type === "instagram" || channel?.type === "messenger") {
+          assertMetaVoicePublicMediaConfig({
+            appName: loaded.name,
+            channelType: channel.type,
+            voiceConfig: resolved.app.voice,
+            publicMediaBaseUrlEnv,
+            publicMediaSigningSecretEnv,
+            publicMediaBaseUrl,
+            publicMediaSigningSecret,
+          });
+        }
+        if (publicMediaSigningSecret) {
+          if (loaded.publicMediaSigningSecret && loaded.publicMediaSigningSecret !== publicMediaSigningSecret) {
+            throw new KilnError(
+              "CONFIG_INVALID",
+              `App '${loaded.name}' has conflicting public media signing secrets across channel bindings.`,
+            );
+          }
+          loaded.publicMediaSigningSecret = publicMediaSigningSecret;
+        }
+        if (!publicMediaBaseUrl || !publicMediaSigningSecret) {
+          return undefined;
+        }
+        return createSignedArtifactMediaPublisher({
+          appName: loaded.name,
+          publicBaseUrl: publicMediaBaseUrl,
+          signingSecret: publicMediaSigningSecret,
+        });
       };
 
       // WhatsApp webhook: find whatsapp channel with verifyTokenEnv
@@ -742,6 +835,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       if (whatsappChannel) {
         const verifyTokenEnv = whatsappChannel.verifyTokenEnv ?? "";
         const appSecretEnv = whatsappChannel.appSecretEnv ?? "";
+        const outboundMediaPublisher = createOutboundMediaPublisher(whatsappChannel);
         loaded.whatsappWebhookConfig = {
           appName: loaded.name,
           orchestrator,
@@ -755,6 +849,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
           artifactStore: loaded.artifactStore,
+          voiceConfig: resolved.app.voice,
+          ttsAdapter: loaded.ttsAdapter,
+          ...(outboundMediaPublisher ? { outboundMediaPublisher } : {}),
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
@@ -768,6 +865,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         // Instagram shares the same Meta App Secret as WhatsApp
         const igAppSecretEnv = instagramChannel.appSecretEnv ?? whatsappChannel?.appSecretEnv ?? "";
         const igVerifyTokenEnv = instagramChannel.verifyTokenEnv ?? "";
+        const outboundMediaPublisher = createOutboundMediaPublisher(instagramChannel);
         loaded.instagramWebhookConfig = {
           appName: loaded.name,
           orchestrator,
@@ -781,6 +879,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
           artifactStore: loaded.artifactStore,
+          voiceConfig: resolved.app.voice,
+          ttsAdapter: loaded.ttsAdapter,
+          ...(outboundMediaPublisher ? { outboundMediaPublisher } : {}),
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
@@ -793,6 +894,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       if (messengerChannel) {
         const msgAppSecretEnv = messengerChannel.appSecretEnv ?? whatsappChannel?.appSecretEnv ?? "";
         const msgVerifyTokenEnv = messengerChannel.verifyTokenEnv ?? "";
+        const outboundMediaPublisher = createOutboundMediaPublisher(messengerChannel);
         loaded.messengerWebhookConfig = {
           appName: loaded.name,
           orchestrator,
@@ -806,6 +908,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
           memoryBasePath: resolved.memoryBasePath,
           sttAdapter: loaded.sttAdapter,
           artifactStore: loaded.artifactStore,
+          voiceConfig: resolved.app.voice,
+          ttsAdapter: loaded.ttsAdapter,
+          ...(outboundMediaPublisher ? { outboundMediaPublisher } : {}),
           knowledgePipeline: loaded.knowledgePipeline?.pipeline,
           knowledgeMode: resolved.app.knowledge?.mode,
           contactMemoryService: loaded.contactMemoryService,
@@ -855,6 +960,8 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         orchestrator,
         sessionRegistry,
         artifactStore: loaded.artifactStore,
+        voiceConfig: resolved.app.voice,
+        ttsAdapter: loaded.ttsAdapter,
         billing: resolved.runtimeModeConfig.billing,
         systemPrompt,
         apiKey: resolvedApiKey,

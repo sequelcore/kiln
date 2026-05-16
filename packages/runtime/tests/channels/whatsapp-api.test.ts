@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  sendWhatsAppAudioMessage,
   sendWhatsAppMessage,
   sendWhatsAppTemplate,
   whatsappMessagesUrl,
@@ -65,6 +66,27 @@ describe("whatsapp-api", () => {
       await expect(
         sendWhatsAppMessage("phone1", "token1", "+5551234", { type: "text" }),
       ).rejects.toThrow("WhatsApp API error 400");
+    });
+  });
+
+  describe("sendWhatsAppAudioMessage", () => {
+    it("sends audio as a public media link", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ messages: [{ id: "wamid.audio" }] }),
+      });
+
+      const result = await sendWhatsAppAudioMessage(
+        "phone1",
+        "token1",
+        "+5551234",
+        "https://media.example.com/audio.mp3",
+      );
+
+      expect(result.whatsappMessageId).toBe("wamid.audio");
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.type).toBe("audio");
+      expect(body.audio.link).toBe("https://media.example.com/audio.mp3");
     });
   });
 

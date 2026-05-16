@@ -227,6 +227,10 @@ export { resolveApps } from "./gateway/app-resolver.js";
 export type { ResolvedApp } from "./gateway/app-resolver.js";
 export { createProviderAdapterRoutes } from "./gateway/provider-adapter-routes.js";
 export type { ProviderAdapterAppRuntime } from "./gateway/provider-adapter-routes.js";
+export { KokoroLocalTtsAdapter, WhisperLocalSttAdapter } from "./gateway/local-voice-adapters.js";
+export type { KokoroLocalTtsAdapterConfig, WhisperLocalSttAdapterConfig } from "./gateway/local-voice-adapters.js";
+export { createSttAdapter } from "./gateway/stt-factory.js";
+export { createTtsAdapter } from "./gateway/tts-factory.js";
 export { checkBudget, reportUsage, checkTier } from "./gateway/budget-middleware.js";
 export type { BudgetCheckResult, TierCheckResult, BillingConfig } from "./gateway/budget-middleware.js";
 export { ConversationEventEmitter } from "./gateway/conversation-event-emitter.js";
@@ -385,6 +389,7 @@ export type { SlackConfig } from "./channels/slack-channel.js";
 export { ApiChannel } from "./channels/api-channel.js";
 export type { SseWriter } from "./channels/api-channel.js";
 export {
+  sendWhatsAppAudioMessage,
   sendWhatsAppMessage,
   sendWhatsAppTemplate,
   whatsappMessagesUrl,

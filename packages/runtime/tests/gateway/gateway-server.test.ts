@@ -6,7 +6,9 @@ import { join } from "node:path";
 import type { UpgradeWebSocket } from "hono/ws";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import type { LoadedApp, GatewayServerConfig } from "../../src/gateway/gateway-routes.js";
+import { createSignedArtifactMediaUrl } from "../../src/gateway/public-media-delivery.js";
 import {
+  assertMetaVoicePublicMediaConfig,
   discoverMcpCapabilitiesWithConfiguredToolRetry,
   evaluateProviderSubsystemHealth,
 } from "../../src/gateway/gateway-server.js";
@@ -17,7 +19,7 @@ import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { SessionRegistry } from "../../src/session/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
-import type { App, EventBus, ProviderAdapter, RuntimeModeConfig, SttAdapter, TenantConfig } from "@kilnai/core";
+import type { App, EventBus, ProviderAdapter, RuntimeModeConfig, SttAdapter, TenantConfig, VoiceConfig } from "@kilnai/core";
 import { CredentialPool, MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 
 const originalFetch = globalThis.fetch;
@@ -81,6 +83,21 @@ function makeProviderHealthApp(providerName: string): { readonly runtimeModeConf
   };
 }
 
+function makeMetaAudioResponseVoiceConfig(channelType: "whatsapp" | "instagram" | "messenger"): VoiceConfig {
+  return {
+    stt: { provider: "openai" },
+    tts: { provider: "openai", voice: "alloy" },
+    policy: {
+      surfaces: {
+        [channelType]: {
+          enabled: true,
+          output: { modes: ["audio-response", "transcript-only"], failureMode: "fail-closed" },
+        },
+      },
+    },
+  };
+}
+
 function makeUpgradeWebSocket() {
   type HandlerFactory = Parameters<UpgradeWebSocket>[0];
   let capturedFactory: HandlerFactory | null = null;
@@ -129,6 +146,57 @@ function makeTenantConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
   };
 }
 
+describe("assertMetaVoicePublicMediaConfig", () => {
+  it("fails fast when Meta audio-response lacks public media binding names", () => {
+    expect(() => assertMetaVoicePublicMediaConfig({
+      appName: "voice-app",
+      channelType: "instagram",
+      voiceConfig: makeMetaAudioResponseVoiceConfig("instagram"),
+    })).toThrow("does not declare publicMediaBaseUrlEnv and publicMediaSigningSecretEnv");
+  });
+
+  it("fails fast when Meta audio-response public media env values are missing", () => {
+    expect(() => assertMetaVoicePublicMediaConfig({
+      appName: "voice-app",
+      channelType: "messenger",
+      voiceConfig: makeMetaAudioResponseVoiceConfig("messenger"),
+      publicMediaBaseUrlEnv: "GATEWAY_PUBLIC_URL",
+      publicMediaSigningSecretEnv: "GATEWAY_MEDIA_SIGNING_SECRET",
+    })).toThrow("are not both set");
+  });
+
+  it("fails fast when Meta public media base URL is not HTTPS", () => {
+    expect(() => assertMetaVoicePublicMediaConfig({
+      appName: "voice-app",
+      channelType: "whatsapp",
+      voiceConfig: makeMetaAudioResponseVoiceConfig("whatsapp"),
+      publicMediaBaseUrlEnv: "GATEWAY_PUBLIC_URL",
+      publicMediaSigningSecretEnv: "GATEWAY_MEDIA_SIGNING_SECRET",
+      publicMediaBaseUrl: "http://localhost:3800",
+      publicMediaSigningSecret: "secret",
+    })).toThrow("must be a valid HTTPS origin");
+  });
+
+  it("allows transcript-only Meta voice output without public media binding", () => {
+    expect(() => assertMetaVoicePublicMediaConfig({
+      appName: "voice-app",
+      channelType: "instagram",
+      voiceConfig: {
+        stt: { provider: "openai" },
+        tts: { provider: "openai", voice: "alloy" },
+        policy: {
+          surfaces: {
+            instagram: {
+              enabled: true,
+              output: { modes: ["transcript-only"], failureMode: "fail-closed" },
+            },
+          },
+        },
+      },
+    })).not.toThrow();
+  });
+});
+
 describe("createGatewayApp", () => {
   it("returns Hono app", () => {
     const app = createGatewayApp(makeConfig([]));
@@ -160,6 +228,38 @@ describe("createGatewayApp", () => {
 
     expect(body.apps[0]!.channels).toEqual(["api"]);
     expect(body.apps[1]!.channels).toEqual(["whatsapp"]);
+  });
+
+  it("serves signed public media artifact content", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-15T00:00:00.000Z" });
+    artifactStore.put({
+      namespace: "voice-synthesis",
+      title: "Voice output",
+      mimeType: "audio/mpeg",
+      content: { type: "blob", blob: "AQID" },
+      producer: { kind: "gateway", name: "test" },
+      retention: { scope: "session" },
+    });
+    const loadedApp = {
+      ...makeLoadedApp("voice-app", "whatsapp"),
+      artifactStore,
+      publicMediaSigningSecret: "secret",
+    };
+    const app = createGatewayApp(makeConfig([loadedApp]));
+    const signedUrl = createSignedArtifactMediaUrl({
+      appName: "voice-app",
+      publicBaseUrl: "https://gateway.example.com",
+      namespace: "voice-synthesis",
+      id: "artifact_1",
+      signingSecret: "secret",
+    });
+    const requestUrl = new URL(signedUrl);
+
+    const res = await app.request(`${requestUrl.pathname}${requestUrl.search}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("audio/mpeg");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it("GET /observability includes active credential pool health", async () => {

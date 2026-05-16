@@ -13,13 +13,13 @@ export interface MessengerConfig {
 /**
  * Channel adapter for Facebook Messenger.
  * receive() accepts parsed webhook messages from Messenger Platform.
- * send() posts text/image messages via graph.facebook.com/me/messages.
+ * send() posts text/media messages via graph.facebook.com/me/messages.
  * stream() sends each engine event as a summarized text message.
  */
 export class MessengerChannel implements Channel {
   readonly name = "messenger";
   readonly defaultFormat: MessageFormat = "short";
-  readonly supportedModalities: readonly Modality[] = ["text", "image"];
+  readonly supportedModalities: readonly Modality[] = ["text", "image", "audio"];
 
   private readonly config: MessengerConfig;
   private messageHandler: ((message: IncomingMessage) => void) | null = null;
@@ -42,10 +42,12 @@ export class MessengerChannel implements Channel {
     const { accessToken } = this.config;
     const to = response.target;
 
-    // Send image parts first
+    // Send media parts first
     for (const part of response.parts) {
       if (part.type === "image" && part.url) {
         await sendMessengerMediaMessage(accessToken, to, part.url, "image");
+      } else if (part.type === "audio" && part.url) {
+        await sendMessengerMediaMessage(accessToken, to, part.url, "audio");
       }
     }
 

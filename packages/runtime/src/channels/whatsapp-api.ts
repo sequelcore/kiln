@@ -75,6 +75,25 @@ export async function sendWhatsAppMessage(
   return res;
 }
 
+export async function sendWhatsAppAudioMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  publicAudioUrl: string,
+): Promise<WhatsAppSendResult> {
+  const res = await sendWhatsAppMessage(phoneNumberId, accessToken, to, {
+    type: "audio",
+    audio: { link: publicAudioUrl },
+  });
+
+  const json = (await res.json()) as { messages?: Array<{ id: string }> };
+  const messageId = json.messages?.[0]?.id;
+  if (!messageId) {
+    throw new Error("WhatsApp API returned no message ID for audio send");
+  }
+  return { whatsappMessageId: messageId };
+}
+
 /**
  * Send a pre-approved template message via WhatsApp Cloud API.
  * Used for business-initiated messages outside the 24-hour service window.

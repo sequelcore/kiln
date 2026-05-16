@@ -5,10 +5,10 @@ import {
   createSessionBuiltinToolOptions,
   EventBus,
   extractText,
-  textParts,
   type ApprovalReceivedEvent,
   type ApprovalRequestedEvent,
   type CanonicalSessionEvent,
+  type ContentPart,
   type KilnEvent,
   type ModelRoutedEvent,
   type ReasoningEffort,
@@ -22,6 +22,7 @@ import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.
 import { SessionRegistry } from "../session/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn } from "./message-pipeline.js";
+import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import type {
   RuntimeTurnApprovalTransition,
   RuntimeTurnAuthorityDecision,
@@ -40,6 +41,7 @@ import {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "./gui-provider-models.js";
+import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
@@ -687,6 +689,7 @@ function wireOperatorTransport(
       };
       let operatorSocket: WSContext | null = null;
       let unsubscribeDiscovery: (() => void) | undefined;
+      const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame satisfies GuiInboundFrame));
       });
@@ -1074,6 +1077,68 @@ function wireOperatorTransport(
               return;
             }
 
+            if (frame.type === "voice_synthesis_request") {
+              const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
+              const sourceMessageId = typeof frame.sourceMessageId === "string" ? frame.sourceMessageId.trim() : "";
+              const source = sourceMessageId ? voiceSynthesisSources.get(sourceMessageId) : undefined;
+              if (!requestId || !sourceMessageId || !source) {
+                ws.send(JSON.stringify({
+                  type: "voice_synthesis_failed",
+                  requestId: requestId || crypto.randomUUID(),
+                  sourceMessageId: sourceMessageId || "unknown",
+                  message: "Voice synthesis source message is no longer available.",
+                  code: "VOICE_SOURCE_NOT_FOUND",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              try {
+                const voiceSynthesis = await synthesizeVoiceOutputOnDemand(
+                  source.parts,
+                  input.transport.voiceConfig,
+                  input.transport.ttsAdapter,
+                  {
+                    artifactStore: input.transport.artifactStore,
+                    appName: GUI_APP_NAME,
+                    tenantId: GUI_TENANT_ID,
+                    userId,
+                    channel: "gui",
+                    sessionId: source.sessionId,
+                    model: input.transport.sessionManager.getModel() || "gateway-transform",
+                    retentionMaxArtifacts: input.transport.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+                  },
+                );
+                if (!voiceSynthesis.voiceOutput) {
+                  ws.send(JSON.stringify({
+                    type: "voice_synthesis_failed",
+                    requestId,
+                    sourceMessageId,
+                    message: "On-demand voice synthesis is not enabled for the GUI surface.",
+                    code: "VOICE_SYNTHESIS_NOT_ENABLED",
+                  } satisfies GuiInboundFrame));
+                  return;
+                }
+                voiceSynthesisSources.set(sourceMessageId, {
+                  parts: voiceSynthesis.parts,
+                  sessionId: source.sessionId,
+                });
+                ws.send(JSON.stringify({
+                  type: "voice_synthesis_completed",
+                  requestId,
+                  sourceMessageId,
+                  parts: voiceSynthesis.parts,
+                } satisfies GuiInboundFrame));
+              } catch (error) {
+                ws.send(JSON.stringify({
+                  type: "voice_synthesis_failed",
+                  requestId,
+                  sourceMessageId,
+                  message: error instanceof Error ? error.message : String(error),
+                  code: "VOICE_SYNTHESIS_FAILED",
+                } satisfies GuiInboundFrame));
+              }
+              return;
+            }
+
             if (frame.type === "approve") {
               const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : undefined;
               const result = approvalRegistry.approve(approvalId);
@@ -1095,13 +1160,15 @@ function wireOperatorTransport(
 
             if (frame.type !== "message") return;
 
-            const userContent = typeof frame.content === "string"
-              ? frame.content
+            const messageFrame = frame as Extract<GuiOutboundFrame, { type: "message" }>;
+            const userContent = typeof messageFrame.content === "string"
+              ? messageFrame.content
               : "";
-            const resumeSessionId = typeof frame.resumeSessionId === "string"
-              ? frame.resumeSessionId.trim()
+            const userParts = guiOutboundMessageParts(messageFrame);
+            const resumeSessionId = typeof messageFrame.resumeSessionId === "string"
+              ? messageFrame.resumeSessionId.trim()
               : "";
-            if (!userContent.trim()) return;
+            if (!userContent.trim() && userParts.length === 0) return;
 
             if (resumeSessionId && input.transport.onResumeSession) {
               try {
@@ -1182,10 +1249,10 @@ function wireOperatorTransport(
               );
               const reasoningEffort = resolveRequestedReasoningEffort(
                 activeModelCapabilities,
-                frame.reasoningEffort,
+                messageFrame.reasoningEffort,
               );
-              const executionMode = resolveExecutionMode(frame.executionMode);
-              const requestedAuthority = resolveGuiRequestedAuthority(frame.requestedAuthority);
+              const executionMode = resolveExecutionMode(messageFrame.executionMode);
+              const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions: input.builtinToolOptions,
                 executionMode,
@@ -1217,13 +1284,16 @@ function wireOperatorTransport(
                 userId,
                 sessionId: resumeSessionId || undefined,
                 systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
-                userParts: textParts(userContent),
+                userParts,
                 channel: "gui",
                 resumeSessionHydrator: input.transport.resumeSessionHydrator,
                 providerValidation: currentDiscovery,
                 executionMode,
                 contextArtifactCache: input.transport.contextArtifactCache,
                 artifactStore: input.transport.artifactStore,
+                voiceConfig: input.transport.voiceConfig,
+                sttAdapter: input.transport.sttAdapter,
+                ttsAdapter: input.transport.ttsAdapter,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: turnPerCallConfig,
                 turnCapture: {
@@ -1258,11 +1328,24 @@ function wireOperatorTransport(
               ? ""
               : input.transport.sessionManager.getModel();
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
+            const sourceMessageId = crypto.randomUUID();
+            voiceSynthesisSources.set(sourceMessageId, {
+              parts: output.parts,
+              sessionId: output.sessionId,
+            });
+            if (voiceSynthesisSources.size > 50) {
+              const oldest = voiceSynthesisSources.keys().next().value;
+              if (oldest) {
+                voiceSynthesisSources.delete(oldest);
+              }
+            }
 
             ws.send(JSON.stringify({
               type: "done",
+              sourceMessageId,
               content: extractText(output.parts),
               parts: output.parts,
+              ...(output.admittedInput ? { admittedInput: output.admittedInput } : {}),
               inputTokens: output.inputTokens,
               outputTokens: output.outputTokens,
               routedProvider,

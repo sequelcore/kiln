@@ -169,12 +169,21 @@ export function emitAudioTransformRoutingEvents(
   context: AudioTransformRoutingEventContext,
   transforms: readonly AudioTranscriptionTransformEvidence[],
 ): void {
-  for (const transform of transforms) {
+  for (const event of createAudioTransformRoutingEvents(context, transforms)) {
+    context.eventBus?.emit(event);
+  }
+}
+
+export function createAudioTransformRoutingEvents(
+  context: Omit<AudioTransformRoutingEventContext, "eventBus">,
+  transforms: readonly AudioTranscriptionTransformEvidence[],
+): readonly MultimodalRoutedEvent[] {
+  return transforms.map((transform) => {
     const succeeded = transform.status === "succeeded";
     const reasonCode = succeeded
       ? "audio_transcription_transform_succeeded"
       : "audio_transcription_transform_failed";
-    const event: MultimodalRoutedEvent = {
+    return {
       type: "multimodal_routed",
       provider: context.provider ?? "gateway-transform",
       model: context.model,
@@ -200,9 +209,8 @@ export function emitAudioTransformRoutingEvents(
       timestamp: new Date(),
       sessionId: context.sessionId,
       ...(context.tenantId ? { tenantId: context.tenantId } : {}),
-    };
-    context.eventBus?.emit(event);
-  }
+    } satisfies MultimodalRoutedEvent;
+  });
 }
 
 export function createGatewayAudioTransformSessionId(

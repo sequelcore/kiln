@@ -94,6 +94,26 @@ describe("instagram-api", () => {
       expect(result.messageId).toBe("mid-2");
     });
 
+    it("sends audio with correct body structure", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ recipient_id: "user-2", message_id: "mid-audio" }),
+      });
+
+      await sendInstagramMediaMessage(
+        "page-1",
+        "token-1",
+        "user-2",
+        "https://cdn.example.com/audio.mp3",
+        "audio",
+      );
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.recipient.id).toBe("user-2");
+      expect(body.message.attachment.type).toBe("audio");
+      expect(body.message.attachment.payload.url).toBe("https://cdn.example.com/audio.mp3");
+    });
+
     it("throws on non-OK response", async () => {
       fetchMock.mockResolvedValue({
         ok: false,

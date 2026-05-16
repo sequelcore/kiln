@@ -54,20 +54,20 @@ export async function sendInstagramMessage(
 }
 
 /**
- * Send a media message (image) via Instagram Messaging API.
+ * Send a media message via Instagram Messaging API.
  *
  * @param pageId - The Instagram-connected Page ID
  * @param accessToken - Page access token
  * @param recipientId - Instagram-scoped user ID (IGSID)
  * @param mediaUrl - Public URL of the media
- * @param mediaType - Type of media ("image")
+ * @param mediaType - Type of media
  */
 export async function sendInstagramMediaMessage(
   pageId: string,
   accessToken: string,
   recipientId: string,
   mediaUrl: string,
-  mediaType: "image",
+  mediaType: "image" | "audio",
 ): Promise<InstagramSendResult> {
   const res = await fetch(instagramMessagesUrl(pageId), {
     method: "POST",

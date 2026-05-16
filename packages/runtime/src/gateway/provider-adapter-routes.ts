@@ -2,7 +2,7 @@
 // Handles message processing, session listing, and session removal
 
 import { Hono } from "hono";
-import type { ArtifactResourceStore, ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache } from "@kilnai/core";
+import type { ArtifactResourceStore, ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { textParts, extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
@@ -22,6 +22,8 @@ export interface ProviderAdapterAppRuntime {
   readonly billing?: BillingConfig;
   readonly systemPrompt: string;
   readonly artifactStore?: ArtifactResourceStore;
+  readonly voiceConfig?: VoiceConfig;
+  readonly ttsAdapter?: TtsAdapter;
   readonly apiKey?: string;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
@@ -110,6 +112,8 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         systemPrompt: runtime.systemPrompt,
         userParts,
         artifactStore: runtime.artifactStore,
+        voiceConfig: runtime.voiceConfig,
+        ttsAdapter: runtime.ttsAdapter,
         billing: runtime.billing,
         channel: "api",
         requestedAuthority: body.requestedAuthority,

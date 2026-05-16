@@ -12,7 +12,7 @@ import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { ArtifactResourceStore, EventBus, MemoryRepository } from "@kilnai/core";
 import { stripSuggestionTags } from "../tenant/suggestion-parser.js";
-import { sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
+import { sendWhatsAppAudioMessage, sendWhatsAppMessage, whatsappMediaUrl } from "../channels/whatsapp-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -20,7 +20,7 @@ import { requireWebhookSignature } from "./auth-middleware.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
-import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
+import type { SttAdapter, RetrievalPipeline, ContactMemoryService, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import {
   AudioTransformError,
   createGatewayAudioTransformSessionId,
@@ -31,6 +31,9 @@ import {
 import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import { projectAdmittedTurnContext } from "./message-pipeline.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
+import { resolveOutboundAudioMedia } from "./public-media-delivery.js";
+import type { OutboundMediaPublisher } from "./public-media-delivery.js";
+import { synthesizeVoiceOutput } from "./voice-output-synthesizer.js";
 import {
   createTenantConversationMemoryRepository,
   TenantConversationMemory,
@@ -49,6 +52,9 @@ export interface WhatsAppWebhookConfig {
   readonly memoryBasePath?: string;
   readonly sttAdapter?: SttAdapter;
   readonly artifactStore?: ArtifactResourceStore;
+  readonly voiceConfig?: VoiceConfig;
+  readonly ttsAdapter?: TtsAdapter;
+  readonly outboundMediaPublisher?: OutboundMediaPublisher;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
   readonly contactMemoryService?: ContactMemoryService;
@@ -563,6 +569,7 @@ async function processWhatsAppMessage(
   }
 
   let replyText: string;
+  let replyAudioUrls: string[] = [];
   try {
     const result = await config.orchestrator.processMessage(
       session,
@@ -659,7 +666,38 @@ async function processWhatsAppMessage(
       });
     }
 
-    replyText = toWhatsAppFormat(stripSuggestionTags(extractText(result.parts)));
+    const voiceSynthesis = await synthesizeVoiceOutput(
+      result.parts,
+      config.voiceConfig,
+      config.ttsAdapter,
+      {
+        artifactStore: config.artifactStore,
+        appName: config.appName,
+        tenantId,
+        userId: senderPhone,
+        channel: "whatsapp",
+        sessionId: session.id,
+        model: config.orchestrator.model ?? "gateway-transform",
+        retentionMaxArtifacts: config.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+      },
+    );
+    const responseParts = voiceSynthesis.parts;
+    const audioMedia = await resolveOutboundAudioMedia(responseParts, {
+      publisher: config.outboundMediaPublisher,
+      appName: config.appName,
+      tenantId,
+      userId: senderPhone,
+      channel: "whatsapp",
+    });
+    for (const failure of audioMedia.failures) {
+      trace.warn("whatsapp", "Audio media delivery skipped", {
+        index: failure.index,
+        reason: failure.reason,
+        ...(failure.artifactUri ? { artifactUri: failure.artifactUri } : {}),
+      });
+    }
+    replyAudioUrls = audioMedia.deliveries.map((delivery) => delivery.url);
+    replyText = toWhatsAppFormat(stripSuggestionTags(extractText(responseParts)));
 
     // Report usage (fire-and-forget)
     if (activeBilling) {
@@ -695,6 +733,9 @@ async function processWhatsAppMessage(
       type: "text",
       text: { body: replyText },
     });
+    for (const audioUrl of replyAudioUrls) {
+      await sendWhatsAppAudioMessage(phoneNumberId, resolvedAccessToken, senderPhone, audioUrl);
+    }
   } catch (err) {
     trace.warn("whatsapp", "Failed to send reply", { phoneNumberId, recipient: senderPhone, error: err instanceof Error ? err.message : String(err) });
   }

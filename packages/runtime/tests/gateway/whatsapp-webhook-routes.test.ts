@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
+import type { ProviderAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 import { createWhatsAppWebhookRoutes } from "../../src/gateway/whatsapp-webhook-routes.js";
 import type { WhatsAppWebhookConfig } from "../../src/gateway/whatsapp-webhook-routes.js";
@@ -227,6 +227,79 @@ describe("createWhatsAppWebhookRoutes", () => {
       expect(fetchBody.messaging_product).toBe("whatsapp");
       expect(fetchBody.to).toBe("+5211234567");
       expect(fetchBody.text.body).toBe("mock response");
+    });
+
+    it("synthesizes configured WhatsApp voice output and sends public audio media", async () => {
+      const voiceConfig: VoiceConfig = {
+        stt: { provider: "openai" },
+        tts: { provider: "openai", voice: "alloy" },
+        policy: {
+          artifacts: { storeSynthesizedAudio: true },
+          surfaces: {
+            whatsapp: {
+              enabled: true,
+              output: { modes: ["audio-response", "transcript-only"], failureMode: "fail-closed" },
+            },
+          },
+        },
+      };
+      const ttsAdapter: TtsAdapter = {
+        name: "test-tts",
+        synthesize: vi.fn().mockResolvedValue({
+          audio: new Uint8Array([1, 2, 3]),
+          mimeType: "audio/mpeg",
+          durationMs: 1200,
+        }),
+      };
+      const outboundMediaPublisher = {
+        publish: vi.fn().mockResolvedValue({
+          url: "https://media.example.com/test-app/voice-synthesis/artifact_1.mp3",
+          mimeType: "audio/mpeg",
+          artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
+        }),
+      };
+      const config = makeConfig({
+        artifactStore: new MemoryArtifactResourceStore(),
+        voiceConfig,
+        ttsAdapter,
+        outboundMediaPublisher,
+      });
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ messages: [{ id: "wamid.voice" }] }),
+      });
+      config.tenantRegistry.create(makeTenantConfig());
+      const app = createWhatsAppWebhookRoutes(config);
+
+      const payload = makeWebhookPayload("phone-123", "+5211234567", "Hola");
+      const res = await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      expect(res.status).toBe(200);
+      await waitForMockFetchCall((url) => url.includes("/phone-123/messages"), 1_000);
+
+      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      await vi.waitFor(() => expect(fetchCalls.length).toBeGreaterThanOrEqual(2));
+      const textBody = JSON.parse(fetchCalls[0]![1]?.body as string);
+      const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
+
+      expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock response", { voice: "alloy" });
+      expect(outboundMediaPublisher.publish).toHaveBeenCalledWith(expect.objectContaining({
+        channel: "whatsapp",
+        appName: "test-app",
+        tenantId: "test-tenant",
+        userId: "+5211234567",
+        mimeType: "audio/mpeg",
+        artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
+        purpose: "assistant-output",
+      }));
+      expect(textBody.type).toBe("text");
+      expect(textBody.text.body).toBe("mock response");
+      expect(audioBody.type).toBe("audio");
+      expect(audioBody.audio.link).toBe("https://media.example.com/test-app/voice-synthesis/artifact_1.mp3");
     });
 
     it("silently ignores unknown phone number", async () => {

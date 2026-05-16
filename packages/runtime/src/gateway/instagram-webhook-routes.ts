@@ -11,7 +11,7 @@ import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { ArtifactResourceStore, EventBus, MemoryRepository } from "@kilnai/core";
-import { sendInstagramMessage } from "../channels/instagram-api.js";
+import { sendInstagramMediaMessage, sendInstagramMessage } from "../channels/instagram-api.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -19,7 +19,7 @@ import { requireWebhookSignature } from "./auth-middleware.js";
 import { verifyMetaWebhook } from "./meta-webhook-foundation.js";
 import { TraceContext } from "./trace-context.js";
 import type { WebhookDedup } from "./webhook-dedup.js";
-import type { SttAdapter, RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
+import type { SttAdapter, RetrievalPipeline, ContactMemoryService, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import {
   AudioTransformError,
   createGatewayAudioTransformSessionId,
@@ -30,10 +30,13 @@ import {
 import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
 import { projectAdmittedTurnContext } from "./message-pipeline.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
+import { resolveOutboundAudioMedia } from "./public-media-delivery.js";
+import type { OutboundMediaPublisher } from "./public-media-delivery.js";
 import {
   createTenantConversationMemoryRepository,
   TenantConversationMemory,
 } from "./tenant-conversation-memory.js";
+import { synthesizeVoiceOutput } from "./voice-output-synthesizer.js";
 
 export interface InstagramWebhookConfig {
   readonly appName: string;
@@ -47,6 +50,9 @@ export interface InstagramWebhookConfig {
   readonly memoryBasePath?: string;
   readonly sttAdapter?: SttAdapter;
   readonly artifactStore?: ArtifactResourceStore;
+  readonly voiceConfig?: VoiceConfig;
+  readonly ttsAdapter?: TtsAdapter;
+  readonly outboundMediaPublisher?: OutboundMediaPublisher;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
   readonly contactMemoryService?: ContactMemoryService;
@@ -428,6 +434,7 @@ async function processInstagramMessage(
   }
 
   let replyText: string;
+  let replyAudioUrls: string[] = [];
   try {
     const result = await config.orchestrator.processMessage(
       session,
@@ -524,7 +531,38 @@ async function processInstagramMessage(
       });
     }
 
-    replyText = toInstagramFormat(extractText(result.parts));
+    const voiceSynthesis = await synthesizeVoiceOutput(
+      result.parts,
+      config.voiceConfig,
+      config.ttsAdapter,
+      {
+        artifactStore: config.artifactStore,
+        appName: config.appName,
+        tenantId,
+        userId: senderId,
+        channel: "instagram",
+        sessionId: session.id,
+        model: config.orchestrator.model ?? "gateway-transform",
+        retentionMaxArtifacts: config.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+      },
+    );
+    const responseParts = voiceSynthesis.parts;
+    const audioMedia = await resolveOutboundAudioMedia(responseParts, {
+      publisher: config.outboundMediaPublisher,
+      appName: config.appName,
+      tenantId,
+      userId: senderId,
+      channel: "instagram",
+    });
+    for (const failure of audioMedia.failures) {
+      trace.warn("instagram", "Audio media delivery skipped", {
+        index: failure.index,
+        reason: failure.reason,
+        ...(failure.artifactUri ? { artifactUri: failure.artifactUri } : {}),
+      });
+    }
+    replyAudioUrls = audioMedia.deliveries.map((delivery) => delivery.url);
+    replyText = toInstagramFormat(extractText(responseParts));
 
     // Report usage (fire-and-forget)
     if (activeBilling) {
@@ -557,6 +595,9 @@ async function processInstagramMessage(
   // Reply via Instagram API
   try {
     await sendInstagramMessage(pageId, resolvedAccessToken, senderId, replyText);
+    for (const audioUrl of replyAudioUrls) {
+      await sendInstagramMediaMessage(pageId, resolvedAccessToken, senderId, audioUrl, "audio");
+    }
   } catch (err) {
     trace.warn("instagram", "Failed to send reply", { pageId, recipient: senderId, error: err instanceof Error ? err.message : String(err) });
   }

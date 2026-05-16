@@ -27,12 +27,17 @@ import {
   type DefaultBuiltinToolRegistryOptions,
   type ContextArtifactCache,
   type ArtifactResourceStore,
+  type ContentPart,
+  type SttAdapter,
+  type TtsAdapter,
+  type VoiceConfig,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn } from "./message-pipeline.js";
 import type { RuntimeSessionHydrator } from "./message-pipeline.js";
+import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
@@ -98,6 +103,9 @@ export interface TuiGatewayOptions {
   readonly contextArtifactCache?: ContextArtifactCache;
   /** Artifact store used to persist replayable multimodal turn inputs. */
   readonly artifactStore?: ArtifactResourceStore;
+  readonly voiceConfig?: VoiceConfig;
+  readonly sttAdapter?: SttAdapter;
+  readonly ttsAdapter?: TtsAdapter;
   /** Event bus for listening to approval events. */
   readonly eventBus?: EventBus;
   /** Initial shared execution mode for operator work. */
@@ -289,6 +297,7 @@ function findProviderModelRouteHealth(
 }
 
 export function buildTuiDoneFramePayload(input: {
+  readonly sourceMessageId?: string;
   readonly content: string;
   readonly parts: readonly unknown[];
   readonly inputTokens: number;
@@ -328,6 +337,7 @@ export function buildTuiDoneFramePayload(input: {
 } {
   return {
     type: "done",
+    ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
     content: input.content,
     parts: input.parts,
     inputTokens: input.inputTokens,
@@ -401,6 +411,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     builtinTools: builtinToolSurface.callBuiltinTools,
   });
   const sessionRegistry = new SessionRegistry();
+  const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
   activityStreamer.bindApprovalBridge({
     approve: (approvalId) => orchestrator.continue(approvalId),
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
@@ -649,6 +660,68 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               return;
             }
 
+            if (frame.type === "voice_synthesis_request") {
+              const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
+              const sourceMessageId = typeof frame.sourceMessageId === "string" ? frame.sourceMessageId.trim() : "";
+              const source = sourceMessageId ? voiceSynthesisSources.get(sourceMessageId) : undefined;
+              if (!requestId || !sourceMessageId || !source) {
+                ws.send(JSON.stringify({
+                  type: "voice_synthesis_failed",
+                  requestId: requestId || crypto.randomUUID(),
+                  sourceMessageId: sourceMessageId || "unknown",
+                  message: "Voice synthesis source message is no longer available.",
+                  code: "VOICE_SOURCE_NOT_FOUND",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              try {
+                const voiceSynthesis = await synthesizeVoiceOutputOnDemand(
+                  source.parts,
+                  options.voiceConfig,
+                  options.ttsAdapter,
+                  {
+                    artifactStore: options.artifactStore,
+                    appName: TUI_APP_NAME,
+                    tenantId: TUI_TENANT_ID,
+                    userId,
+                    channel: "tui",
+                    sessionId: source.sessionId,
+                    model: options.sessionManager.getModel() || "gateway-transform",
+                    retentionMaxArtifacts: options.voiceConfig?.policy?.artifacts?.retentionMaxArtifacts,
+                  },
+                );
+                if (!voiceSynthesis.voiceOutput) {
+                  ws.send(JSON.stringify({
+                    type: "voice_synthesis_failed",
+                    requestId,
+                    sourceMessageId,
+                    message: "On-demand voice synthesis is not enabled for the TUI surface.",
+                    code: "VOICE_SYNTHESIS_NOT_ENABLED",
+                  } satisfies GuiInboundFrame));
+                  return;
+                }
+                voiceSynthesisSources.set(sourceMessageId, {
+                  parts: voiceSynthesis.parts,
+                  sessionId: source.sessionId,
+                });
+                ws.send(JSON.stringify({
+                  type: "voice_synthesis_completed",
+                  requestId,
+                  sourceMessageId,
+                  parts: voiceSynthesis.parts,
+                } satisfies GuiInboundFrame));
+              } catch (error) {
+                ws.send(JSON.stringify({
+                  type: "voice_synthesis_failed",
+                  requestId,
+                  sourceMessageId,
+                  message: error instanceof Error ? error.message : String(error),
+                  code: "VOICE_SYNTHESIS_FAILED",
+                } satisfies GuiInboundFrame));
+              }
+              return;
+            }
+
             // Handle approval responses from TUI
             if (frame.type === "approve") {
               const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : undefined;
@@ -773,6 +846,9 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 executionMode,
                 contextArtifactCache: options.contextArtifactCache,
                 artifactStore: options.artifactStore,
+                voiceConfig: options.voiceConfig,
+                sttAdapter: options.sttAdapter,
+                ttsAdapter: options.ttsAdapter,
                 callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
                 perCallConfig: turnPerCallConfig,
                 turnCapture: {
@@ -808,7 +884,19 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               : options.sessionManager.getModel();
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
             const authorityStatus = deriveTuiDoneAuthorityStatus(turnPerCallConfig);
+            const sourceMessageId = crypto.randomUUID();
+            voiceSynthesisSources.set(sourceMessageId, {
+              parts: output.parts,
+              sessionId: output.sessionId,
+            });
+            if (voiceSynthesisSources.size > 50) {
+              const oldest = voiceSynthesisSources.keys().next().value;
+              if (oldest) {
+                voiceSynthesisSources.delete(oldest);
+              }
+            }
             ws.send(JSON.stringify(buildTuiDoneFramePayload({
+              sourceMessageId,
               content: extractText(output.parts),
               parts: output.parts,
               inputTokens: output.inputTokens,

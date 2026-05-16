@@ -95,6 +95,26 @@ describe("messenger-api", () => {
       expect(result.messageId).toBe("mid-2");
     });
 
+    it("sends audio with messaging_type RESPONSE", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ recipient_id: "psid-2", message_id: "mid-audio" }),
+      });
+
+      await sendMessengerMediaMessage(
+        "token-1",
+        "psid-2",
+        "https://cdn.example.com/audio.mp3",
+        "audio",
+      );
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.messaging_type).toBe("RESPONSE");
+      expect(body.recipient.id).toBe("psid-2");
+      expect(body.message.attachment.type).toBe("audio");
+      expect(body.message.attachment.payload.url).toBe("https://cdn.example.com/audio.mp3");
+    });
+
     it("throws on non-OK response", async () => {
       fetchMock.mockResolvedValue({
         ok: false,

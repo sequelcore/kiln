@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createSttAdapter } from "../../src/gateway/stt-factory.js";
 import { OpenAISttAdapter, DeepgramSttAdapter } from "@kilnai/core";
+import { WhisperLocalSttAdapter } from "../../src/gateway/local-voice-adapters.js";
 
 describe("createSttAdapter", () => {
   const originalEnv = process.env;
@@ -27,9 +28,30 @@ describe("createSttAdapter", () => {
     expect(adapter.name).toBe("deepgram");
   });
 
+  it("creates Whisper local adapter from command env without API key", () => {
+    process.env.KILN_WHISPER_COMMAND = process.execPath;
+
+    const adapter = createSttAdapter({
+      provider: "whisper-local",
+      commandEnv: "KILN_WHISPER_COMMAND",
+      args: ["-e", "process.stdout.write('{}')"],
+      model: "small",
+      modelPathEnv: "KILN_WHISPER_MODEL_PATH",
+      device: "auto",
+    });
+
+    expect(adapter).toBeInstanceOf(WhisperLocalSttAdapter);
+    expect(adapter.name).toBe("whisper-local");
+  });
+
   it("throws CONFIG_MISSING_ENV when API key not set", () => {
     expect(() => createSttAdapter({ provider: "openai", apiKeyEnv: "MISSING_KEY" }))
       .toThrow("STT provider");
+  });
+
+  it("throws CONFIG_MISSING_ENV when local command env is not set", () => {
+    expect(() => createSttAdapter({ provider: "whisper-local", commandEnv: "MISSING_WHISPER_COMMAND" }))
+      .toThrow("requires local command");
   });
 
   it("throws CONFIG_INVALID for unknown provider", () => {

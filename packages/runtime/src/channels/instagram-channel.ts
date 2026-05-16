@@ -14,13 +14,13 @@ export interface InstagramConfig {
 /**
  * Channel adapter for Instagram DM API.
  * receive() accepts parsed webhook messages from Instagram.
- * send() posts text/image messages via graph.facebook.com.
+ * send() posts text/media messages via graph.facebook.com.
  * stream() sends each engine event as a summarized text message.
  */
 export class InstagramChannel implements Channel {
   readonly name = "instagram";
   readonly defaultFormat: MessageFormat = "short";
-  readonly supportedModalities: readonly Modality[] = ["text", "image"];
+  readonly supportedModalities: readonly Modality[] = ["text", "image", "audio"];
 
   private readonly config: InstagramConfig;
   private messageHandler: ((message: IncomingMessage) => void) | null = null;
@@ -43,10 +43,12 @@ export class InstagramChannel implements Channel {
     const { pageId, accessToken } = this.config;
     const to = response.target;
 
-    // Send image parts first
+    // Send media parts first
     for (const part of response.parts) {
       if (part.type === "image" && part.url) {
         await sendInstagramMediaMessage(pageId, accessToken, to, part.url, "image");
+      } else if (part.type === "audio" && part.url) {
+        await sendInstagramMediaMessage(pageId, accessToken, to, part.url, "audio");
       }
     }
 

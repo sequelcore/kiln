@@ -21,7 +21,7 @@ describe("MessengerChannel", () => {
     const ch = new MessengerChannel({ accessToken: "t1" });
     expect(ch.name).toBe("messenger");
     expect(ch.defaultFormat).toBe("short");
-    expect(ch.supportedModalities).toEqual(["text", "image"]);
+    expect(ch.supportedModalities).toEqual(["text", "image", "audio"]);
   });
 
   it("calls message handler on receive", async () => {
@@ -73,6 +73,26 @@ describe("MessengerChannel", () => {
     expect(imageBody.message.attachment.type).toBe("image");
     const textBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(textBody.message.text).toBe("Caption");
+  });
+
+  it("sends audio before text", async () => {
+    const ch = new MessengerChannel({ accessToken: "t1" });
+
+    await ch.send({
+      parts: [
+        { type: "audio", mimeType: "audio/mpeg", url: "https://media.example.com/reply.mp3" },
+        { type: "text", text: "Transcript" },
+      ],
+      target: "psid-1",
+      format: "short",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const audioBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(audioBody.message.attachment.type).toBe("audio");
+    expect(audioBody.message.attachment.payload.url).toBe("https://media.example.com/reply.mp3");
+    const textBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(textBody.message.text).toBe("Transcript");
   });
 
   it("strips markdown from text", async () => {

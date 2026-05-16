@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
+import type { ProviderAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 import { createInstagramWebhookRoutes } from "../../src/gateway/instagram-webhook-routes.js";
 import type { InstagramWebhookConfig } from "../../src/gateway/instagram-webhook-routes.js";
@@ -211,6 +211,73 @@ describe("createInstagramWebhookRoutes", () => {
       const fetchBody = JSON.parse(fetchCall[1]?.body as string);
       expect(fetchBody.recipient.id).toBe("user-sender");
       expect(fetchBody.message.text).toBe("mock ig response");
+    });
+
+    it("synthesizes configured Instagram voice output and sends public audio media", async () => {
+      const voiceConfig: VoiceConfig = {
+        stt: { provider: "openai" },
+        tts: { provider: "openai", voice: "alloy" },
+        policy: {
+          artifacts: { storeSynthesizedAudio: true },
+          surfaces: {
+            instagram: {
+              enabled: true,
+              output: { modes: ["audio-response", "transcript-only"], failureMode: "fail-closed" },
+            },
+          },
+        },
+      };
+      const ttsAdapter: TtsAdapter = {
+        name: "test-tts",
+        synthesize: vi.fn().mockResolvedValue({
+          audio: new Uint8Array([1, 2, 3]),
+          mimeType: "audio/mpeg",
+          durationMs: 1200,
+        }),
+      };
+      const outboundMediaPublisher = {
+        publish: vi.fn().mockResolvedValue({
+          url: "https://media.example.com/test-app/voice-synthesis/artifact_1.mp3",
+          mimeType: "audio/mpeg",
+          artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
+        }),
+      };
+      const config = makeConfig({
+        artifactStore: new MemoryArtifactResourceStore(),
+        voiceConfig,
+        ttsAdapter,
+        outboundMediaPublisher,
+      });
+      config.tenantRegistry.create(makeTenantConfig());
+      const app = createInstagramWebhookRoutes(config);
+
+      const payload = makeInstagramPayload("user-sender", "page-456", "Hola Instagram");
+      const res = await app.request("/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      expect(res.status).toBe(200);
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+
+      const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const textBody = JSON.parse(fetchCalls[0]![1]?.body as string);
+      const audioBody = JSON.parse(fetchCalls[1]![1]?.body as string);
+
+      expect(ttsAdapter.synthesize).toHaveBeenCalledWith("mock ig response", { voice: "alloy" });
+      expect(outboundMediaPublisher.publish).toHaveBeenCalledWith(expect.objectContaining({
+        channel: "instagram",
+        appName: "test-app",
+        tenantId: "ig-tenant",
+        userId: "user-sender",
+        mimeType: "audio/mpeg",
+        artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content",
+        purpose: "assistant-output",
+      }));
+      expect(textBody.message.text).toBe("mock ig response");
+      expect(audioBody.message.attachment.type).toBe("audio");
+      expect(audioBody.message.attachment.payload.url).toBe("https://media.example.com/test-app/voice-synthesis/artifact_1.mp3");
     });
 
     it("filters echo messages", async () => {
