@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, posix, resolve, win32 } from "node:path";
 import type {
   ArtifactResourceStore,
   ManagedAgentAdmissionProfile,
@@ -787,7 +787,16 @@ function normalizeManagedRoutePaths(paths: readonly string[], cwd: string): read
 }
 
 function normalizeManagedRoutePath(path: string, cwd: string): string {
-  return isAbsolute(path) ? path : resolve(cwd, path);
+  if (win32.isAbsolute(path) || posix.isAbsolute(path)) {
+    return path;
+  }
+  if (win32.isAbsolute(cwd)) {
+    return win32.resolve(cwd, path);
+  }
+  if (posix.isAbsolute(cwd)) {
+    return posix.resolve(cwd, path);
+  }
+  return resolve(cwd, path);
 }
 
 function resolveCredentialRoute(
