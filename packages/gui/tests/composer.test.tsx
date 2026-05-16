@@ -214,7 +214,7 @@ describe("Composer", () => {
       value: { getUserMedia },
     });
 
-    let activeRecorder: MockMediaRecorder | null = null;
+    const activeRecorders: MockMediaRecorder[] = [];
 
     class MockMediaRecorder {
       static isTypeSupported(mimeType: string): boolean {
@@ -227,7 +227,7 @@ describe("Composer", () => {
       onstop: (() => void) | null = null;
 
       constructor() {
-        activeRecorder = this;
+        activeRecorders.push(this);
       }
 
       start(): void {
@@ -245,7 +245,7 @@ describe("Composer", () => {
     const { onSubmitParts } = renderComposer();
     fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
 
-    await waitFor(() => expect(activeRecorder).not.toBeNull());
+    await waitFor(() => expect(activeRecorders).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: "Stop voice recording" }));
 
     await waitFor(() => {

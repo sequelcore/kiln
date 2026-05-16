@@ -14,7 +14,7 @@ import typescript from "react-syntax-highlighter/dist/esm/languages/hljs/typescr
 import xml from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import type { Components } from "react-markdown";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { FileAudio, Loader2, Volume2 } from "lucide-react";
 import {
@@ -28,8 +28,18 @@ import { getStableUserId } from "../lib/stable-user-id.js";
 import { useSessionStore } from "../lib/session-store.js";
 import { OperatorAvatar } from "./operator-avatar.js";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+type ResourceDataUrlLoader = (uri: string) => Promise<string | null>;
+
+function createAudioCaptionTrackSrc(text: string): string {
+  const caption = text.trim();
+  const vtt = caption
+    ? `WEBVTT\n\n00:00:00.000 --> 99:59:59.999\n${caption.replace(/\r?\n/g, "\n")}\n`
+    : "WEBVTT\n";
+  return `data:text/vtt;charset=utf-8,${encodeURIComponent(vtt)}`;
+}
 
 SyntaxHighlighter.registerLanguage("bash", bash);
 SyntaxHighlighter.registerLanguage("diff", diff);
@@ -81,6 +91,7 @@ interface MessageRowProps {
   readonly message: Message;
   readonly beforeContent?: ReactNode;
   readonly afterContent?: ReactNode;
+  readonly loadResourceDataUrl?: ResourceDataUrlLoader;
 }
 
 function roleLabel(role: Message["role"]): string {
@@ -98,7 +109,11 @@ function roleLabel(role: Message["role"]): string {
   }
 }
 
-function VoiceAudioParts(props: { readonly parts: readonly VoiceAudioOutputProjection[] }) {
+function VoiceAudioParts(props: {
+  readonly parts: readonly VoiceAudioOutputProjection[];
+  readonly loadResourceDataUrl?: ResourceDataUrlLoader;
+  readonly captionTrackSrc: string;
+}) {
   if (props.parts.length === 0) {
     return null;
   }
@@ -106,7 +121,12 @@ function VoiceAudioParts(props: { readonly parts: readonly VoiceAudioOutputProje
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5">
       {props.parts.map((part) => (
-        <VoiceAudioPart key={`${part.index}:${part.source}`} part={part} />
+        <VoiceAudioPart
+          key={`${part.index}:${part.source}`}
+          part={part}
+          loadResourceDataUrl={props.loadResourceDataUrl}
+          captionTrackSrc={props.captionTrackSrc}
+        />
       ))}
     </div>
   );
@@ -116,9 +136,17 @@ function VoiceAudioControls(props: {
   readonly message: Message;
   readonly parts: readonly VoiceAudioOutputProjection[];
   readonly onRequest: (messageId: string) => boolean;
+  readonly loadResourceDataUrl?: ResourceDataUrlLoader;
+  readonly captionTrackSrc: string;
 }) {
   if (props.parts.length > 0) {
-    return <VoiceAudioParts parts={props.parts} />;
+    return (
+      <VoiceAudioParts
+        parts={props.parts}
+        loadResourceDataUrl={props.loadResourceDataUrl}
+        captionTrackSrc={props.captionTrackSrc}
+      />
+    );
   }
   if (!props.message.sourceMessageId) {
     return null;
@@ -148,55 +176,106 @@ function VoiceAudioControls(props: {
   );
 }
 
-function VoiceAudioPart(props: { readonly part: VoiceAudioOutputProjection }) {
+function VoiceAudioPart(props: {
+  readonly part: VoiceAudioOutputProjection;
+  readonly loadResourceDataUrl?: ResourceDataUrlLoader;
+  readonly captionTrackSrc: string;
+}) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { part } = props;
+  const [artifactPreviewSrc, setArtifactPreviewSrc] = useState<string | null>(null);
+  const [artifactPreviewStatus, setArtifactPreviewStatus] = useState<"idle" | "loading" | "error">("idle");
+  const canLoadArtifact = Boolean(part.artifactUri && props.loadResourceDataUrl);
+
+  const loadArtifactPreview = async () => {
+    if (!part.artifactUri || !props.loadResourceDataUrl || artifactPreviewSrc) {
+      return;
+    }
+    setArtifactPreviewStatus("loading");
+    try {
+      const dataUrl = await props.loadResourceDataUrl(part.artifactUri);
+      if (!dataUrl) {
+        setArtifactPreviewStatus("error");
+        return;
+      }
+      setArtifactPreviewSrc(dataUrl);
+      setArtifactPreviewStatus("idle");
+    } catch {
+      setArtifactPreviewStatus("error");
+    }
+  };
 
   return (
-    <div className="flex max-w-full items-center gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 py-1">
-      {part.src ? (
-        <>
+    <div className="flex max-w-full flex-col gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 py-1">
+      <div className="flex items-center gap-1">
+        {part.src ? (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-foreground"
+              aria-label={part.label}
+              title={part.label}
+              onClick={() => {
+                void audioRef.current?.play();
+              }}
+            >
+              <Volume2 data-icon="inline-start" aria-hidden="true" />
+            </Button>
+            <audio ref={audioRef} preload="none" src={part.src}>
+              <track kind="captions" srcLang="en" label="Transcript" src={props.captionTrackSrc} />
+            </audio>
+          </>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground"
+            aria-label={part.label}
+            title={part.label}
+            disabled
+          >
+            <Volume2 data-icon="inline-start" aria-hidden="true" />
+          </Button>
+        )}
+        {part.artifactUri ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground hover:text-foreground"
-            aria-label={part.label}
-            title={part.label}
+            aria-label="Open audio artifact"
+            title={canLoadArtifact ? "Open audio artifact" : "Audio artifact preview unavailable"}
+            disabled={!canLoadArtifact || artifactPreviewStatus === "loading"}
             onClick={() => {
-              void audioRef.current?.play();
+              void loadArtifactPreview();
             }}
           >
-            <Volume2 data-icon="inline-start" aria-hidden="true" />
+            {artifactPreviewStatus === "loading" ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+            ) : (
+              <FileAudio data-icon="inline-start" aria-hidden="true" />
+            )}
           </Button>
-          <audio ref={audioRef} preload="none" src={part.src} />
-        </>
-      ) : (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground"
-          aria-label={part.label}
-          title={part.label}
-          disabled
+        ) : null}
+      </div>
+      {artifactPreviewSrc ? (
+        <audio
+          aria-label="Audio artifact preview"
+          controls
+          preload="metadata"
+          src={artifactPreviewSrc}
+          className="h-8 max-w-full"
         >
-          <Volume2 data-icon="inline-start" aria-hidden="true" />
-        </Button>
-      )}
-      {part.artifactUri ? (
-        <a
-          className={buttonVariants({
-            variant: "ghost",
-            size: "icon-sm",
-            className: "text-muted-foreground hover:text-foreground",
-          })}
-          href={part.artifactUri}
-          aria-label="Open audio artifact"
-          title="Open audio artifact"
-        >
-          <FileAudio data-icon="inline-start" aria-hidden="true" />
-        </a>
+          <track kind="captions" srcLang="en" label="Transcript" src={props.captionTrackSrc} />
+        </audio>
+      ) : null}
+      {artifactPreviewStatus === "error" ? (
+        <p className="max-w-56 text-xs leading-5 text-destructive" role="status">
+          Audio artifact preview unavailable.
+        </p>
       ) : null}
     </div>
   );
@@ -222,6 +301,7 @@ export function MessageRow(props: MessageRowProps) {
   const hasAnchoredOperationalContent = Boolean(props.beforeContent || props.afterContent);
   const hasMessageContent = message.content.trim().length > 0;
   const voiceAudioParts = isAssistant ? projectVoiceAudioOutputParts(message.parts ?? []) : [];
+  const captionTrackSrc = createAudioCaptionTrackSrc(message.content);
   const showStreamingCursor = message.streaming && (hasMessageContent || !hasAnchoredOperationalContent);
   const identity = projectMessageIdentity({
     role: message.role,
@@ -303,6 +383,8 @@ export function MessageRow(props: MessageRowProps) {
               message={message}
               parts={voiceAudioParts}
               onRequest={requestVoiceSynthesis}
+              loadResourceDataUrl={props.loadResourceDataUrl}
+              captionTrackSrc={captionTrackSrc}
             />
           ) : null}
           {isAssistant && props.afterContent ? (

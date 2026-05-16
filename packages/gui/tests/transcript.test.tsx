@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Transcript } from "../src/components/transcript.js";
 import type { Message, TimelineEntry } from "../src/lib/session-store.js";
@@ -70,6 +70,37 @@ describe("Transcript", () => {
     expect(screen.getByLabelText("User avatar")).toBeInTheDocument();
     expect(screen.getByLabelText("Assistant avatar")).toBeInTheDocument();
     expect(screen.getByLabelText("Error avatar")).toHaveAttribute("data-avatar-state", "error");
+  });
+
+  it("loads assistant audio artifact previews through the transcript resource loader", async () => {
+    const loadResourceDataUrl = vi.fn().mockResolvedValue("data:audio/wav;base64,BAUG");
+    const assistantMessage: Message = {
+      ...message("audio-message", "assistant", "spoken answer"),
+      parts: [
+        { type: "text", text: "spoken answer" },
+        { type: "audio", mimeType: "audio/wav", artifactUri: "kiln://artifacts/voice-synthesis/artifact_2/content" },
+      ],
+    };
+
+    render(
+      <Transcript
+        entries={[{
+          id: "timeline:audio-message",
+          type: "message",
+          createdAt: assistantMessage.createdAt,
+          message: assistantMessage,
+        }]}
+        loadResourceDataUrl={loadResourceDataUrl}
+      />,
+    );
+
+    expect(screen.queryByRole("link", { name: "Open audio artifact" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open audio artifact" }));
+
+    await waitFor(() => {
+      expect(loadResourceDataUrl).toHaveBeenCalledWith("kiln://artifacts/voice-synthesis/artifact_2/content");
+    });
+    expect(screen.getByLabelText("Audio artifact preview")).toHaveAttribute("src", "data:audio/wav;base64,BAUG");
   });
 
   it("groups tool activity into the following assistant message bubble", () => {

@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { MessageRow } from "../src/components/message-row.js";
 
 describe("MessageRow", () => {
-  it("renders assistant audio parts as compact playback actions", () => {
+  it("renders assistant audio parts as compact playback actions", async () => {
+    const loadResourceDataUrl = vi.fn().mockResolvedValue("data:audio/mpeg;base64,AQID");
     const { container } = render(
       <MessageRow
         message={{
@@ -16,6 +17,7 @@ describe("MessageRow", () => {
             { type: "audio", mimeType: "audio/mpeg", data: "AQID", artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content" },
           ],
         }}
+        loadResourceDataUrl={loadResourceDataUrl}
       />,
     );
 
@@ -24,7 +26,14 @@ describe("MessageRow", () => {
     const audio = container.querySelector("audio");
     expect(audio).not.toBeNull();
     expect(audio?.getAttribute("src")).toBe("data:audio/mpeg;base64,AQID");
-    expect(screen.getByRole("link", { name: "Open audio artifact" })).toHaveAttribute("href", "kiln://artifacts/voice-synthesis/artifact_1/content");
+    expect(screen.queryByRole("link", { name: "Open audio artifact" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open audio artifact" }));
+
+    await waitFor(() => {
+      expect(loadResourceDataUrl).toHaveBeenCalledWith("kiln://artifacts/voice-synthesis/artifact_1/content");
+    });
+    expect(screen.getByLabelText("Audio artifact preview")).toHaveAttribute("src", "data:audio/mpeg;base64,AQID");
   });
 
   it("renders a compact on-demand audio action for canonical assistant messages without audio", () => {

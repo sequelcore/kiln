@@ -1034,6 +1034,7 @@ function renderTranscriptEntries(
       <MessageRow
         key={entry.id}
         message={entry.message}
+        loadResourceDataUrl={loadResourceDataUrl}
         beforeContent={item.beforeEventIds.length > 0 ? (
           <AssistantToolEventStack
             entries={eventEntries(item.beforeEventIds)}
