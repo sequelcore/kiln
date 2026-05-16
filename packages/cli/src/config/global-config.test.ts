@@ -319,6 +319,148 @@ describe("global-config", () => {
     });
   });
 
+  it("readGlobalConfig() accepts governed operator voice defaults", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "operatorVoice:",
+        "  stt:",
+        "    provider: whisper-local",
+        "    commandEnv: KILN_WHISPER_COMMAND",
+        "    model: base",
+        "    language: English",
+        "  tts:",
+        "    provider: kokoro-local",
+        "    commandEnv: KILN_KOKORO_COMMAND",
+        "    model: kokoro-v1",
+        "    voice: af_bella",
+        "    format: wav",
+        "  policy:",
+        "    surfaces:",
+        "      gui:",
+        "        enabled: true",
+        "        input:",
+        "          modes: [microphone, file]",
+        "        output:",
+        "          modes: [audio-response, transcript-only]",
+        "      tui:",
+        "        enabled: true",
+        "        output:",
+        "          modes: [artifact-only, transcript-only]",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.operatorVoice).toMatchObject({
+      stt: {
+        provider: "whisper-local",
+        commandEnv: "KILN_WHISPER_COMMAND",
+      },
+      tts: {
+        provider: "kokoro-local",
+        commandEnv: "KILN_KOKORO_COMMAND",
+        voice: "af_bella",
+      },
+      policy: {
+        surfaces: {
+          gui: {
+            enabled: true,
+          },
+          tui: {
+            enabled: true,
+          },
+        },
+      },
+    });
+  });
+
+  it("readGlobalConfig() accepts managed-agent voice profile references from operator voice catalog", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "operatorVoice:",
+        "  stt:",
+        "    provider: whisper-local",
+        "  tts:",
+        "    provider: kokoro-local",
+        "  ttsProfiles:",
+        "    reviewer-voice:",
+        "      style: calm reviewer",
+        "      voice: af_bella",
+        "      speed: 1",
+        "managedAgents:",
+        "  enabled: true",
+        "  defaultVoiceProfile: reviewer-voice",
+        "  routes:",
+        "    - id: codex-reviewer",
+        "      kind: direct",
+        "      provider: codex-oauth",
+        "      model: gpt-5.4-mini",
+        "      voiceProfile: reviewer-voice",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.managedAgents).toMatchObject({
+      defaultVoiceProfile: "reviewer-voice",
+      routes: [
+        expect.objectContaining({
+          id: "codex-reviewer",
+          voiceProfile: "reviewer-voice",
+        }),
+      ],
+    });
+  });
+
+  it("readGlobalConfig() rejects managed-agent voice profile references outside operator voice catalog", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "operatorVoice:",
+        "  stt:",
+        "    provider: whisper-local",
+        "  tts:",
+        "    provider: kokoro-local",
+        "  ttsProfiles:",
+        "    reviewer-voice:",
+        "      style: calm reviewer",
+        "      voice: af_bella",
+        "      speed: 1",
+        "managedAgents:",
+        "  enabled: true",
+        "  routes:",
+        "    - id: codex-reviewer",
+        "      kind: direct",
+        "      provider: codex-oauth",
+        "      voiceProfile: missing-voice",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow(
+      "managedAgents.routes[0].voiceProfile references unknown operatorVoice.ttsProfiles entry \"missing-voice\"",
+    );
+  });
+
+  it("readGlobalConfig() rejects invalid operator voice config", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "operatorVoice:",
+        "  stt:",
+        "    provider: imaginary-stt",
+        "  tts:",
+        "    provider: kokoro-local",
+        "    commandEnv: KILN_KOKORO_COMMAND",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow(
+      "operatorVoice.voice.stt.provider must be one of: openai, deepgram, whisper-local",
+    );
+  });
+
   it("readGlobalConfig() rejects global web authority fields", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(

@@ -115,6 +115,23 @@ apps:
     expect(config.apps[0]!.channels[0]!.phoneNumber).toBe("+521112223333");
   });
 
+  it("preserves public media env bindings for channel delivery", () => {
+    const yaml = `
+port: 4800
+apps:
+  - name: wa-app
+    config: app.yaml
+    channels:
+      - type: whatsapp
+        publicMediaBaseUrlEnv: GATEWAY_PUBLIC_URL
+        publicMediaSigningSecretEnv: GATEWAY_MEDIA_SIGNING_SECRET
+`;
+    const config = parseGatewayYaml(yaml);
+    const channel = config.apps[0]!.channels[0]!;
+    expect(channel.publicMediaBaseUrlEnv).toBe("GATEWAY_PUBLIC_URL");
+    expect(channel.publicMediaSigningSecretEnv).toBe("GATEWAY_MEDIA_SIGNING_SECRET");
+  });
+
   it("preserves workspace field when present", () => {
     const yaml = `
 port: 4800

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
+import { validateVoiceConfig, type VoiceConfig } from "@kilnai/core";
 import { KilnYamlError } from "../kiln-yaml.js";
 import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
 import type {
@@ -83,6 +84,7 @@ export interface KilnGlobalConfig {
   readonly ui?: KilnGlobalUiConfig;
   readonly skills?: KilnYamlSkillsConfig;
   readonly components?: KilnGlobalComponentsConfig;
+  readonly operatorVoice?: VoiceConfig;
 }
 
 const ROOT_FIELDS = new Set([
@@ -102,6 +104,7 @@ const ROOT_FIELDS = new Set([
   "ui",
   "skills",
   "components",
+  "operatorVoice",
 ]);
 
 const IDENTITY_FIELDS = new Set([
@@ -232,13 +235,15 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "ui");
   validateRecordField(config, "skills");
   validateRecordField(config, "components");
+  validateRecordField(config, "operatorVoice");
   validateIdentity(config.identity);
   validateStringArray(config.activeInstructionProfiles, "activeInstructionProfiles");
   validateWorkGovernance(config.workGovernance);
   validateEngines(config.engines);
   validateRouting(config.routing);
   validateComponents(config.components);
-  validateManagedAgents(config.managedAgents);
+  validateOperatorVoice(config.operatorVoice);
+  validateManagedAgents(config.managedAgents, config.operatorVoice as VoiceConfig | undefined);
   validateModelTaskSuitability(config.modelTaskSuitability);
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
@@ -295,6 +300,20 @@ function validateGlobalWeb(value: unknown): void {
   }
   validateOptionalRecord(value, "searchProvider", "web.searchProvider");
   validateOptionalRecord(value, "extractProvider", "web.extractProvider");
+}
+
+function validateOperatorVoice(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("operatorVoice must be an object");
+  }
+  const validationErrors = validateVoiceConfig(value as unknown as VoiceConfig);
+  if (validationErrors.length > 0) {
+    const first = validationErrors[0]!;
+    throw new KilnYamlError(`operatorVoice.${first.field} ${first.message}`);
+  }
 }
 
 function validateWorkGovernance(value: unknown): void {
@@ -499,24 +518,25 @@ function validateSkills(value: unknown): void {
   }
 }
 
-function validateManagedAgents(value: unknown): void {
+function validateManagedAgents(value: unknown, operatorVoice: VoiceConfig | undefined): void {
   if (value === undefined) {
     return;
   }
   if (!isRecord(value)) {
     throw new KilnYamlError("managedAgents must be an object");
   }
+  validateManagedAgentVoiceProfile(value.defaultVoiceProfile, "managedAgents.defaultVoiceProfile", operatorVoice);
   if (value.routes !== undefined) {
     if (!Array.isArray(value.routes)) {
       throw new KilnYamlError("managedAgents.routes must be an array");
     }
     for (let index = 0; index < value.routes.length; index += 1) {
-      validateManagedAgentRoute(value.routes[index], index);
+      validateManagedAgentRoute(value.routes[index], index, operatorVoice);
     }
   }
 }
 
-function validateManagedAgentRoute(value: unknown, index: number): void {
+function validateManagedAgentRoute(value: unknown, index: number, operatorVoice: VoiceConfig | undefined): void {
   if (!isRecord(value)) {
     throw new KilnYamlError(`managedAgents.routes[${index}] must be an object`);
   }
@@ -532,7 +552,24 @@ function validateManagedAgentRoute(value: unknown, index: number): void {
   if (value.timeoutMs !== undefined && (typeof value.timeoutMs !== "number" || value.timeoutMs <= 0)) {
     throw new KilnYamlError(`managedAgents.routes[${index}].timeoutMs must be positive`);
   }
+  validateManagedAgentVoiceProfile(value.voiceProfile, `managedAgents.routes[${index}].voiceProfile`, operatorVoice);
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
+}
+
+function validateManagedAgentVoiceProfile(
+  value: unknown,
+  path: string,
+  operatorVoice: VoiceConfig | undefined,
+): void {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new KilnYamlError(`${path} must be a non-empty string`);
+  }
+  if (!operatorVoice?.ttsProfiles?.[value.trim()]) {
+    throw new KilnYamlError(`${path} references unknown operatorVoice.ttsProfiles entry "${value.trim()}"`);
+  }
 }
 
 function validateManagedAgentWriteAuthority(value: unknown, path: string): void {

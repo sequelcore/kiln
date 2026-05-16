@@ -156,8 +156,32 @@ export type {
   VoiceConfig,
   SttProviderConfig,
   TtsProviderConfig,
+  SttProviderId,
+  TtsProviderId,
+  VoiceDefaultsConfig,
+  VoicePolicyConfig,
+  VoiceArtifactPolicy,
+  VoiceSurfacePolicy,
+  VoiceInputPolicy,
+  VoiceOutputPolicy,
+  VoiceTtsProfileConfig,
+  VoiceTtsIntentConfig,
+  VoiceTtsIntentId,
+  VoiceSurface,
+  VoiceInputMode,
+  VoiceOutputMode,
+  VoiceFailureMode,
 } from "./engine/domain/speech-config.js";
-export { validateVoiceConfig } from "./engine/domain/speech-config.js";
+export {
+  VALID_STT_PROVIDERS,
+  VALID_TTS_PROVIDERS,
+  VALID_VOICE_TTS_INTENTS,
+  VALID_VOICE_SURFACES,
+  VALID_VOICE_INPUT_MODES,
+  VALID_VOICE_OUTPUT_MODES,
+  VALID_VOICE_FAILURE_MODES,
+  validateVoiceConfig,
+} from "./engine/domain/speech-config.js";
 
 // Gateway types re-exported for direct access by runtime gateway
 export type {

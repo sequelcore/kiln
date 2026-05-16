@@ -291,6 +291,245 @@ teams:
     expect(app.mcp?.servers[0]?.requestTimeoutMs).toBe(390_000);
   });
 
+  it("maps cross-surface voice policy from YAML", () => {
+    const yaml = `
+name: voice-app
+channels: [web, whatsapp]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: solo
+
+voice:
+  stt:
+    provider: openai
+    model: gpt-4o-transcribe
+    apiKeyEnv: OPENAI_API_KEY
+    language: es
+  tts:
+    provider: openai
+    model: gpt-4o-mini-tts
+    apiKeyEnv: OPENAI_API_KEY
+    voice: alloy
+  policy:
+    defaultInputFailureMode: fail-open
+    defaultOutputFailureMode: fail-closed
+    artifacts:
+      storeSourceAudio: true
+      storeTranscripts: true
+      storeSynthesizedAudio: true
+      retentionMaxArtifacts: 50
+    surfaces:
+      whatsapp:
+        enabled: true
+        input:
+          modes: [audio-part]
+          failureMode: fail-open
+      gui:
+        enabled: true
+        input:
+          modes: [microphone, file]
+        output:
+          modes: [audio-response, transcript-only]
+          failureMode: fail-closed
+      native:
+        enabled: true
+        input:
+          modes: [microphone, file]
+        output:
+          modes: [audio-response, transcript-only]
+
+teams:
+  solo:
+    agents:
+      worker:
+        name: Solo
+        role: Generalist
+        goal: Handle all tasks
+        tier: coding
+        tools: []
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+
+    const app = parseAppYaml(yaml);
+
+    expect(app.voice?.stt.language).toBe("es");
+    expect(app.voice?.policy?.defaultInputFailureMode).toBe("fail-open");
+    expect(app.voice?.policy?.artifacts?.retentionMaxArtifacts).toBe(50);
+    expect(app.voice?.policy?.surfaces?.whatsapp?.input?.modes).toEqual(["audio-part"]);
+    expect(app.voice?.policy?.surfaces?.gui?.input?.modes).toEqual(["microphone", "file"]);
+    expect(app.voice?.policy?.surfaces?.gui?.output?.modes).toEqual(["audio-response", "transcript-only"]);
+    expect(app.voice?.policy?.surfaces?.native?.input?.modes).toEqual(["microphone", "file"]);
+    expect(app.voice?.policy?.surfaces?.native?.output?.modes).toEqual(["audio-response", "transcript-only"]);
+  });
+
+  it("maps local voice provider configuration from YAML", () => {
+    const yaml = `
+name: voice-local
+channels: [gui, tui]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: solo
+
+voice:
+  stt:
+    provider: whisper-local
+    model: small
+    commandEnv: KILN_WHISPER_COMMAND
+    args: ["--serve-once"]
+    modelPathEnv: KILN_WHISPER_MODEL_PATH
+    device: auto
+    timeoutMs: 120000
+  tts:
+    provider: kokoro-local
+    model: kokoro-v1
+    voice: es
+    commandEnv: KILN_KOKORO_COMMAND
+    modelPathEnv: KILN_KOKORO_MODEL_PATH
+    device: auto
+    timeoutMs: 120000
+    format: wav
+
+teams:
+  solo:
+    agents:
+      worker:
+        name: Solo
+        role: Generalist
+        goal: Handle all tasks
+        tier: coding
+        tools: []
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+
+    const app = parseAppYaml(yaml);
+
+    expect(app.voice?.stt).toEqual({
+      provider: "whisper-local",
+      model: "small",
+      commandEnv: "KILN_WHISPER_COMMAND",
+      args: ["--serve-once"],
+      modelPathEnv: "KILN_WHISPER_MODEL_PATH",
+      device: "auto",
+      timeoutMs: 120000,
+    });
+    expect(app.voice?.tts).toEqual({
+      provider: "kokoro-local",
+      model: "kokoro-v1",
+      voice: "es",
+      commandEnv: "KILN_KOKORO_COMMAND",
+      modelPathEnv: "KILN_KOKORO_MODEL_PATH",
+      device: "auto",
+      timeoutMs: 120000,
+      format: "wav",
+    });
+  });
+
+  it("maps governed voice profiles and agent profile references from YAML", () => {
+    const yaml = `
+name: profiled-voice-app
+channels: [gui, tui]
+
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+
+router:
+  rules: []
+  fallback: solo
+
+voice:
+  stt:
+    provider: whisper-local
+    model: base
+    commandEnv: KILN_WHISPER_COMMAND
+  tts:
+    provider: kokoro-local
+    model: kokoro-v1
+    commandEnv: KILN_KOKORO_COMMAND
+    format: wav
+  defaults:
+    ttsProfile: english-default
+  ttsProfiles:
+    english-default:
+      style: calm, concise technical assistant
+      voice: af_bella
+      language: en-us
+      speed: 1
+      speedRange: [0.95, 1.05]
+      format: wav
+      intents:
+        neutral:
+          delivery: Use the profile's normal delivery.
+          appliesWhen:
+            - Default spoken response when no more specific intent applies.
+          speed: 1
+        calm:
+          delivery: Slightly slower and steadier delivery.
+          appliesWhen:
+            - Errors, support friction, or sensitive user messages.
+          speed: 0.97
+
+teams:
+  solo:
+    agents:
+      assistant:
+        name: Assistant
+        role: Generalist
+        goal: Answer with a stable governed voice
+        tier: coding
+        tools: []
+        voiceProfile: english-default
+    workflow:
+      phases: [work]
+      gates: {}
+    capabilities: []
+    qualityGates: []
+`;
+
+    const app = parseAppYaml(yaml);
+
+    expect(app.voice?.defaults?.ttsProfile).toBe("english-default");
+    expect(app.voice?.ttsProfiles?.["english-default"]).toEqual({
+      style: "calm, concise technical assistant",
+      voice: "af_bella",
+      language: "en-us",
+      speed: 1,
+      speedRange: [0.95, 1.05],
+      format: "wav",
+      intents: {
+        neutral: {
+          delivery: "Use the profile's normal delivery.",
+          appliesWhen: ["Default spoken response when no more specific intent applies."],
+          speed: 1,
+        },
+        calm: {
+          delivery: "Slightly slower and steadier delivery.",
+          appliesWhen: ["Errors, support friction, or sensitive user messages."],
+          speed: 0.97,
+        },
+      },
+    });
+    expect(app.teams.solo?.agents.assistant?.voiceProfile).toBe("english-default");
+  });
+
   it("throws AppLoaderError for invalid MCP request timeout config", () => {
     const yaml = `
 name: mcp-app

@@ -289,7 +289,7 @@ export interface CanonicalMultimodalRoutedEvent extends SessionEventEnvelope<"mu
   readonly strategy: "native" | "delegated" | "transform" | "unsupported";
   readonly reasonCode: string;
   readonly reason: string;
-  readonly requestedCapability: "vision" | "document" | "audio" | "screenshot-review" | "transcription";
+  readonly requestedCapability: "vision" | "document" | "audio" | "screenshot-review" | "transcription" | "speech-synthesis";
   readonly requiredModalities: readonly string[];
   readonly artifactUris: readonly string[];
   readonly delegation?: MultimodalDelegationEvidence;

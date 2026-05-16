@@ -6,7 +6,8 @@ export type MultimodalCapability =
   | "document"
   | "audio"
   | "screenshot-review"
-  | "transcription";
+  | "transcription"
+  | "speech-synthesis";
 
 export interface MultimodalChecksum {
   readonly algorithm: "sha256";
@@ -337,6 +338,7 @@ function effectiveRequiredInputModalities(request: MultimodalRoutingRequest): re
 function outputModalityForCapability(capability: MultimodalCapability): MultimodalTransportModality {
   switch (capability) {
     case "audio":
+    case "speech-synthesis":
       return "audio";
     case "document":
     case "screenshot-review":

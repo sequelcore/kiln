@@ -17,6 +17,8 @@ export interface GatewayChannelBinding {
   readonly accessTokenEnv?: string;
   readonly apiKeyEnv?: string;
   readonly appSecretEnv?: string;
+  readonly publicMediaBaseUrlEnv?: string;
+  readonly publicMediaSigningSecretEnv?: string;
   readonly allowedOrigins?: readonly string[];
 }
 

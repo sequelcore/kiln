@@ -307,6 +307,29 @@ export type {
 } from "./operator-surface-capability.js";
 
 export {
+  formatVoiceAudioOutputForTerminal,
+  projectVoiceAudioOutputParts,
+} from "./voice-output-parts.js";
+export type {
+  VoiceAudioOutputProjection,
+  VoiceAudioOutputSource,
+} from "./voice-output-parts.js";
+
+export {
+  VOICE_INPUT_CAPTURE_MIME_TYPES,
+  createVoiceInputParts,
+  selectVoiceInputCaptureMimeType,
+  voiceInputDisplayText,
+} from "./voice-input-parts.js";
+export type {
+  VoiceInputAudioPart,
+  VoiceInputBlobLike,
+  VoiceInputContentPart,
+  VoiceInputPartsInput,
+  VoiceInputTextPart,
+} from "./voice-input-parts.js";
+
+export {
   formatOperatorEventValue,
   operatorEventTargetsSurface,
   presentOperatorEventPayload,

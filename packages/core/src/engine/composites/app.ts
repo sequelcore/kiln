@@ -172,6 +172,16 @@ export function validateApp(app: App): AppValidationError[] {
     for (const e of voiceErrors) {
       errors.push({ field: e.field, message: e.message });
     }
+    for (const [teamName, team] of Object.entries(app.teams)) {
+      for (const [agentName, agent] of Object.entries(team.agents)) {
+        if (agent.voiceProfile && !app.voice.ttsProfiles?.[agent.voiceProfile]) {
+          errors.push({
+            field: `teams.${teamName}.agents.${agentName}.voiceProfile`,
+            message: `references unknown voice.ttsProfiles entry "${agent.voiceProfile}"`,
+          });
+        }
+      }
+    }
   }
 
   // Safety validation

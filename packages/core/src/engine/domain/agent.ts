@@ -19,4 +19,5 @@ export interface Agent {
   readonly count?: number;        // Parallel instance pool size
   readonly sandbox?: boolean;     // Enable filesystem/network isolation
   readonly modalities?: readonly Modality[];  // Supported content types (defaults to ["text"] if omitted)
+  readonly voiceProfile?: string; // Optional governed TTS profile reference
 }

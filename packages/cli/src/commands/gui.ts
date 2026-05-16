@@ -18,6 +18,7 @@ import { resolveManagedInvocationToolOptions } from "../config/managed-agent-rou
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
+import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
@@ -119,6 +120,10 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+  const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
+  for (const warning of operatorVoice.warnings) {
+    console.warn(warning);
+  }
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
     providerIds,
@@ -174,6 +179,9 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       resumeSessionHydrator,
       contextArtifactCache,
       artifactStore: builtinToolOptions.artifactResources?.store,
+      voiceConfig: operatorVoice.voiceConfig,
+      sttAdapter: operatorVoice.sttAdapter,
+      ttsAdapter: operatorVoice.ttsAdapter,
       executionMode: flags.plan ? "plan" : "execute",
       managedInvocation,
       workingDirectory: cwd,

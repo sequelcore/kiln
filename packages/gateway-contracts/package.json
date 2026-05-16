@@ -8,6 +8,16 @@
       "types": "./dist/index.d.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./voice-output-parts": {
+      "types": "./dist/voice-output-parts.d.ts",
+      "development": "./src/voice-output-parts.ts",
+      "import": "./dist/voice-output-parts.js"
+    },
+    "./voice-input-parts": {
+      "types": "./dist/voice-input-parts.d.ts",
+      "development": "./src/voice-input-parts.ts",
+      "import": "./dist/voice-input-parts.js"
     }
   },
   "types": "./dist/index.d.ts",

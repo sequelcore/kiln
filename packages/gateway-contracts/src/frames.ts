@@ -633,12 +633,18 @@ export type GuiOutboundFrame =
   | {
       type: "message";
       content: string;
+      parts?: readonly unknown[];
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
       resumeSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       appName?: string;
       tenantId?: string;
+    }
+  | {
+      type: "voice_synthesis_request";
+      requestId: string;
+      sourceMessageId: string;
     }
   | { type: "clear" }
   | { type: "refresh_providers" }
@@ -677,8 +683,12 @@ export type GuiInboundFrame =
   | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";
+      sourceMessageId?: string;
       content: string;
       parts?: readonly unknown[];
+      admittedInput?: {
+        content: string;
+      };
       inputTokens: number;
       outputTokens: number;
       routedProvider?: string;
@@ -699,6 +709,19 @@ export type GuiInboundFrame =
         completeness: "authoritative" | "partial";
         };
       }
+  | {
+      type: "voice_synthesis_completed";
+      requestId: string;
+      sourceMessageId: string;
+      parts: readonly unknown[];
+    }
+  | {
+      type: "voice_synthesis_failed";
+      requestId: string;
+      sourceMessageId: string;
+      message: string;
+      code?: string;
+    }
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";

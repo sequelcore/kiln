@@ -84,8 +84,37 @@ export {
   RECORDER_CAPTURE_TRACK_KINDS,
   createRecorderCaptureManifest,
 } from "./domain/capture-manifest.js";
-export type { SttAdapter, SttResult, TtsAdapter, TtsOptions, TtsResult, VoiceConfig, SttProviderConfig, TtsProviderConfig } from "./domain/speech-config.js";
-export { validateVoiceConfig } from "./domain/speech-config.js";
+export type {
+  SttAdapter,
+  SttResult,
+  TtsAdapter,
+  TtsOptions,
+  TtsResult,
+  VoiceConfig,
+  SttProviderConfig,
+  TtsProviderConfig,
+  VoiceDefaultsConfig,
+  VoicePolicyConfig,
+  VoiceArtifactPolicy,
+  VoiceSurfacePolicy,
+  VoiceInputPolicy,
+  VoiceOutputPolicy,
+  VoiceTtsProfileConfig,
+  VoiceTtsIntentConfig,
+  VoiceTtsIntentId,
+  VoiceSurface,
+  VoiceInputMode,
+  VoiceOutputMode,
+  VoiceFailureMode,
+} from "./domain/speech-config.js";
+export {
+  VALID_VOICE_SURFACES,
+  VALID_VOICE_TTS_INTENTS,
+  VALID_VOICE_INPUT_MODES,
+  VALID_VOICE_OUTPUT_MODES,
+  VALID_VOICE_FAILURE_MODES,
+  validateVoiceConfig,
+} from "./domain/speech-config.js";
 export { assembleAgentPrompt } from "./domain/prompt-assembler.js";
 export type { PromptContext } from "./domain/prompt-assembler.js";
 export type { Capability, CapabilityAnnotations } from "./domain/capability.js";

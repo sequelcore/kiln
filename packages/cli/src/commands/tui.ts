@@ -31,6 +31,7 @@ import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
+import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../config/operator-voice.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -103,6 +104,7 @@ interface TuiBootstrapOptions {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
+  readonly operatorVoice?: OperatorVoiceRuntime;
 }
 
 interface TuiBootstrapResult {
@@ -790,6 +792,9 @@ async function bootstrapGatewaySession(
     getProviderAvailability: () => getRuntimeProviderAvailability(options.registry),
     contextArtifactCache,
     artifactStore: options.builtinToolOptions?.artifactResources?.store,
+    voiceConfig: options.operatorVoice?.voiceConfig,
+    sttAdapter: options.operatorVoice?.sttAdapter,
+    ttsAdapter: options.operatorVoice?.ttsAdapter,
     executionMode: flags.plan ? "plan" : "execute",
     builtinToolOptions: options.builtinToolOptions,
     managedInvocation: options.managedInvocation,
@@ -1102,6 +1107,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+  const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
+  for (const warning of operatorVoice.warnings) {
+    console.warn(warning);
+  }
 
   // Resolve domain display name from app config if available
   let domain = "kiln";
@@ -1151,6 +1160,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     builtinToolOptions,
     managedInvocation,
     resumeSessionHydrator,
+    operatorVoice,
   });
 
   const shutdown = (code = 0, error?: unknown) => {

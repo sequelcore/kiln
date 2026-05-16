@@ -261,6 +261,9 @@
     "packages/widget": {
       "name": "@kilnai/widget",
       "version": "2.0.0",
+      "dependencies": {
+        "@kilnai/gateway-contracts": "workspace:*",
+      },
       "devDependencies": {
         "jsdom": "^25.0.0",
         "vitest": "^4.0.18",

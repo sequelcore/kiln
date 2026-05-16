@@ -75,6 +75,8 @@ function mapChannelBinding(raw: RawChannelBinding): GatewayChannelBinding {
     accessTokenEnv: str(raw.accessTokenEnv),
     apiKeyEnv: str(raw.apiKeyEnv),
     appSecretEnv: str(raw.appSecretEnv),
+    publicMediaBaseUrlEnv: str(raw.publicMediaBaseUrlEnv),
+    publicMediaSigningSecretEnv: str(raw.publicMediaSigningSecretEnv),
     allowedOrigins: strArr(raw.allowedOrigins),
   };
 }

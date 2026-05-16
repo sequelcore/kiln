@@ -10,7 +10,18 @@ import type { Router, PatternRule } from "../composites/router.js";
 import type { Agent, AgentTier } from "../domain/agent.js";
 import type { Modality } from "../domain/modality.js";
 import { VALID_MODALITIES } from "../domain/modality.js";
-import type { VoiceConfig, SttProviderConfig, TtsProviderConfig } from "../domain/speech-config.js";
+import type {
+  VoiceConfig,
+  SttProviderConfig,
+  TtsProviderConfig,
+  VoicePolicyConfig,
+  VoiceSurfacePolicy,
+  VoiceInputPolicy,
+  VoiceOutputPolicy,
+  VoiceTtsProfileConfig,
+  VoiceTtsIntentConfig,
+  VoiceTtsIntentId,
+} from "../domain/speech-config.js";
 import { validateVoiceConfig } from "../domain/speech-config.js";
 import type { Capability } from "../domain/capability.js";
 import type { RetryConfig, RetryStrategy } from "../domain/tool-execution.js";
@@ -59,6 +70,7 @@ interface RawAgent {
   count?: unknown;
   sandbox?: unknown;
   modalities?: unknown;  // Content modalities -- optional (defaults to ["text"])
+  voiceProfile?: unknown;
   // systemPrompt REMOVED -- replaced by auto-assembled prompt
 }
 
@@ -225,6 +237,9 @@ interface RawToolSelection {
 interface RawVoice {
   stt?: unknown;
   tts?: unknown;
+  defaults?: unknown;
+  ttsProfiles?: unknown;
+  policy?: unknown;
 }
 
 interface RawSttProvider {
@@ -232,6 +247,13 @@ interface RawSttProvider {
   model?: unknown;
   apiKeyEnv?: unknown;
   language?: unknown;
+  command?: unknown;
+  commandEnv?: unknown;
+  args?: unknown;
+  modelPath?: unknown;
+  modelPathEnv?: unknown;
+  device?: unknown;
+  timeoutMs?: unknown;
 }
 
 interface RawTtsProvider {
@@ -239,6 +261,67 @@ interface RawTtsProvider {
   model?: unknown;
   apiKeyEnv?: unknown;
   voice?: unknown;
+  command?: unknown;
+  commandEnv?: unknown;
+  args?: unknown;
+  modelPath?: unknown;
+  modelPathEnv?: unknown;
+  device?: unknown;
+  timeoutMs?: unknown;
+  format?: unknown;
+}
+
+interface RawVoiceDefaults {
+  ttsProfile?: unknown;
+}
+
+interface RawTtsProfile {
+  style?: unknown;
+  voice?: unknown;
+  language?: unknown;
+  speed?: unknown;
+  speedRange?: unknown;
+  format?: unknown;
+  intents?: unknown;
+}
+
+interface RawTtsIntent {
+  delivery?: unknown;
+  appliesWhen?: unknown;
+  voice?: unknown;
+  language?: unknown;
+  speed?: unknown;
+  format?: unknown;
+}
+
+interface RawVoicePolicy {
+  defaultInputFailureMode?: unknown;
+  defaultOutputFailureMode?: unknown;
+  artifacts?: unknown;
+  surfaces?: unknown;
+}
+
+interface RawVoiceArtifacts {
+  storeSourceAudio?: unknown;
+  storeTranscripts?: unknown;
+  storeSynthesizedAudio?: unknown;
+  retentionMaxArtifacts?: unknown;
+}
+
+interface RawVoiceSurfacePolicy {
+  enabled?: unknown;
+  input?: unknown;
+  output?: unknown;
+}
+
+interface RawVoiceInputPolicy {
+  modes?: unknown;
+  failureMode?: unknown;
+}
+
+interface RawVoiceOutputPolicy {
+  modes?: unknown;
+  failureMode?: unknown;
 }
 
 interface RawPiiConfig {
@@ -363,6 +446,10 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     }
   }
 
+  if (raw.voiceProfile !== undefined && (typeof raw.voiceProfile !== "string" || raw.voiceProfile.trim() === "")) {
+    errors.push({ field: `${path}.voiceProfile`, message: "must be a non-empty string" });
+  }
+
   const agent: Agent = {
     name,
     role,
@@ -375,6 +462,7 @@ function mapAgent(identifier: string, raw: RawAgent, path: string): { agent: Age
     ...(typeof raw.count === "number" ? { count: raw.count } : {}),
     ...(typeof raw.sandbox === "boolean" ? { sandbox: raw.sandbox } : {}),
     ...(modalities && modalities.length > 0 ? { modalities } : {}),
+    ...(typeof raw.voiceProfile === "string" && raw.voiceProfile.trim() !== "" ? { voiceProfile: raw.voiceProfile.trim() } : {}),
   };
 
   return { agent, errors };
@@ -1080,11 +1168,21 @@ function mapVoiceConfig(raw: RawVoice): { voice: VoiceConfig | undefined; errors
 
   if (errors.length > 0) return { voice: undefined, errors };
 
+  const sttArgs = mapOptionalStringArray(rawStt!.args, "voice.stt.args", errors);
+  const ttsArgs = mapOptionalStringArray(rawTts!.args, "voice.tts.args", errors);
+
   const stt: SttProviderConfig = {
     provider: (typeof rawStt!.provider === "string" ? rawStt!.provider : "") as SttProviderConfig["provider"],
     ...(typeof rawStt!.model === "string" ? { model: rawStt!.model } : {}),
     ...(typeof rawStt!.apiKeyEnv === "string" ? { apiKeyEnv: rawStt!.apiKeyEnv } : {}),
     ...(typeof rawStt!.language === "string" ? { language: rawStt!.language } : {}),
+    ...(typeof rawStt!.command === "string" ? { command: rawStt!.command } : {}),
+    ...(typeof rawStt!.commandEnv === "string" ? { commandEnv: rawStt!.commandEnv } : {}),
+    ...(sttArgs ? { args: sttArgs } : {}),
+    ...(typeof rawStt!.modelPath === "string" ? { modelPath: rawStt!.modelPath } : {}),
+    ...(typeof rawStt!.modelPathEnv === "string" ? { modelPathEnv: rawStt!.modelPathEnv } : {}),
+    ...(typeof rawStt!.device === "string" ? { device: rawStt!.device } : {}),
+    ...(typeof rawStt!.timeoutMs === "number" ? { timeoutMs: rawStt!.timeoutMs } : {}),
   };
 
   const tts: TtsProviderConfig = {
@@ -1092,16 +1190,267 @@ function mapVoiceConfig(raw: RawVoice): { voice: VoiceConfig | undefined; errors
     ...(typeof rawTts!.model === "string" ? { model: rawTts!.model } : {}),
     ...(typeof rawTts!.apiKeyEnv === "string" ? { apiKeyEnv: rawTts!.apiKeyEnv } : {}),
     ...(typeof rawTts!.voice === "string" ? { voice: rawTts!.voice } : {}),
+    ...(typeof rawTts!.command === "string" ? { command: rawTts!.command } : {}),
+    ...(typeof rawTts!.commandEnv === "string" ? { commandEnv: rawTts!.commandEnv } : {}),
+    ...(ttsArgs ? { args: ttsArgs } : {}),
+    ...(typeof rawTts!.modelPath === "string" ? { modelPath: rawTts!.modelPath } : {}),
+    ...(typeof rawTts!.modelPathEnv === "string" ? { modelPathEnv: rawTts!.modelPathEnv } : {}),
+    ...(typeof rawTts!.device === "string" ? { device: rawTts!.device } : {}),
+    ...(typeof rawTts!.timeoutMs === "number" ? { timeoutMs: rawTts!.timeoutMs } : {}),
+    ...(typeof rawTts!.format === "string" ? { format: rawTts!.format } : {}),
   };
 
-  const voice: VoiceConfig = { stt, tts };
+  const { policy, errors: policyErrors } = mapVoicePolicy(raw.policy);
+  errors.push(...policyErrors);
+
+  const { defaults, errors: defaultsErrors } = mapVoiceDefaults(raw.defaults);
+  errors.push(...defaultsErrors);
+
+  const { ttsProfiles, errors: ttsProfileErrors } = mapVoiceTtsProfiles(raw.ttsProfiles);
+  errors.push(...ttsProfileErrors);
+
+  const voice: VoiceConfig = {
+    stt,
+    tts,
+    ...(defaults ? { defaults } : {}),
+    ...(ttsProfiles ? { ttsProfiles } : {}),
+    ...(policy ? { policy } : {}),
+  };
 
   const validationErrors = validateVoiceConfig(voice);
   for (const ve of validationErrors) {
     errors.push(ve);
   }
 
-  return { voice: validationErrors.length > 0 ? undefined : voice, errors };
+  return { voice: errors.length > 0 ? undefined : voice, errors };
+}
+
+function mapVoiceDefaults(raw: unknown): {
+  defaults: VoiceConfig["defaults"] | undefined;
+  errors: { field: string; message: string }[];
+} {
+  const errors: { field: string; message: string }[] = [];
+  if (raw === undefined) {
+    return { defaults: undefined, errors };
+  }
+  if (!isRecord(raw)) {
+    return { defaults: undefined, errors: [{ field: "voice.defaults", message: "must be an object" }] };
+  }
+
+  const rawDefaults = raw as RawVoiceDefaults;
+  if (rawDefaults.ttsProfile !== undefined && typeof rawDefaults.ttsProfile !== "string") {
+    errors.push({ field: "voice.defaults.ttsProfile", message: "must be a non-empty string" });
+  }
+  const defaults: VoiceConfig["defaults"] = {
+    ...(typeof rawDefaults.ttsProfile === "string" ? { ttsProfile: rawDefaults.ttsProfile.trim() } : {}),
+  };
+
+  return { defaults, errors };
+}
+
+function mapVoiceTtsProfiles(raw: unknown): {
+  ttsProfiles: Readonly<Record<string, VoiceTtsProfileConfig>> | undefined;
+  errors: { field: string; message: string }[];
+} {
+  const errors: { field: string; message: string }[] = [];
+  if (raw === undefined) {
+    return { ttsProfiles: undefined, errors };
+  }
+  if (!isRecord(raw)) {
+    return { ttsProfiles: undefined, errors: [{ field: "voice.ttsProfiles", message: "must be an object" }] };
+  }
+
+  const profiles: Record<string, VoiceTtsProfileConfig> = {};
+  for (const [profileName, profileRaw] of Object.entries(raw)) {
+    if (!isRecord(profileRaw)) {
+      errors.push({ field: `voice.ttsProfiles.${profileName}`, message: "must be an object" });
+      continue;
+    }
+    profiles[profileName] = mapVoiceTtsProfile(profileRaw as RawTtsProfile, `voice.ttsProfiles.${profileName}`, errors);
+  }
+
+  return { ttsProfiles: profiles, errors };
+}
+
+function mapVoiceTtsProfile(
+  raw: RawTtsProfile,
+  path: string,
+  errors: { field: string; message: string }[],
+): VoiceTtsProfileConfig {
+  const speedRange = mapOptionalNumberTuple(raw.speedRange, `${path}.speedRange`, errors);
+  const intents = mapVoiceTtsIntents(raw.intents, `${path}.intents`, errors);
+
+  return {
+    style: typeof raw.style === "string" ? raw.style.trim() : "",
+    ...(typeof raw.voice === "string" ? { voice: raw.voice.trim() } : {}),
+    ...(typeof raw.language === "string" ? { language: raw.language.trim() } : {}),
+    ...(typeof raw.speed === "number" ? { speed: raw.speed } : {}),
+    ...(speedRange ? { speedRange } : {}),
+    ...(typeof raw.format === "string" ? { format: raw.format.trim() } : {}),
+    ...(intents ? { intents } : {}),
+  };
+}
+
+function mapVoiceTtsIntents(
+  raw: unknown,
+  path: string,
+  errors: { field: string; message: string }[],
+): VoiceTtsProfileConfig["intents"] | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    errors.push({ field: path, message: "must be an object" });
+    return undefined;
+  }
+
+  const intents: Partial<Record<VoiceTtsIntentId, VoiceTtsIntentConfig>> = {};
+  for (const [intentName, intentRaw] of Object.entries(raw)) {
+    if (!isRecord(intentRaw)) {
+      errors.push({ field: `${path}.${intentName}`, message: "must be an object" });
+      continue;
+    }
+    const intent = intentRaw as RawTtsIntent;
+    const appliesWhen = mapOptionalStringArray(intent.appliesWhen, `${path}.${intentName}.appliesWhen`, errors);
+    intents[intentName as VoiceTtsIntentId] = {
+      delivery: typeof intent.delivery === "string" ? intent.delivery.trim() : "",
+      appliesWhen: appliesWhen ?? [],
+      ...(typeof intent.voice === "string" ? { voice: intent.voice.trim() } : {}),
+      ...(typeof intent.language === "string" ? { language: intent.language.trim() } : {}),
+      ...(typeof intent.speed === "number" ? { speed: intent.speed } : {}),
+      ...(typeof intent.format === "string" ? { format: intent.format.trim() } : {}),
+    };
+  }
+
+  return intents;
+}
+
+function mapVoicePolicy(raw: unknown): { policy: VoicePolicyConfig | undefined; errors: { field: string; message: string }[] } {
+  const errors: { field: string; message: string }[] = [];
+
+  if (raw === undefined) {
+    return { policy: undefined, errors };
+  }
+
+  if (!isRecord(raw)) {
+    return { policy: undefined, errors: [{ field: "voice.policy", message: "must be an object" }] };
+  }
+
+  const rawPolicy = raw as RawVoicePolicy;
+  let artifacts: VoicePolicyConfig["artifacts"];
+  if (rawPolicy.artifacts !== undefined) {
+    if (!isRecord(rawPolicy.artifacts)) {
+      errors.push({ field: "voice.policy.artifacts", message: "must be an object" });
+    } else {
+      const rawArtifacts = rawPolicy.artifacts as RawVoiceArtifacts;
+      artifacts = {
+        ...(typeof rawArtifacts.storeSourceAudio === "boolean" ? { storeSourceAudio: rawArtifacts.storeSourceAudio } : {}),
+        ...(typeof rawArtifacts.storeTranscripts === "boolean" ? { storeTranscripts: rawArtifacts.storeTranscripts } : {}),
+        ...(typeof rawArtifacts.storeSynthesizedAudio === "boolean" ? { storeSynthesizedAudio: rawArtifacts.storeSynthesizedAudio } : {}),
+        ...(typeof rawArtifacts.retentionMaxArtifacts === "number" ? { retentionMaxArtifacts: rawArtifacts.retentionMaxArtifacts } : {}),
+      };
+    }
+  }
+
+  let surfaces: VoicePolicyConfig["surfaces"];
+  if (rawPolicy.surfaces !== undefined) {
+    if (!isRecord(rawPolicy.surfaces)) {
+      errors.push({ field: "voice.policy.surfaces", message: "must be an object" });
+    } else {
+      const mappedSurfaces: Record<string, VoiceSurfacePolicy> = {};
+      for (const [surfaceName, surfaceRaw] of Object.entries(rawPolicy.surfaces)) {
+        if (!isRecord(surfaceRaw)) {
+          errors.push({ field: `voice.policy.surfaces.${surfaceName}`, message: "must be an object" });
+          continue;
+        }
+        mappedSurfaces[surfaceName] = mapVoiceSurfacePolicy(surfaceRaw as RawVoiceSurfacePolicy);
+      }
+      surfaces = mappedSurfaces as VoicePolicyConfig["surfaces"];
+    }
+  }
+
+  const policy: VoicePolicyConfig = {
+    ...(typeof rawPolicy.defaultInputFailureMode === "string"
+      ? { defaultInputFailureMode: rawPolicy.defaultInputFailureMode as VoicePolicyConfig["defaultInputFailureMode"] }
+      : {}),
+    ...(typeof rawPolicy.defaultOutputFailureMode === "string"
+      ? { defaultOutputFailureMode: rawPolicy.defaultOutputFailureMode as VoicePolicyConfig["defaultOutputFailureMode"] }
+      : {}),
+    ...(artifacts ? { artifacts } : {}),
+    ...(surfaces ? { surfaces } : {}),
+  };
+
+  return { policy, errors };
+}
+
+function mapVoiceSurfacePolicy(raw: RawVoiceSurfacePolicy): VoiceSurfacePolicy {
+  return {
+    ...(typeof raw.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+    ...(isRecord(raw.input) ? { input: mapVoiceInputPolicy(raw.input as RawVoiceInputPolicy) } : {}),
+    ...(isRecord(raw.output) ? { output: mapVoiceOutputPolicy(raw.output as RawVoiceOutputPolicy) } : {}),
+  };
+}
+
+function mapVoiceInputPolicy(raw: RawVoiceInputPolicy): VoiceInputPolicy {
+  return {
+    ...(Array.isArray(raw.modes) ? { modes: raw.modes as VoiceInputPolicy["modes"] } : {}),
+    ...(typeof raw.failureMode === "string" ? { failureMode: raw.failureMode as VoiceInputPolicy["failureMode"] } : {}),
+  };
+}
+
+function mapVoiceOutputPolicy(raw: RawVoiceOutputPolicy): VoiceOutputPolicy {
+  return {
+    ...(Array.isArray(raw.modes) ? { modes: raw.modes as VoiceOutputPolicy["modes"] } : {}),
+    ...(typeof raw.failureMode === "string" ? { failureMode: raw.failureMode as VoiceOutputPolicy["failureMode"] } : {}),
+  };
+}
+
+function mapOptionalNumberTuple(
+  value: unknown,
+  field: string,
+  errors: { field: string; message: string }[],
+): readonly [number, number] | undefined {
+  if (value === undefined) return undefined;
+
+  if (!Array.isArray(value) || value.length !== 2) {
+    errors.push({ field, message: "must be a two-number array" });
+    return undefined;
+  }
+
+  const [min, max] = value;
+  if (typeof min !== "number" || typeof max !== "number") {
+    errors.push({ field, message: "must be a two-number array" });
+    return undefined;
+  }
+
+  return [min, max];
+}
+
+function mapOptionalStringArray(
+  value: unknown,
+  field: string,
+  errors: { field: string; message: string }[],
+): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+
+  if (!Array.isArray(value)) {
+    errors.push({ field, message: "must be an array" });
+    return undefined;
+  }
+
+  const entries: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i];
+    if (typeof entry !== "string") {
+      errors.push({ field: `${field}[${i}]`, message: "must be a string" });
+      continue;
+    }
+    entries.push(entry);
+  }
+
+  return entries;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function mapSafety(raw: RawSafetyConfig): { safety: SafetyConfig | undefined; errors: { field: string; message: string }[] } {

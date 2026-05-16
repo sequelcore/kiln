@@ -25,6 +25,9 @@ export const OPERATOR_SURFACE_CAPABILITIES = [
   "native-cockpit-contract",
   "native-window-lifecycle",
   "surface-performance-telemetry",
+  "voice-input-capture",
+  "voice-output-playback",
+  "voice-output-on-demand",
 ] as const;
 
 export type OperatorSurfaceCapability = (typeof OPERATOR_SURFACE_CAPABILITIES)[number];

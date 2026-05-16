@@ -391,6 +391,7 @@ export interface KilnManagedAgentRouteConfig {
   readonly kind: KilnManagedAgentRouteKind;
   readonly provider: string;
   readonly model?: string;
+  readonly voiceProfile?: string;
   readonly profiles?: readonly KilnManagedAgentProfile[];
   readonly workingDirectory?: "project";
   readonly timeoutMs?: number;
@@ -404,6 +405,7 @@ export interface KilnManagedAgentsConfig {
   readonly enabled?: boolean;
   readonly defaultProfile?: KilnManagedAgentProfile;
   readonly defaultProvider?: string;
+  readonly defaultVoiceProfile?: string;
   readonly model?: string;
   readonly requireApproval?: boolean;
   readonly routes?: readonly KilnManagedAgentRouteConfig[];
