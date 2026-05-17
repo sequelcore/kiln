@@ -277,6 +277,48 @@ describe("GuiGatewayClient", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/config/setup");
   });
 
+  it("executes setup actions through the GUI gateway", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      action: "sync-repo-shims",
+      status: "applied",
+      message: "Repo shims synced.",
+      errors: [],
+      setup: {
+        projectRoot: "C:/workspace/kiln",
+        projectContext: {
+          path: "C:/workspace/kiln/.kiln/project-context.md",
+          status: "valid",
+          recommendation: "none",
+        },
+        repoShims: [{
+          target: "agents",
+          targetId: "repo-shim:agents",
+          path: "C:/workspace/kiln/AGENTS.md",
+          status: "current",
+          recommendation: "none",
+        }],
+        nativeProjections: [],
+        recommendedActions: ["none"],
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const result = await client.executeConfigSetupAction("sync-repo-shims");
+
+    expect(result.status).toBe("applied");
+    expect(result.setup.repoShims[0]?.status).toBe("current");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/config/setup/actions");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ action: "sync-repo-shims" }),
+    });
+  });
+
   it("rejects oversized Memory Lattice graph queries before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

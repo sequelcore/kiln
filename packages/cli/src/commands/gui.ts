@@ -8,6 +8,7 @@ import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
+import { executeConfigSetupAction } from "../application/config-setup-actions.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -167,6 +168,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       workspaceExplorer,
     ),
     getSetupSnapshot: async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
+    executeSetupAction: async (action) => executeConfigSetupAction({ projectPath: cwd, action }),
     listSessions: () => loadSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
     workingDirectory: cwd,

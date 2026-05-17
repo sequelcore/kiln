@@ -1,37 +1,65 @@
-# Tools MCP Optional Web Provider Plan
+# Setup Workflow Redesign Plan
 
 ## Objective
 
-Allow `kiln tools --mcp` to start when optional web providers reference API-key
-environment variables that the MCP stdio client did not inherit. Missing
-optional credentials should disable only the affected provider and show a
-diagnostic issue; invalid config should still fail fast.
+Turn Setup from a passive status dump into an action-first configuration health
+workflow shared through gateway contracts. GUI should render the rich workflow,
+runtime should expose the operator HTTP action boundary, and CLI should own the
+actual setup mutations.
 
 ## Non-Goals
 
-- Do not change global config format.
-- Do not embed secrets in generated native config.
-- Do not weaken network policy or memory authority behavior.
-- Do not make provider calls before a tool is invoked.
+- Do not let GUI import CLI, runtime internals, filesystem helpers, or projection
+  writers directly.
+- Do not add destructive force-sync behavior from the GUI.
+- Do not make review-only drift actions mutate files.
+- Do not add new visual dependencies beyond existing shadcn/Base UI components.
 
 ## Slices
 
-1. Configuration coverage
-   - Add tests proving missing web provider env vars do not throw during surface
-     construction.
-   - Add diagnostics coverage for missing provider env vars.
+1. Shared contract
+   - Add setup action request/result schemas to `@kilnai/gateway-contracts`.
+   - Keep setup snapshots as the read model and return a fresh snapshot after
+     action execution.
 
-2. Provider resolution
-   - Keep fail-fast validation for invalid URL/type/header/config shape.
-   - Treat missing API-key env as provider unavailable and omit that provider
-     from the runtime tool options.
+2. CLI-owned mutations
+   - Add an application service that executes safe setup actions:
+     project-context adoption, repo-shim sync, and native projection sync.
+   - Return blocked/no-op results for review-only or already-current actions.
 
-3. Verification
-   - Run focused CLI config tests and typecheck.
-   - Build CLI and verify MCP stdio handshake without `TAVILY_API_KEY` inherited.
+3. Runtime gateway adapter
+   - Add `POST /gui/api/config/setup/actions`.
+   - Validate request payload through gateway-contract schemas.
+   - Delegate execution through `StartGuiGatewayOptions` callback.
+
+4. GUI projection
+   - Add client method and mutation wiring.
+   - Redesign `SetupPanel` around health, prioritized action rows, and compact
+     source detail tables.
+   - Keep setup actions distinct from app-level controls and details.
+
+5. Documentation and verification
+   - Update config-projection/global-config docs from read-only setup to governed
+     action workflow.
+   - Run focused tests for contracts, runtime gateway, CLI action service, GUI
+     client/component, then relevant typechecks.
+
+## Verification
+
+- `bun run --cwd packages/gateway-contracts test`
+- `bun run --cwd packages/runtime test -- tests/gateway/gui-gateway.test.ts`
+- `bun run --cwd packages/cli test -- tests/application/config-setup-actions.test.ts`
+- `bun run --cwd packages/gui test:run -- tests/client.test.ts tests/setup-panel.test.tsx`
+- `bun run --cwd packages/gui test:run -- tests/app-shell-sidebar-modes.test.tsx`
+- `bun run --cwd packages/gateway-contracts build`
+- `bun run --cwd packages/runtime build`
+- `bun run --cwd packages/gateway-contracts typecheck`
+- `bun run --cwd packages/gui typecheck`
+- `bun run --cwd packages/cli typecheck`
+- `bun run --cwd packages/runtime typecheck`
 
 ## Residual Risk
 
-If both search and extract providers are unavailable, `web_search` and
-`web_extract` should return provider-not-configured errors at call time while
-the MCP server remains available for non-web tools and diagnostics.
+Native projection sync touches operator-native files. GUI execution must remain
+non-force only, and drift/review actions must guide the operator to review rather
+than overwriting managed native state.

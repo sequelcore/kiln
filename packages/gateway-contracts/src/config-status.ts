@@ -112,6 +112,20 @@ export interface KilnConfigSetupSnapshot {
   readonly recommendedActions: readonly KilnConfigSetupAction[];
 }
 
+export type KilnConfigSetupActionStatus = "applied" | "blocked" | "noop" | "failed";
+
+export interface KilnConfigSetupActionRequest {
+  readonly action: KilnConfigSetupAction;
+}
+
+export interface KilnConfigSetupActionResult {
+  readonly action: KilnConfigSetupAction;
+  readonly status: KilnConfigSetupActionStatus;
+  readonly message: string;
+  readonly errors: readonly string[];
+  readonly setup: KilnConfigSetupSnapshot;
+}
+
 export interface KilnConfigStatusSnapshot {
   readonly generatedAt: string;
   readonly project: KilnConfigProjectSnapshot;
@@ -160,4 +174,23 @@ export const KilnConfigSetupSnapshotSchema = z.object({
   repoShims: z.array(KilnRepoShimProjectionSnapshotSchema),
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
   recommendedActions: z.array(z.enum(KILN_CONFIG_SETUP_ACTIONS)),
+});
+
+export const KILN_CONFIG_SETUP_ACTION_STATUSES = [
+  "applied",
+  "blocked",
+  "noop",
+  "failed",
+] as const;
+
+export const KilnConfigSetupActionRequestSchema = z.object({
+  action: z.enum(KILN_CONFIG_SETUP_ACTIONS),
+});
+
+export const KilnConfigSetupActionResultSchema = z.object({
+  action: z.enum(KILN_CONFIG_SETUP_ACTIONS),
+  status: z.enum(KILN_CONFIG_SETUP_ACTION_STATUSES),
+  message: z.string(),
+  errors: z.array(z.string()),
+  setup: KilnConfigSetupSnapshotSchema,
 });

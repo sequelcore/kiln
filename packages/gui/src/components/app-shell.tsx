@@ -9,6 +9,7 @@ import {
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
   type GuiProviderReasoningEffort,
+  type KilnConfigSetupAction,
   type OperatorTurnRequestedAuthority,
   type OperatorWorkspaceFileSnapshot,
   type OperatorWorkspaceTreeEntry,
@@ -599,6 +600,8 @@ export function AppShell() {
   const [memoryFilters, setMemoryFilters] = useState<GuiMemoryLatticeGraphRequest>({ depth: 0, limit: 25 });
   const [selectedMemoryRecordId, setSelectedMemoryRecordId] = useState<string | null>(null);
   const [memoryLatticeInvalidationTick, setMemoryLatticeInvalidationTick] = useState(0);
+  const [setupActionInFlight, setSetupActionInFlight] = useState<KilnConfigSetupAction | null>(null);
+  const [setupActionFeedback, setSetupActionFeedback] = useState<string | null>(null);
   const sendRef = useRef<((frame: GuiOutboundFrame) => void) | null>(null);
 
   const status = useSessionStore((state) => state.status);
@@ -996,6 +999,23 @@ export function AppShell() {
     queryFn: async () => gatewayClient.loadConfigSetup(),
     enabled: gatewayReady && workbenchSurface === "setup",
   });
+
+  const executeSetupAction = async (action: KilnConfigSetupAction): Promise<void> => {
+    if (setupActionInFlight) {
+      return;
+    }
+    setSetupActionInFlight(action);
+    setSetupActionFeedback(null);
+    try {
+      const result = await gatewayClient.executeConfigSetupAction(action);
+      setSetupActionFeedback(result.message);
+      await setupQuery.refetch();
+    } catch (error) {
+      setSetupActionFeedback(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSetupActionInFlight(null);
+    }
+  };
 
   useEffect(() => {
     if (!gatewayReady || turnCounter === 0) {
@@ -1698,6 +1718,9 @@ export function AppShell() {
                 refreshing={Boolean(setupQuery.isFetching && !setupQuery.isLoading)}
                 error={setupQuery.error instanceof Error ? setupQuery.error : null}
                 onRefresh={() => void setupQuery.refetch()}
+                onExecuteAction={(action) => void executeSetupAction(action)}
+                actionInFlight={setupActionInFlight}
+                actionFeedback={setupActionFeedback}
                 onThemeSelected={persistThemePreference}
               />
             </div>

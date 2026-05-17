@@ -5,10 +5,28 @@ import type {
   KilnProjectionTargetStatus,
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
-import { AlertTriangle, CheckCircle2, FileCode2, RefreshCw, Settings2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clipboard,
+  FileCode2,
+  RefreshCw,
+  ShieldCheck,
+  Wrench,
+} from "lucide-react";
 import { ThemeSwitcher } from "./theme-switcher.js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 interface SetupPanelProps {
@@ -16,20 +34,41 @@ interface SetupPanelProps {
   readonly loading: boolean;
   readonly refreshing?: boolean;
   readonly error: Error | null;
+  readonly actionInFlight?: KilnConfigSetupAction | null;
+  readonly actionFeedback?: string | null;
   readonly onRefresh: () => void;
+  readonly onExecuteAction: (action: KilnConfigSetupAction) => void;
   readonly onThemeSelected?: (theme: OperatorThemeName) => void;
 }
 
 const ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
   none: "Current",
-  "adopt-project-context": "Adopt context",
-  "review-project-context": "Review context",
-  "sync-repo-shims": "Sync repo shims",
-  "sync-native-projections": "Sync native projections",
-  "review-and-force-sync-repo-shims": "Review shim drift",
-  "adopt-or-back-up-native-guidance": "Adopt native guidance",
-  "review-native-projection-drift": "Review native drift",
+  "adopt-project-context": "Adopt Project Context",
+  "review-project-context": "Review Project Context",
+  "sync-repo-shims": "Sync Repo Shims",
+  "sync-native-projections": "Sync Native Projections",
+  "review-and-force-sync-repo-shims": "Review Shim Drift",
+  "adopt-or-back-up-native-guidance": "Review Native Guidance",
+  "review-native-projection-drift": "Review Native Drift",
 };
+
+const ACTION_DESCRIPTIONS: Record<KilnConfigSetupAction, string> = {
+  none: "All setup sources are aligned.",
+  "adopt-project-context": "Create the canonical project-context document from deterministic repository evidence.",
+  "review-project-context": "The project-context document exists but needs manual review before replacement.",
+  "sync-repo-shims": "Regenerate AGENTS.md, CLAUDE.md, and workflow projection files from canonical Kiln context.",
+  "sync-native-projections": "Refresh managed native harness projections from canonical Kiln config.",
+  "review-and-force-sync-repo-shims": "Repo shims drifted from generated output; review before forcing replacement.",
+  "adopt-or-back-up-native-guidance": "Native guidance is unmanaged; review before adopting or backing it up.",
+  "review-native-projection-drift": "Native projection files drifted; review before overwriting managed fields.",
+};
+
+const REVIEW_ONLY_ACTIONS = new Set<KilnConfigSetupAction>([
+  "review-project-context",
+  "review-and-force-sync-repo-shims",
+  "adopt-or-back-up-native-guidance",
+  "review-native-projection-drift",
+]);
 
 const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus, "default" | "secondary" | "destructive" | "outline"> = {
   current: "default",
@@ -43,18 +82,16 @@ const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus, "
 };
 
 export function SetupPanel(props: SetupPanelProps) {
-  const activeActions = props.snapshot?.recommendedActions.filter((action) => action !== "none") ?? [];
-  const summary = summarizeSetup(props.snapshot, activeActions.length);
+  const summary = summarizeSetup(props.snapshot);
+  const actionItems = setupActionItems(props.snapshot);
 
   return (
     <section aria-label="Setup" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
       <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/60 bg-workspace-viewer-panel px-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <SetupStatusIcon issueCount={summary.issueCount} loading={props.loading} />
+          <SetupStatusIcon issueCount={summary.actionCount} loading={props.loading} />
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">
-              {props.loading ? "Reading setup" : summary.title}
-            </h2>
+            <h2 className="truncate text-sm font-semibold text-foreground">Configuration Health</h2>
             <p className="truncate text-xs text-muted-foreground">
               {props.snapshot?.projectRoot ?? "Global config, project context, shims, native projections"}
             </p>
@@ -65,83 +102,125 @@ export function SetupPanel(props: SetupPanelProps) {
           <Button
             type="button"
             variant="outline"
-            size="icon-sm"
-            aria-label="Refresh setup"
+            size="sm"
+            aria-label="Refresh Setup"
             disabled={props.refreshing || props.loading}
             onClick={props.onRefresh}
           >
-            <RefreshCw className={props.refreshing ? "animate-spin" : undefined} aria-hidden="true" />
+            <RefreshCw data-icon="inline-start" className={props.refreshing ? "animate-spin" : undefined} aria-hidden="true" />
+            Refresh
           </Button>
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto">
         {props.loading ? <SetupLoading /> : null}
-        {props.error ? (
-          <div role="alert" className="m-4 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-foreground">
-            {props.error.message}
-          </div>
-        ) : null}
+        {props.error ? <SetupError message={props.error.message} /> : null}
         {!props.loading && !props.error && props.snapshot ? (
-          <div className="mx-auto flex max-w-5xl flex-col gap-5 p-4">
-            <section aria-label="Setup actions" className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
-              <div className="border border-border/70 bg-card px-4 py-3">
-                <p className="text-sm font-semibold text-foreground">{summary.headline}</p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">{summary.description}</p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {(activeActions.length > 0 ? activeActions : (["none"] as const)).map((action) => (
-                    <Badge key={action} variant={action === "none" ? "default" : "outline"}>
-                      {ACTION_LABELS[action]}
+          <div className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
+            <section aria-label="Setup Summary" className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+              <Card className="rounded-lg">
+                <CardHeader>
+                  <CardTitle>{summary.title}</CardTitle>
+                  <CardDescription>{summary.description}</CardDescription>
+                  <CardAction>
+                    <Badge variant={summary.actionCount === 0 ? "default" : "destructive"}>
+                      {summary.badge}
                     </Badge>
-                  ))}
-                </div>
-              </div>
-              <dl className="grid border border-border/70 bg-card text-xs md:grid-cols-1">
-                <SetupMetric label="Project context" value={props.snapshot.projectContext.status} />
-                <SetupMetric label="Repo shims" value={String(props.snapshot.repoShims.length)} />
-                <SetupMetric label="Native projections" value={String(props.snapshot.nativeProjections.length)} />
-                <SetupMetric label="Actions" value={String(activeActions.length)} />
-              </dl>
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <SetupHealthMetric label="Project Context" value={props.snapshot.projectContext.status} />
+                    <SetupHealthMetric label="Repo Shims" value={statusSummary(props.snapshot.repoShims)} />
+                    <SetupHealthMetric label="Native Projections" value={statusSummary(props.snapshot.nativeProjections)} />
+                  </div>
+                  {props.actionFeedback ? (
+                    <p role="status" className="mt-3 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+                      {props.actionFeedback}
+                    </p>
+                  ) : null}
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-lg" size="sm">
+                <CardHeader>
+                  <CardTitle>Setup Sources</CardTitle>
+                  <CardDescription>Canonical sources projected to every operator surface.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-2">
+                  <SetupSourceSummary label="Context" status={props.snapshot.projectContext.status} />
+                  <SetupSourceSummary label="Repo Shims" status={statusSummary(props.snapshot.repoShims)} />
+                  <SetupSourceSummary label="Native" status={statusSummary(props.snapshot.nativeProjections)} />
+                </CardContent>
+              </Card>
             </section>
 
-            <section aria-label="Project context" className="border border-border/70 bg-card">
-              <SetupGroupHeader
-                title="Project context"
-                description="Canonical repo guidance consumed by generated harness shims."
-              />
-              <SetupSourceRow
-                label="Project context"
-                path={props.snapshot.projectContext.path}
-                status={props.snapshot.projectContext.status}
-                recommendation={props.snapshot.projectContext.recommendation}
-              />
+            <section aria-label="Required Setup Actions">
+              <Card className="rounded-lg">
+                <CardHeader>
+                  <CardTitle>Required Setup Actions</CardTitle>
+                  <CardDescription>
+                    Run safe setup actions here. Review-only actions stay blocked until the operator inspects the drift.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-2">
+                  {actionItems.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border/70 bg-background/50 px-3 py-4 text-sm text-muted-foreground">
+                      No setup actions are required.
+                    </div>
+                  ) : (
+                    actionItems.map((action) => (
+                      <SetupActionRow
+                        key={action}
+                        action={action}
+                        busy={props.actionInFlight === action}
+                        disabled={Boolean(props.actionInFlight)}
+                        onExecute={props.onExecuteAction}
+                      />
+                    ))
+                  )}
+                </CardContent>
+              </Card>
             </section>
 
-            <SetupProjectionGroup
-              title="Repo shims"
-              description="Generated instructions for Codex, Claude Code, and OpenCode."
-              emptyLabel="No repo shims found."
-              items={props.snapshot.repoShims.map((shim) => ({
-                id: shim.targetId,
-                label: shim.target,
-                path: shim.path,
-                status: shim.status,
-                recommendation: shim.recommendation,
-              }))}
-            />
-
-            <SetupProjectionGroup
-              title="Native projections"
-              description="Provider-native configuration files managed from canonical Kiln config."
-              emptyLabel="No native projections installed."
-              items={props.snapshot.nativeProjections.map((projection) => ({
-                id: projection.targetId,
-                label: projection.targetId,
-                path: projection.path,
-                status: projection.status,
-                details: projection.details,
-              }))}
-            />
+            <section aria-label="Setup Details" className="grid gap-4 xl:grid-cols-3">
+              <SetupDetailGroup
+                title="Project Context"
+                description="Canonical repo guidance used by generated harness instructions."
+                items={[{
+                  id: "project-context",
+                  label: "Project Context",
+                  path: props.snapshot.projectContext.path,
+                  status: props.snapshot.projectContext.status,
+                  recommendation: props.snapshot.projectContext.recommendation,
+                }]}
+              />
+              <SetupDetailGroup
+                title="Repo Shims"
+                description="Generated guidance for Codex, Claude Code, and OpenCode."
+                emptyLabel="No repo shims found."
+                items={props.snapshot.repoShims.map((shim) => ({
+                  id: shim.targetId,
+                  label: shim.target,
+                  path: shim.path,
+                  status: shim.status,
+                  recommendation: shim.recommendation,
+                }))}
+              />
+              <SetupDetailGroup
+                title="Native Projections"
+                description="Native harness files managed from canonical Kiln config."
+                emptyLabel="No native projections installed."
+                items={props.snapshot.nativeProjections.map((projection) => ({
+                  id: projection.targetId,
+                  label: projection.targetId,
+                  path: projection.path,
+                  status: projection.status,
+                  details: projection.details,
+                }))}
+              />
+            </section>
           </div>
         ) : null}
       </div>
@@ -149,38 +228,35 @@ export function SetupPanel(props: SetupPanelProps) {
   );
 }
 
-function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined, activeActionCount: number) {
-  const repoShimIssues = snapshot?.repoShims.filter((shim) => shim.status !== "current").length ?? 0;
-  const nativeProjectionIssues = snapshot?.nativeProjections.filter((projection) => {
-    return projection.status !== "current" && projection.status !== "managed";
-  }).length ?? 0;
-  const projectContextIssue = snapshot && snapshot.projectContext.status !== "valid" ? 1 : 0;
-  const issueCount = activeActionCount + repoShimIssues + nativeProjectionIssues + projectContextIssue;
-
+function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined) {
+  const actionCount = setupActionItems(snapshot).length;
   if (!snapshot) {
     return {
-      issueCount: 0,
-      title: "Setup",
-      headline: "Setup status unavailable",
+      actionCount: 0,
+      title: "Setup Status Unavailable",
       description: "Kiln setup status will appear when the gateway responds.",
+      badge: "Waiting",
     };
   }
-
-  if (issueCount === 0) {
+  if (actionCount === 0) {
     return {
-      issueCount,
-      title: "Setup current",
-      headline: "Configuration is current",
+      actionCount,
+      title: "Configuration Is Current",
       description: "Global config, project context, repo shims, and native projections are aligned.",
+      badge: "Current",
     };
   }
-
   return {
-    issueCount,
-    title: `${issueCount} setup issue${issueCount === 1 ? "" : "s"}`,
-    headline: "Review setup before relying on native harness behavior",
-    description: "At least one generated projection or canonical config source is missing, stale, unmanaged, or drifted.",
+    actionCount,
+    title: `${actionCount} Action${actionCount === 1 ? "" : "s"} Need Attention`,
+    description: "Run the safe actions below first. Review-only drift actions stay blocked until inspected.",
+    badge: `${actionCount} Action${actionCount === 1 ? "" : "s"}`,
   };
+}
+
+function setupActionItems(snapshot: KilnConfigSetupSnapshot | null | undefined): readonly KilnConfigSetupAction[] {
+  const actions = snapshot?.recommendedActions.filter((action) => action !== "none") ?? [];
+  return [...new Set(actions)];
 }
 
 function SetupStatusIcon(props: { readonly issueCount: number; readonly loading: boolean }) {
@@ -195,95 +271,174 @@ function SetupStatusIcon(props: { readonly issueCount: number; readonly loading:
 
 function SetupLoading() {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-3 p-4" aria-label="Loading setup status">
-      <div className="h-20 animate-pulse border border-border/70 bg-card" />
-      <div className="h-40 animate-pulse border border-border/70 bg-card" />
-      <div className="h-40 animate-pulse border border-border/70 bg-card" />
-    </div>
-  );
-}
-
-function SetupMetric(props: { readonly label: string; readonly value: string }) {
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border/60 px-3 py-2.5 last:border-b-0">
-      <dt className="text-muted-foreground">{props.label}</dt>
-      <dd className="font-mono text-foreground">{props.value}</dd>
-    </div>
-  );
-}
-
-function SetupGroupHeader(props: { readonly title: string; readonly description: string }) {
-  return (
-    <div className="grid gap-1 border-b border-border/70 px-4 py-3 md:grid-cols-[minmax(11rem,14rem)_minmax(0,1fr)] md:items-center">
-      <div className="flex min-w-0 items-center gap-2">
-        <Settings2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <h3 className="truncate text-sm font-semibold text-foreground">{props.title}</h3>
+    <div className="mx-auto grid max-w-6xl gap-4 p-4" aria-label="Loading setup status">
+      <Skeleton className="h-36 rounded-lg" />
+      <Skeleton className="h-56 rounded-lg" />
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Skeleton className="h-44 rounded-lg" />
+        <Skeleton className="h-44 rounded-lg" />
+        <Skeleton className="h-44 rounded-lg" />
       </div>
-      <p className="text-xs leading-5 text-muted-foreground">{props.description}</p>
     </div>
   );
 }
 
-function SetupSourceRow(props: {
-  readonly label: string;
-  readonly path: string;
-  readonly status: KilnConfigSourceStatus | KilnProjectionTargetStatus;
-  readonly recommendation?: KilnConfigSetupAction;
-  readonly details?: string;
+function SetupError(props: { readonly message: string }) {
+  return (
+    <div role="alert" className="m-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-3 text-sm text-foreground">
+      <p className="font-medium">Setup Status Failed</p>
+      <p className="mt-1 text-muted-foreground">{props.message}</p>
+    </div>
+  );
+}
+
+function SetupHealthMetric(props: { readonly label: string; readonly value: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-border/70 bg-background/60 px-3 py-2">
+      <p className="truncate text-xs text-muted-foreground">{props.label}</p>
+      <p className="mt-1 truncate font-mono text-sm text-foreground">{props.value}</p>
+    </div>
+  );
+}
+
+function SetupSourceSummary(props: { readonly label: string; readonly status: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border/60 bg-background/50 px-3 py-2">
+      <span className="truncate text-sm text-muted-foreground">{props.label}</span>
+      <Badge variant={badgeTone(props.status)}>{props.status}</Badge>
+    </div>
+  );
+}
+
+function SetupActionRow(props: {
+  readonly action: KilnConfigSetupAction;
+  readonly busy: boolean;
+  readonly disabled: boolean;
+  readonly onExecute: (action: KilnConfigSetupAction) => void;
 }) {
+  const reviewOnly = REVIEW_ONLY_ACTIONS.has(props.action);
   return (
-    <div
-      aria-label={props.label}
-      className="grid gap-2 border-b border-border/60 px-4 py-3 last:border-b-0 md:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)_auto] md:items-start"
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <FileCode2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <p className="min-w-0 truncate text-sm font-medium text-foreground">{props.label}</p>
+    <div className="grid gap-3 rounded-md border border-border/70 bg-background/60 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+      <div className="flex min-w-0 gap-3">
+        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md border border-border/70 bg-card text-muted-foreground" aria-hidden="true">
+          {reviewOnly ? <ShieldCheck className="size-4" /> : <Wrench className="size-4" />}
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{ACTION_LABELS[props.action]}</p>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">{ACTION_DESCRIPTIONS[props.action]}</p>
+        </div>
       </div>
-      <div className="min-w-0">
-        <p className="break-all font-mono text-[11px] leading-5 text-muted-foreground">{props.path}</p>
-        {props.details ? <p className="mt-1 text-xs text-muted-foreground">{props.details}</p> : null}
-        {props.recommendation && props.recommendation !== "none" ? (
-          <p className="mt-1 text-xs text-muted-foreground">{ACTION_LABELS[props.recommendation]}</p>
-        ) : null}
-      </div>
-      <Badge variant={STATUS_TONE[props.status]} className={cn("justify-self-start md:justify-self-end")}>
-        {props.status}
-      </Badge>
+      <Button
+        type="button"
+        variant={reviewOnly ? "outline" : "default"}
+        size="sm"
+        disabled={props.disabled || reviewOnly}
+        onClick={() => props.onExecute(props.action)}
+      >
+        {props.busy ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : null}
+        {ACTION_LABELS[props.action]}
+      </Button>
     </div>
   );
 }
 
-function SetupProjectionGroup(props: {
+function SetupDetailGroup(props: {
   readonly title: string;
   readonly description: string;
-  readonly emptyLabel: string;
+  readonly emptyLabel?: string;
   readonly items: readonly {
     readonly id: string;
     readonly label: string;
     readonly path: string;
-    readonly status: KilnProjectionTargetStatus;
+    readonly status: KilnConfigSourceStatus | KilnProjectionTargetStatus;
     readonly recommendation?: KilnConfigSetupAction;
     readonly details?: string;
   }[];
 }) {
   return (
-    <section aria-label={props.title} className="border border-border/70 bg-card">
-      <SetupGroupHeader title={props.title} description={props.description} />
-      {props.items.length === 0 ? (
-        <div className="px-4 py-3 text-sm text-muted-foreground">{props.emptyLabel}</div>
-      ) : (
-        props.items.map((item) => (
-          <SetupSourceRow
-            key={item.id}
-            label={item.label}
-            path={item.path}
-            status={item.status}
-            recommendation={item.recommendation}
-            details={item.details}
-          />
-        ))
-      )}
-    </section>
+    <Card className="rounded-lg" size="sm">
+      <CardHeader>
+        <CardTitle>{props.title}</CardTitle>
+        <CardDescription>{props.description}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-0">
+        {props.items.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border/70 bg-background/50 px-3 py-3 text-sm text-muted-foreground">
+            {props.emptyLabel ?? "No records found."}
+          </div>
+        ) : (
+          props.items.map((item, index) => (
+            <SetupDetailRow key={item.id} item={item} first={index === 0} />
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
+}
+
+function SetupDetailRow(props: {
+  readonly first: boolean;
+  readonly item: {
+    readonly label: string;
+    readonly path: string;
+    readonly status: KilnConfigSourceStatus | KilnProjectionTargetStatus;
+    readonly recommendation?: KilnConfigSetupAction;
+    readonly details?: string;
+  };
+}) {
+  return (
+    <div className={cn("grid gap-2 py-3", !props.first && "border-t border-border/60")}>
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileCode2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <p className="min-w-0 truncate text-sm font-medium text-foreground">{props.item.label}</p>
+        </div>
+        <Badge variant={STATUS_TONE[props.item.status]}>{props.item.status}</Badge>
+      </div>
+      <p className="min-w-0 break-all font-mono text-[11px] leading-5 text-muted-foreground">{props.item.path}</p>
+      {props.item.details ? <p className="text-xs text-muted-foreground">{props.item.details}</p> : null}
+      {props.item.recommendation && props.item.recommendation !== "none" ? (
+        <p className="text-xs text-muted-foreground">{ACTION_LABELS[props.item.recommendation]}</p>
+      ) : null}
+      <Separator />
+      <div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => void copyText(props.item.path)}
+        >
+          <Clipboard data-icon="inline-start" aria-hidden="true" />
+          Copy Path
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function statusSummary(
+  items: readonly { readonly status: KilnConfigSourceStatus | KilnProjectionTargetStatus }[],
+): string {
+  if (items.length === 0) {
+    return "none";
+  }
+  if (items.every((item) => item.status === "current" || item.status === "managed" || item.status === "valid")) {
+    return "current";
+  }
+  const firstProblem = items.find((item) => item.status !== "current" && item.status !== "managed" && item.status !== "valid");
+  return firstProblem?.status ?? "current";
+}
+
+function badgeTone(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "current" || status === "valid" || status === "managed") {
+    return "default";
+  }
+  if (status === "drifted" || status === "invalid") {
+    return "destructive";
+  }
+  return "secondary";
+}
+
+async function copyText(text: string): Promise<void> {
+  await navigator.clipboard?.writeText(text);
 }

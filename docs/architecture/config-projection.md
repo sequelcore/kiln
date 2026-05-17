@@ -190,12 +190,23 @@ projection status, and deterministic recommended actions such as
 must use this setup read model instead of locally filtering generic projection
 lists.
 
-Current setup consumers are intentionally read-only. `kiln config read setup`
-prints the raw setup snapshot, `kiln status` includes deterministic setup
-actions, the GUI reads `/gui/api/config/setup`, and the TUI `/setup` command
-renders the same status. These surfaces may recommend adoption, sync, or drift
-review, but writes still go through explicit project adoption, sync, or config
-proposal flows.
+The setup read model remains the shared source of truth. `kiln config read
+setup` prints the raw setup snapshot, `kiln status` includes deterministic
+setup actions, the GUI reads `/gui/api/config/setup`, and the TUI `/setup`
+command renders the same status. Surfaces must not infer setup state by
+re-reading YAML, repo shims, or native harness files.
+
+GUI setup actions use a separate governed action boundary:
+`POST /gui/api/config/setup/actions`. The runtime validates the request through
+the shared gateway contract and delegates to CLI-owned setup services. Only
+non-force actions may execute from the GUI: project-context adoption,
+repo-shim sync, and native projection sync. Review-only or drift-sensitive
+actions, including force sync and native guidance adoption, return blocked
+results and keep the operator in an explicit review flow.
+
+This boundary is not model-callable config mutation. Agents still use
+`kiln_config.read` for setup inspection and `kiln_config.propose_change` /
+`kiln_config.apply_change` for governed canonical config changes.
 
 ## Governed Config Mutation
 

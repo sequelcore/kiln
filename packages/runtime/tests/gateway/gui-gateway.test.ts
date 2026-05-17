@@ -577,6 +577,65 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("executes setup actions through the gateway callback", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    let appFetch: ((request: Request) => Promise<Response>) | undefined;
+    const executeSetupAction = vi.fn(async (action: "sync-repo-shims") => ({
+      action,
+      status: "applied" as const,
+      message: "Repo shims synced.",
+      errors: [],
+      setup: {
+        projectRoot: "C:/workspace/kiln",
+        projectContext: {
+          path: "C:/workspace/kiln/.kiln/project-context.md",
+          status: "valid" as const,
+          recommendation: "none" as const,
+        },
+        repoShims: [],
+        nativeProjections: [],
+        recommendedActions: ["none" as const],
+      },
+    }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port, fetch }: { port?: number; fetch: typeof appFetch }) => {
+        appFetch = fetch;
+        return {
+          port: port ?? 4810,
+          stop,
+        };
+      }),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        executeSetupAction,
+      });
+
+      const response = await appFetch!(new Request("http://localhost/gui/api/config/setup/actions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "sync-repo-shims" }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        action: "sync-repo-shims",
+        status: "applied",
+      });
+      expect(executeSetupAction).toHaveBeenCalledWith("sync-repo-shims");
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("omits stale active provider/model selections from the welcome frame when they are absent from the authoritative models map", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

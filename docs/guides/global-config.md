@@ -743,12 +743,17 @@ Operator surfaces expose the same setup read model:
 - CLI: `kiln config read setup` for JSON and `kiln status` for the summarized
   setup actions.
 - GUI: the Setup sidebar mode reads the gateway endpoint
-  `/gui/api/config/setup`.
+  `/gui/api/config/setup` and can execute safe setup actions through
+  `POST /gui/api/config/setup/actions`.
 - TUI: `/setup` renders the same project-context, repo-shim, native projection,
   and action summary in the terminal session.
 
-These views are diagnostic. Adoption, sync, and mutation still go through the
-explicit project, sync, and config proposal commands.
+The GUI action endpoint is intentionally narrower than the CLI. It delegates to
+CLI-owned setup services and permits only non-force project-context adoption,
+repo-shim sync, and native projection sync. Review-only or drift-sensitive
+actions return blocked results so the operator can use the explicit CLI review,
+force-sync, import, or config proposal flow. Model-callable mutation still goes
+through the config proposal lifecycle below.
 
 ## Governed Config Mutation
 

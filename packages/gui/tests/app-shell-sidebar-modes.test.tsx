@@ -566,8 +566,10 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Setup" }));
 
     expect(screen.getByRole("region", { name: "Setup" })).toHaveTextContent("Setup");
-    expect(screen.getByRole("region", { name: "Setup actions" })).toHaveTextContent("Configuration is current");
-    expect(screen.getByRole("region", { name: "Project context" })).toHaveTextContent("valid");
+    expect(screen.getByRole("region", { name: "Required Setup Actions" })).toHaveTextContent(
+      "No setup actions are required.",
+    );
+    expect(screen.getByRole("region", { name: "Setup Details" })).toHaveTextContent("valid");
     const setupQueryOptions = useQueryMock.mock.calls.findLast(([options]) => {
       const queryKey = (options as { queryKey?: readonly unknown[] }).queryKey ?? [];
       return queryKey.includes("setup");

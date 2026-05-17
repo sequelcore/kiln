@@ -17,6 +17,9 @@ export type {
   KilnConfigReadResult,
   KilnConfigReadView,
   KilnConfigSetupAction,
+  KilnConfigSetupActionRequest,
+  KilnConfigSetupActionResult,
+  KilnConfigSetupActionStatus,
   KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
   KilnConfigSourceStatus,
@@ -28,9 +31,12 @@ export type {
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
+  KILN_CONFIG_SETUP_ACTION_STATUSES,
   KILN_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SOURCE_STATUSES,
   KILN_PROJECTION_TARGET_STATUSES,
+  KilnConfigSetupActionRequestSchema,
+  KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
   KilnConfigSourceSnapshotSchema,
   KilnProjectionTargetSnapshotSchema,

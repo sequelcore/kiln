@@ -3,6 +3,8 @@ import type {
   GuiAppDescriptor,
   GuiMemoryLatticeGraphRequest,
   GuiMemoryLatticeGraphResponse,
+  KilnConfigSetupAction,
+  KilnConfigSetupActionResult,
   KilnConfigSetupSnapshot,
   GuiProviderDescriptor,
   GuiResumeInfo,
@@ -18,6 +20,7 @@ import type {
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import {
+  KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
   GuiMemoryLatticeGraphRequestSchema,
   GuiMemoryLatticeGraphResponseSchema,
@@ -30,6 +33,8 @@ export type {
   GuiAppDescriptor,
   GuiMemoryLatticeGraphRequest,
   GuiMemoryLatticeGraphResponse,
+  KilnConfigSetupAction,
+  KilnConfigSetupActionResult,
   KilnConfigSetupSnapshot,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
@@ -185,6 +190,40 @@ export class GuiGatewayClient {
       failures.length > 0
         ? `Setup status fetch failed (${failures.join(" | ")})`
         : "Setup status fetch failed.",
+    );
+  }
+
+  async executeConfigSetupAction(action: KilnConfigSetupAction): Promise<KilnConfigSetupActionResult> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/config/setup/actions", candidateBaseUrl);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ action }),
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = KilnConfigSetupActionResultSchema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+
+    throw new Error(
+      failures.length > 0
+        ? `Setup action failed (${failures.join(" | ")})`
+        : "Setup action failed.",
     );
   }
 

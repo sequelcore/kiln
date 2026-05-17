@@ -59,6 +59,8 @@ import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-even
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
 import {
+  KilnConfigSetupActionRequestSchema,
+  KilnConfigSetupActionResultSchema,
   isGuiProviderModeless,
   isOperatorThemeName,
   type GuiDashboardSnapshot,
@@ -71,6 +73,8 @@ import {
   type GuiProviderModelCapabilities,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
+  type KilnConfigSetupAction,
+  type KilnConfigSetupActionResult,
   type KilnConfigSetupSnapshot,
   type GuiMemoryLatticeScope,
   type GuiSessionDetail,
@@ -108,6 +112,7 @@ export interface StartGuiGatewayOptions {
     readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   }) => Promise<GuiDashboardSnapshot>;
   readonly getSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>;
+  readonly executeSetupAction?: (action: KilnConfigSetupAction) => Promise<KilnConfigSetupActionResult>;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly listSessions?: () => Promise<readonly GuiSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
@@ -400,6 +405,18 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       return c.json({ error: "setup_status_unavailable" }, 404);
     }
     return c.json(await options.getSetupSnapshot());
+  });
+
+  app.post("/gui/api/config/setup/actions", async (c) => {
+    if (!options.executeSetupAction) {
+      return c.json({ error: "setup_action_unavailable" }, 404);
+    }
+    const parsed = KilnConfigSetupActionRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "invalid_setup_action" }, 400);
+    }
+    const result = await options.executeSetupAction(parsed.data.action);
+    return c.json(KilnConfigSetupActionResultSchema.parse(result));
   });
 
   app.get("/gui/api/workspace/tree", async (c) => {
