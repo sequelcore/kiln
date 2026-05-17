@@ -52,6 +52,7 @@ import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import {
+  markGuiProviderDiscoveryStale,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -114,6 +115,8 @@ export interface TuiGatewayOptions {
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
+  readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
+  readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
 }
 
 export interface TuiGateway {
@@ -364,6 +367,12 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveTuiProviderDiscovery(options.getProviderAvailability),
     [],
+    {
+      initialDiscovery: options.initialProviderDiscovery
+        ? markGuiProviderDiscoveryStale(options.initialProviderDiscovery)
+        : undefined,
+      onDiscoveryResolved: options.onProviderDiscoveryResolved,
+    },
   );
   let providerDiscovery = providerCatalog.snapshot().discovery;
   let models = projectGuiOperatorModels(providerDiscovery);

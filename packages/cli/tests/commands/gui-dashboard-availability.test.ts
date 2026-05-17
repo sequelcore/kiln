@@ -75,6 +75,12 @@ const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
     version?: "1";
     routing?: { defaultProvider?: string };
+    managedAgents?: {
+      enabled?: boolean;
+      defaultProvider?: string;
+      defaultProfile?: "foundation-readonly-plan";
+      requireApproval?: boolean;
+    };
     ui?: {
       theme?: string;
       providerSelection?: {
@@ -101,6 +107,13 @@ const configMocks = vi.hoisted(() => ({
   }),
 }));
 
+const managedProviderModelMocks = vi.hoisted(() => ({
+  discoverManagedAgentProviderModels: vi.fn(async () => ({
+    codex: ["gpt-5.3-codex-spark"],
+    opencode: ["opencode/minimax-m2.5-free"],
+  })),
+}));
+
 vi.mock("@kilnai/runtime", () => ({
   getProjectContextArtifactCache: vi.fn().mockResolvedValue({}),
   createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
@@ -110,6 +123,13 @@ vi.mock("@kilnai/runtime", () => ({
     toolAuthority: new Map(),
   })),
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
+  ManagedCliHarnessAdapter: class MockManagedCliHarnessAdapter {
+    descriptor = {
+      adapterKind: "harness",
+      providerId: "codex",
+      supportedExecutionModes: ["cli-harness"],
+    };
+  },
   discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
     models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
     status: "available",
@@ -150,6 +170,11 @@ vi.mock("../../src/config/global-config.js", () => ({
 
 vi.mock("../../src/config/env-config.js", () => ({
   resolveEffectiveProvider: configMocks.resolveEffectiveProvider,
+}));
+
+vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
+  PENDING_MANAGED_AGENT_PROVIDER_MODELS: {},
+  discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
 }));
 
 vi.mock("../../src/application/resume-sidebar-info.js", () => ({
@@ -223,6 +248,10 @@ describe("GUI dashboard provider availability", () => {
     gatewayHarness.operatorModels = {};
     gatewayHarness.lastOptions = null;
     configMocks.globalConfig = null;
+    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue({
+      codex: ["gpt-5.3-codex-spark"],
+      opencode: ["opencode/minimax-m2.5-free"],
+    });
     registryMocks.providers = [{
       id: "openai",
       group: "direct-api",
@@ -365,6 +394,49 @@ describe("GUI dashboard provider availability", () => {
     });
 
     expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the GUI gateway before managed-agent provider model discovery resolves", async () => {
+    registryMocks.providers = [{
+      id: "codex",
+      group: "harness",
+      models: [],
+      free: false,
+      health: "healthy",
+      isAvailable: () => true,
+    }];
+    configMocks.globalConfig = {
+      version: "1",
+      managedAgents: {
+        enabled: true,
+        defaultProvider: "codex",
+        defaultProfile: "foundation-readonly-plan",
+        requireApproval: true,
+      },
+    };
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+    let resolveDiscovery: ((models: { codex: string[]; opencode: string[] }) => void) | undefined;
+    managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementationOnce(() =>
+      new Promise((resolve) => {
+        resolveDiscovery = resolve;
+      }));
+
+    const command = guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: "codex",
+    });
+
+    try {
+      for (let attempt = 0; attempt < 20 && gatewayHarness.startGuiGateway.mock.calls.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
+    } finally {
+      resolveDiscovery?.({ codex: ["gpt-5.3-codex-spark"], opencode: [] });
+      await command;
+    }
   });
 
   it("seeds the GUI session manager from the durable provider preference", async () => {

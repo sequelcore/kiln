@@ -27,6 +27,7 @@ import {
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
   projectGuiOperatorModels,
+  resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
   type GuiCliProviderModelDiscovery,
 } from "../../src/gateway/gui-provider-models.js";
@@ -523,6 +524,39 @@ describe("startGuiGateway static mount", () => {
       models: [],
       available: true,
     });
+  });
+
+  it("does not probe Codex or OpenCode CLI models when provider availability is empty", async () => {
+    vi.mocked(execSync).mockClear();
+    vi.mocked(spawn).mockClear();
+
+    const discovery = await resolveGuiOperatorDiscoveryResults({});
+
+    expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+    expect(discovery.find((entry) => entry.provider === "codex")).toMatchObject({
+      provider: "codex",
+      available: false,
+      status: "cli_missing",
+    });
+    expect(discovery.find((entry) => entry.provider === "opencode")).toMatchObject({
+      provider: "opencode",
+      available: false,
+      status: "cli_missing",
+    });
+  });
+
+  it("keeps Codex and OpenCode CLI model discovery active when availability admits them", async () => {
+    vi.mocked(execSync).mockClear();
+    vi.mocked(spawn).mockClear();
+
+    await resolveGuiOperatorDiscoveryResults({
+      codex: true,
+      opencode: true,
+    });
+
+    expect(vi.mocked(execSync)).toHaveBeenCalled();
+    expect(vi.mocked(spawn)).toHaveBeenCalled();
   });
 
   it("fails fast when an explicit GUI dist path is missing index.html", () => {

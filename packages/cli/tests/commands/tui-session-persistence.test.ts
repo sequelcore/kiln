@@ -140,6 +140,7 @@ vi.mock("@kilnai/runtime", () => ({
     authState: "authenticated",
   }),
   resolveGuiOperatorDiscoveryResults: mockResolveGuiOperatorDiscoveryResults,
+  markGuiProviderDiscoveryStale: (discovery: readonly unknown[]) => discovery,
   projectGuiOperatorModels: mockProjectGuiOperatorModels,
   createProviderCatalogService: mockCreateProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,

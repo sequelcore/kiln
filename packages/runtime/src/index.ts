@@ -13,6 +13,7 @@ export {
   discoverGuiCliOperatorModels,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
+  markGuiProviderDiscoveryStale,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,

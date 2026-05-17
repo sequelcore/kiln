@@ -15,7 +15,10 @@ import type {
 } from "../../src/wrapper/session-registry.js";
 import { SessionRegistry } from "../../src/wrapper/session-registry.js";
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
-import { resolveManagedInvocationToolOptions } from "../../src/config/managed-agent-routes.js";
+import {
+  createManagedInvocationToolOptionsCatalog,
+  resolveManagedInvocationToolOptions,
+} from "../../src/config/managed-agent-routes.js";
 import type { ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
 
 const READONLY_POLICY: KilnPermissionPolicy = {
@@ -246,6 +249,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       ]),
       surface: "gui",
       providerModels: {
+        codex: ["gpt-5.4-mini"],
         opencode: ["opencode/minimax-m2.5-free"],
       },
       directAdapterFactory: (route) => makeDirectAdapter(route.provider),
@@ -594,6 +598,76 @@ describe("resolveManagedInvocationToolOptions", () => {
       reason: OPENCODE_UNADVERTISED_MODEL_REASON,
     }]);
     expect(result.managedInvocation).toBeUndefined();
+  });
+
+  it("exposes pending harness route evidence as unavailable managed invocation routes during staged startup", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      defaultProvider: "opencode",
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode"),
+      surface: "tui",
+      providerModels: {},
+      includeUnavailableRoutes: true,
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "opencode-readonly",
+      kind: "harness",
+      provider: "opencode",
+      model: "opencode/minimax-m2.5-free",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: "Provider 'opencode' model evidence is pending.",
+    }]);
+    expect(result.managedInvocation?.routes).toEqual([]);
+    expect(result.managedInvocation?.unavailableRoutes).toEqual([{
+      routeId: "opencode-readonly",
+      providerId: "opencode",
+      model: "opencode/minimax-m2.5-free",
+      profiles: ["foundation-readonly-plan"],
+      reason: "Provider 'opencode' model evidence is pending.",
+    }]);
+  });
+
+  it("keeps a stable managed invocation options object while refreshing route evidence", async () => {
+    const pending = await resolveManagedInvocationToolOptions(baseConfig({
+      defaultProvider: "opencode",
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode"),
+      surface: "tui",
+      providerModels: {},
+      includeUnavailableRoutes: true,
+    });
+    if (!pending.managedInvocation) {
+      throw new Error("expected pending managed invocation options");
+    }
+    const catalog = createManagedInvocationToolOptionsCatalog(pending.managedInvocation);
+    const stableOptions = catalog.options;
+
+    expect(stableOptions.routes).toEqual([]);
+    expect(stableOptions.unavailableRoutes?.[0]?.reason).toBe("Provider 'opencode' model evidence is pending.");
+
+    const refreshed = await resolveManagedInvocationToolOptions(baseConfig({
+      defaultProvider: "opencode",
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode"),
+      surface: "tui",
+      providerModels: {
+        opencode: ["opencode/minimax-m2.5-free"],
+      },
+      includeUnavailableRoutes: true,
+    });
+    if (!refreshed.managedInvocation) {
+      throw new Error("expected refreshed managed invocation options");
+    }
+    catalog.update(refreshed.managedInvocation);
+
+    expect(catalog.options).toBe(stableOptions);
+    expect(stableOptions.routes.map((route) => route.routeId)).toEqual(["opencode-readonly"]);
+    expect(stableOptions.unavailableRoutes).toBeUndefined();
   });
 
   it("resolves the live-proven OpenCode read-only handoff model when it is advertised", async () => {

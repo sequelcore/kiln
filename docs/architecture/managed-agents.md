@@ -253,6 +253,15 @@ does not receive `managed_agent.invoke` authority.
 Unhealthy configured routes are still carried as diagnostics so a failed tool
 call can explain why the route is unavailable rather than pretending it was
 never configured.
+GUI and TUI startup use a CLI-owned staged managed invocation route catalog.
+The first catalog is built without blocking on child provider model discovery.
+Routes whose provider model evidence is not known yet are exposed only as
+unavailable diagnostics with explicit pending reasons, and `managed_agent.invoke`
+has no executable route for them. After the operator surface is listening, the
+CLI refreshes provider model evidence in the background and updates the same
+managed invocation options object. This preserves cross-surface route identity
+without introducing a surface-local managed-agent registry or compatibility
+fallback.
 The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so
 GUI, TUI, operator gateway, and CLI direct-provider executable sessions use the
 same tool definition, authority projection, executor, and route contract instead

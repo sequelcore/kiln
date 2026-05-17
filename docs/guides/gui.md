@@ -295,6 +295,12 @@ that session visible while the operator switches providers. Provider-native
 thread IDs, when available, are stored as provider-thread metadata under the
 Kiln session and are used only for the matching provider.
 
+At startup, the GUI may render cached provider discovery immediately. Cached
+entries are `stale` diagnostics and remain unavailable until background runtime
+discovery refreshes them. The GUI must not enable model selection, provider
+switching, prompt execution, or managed invocation execution from stale
+metadata.
+
 Selecting a session from the rail loads that session's transcript into the main
 chat as a preview. It does not silently mark the session as the active
 continuation target. Empty submit on the selected session or an explicit resume

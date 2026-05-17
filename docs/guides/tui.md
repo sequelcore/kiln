@@ -172,6 +172,12 @@ The TUI consumes the same provider discovery result as the GUI. When the active
 provider/model advertises `supportedReasoningEfforts`, the sidebar appends the
 current effort next to the model label, for example `gpt-5.4 · medium`.
 
+At startup, the TUI may display cached provider discovery as `stale`
+diagnostics. Stale entries are unavailable until background runtime discovery
+refreshes them. Provider switching, prompt admission, model execution, and
+managed invocation execution must use fresh runtime discovery, not stale cache
+metadata.
+
 Use `/effort` to cycle through the advertised values. The initial value is the
 model's `defaultReasoningEffort` when present, otherwise the first advertised
 supported effort. If the active model does not advertise effort options,

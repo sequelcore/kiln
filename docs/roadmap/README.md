@@ -36,12 +36,17 @@ Use these documents as the stable source of truth before starting roadmap work:
 - `docs/architecture/memory.md` and `docs/guides/memory.md` for governed
   memory, Memory Lattice, lifecycle policy, recall, and memory resources.
 
-## Active Roadmaps
+## Recently Completed Roadmaps
 
 0.0.1. [Startup Near Fixes](./00.0.1-startup-near-fixes.md)
-   Proposed on 2026-05-17. Scope is staged operator-surface startup,
-   background/cached provider discovery, and fail-closed managed-agent readiness
-   without Rust/WASM/sidecar implementation.
+   Completed on 2026-05-17. Canonical doctrine is promoted to
+   `docs/architecture/provider-model-discovery.md`,
+   `docs/architecture/managed-agents.md`, `docs/guides/gui.md`, and
+   `docs/guides/tui.md`; the roadmap remains the execution record for staged
+   operator-surface startup, background/cached provider discovery, and
+   fail-closed managed-agent readiness.
+
+## Active Roadmaps
 
 0.0.2. [Bun And Rust Responsibility Boundary](./00.0.2-bun-rust-responsibility-boundary.md)
    Proposed on 2026-05-17. Scope is the long-term responsibility split:

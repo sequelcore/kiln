@@ -66,4 +66,19 @@ describe("createProviderDiscoveryCache", () => {
     await expect(old).resolves.toEqual(["old"]);
     expect(cache.peek()).toEqual(["fresh"]);
   });
+
+  it("exposes seeded discovery to snapshots without serving it as fresh cache", async () => {
+    const onResolved = vi.fn();
+    const resolveDiscovery = vi.fn<() => Promise<string[]>>().mockResolvedValue(["fresh"]);
+    const cache = createProviderDiscoveryCache(resolveDiscovery, {
+      ttlMs: 1_000,
+      initialValue: ["cached"],
+      onResolved,
+    });
+
+    expect(cache.peek()).toEqual(["cached"]);
+    await expect(cache.get()).resolves.toEqual(["fresh"]);
+    expect(resolveDiscovery).toHaveBeenCalledTimes(1);
+    expect(onResolved).toHaveBeenCalledWith(["fresh"]);
+  });
 });

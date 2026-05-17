@@ -100,6 +100,12 @@ const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
     routing?: { defaultWorker?: string };
     engines?: Record<string, { enabled?: boolean }>;
+    managedAgents?: {
+      enabled?: boolean;
+      defaultProvider?: string;
+      defaultProfile?: "foundation-readonly-plan";
+      requireApproval?: boolean;
+    };
     ui?: { theme?: string };
   } | null,
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
@@ -156,6 +162,13 @@ const registryMocks = vi.hoisted(() => {
   return mock;
 });
 
+const managedProviderModelMocks = vi.hoisted(() => ({
+  discoverManagedAgentProviderModels: vi.fn(async () => ({
+    codex: ["gpt-5.3-codex-spark"],
+    opencode: ["opencode/minimax-m2.5-free"],
+  })),
+}));
+
 const resumeMocks = vi.hoisted(() => ({
   loadResumeSidebarInfo: vi.fn().mockResolvedValue({}),
 }));
@@ -202,6 +215,13 @@ vi.mock("@kilnai/runtime", () => ({
     toolAuthority: new Map(),
   })),
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
+  ManagedCliHarnessAdapter: class MockManagedCliHarnessAdapter {
+    descriptor = {
+      adapterKind: "harness",
+      providerId: "codex",
+      supportedExecutionModes: ["cli-harness"],
+    };
+  },
   discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
     models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
     status: "available",
@@ -215,6 +235,7 @@ vi.mock("@kilnai/runtime", () => ({
     authState: "authenticated",
   }),
   resolveGuiOperatorDiscoveryResults: runtimeMocks.resolveGuiOperatorDiscoveryResults,
+  markGuiProviderDiscoveryStale: (discovery: readonly unknown[]) => discovery,
   projectGuiOperatorModels: runtimeMocks.projectGuiOperatorModels,
   createProviderCatalogService: runtimeMocks.createProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
@@ -235,6 +256,11 @@ vi.mock("../../src/config/global-config.js", () => ({
 
 vi.mock("../../src/config/env-config.js", () => ({
   resolveEffectiveProvider: configMocks.resolveEffectiveProvider,
+}));
+
+vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
+  PENDING_MANAGED_AGENT_PROVIDER_MODELS: {},
+  discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
 }));
 
 vi.mock("../../src/application/resume-sidebar-info.js", () => ({
@@ -300,6 +326,10 @@ describe("tuiCommand startup provider catalog guard", () => {
         openai: ["gpt-5.4"],
       },
       shutdown: vi.fn(),
+    });
+    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue({
+      codex: ["gpt-5.3-codex-spark"],
+      opencode: ["opencode/minimax-m2.5-free"],
     });
   });
 
@@ -421,6 +451,46 @@ describe("tuiCommand startup provider catalog guard", () => {
     expect(startTuiArgs[8]).toEqual(expect.objectContaining({ current: [] }));
     expect(startTuiArgs[9]).toBeUndefined();
     expect(startTuiArgs[10]).toBeUndefined();
+  });
+
+  it("starts the TUI gateway before managed-agent provider model discovery resolves", async () => {
+    delete process.env.KILN_TUI_TRANSPORT;
+    registryMocks.providerDisplayInfo = [
+      { id: "codex", group: "harness", models: [], free: false },
+      { id: "opencode", group: "subscription", models: [], free: true },
+    ];
+    configMocks.globalConfig = {
+      managedAgents: {
+        enabled: true,
+        defaultProvider: "codex",
+        defaultProfile: "foundation-readonly-plan",
+        requireApproval: true,
+      },
+    };
+    runtimeMocks.startTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: {},
+      shutdown: vi.fn(),
+    });
+    let resolveDiscovery: ((models: { codex: string[]; opencode: string[] }) => void) | undefined;
+    managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementationOnce(() =>
+      new Promise((resolve) => {
+        resolveDiscovery = resolve;
+      }));
+
+    const command = tuiCommand(APP_CONFIG, { cwd, provider: "codex" });
+
+    try {
+      for (let attempt = 0; attempt < 20 && runtimeMocks.startTuiGateway.mock.calls.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(runtimeMocks.startTuiGateway).toHaveBeenCalledTimes(1);
+    } finally {
+      resolveDiscovery?.({ codex: ["gpt-5.3-codex-spark"], opencode: [] });
+      await command;
+    }
+    expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
   });
 
   it("accepts pending direct startup for non-model-less harness providers and fails closed on execution", async () => {

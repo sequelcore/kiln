@@ -31,7 +31,8 @@ export type GuiProviderDiscoveryStatus =
   | "endpoint_error"
   | "empty_model_list"
   | "daemon_unreachable"
-  | "model_selection_not_required";
+  | "model_selection_not_required"
+  | "stale";
 
 export type GuiProviderAuthState =
   | "authenticated"

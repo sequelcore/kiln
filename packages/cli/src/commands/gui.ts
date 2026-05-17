@@ -14,8 +14,11 @@ import { loadKilnConfig } from "../config/config-merger.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
-import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
-import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
+import {
+  readProviderDiscoveryCache,
+  writeProviderDiscoveryCache,
+} from "../config/provider-discovery-cache.js";
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
@@ -114,17 +117,21 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
-  const managedAgentProviderModels = await discoverManagedAgentProviderModels();
-  const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
-    cwd,
-    registry,
-    surface: "gui",
-    isProviderAvailable: (providerId) => engineAvailability.get(providerId),
-    providerModels: managedAgentProviderModels,
-    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
-    artifactStore: builtinToolOptions.artifactResources?.store,
-  });
-  const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+  const stagedManagedInvocation = appConfig.managedInvocation
+    ? undefined
+    : await createStagedManagedInvocationRouteCatalog(globalConfig, {
+      cwd,
+      registry,
+      surface: "gui",
+      isProviderAvailable: (providerId) => engineAvailability.get(providerId),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+      artifactStore: builtinToolOptions.artifactResources?.store,
+    }, {
+      onRefreshError: (error) => {
+        console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+      },
+    });
+  const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
@@ -152,6 +159,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const bootstrapContext = await resolveGuiBootstrapContext(runtimeAppConfig, cwd, contextArtifactCache);
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
+  const initialOperatorDiscovery = readProviderDiscoveryCache(cwd);
   const { startGuiGateway } = await import("@kilnai/runtime");
   const gateway = await startGuiGateway({
     port,
@@ -181,6 +189,8 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     },
     onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
+    initialOperatorDiscovery,
+    onOperatorDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
     builtinToolOptions,
     managedInvocation,
     memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
@@ -203,6 +213,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       domainLabel: bootstrapContext.domainLabel,
     },
   });
+  stagedManagedInvocation?.startBackgroundRefresh();
 
   let viteDevChild: ChildProcess | undefined;
   if (mode === "dev") {

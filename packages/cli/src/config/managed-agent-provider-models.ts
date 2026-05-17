@@ -5,6 +5,8 @@ import {
 
 export type ManagedAgentProviderModels = Readonly<Record<string, readonly string[]>>;
 
+export const PENDING_MANAGED_AGENT_PROVIDER_MODELS: ManagedAgentProviderModels = {};
+
 export async function discoverManagedAgentProviderModels(): Promise<ManagedAgentProviderModels> {
   const [codex, opencode] = await Promise.all([
     discoverCodexCliModelDiscovery(),

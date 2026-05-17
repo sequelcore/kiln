@@ -383,7 +383,10 @@ describe("TUI gateway provider switching", () => {
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -418,7 +421,10 @@ describe("TUI gateway provider switching", () => {
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -451,7 +457,10 @@ describe("TUI gateway provider switching", () => {
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -500,7 +509,10 @@ describe("TUI gateway provider switching", () => {
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -539,7 +551,10 @@ describe("TUI gateway provider switching", () => {
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -575,7 +590,10 @@ describe("TUI gateway provider switching", () => {
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -617,7 +635,10 @@ describe("TUI gateway message fail-closed behavior", () => {
     };
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -662,7 +683,10 @@ describe("TUI gateway message fail-closed behavior", () => {
     };
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
@@ -713,7 +737,10 @@ describe("TUI gateway message fail-closed behavior", () => {
     };
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
-    const gateway = await startTuiGateway({ sessionManager });
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ opencode: true }),
+    });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 

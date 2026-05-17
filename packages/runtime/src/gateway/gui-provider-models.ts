@@ -77,10 +77,26 @@ let codexOauthModelDiscoveryInflight:
     }
   | undefined;
 
-export async function discoverGuiCliOperatorModels(): Promise<GuiCliOperatorModelDiscovery> {
+export async function discoverGuiCliOperatorModels(
+  providerAvailability?: Readonly<Record<string, boolean>>,
+): Promise<GuiCliOperatorModelDiscovery> {
+  const discoverOpencode = providerAvailability === undefined || providerAvailability.opencode === true;
+  const discoverCodex = providerAvailability === undefined || providerAvailability.codex === true;
   const [opencodeDiscovery, codexDiscovery] = await Promise.all([
-    discoverOpencodeCliModelDiscovery(),
-    discoverCodexCliModelDiscovery(),
+    discoverOpencode
+      ? discoverOpencodeCliModelDiscovery()
+      : Promise.resolve(unavailableCliProviderDiscovery(
+          "cli_missing",
+          "OpenCode CLI is unavailable in this runtime.",
+          "not_required",
+        )),
+    discoverCodex
+      ? discoverCodexCliModelDiscovery()
+      : Promise.resolve(unavailableCliProviderDiscovery(
+          "cli_missing",
+          "Codex CLI is unavailable in this runtime.",
+          "not_required",
+        )),
   ]);
   return {
     opencodeModels: opencodeDiscovery.models,
@@ -95,7 +111,7 @@ export async function resolveGuiOperatorDiscoveryResults(
   routeHealthStore: ProviderModelRouteHealthStore = new ProviderModelRouteHealthStore(),
 ): Promise<GuiProviderDiscoveryResult[]> {
   const [cliModels, directProviderDiscovery] = await Promise.all([
-    discoverGuiCliOperatorModels(),
+    discoverGuiCliOperatorModels(providerAvailability),
     discoverGuiDirectProviderModelDiscovery(providerAvailability, process.env, routeHealthStore),
   ]);
   return buildGuiOperatorDiscoveryResults({
@@ -259,6 +275,20 @@ export function projectGuiOperatorModels(
         : []
     )),
   );
+}
+
+export function markGuiProviderDiscoveryStale(
+  discovery: readonly GuiProviderDiscoveryResult[],
+): GuiProviderDiscoveryResult[] {
+  return discovery.map((entry) => ({
+    ...entry,
+    available: false,
+    status: "stale",
+    authState: "unknown",
+    reason: entry.status === "stale"
+      ? entry.reason
+      : `Cached provider discovery from ${entry.lastCheckedAt}; refresh is pending. ${entry.reason}`,
+  }));
 }
 
 function normalizeModelIds(models: readonly string[]): string[] {

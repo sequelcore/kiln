@@ -46,4 +46,23 @@ describe("createProviderCatalogService", () => {
     resolveSecond(["second"]);
     await expect(second).resolves.toEqual({ status: "ready", discovery: ["second"] });
   });
+
+  it("serves initial discovery immediately and publishes fresh discovery after refresh", async () => {
+    const onDiscoveryResolved = vi.fn();
+    const service = createProviderCatalogService(
+      vi.fn<() => Promise<string[]>>().mockResolvedValue(["fresh"]),
+      [],
+      {
+        initialDiscovery: ["cached"],
+        onDiscoveryResolved,
+      },
+    );
+
+    expect(service.snapshot()).toEqual({ status: "ready", discovery: ["cached"] });
+
+    const refresh = service.refresh({ force: true });
+    expect(service.snapshot()).toEqual({ status: "refreshing", discovery: ["cached"] });
+    await expect(refresh).resolves.toEqual({ status: "ready", discovery: ["fresh"] });
+    expect(onDiscoveryResolved).toHaveBeenCalledWith(["fresh"]);
+  });
 });

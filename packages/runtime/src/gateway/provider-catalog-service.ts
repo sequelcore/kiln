@@ -15,15 +15,26 @@ export interface ProviderCatalogService<TDiscovery> {
   subscribe(listener: (snapshot: ProviderCatalogSnapshot<TDiscovery>) => void): () => void;
 }
 
+export interface ProviderCatalogServiceOptions<TDiscovery> {
+  readonly ttlMs?: number;
+  readonly initialDiscovery?: TDiscovery;
+  readonly onDiscoveryResolved?: (discovery: TDiscovery) => void;
+}
+
 export function createProviderCatalogService<TDiscovery>(
   resolveDiscovery: () => Promise<TDiscovery>,
   emptyDiscovery: TDiscovery,
-  ttlMs: number = DEFAULT_PROVIDER_DISCOVERY_CACHE_TTL_MS,
+  optionsOrTtlMs: number | ProviderCatalogServiceOptions<TDiscovery> = DEFAULT_PROVIDER_DISCOVERY_CACHE_TTL_MS,
 ): ProviderCatalogService<TDiscovery> {
-  const cache = createProviderDiscoveryCache(resolveDiscovery, ttlMs);
+  const options = typeof optionsOrTtlMs === "number" ? { ttlMs: optionsOrTtlMs } : optionsOrTtlMs;
+  const cache = createProviderDiscoveryCache(resolveDiscovery, {
+    ttlMs: options.ttlMs,
+    initialValue: options.initialDiscovery,
+    onResolved: options.onDiscoveryResolved,
+  });
   const listeners = new Set<(snapshot: ProviderCatalogSnapshot<TDiscovery>) => void>();
-  let discovery = emptyDiscovery;
-  let status: GuiProviderCatalogStatus = "pending";
+  let discovery = options.initialDiscovery ?? emptyDiscovery;
+  let status: GuiProviderCatalogStatus = options.initialDiscovery ? "ready" : "pending";
   let error: string | undefined;
   let inflight: Promise<ProviderCatalogSnapshot<TDiscovery>> | undefined;
 

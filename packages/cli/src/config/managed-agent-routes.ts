@@ -56,12 +56,18 @@ export interface ManagedInvocationRouteResolution {
   readonly routeHealth: readonly ManagedAgentRouteHealth[];
 }
 
+export interface ManagedInvocationToolOptionsCatalog {
+  readonly options: ManagedInvocationToolOptions;
+  update(next: ManagedInvocationToolOptions): void;
+}
+
 export interface ResolveManagedInvocationToolOptionsContext {
   readonly cwd: string;
   readonly registry: SessionRegistry;
   readonly surface: ManagedAgentOperatorSurface;
   readonly isProviderAvailable?: (provider: string) => boolean | undefined;
   readonly providerModels?: Readonly<Record<string, readonly string[] | undefined>>;
+  readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly artifactStore?: ArtifactResourceStore;
   readonly userHome?: string;
@@ -152,22 +158,26 @@ export async function resolveManagedInvocationToolOptions(
     }
   }
 
+  const unavailableRoutes = routeHealth
+    .filter((route) => !route.available)
+    .map((route) => ({
+      routeId: route.routeId,
+      providerId: route.provider,
+      ...(route.model ? { model: route.model } : {}),
+      profiles: route.profiles,
+      reason: route.reason ?? "Route is unavailable.",
+    }));
+  const shouldExposeManagedInvocation = routes.length > 0
+    || (context.includeUnavailableRoutes === true && unavailableRoutes.length > 0);
+
   return {
     routeHealth,
-    ...(routes.length > 0 ? {
+    ...(shouldExposeManagedInvocation ? {
       managedInvocation: {
         routes,
         ...(agentCatalog.length > 0 ? { agentCatalog } : {}),
         ...(skillCatalog.length > 0 ? { skillCatalog } : {}),
-        unavailableRoutes: routeHealth
-          .filter((route) => !route.available)
-          .map((route) => ({
-            routeId: route.routeId,
-            providerId: route.provider,
-            ...(route.model ? { model: route.model } : {}),
-            profiles: route.profiles,
-            reason: route.reason ?? "Route is unavailable.",
-          })),
+        ...(unavailableRoutes.length > 0 ? { unavailableRoutes } : {}),
         requestedBy: "assistant",
         requestSource: context.surface,
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
@@ -177,6 +187,46 @@ export async function resolveManagedInvocationToolOptions(
         }),
       },
     } : {}),
+  };
+}
+
+export function createManagedInvocationToolOptionsCatalog(
+  initial: ManagedInvocationToolOptions,
+): ManagedInvocationToolOptionsCatalog {
+  let current = initial;
+  return {
+    options: {
+      get routes() {
+        return current.routes;
+      },
+      get unavailableRoutes() {
+        return current.unavailableRoutes;
+      },
+      get agentCatalog() {
+        return current.agentCatalog;
+      },
+      get skillCatalog() {
+        return current.skillCatalog;
+      },
+      get requestedBy() {
+        return current.requestedBy;
+      },
+      get requestSource() {
+        return current.requestSource;
+      },
+      get artifactStore() {
+        return current.artifactStore;
+      },
+      get sessionEventSink() {
+        return current.sessionEventSink;
+      },
+      get contextResolver() {
+        return current.contextResolver;
+      },
+    },
+    update(next: ManagedInvocationToolOptions) {
+      current = next;
+    },
   };
 }
 
@@ -387,6 +437,12 @@ async function resolveRouteConfig(
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
   const advertisedModels = context.providerModels?.[routeConfig.provider];
+  if (
+    context.providerModels
+    && !Object.prototype.hasOwnProperty.call(context.providerModels, routeConfig.provider)
+  ) {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model evidence is pending.`);
+  }
   if (advertisedModels && advertisedModels.length === 0) {
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' did not advertise any models.`);
   }

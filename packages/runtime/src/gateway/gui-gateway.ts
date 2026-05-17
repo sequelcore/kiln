@@ -34,6 +34,7 @@ import {
 } from "./gui-static-assets.js";
 import {
   buildWelcomeProviderDescriptors,
+  markGuiProviderDiscoveryStale,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -114,6 +115,8 @@ export interface StartGuiGatewayOptions {
   readonly getSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>;
   readonly executeSetupAction?: (action: KilnConfigSetupAction) => Promise<KilnConfigSetupActionResult>;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
+  readonly initialOperatorDiscovery?: readonly GuiProviderDiscoveryResult[];
+  readonly onOperatorDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
   readonly listSessions?: () => Promise<readonly GuiSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
   readonly workingDirectory?: string;
@@ -346,6 +349,12 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     ? createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
       () => resolveOperatorDiscovery(options.getProviderAvailability),
       [],
+      {
+        initialDiscovery: options.initialOperatorDiscovery
+          ? markGuiProviderDiscoveryStale(options.initialOperatorDiscovery)
+          : undefined,
+        onDiscoveryResolved: options.onOperatorDiscoveryResolved,
+      },
     )
     : undefined;
   let operatorDiscovery = operatorCatalog?.snapshot().discovery;

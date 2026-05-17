@@ -38,6 +38,7 @@ Common statuses include:
 - `empty_model_list`
 - `daemon_unreachable`
 - `model_selection_not_required`
+- `stale`
 
 The same discovery result gates execution and drives operator diagnostics.
 Surfaces may abbreviate the human-facing reason, but they must not derive
@@ -51,6 +52,13 @@ in-flight request deduplication. Cold startup starts with an immediate
 the operator transport is listening. Startup, dashboard reads, and socket opens
 must not block on CLI probes, remote model endpoints, or local daemons.
 
+Local operator startup may also seed the runtime catalog from the project cache
+at `.kiln/cache/provider-discovery.json`. That file stores only fresh discovery
+snapshots produced by runtime discovery. On startup the cached entries are
+projected as `status: stale`, `available: false`, and `authState: unknown`.
+This makes prior provider diagnostics visible immediately while preserving the
+same fail-closed execution contract.
+
 While discovery is pending, surfaces may render the provider catalog as loading
 or include locally known providers as pending selections, but they must not
 claim runtime availability. Once discovery completes, subscribers receive the
@@ -58,6 +66,10 @@ authoritative catalog and the same snapshot updates GUI, TUI, and direct TUI
 state. Normal dashboard reads, socket opens, provider switches, and prompt
 admission then reuse fresh discovery results instead of re-probing every
 provider on every turn.
+
+Fresh background discovery replaces the stale projection and rewrites the
+project cache. Stale startup projections are never written back as cache data
+and are never authoritative route evidence.
 
 Explicit refresh actions and completed provider-auth flows bypass the cache and
 force a new discovery pass. This preserves operator correctness after login or
@@ -70,6 +82,12 @@ or admitting work. If the catalog is still pending, that operation awaits the
 in-flight discovery; if discovery proves the provider/model unavailable, the
 operation fails closed. Turn records keep the discovery evidence used for
 admission.
+
+If the only available startup evidence is `stale`, operator surfaces may show
+the provider as pending/unavailable, but model selection, provider switching,
+managed invocation route admission, and prompt execution must wait for or
+require fresh runtime discovery. Static provider display metadata and stale
+cache entries are diagnostics, not permission.
 
 `kiln run --provider <direct-provider>` performs the same fail-closed model
 admission before creating a provider session. The selected model must be present

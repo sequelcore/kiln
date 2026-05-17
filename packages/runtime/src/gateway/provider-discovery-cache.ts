@@ -6,11 +6,21 @@ export interface ProviderDiscoveryCache<TDiscovery> {
   clear(): void;
 }
 
+export interface ProviderDiscoveryCacheOptions<TDiscovery> {
+  readonly ttlMs?: number;
+  readonly initialValue?: TDiscovery;
+  readonly onResolved?: (value: TDiscovery) => void;
+}
+
 export function createProviderDiscoveryCache<TDiscovery>(
   resolveDiscovery: () => Promise<TDiscovery>,
-  ttlMs: number = DEFAULT_PROVIDER_DISCOVERY_CACHE_TTL_MS,
+  optionsOrTtlMs: number | ProviderDiscoveryCacheOptions<TDiscovery> = DEFAULT_PROVIDER_DISCOVERY_CACHE_TTL_MS,
 ): ProviderDiscoveryCache<TDiscovery> {
-  let cache: { readonly value: TDiscovery; readonly expiresAt: number } | undefined;
+  const options = typeof optionsOrTtlMs === "number" ? { ttlMs: optionsOrTtlMs } : optionsOrTtlMs;
+  const ttlMs = options.ttlMs ?? DEFAULT_PROVIDER_DISCOVERY_CACHE_TTL_MS;
+  let cache: { readonly value: TDiscovery; readonly expiresAt: number } | undefined = options.initialValue
+    ? { value: options.initialValue, expiresAt: 0 }
+    : undefined;
   let inflight: { readonly sequence: number; readonly promise: Promise<TDiscovery> } | undefined;
   let sequence = 0;
   let latestResolvedSequence = 0;
@@ -22,6 +32,7 @@ export function createProviderDiscoveryCache<TDiscovery>(
         if (currentSequence >= latestResolvedSequence) {
           latestResolvedSequence = currentSequence;
           cache = { value, expiresAt: Date.now() + ttlMs };
+          options.onResolved?.(value);
         }
         return value;
       })

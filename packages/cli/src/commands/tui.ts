@@ -35,8 +35,11 @@ import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../confi
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
-import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
-import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
+import {
+  readProviderDiscoveryCache,
+  writeProviderDiscoveryCache,
+} from "../config/provider-discovery-cache.js";
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
@@ -72,6 +75,7 @@ import {
 import { getProjectContextArtifactCache } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
+  markGuiProviderDiscoveryStale,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -105,6 +109,8 @@ interface TuiBootstrapOptions {
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
+  readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
+  readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
 }
 
 interface TuiBootstrapResult {
@@ -231,6 +237,10 @@ function assertTuiProviderAvailableInStartupCatalog(
   throw new Error(
     `Provider '${provider}' is not available in the runtime TUI model catalog. Available providers: ${availableProviders}`,
   );
+}
+
+function isOnlyStaleProviderDiscovery(discovery: readonly GuiProviderDiscoveryResult[]): boolean {
+  return discovery.length > 0 && discovery.every((entry) => entry.status === "stale");
 }
 
 function latestUserText(messages: readonly AgentMessage[] | undefined): string | undefined {
@@ -799,6 +809,8 @@ async function bootstrapGatewaySession(
     builtinToolOptions: options.builtinToolOptions,
     managedInvocation: options.managedInvocation,
     resumeSessionHydrator: options.resumeSessionHydrator,
+    initialProviderDiscovery: options.initialProviderDiscovery,
+    onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
   });
 
   writeTuiBootstrapStatus("Connecting to local gateway...");
@@ -937,12 +949,19 @@ async function bootstrapDirectSession(
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(options.registry)),
     [],
+    {
+      initialDiscovery: options.initialProviderDiscovery
+        ? markGuiProviderDiscoveryStale(options.initialProviderDiscovery)
+        : undefined,
+      onDiscoveryResolved: options.onProviderDiscoveryResolved,
+    },
   );
   const applyProviderDiscovery = (discovery: readonly GuiProviderDiscoveryResult[]): Record<string, string[]> => {
     providerDiscoveryRef.current = discovery;
     providerModelsRef.current = projectGuiOperatorModels(providerDiscoveryRef.current);
     return providerModelsRef.current;
   };
+  applyProviderDiscovery(providerCatalog.snapshot().discovery);
   const refreshProviderModels = async (
     refreshOptions?: { readonly force?: boolean },
   ): Promise<Record<string, string[]>> => applyProviderDiscovery(
@@ -1096,17 +1115,21 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
-  const managedAgentProviderModels = await discoverManagedAgentProviderModels();
-  const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
-    cwd,
-    registry,
-    surface: "tui",
-    isProviderAvailable: (providerId) => engineAvailability.get(providerId),
-    providerModels: managedAgentProviderModels,
-    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
-    artifactStore: builtinToolOptions.artifactResources?.store,
-  });
-  const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+  const stagedManagedInvocation = appConfig.managedInvocation
+    ? undefined
+    : await createStagedManagedInvocationRouteCatalog(globalConfig, {
+      cwd,
+      registry,
+      surface: "tui",
+      isProviderAvailable: (providerId) => engineAvailability.get(providerId),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+      artifactStore: builtinToolOptions.artifactResources?.store,
+    }, {
+      onRefreshError: (error) => {
+        console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+      },
+    });
+  const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
@@ -1151,6 +1174,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     sessionManager.setModel(startupModel);
   }
 
+  const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
   const bootstrap = await bootstrapTuiSession({
     flags,
     sessionManager,
@@ -1161,7 +1185,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     managedInvocation,
     resumeSessionHydrator,
     operatorVoice,
+    initialProviderDiscovery,
+    onProviderDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
   });
+  stagedManagedInvocation?.startBackgroundRefresh();
 
   const shutdown = (code = 0, error?: unknown) => {
     bootstrap.shutdown();
@@ -1207,9 +1234,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     runtimeModels: bootstrap.providerModelsRef.current,
     runtimeDiscovery: bootstrap.providerDiscoveryRef.current,
     includeModelessProviders: true,
-    includePendingProviders: bootstrap.providerDiscoveryRef.current.length === 0,
+    includePendingProviders: bootstrap.providerDiscoveryRef.current.length === 0
+      || isOnlyStaleProviderDiscovery(bootstrap.providerDiscoveryRef.current),
   });
-  if (bootstrap.providerDiscoveryRef.current.length > 0) {
+  if (bootstrap.providerDiscoveryRef.current.length > 0
+    && !isOnlyStaleProviderDiscovery(bootstrap.providerDiscoveryRef.current)) {
     assertTuiProviderAvailableInStartupCatalog(provider, startupProviderDisplayInfo);
   }
   const startupProvider = startupProviderDisplayInfo.find((entry) => entry.id === provider);
