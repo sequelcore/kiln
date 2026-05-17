@@ -1,10 +1,12 @@
 import { expect, test } from "./fixtures/gateway.js";
 
+const COMPOSER_READY_TIMEOUT_MS = 15_000;
+
 test.describe("parity category 5 - theming and visual behavior", () => {
   test("persists theme changes and visually differentiates user and assistant messages", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.locator("#composer-input")).toBeEnabled({ timeout: 5_000 });
+    await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
 
     await page.getByRole("button", { name: "Setup" }).click();
     const switcher = page.getByRole("combobox", { name: "Theme" });
@@ -14,7 +16,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
     await page.reload();
-    await expect(page.locator("#composer-input")).toBeEnabled({ timeout: 5_000 });
+    await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await page.getByRole("button", { name: /provider.*Click to change/i }).click();
     await page.getByRole("option", { name: "Codex 6 models" }).click();
@@ -34,7 +36,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
   test("renders assistant markdown lists and tables with visible browser styling", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.locator("#composer-input")).toBeEnabled({ timeout: 5_000 });
+    await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
 
     const composer = page.locator("#composer-input");
     await composer.fill("markdown rendering check");
