@@ -73,6 +73,8 @@ const DEFAULT_TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 const DEFAULT_EXA_SEARCH_URL = "https://api.exa.ai/search";
 const DEFAULT_TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";
 const DEFAULT_FIRECRAWL_SCRAPE_URL = "https://api.firecrawl.dev/v2/scrape";
+const API_KEY_SEARCH_PROVIDER_TYPES = ["brave", "tavily", "exa"] as const;
+const API_KEY_EXTRACT_PROVIDER_TYPES = ["tavily", "firecrawl"] as const;
 
 export interface WebToolConfigurationDiagnostics {
   readonly enabled: boolean;
@@ -88,6 +90,15 @@ export interface WebToolConfigurationDiagnostics {
 }
 
 export type WebToolConfigurationSource = "none" | "effective" | "global" | "project";
+
+class WebProviderUnavailableError extends KilnYamlError {
+  constructor(
+    message: string,
+    readonly issue: string,
+  ) {
+    super(message);
+  }
+}
 
 export interface WebToolConfigurationSourceInput {
   readonly globalWeb?: KilnGlobalWebConfig | null;
@@ -120,8 +131,8 @@ export function createWebToolSurfaceOptions(
   }
 
   const networkPolicy = createWebNetworkPolicy(webConfig, input.projectPath);
-  const searchProvider = createConfiguredWebSearchProvider(webConfig.searchProvider, input.fetchImpl);
-  const extractProvider = createConfiguredWebExtractProvider(webConfig.extractProvider, input.fetchImpl);
+  const searchProvider = createOptionalConfiguredWebSearchProvider(webConfig.searchProvider, input.fetchImpl);
+  const extractProvider = createOptionalConfiguredWebExtractProvider(webConfig.extractProvider, input.fetchImpl);
 
   return {
     workspaceResources,
@@ -172,13 +183,20 @@ export function describeWebToolConfiguration(
   } else if (providerConfig && !isRecord(providerConfig)) {
     searchProviderType = "invalid";
   }
-  searchProviderConfigured = isSearchProviderConfigured(providerConfig);
+  const searchProviderEnvIssue = missingApiKeyEnvIssue(
+    providerConfig,
+    API_KEY_SEARCH_PROVIDER_TYPES,
+    "web.search_provider_env_missing",
+  );
+  searchProviderConfigured = isSearchProviderConfigured(providerConfig) && searchProviderEnvIssue === undefined;
   const searchProviderSource = resolveProviderSource({
     effectiveProvider: providerConfig,
     globalProvider: sources.globalWeb?.searchProvider,
     projectProvider: sources.projectWeb?.searchProvider,
   });
-  if (enabled && !searchProviderConfigured) {
+  if (searchProviderEnvIssue) {
+    issues.push(searchProviderEnvIssue);
+  } else if (enabled && !searchProviderConfigured) {
     issues.push("web.search_provider_missing");
   }
 
@@ -188,12 +206,20 @@ export function describeWebToolConfiguration(
   } else if (extractProviderConfig && !isRecord(extractProviderConfig)) {
     extractProviderType = "invalid";
   }
-  extractProviderConfigured = isExtractProviderConfigured(extractProviderConfig);
+  const extractProviderEnvIssue = missingApiKeyEnvIssue(
+    extractProviderConfig,
+    API_KEY_EXTRACT_PROVIDER_TYPES,
+    "web.extract_provider_env_missing",
+  );
+  extractProviderConfigured = isExtractProviderConfigured(extractProviderConfig) && extractProviderEnvIssue === undefined;
   const extractProviderSource = resolveProviderSource({
     effectiveProvider: extractProviderConfig,
     globalProvider: sources.globalWeb?.extractProvider,
     projectProvider: sources.projectWeb?.extractProvider,
   });
+  if (extractProviderEnvIssue) {
+    issues.push(extractProviderEnvIssue);
+  }
 
   return {
     enabled,
@@ -497,6 +523,20 @@ function createConfiguredWebSearchProvider(
   throw new KilnYamlError(`web.searchProvider.type must be one of: ${VALID_SEARCH_PROVIDER_TYPES.join(", ")}`);
 }
 
+function createOptionalConfiguredWebSearchProvider(
+  providerConfig: KilnYamlWebSearchProvider | undefined,
+  fetchImpl: FetchLike | undefined,
+): WebSearchProvider | undefined {
+  try {
+    return createConfiguredWebSearchProvider(providerConfig, fetchImpl);
+  } catch (error) {
+    if (error instanceof WebProviderUnavailableError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 function createConfiguredWebExtractProvider(
   providerConfig: KilnYamlWebExtractProvider | undefined,
   fetchImpl: FetchLike | undefined,
@@ -530,6 +570,20 @@ function createConfiguredWebExtractProvider(
     }, fetchImpl);
   }
   throw new KilnYamlError(`web.extractProvider.type must be one of: ${VALID_EXTRACT_PROVIDER_TYPES.join(", ")}`);
+}
+
+function createOptionalConfiguredWebExtractProvider(
+  providerConfig: KilnYamlWebExtractProvider | undefined,
+  fetchImpl: FetchLike | undefined,
+): WebExtractProvider | undefined {
+  try {
+    return createConfiguredWebExtractProvider(providerConfig, fetchImpl);
+  } catch (error) {
+    if (error instanceof WebProviderUnavailableError) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 function createHttpWebSearchProvider(
@@ -813,9 +867,43 @@ function readRequiredEnv(name: string, field: string): string {
   }
   const value = process.env[envName];
   if (!value) {
-    throw new KilnYamlError(`${field} references unset environment variable ${envName}`);
+    throw new WebProviderUnavailableError(
+      `${field} references unset environment variable ${envName}`,
+      issueForWebProviderEnv(field, envName),
+    );
   }
   return value;
+}
+
+function issueForWebProviderEnv(field: string, envName: string): string {
+  if (field.startsWith("web.searchProvider.")) {
+    return `web.search_provider_env_missing:${envName}`;
+  }
+  if (field.startsWith("web.extractProvider.")) {
+    return `web.extract_provider_env_missing:${envName}`;
+  }
+  return `web.provider_env_missing:${envName}`;
+}
+
+function missingApiKeyEnvIssue(
+  providerConfig: KilnYamlWebSearchProvider | KilnYamlWebExtractProvider | undefined,
+  providerTypes: readonly string[],
+  issuePrefix: string,
+): string | undefined {
+  if (!isRecord(providerConfig) || typeof providerConfig.type !== "string") {
+    return undefined;
+  }
+  if (!providerTypes.includes(providerConfig.type)) {
+    return undefined;
+  }
+  if (typeof providerConfig.apiKeyEnv !== "string") {
+    return undefined;
+  }
+  const envName = providerConfig.apiKeyEnv.trim();
+  if (!envName || process.env[envName]) {
+    return undefined;
+  }
+  return `${issuePrefix}:${envName}`;
 }
 
 function normalizeHeaders(headers: unknown, field = "web.searchProvider.headers"): Record<string, string> {

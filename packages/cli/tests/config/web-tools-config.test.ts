@@ -668,51 +668,130 @@ describe("web tool config", () => {
     }
   });
 
-  it("reports web diagnostics without executing a provider", () => {
-    const diagnostics = describeWebToolConfiguration(config({
-      enabled: true,
-      netPolicy: "documentation",
-      allowedDomains: ["docs.example.com"],
-      searchProvider: { type: "searxng", url: "https://searx.example.com" },
-      extractProvider: { type: "firecrawl", apiKeyEnv: "KILN_TEST_FIRECRAWL_KEY" },
+  it("keeps the tool surface available when optional web provider API-key env is missing", async () => {
+    delete process.env.KILN_TEST_MISSING_TAVILY_KEY;
+    const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+      config: config({
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+        searchProvider: {
+          type: "tavily",
+          apiKeyEnv: "KILN_TEST_MISSING_TAVILY_KEY",
+        },
+        extractProvider: {
+          type: "tavily",
+          apiKeyEnv: "KILN_TEST_MISSING_TAVILY_KEY",
+        },
+      }),
+      projectPath: "/project",
     }));
 
-    expect(diagnostics).toEqual({
-      enabled: true,
-      netPolicy: "documentation",
-      allowedDomains: ["docs.example.com"],
-      searchProviderType: "searxng",
-      searchProviderConfigured: true,
-      searchProviderSource: "effective",
-      extractProviderType: "firecrawl",
-      extractProviderConfigured: true,
-      extractProviderSource: "effective",
-      issues: [],
+    const searchResult = await surface.bridge.execute({
+      name: "web_search",
+      input: { query: "kiln tools", domains: ["docs.example.com"] },
     });
+    const extractResult = await surface.bridge.execute({
+      name: "web_extract",
+      input: { urls: ["https://docs.example.com/kiln"] },
+    });
+    const fetchResult = await surface.bridge.execute({
+      name: "web_fetch",
+      input: { url: "https://docs.example.com/kiln", outputMode: "raw" },
+    });
+
+    expect(searchResult.result.isError).toBe(true);
+    expect(searchResult.result.output).toContain("Web search provider is not configured");
+    expect(extractResult.result.isError).toBe(true);
+    expect(extractResult.result.output).toContain("Web extract provider is not configured");
+    expect(fetchResult.result.output).not.toContain("explicit network policy is required");
+  });
+
+  it("reports web diagnostics without executing a provider", () => {
+    process.env.KILN_TEST_FIRECRAWL_KEY = "fc-test";
+    try {
+      const diagnostics = describeWebToolConfiguration(config({
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+        searchProvider: { type: "searxng", url: "https://searx.example.com" },
+        extractProvider: { type: "firecrawl", apiKeyEnv: "KILN_TEST_FIRECRAWL_KEY" },
+      }));
+
+      expect(diagnostics).toEqual({
+        enabled: true,
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+        searchProviderType: "searxng",
+        searchProviderConfigured: true,
+        searchProviderSource: "effective",
+        extractProviderType: "firecrawl",
+        extractProviderConfigured: true,
+        extractProviderSource: "effective",
+        issues: [],
+      });
+    } finally {
+      delete process.env.KILN_TEST_FIRECRAWL_KEY;
+    }
   });
 
   it("reports inherited global web providers separately from project web authority", () => {
-    const diagnostics = describeWebToolConfiguration(
-      config({
-        enabled: true,
-        netPolicy: "documentation",
-        searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
-        extractProvider: { type: "firecrawl", apiKeyEnv: "FIRECRAWL_API_KEY" },
-      }),
-      {
-        globalWeb: {
-          searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
-          extractProvider: { type: "firecrawl", apiKeyEnv: "FIRECRAWL_API_KEY" },
-        },
-        projectWeb: {
+    const previousTavilyKey = process.env.TAVILY_API_KEY;
+    const previousFirecrawlKey = process.env.FIRECRAWL_API_KEY;
+    process.env.TAVILY_API_KEY = "tv-test";
+    process.env.FIRECRAWL_API_KEY = "fc-test";
+    try {
+      const diagnostics = describeWebToolConfiguration(
+        config({
           enabled: true,
           netPolicy: "documentation",
+          searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
+          extractProvider: { type: "firecrawl", apiKeyEnv: "FIRECRAWL_API_KEY" },
+        }),
+        {
+          globalWeb: {
+            searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
+            extractProvider: { type: "firecrawl", apiKeyEnv: "FIRECRAWL_API_KEY" },
+          },
+          projectWeb: {
+            enabled: true,
+            netPolicy: "documentation",
+          },
         },
-      },
-    );
+      );
 
-    expect(diagnostics.searchProviderSource).toBe("global");
-    expect(diagnostics.extractProviderSource).toBe("global");
-    expect(diagnostics.issues).toEqual([]);
+      expect(diagnostics.searchProviderSource).toBe("global");
+      expect(diagnostics.extractProviderSource).toBe("global");
+      expect(diagnostics.issues).toEqual([]);
+    } finally {
+      if (previousTavilyKey === undefined) {
+        delete process.env.TAVILY_API_KEY;
+      } else {
+        process.env.TAVILY_API_KEY = previousTavilyKey;
+      }
+      if (previousFirecrawlKey === undefined) {
+        delete process.env.FIRECRAWL_API_KEY;
+      } else {
+        process.env.FIRECRAWL_API_KEY = previousFirecrawlKey;
+      }
+    }
+  });
+
+  it("reports missing optional web provider API-key env vars as diagnostics", () => {
+    delete process.env.KILN_TEST_MISSING_TAVILY_KEY;
+
+    const diagnostics = describeWebToolConfiguration(config({
+      enabled: true,
+      netPolicy: "documentation",
+      searchProvider: { type: "tavily", apiKeyEnv: "KILN_TEST_MISSING_TAVILY_KEY" },
+      extractProvider: { type: "tavily", apiKeyEnv: "KILN_TEST_MISSING_TAVILY_KEY" },
+    }));
+
+    expect(diagnostics.searchProviderConfigured).toBe(false);
+    expect(diagnostics.extractProviderConfigured).toBe(false);
+    expect(diagnostics.issues).toEqual([
+      "web.search_provider_env_missing:KILN_TEST_MISSING_TAVILY_KEY",
+      "web.extract_provider_env_missing:KILN_TEST_MISSING_TAVILY_KEY",
+    ]);
   });
 });

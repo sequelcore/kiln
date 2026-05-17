@@ -210,6 +210,8 @@ describe("statusCommand", () => {
   it("shows web configuration diagnostics", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
+    const previousFirecrawlKey = process.env.FIRECRAWL_API_KEY;
+    process.env.FIRECRAWL_API_KEY = "fc-test";
     writeKilnYaml(kilnDir, {
       ...defaultKilnYaml("python"),
       web: {
@@ -227,20 +229,32 @@ describe("statusCommand", () => {
       },
     });
 
-    await statusCommand(MOCK_APP_CONFIG, tempDir);
+    try {
+      await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("Web access:");
-    expect(output).toContain("Enabled: true");
-    expect(output).toContain("Network policy: documentation");
-    expect(output).toContain("Allowed domains: docs.example.com");
-    expect(output).toContain("Search provider: searxng");
-    expect(output).toContain("Extract provider: firecrawl");
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("Web access:");
+      expect(output).toContain("Enabled: true");
+      expect(output).toContain("Network policy: documentation");
+      expect(output).toContain("Allowed domains: docs.example.com");
+      expect(output).toContain("Search provider: searxng");
+      expect(output).toContain("Extract provider: firecrawl");
+    } finally {
+      if (previousFirecrawlKey === undefined) {
+        delete process.env.FIRECRAWL_API_KEY;
+      } else {
+        process.env.FIRECRAWL_API_KEY = previousFirecrawlKey;
+      }
+    }
   });
 
   it("shows global web provider defaults with project web authority", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
+    const previousTavilyKey = process.env.TAVILY_API_KEY;
+    const previousFirecrawlKey = process.env.FIRECRAWL_API_KEY;
+    process.env.TAVILY_API_KEY = "tv-test";
+    process.env.FIRECRAWL_API_KEY = "fc-test";
     writeGlobalConfig({
       version: "1",
       web: {
@@ -263,11 +277,47 @@ describe("statusCommand", () => {
       },
     });
 
+    try {
+      await statusCommand(MOCK_APP_CONFIG, tempDir);
+
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("Search provider: tavily (global)");
+      expect(output).toContain("Extract provider: firecrawl (global)");
+      expect(output).toContain("Network policy: documentation");
+    } finally {
+      if (previousTavilyKey === undefined) {
+        delete process.env.TAVILY_API_KEY;
+      } else {
+        process.env.TAVILY_API_KEY = previousTavilyKey;
+      }
+      if (previousFirecrawlKey === undefined) {
+        delete process.env.FIRECRAWL_API_KEY;
+      } else {
+        process.env.FIRECRAWL_API_KEY = previousFirecrawlKey;
+      }
+    }
+  });
+
+  it("shows missing web provider env diagnostics", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    delete process.env.KILN_TEST_MISSING_WEB_KEY;
+    writeKilnYaml(kilnDir, {
+      ...defaultKilnYaml("python"),
+      web: {
+        enabled: true,
+        netPolicy: "documentation",
+        searchProvider: {
+          type: "tavily",
+          apiKeyEnv: "KILN_TEST_MISSING_WEB_KEY",
+        },
+      },
+    });
+
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("Search provider: tavily (global)");
-    expect(output).toContain("Extract provider: firecrawl (global)");
-    expect(output).toContain("Network policy: documentation");
+    expect(output).toContain("Search provider: tavily (missing)");
+    expect(output).toContain("Issues: web.search_provider_env_missing:KILN_TEST_MISSING_WEB_KEY");
   });
 });
