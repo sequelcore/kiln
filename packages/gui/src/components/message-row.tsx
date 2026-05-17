@@ -63,6 +63,35 @@ SyntaxHighlighter.registerLanguage("xml", xml);
 SyntaxHighlighter.registerLanguage("html", xml);
 
 const markdownComponents: Components = {
+  ul({ children }) {
+    return <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>;
+  },
+  ol({ children }) {
+    return <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>;
+  },
+  li({ children }) {
+    return <li className="pl-1">{children}</li>;
+  },
+  blockquote({ children }) {
+    return (
+      <blockquote className="my-3 border-l-2 border-border pl-3 text-muted-foreground">
+        {children}
+      </blockquote>
+    );
+  },
+  table({ children }) {
+    return (
+      <div className="my-3 max-w-full overflow-x-auto rounded-md border border-border/70">
+        <table className="w-full border-collapse text-left text-sm">{children}</table>
+      </div>
+    );
+  },
+  th({ children }) {
+    return <th className="border-b border-r border-border/70 bg-background-element px-3 py-2 font-semibold last:border-r-0">{children}</th>;
+  },
+  td({ children }) {
+    return <td className="border-r border-t border-border/60 px-3 py-2 align-top last:border-r-0">{children}</td>;
+  },
   code({ className, children, ...rest }) {
     const match = /language-(\w+)/.exec(className ?? "");
     const isInline = !("data-sourcepos" in rest) && !match && !String(children).includes("\n");

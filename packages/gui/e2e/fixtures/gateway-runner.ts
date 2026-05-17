@@ -29,6 +29,22 @@ function summarizePrompt(prompt: string): string {
   return `${compact.slice(0, 57)}...`;
 }
 
+function responseChunks(prompt: string, userTurns: number): readonly string[] {
+  if (prompt.toLowerCase().includes("markdown rendering check")) {
+    return [
+      "Checklist:\n\n",
+      "- Provider discovery\n",
+      "- GUI rendering\n\n",
+      "| Surface | Status |\n| --- | --- |\n| Chat | fixed |\n",
+    ];
+  }
+  return [
+    "Reply ",
+    `users:${userTurns} `,
+    `echo:${summarizePrompt(prompt)}`,
+  ];
+}
+
 const sessionSummaries: GuiSessionSummary[] = [
   {
     id: "claude-session-1",
@@ -62,11 +78,7 @@ const fakeSessionFactory: CliSessionFactory = (_systemPrompt, _cwd) => ({
       ?.filter((message) => message.role === "user")
       .length ?? 1;
     const prompt = options.prompt.trim();
-    const chunks = [
-      "Reply ",
-      `users:${userTurns} `,
-      `echo:${summarizePrompt(prompt)}`,
-    ];
+    const chunks = responseChunks(prompt, userTurns);
 
     for (const chunk of chunks) {
       await delay(70);

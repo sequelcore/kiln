@@ -3,6 +3,38 @@ import { describe, expect, it, vi } from "vitest";
 import { MessageRow } from "../src/components/message-row.js";
 
 describe("MessageRow", () => {
+  it("renders assistant markdown lists and GFM tables with visible structure", () => {
+    const { container } = render(
+      <MessageRow
+        message={{
+          id: "msg-markdown",
+          role: "assistant",
+          content: [
+            "Checklist:",
+            "",
+            "- Provider discovery",
+            "- GUI rendering",
+            "",
+            "| Surface | Status |",
+            "| --- | --- |",
+            "| Chat | fixed |",
+          ].join("\n"),
+          createdAt: "2026-05-16T00:00:00.000Z",
+          parts: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("list")).toHaveClass("list-disc");
+    expect(screen.getByText("Provider discovery").closest("li")).toHaveClass("pl-1");
+    const table = screen.getByRole("table");
+    expect(table).toHaveClass("border-collapse");
+    expect(table.parentElement).toHaveClass("overflow-x-auto");
+    expect(screen.getByRole("columnheader", { name: "Surface" })).toHaveClass("bg-background-element");
+    expect(screen.getByRole("cell", { name: "fixed" })).toBeInTheDocument();
+    expect(container.querySelector(".markdown-body")).not.toBeNull();
+  });
+
   it("renders assistant audio parts as compact playback actions", async () => {
     const loadResourceDataUrl = vi.fn().mockResolvedValue("data:audio/mpeg;base64,AQID");
     const { container } = render(

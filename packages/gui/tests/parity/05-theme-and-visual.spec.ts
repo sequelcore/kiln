@@ -30,4 +30,24 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(page.locator('[data-role="user"]').last()).toBeVisible({ timeout: 2_000 });
     await expect(page.locator('[data-role="assistant"]').last()).toBeVisible({ timeout: 5_000 });
   });
+
+  test("renders assistant markdown lists and tables with visible browser styling", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.locator("#composer-input")).toBeEnabled({ timeout: 5_000 });
+
+    const composer = page.locator("#composer-input");
+    await composer.fill("markdown rendering check");
+    await composer.press("Enter");
+
+    const assistant = page.locator('[data-role="assistant"]').last();
+    await expect(assistant.getByText("Provider discovery")).toBeVisible({ timeout: 5_000 });
+    const list = assistant.locator(".markdown-body ul").first();
+    await expect(list).toHaveCSS("list-style-type", "disc");
+    const table = assistant.locator(".markdown-body table").first();
+    await expect(table).toBeVisible();
+    await expect(table.locator("th").first()).toHaveCSS("font-weight", "600");
+    await expect(table.locator("td", { hasText: "fixed" })).toBeVisible();
+    await expect(table.locator("..")).toHaveCSS("overflow-x", "auto");
+  });
 });
