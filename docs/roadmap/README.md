@@ -38,6 +38,16 @@ Use these documents as the stable source of truth before starting roadmap work:
 
 ## Active Roadmaps
 
+0.0.1. [Startup Near Fixes](./00.0.1-startup-near-fixes.md)
+   Proposed on 2026-05-17. Scope is staged operator-surface startup,
+   background/cached provider discovery, and fail-closed managed-agent readiness
+   without Rust/WASM/sidecar implementation.
+
+0.0.2. [Bun And Rust Responsibility Boundary](./00.0.2-bun-rust-responsibility-boundary.md)
+   Proposed on 2026-05-17. Scope is the long-term responsibility split:
+   Bun/TypeScript owns control-plane semantics while Rust/WASM/sidecars remain
+   measured hot-path or native-helper candidates that consume shared contracts.
+
 1. [Native Cockpit Benchmark Validation](./01-native-cockpit-benchmark-validation.md)
    Started on 2026-05-15. Current scope is contract-only benchmark runner
    admission, orchestration planning, workload governance, and approval
