@@ -404,3 +404,23 @@ export type {
   GuiProviderGroup,
   GuiProviderMetadata,
 } from "./provider-metadata.js";
+
+export {
+  SESSION_FEEDBACK_EVIDENCE_KINDS,
+  SESSION_FEEDBACK_PUBLICATION_REASONS,
+  SESSION_FEEDBACK_REPORTER_MODES,
+  SessionFeedbackEvidencePreviewSchema,
+  SessionFeedbackIssueDraftPreviewSchema,
+  SessionFeedbackLocalArtifactsSchema,
+  SessionFeedbackPreviewProjectionSchema,
+  SessionFeedbackPublicationProjectionSchema,
+  SessionFeedbackReporterProjectionSchema,
+} from "./session-feedback-projection.js";
+export type {
+  SessionFeedbackEvidencePreview,
+  SessionFeedbackIssueDraftPreview,
+  SessionFeedbackLocalArtifacts,
+  SessionFeedbackPreviewProjection,
+  SessionFeedbackPublicationProjection,
+  SessionFeedbackReporterProjection,
+} from "./session-feedback-projection.js";

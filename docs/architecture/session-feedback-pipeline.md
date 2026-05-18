@@ -118,5 +118,13 @@ The CLI draft slice exists in `@kilnai/cli`:
   fail-closed required fields, redacted preview behavior, and opt-in git status
   evidence.
 
-This is not yet a GUI flow, gateway contract, GitHub integration, or PR
+The first gateway projection contract exists in `@kilnai/gateway-contracts`:
+
+- `packages/gateway-contracts/src/session-feedback-projection.ts` defines the
+  surface-facing feedback preview shape, local artifact references, issue-draft
+  preview, selected evidence previews, and fail-closed local publication state.
+- `packages/gateway-contracts/tests/session-feedback-projection.test.ts`
+  verifies accepted local-draft previews and rejects publication-enabled state.
+
+This is not yet a GUI flow, TUI flow, native flow, GitHub integration, or PR
 automation.

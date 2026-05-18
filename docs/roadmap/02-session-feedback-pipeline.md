@@ -98,7 +98,8 @@ Status: Started on 2026-05-18
 
 Deliverables:
 
-- Add gateway contracts only after the core and runtime shapes stabilize.
+- Added the first gateway preview contract after the core, runtime, and CLI
+  draft shapes stabilized.
 - Expose feedback preview state to GUI, TUI, and native surfaces.
 - Keep surface components thin; core owns semantics.
 - Reuse the CLI draft semantics; do not add external publication in this slice.
@@ -106,6 +107,8 @@ Deliverables:
 Verification:
 
 - `bun run --filter @kilnai/gateway-contracts test`
+- `bun run --filter @kilnai/gateway-contracts typecheck`
+- `bun run --filter @kilnai/gateway-contracts build`
 - GUI/TUI/native focused tests for projection consumers.
 
 ### Slice 5 - Issue Adapter
