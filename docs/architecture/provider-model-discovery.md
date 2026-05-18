@@ -151,6 +151,13 @@ default. If a model does advertise supported efforts, the default is
 `defaultReasoningEffort` when present, otherwise the first advertised supported
 effort.
 
+`reasoningPolicy` config may request automatic effort by coarse task, but that
+policy is resolved after provider/model selection and remains capability-gated.
+Explicit operator requests are authoritative. Automatic policy requests are
+sent only when the selected route advertises the requested normalized effort;
+otherwise Kiln omits the effort by default or fails closed when the policy sets
+`unsupported: fail`.
+
 ## Task Suitability
 
 Technical model capability is not the same as task suitability. A model may

@@ -5,7 +5,7 @@ import {
   defaultKilnYaml,
   type KilnYaml,
 } from "../kiln-yaml.js";
-import type { KilnWorkGovernanceConfig } from "../kiln-yaml-types.js";
+import type { KilnReasoningPolicyConfig, KilnWorkGovernanceConfig } from "../kiln-yaml-types.js";
 import type { KilnAppConfig } from "../config.js";
 import {
   isConfigReadView,
@@ -30,6 +30,9 @@ type KilnYamlKey =
   | "workGovernance.directExecution.maxRisk"
   | "workGovernance.requireDelegationFor"
   | "workGovernance.requiredEvidence"
+  | "reasoningPolicy.default"
+  | "reasoningPolicy.unsupported"
+  | `reasoningPolicy.byTask.${string}`
   | "domain"
   | "provider"
   | "channels"
@@ -68,6 +71,8 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "workGovernance.directExecution.maxRisk",
   "workGovernance.requireDelegationFor",
   "workGovernance.requiredEvidence",
+  "reasoningPolicy.default",
+  "reasoningPolicy.unsupported",
   "domain",
   "provider",
   "channels",
@@ -97,6 +102,10 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "interactiveUse.computerEnvironment",
   "skills.selection.mode",
 ]);
+
+function isValidConfigKey(key: string): key is KilnYamlKey {
+  return VALID_KEYS.has(key as KilnYamlKey) || key.startsWith("reasoningPolicy.byTask.");
+}
 
 export async function configCommand(
   _appConfig: KilnAppConfig,
@@ -167,9 +176,9 @@ export async function configCommand(
         return;
       }
 
-      if (!VALID_KEYS.has(key as KilnYamlKey)) {
+      if (!isValidConfigKey(key)) {
         console.log(`Unknown config key: ${key}`);
-        console.log(`Valid keys: ${[...VALID_KEYS].join(", ")}`);
+        console.log(`Valid keys: ${[...VALID_KEYS].join(", ")}, reasoningPolicy.byTask.<task>`);
         return;
       }
 
@@ -305,7 +314,11 @@ function setGlobalNestedKey(config: KilnGlobalConfig, key: KilnYamlKey, rawValue
   process.exit(1);
 }
 
-function setGovernanceOrSkillKey<T extends { readonly workGovernance?: KilnWorkGovernanceConfig; readonly skills?: KilnYaml["skills"] }>(
+function setGovernanceOrSkillKey<T extends {
+  readonly workGovernance?: KilnWorkGovernanceConfig;
+  readonly reasoningPolicy?: KilnReasoningPolicyConfig;
+  readonly skills?: KilnYaml["skills"];
+}>(
   config: T,
   key: KilnYamlKey,
   rawValue: string,
@@ -369,6 +382,44 @@ function setGovernanceOrSkillKey<T extends { readonly workGovernance?: KilnWorkG
       },
     };
   }
+  if (key === "reasoningPolicy.default") {
+    validateReasoningEffort(rawValue, key);
+    return {
+      ...config,
+      reasoningPolicy: {
+        ...(config.reasoningPolicy ?? {}),
+        default: rawValue as KilnReasoningPolicyConfig["default"],
+      },
+    };
+  }
+  if (key === "reasoningPolicy.unsupported") {
+    if (rawValue !== "omit" && rawValue !== "fail") {
+      console.error(`Invalid reasoningPolicy.unsupported: ${rawValue}. Must be omit or fail.`);
+      process.exit(1);
+    }
+    return {
+      ...config,
+      reasoningPolicy: {
+        ...(config.reasoningPolicy ?? {}),
+        unsupported: rawValue,
+      },
+    };
+  }
+  if (key.startsWith("reasoningPolicy.byTask.")) {
+    const task = key.slice("reasoningPolicy.byTask.".length);
+    validateReasoningTask(task, key);
+    validateReasoningEffort(rawValue, key);
+    return {
+      ...config,
+      reasoningPolicy: {
+        ...(config.reasoningPolicy ?? {}),
+        byTask: {
+          ...(config.reasoningPolicy?.byTask ?? {}),
+          [task]: rawValue as NonNullable<KilnReasoningPolicyConfig["default"]>,
+        },
+      },
+    };
+  }
   if (key === "skills.selection.mode") {
     if (rawValue !== "advisory" && rawValue !== "auto") {
       console.error(`Invalid skill selection mode: ${rawValue}. Must be advisory or auto.`);
@@ -397,6 +448,11 @@ function getNestedKey(config: KilnYaml | KilnGlobalConfig, key: KilnYamlKey): un
   if (key === "workGovernance.directExecution.maxRisk") return config.workGovernance?.directExecution?.maxRisk;
   if (key === "workGovernance.requireDelegationFor") return config.workGovernance?.requireDelegationFor;
   if (key === "workGovernance.requiredEvidence") return config.workGovernance?.requiredEvidence;
+  if (key === "reasoningPolicy.default") return config.reasoningPolicy?.default;
+  if (key === "reasoningPolicy.unsupported") return config.reasoningPolicy?.unsupported;
+  if (key.startsWith("reasoningPolicy.byTask.")) {
+    return config.reasoningPolicy?.byTask?.[key.slice("reasoningPolicy.byTask.".length) as keyof NonNullable<typeof config.reasoningPolicy>["byTask"]];
+  }
   if (key === "skills.selection.mode") return config.skills?.selection?.mode;
   const projectConfig = config as KilnYaml;
   if (key === "permissions.approval") return projectConfig.permissions?.approval;
@@ -445,6 +501,27 @@ function parseScalar(value: string, key: KilnYamlKey): string | number | boolean
   }
 
   return value;
+}
+
+function validateReasoningEffort(value: string, key: string): void {
+  if (value !== "minimal" && value !== "low" && value !== "medium" && value !== "high" && value !== "xhigh") {
+    console.error(`Invalid ${key}: ${value}. Must be minimal, low, medium, high, or xhigh.`);
+    process.exit(1);
+  }
+}
+
+function validateReasoningTask(value: string, key: string): void {
+  if (
+    value !== "architecture-review"
+    && value !== "backend-coding"
+    && value !== "frontend-design"
+    && value !== "mechanical-edit"
+    && value !== "research"
+    && value !== "test-writing"
+  ) {
+    console.error(`Invalid ${key}: ${value}. Must be a supported model task.`);
+    process.exit(1);
+  }
 }
 
 function setInteractiveUseKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {

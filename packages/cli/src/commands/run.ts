@@ -32,6 +32,7 @@ import {
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { readKilnYaml } from "../kiln-yaml.js";
+import type { KilnModelTaskSuitabilityTask, KilnReasoningPolicyConfig } from "../kiln-yaml-types.js";
 import {
   computeEvalScore,
   printContextGovernancePreview,
@@ -53,6 +54,7 @@ import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { inferRouteTask, resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
+import { resolveConfiguredReasoningEffort } from "../config/reasoning-policy.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -189,6 +191,7 @@ async function resolveAdmittedRunRouteCandidates(input: {
 }): Promise<{
   readonly candidates: readonly AdmittedRunRouteCandidate[];
   readonly rejectedReasons: readonly string[];
+  readonly routeCapabilities: ReadonlyMap<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>;
 }> {
   const rejectedReasons: string[] = [];
   const directCandidates = input.candidates.filter((candidate) => isDirectApiProvider(candidate.provider));
@@ -203,6 +206,7 @@ async function resolveAdmittedRunRouteCandidates(input: {
     : {};
 
   const admitted: AdmittedRunRouteCandidate[] = [];
+  const routeCapabilities = new Map<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>();
   for (const candidate of input.candidates) {
     if (!isDirectApiProvider(candidate.provider)) {
       admitted.push(candidate as AdmittedRunRouteCandidate);
@@ -227,10 +231,44 @@ async function resolveAdmittedRunRouteCandidates(input: {
       }
     }
 
+    const supportedReasoningEfforts = candidate.model
+      ? directDiscovery[candidate.provider]?.modelCapabilities?.[candidate.model]?.supportedReasoningEfforts
+      : undefined;
+    if (candidate.model && supportedReasoningEfforts) {
+      routeCapabilities.set(routeKey(candidate.provider, candidate.model), { supportedReasoningEfforts });
+    }
+
     admitted.push(candidate as AdmittedRunRouteCandidate);
   }
 
-  return { candidates: admitted, rejectedReasons };
+  return { candidates: admitted, rejectedReasons, routeCapabilities };
+}
+
+function routeKey(provider: string, model: string): string {
+  return `${provider}/${model}`;
+}
+
+function applyReasoningPolicyToRouteCandidates(input: {
+  readonly candidates: readonly AdmittedRunRouteCandidate[];
+  readonly reasoningPolicy?: KilnReasoningPolicyConfig;
+  readonly explicitReasoningEffort?: ReasoningEffort;
+  readonly task?: KilnModelTaskSuitabilityTask;
+  readonly routeCapabilities: ReadonlyMap<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>;
+}): readonly AdmittedRunRouteCandidate[] {
+  return input.candidates.map((candidate) => {
+    const supportedReasoningEfforts = candidate.model
+      ? input.routeCapabilities.get(routeKey(candidate.provider, candidate.model))?.supportedReasoningEfforts
+      : undefined;
+    const reasoningEffort = resolveConfiguredReasoningEffort({
+      explicitReasoningEffort: input.explicitReasoningEffort,
+      policy: input.reasoningPolicy,
+      task: input.task,
+      provider: candidate.provider,
+      model: candidate.model,
+      supportedReasoningEfforts,
+    });
+    return reasoningEffort ? { ...candidate, reasoningEffort } : candidate;
+  });
 }
 
 function formatRouteCandidate(candidate: RunSessionRouteCandidate): string {
@@ -449,6 +487,10 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const routeTask = inferRouteTask({
+    text: task,
+    agentTaskAffinity: resolvedAgent?.taskAffinity,
+  });
   const configuredRouteCandidates = resolveProviderRouteCandidates({
     globalConfig,
     flagProvider: flags.provider,
@@ -490,10 +532,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     identityAppConfig = withContextCandidates(
       identityAppConfig,
       resolveAgentSkillContextCandidates(resolvedAgent, cwd, undefined, resolvedKilnConfig?.skills, {
-        task: inferRouteTask({
-          text: task,
-          agentTaskAffinity: resolvedAgent?.taskAffinity,
-        }),
+        task: routeTask,
         provider: preferredProvider,
         model: effectiveModel,
         modelTaskSuitability: resolvedKilnConfig?.modelTaskSuitability,
@@ -566,7 +605,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
         env,
         routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore(),
       })
-    : { candidates: [], rejectedReasons: [] };
+    : { candidates: [], rejectedReasons: [], routeCapabilities: new Map() };
   if (configuredRouteCandidates.length > 0 && admittedRoutes.candidates.length === 0) {
     console.error("Error: No configured provider routes are currently available.");
     for (const reason of admittedRoutes.rejectedReasons) {
@@ -574,6 +613,13 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     }
     process.exit(1);
   }
+  const admittedRouteCandidates = applyReasoningPolicyToRouteCandidates({
+    candidates: admittedRoutes.candidates,
+    reasoningPolicy: resolvedKilnConfig?.reasoningPolicy,
+    explicitReasoningEffort: flags.reasoningEffort,
+    task: routeTask,
+    routeCapabilities: admittedRoutes.routeCapabilities,
+  });
 
   const requirements = buildRunSessionRequirements(preferredProvider);
 
@@ -704,7 +750,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     manager,
     context,
     requirements,
-    routeCandidates: admittedRoutes.candidates.length > 0 ? admittedRoutes.candidates : undefined,
+    routeCandidates: admittedRouteCandidates.length > 0 ? admittedRouteCandidates : undefined,
     sessionConfig,
     permissionPolicy: config.permissionPolicy,
     permissionAgent: resolvedAgent?.name,

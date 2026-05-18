@@ -295,6 +295,7 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
         defaultProvider: config?.provider,
         managedAgents: config?.managedAgents,
         modelTaskSuitability: config?.modelTaskSuitability,
+        reasoningPolicy: config?.reasoningPolicy,
       };
     case "agents":
       return readAgentIndexes(snapshot.project.rootPath);

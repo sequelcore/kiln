@@ -56,6 +56,7 @@ kiln config set --global skills.selection.mode auto
 | `hooks` | `Record<string, unknown>` | Global hook configuration shared across Kiln-managed workflows. |
 | `managedAgents` | `KilnManagedAgentsConfig` | Governed child-agent route configuration shared by GUI, TUI, and CLI runtime surfaces. |
 | `modelTaskSuitability` | `KilnModelTaskSuitabilityOverride[]` | Operator or project overrides for provider/model task suitability evidence. |
+| `reasoningPolicy` | `KilnReasoningPolicyConfig` | Optional task-aware reasoning effort policy. It is resolved after provider/model selection and only sent when the selected route advertises compatible effort support. |
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
@@ -115,6 +116,26 @@ CLI run uses the same resolved suitability records to rank configured
 `taskAffinity` wins over prompt keyword inference, operator overrides win
 same-level ties over static profiles, and the original route order remains the
 fallback order for unknown tasks or equal scores.
+`reasoningPolicy` is intentionally separate from `modelTaskSuitability`.
+Suitability decides which healthy route should be tried first; reasoning policy
+decides the desired effort after that route has been selected. Automatic effort
+is capability-gated: if the active provider/model does not advertise
+`supportedReasoningEfforts`, Kiln omits the automatic effort instead of
+inventing a provider-specific default. Set `unsupported: fail` only when an
+operator wants unsupported or unadvertised automatic effort to fail closed.
+
+```yaml
+reasoningPolicy:
+  default: medium
+  unsupported: omit
+  byTask:
+    architecture-review: xhigh
+    backend-coding: high
+    frontend-design: high
+    test-writing: high
+    research: high
+    mechanical-edit: low
+```
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
 `.kiln/agents`, `~/.kiln/agents`, `.kiln/instructions`,
@@ -239,6 +260,12 @@ routing:
   budgetAware: false
 models:
   codex: gpt-5.3-codex-spark
+reasoningPolicy:
+  default: medium
+  unsupported: omit
+  byTask:
+    architecture-review: xhigh
+    mechanical-edit: low
 modelTaskSuitability:
   - provider: codex-oauth
     model: gpt-5.4-mini
@@ -288,8 +315,8 @@ components:
 ## Sanitized Personal Setup Example
 
 This example reflects a local operator setup where direct Codex OAuth is the
-primary deep-reasoning route, OpenCode Zen contributes task-specialized direct
-models, native Codex CLI is a harness fallback, OpenCode harness remains
+primary deep-reasoning route, OpenCode Go contributes task-specialized direct
+models, OpenCode Zen free routes remain non-sensitive fallbacks, native Codex CLI is a harness fallback, OpenCode harness remains
 available for mechanical child work, and Claude is disabled until a valid
 subscription is available. It is a shape example only; secrets stay in
 environment variables or credential pools.
@@ -306,6 +333,9 @@ engines:
   codex-oauth:
     enabled: true
     billing: subscription
+  opencode-go:
+    enabled: true
+    billing: subscription
   opencode-zen:
     enabled: true
     billing: api-key
@@ -319,12 +349,18 @@ routing:
   routes:
     - provider: codex-oauth
       model: gpt-5.5
-    - provider: opencode-zen
+    - provider: opencode-go
       model: kimi-k2.6
-    - provider: opencode-zen
+    - provider: opencode-go
       model: glm-5.1
-    - provider: opencode-zen
+    - provider: opencode-go
+      model: deepseek-v4-pro
+    - provider: opencode-go
+      model: qwen3.6-plus
+    - provider: opencode-go
       model: minimax-m2.7
+    - provider: opencode-go
+      model: deepseek-v4-flash
     - provider: opencode-zen
       model: deepseek-v4-flash-free
     - provider: opencode-zen
@@ -334,17 +370,37 @@ routing:
     - provider: opencode
       model: opencode/minimax-m2.5-free
   budgetAware: false
+reasoningPolicy:
+  default: medium
+  unsupported: omit
+  byTask:
+    architecture-review: xhigh
+    backend-coding: high
+    frontend-design: high
+    test-writing: high
+    research: high
+    mechanical-edit: low
 modelTaskSuitability:
-  - provider: opencode-zen
+  - provider: opencode-go
     model: kimi-k2.6
     task: frontend-design
     level: preferred
     reason: Operator benchmark preference for frontend and visual implementation tasks.
-  - provider: opencode-zen
-    model: minimax-m2.7
+  - provider: opencode-go
+    model: deepseek-v4-pro
+    task: backend-coding
+    level: preferred
+    reason: Operator benchmark preference for backend/debugging and provider-runtime tasks.
+  - provider: opencode-go
+    model: qwen3.6-plus
+    task: research
+    level: preferred
+    reason: Operator benchmark preference for synthesis, comparison, and evidence-heavy research.
+  - provider: opencode-go
+    model: deepseek-v4-flash
     task: mechanical-edit
     level: preferred
-    reason: Operator preference for broad, low-friction mechanical work.
+    reason: Operator preference for fast low-friction mechanical work.
 skills:
   selection:
     mode: auto

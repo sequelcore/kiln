@@ -87,6 +87,12 @@ describe("config-merger", () => {
         level: "limited",
         reason: "Prefer a visual route when available.",
       }],
+      reasoningPolicy: {
+        default: "medium",
+        byTask: {
+          "mechanical-edit": "low",
+        },
+      },
     };
     readGlobalConfigMock.mockReturnValue(globalConfig);
     readKilnYamlMock.mockReturnValue(null);
@@ -127,6 +133,12 @@ describe("config-merger", () => {
         level: "limited",
         reason: "Prefer a visual route when available.",
       }],
+      reasoningPolicy: {
+        default: "medium",
+        byTask: {
+          "mechanical-edit": "low",
+        },
+      },
     });
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
   });

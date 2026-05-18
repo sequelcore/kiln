@@ -9,6 +9,7 @@ import type {
   KilnManagedAgentsConfig,
   KilnHooksConfig,
   KilnModelTaskSuitabilityOverride,
+  KilnReasoningPolicyConfig,
   KilnYamlWebExtractProvider,
   KilnYamlWebSearchProvider,
   KilnYamlMcp,
@@ -86,6 +87,7 @@ export interface KilnGlobalConfig {
   readonly models?: KilnGlobalModelsConfig;
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
+  readonly reasoningPolicy?: KilnReasoningPolicyConfig;
   readonly web?: KilnGlobalWebConfig;
   readonly ui?: KilnGlobalUiConfig;
   readonly skills?: KilnYamlSkillsConfig;
@@ -106,6 +108,7 @@ const ROOT_FIELDS = new Set([
   "models",
   "managedAgents",
   "modelTaskSuitability",
+  "reasoningPolicy",
   "web",
   "ui",
   "skills",
@@ -237,6 +240,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "hooks");
   validateRecordField(config, "models");
   validateRecordField(config, "managedAgents");
+  validateRecordField(config, "reasoningPolicy");
   validateRecordField(config, "web");
   validateRecordField(config, "ui");
   validateRecordField(config, "skills");
@@ -251,6 +255,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateOperatorVoice(config.operatorVoice);
   validateManagedAgents(config.managedAgents, config.operatorVoice as VoiceConfig | undefined);
   validateModelTaskSuitability(config.modelTaskSuitability);
+  validateReasoningPolicy(config.reasoningPolicy);
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
   validateGlobalUi(config.ui);
@@ -711,6 +716,42 @@ function validateModelTaskSuitability(value: unknown): void {
   }
 }
 
+function validateReasoningPolicy(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("reasoningPolicy must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== "default" && key !== "unsupported" && key !== "byTask") {
+      throw new KilnYamlError(`Unknown reasoningPolicy field: ${key}`);
+    }
+  }
+  validateOptionalReasoningEffort(value.default, "reasoningPolicy.default");
+  if (value.unsupported !== undefined && value.unsupported !== "omit" && value.unsupported !== "fail") {
+    throw new KilnYamlError('reasoningPolicy.unsupported must be "omit" or "fail"');
+  }
+  if (value.byTask === undefined) {
+    return;
+  }
+  if (!isRecord(value.byTask)) {
+    throw new KilnYamlError("reasoningPolicy.byTask must be an object");
+  }
+  for (const [task, effort] of Object.entries(value.byTask)) {
+    if (!isModelTaskSuitabilityTask(task)) {
+      throw new KilnYamlError(`reasoningPolicy.byTask.${task} is not a supported task`);
+    }
+    validateOptionalReasoningEffort(effort, `reasoningPolicy.byTask.${task}`);
+  }
+}
+
+function validateOptionalReasoningEffort(value: unknown, path: string): void {
+  if (value !== undefined && !isReasoningEffort(value)) {
+    throw new KilnYamlError(`${path} must be a supported reasoning effort`);
+  }
+}
+
 function validateRecordField(config: Record<string, unknown>, field: string): void {
   const value = config[field];
   if (value !== undefined && !isRecord(value)) {
@@ -760,6 +801,14 @@ function isModelTaskSuitabilityTask(value: unknown): boolean {
     || value === "mechanical-edit"
     || value === "research"
     || value === "test-writing";
+}
+
+function isReasoningEffort(value: unknown): boolean {
+  return value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh";
 }
 
 function isModelTaskSuitabilityLevel(value: unknown): boolean {

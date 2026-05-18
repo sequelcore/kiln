@@ -6,6 +6,9 @@ engines:
   codex-oauth:
     enabled: true
     billing: subscription
+  opencode-go:
+    enabled: true
+    billing: subscription
   opencode-zen:
     enabled: true
     billing: api-key
@@ -21,12 +24,18 @@ routing:
   routes:
     - provider: codex-oauth
       model: gpt-5.5
-    - provider: opencode-zen
+    - provider: opencode-go
       model: kimi-k2.6
-    - provider: opencode-zen
+    - provider: opencode-go
       model: glm-5.1
-    - provider: opencode-zen
+    - provider: opencode-go
+      model: deepseek-v4-pro
+    - provider: opencode-go
+      model: qwen3.6-plus
+    - provider: opencode-go
       model: minimax-m2.7
+    - provider: opencode-go
+      model: deepseek-v4-flash
     - provider: opencode-zen
       model: minimax-m2.5-free
     - provider: codex
@@ -36,25 +45,56 @@ routing:
   budgetAware: false
 models:
   codex-oauth: gpt-5.5
-  opencode-zen: minimax-m2.7
+  opencode-go: minimax-m2.7
+  opencode-zen: minimax-m2.5-free
   codex: gpt-5.4-mini
   opencode: opencode/minimax-m2.5-free
+reasoningPolicy:
+  default: medium
+  unsupported: omit
+  byTask:
+    architecture-review: xhigh
+    backend-coding: high
+    frontend-design: high
+    test-writing: high
+    research: high
+    mechanical-edit: low
 modelTaskSuitability:
-  - provider: opencode-zen
+  - provider: codex-oauth
+    model: gpt-5.5
+    task: architecture-review
+    level: preferred
+    reason: Prefer the highest-reasoning subscription route for architecture decisions, backend-critical changes, and final review.
+  - provider: opencode-go
     model: kimi-k2.6
     task: frontend-design
     level: preferred
-    reason: Prefer the frontend-specialized route for UI, layout, and visual implementation.
-  - provider: opencode-zen
+    reason: Prefer the OpenCode Go frontend route for UI, layout, and visual implementation.
+  - provider: opencode-go
     model: glm-5.1
     task: backend-coding
+    level: capable
+    reason: Keep GLM available for backend services, adapters, and data-flow reasoning when the preferred backend route is unavailable.
+  - provider: opencode-go
+    model: deepseek-v4-pro
+    task: backend-coding
     level: preferred
-    reason: Prefer the backend-specialized route for services, adapters, and data flow.
-  - provider: opencode-zen
-    model: minimax-m2.7
+    reason: Prefer the OpenCode Go backend/debugging route for complex coding and provider/runtime issues.
+  - provider: opencode-go
+    model: qwen3.6-plus
+    task: research
+    level: preferred
+    reason: Prefer the OpenCode Go research route for synthesis and comparison work.
+  - provider: opencode-go
+    model: deepseek-v4-flash
     task: mechanical-edit
     level: preferred
-    reason: Prefer the efficient all-rounder route for repetitive or low-risk edits.
+    reason: Prefer the fast OpenCode Go route for repetitive or low-risk edits.
+  - provider: opencode-go
+    model: minimax-m2.7
+    task: mechanical-edit
+    level: capable
+    reason: Keep MiniMax as an efficient all-rounder fallback for mechanical work.
 skills:
   selection:
     mode: auto
@@ -99,9 +139,9 @@ managedAgents:
         access: read-only
       credentials:
         mode: runtime-selected
-    - id: opencode-zen-kimi-readonly
+    - id: opencode-go-kimi-readonly
       kind: direct
-      provider: opencode-zen
+      provider: opencode-go
       model: kimi-k2.6
       profiles:
         - foundation-readonly-plan

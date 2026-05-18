@@ -208,6 +208,16 @@ export interface KilnModelTaskSuitabilityOverride {
   readonly reason: string;
 }
 
+export type KilnReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export type KilnReasoningPolicyUnsupported = "omit" | "fail";
+
+export interface KilnReasoningPolicyConfig {
+  readonly default?: KilnReasoningEffort;
+  readonly unsupported?: KilnReasoningPolicyUnsupported;
+  readonly byTask?: Partial<Record<KilnModelTaskSuitabilityTask, KilnReasoningEffort>>;
+}
+
 export type KilnYamlWebNetPolicy = "none" | "documentation" | "package-managers" | "full";
 
 export interface KilnYamlWebHttpSearchProvider {
@@ -523,6 +533,7 @@ export interface KilnYaml {
   readonly providers?: Record<string, KilnYamlProvider>;
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
+  readonly reasoningPolicy?: KilnReasoningPolicyConfig;
   readonly web?: KilnYamlWebConfig;
   readonly interactiveUse?: KilnYamlInteractiveUseConfig;
   readonly skills?: KilnYamlSkillsConfig;

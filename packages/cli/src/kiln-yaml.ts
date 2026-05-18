@@ -15,6 +15,8 @@ import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
+  KilnReasoningEffort,
+  KilnReasoningPolicyConfig,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
@@ -44,6 +46,8 @@ export type {
   KilnWorkGovernanceRisk,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
+  KilnReasoningEffort,
+  KilnReasoningPolicyConfig,
   KilnModelTaskSuitabilityOverride,
   KilnModelTaskSuitabilityLevel,
   KilnModelTaskSuitabilityTask,
@@ -102,6 +106,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     providers: override.providers ?? base.providers,
     managedAgents: override.managedAgents ?? base.managedAgents,
     modelTaskSuitability: mergeModelTaskSuitability(base.modelTaskSuitability, override.modelTaskSuitability),
+    reasoningPolicy: mergeReasoningPolicy(base.reasoningPolicy, override.reasoningPolicy),
     web: mergeWeb(base.web, override.web),
     interactiveUse: mergeInteractiveUse(base.interactiveUse, override.interactiveUse),
     skills: mergeSkills(base.skills, override.skills),
@@ -130,6 +135,21 @@ function mergeWorkGovernance(
       | readonly KilnWorkGovernanceEvidence[]
       | undefined,
   };
+}
+
+function mergeReasoningPolicy(
+  base: KilnReasoningPolicyConfig | undefined,
+  override: KilnReasoningPolicyConfig | undefined,
+): KilnReasoningPolicyConfig | undefined {
+  if (!base && !override) return undefined;
+  return {
+    default: override?.default ?? base?.default,
+    unsupported: override?.unsupported ?? base?.unsupported,
+    byTask: {
+      ...(base?.byTask ?? {}),
+      ...(override?.byTask ?? {}),
+    } as Partial<Record<string, KilnReasoningEffort>>,
+  } as KilnReasoningPolicyConfig;
 }
 
 function mergeModelTaskSuitability(

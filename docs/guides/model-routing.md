@@ -46,6 +46,14 @@ second router: discovery, route health, credential health, and execution
 admission still decide whether a candidate may run. Suitability only orders the
 already configured candidates.
 
+Reasoning effort is a separate policy layer. `reasoningPolicy` maps inferred
+tasks to Kiln's normalized effort enum (`minimal`, `low`, `medium`, `high`,
+`xhigh`). CLI run resolves that policy per admitted provider/model candidate,
+after discovery and health checks. Automatic effort is sent only when discovery
+advertises the selected model's compatible `supportedReasoningEfforts`; routes
+without effort evidence run without an invented default unless the policy sets
+`unsupported: fail`.
+
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|
 | `claude-opus-4-6` | Anthropic | high | yes | yes | yes | 200K |

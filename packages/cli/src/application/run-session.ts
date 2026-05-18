@@ -1,4 +1,5 @@
 import type { PersistedTranscriptEvent } from "@kilnai/core";
+import type { ReasoningEffort } from "@kilnai/core";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
   ProviderId,
@@ -39,6 +40,7 @@ export interface RunSessionOptions {
 export interface RunSessionRouteCandidate {
   readonly provider: ProviderId;
   readonly model?: string;
+  readonly reasoningEffort?: ReasoningEffort;
 }
 
 export interface RunSessionAttemptResult {
@@ -108,14 +110,19 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
     const candidate = candidates[candidateIndex]!;
     const providerId = candidate.provider;
-    const candidateSessionConfig = candidate.model
-      ? { ...options.sessionConfig, model: candidate.model }
+    const candidateReasoningEffort = candidate.reasoningEffort ?? options.sessionConfig.reasoningEffort;
+    const effectiveSessionConfig = candidate.model || candidateReasoningEffort
+      ? {
+        ...options.sessionConfig,
+        ...(candidate.model ? { model: candidate.model } : {}),
+        ...(candidateReasoningEffort ? { reasoningEffort: candidateReasoningEffort } : {}),
+      }
       : options.sessionConfig;
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
     let attemptError: string | null = null;
 
-    const session = options.registry.createSession(providerId, candidateSessionConfig);
+    const session = options.registry.createSession(providerId, effectiveSessionConfig);
     options.cleanupRegistry.register(async () => session.dispose());
 
     try {
@@ -124,7 +131,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         system: options.context.systemPrompt,
         cwd: process.cwd(),
         env: options.env,
-        reasoningEffort: options.sessionConfig.reasoningEffort,
+        reasoningEffort: candidateReasoningEffort,
         requestedAuthority: options.sessionConfig.requestedAuthority,
       })) {
         switch (event.type) {
@@ -343,7 +350,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
             sessionSucceeded = true;
             successfulProviderId = providerId;
-            successfulModelId = candidateSessionConfig.model;
+            successfulModelId = effectiveSessionConfig.model;
             options.registry.reportSuccess(providerId);
             break;
           }
@@ -370,7 +377,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
     attempts.push({
       providerId,
-      ...(candidateSessionConfig.model ? { model: candidateSessionConfig.model } : {}),
+      ...(effectiveSessionConfig.model ? { model: effectiveSessionConfig.model } : {}),
       succeeded: sessionSucceeded && successfulProviderId === providerId,
       error: attemptError,
     });

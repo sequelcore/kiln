@@ -586,6 +586,41 @@ describe("global-config", () => {
     );
   });
 
+  it("readGlobalConfig() validates reasoning policy separately from model suitability", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "reasoningPolicy:",
+        "  default: medium",
+        "  unsupported: omit",
+        "  byTask:",
+        "    architecture-review: xhigh",
+        "    mechanical-edit: low",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.reasoningPolicy).toEqual({
+      default: "medium",
+      unsupported: "omit",
+      byTask: {
+        "architecture-review": "xhigh",
+        "mechanical-edit": "low",
+      },
+    });
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "reasoningPolicy:",
+        "  byTask:",
+        "    frontend-design: intense",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("reasoningPolicy.byTask.frontend-design must be a supported reasoning effort");
+  });
+
   it("readGlobalConfig() validates managed route write authority shape", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
