@@ -55,7 +55,7 @@ Verification:
 
 ### Slice 2 - Runtime Evidence Collector
 
-Status: Started on 2026-05-18
+Status: Completed on 2026-05-18
 
 Deliverables:
 
@@ -64,15 +64,18 @@ Deliverables:
 - Preserve transcript excerpts only when selected by the operator.
 - Avoid changing canonical session events unless replay or projection requires
   it.
+- Accept caller-provided git status snapshots because git status is not stored
+  on `RuntimeSession`.
 
 Verification:
 
 - `bun run --filter @kilnai/runtime test`
 - `bun run --filter @kilnai/core test`
+- `bun run --filter @kilnai/runtime build`
 
 ### Slice 3 - CLI Feedback Command
 
-Status: Pending
+Status: Started on 2026-05-18
 
 Deliverables:
 

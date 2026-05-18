@@ -1,7 +1,11 @@
 export { RuntimeSession } from "./runtime-session.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
 export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
+export { collectRuntimeFeedbackEvidence } from "./session-feedback-evidence.js";
 export { buildEffectiveTurnAuthorityPolicyInputs } from "./effective-turn-authority.js";
+export type {
+  RuntimeFeedbackEvidenceCollectorInput,
+} from "./session-feedback-evidence.js";
 export type {
   EffectiveTurnAuthorityPolicyInput,
   EffectiveTurnAuthorityPolicyInputSource,

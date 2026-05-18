@@ -305,6 +305,7 @@ export type {
 export {
   RuntimeSession,
   RuntimeSessionOrchestrator,
+  collectRuntimeFeedbackEvidence,
   buildEffectiveTurnAuthorityPolicyInputs,
   SessionRegistry,
   InMemorySessionStore,
@@ -323,6 +324,7 @@ export {
 } from "./session/index.js";
 export type {
   RuntimeSessionConfig,
+  RuntimeFeedbackEvidenceCollectorInput,
   SerializedSessionData,
   AgentTurnEntry,
   EffectiveTurnAuthorityPolicyInput,

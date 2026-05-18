@@ -101,6 +101,14 @@ The first slice exists in `@kilnai/core`:
   and PII redaction, local-only bundle behavior, evidence selection, fail-closed
   validation, and maintainer issue draft rendering.
 
+The runtime evidence collector slice exists in `@kilnai/runtime`:
+
+- `packages/runtime/src/session/session-feedback-evidence.ts` collects selected
+  evidence from `RuntimeSession` ledger state, conversation history, canonical
+  session events, managed-agent events, and optional caller-provided git status.
+- `packages/runtime/tests/session/session-feedback-evidence.test.ts` verifies
+  transcript opt-in, command/tool failure evidence, file changes, logs, managed
+  invocation diagnostics, and git-status snapshot handling.
+
 This is not yet a CLI command, GUI flow, gateway contract, GitHub integration,
 or PR automation.
-
