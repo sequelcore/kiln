@@ -56,6 +56,10 @@ is documented by concern, not as a single monolith.
   Provider-neutral managed child invocation, admission, authority profiles,
   write evidence, live adapter proofs, terminal events, and replay invariants.
 
+- `session-feedback-pipeline.md`
+  Local-first operator feedback, redaction, evidence selection, issue draft,
+  repair work item, and draft pull-request governance.
+
 - `tool-execution.md`
   Tool policy, execution flow, timeout/retry/fallback behavior, and command
   safety boundaries.

@@ -56,6 +56,12 @@ Use these documents as the stable source of truth before starting roadmap work:
    governance, and approval evidence before any live browser or native
    benchmark execution. It does not implement Rust optimization.
 
+2. [Session Feedback Pipeline](./02-session-feedback-pipeline.md)
+   Started on 2026-05-18. Scope is the operator feedback-to-fix pipeline:
+   local-first feedback bundles, redaction, evidence selection, issue drafts,
+   governed repair work items, and later draft pull-request flow. This is
+   separate from CLI resume feedback.
+
 ## Deferred Roadmaps
 
 - OS-pack packaging for web extraction and browser helpers.
