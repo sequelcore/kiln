@@ -135,8 +135,7 @@ export type OperatorCockpitBenchmarkEvidenceRecommendation =
   | "continue-contract-only"
   | "run-rendering-benchmarks"
   | "improve-web-gui"
-  | "continue-native-without-rust"
-  | "continue-native-with-rust-candidate"
+  | "promote-native-surface"
   | "abandon";
 
 export interface OperatorCockpitBrowserRenderingBenchmarkEvidenceReport {
@@ -191,15 +190,6 @@ export interface OperatorCockpitMemoryReport {
   readonly peakRssMb: number;
 }
 
-export interface OperatorCockpitRustHotPathEvidence {
-  readonly present: boolean;
-  readonly advantageous?: boolean;
-}
-
-export interface OperatorCockpitProjectionViewStateBottleneckReport {
-  readonly reported: boolean;
-}
-
 export interface OperatorCockpitBenchmarkEvidenceReportInput {
   readonly measuredAt: string;
   readonly fixture?: OperatorCockpitBenchmarkFixture;
@@ -214,9 +204,6 @@ export interface OperatorCockpitBenchmarkEvidenceReportInput {
   readonly targetClarityReport?: OperatorCockpitTargetClarityReport;
   readonly interactionLatencyReport?: OperatorCockpitInteractionLatencyReport;
   readonly memoryReport?: OperatorCockpitMemoryReport;
-  readonly projectionViewStateBottleneck?: OperatorCockpitProjectionViewStateBottleneckReport;
-  readonly rustHotPathEvidence?: OperatorCockpitRustHotPathEvidence;
-  readonly rustHotPathRequested?: boolean;
 }
 
 export interface OperatorCockpitBenchmarkEvidenceReport {
@@ -227,8 +214,6 @@ export interface OperatorCockpitBenchmarkEvidenceReport {
   readonly implementedEvidence: readonly string[];
   readonly missingEvidence: readonly string[];
   readonly promotionAllowed: boolean;
-  readonly rustCandidateAllowed: boolean;
-  readonly rustPromotionAllowed: boolean;
   readonly mutationDispatch: "disabled";
   readonly networkAttach: "not-started" | "measured";
   readonly renderingBenchmark: "not-run" | "partial" | "measured";
@@ -522,17 +507,6 @@ export function createOperatorCockpitBenchmarkEvidenceReport(
     && hasInteractionLatency
     && hasMemoryReport;
 
-  const rustRelevant = input.projectionViewStateBottleneck?.reported === true
-    || input.rustHotPathRequested === true
-    || input.rustHotPathEvidence?.present === true;
-  const rustCandidateAllowed = hasProjectionBaselines
-    && input.projectionViewStateBottleneck?.reported === true
-    && input.rustHotPathEvidence?.present === true;
-  const rustPromotionAllowed = promotionAllowed
-    && input.projectionViewStateBottleneck?.reported === true
-    && input.rustHotPathEvidence?.present === true
-    && input.rustHotPathEvidence.advantageous === true;
-
   const missingEvidence: string[] = [];
   if (!hasBrowserRendering) missingEvidence.push("browser-rendering-benchmark");
   if (!hasNativeRendering) missingEvidence.push("native-rendering-benchmark");
@@ -540,9 +514,6 @@ export function createOperatorCockpitBenchmarkEvidenceReport(
   if (!hasInteractionLatency) missingEvidence.push("interaction-latency-report");
   if (!hasMemoryReport) missingEvidence.push("memory-report");
   if (!hasNativeAdvantage) missingEvidence.push("native-advantage-proof");
-  if (rustRelevant && input.rustHotPathEvidence?.present !== true) {
-    missingEvidence.push("rust-hot-path-proof");
-  }
 
   const hasExternalEvidence = hasBrowserRendering
     || hasNativeRendering
@@ -559,15 +530,13 @@ export function createOperatorCockpitBenchmarkEvidenceReport(
 
   const recommendation: OperatorCockpitBenchmarkEvidenceRecommendation = status === "rejected"
     ? "abandon"
-    : rustPromotionAllowed
-      ? "continue-native-with-rust-candidate"
-      : promotionAllowed
-        ? "continue-native-without-rust"
-        : (!hasBrowserRendering || !hasNativeRendering)
-          ? "run-rendering-benchmarks"
-          : !hasNativeAdvantage
-            ? "improve-web-gui"
-            : "continue-contract-only";
+    : promotionAllowed
+      ? "promote-native-surface"
+      : (!hasBrowserRendering || !hasNativeRendering)
+        ? "run-rendering-benchmarks"
+        : !hasNativeAdvantage
+          ? "improve-web-gui"
+          : "continue-contract-only";
 
   return {
     measuredAt: input.measuredAt,
@@ -577,8 +546,6 @@ export function createOperatorCockpitBenchmarkEvidenceReport(
     implementedEvidence,
     missingEvidence,
     promotionAllowed,
-    rustCandidateAllowed,
-    rustPromotionAllowed,
     mutationDispatch: "disabled",
     networkAttach: "not-started",
     renderingBenchmark: hasBrowserRendering && hasNativeRendering

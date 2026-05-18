@@ -37,7 +37,7 @@ gateway, and runtime consumers.
 Capability snapshots advertise what a surface can support without granting
 authority. The native surface starts with explicit capability slots for gateway
 attach, session projection, native window lifecycle, surface performance
-telemetry, embedded-browser host proof, and native cockpit contract readiness.
+telemetry, embedded-browser host proof, and native operator surface contract readiness.
 Browser session projections use explicit transport labels such as
 `snapshot-polling`, `cdp-screencast`, `electron-webcontents`, `webrtc`, and
 `hosted-url` so surfaces can distinguish artifact monitors, frame streams,
@@ -45,14 +45,14 @@ native embedded hosts, and remote live views without inferring behavior from
 package names or local feature flags.
 
 `src/operator-cockpit-benchmark.ts` and
-`src/operator-cockpit-target.ts` define shared native cockpit benchmark
-contracts for high-density cockpit comparison. `src/operator-cockpit-projection.ts` defines
-the shared read-only cockpit projection over canonical events and explicit
+`src/operator-cockpit-target.ts` define shared native operator surface
+benchmark contracts for high-density surface comparison. `src/operator-cockpit-projection.ts` defines
+the shared read-only operator surface projection over canonical events and explicit
 attach targets. GUI and native must use the same synthetic event fixtures,
 shared presentation baseline, shared read-only projection baseline, read-only
 instance/session/timeline/invocation/tool/resource/cost projections, explicit
 instance/session targets, read-only action intents, and cancellation request
-validation before any native cockpit or Rust hot-path claim is considered. The
+validation before any native operator surface or Rust hot-path claim is considered. The
 read-only projection baseline measures the same shared projection substrate
 later surfaces and Rust/WASM/sidecar candidates must match; it is not a
 browser-rendering benchmark. The shared read-only attach plan validates
@@ -72,15 +72,24 @@ filters require their enclosing instance/session target.
 `measureOperatorCockpitReadOnlyViewStateBaseline` measures only TypeScript
 view-state derivation over that shared projection substrate. It is contract
 measurement only and not a browser benchmark, native rendering benchmark,
-network attach benchmark, dispatch benchmark, or Rust/WASM/sidecar proof.
+network attach benchmark, dispatch benchmark, or Rust/WASM/sidecar implementation.
+Rust optimization is documented as a separate roadmap track in
+`docs/roadmap/00.0.1-rust-module-optimization.md`. No Rust proof harness,
+readiness command, bridge, or implementation package is exported from
+`@kilnai/gateway-contracts`. A future Rust module must enter through its own
+approved roadmap slice or ADR with a narrow TypeScript-owned port, canonical
+input/output fixtures, parity evidence, fail-closed behavior, and a deletion or
+conversion plan for any spike code.
 `createOperatorCockpitBenchmarkEvidenceReport` is the shared promotion gate
 over those benchmark outputs. It records implemented evidence, missing evidence,
-promotion eligibility, and Rust-candidate eligibility while defaulting to
-contract-only recommendations when only shared TypeScript baselines exist.
+and native-surface promotion eligibility while defaulting to contract-only
+recommendations when only shared TypeScript baselines exist. Rust candidacy is
+not part of this native-surface benchmark gate.
 Phase 3 benchmark evidence is expressed through typed report contracts for
 browser rendering, native rendering, target clarity, interaction latency, and
 memory. These contracts are auditable metadata shapes only; they do not run
-benchmarks, attach to gateways, dispatch actions, or provide Rust proof.
+benchmarks, attach to gateways, dispatch actions, or provide Rust
+implementation.
 Phase 3 Slice 1 also adds runner admission/workload validation through
 `createOperatorCockpitBenchmarkRunnerAdmission` for `web-gui` and
 `native-cockpit` surfaces, `browser-rendering` and `native-rendering` runner
@@ -99,7 +108,7 @@ blocked reasons. It keeps `execution: not-started`,
 `mutationDispatch: disabled`, `networkAttach: not-started`, and
 `recommendation/evidence: not-promoted`.
 It is not a rendering runner, network attach runner, dispatch mechanism, or
-Rust proof implementation.
+Rust implementation.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted

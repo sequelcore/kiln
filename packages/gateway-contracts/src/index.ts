@@ -154,7 +154,6 @@ export type {
   OperatorCockpitInteractionLatencyReport,
   OperatorCockpitMemoryReport,
   OperatorCockpitNativeRenderingBenchmarkEvidenceReport,
-  OperatorCockpitProjectionViewStateBottleneckReport,
   OperatorCockpitProjectionBaseline,
   OperatorCockpitProjectionBaselineInput,
   OperatorCockpitProjectionSummary,
@@ -164,7 +163,6 @@ export type {
   OperatorCockpitReadOnlyTimelineSummary,
   OperatorCockpitReadOnlyViewStateBaseline,
   OperatorCockpitReadOnlyViewStateBaselineInput,
-  OperatorCockpitRustHotPathEvidence,
 } from "./operator-cockpit-benchmark.js";
 export {
   createOperatorCockpitBenchmarkFixture,

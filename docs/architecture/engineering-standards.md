@@ -40,8 +40,26 @@ or point here, but architectural and coding doctrine belongs in
 - Surface parity is implemented through shared contracts. GUI, TUI, CLI,
   widget, SDK, and future surfaces should attach to common runtime ports instead
   of duplicating per-surface executors.
+- Bun/TypeScript owns Kiln control-plane semantics. Native helpers, Rust, WASM,
+  or sidecars may only accelerate measured hot paths or provide OS capability
+  behind explicit TypeScript-owned ports.
 - Safety is fail-closed unless the owning architecture document explicitly
   defines a fail-open exception.
+
+## Native Acceleration Boundary
+
+- Rust, WASM, and sidecars must consume and produce canonical contract-shaped
+  data. They must not define private schemas, private operator state, or
+  surface-specific runtime semantics.
+- Native acceleration must be replaceable by the TypeScript implementation
+  without changing runtime behavior, operator authority, or cross-surface
+  contracts.
+- Native code must not own authority decisions, provider/model routing, tool
+  admission, memory/config mutation, managed-agent policy, approval lifecycle,
+  work-item lifecycle, or closeout semantics.
+- Any native candidate needs an approved roadmap or ADR, documented
+  TypeScript-owned port contract, parity fixtures, deterministic ordering,
+  failure semantics, material benchmark evidence, tests, typecheck, and review.
 
 ## Ports And Events
 

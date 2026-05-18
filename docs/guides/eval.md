@@ -293,6 +293,11 @@ adapter readiness; they are not public external benchmark submissions.
 The report includes readiness status, profile/dataset/pass^k evidence, artifact
 links, blocked tracks, and declared limitations.
 
+Rust optimization evidence is not a generic benchmark subcommand. It belongs to
+the dedicated Rust module optimization roadmap and should enter through an
+approved module slice with explicit ownership, parity, transport, fallback, and
+build evidence.
+
 `kiln benchmark project-bfcl` converts supported BFCL rows into Kiln JSONL
 dataset items. The adapter accepts structured JSON/OpenAI-compatible expected
 tool calls and reports unsupported rows instead of guessing from benchmark-

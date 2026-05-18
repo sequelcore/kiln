@@ -62,7 +62,8 @@ is documented by concern, not as a single monolith.
 
 - `engineering-standards.md`
   Canonical implementation standards: no dead code, no redundancy, explicit
-  ports, Clean Architecture boundaries, surface parity, and verification rules.
+  ports, Clean Architecture boundaries, surface parity, native acceleration
+  boundaries, and verification rules.
 
 - `developer-tools.md`
   Canonical builtin developer-tool surface: command, file, search, patch,
@@ -125,8 +126,8 @@ is documented by concern, not as a single monolith.
   supervision evidence, embedded browser host boundaries, and surface ownership
   rules.
 
-- `native-cockpit-projection.md`
-  Contract-only architecture for native cockpit projection:
+- `native-operator-surface.md`
+  Contract-only architecture for native operator surface projection:
   precondition gates, explicit instance/session targets, benchmark fixtures,
   and Rust hot-path boundaries.
 

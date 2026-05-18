@@ -330,6 +330,7 @@ describe("operator cockpit benchmark evidence report", () => {
     ];
     return {
       fixture,
+      attachTargets,
       projectionBaseline: measureOperatorCockpitProjectionBaseline({
         fixture,
         measuredAt: "2026-05-14T12:01:00.000Z",
@@ -370,7 +371,6 @@ describe("operator cockpit benchmark evidence report", () => {
     expect(report.status).toBe("contract-only");
     expect(report.recommendation).toBe("run-rendering-benchmarks");
     expect(report.promotionAllowed).toBe(false);
-    expect(report.rustCandidateAllowed).toBe(false);
     expect(report.implementedEvidence).toEqual([
       "shared-projection-baseline",
       "shared-read-only-projection-baseline",
@@ -387,7 +387,6 @@ describe("operator cockpit benchmark evidence report", () => {
     expect(report.mutationDispatch).toBe("disabled");
     expect(report.networkAttach).toBe("not-started");
     expect(report.renderingBenchmark).toBe("not-run");
-    expect(report.rustPromotionAllowed).toBe(false);
   });
 
   it("keeps promotion blocked when browser and native benchmarks exist without governance reports", () => {
@@ -482,8 +481,7 @@ describe("operator cockpit benchmark evidence report", () => {
 
     expect(report.status).toBe("promotion-candidate");
     expect(report.promotionAllowed).toBe(true);
-    expect(report.recommendation).toBe("continue-native-without-rust");
-    expect(report.rustPromotionAllowed).toBe(false);
+    expect(report.recommendation).toBe("promote-native-surface");
   });
 
   it("blocks promotion when governance reports are complete but unmeasured", () => {
@@ -574,156 +572,10 @@ describe("operator cockpit benchmark evidence report", () => {
         sampleCount: 40,
         peakRssMb: 512,
       },
-      projectionViewStateBottleneck: {
-        reported: true,
-      },
-      rustHotPathEvidence: {
-        present: true,
-        advantageous: true,
-      },
     });
 
     expect(report.status).toBe("rejected");
     expect(report.promotionAllowed).toBe(false);
-    expect(report.rustCandidateAllowed).toBe(false);
-    expect(report.rustPromotionAllowed).toBe(false);
-  });
-
-  it("blocks Rust promotion when Rust proof exists without a reported projection bottleneck", () => {
-    const baselines = createSharedBaselines();
-    const report = createOperatorCockpitBenchmarkEvidenceReport({
-      measuredAt: "2026-05-14T13:13:00.000Z",
-      fixtureSummary: baselines.fixture.summary,
-      projectionBaseline: baselines.projectionBaseline,
-      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
-      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
-      browserRenderingEvidence: {
-        measuredAt: "2026-05-14T13:13:00.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        environment: "playwright-ci",
-        sampleCount: 5,
-      },
-      nativeRenderingEvidence: {
-        measuredAt: "2026-05-14T13:13:10.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        environment: "electron-ci",
-        sampleCount: 5,
-        nativeAdvantageConfirmed: true,
-      },
-      targetClarityReport: {
-        measuredAt: "2026-05-14T13:13:20.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        complete: true,
-        targetCount: 3,
-      },
-      interactionLatencyReport: {
-        measuredAt: "2026-05-14T13:13:30.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        complete: true,
-        sampleCount: 250,
-        p95LatencyMs: 45,
-      },
-      memoryReport: {
-        measuredAt: "2026-05-14T13:13:40.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        complete: true,
-        sampleCount: 40,
-        peakRssMb: 512,
-      },
-      rustHotPathEvidence: {
-        present: true,
-        advantageous: true,
-      },
-    });
-
-    expect(report.promotionAllowed).toBe(true);
-    expect(report.rustCandidateAllowed).toBe(false);
-    expect(report.rustPromotionAllowed).toBe(false);
-    expect(report.recommendation).toBe("continue-native-without-rust");
-  });
-
-  it("blocks Rust candidacy when Rust is requested without hot-path proof", () => {
-    const baselines = createSharedBaselines();
-    const report = createOperatorCockpitBenchmarkEvidenceReport({
-      measuredAt: "2026-05-14T13:14:00.000Z",
-      fixtureSummary: baselines.fixture.summary,
-      projectionBaseline: baselines.projectionBaseline,
-      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
-      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
-      projectionViewStateBottleneck: {
-        reported: true,
-      },
-      rustHotPathRequested: true,
-    });
-
-    expect(report.rustCandidateAllowed).toBe(false);
-    expect(report.rustPromotionAllowed).toBe(false);
-    expect(report.missingEvidence).toContain("rust-hot-path-proof");
-  });
-
-  it("gates Rust candidate and Rust promotion on bottleneck plus Rust evidence", () => {
-    const baselines = createSharedBaselines();
-    const report = createOperatorCockpitBenchmarkEvidenceReport({
-      measuredAt: "2026-05-14T13:15:00.000Z",
-      fixtureSummary: baselines.fixture.summary,
-      projectionBaseline: baselines.projectionBaseline,
-      readOnlyProjectionBaseline: baselines.readOnlyProjectionBaseline,
-      readOnlyViewStateBaseline: baselines.readOnlyViewStateBaseline,
-      browserRenderingEvidence: {
-        measuredAt: "2026-05-14T13:15:00.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        environment: "playwright-ci",
-        sampleCount: 5,
-      },
-      nativeRenderingEvidence: {
-        measuredAt: "2026-05-14T13:15:10.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        environment: "electron-ci",
-        sampleCount: 5,
-        nativeAdvantageConfirmed: true,
-      },
-      targetClarityReport: {
-        measuredAt: "2026-05-14T13:15:20.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        complete: true,
-        targetCount: 3,
-      },
-      interactionLatencyReport: {
-        measuredAt: "2026-05-14T13:15:30.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        complete: true,
-        sampleCount: 250,
-        p95LatencyMs: 45,
-      },
-      memoryReport: {
-        measuredAt: "2026-05-14T13:15:40.000Z",
-        workloadId: "operator-cockpit-phase3",
-        measured: true,
-        complete: true,
-        sampleCount: 40,
-        peakRssMb: 512,
-      },
-      projectionViewStateBottleneck: {
-        reported: true,
-      },
-      rustHotPathEvidence: {
-        present: true,
-        advantageous: true,
-      },
-    });
-
-    expect(report.rustCandidateAllowed).toBe(true);
-    expect(report.rustPromotionAllowed).toBe(true);
-    expect(report.recommendation).toBe("continue-native-with-rust-candidate");
   });
 });
 

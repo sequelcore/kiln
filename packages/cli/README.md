@@ -168,6 +168,20 @@ kiln cron remove <name>
 kiln cron run <name>              # Fire immediately without resetting schedule
 ```
 
+### `kiln benchmark`
+
+Inspect benchmark contracts and write local evidence artifacts:
+
+```bash
+kiln benchmark profiles
+kiln benchmark readiness --baseline ./.kiln/benchmarks/tool.json
+```
+
+Rust optimization is tracked in `docs/roadmap/00.0.1-rust-module-optimization.md`.
+The CLI no longer exposes a Rust readiness proof command; future Rust module
+evidence should be added through a dedicated approved slice instead of a
+temporary benchmark subcommand.
+
 ## MCP Server
 
 The CLI includes a built-in MCP server for Claude Code integration:

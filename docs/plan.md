@@ -1,65 +1,74 @@
-# Setup Workflow Redesign Plan
-
 ## Objective
 
-Turn Setup from a passive status dump into an action-first configuration health
-workflow shared through gateway contracts. GUI should render the rich workflow,
-runtime should expose the operator HTTP action boundary, and CLI should own the
-actual setup mutations.
+Clean up the Rust/native-surface split so the repository no longer carries
+throwaway Rust proof code. Rust remains a product and architecture decision, but
+it belongs to its own optimization roadmap. The native operator surface roadmap
+must stay focused on Electron/native UI, attach loops, and rendering evidence.
 
-## Non-Goals
+## Decision
 
-- Do not let GUI import CLI, runtime internals, filesystem helpers, or projection
-  writers directly.
-- Do not add destructive force-sync behavior from the GUI.
-- Do not make review-only drift actions mutate files.
-- Do not add new visual dependencies beyond existing shadcn/Base UI components.
+Bun/TypeScript owns Kiln control-plane semantics, shared contracts, projection
+truth, benchmark gates, and all current operator surfaces. Rust will own only
+approved compute/native-helper modules after a dedicated module slice or ADR
+defines the port, parity harness, transport, fallback behavior, build shape, and
+verification evidence.
 
-## Slices
+No generic Rust readiness command, proof harness, or placeholder API remains in
+the monorepo. Future Rust work must enter as a real implementation slice, not as
+prototype residue.
 
-1. Shared contract
-   - Add setup action request/result schemas to `@kilnai/gateway-contracts`.
-   - Keep setup snapshots as the read model and return a fresh snapshot after
-     action execution.
+## Cleanup Scope
 
-2. CLI-owned mutations
-   - Add an application service that executes safe setup actions:
-     project-context adoption, repo-shim sync, and native projection sync.
-   - Return blocked/no-op results for review-only or already-current actions.
+Files:
 
-3. Runtime gateway adapter
-   - Add `POST /gui/api/config/setup/actions`.
-   - Validate request payload through gateway-contract schemas.
-   - Delegate execution through `StartGuiGatewayOptions` callback.
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
+- `packages/native/src/shared/native-cockpit-contract.ts`
+- `packages/native/tests/native-boundary.test.ts`
+- `packages/cli/src/commands/benchmark.ts`
+- `packages/cli/tests/commands/benchmark.test.ts`
+- `packages/gateway-contracts/README.md`
+- `packages/cli/README.md`
+- `docs/guides/eval.md`
+- `docs/architecture/native-operator-surface.md`
+- `docs/roadmap/00.0.1-rust-module-optimization.md`
 
-4. GUI projection
-   - Add client method and mutation wiring.
-   - Redesign `SetupPanel` around health, prioritized action rows, and compact
-     source detail tables.
-   - Keep setup actions distinct from app-level controls and details.
+Deleted prototype files:
 
-5. Documentation and verification
-   - Update config-projection/global-config docs from read-only setup to governed
-     action workflow.
-   - Run focused tests for contracts, runtime gateway, CLI action service, GUI
-     client/component, then relevant typechecks.
+- the gateway Rust kernel proof module
+- the gateway Rust readiness proof module
+- dedicated Rust proof tests under `packages/gateway-contracts/tests/`
+
+## Implementation Steps
+
+1. Remove Rust prototype modules and gateway exports.
+2. Remove Rust candidacy fields from the native-surface benchmark gate.
+3. Remove native wrappers that reported Rust parity evidence.
+4. Remove the temporary Rust readiness benchmark command and its CLI test.
+5. Keep `docs/roadmap/00.0.1-rust-module-optimization.md` as the durable Rust
+   ownership decision.
+6. Keep `docs/roadmap/01-native-operator-surface.md` separate from Rust module
+   optimization.
+7. Update docs so they describe future Rust entry through a dedicated approved
+   module slice, not current in-repo proof code.
 
 ## Verification
 
-- `bun run --cwd packages/gateway-contracts test`
-- `bun run --cwd packages/runtime test -- tests/gateway/gui-gateway.test.ts`
-- `bun run --cwd packages/cli test -- tests/application/config-setup-actions.test.ts`
-- `bun run --cwd packages/gui test:run -- tests/client.test.ts tests/setup-panel.test.tsx`
-- `bun run --cwd packages/gui test:run -- tests/app-shell-sidebar-modes.test.tsx`
-- `bun run --cwd packages/gateway-contracts build`
-- `bun run --cwd packages/runtime build`
-- `bun run --cwd packages/gateway-contracts typecheck`
-- `bun run --cwd packages/gui typecheck`
-- `bun run --cwd packages/cli typecheck`
-- `bun run --cwd packages/runtime typecheck`
+```bash
+bun run --cwd packages/gateway-contracts test -- tests/operator-cockpit-benchmark.test.ts
+bun run --cwd packages/native test -- tests/native-boundary.test.ts
+bun run --cwd packages/cli test -- tests/commands/benchmark.test.ts
+bun run --filter @kilnai/gateway-contracts typecheck
+bun run --filter @kilnai/native typecheck
+bun run --filter @kilnai/cli typecheck
+git diff --check
+```
 
 ## Residual Risk
 
-Native projection sync touches operator-native files. GUI execution must remain
-non-force only, and drift/review actions must guide the operator to review rather
-than overwriting managed native state.
+- The 2026-05-17 benchmark artifact remains historical evidence only; it is not
+  a maintained CLI/API surface.
+- Future Rust work still needs a real module-specific parity harness and tests.
+- Native operator surface promotion remains blocked until browser/native
+  rendering evidence exists.

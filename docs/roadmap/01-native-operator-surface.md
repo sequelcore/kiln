@@ -1,28 +1,35 @@
-# 01 - Native Cockpit Benchmark Validation
+# 01 - Native Operator Surface
 
 ## Status
 
 Active. Started on 2026-05-15.
 
-This track validates the benchmark path for the future native cockpit decision.
-It continues from the completed native cockpit projection foundation, which
-closed with defer/no-promotion status and remains canonical in
-`docs/architecture/native-cockpit-projection.md`.
+This track owns the native operator surface. It continues from the completed
+native projection foundation, which closed with defer/no-promotion status and
+remains canonical in
+`docs/architecture/native-operator-surface.md`.
 
-Roadmap `00.0.1` owns near-term startup latency. Roadmap `00.0.2` owns the
-Bun/Rust responsibility boundary. This roadmap depends on those boundaries but
-does not implement startup fixes, Rust, WASM, sidecars, native UI, gateway
-attach loops, or dispatch.
+Near-term startup latency doctrine is canonicalized in
+`docs/architecture/provider-model-discovery.md`, `docs/architecture/managed-agents.md`,
+`docs/guides/gui.md`, and `docs/guides/tui.md`.
+
+This roadmap is about the native operator surface only. Rust optimization is a
+separate implementation track owned by `00.0.1`. Benchmark validation is one
+phase of this native surface roadmap, not the whole roadmap.
 
 ## Objective
 
-Define the contract evidence required before Kiln may run live browser/native
-rendering benchmarks for native cockpit promotion.
+Build the native operator surface in governed phases. The current phase defines
+the contract evidence required before Kiln may run live browser/native
+rendering benchmarks or promote any native surface behavior.
 
 ## Scope
 
+- Native operator surface phase gates, from contract-only evidence to later UI,
+  attach-loop, and dispatch slices.
 - Runner admission contracts for equivalent `web-gui` and `native-cockpit`
-  benchmark paths.
+  benchmark paths. `native-cockpit` is the existing contract surface id; it is
+  not the roadmap name.
 - Orchestration planning contracts that require both sides to be admitted
   before execution can be planned.
 - Workload fixture governance for:
@@ -39,15 +46,16 @@ rendering benchmarks for native cockpit promotion.
 
 ## Non-Goals
 
-- No startup-latency fixes. See `00.0.1`.
-- No Bun/Rust boundary definition or Rust candidate promotion. See `00.0.2`.
-- No Rust, WASM, sidecar, or projection-kernel implementation.
+- No startup-latency fixes. See the provider discovery and operator-surface
+  guide docs listed above.
+- No Bun/Rust boundary definition, Rust readiness, or Rust kernel promotion.
+  See `00.0.1-rust-module-optimization.md`.
 - No live Playwright benchmark execution.
 - No live Electron/native rendering benchmark execution.
-- No native cockpit UI.
+- No native operator UI in the current benchmark-validation phase.
 - No local or remote gateway attach loop.
 - No resource-opening, cancellation, mutation, or network dispatch.
-- No native cockpit promotion decision.
+- No native surface promotion decision.
 
 ## Completed Slices
 
@@ -80,6 +88,12 @@ Delivered:
 - Fail-closed invariants preserving not-started execution, disabled dispatch,
   no network attach, and no promotion.
 
+## Current Phase - Benchmark Validation
+
+Benchmark validation is the active phase because the native surface must prove
+it can be compared against the web GUI with equivalent contracts before live UI
+or attach work starts.
+
 ## Next Slice
 
 ### Slice 3 - Workload Fixture Governance
@@ -101,7 +115,7 @@ Expected files:
 
 - `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
 - `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
-- `docs/architecture/native-cockpit-projection.md`, only if the stable contract
+- `docs/architecture/native-operator-surface.md`, only if the stable contract
   changes
 - `docs/architecture/benchmark-validation.md`, only if the stable contract
   changes
@@ -118,13 +132,15 @@ Live benchmark execution remains blocked until all are true:
   a later roadmap slice or ADR
 - tests, typecheck, build, and review evidence pass for the enabling slice
 
-Native cockpit promotion remains blocked until measured browser/native
+Native surface promotion remains blocked until measured browser/native
 rendering evidence exists and the architecture documents are updated with the
 decision outcome.
 
-Rust/WASM/sidecar promotion remains blocked by this roadmap. Any future native
-kernel work must satisfy `00.0.2` and require a later approved implementation
-slice or ADR.
+Rust/WASM/sidecar optimization is not part of this roadmap. Native operator surface
+benchmark validation may produce workload and projection evidence that a later
+Rust slice can reuse, but Rust implementation and transport selection belong to
+`00.0.1-rust-module-optimization.md` or a dedicated approved Rust optimization
+roadmap/ADR.
 
 ## Verification
 

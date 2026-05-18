@@ -17,9 +17,14 @@ Use these documents as the stable source of truth before starting roadmap work:
 
 - `docs/architecture/work-governance.md` for work admission, delegation,
   verification, and evidence closeout.
+- `docs/architecture/engineering-standards.md` for Clean Architecture,
+  cross-surface parity, native acceleration boundaries, and verification rules.
 - `docs/architecture/operator-surfaces.md` for GUI, TUI, CLI, native, IDE,
   desktop, and remote operator surfaces.
-- `docs/architecture/native-cockpit-projection.md` for native cockpit
+- `docs/architecture/provider-model-discovery.md` for provider/model
+  discovery, stale startup projections, cache behavior, and fail-closed
+  execution admission.
+- `docs/architecture/native-operator-surface.md` for native operator surface
   projection boundaries and promotion gates.
 - `docs/architecture/benchmark-validation.md` and `docs/guides/eval.md` for
   benchmark-facing profiles, baseline readiness, benchmark adapters, and public
@@ -36,27 +41,20 @@ Use these documents as the stable source of truth before starting roadmap work:
 - `docs/architecture/memory.md` and `docs/guides/memory.md` for governed
   memory, Memory Lattice, lifecycle policy, recall, and memory resources.
 
-## Recently Completed Roadmaps
-
-0.0.1. [Startup Near Fixes](./00.0.1-startup-near-fixes.md)
-   Completed on 2026-05-17. Canonical doctrine is promoted to
-   `docs/architecture/provider-model-discovery.md`,
-   `docs/architecture/managed-agents.md`, `docs/guides/gui.md`, and
-   `docs/guides/tui.md`; the roadmap remains the execution record for staged
-   operator-surface startup, background/cached provider discovery, and
-   fail-closed managed-agent readiness.
-
 ## Active Roadmaps
 
-0.0.2. [Bun And Rust Responsibility Boundary](./00.0.2-bun-rust-responsibility-boundary.md)
-   Proposed on 2026-05-17. Scope is the long-term responsibility split:
-   Bun/TypeScript owns control-plane semantics while Rust/WASM/sidecars remain
-   measured hot-path or native-helper candidates that consume shared contracts.
+0.0.1. [Rust Module Optimization](./00.0.1-rust-module-optimization.md)
+   Active on 2026-05-17. Scope is the Rust optimization boundary:
+   Bun/TypeScript owns control-plane semantics while Rust/WASM/sidecars enter
+   as measured module hot paths or native helpers behind TypeScript-owned ports
+   that consume shared contracts. This is separate from the native surface
+   roadmap.
 
-1. [Native Cockpit Benchmark Validation](./01-native-cockpit-benchmark-validation.md)
-   Started on 2026-05-15. Current scope is contract-only benchmark runner
-   admission, orchestration planning, workload governance, and approval
-   evidence before any live browser or native benchmark execution.
+1. [Native Operator Surface](./01-native-operator-surface.md)
+   Started on 2026-05-15. Current scope is the native operator surface benchmark
+   path: contract-only runner admission, orchestration planning, workload
+   governance, and approval evidence before any live browser or native
+   benchmark execution. It does not implement Rust optimization.
 
 ## Deferred Roadmaps
 
@@ -86,12 +84,13 @@ not in roadmap files. Current completed areas include:
 - Agent context, instruction profiles, skills, and repo shims.
 - Memory Lattice, memory lifecycle policy, and context resource projection.
 - Provider credential pooling and provider/model discovery.
+- Operator-surface startup discovery staging and stale provider diagnostics.
 - Controlled web research, browser/computer use, and tool execution.
 - Multimodal artifact transport and capability-aware route admission.
 - Agent QA showcase recorder.
 - External benchmark validation platform.
 - Native operator surface foundation and embedded browser operator capability.
-- Native cockpit projection foundation with defer/no-promotion status.
+- Native operator surface projection foundation with defer/no-promotion status.
 
 ## Execution Priority
 
@@ -99,6 +98,8 @@ not in roadmap files. Current completed areas include:
 2. Promote stable results into architecture or guide docs when a track closes.
 3. Delete completed roadmap files after doctrine is absorbed.
 4. Do not create near-duplicate roadmap files for one concern.
-5. Do not start live native cockpit benchmark execution, native cockpit UI,
-   dispatch paths, gateway attach loops, or Rust/WASM/sidecar modules without an
-   approved roadmap slice or ADR.
+5. Do not start live native benchmark execution, native operator UI, dispatch
+   paths, or gateway attach loops without an approved native-surface roadmap
+   slice or ADR.
+6. Do not start Rust/WASM/sidecar modules without an approved Rust optimization
+   roadmap slice or ADR and the Rust module promotion gates in `00.0.1`.

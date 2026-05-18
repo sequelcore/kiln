@@ -50,6 +50,11 @@ signing, update channels, rollback, and user-data migration must be decided in a
 dedicated packaging roadmap after the native surface proves it has enough
 product value to distribute.
 
+Native helper binaries, Rust, WASM, or sidecars do not change surface ownership.
+They may support packaging or measured hot paths behind TypeScript-owned ports,
+but App Gateway and Operator Gateway remain the control-plane owners for
+runtime, authority, provider routing, memory, config, and operator contracts.
+
 ## Canonical Local Topology
 
 For a versioned deployable repo such as `kiln-gateway`:
