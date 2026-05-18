@@ -57,6 +57,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     dev: "Start development mode with hot-reload and event streaming (--playground)",
     gui: "Start the GUI operator surface or attach to an App Gateway",
     goal: "Inspect and update canonical workflow goals from session transcripts",
+    feedback: "Create local-only redacted session feedback bundles and issue drafts",
     benchmark: "Inspect benchmark-facing profiles, external tracks, and readiness baselines",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
@@ -253,6 +254,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "goal") {
     const { goalCommand } = await import("./commands/goal.js");
     await goalCommand(config, args[1], args.slice(2));
+    return;
+  }
+
+  if (command === "feedback") {
+    const { feedbackCommand } = await import("./commands/feedback.js");
+    await feedbackCommand(config, args[1], args.slice(2));
     return;
   }
 

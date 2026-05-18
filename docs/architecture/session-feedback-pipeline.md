@@ -110,5 +110,13 @@ The runtime evidence collector slice exists in `@kilnai/runtime`:
   transcript opt-in, command/tool failure evidence, file changes, logs, managed
   invocation diagnostics, and git-status snapshot handling.
 
-This is not yet a CLI command, GUI flow, gateway contract, GitHub integration,
-or PR automation.
+The CLI draft slice exists in `@kilnai/cli`:
+
+- `packages/cli/src/commands/feedback.ts` implements `kiln feedback draft`,
+  which writes a local-only redacted bundle and maintainer issue draft.
+- `packages/cli/tests/commands/feedback.test.ts` verifies local output,
+  fail-closed required fields, redacted preview behavior, and opt-in git status
+  evidence.
+
+This is not yet a GUI flow, gateway contract, GitHub integration, or PR
+automation.

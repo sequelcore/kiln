@@ -75,29 +75,33 @@ Verification:
 
 ### Slice 3 - CLI Feedback Command
 
-Status: Started on 2026-05-18
+Status: Completed on 2026-05-18
 
 Deliverables:
 
-- Add a CLI feedback command or subcommand that writes a local bundle.
-- Support quick and diagnostic modes.
-- Print a redacted preview and local output path.
-- Keep publication disabled until explicit approval.
+- Added `kiln feedback draft` as a CLI adapter that writes a local bundle and
+  maintainer issue draft.
+- Supports quick, diagnostic, and maintainer reporter modes.
+- Prints a redacted preview and local output paths.
+- Keeps publication disabled until explicit approval.
+- Captures git status only when explicitly provided or requested.
 
 Verification:
 
 - `bun run --filter @kilnai/cli test`
 - `bun run --filter @kilnai/cli typecheck`
+- `bun run --filter @kilnai/cli build`
 
 ### Slice 4 - Gateway And Surface Projection
 
-Status: Pending
+Status: Started on 2026-05-18
 
 Deliverables:
 
 - Add gateway contracts only after the core and runtime shapes stabilize.
 - Expose feedback preview state to GUI, TUI, and native surfaces.
 - Keep surface components thin; core owns semantics.
+- Reuse the CLI draft semantics; do not add external publication in this slice.
 
 Verification:
 
