@@ -154,6 +154,13 @@ approval-required destructive tools. Done-frame authority status is projected
 from the same per-call config used for the turn, not from a freshly derived
 default.
 
+Authority modes are not natural-language approval prompts. A surface may render
+an approval action only after runtime emits `approval_requested` with an
+`approvalId`. If a turn is limited to `read_only` or `fail_closed`, the assistant
+must report the missing authority or tool route instead of telling the operator
+to approve text that has no runtime approval target. This rule applies equally
+to GUI, TUI, CLI, and WebSocket gateway consumers.
+
 ## Work Items
 
 Workflow automation represents decomposed work with explicit fields instead of

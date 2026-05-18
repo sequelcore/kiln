@@ -93,6 +93,13 @@ that avoids redundant wrapping. OpenCode stores tiered API-key files under
 `~/.kiln/auth/opencode/`. Codex OAuth stores token files under
 `~/.kiln/auth/codex-oauth/`.
 
+Credential status projection is diagnostic, not the execution pool itself.
+Provider services may keep expired or malformed entries visible as `expired` or
+`invalid` status so operators can clean them up, but runtime pool admission must
+exclude credentials that cannot produce a valid provider auth payload. For Codex
+OAuth this means expired token files and malformed token files are never loaded
+into the execution pool, even though they remain visible in `kiln auth status`.
+
 Health data is runtime-owned metadata. It is stored separately from credential
 secrets and is ignored by the credential watcher.
 
@@ -113,7 +120,9 @@ Every provider call follows the same lifecycle:
 Retryable outcomes cool the credential down instead of immediately reusing it.
 Current retryable outcomes include rate limits, quota exhaustion, connection
 failures, and unknown provider errors. Authentication failures are not treated
-as retryable for the same credential.
+as retryable for the same credential. Provider-specific auth failures may still
+advance to the next credential when the provider service can prove another
+credential is available.
 
 If no credential is available, the pool raises `AllCredentialsExhaustedError`.
 The error preserves the last provider error and outcome when exhaustion happens

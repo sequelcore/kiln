@@ -114,6 +114,12 @@ display, and audit context only. They must not be used as the approval decision
 key because a session can contain multiple approval gates across turns and
 surfaces.
 
+Assistant text does not create approval state. When a response says work needs
+approval but no `approval_requested` event exists in the session, surfaces must
+treat it as a blocked explanation, not as a pending approval. Runtime prompts
+and governed context must steer agents to request real approval-capable tools or
+report the missing authority route.
+
 Plan approval is a specialized workflow approval. `plan_approved` records the
 approved `planId`, approval identity, immutable plan hash, approval timestamp,
 and `plan -> execute` transition. Execution-mode transition acknowledgements

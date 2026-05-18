@@ -24,6 +24,8 @@ import {
 import {
   buildEffectiveTurnAuthorityPolicyInputs,
   createAttachedRuntimeBuiltinToolSurface,
+  describeEffectiveTurnAuthorityActionability,
+  formatEffectiveTurnAuthorityGuidance,
   type ManagedInvocationToolOptions,
   type OperatorSurfaceController,
   type OrchestrateResult,
@@ -307,18 +309,29 @@ export class ProviderSession implements IKilnSession {
     return prompt.trimStart().startsWith("<kiln-preamble>");
   }
 
-  private buildSystemAndPrompt(options: SessionRunOptions): {
+  private buildSystemAndPrompt(
+    options: SessionRunOptions,
+    effectiveTurnAuthority?: PerCallToolConfig["effectiveTurnAuthority"],
+  ): {
     readonly systemPrompt: string;
     readonly userPrompt: string;
   } {
     const hasStructuredPreamble = this.isStructuredPreamble(options.prompt);
     const baseSystemPrompt = options.system ?? (hasStructuredPreamble ? options.prompt : (this.config.systemPrompt ?? ""));
     const userPrompt = hasStructuredPreamble ? this.config.task : options.prompt;
+    const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority ?? "auto";
     const systemPrompt = appendExecutionIdentity(
       buildProviderSystemPrompt(
         baseSystemPrompt,
         this.config.constraintInstructions,
-        { executionMode: this.executionMode },
+        {
+          executionMode: this.executionMode,
+          authorityGuidance: formatEffectiveTurnAuthorityGuidance(describeEffectiveTurnAuthorityActionability({
+            authority: effectiveTurnAuthority,
+            executionMode: "execute",
+            requestedAuthority,
+          })),
+        },
       ),
       resolveExecutionIdentity({
         configuredProvider: this.config.provider,
@@ -521,7 +534,12 @@ export class ProviderSession implements IKilnSession {
   private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<SessionEvent> {
     const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
 
-    const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options);
+    const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
+    const perCallConfig = this.buildPerCallConfig(
+      options.reasoningEffort ?? this.config.reasoningEffort,
+      requestedAuthority,
+    );
+    const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options, perCallConfig.effectiveTurnAuthority);
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
@@ -578,13 +596,12 @@ export class ProviderSession implements IKilnSession {
     let result: OrchestrateResult | undefined;
     let processError: unknown;
     let processSettled = false;
-    const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
     const processPromise = orchestrator.processMessage(
       cliSession,
       promptParts,
       undefined,
       undefined,
-      this.buildPerCallConfig(options.reasoningEffort ?? this.config.reasoningEffort, requestedAuthority),
+      perCallConfig,
     ).then((nextResult) => {
       result = nextResult;
     }).catch((err: unknown) => {

@@ -940,7 +940,7 @@ describe("processAdmittedTurn", () => {
       expect.anything(),
       textParts("hello"),
       expect.objectContaining({
-        content: "Previous context here.",
+        content: expect.stringContaining("Previous context here."),
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       undefined,
@@ -966,7 +966,7 @@ describe("processAdmittedTurn", () => {
       expect.anything(),
       textParts("hello"),
       expect.objectContaining({
-        content: undefined,
+        content: expect.stringContaining("Authority mode: auto."),
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       builtinTools,
@@ -1083,7 +1083,7 @@ describe("processAdmittedTurn", () => {
       expect.anything(),
       textParts("hello"),
       expect.objectContaining({
-        content: undefined,
+        content: expect.stringContaining("Authority mode: auto."),
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       callBuiltinTools,
@@ -1275,6 +1275,34 @@ describe("processAdmittedTurn", () => {
         source: "runtime-skill:memory://runtime-governed-skill",
       }));
     }
+  });
+
+  it("adds cross-surface authority guidance to governed context for executable turns", async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      requestedAuthority: "auto",
+      perCallConfig: {
+        toolAllowlist: new Set(["managed_agent.invoke"]),
+        perCallCapabilities: new Map([[
+          "managed_agent.invoke",
+          {
+            name: "managed_agent.invoke",
+            description: "Invoke a managed agent.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          },
+        ]]),
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("Authority mode: auto.");
+    expect(governedContextContent).toContain("Do not ask the operator to approve work in natural language.");
+    expect(governedContextContent).toContain("Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.");
   });
 
   it("defers oversized active skills under budget pressure and records the procedural deferral in contextAudit", async () => {

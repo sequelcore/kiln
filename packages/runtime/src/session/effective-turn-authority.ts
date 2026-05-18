@@ -36,6 +36,14 @@ export interface ProjectEffectiveTurnAuthorityInput {
   ) => AuthorityDescriptor | undefined;
 }
 
+export interface EffectiveTurnAuthorityActionability {
+  readonly authorityMode: EffectiveTurnAuthoritySnapshot["requestedAuthority"];
+  readonly admittedAuthority: EffectiveTurnAuthoritySnapshot["admittedAuthority"] | "unknown";
+  readonly mutationUnavailable: boolean;
+  readonly approvalActionable: boolean;
+  readonly nextAction: "continue_with_admitted_route" | "report_missing_authority_or_route";
+}
+
 export function projectEffectiveTurnAuthorityPerCallConfig(
   input: ProjectEffectiveTurnAuthorityInput,
 ): PerCallToolConfig | undefined {
@@ -110,6 +118,44 @@ export function projectEffectiveTurnAuthorityPerCallConfig(
       deniedToolCount: Math.max(0, candidateNames.size - admittedToolNames.size),
     }),
   };
+}
+
+export function describeEffectiveTurnAuthorityActionability(input: {
+  readonly authority?: EffectiveTurnAuthoritySnapshot;
+  readonly executionMode: EffectiveTurnAuthoritySnapshot["executionMode"];
+  readonly requestedAuthority?: EffectiveTurnAuthoritySnapshot["requestedAuthority"];
+}): EffectiveTurnAuthorityActionability {
+  const authorityMode = input.authority?.requestedAuthority
+    ?? (input.executionMode === "plan" ? "planning" : input.requestedAuthority ?? "auto");
+  const admittedAuthority = input.authority?.admittedAuthority ?? "unknown";
+  const mutationUnavailable = input.executionMode === "plan"
+    || authorityMode === "planning"
+    || authorityMode === "read_only"
+    || admittedAuthority === "read_only"
+    || admittedAuthority === "fail_closed";
+  return {
+    authorityMode,
+    admittedAuthority,
+    mutationUnavailable,
+    approvalActionable: false,
+    nextAction: mutationUnavailable
+      ? "report_missing_authority_or_route"
+      : "continue_with_admitted_route",
+  };
+}
+
+export function formatEffectiveTurnAuthorityGuidance(actionability: EffectiveTurnAuthorityActionability): string {
+  return [
+    `Authority mode: ${actionability.authorityMode}.`,
+    `Admitted authority: ${actionability.admittedAuthority}.`,
+    `Approval actionable: ${actionability.approvalActionable ? "yes" : "no"}.`,
+    "Requested authority is a runtime execution limit, not a natural-language approval workflow.",
+    "Do not ask the operator to approve work in natural language.",
+    "Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.",
+    actionability.nextAction === "report_missing_authority_or_route"
+      ? "If implementation is blocked by read-only or fail-closed authority, report the exact missing authority or tool route and stop."
+      : "If an audited write-capable tool or managed-agent route is admitted, continue by using that route instead of asking for approval text.",
+  ].join("\n");
 }
 
 export function buildEffectiveTurnAuthorityPolicyInputs(input: {

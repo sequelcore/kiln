@@ -207,6 +207,27 @@ vi.mock("@kilnai/runtime", () => {
         reason: "Work-item authority envelopes are introduced by Slice 7 and are not available to this Slice 5 admission.",
       },
     ],
+    describeEffectiveTurnAuthorityActionability: (input: {
+      requestedAuthority?: string;
+    }) => ({
+      authorityMode: input.requestedAuthority ?? "auto",
+      admittedAuthority: "unknown",
+      mutationUnavailable: false,
+      approvalActionable: false,
+      nextAction: "continue_with_admitted_route",
+    }),
+    formatEffectiveTurnAuthorityGuidance: (actionability: {
+      authorityMode: string;
+      admittedAuthority: string;
+      approvalActionable: boolean;
+    }) => [
+      `Authority mode: ${actionability.authorityMode}.`,
+      `Admitted authority: ${actionability.admittedAuthority}.`,
+      `Approval actionable: ${actionability.approvalActionable ? "yes" : "no"}.`,
+      "Requested authority is a runtime execution limit, not a natural-language approval workflow.",
+      "Do not ask the operator to approve work in natural language.",
+      "Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.",
+    ].join("\n"),
     createAttachedRuntimeBuiltinToolSurface: vi.fn((options?: {
       operatorSurface?: {
         theme?: {
@@ -1049,6 +1070,28 @@ describe("ProviderSession.run()", () => {
       role: "user",
       parts: [{ type: "text", text: "constraint prompt" }],
     }]);
+  });
+
+  it("appends cross-surface authority guidance into provider system prompt", async () => {
+    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+    }));
+
+    await collectEvents(session.run({
+      prompt: "authority prompt",
+      requestedAuthority: "audited",
+    }));
+
+    const streamCall = adapterMocks.openai.stream.mock.calls[0]?.[0] as {
+      system: string;
+    };
+    expect(streamCall.system).toContain("[KILN AUTHORITY GUIDANCE]");
+    expect(streamCall.system).toContain("Authority mode: audited.");
+    expect(streamCall.system).toContain("Do not ask the operator to approve work in natural language.");
+    expect(streamCall.system).toContain("Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.");
   });
 
   it("uses structured preamble prompt as system and task as user message", async () => {

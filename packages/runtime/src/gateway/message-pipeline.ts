@@ -41,7 +41,11 @@ import type {
   RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
 } from "../session/runtime-session-orchestrator.js";
-import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
+import {
+  describeEffectiveTurnAuthorityActionability,
+  formatEffectiveTurnAuthorityGuidance,
+  projectEffectiveTurnAuthorityPerCallConfig,
+} from "../session/effective-turn-authority.js";
 import type { SessionRegistry } from "../session/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
@@ -1087,6 +1091,23 @@ export function appendCoordinationProviderFailureAudit(
   } satisfies RuntimeContextAudit;
 }
 
+function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToolConfig | undefined, input: {
+  readonly executionMode: OperatorExecutionMode;
+  readonly requestedAuthority: OperatorTurnRequestedAuthority | undefined;
+}): ContextCandidate {
+  return {
+    kind: "procedural",
+    source: "runtime-authority-guidance",
+    required: true,
+    score: 1,
+    content: formatEffectiveTurnAuthorityGuidance(describeEffectiveTurnAuthorityActionability({
+      authority: perCallConfig?.effectiveTurnAuthority,
+      executionMode: input.executionMode,
+      requestedAuthority: input.requestedAuthority,
+    })),
+  };
+}
+
 function projectRequestedAuthorityPerCallConfig(
   config: PerCallToolConfig | undefined,
   executionMode: OperatorExecutionMode,
@@ -1611,6 +1632,12 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     feedback: runtimeContinuityPresentation.runtimeContinuity.feedbackLabel,
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
+  const perCallConfig = projectRequestedAuthorityPerCallConfig(
+    effectivePerCallConfig,
+    executionMode,
+    ctx.requestedAuthority,
+    "gateway admitted turn requested authority",
+  );
   const proceduralContextCandidates: ContextCandidate[] = [];
   if (executionMode === "plan") {
     proceduralContextCandidates.push({
@@ -1626,6 +1653,10 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       ].join("\n"),
     });
   }
+  proceduralContextCandidates.push(buildAuthorityGuidanceContextCandidate(perCallConfig, {
+    executionMode,
+    requestedAuthority: ctx.requestedAuthority,
+  }));
   if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
     const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
     for (const skill of resolved) {
@@ -1656,13 +1687,6 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   const projectedContextAudit = appendCoordinationProviderFailureAudit(
     projectedTurnContext.audit,
     coordinationContext.failureReason,
-  );
-
-  const perCallConfig = projectRequestedAuthorityPerCallConfig(
-    effectivePerCallConfig,
-    executionMode,
-    ctx.requestedAuthority,
-    "gateway admitted turn requested authority",
   );
 
   // Capture real approval state transitions for this turn from runtime events.

@@ -9,6 +9,7 @@ const CONTEXT_EVIDENCE_LINE_LIMIT = 200;
 
 export interface ProviderSystemPromptOptions {
   readonly executionMode?: "text-only" | "kiln-executable";
+  readonly authorityGuidance?: string;
 }
 
 function buildExecutableToolGuidanceSection(): string {
@@ -41,6 +42,10 @@ export function buildProviderSystemPrompt(
 
   if (options?.executionMode === "kiln-executable") {
     sections.push(buildExecutableToolGuidanceSection());
+  }
+
+  if (options?.authorityGuidance) {
+    sections.push(`[KILN AUTHORITY GUIDANCE]\n${options.authorityGuidance}`);
   }
 
   if (constraintInstructions && constraintInstructions.length > 0) {

@@ -307,6 +307,8 @@ export {
   RuntimeSessionOrchestrator,
   collectRuntimeFeedbackEvidence,
   buildEffectiveTurnAuthorityPolicyInputs,
+  describeEffectiveTurnAuthorityActionability,
+  formatEffectiveTurnAuthorityGuidance,
   SessionRegistry,
   InMemorySessionStore,
   RedisSessionStore,

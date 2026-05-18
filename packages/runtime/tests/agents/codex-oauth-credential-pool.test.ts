@@ -122,6 +122,69 @@ describe("CodexOAuthCredentialPoolService", () => {
     await expect(service.getValidAccessToken()).resolves.toBe("access-pooled");
   });
 
+  it("keeps expired credentials visible in status but excludes them from execution pools", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({
+      id: "expired",
+      tokenFile: token({
+        access_token: "access-expired",
+        expires_at: "2020-01-01T00:00:00.000Z",
+      }),
+    });
+    await service.linkCredential({ id: "valid", tokenFile: token({ access_token: "access-valid" }) });
+    const calls: string[] = [];
+
+    const adapter = await service.createPooledAdapter({
+      defaultModel: "model",
+      createAdapter: (credential) => new TestAdapter(async () => {
+        calls.push(credential.tokenFile.access_token);
+        return makeResponse("ok");
+      }),
+    });
+
+    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
+    expect(calls).toEqual(["access-valid"]);
+    await expect(service.listStatus()).resolves.toEqual([
+      expect.objectContaining({ id: "expired", status: "expired" }),
+      expect.objectContaining({ id: "valid", status: "valid" }),
+    ]);
+  });
+
+  it("projects malformed credentials as invalid status and excludes them from execution pools", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await mkdir(join(rootDir, "codex-oauth"), { recursive: true });
+    await writeFile(join(rootDir, "codex-oauth", "invalid.json"), JSON.stringify({
+      access_token: "",
+      refresh_token: "refresh",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      client_id: "client",
+    }), "utf8");
+    await service.linkCredential({ id: "valid", tokenFile: token({ access_token: "access-valid" }) });
+    const calls: string[] = [];
+
+    const adapter = await service.createPooledAdapter({
+      defaultModel: "model",
+      createAdapter: (credential) => new TestAdapter(async () => {
+        calls.push(credential.tokenFile.access_token);
+        return makeResponse("ok");
+      }),
+    });
+
+    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
+    expect(calls).toEqual(["access-valid"]);
+    const status = await service.listStatus();
+    expect(status).toEqual([
+      expect.objectContaining({
+        id: "invalid",
+        status: "invalid",
+        expiresAt: "unknown",
+        invalidReason: expect.stringContaining("Malformed Codex OAuth credential file"),
+      }),
+      expect.objectContaining({ id: "valid", status: "valid" }),
+    ]);
+    expect(JSON.stringify(status)).not.toContain("refresh");
+  });
+
   it("creates a pooled adapter that rotates on rate limits and binds each token path", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "first", tokenFile: token({ access_token: "access-first" }) });
@@ -199,6 +262,8 @@ describe("CodexOAuthCredentialPoolService", () => {
     expect(mapCodexOAuthProviderError(new TypeError("fetch failed"))).toEqual({ type: "connection-failed" });
     expect(mapCodexOAuthProviderError(new KilnError("PROVIDER_AUTH_FAILED", "failed", { context: { status: 429 } })))
       .toEqual({ type: "rate-limited" });
+    expect(mapCodexOAuthProviderError(new KilnError("PROVIDER_AUTH_FAILED", "invalid credentials")))
+      .toEqual({ type: "auth-failed" });
   });
 
   it("can use a custom adapter factory for direct Codex OAuth adapters", async () => {

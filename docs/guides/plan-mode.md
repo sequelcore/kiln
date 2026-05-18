@@ -191,6 +191,11 @@ elevation approval flow exists. Execute turns may request `read_only` or
 invocation, and malformed authority values fail instead of falling back to full
 authority.
 
+Approval UI appears only for runtime approval events. If an assistant reports
+that it is blocked by read-only or fail-closed authority, switch to an admitted
+execute-mode authority or route the work through an approval-capable workflow;
+there is no approval button unless the session contains `approval_requested`.
+
 ## Goal Execution After Approval
 
 Approval does not execute the plan by itself. It authorizes a later execute

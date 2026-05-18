@@ -5,6 +5,7 @@ import {
   CodexOAuthAdapter,
   CodexOAuthAuth,
   CredentialPool,
+  KilnError,
   PooledProviderAdapter,
   isRetryable,
   type CodexOAuthTokenFile,
@@ -34,7 +35,8 @@ export interface CodexOAuthCredentialStatus {
   readonly id: string;
   readonly label: string;
   readonly expiresAt: string;
-  readonly status: "valid" | "expiring-soon" | "expired";
+  readonly status: "valid" | "expiring-soon" | "expired" | "invalid";
+  readonly invalidReason?: string;
   readonly health?: {
     readonly requestCount: number;
     readonly lastSuccess: number | null;
@@ -57,6 +59,13 @@ export interface CreateCodexOAuthPooledAdapterOptions {
 export interface CodexOAuthPoolCredential {
   readonly tokenFile: CodexOAuthTokenFile;
   readonly tokenPath: string;
+}
+
+interface CodexOAuthCredentialRecord {
+  readonly id: string;
+  readonly tokenPath: string;
+  readonly tokenFile?: CodexOAuthTokenFile;
+  readonly invalidReason?: string;
 }
 
 const EXPIRING_SOON_MS = 120 * 1000;
@@ -83,10 +92,28 @@ export class CodexOAuthCredentialPoolService {
   }
 
   async listStatus(): Promise<readonly CodexOAuthCredentialStatus[]> {
-    const credentials = await this.readCredentials();
+    const credentials = await this.readCredentialRecords();
     const health = await this.healthStore.readProviderHealth(CODEX_OAUTH_POOL_PROVIDER_ID);
     return credentials.map((entry) => {
       const record = health.find((candidate) => candidate.credentialId === entry.id);
+      if (!entry.tokenFile) {
+        return {
+          id: entry.id,
+          label: entry.id,
+          expiresAt: "unknown",
+          status: "invalid",
+          ...(entry.invalidReason ? { invalidReason: entry.invalidReason } : {}),
+          health: record
+            ? {
+                requestCount: record.requestCount,
+                lastSuccess: record.lastSuccess,
+                lastExhausted: record.lastExhausted,
+                cooldownUntil: record.cooldownUntil,
+                lastOutcome: record.lastOutcome,
+              }
+            : undefined,
+        };
+      }
       return {
         id: entry.id,
         label: entry.id,
@@ -162,6 +189,7 @@ export class CodexOAuthCredentialPoolService {
 
   private async loadCredentialsForPool(): Promise<Credential<CodexOAuthPoolCredential>[]> {
     return (await this.readCredentials())
+      .filter((entry) => isExecutableTokenFile(entry.tokenFile))
       .map((entry): Credential<CodexOAuthPoolCredential> => ({
         id: entry.id,
         label: entry.id,
@@ -181,21 +209,30 @@ export class CodexOAuthCredentialPoolService {
       }));
   }
 
-  private async readCredentials(): Promise<ReadonlyArray<{
-    readonly id: string;
+  private async readCredentials(): Promise<ReadonlyArray<CodexOAuthCredentialRecord & {
     readonly tokenFile: CodexOAuthTokenFile;
-    readonly tokenPath: string;
   }>> {
+    return (await this.readCredentialRecords()).flatMap((entry) => (
+      entry.tokenFile ? [{ ...entry, tokenFile: entry.tokenFile }] : []
+    ));
+  }
+
+  private async readCredentialRecords(): Promise<readonly CodexOAuthCredentialRecord[]> {
     const files = await this.listCredentialFileNames();
     const credentials = await Promise.all(files.map(async (fileName) => {
       const tokenPath = join(this.providerDirectory(), fileName);
-      const parsed = JSON.parse(await readFile(tokenPath, "utf8")) as unknown;
-      const tokenFile = validateCodexOAuthTokenFile(parsed, tokenPath);
-      return {
-        id: fileName.slice(0, -".json".length),
-        tokenFile,
-        tokenPath,
-      };
+      const id = fileName.slice(0, -".json".length);
+      const raw = await readFile(tokenPath, "utf8");
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        const tokenFile = validateCodexOAuthTokenFile(parsed, tokenPath);
+        return { id, tokenFile, tokenPath };
+      } catch (error) {
+        if (!isCredentialShapeError(error)) {
+          throw error;
+        }
+        return { id, tokenPath, invalidReason: errorMessage(error) };
+      }
     }));
     return credentials.sort((a, b) => a.id.localeCompare(b.id));
   }
@@ -239,6 +276,9 @@ export function mapCodexOAuthProviderError(error: unknown): CredentialOutcome {
   if (status === 401 || status === 403) {
     return { type: "auth-failed" };
   }
+  if (error instanceof KilnError && error.code === "PROVIDER_AUTH_FAILED") {
+    return { type: "auth-failed" };
+  }
   if (error instanceof TypeError) {
     return { type: "connection-failed" };
   }
@@ -250,20 +290,20 @@ export function mapCodexOAuthProviderError(error: unknown): CredentialOutcome {
 
 function validateCodexOAuthTokenFile(value: unknown, filePath: string): CodexOAuthTokenFile {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`Malformed Codex OAuth credential file: ${filePath}`);
+    throw new CodexOAuthCredentialShapeError(filePath);
   }
   const record = value as Record<string, unknown>;
   if (typeof record.access_token !== "string" || record.access_token.trim().length === 0) {
-    throw new Error(`Malformed Codex OAuth credential file: ${filePath}`);
+    throw new CodexOAuthCredentialShapeError(filePath);
   }
   if (typeof record.refresh_token !== "string" || record.refresh_token.trim().length === 0) {
-    throw new Error(`Malformed Codex OAuth credential file: ${filePath}`);
+    throw new CodexOAuthCredentialShapeError(filePath);
   }
   if (typeof record.expires_at !== "string" || !Number.isFinite(new Date(record.expires_at).getTime())) {
-    throw new Error(`Malformed Codex OAuth credential file: ${filePath}`);
+    throw new CodexOAuthCredentialShapeError(filePath);
   }
   if (typeof record.client_id !== "string" || record.client_id.trim().length === 0) {
-    throw new Error(`Malformed Codex OAuth credential file: ${filePath}`);
+    throw new CodexOAuthCredentialShapeError(filePath);
   }
   return {
     access_token: record.access_token,
@@ -271,6 +311,17 @@ function validateCodexOAuthTokenFile(value: unknown, filePath: string): CodexOAu
     expires_at: record.expires_at,
     client_id: record.client_id,
   };
+}
+
+class CodexOAuthCredentialShapeError extends Error {
+  constructor(filePath: string) {
+    super(`Malformed Codex OAuth credential file: ${filePath}`);
+    this.name = "CodexOAuthCredentialShapeError";
+  }
+}
+
+function isCredentialShapeError(error: unknown): boolean {
+  return error instanceof SyntaxError || error instanceof CodexOAuthCredentialShapeError;
 }
 
 function describeExpiry(expiresAt: string): "valid" | "expiring-soon" | "expired" {
@@ -282,6 +333,14 @@ function describeExpiry(expiresAt: string): "valid" | "expiring-soon" | "expired
     return "expiring-soon";
   }
   return "valid";
+}
+
+function isExecutableTokenFile(tokenFile: CodexOAuthTokenFile): boolean {
+  return describeExpiry(tokenFile.expires_at) !== "expired";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown credential parsing error";
 }
 
 function readStatus(error: unknown): number | null {
