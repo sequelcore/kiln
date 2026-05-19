@@ -66,6 +66,7 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
   "plan",
   "tests",
   "typecheck",
+  "visual-reference-research",
   "browser-qa",
   "managed-agent-review",
   "formal-proof",
@@ -143,12 +144,13 @@ export class WorkGovernanceAssessTool implements DevTool {
         description: "Optional estimated number of files the work may touch.",
       },
       risk: {
+        type: "string",
         enum: RISKS,
         description: "Optional preliminary risk estimate.",
       },
       triggers: {
         type: "array",
-        items: { enum: TRIGGERS },
+        items: { type: "string", enum: TRIGGERS },
         description: "Known work-governance triggers that apply to this task.",
       },
     },
@@ -161,7 +163,7 @@ export class WorkGovernanceAssessTool implements DevTool {
     properties: {
       recommendation: { enum: ["direct", "orchestrate"] },
       reasons: { type: "array", items: { type: "string" } },
-      triggers: { type: "array", items: { enum: TRIGGERS } },
+      triggers: { type: "array", items: { type: "string", enum: TRIGGERS } },
       requiredEvidence: { type: "array", items: { type: "string" } },
     },
     required: ["recommendation", "reasons", "triggers", "requiredEvidence"],
@@ -222,6 +224,7 @@ export class WorkProfileListTool implements DevTool {
     type: "object",
     properties: {
       trigger: {
+        type: "string",
         enum: TRIGGERS,
         description: "Optional trigger filter.",
       },
@@ -273,17 +276,19 @@ export class WorkItemUpdateTool implements DevTool {
       id: { type: "string", description: "Optional stable work item id. Omit to create a new id." },
       summary: { type: "string", minLength: 1, description: "Bounded work item summary." },
       status: {
+        type: "string",
         enum: WORK_ITEM_UPDATE_STATUSES,
         description: "Optional lifecycle status. Active execution is owned by work_item.execution.start.",
       },
       workflowProfile: {
+        type: "string",
         enum: WORK_GOVERNANCE_WORKFLOW_PROFILES.map((profile) => profile.id),
         description: "Optional workflow profile. When omitted, Kiln infers one from triggers and risk.",
       },
-      risk: { enum: RISKS, description: "Optional risk estimate." },
+      risk: { type: "string", enum: RISKS, description: "Optional risk estimate." },
       triggers: {
         type: "array",
-        items: { enum: TRIGGERS },
+        items: { type: "string", enum: TRIGGERS },
         description: "Governance triggers that apply to this work item.",
       },
       surface: { type: "string", description: "Optional affected surface, such as gui, cli, tui, runtime, or docs." },
@@ -292,12 +297,12 @@ export class WorkItemUpdateTool implements DevTool {
       authorityProfile: { type: "string", description: "Optional authority profile for the assigned work." },
       expectedEvidence: {
         type: "array",
-        items: { enum: EVIDENCE },
+        items: { type: "string", enum: EVIDENCE },
         description: "Optional extra or overriding evidence expected before closeout.",
       },
       providedEvidence: {
         type: "array",
-        items: { enum: EVIDENCE },
+        items: { type: "string", enum: EVIDENCE },
         description: "Optional evidence already produced.",
       },
       verificationGates: {
@@ -317,9 +322,9 @@ export class WorkItemUpdateTool implements DevTool {
           type: "object",
           properties: {
             id: { type: "string", minLength: 1 },
-            kind: { enum: WORK_ITEM_PAUSE_REQUIREMENT_KINDS },
+            kind: { type: "string", enum: WORK_ITEM_PAUSE_REQUIREMENT_KINDS },
             summary: { type: "string", minLength: 1 },
-            status: { enum: WORK_ITEM_PAUSE_REQUIREMENT_STATUSES },
+            status: { type: "string", enum: WORK_ITEM_PAUSE_REQUIREMENT_STATUSES },
             resolvedBy: { type: "string" },
             resolvedAt: { type: "string" },
             resolution: { type: "string" },
@@ -397,8 +402,13 @@ export class WorkItemUpdateTool implements DevTool {
       pauseRequirements: pauseRequirements.requirements,
     });
 
+    const nextExecution = nextGovernedExecutionStep(item);
+
     return {
-      output: JSON.stringify({ item }, null, 2),
+      output: JSON.stringify({
+        item,
+        ...(nextExecution ? nextExecution : {}),
+      }, null, 2),
       metadata: workItemToolMetadata("work_item.update", {
         operation: "update",
         id: item.id,
@@ -409,6 +419,25 @@ export class WorkItemUpdateTool implements DevTool {
       isError: false,
     };
   }
+}
+
+function nextGovernedExecutionStep(item: WorkItem): {
+  readonly nextRequiredTools: readonly string[];
+  readonly nextAction: string;
+} | undefined {
+  if (item.status !== "pending") {
+    return undefined;
+  }
+  const nextRequiredTools = item.goalRunId
+    ? ["work_item.execution.start"]
+    : ["goal.create", "work_item.execution.start"];
+  const routeSuffix = item.routeId
+    ? ` Route-owned execution is already selected through ${item.routeId}.`
+    : "";
+  return {
+    nextRequiredTools,
+    nextAction: `Do not stop after scout or local read-only diagnosis. Create or use a goal, then call work_item.execution.start so governed execution, managed delegation, evidence, and residual risk are recorded.${routeSuffix}`,
+  };
 }
 
 export class WorkItemListTool implements DevTool {
@@ -424,7 +453,7 @@ export class WorkItemListTool implements DevTool {
   readonly inputSchema = {
     type: "object",
     properties: {
-      status: { enum: WORK_ITEM_STATUSES, description: "Optional status filter." },
+      status: { type: "string", enum: WORK_ITEM_STATUSES, description: "Optional status filter." },
     },
     additionalProperties: false,
   };
@@ -468,7 +497,7 @@ export class WorkItemCompleteTool implements DevTool {
       id: { type: "string", minLength: 1, description: "Work item id." },
       providedEvidence: {
         type: "array",
-        items: { enum: EVIDENCE },
+        items: { type: "string", enum: EVIDENCE },
         description: "Evidence produced for this work item.",
       },
       residualRisk: { type: "string", description: "Residual-risk closeout. Required when residual-risk is expected evidence." },
@@ -583,15 +612,18 @@ export class GoalCreateTool implements DevTool {
         description: "Existing governed work item ids to execute under this goal.",
       },
       maximumAuthority: {
+        type: "string",
         enum: GOAL_AUTHORITY_LEVELS,
         description: "Maximum authority allowed while executing this goal.",
       },
       escalationPolicy: {
+        type: "string",
         enum: GOAL_ESCALATION_POLICIES,
         description: "How execution handles authority requests above maximumAuthority.",
       },
       authorityReason: { type: "string", minLength: 1, description: "Why this authority envelope is appropriate." },
       workflowProfile: {
+        type: "string",
         enum: WORK_GOVERNANCE_WORKFLOW_PROFILES.map((profile) => profile.id),
         description: "Workflow profile governing this goal.",
       },
@@ -797,14 +829,17 @@ export class WorkItemExecutionStartTool implements DevTool {
         description: "Optional reasoning effort to include in the suggested managed_agent.invoke request.",
       },
       managedProfile: {
+        type: "string",
         enum: MANAGED_INVOCATION_PROFILES,
         description: "Managed invocation authority profile to include in the suggested managed_agent.invoke request.",
       },
       requestedAuthority: {
+        type: "string",
         enum: MANAGED_INVOCATION_AUTHORITIES,
         description: "Requested child authority to include in the suggested managed_agent.invoke request.",
       },
       governanceRecommendation: {
+        type: "string",
         enum: ["direct", "orchestrate"],
         description: "Optional work_governance.assess recommendation used for ready-item selection.",
       },
@@ -972,7 +1007,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
       attemptId: { type: "string", minLength: 1, description: "Execution attempt id." },
       providedEvidence: {
         type: "array",
-        items: { enum: EVIDENCE },
+        items: { type: "string", enum: EVIDENCE },
         description: "Evidence produced by the attempt.",
       },
       residualRisk: { type: "string", description: "Residual-risk closeout." },
@@ -1212,7 +1247,7 @@ function buildManagedInvocationRequest(
   return {
     routeId,
     agentProfile,
-    missingFields: providerId ? [] : ["providerRoute.providerId"],
+    missingFields: providerId || routeId ? [] : ["providerRoute.providerId"],
     request,
   };
 }
@@ -1335,7 +1370,7 @@ function verificationGateResultsSchema(): Record<string, unknown> {
       type: "object",
       properties: {
         gate: { type: "string", minLength: 1 },
-        status: { enum: ["passed", "failed", "skipped"] },
+        status: { type: "string", enum: ["passed", "failed", "skipped"] },
         summary: { type: "string" },
         evidence: {
           type: "array",

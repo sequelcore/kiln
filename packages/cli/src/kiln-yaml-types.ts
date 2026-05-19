@@ -143,6 +143,7 @@ export type KilnWorkGovernanceEvidence =
   | "plan"
   | "tests"
   | "typecheck"
+  | "visual-reference-research"
   | "browser-qa"
   | "managed-agent-review"
   | "formal-proof"

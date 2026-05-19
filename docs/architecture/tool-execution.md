@@ -420,6 +420,12 @@ ambiguous. `verbosity` is currently supported by `bash`, `tree`, `web_search`,
 task-state tools, and `operator_elicit`; it changes only `ToolResult.output`,
 not the metadata family.
 
+Tool schemas are projected across CLI, GUI, TUI, MCP, and direct-provider
+managed routes. Every object property in a builtin tool schema must declare an
+explicit JSON Schema shape, usually `type`, even when an `enum` is present.
+Enum-only property definitions are rejected by stricter OpenAI-compatible
+providers and are treated as contract regressions.
+
 Inspection metadata is read-only orientation state. `stat` can report type,
 size, modified time, and an optional checksum. `tree` can report bounded
 directory shape, entry count, truncation state, and ignored nuisance

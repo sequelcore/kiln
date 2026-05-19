@@ -333,6 +333,11 @@ the first route. If the parent supplies an `agentProfile` whose catalog entry
 has a route hint, the runtime uses that hint to disambiguate the route. An
 explicit `routeId`, provider id, or model that contradicts the selected
 agent-profile hint fails closed before adapter invocation.
+When `work_item.execution.start` emits a paused managed-delegation request with
+a configured `routeId`, attached runtime surfaces hydrate the effective
+`providerRoute` from the route catalog before calling `managed_agent.invoke`.
+That request must not be reported as missing `providerRoute.providerId`; the
+route id is the credential/provider ownership handle in that flow.
 
 The model-facing `managed_agent.invoke` schema is narrowed from the admitted
 route and agent catalogs. `agentProfile` is limited to configured profile ids

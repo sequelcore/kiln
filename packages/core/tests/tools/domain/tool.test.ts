@@ -194,6 +194,40 @@ describe("tool domain types", () => {
     }
   });
 
+  it("uses explicit property types for strict provider tool schemas", () => {
+    const missingTypes: string[] = [];
+    const walk = (schema: unknown, path: string): void => {
+      if (!schema || typeof schema !== "object") {
+        return;
+      }
+      const record = schema as Record<string, unknown>;
+      const properties = record["properties"];
+      if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+        for (const [propertyName, propertySchema] of Object.entries(properties as Record<string, unknown>)) {
+          if (propertySchema && typeof propertySchema === "object" && !Array.isArray(propertySchema)) {
+            const propertyRecord = propertySchema as Record<string, unknown>;
+            const hasExplicitShape = "type" in propertyRecord
+              || "oneOf" in propertyRecord
+              || "anyOf" in propertyRecord
+              || "allOf" in propertyRecord
+              || "$ref" in propertyRecord;
+            if (!hasExplicitShape) {
+              missingTypes.push(`${path}.properties.${propertyName}`);
+            }
+          }
+          walk(propertySchema, `${path}.properties.${propertyName}`);
+        }
+      }
+      walk(record["items"], `${path}.items`);
+    };
+
+    for (const [toolName, tool] of Object.entries(TOOL_SCHEMAS)) {
+      walk(tool.inputSchema, `${toolName}.inputSchema`);
+    }
+
+    expect(missingTypes).toEqual([]);
+  });
+
   it("captures required fields for mutating tools", () => {
     expect(TOOL_SCHEMAS.write.inputSchema.required).toEqual(["filePath", "content"]);
     expect(TOOL_SCHEMAS.edit.inputSchema.required).toEqual([

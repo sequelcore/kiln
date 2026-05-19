@@ -3,6 +3,7 @@
 import type { ToolResultMetadata } from "./tool-result-metadata.js";
 
 const OUTPUT_VERBOSITY_PROPERTY = {
+  type: "string",
   enum: ["raw", "structured", "summary"],
   description: "Controls ToolResult.output shape. raw preserves the compact default, structured returns JSON, summary returns a bounded rollup.",
 } as const;
@@ -378,6 +379,7 @@ export const TOOL_SCHEMAS: Record<
           description: "Path to inspect.",
         },
         hash: {
+          type: "string",
           enum: ["none", "sha256"],
           description: "Optional checksum mode. sha256 is only produced for files.",
         },
@@ -430,6 +432,7 @@ export const TOOL_SCHEMAS: Record<
           description: "Path to the image file.",
         },
         detail: {
+          type: "string",
           enum: ["default", "original"],
           description: "default uses the normal image size cap; original allows larger original-resolution files.",
         },
@@ -544,6 +547,7 @@ export const TOOL_SCHEMAS: Record<
           description: "HTTP or HTTPS URLs to extract.",
         },
         format: {
+          type: "string",
           enum: ["text", "markdown"],
           description: "Requested extracted content format. Defaults to markdown.",
         },
@@ -655,7 +659,7 @@ export const TOOL_SCHEMAS: Record<
       properties: {
         sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
         target: INTERACTIVE_TARGET_PROPERTY,
-        button: { enum: ["left", "middle", "right"], description: "Mouse button. Defaults to left." },
+        button: { type: "string", enum: ["left", "middle", "right"], description: "Mouse button. Defaults to left." },
         clickCount: { type: "number", description: "Number of clicks. Defaults to 1." },
         requiresApproval: { type: "boolean", description: "True when the click may be consequential." },
         timeout: INTERACTIVE_TIMEOUT_PROPERTY,
@@ -715,7 +719,7 @@ export const TOOL_SCHEMAS: Record<
       type: "object",
       properties: {
         sessionId: INTERACTIVE_SESSION_ID_PROPERTY,
-        direction: { enum: ["up", "down", "left", "right"], description: "Scroll direction." },
+        direction: { type: "string", enum: ["up", "down", "left", "right"], description: "Scroll direction." },
         deltaX: { type: "number" },
         deltaY: { type: "number" },
         timeout: INTERACTIVE_TIMEOUT_PROPERTY,
@@ -774,7 +778,7 @@ export const TOOL_SCHEMAS: Record<
         windowTitle: COMPUTER_WINDOW_TITLE_PROPERTY,
         application: COMPUTER_APPLICATION_PROPERTY,
         target: INTERACTIVE_TARGET_PROPERTY,
-        button: { enum: ["left", "middle", "right"] },
+        button: { type: "string", enum: ["left", "middle", "right"] },
         clickCount: { type: "number" },
         requiresApproval: { type: "boolean" },
         timeout: INTERACTIVE_TIMEOUT_PROPERTY,
@@ -921,6 +925,7 @@ export const TOOL_SCHEMAS: Record<
           description: "Optional file glob filter such as **/*.ts.",
         },
         outputMode: {
+          type: "string",
           enum: ["content", "files_with_matches", "count"],
           description: "content returns matching lines, files_with_matches returns only file paths, count returns per-file counts.",
         },
@@ -990,6 +995,7 @@ export const TOOL_SCHEMAS: Record<
       type: "object",
       properties: {
         operation: {
+          type: "string",
           enum: [
             "definition",
             "references",
@@ -1137,6 +1143,7 @@ export const TOOL_SCHEMAS: Record<
       type: "object",
       properties: {
         status: {
+          type: "string",
           enum: ["running", "exited", "stopped", "failed"],
           description: "Optional status filter.",
         },
@@ -1157,6 +1164,7 @@ export const TOOL_SCHEMAS: Record<
       type: "object",
       properties: {
         status: {
+          type: "string",
           enum: ["pending", "in_progress", "blocked", "completed", "cancelled"],
           description: "Optional task status filter.",
         },
@@ -1186,6 +1194,7 @@ export const TOOL_SCHEMAS: Record<
           description: "Task title shown to shared operator surfaces.",
         },
         status: {
+          type: "string",
           enum: ["pending", "in_progress", "blocked", "completed", "cancelled"],
           description: "Task lifecycle status.",
         },
@@ -1214,6 +1223,7 @@ export const TOOL_SCHEMAS: Record<
       type: "object",
       properties: {
         mode: {
+          type: "string",
           enum: ["form", "url"],
           description: "Elicitation mode. form collects bounded non-sensitive values; url hands the operator to an HTTPS surface.",
         },
@@ -1296,10 +1306,12 @@ export const TOOL_SCHEMAS: Record<
           description: "Optional stable record ID. Supplying an existing ID updates that record through the mutation service.",
         },
         layer: {
+          type: "string",
           enum: ["working", "episodic", "semantic", "procedural", "coordination", "audit"],
           description: "Memory layer for this record.",
         },
         scopeKind: {
+          type: "string",
           enum: ["user", "agent", "team", "project", "org", "app", "tenant", "session"],
           description: "Memory scope kind.",
         },
@@ -1333,6 +1345,7 @@ export const TOOL_SCHEMAS: Record<
           type: "object",
           properties: {
             sourceType: {
+              type: "string",
               enum: ["session", "turn", "tool_call", "resource", "file", "gateway_app", "agent", "operator"],
               description: "Origin category for the memory.",
             },

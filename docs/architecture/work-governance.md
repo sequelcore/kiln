@@ -301,7 +301,7 @@ Kiln ships canonical workflow profiles for common work shapes:
 | `small-fix` | Local, low-risk work inside the direct-execution envelope. |
 | `bug-diagnosis` | Surface map, hypothesis, failing proof, minimal fix, verification loop. |
 | `architecture-change` | Bounded-context, contract, or long-term design impact. |
-| `ui-change` | Operator-facing or browser-facing behavior requiring browser QA. |
+| `ui-change` | Operator-facing or browser-facing behavior requiring visual-reference research before planning and browser QA before closeout. |
 | `managed-agent-change` | Managed invocation, provider route, evidence, replay, or child handoff changes. |
 | `config-change` | Global, project, harness projection, setup, or sync behavior. |
 | `verification-heavy` | Work where correctness depends on strong checks instead of confidence language. |
@@ -341,6 +341,12 @@ themselves; authority still comes from the managed invocation profile and route.
 The parent remains accountable for integration and closeout. A child completion
 is not the same as task completion unless the required evidence gates are
 satisfied.
+For UI work, `visual-reference-research` is separate from `browser-qa`.
+Reference research happens before planning and must include real visual
+references gathered through browser, computer-use, image-capable, or
+screenshot-capable tools when available. Browser QA happens after
+implementation and proves the changed Kiln surface renders and behaves
+correctly.
 Managed-delegation work items do not start until the execution attempt is linked
 to a recorded managed invocation id. If that id is missing,
 `work_item.execution.start` pauses with an actionable `managed_agent.invoke`

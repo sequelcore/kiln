@@ -73,7 +73,10 @@ function requiredEvidenceFor(
   triggers: readonly KilnWorkGovernanceTrigger[],
 ): readonly KilnWorkGovernanceEvidence[] {
   const evidence = new Set<KilnWorkGovernanceEvidence>(config?.requiredEvidence ?? []);
-  if (triggers.includes("ui")) evidence.add("browser-qa");
+  if (triggers.includes("ui")) {
+    evidence.add("visual-reference-research");
+    evidence.add("browser-qa");
+  }
   if (
     triggers.includes("architecture")
     || triggers.includes("security")

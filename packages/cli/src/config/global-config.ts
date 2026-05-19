@@ -841,6 +841,7 @@ function isWorkGovernanceEvidence(value: unknown): boolean {
     || value === "plan"
     || value === "tests"
     || value === "typecheck"
+    || value === "visual-reference-research"
     || value === "browser-qa"
     || value === "managed-agent-review"
     || value === "formal-proof"

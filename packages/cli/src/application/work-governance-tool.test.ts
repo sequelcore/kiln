@@ -78,9 +78,93 @@ describe("work-governance-tool", () => {
 
     expect(result?.isError).toBe(false);
     expect(result?.output).toContain('"id": "ui-change"');
+    expect(result?.output).toContain('"visual-reference-research"');
     expect(result?.output).toContain('"browser-qa"');
     expect(result?.output).toContain('"evidenceMatrix"');
+    expect(result?.output).toContain('"real product screenshots or browser visual references before planning"');
     expect(result?.output).toContain('"browser QA screenshot or interaction proof"');
+  });
+
+  it("uses explicit property types for strict provider governance tool schemas", () => {
+    const missingTypes: string[] = [];
+    const walk = (schema: unknown, path: string): void => {
+      if (!schema || typeof schema !== "object") {
+        return;
+      }
+      const record = schema as Record<string, unknown>;
+      const properties = record["properties"];
+      if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+        for (const [propertyName, propertySchema] of Object.entries(properties as Record<string, unknown>)) {
+          if (propertySchema && typeof propertySchema === "object" && !Array.isArray(propertySchema)) {
+            const propertyRecord = propertySchema as Record<string, unknown>;
+            const hasExplicitShape = "type" in propertyRecord
+              || "oneOf" in propertyRecord
+              || "anyOf" in propertyRecord
+              || "allOf" in propertyRecord
+              || "$ref" in propertyRecord;
+            if (!hasExplicitShape) {
+              missingTypes.push(`${path}.properties.${propertyName}`);
+            }
+          }
+          walk(propertySchema, `${path}.properties.${propertyName}`);
+        }
+      }
+      const items = record["items"];
+      if (items && typeof items === "object" && !Array.isArray(items)) {
+        const itemRecord = items as Record<string, unknown>;
+        const hasExplicitShape = "type" in itemRecord
+          || "oneOf" in itemRecord
+          || "anyOf" in itemRecord
+          || "allOf" in itemRecord
+          || "$ref" in itemRecord;
+        if (!hasExplicitShape) {
+          missingTypes.push(`${path}.items`);
+        }
+      }
+      walk(items, `${path}.items`);
+    };
+
+    for (const tool of createWorkGovernanceTools(policy)) {
+      walk(tool.inputSchema, `${tool.name}.inputSchema`);
+    }
+
+    expect(missingTypes).toEqual([]);
+  });
+
+  it("materializes visual reference research before browser QA for UI work", async () => {
+    const tools = createWorkGovernanceTools(policy);
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Refactor GUI visual hierarchy from real product references.",
+        workflowProfile: "ui-change",
+        triggers: ["ui", "cross-surface"],
+      },
+    });
+
+    expect(created?.isError).toBe(false);
+    const parsed = JSON.parse(created?.output ?? "{}") as {
+      item: {
+        expectedEvidence: readonly string[];
+        verificationGates: readonly string[];
+      };
+    };
+    expect(parsed.item.expectedEvidence).toEqual(expect.arrayContaining([
+      "surface-map",
+      "risk-hypothesis",
+      "visual-reference-research",
+      "browser-qa",
+      "tests",
+      "typecheck",
+      "residual-risk",
+    ]));
+    expect(parsed.item.verificationGates).toEqual(expect.arrayContaining([
+      "real product screenshots or browser visual references before planning",
+      "source URLs and extracted reusable design principles",
+      "browser QA screenshot or interaction proof",
+    ]));
   });
 
   it("materializes expected evidence and verification gates from the profile evidence matrix", async () => {
@@ -141,6 +225,7 @@ describe("work-governance-tool", () => {
     });
 
     expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("visual-reference-research");
     expect(blocked?.output).toContain("browser-qa");
     expect(blocked?.output).toContain("residual-risk closeout");
     expect(blocked?.metadata).toMatchObject({
@@ -770,6 +855,7 @@ describe("work-governance-tool", () => {
     });
 
     expect(blocked?.isError).toBe(true);
+    expect(blocked?.output).toContain("missing gate: real product screenshots or browser visual references before planning");
     expect(blocked?.output).toContain("missing gate: browser QA screenshot or interaction proof");
     expect(blocked?.output).toContain("missing gate: accessibility/overflow check");
     expect(blocked?.metadata).toMatchObject({
@@ -777,6 +863,7 @@ describe("work-governance-tool", () => {
       operation: "complete",
       status: "blocked",
       missingVerificationGates: [
+        "real product screenshots or browser visual references before planning",
         "browser QA screenshot or interaction proof",
         "accessibility/overflow check",
       ],
@@ -1020,6 +1107,34 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("returns explicit next governed execution tools after creating a pending routed work item", async () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-routed",
+        summary: "Execute routed frontend implementation.",
+        workflowProfile: "ui-change",
+        triggers: ["ui", "managed-agents"],
+        assignedAgentProfile: "frontend-coder",
+        routeId: "opencode-go-frontend-approved-write",
+        authorityProfile: "foundation-apply-approved-writes",
+      },
+    });
+    const output = JSON.parse(created?.output ?? "{}") as {
+      readonly nextRequiredTools?: readonly string[];
+      readonly nextAction?: string;
+    };
+
+    expect(created?.isError).toBe(false);
+    expect(output.nextRequiredTools).toEqual(["goal.create", "work_item.execution.start"]);
+    expect(output.nextAction).toContain("Do not stop after scout");
+    expect(output.nextAction).toContain("opencode-go-frontend-approved-write");
+  });
+
   it("returns a recoverable goal.create contract error when execution references an unknown goal", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
@@ -1243,6 +1358,66 @@ describe("work-governance-tool", () => {
         managedInvocationId: "invocation-managed-1",
       },
     });
+  });
+
+  it("does not report providerRoute.providerId missing when a managed route id is already selected", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-route",
+      summary: "Execute delegated route-owned work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: ["review child handoff"],
+      goalRunId: "goal-managed-route",
+      routeId: "opencode-go-frontend-approved-write",
+      assignedAgentProfile: "frontend-coder",
+      authorityProfile: "foundation-apply-approved-writes",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-route",
+      objective: "Execute delegated route-owned work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: {
+        workflowProfile: "managed-agent-change",
+        managedAgentProfile: "frontend-coder",
+      },
+      evidenceRequirements: [],
+    });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const missingInvocation = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+      },
+    });
+    const output = JSON.parse(missingInvocation?.output ?? "{}") as {
+      readonly missingManagedInvocationFields?: readonly string[];
+      readonly managedInvocationRequest?: {
+        readonly routeId?: string;
+        readonly agentProfile?: string;
+        readonly providerRoute?: { readonly providerId?: string };
+      };
+    };
+
+    expect(missingInvocation?.isError).toBe(true);
+    expect(output.managedInvocationRequest).toMatchObject({
+      routeId: "opencode-go-frontend-approved-write",
+      agentProfile: "frontend-coder",
+    });
+    expect(output.managedInvocationRequest?.providerRoute).toBeUndefined();
+    expect(output.missingManagedInvocationFields).toBeUndefined();
   });
 });
 

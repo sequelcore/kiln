@@ -161,6 +161,17 @@ Governed execution uses explicit goal and work-item contracts:
 
 Agents should not fabricate `goalRunId` values. They must call `goal.create`
 after creating the relevant work items and before starting execution.
+After a scout or local read-only diagnosis, an open routed work item is still
+unfinished. The next governed step is `goal.create` when no goal exists, then
+`work_item.execution.start`; parent agents must not report a generic read-only
+sandbox block when a write-capable managed route is already selected.
+
+UI and visual-design work has one extra pre-plan evidence gate:
+`visual-reference-research`. Text search is not enough when the requested
+change depends on real visual taste, hierarchy, density, or product polish.
+Use browser, computer-use, image-capable, or screenshot-capable tools when
+available to inspect real product references, record source URLs, and extract
+reusable design principles without copying another product.
 
 Execute-mode provider calls include shared governed closeout instructions. When
 `work_governance.assess` recommends orchestration or delegation, research,
@@ -489,6 +500,12 @@ The supported theme names are defined once in `@kilnai/gateway-contracts`.
 ### Built-in tool schemas
 
 `TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and annotations. `createDefaultBuiltinToolSurface()` turns those core definitions into registry, MCP, runtime, CLI, and capability projections.
+
+Builtin `inputSchema` properties must carry explicit JSON Schema shape
+information. Do not rely on enum-only property definitions such as
+`{ enum: [...] }`; use `type: "string"` with string enums so strict
+OpenAI-compatible providers can accept the same schemas projected through
+direct-provider managed routes.
 
 High-volume tools support a shared `verbosity` field:
 

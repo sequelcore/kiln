@@ -518,7 +518,16 @@ canonical `work_item_updated` session events and a model-readable
 canonical config and docs; work items are session evidence, not reusable team
 policy.
 Use `work_item.execution.start` to enter active execution; `work_item.update`
-does not accept `status=in_progress`.
+does not accept `status=in_progress`. A scout or local read-only diagnosis does
+not complete routed work. When a pending work item has an assigned write route,
+the parent should create or use a goal and call `work_item.execution.start`
+instead of reporting a generic read-only sandbox block.
+
+UI work that depends on aesthetics or product polish requires
+`visual-reference-research` before planning. Text-only web search is
+insufficient for this evidence; agents should use browser, computer-use,
+image-capable, or screenshot-capable tools when available and record source
+URLs plus extracted design principles.
 
 Matching global agent profiles live under `~/.kiln/agents/`. They must use the
 canonical profile contract; partial native-agent files are not accepted as

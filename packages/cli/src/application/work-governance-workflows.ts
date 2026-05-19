@@ -51,6 +51,10 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
   },
   "ui-change": {
+    "visual-reference-research": [
+      "real product screenshots or browser visual references before planning",
+      "source URLs and extracted reusable design principles",
+    ],
     "browser-qa": ["browser QA screenshot or interaction proof", "accessibility/overflow check"],
     typecheck: ["typecheck"],
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
@@ -120,8 +124,22 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     minimumRisk: "medium",
     recommendedAgentProfiles: ["scout", "react-ts-reviewer", "reviewer"],
     defaultAuthorityProfile: "foundation-propose-writes",
-    requiredEvidence: ["surface-map", "risk-hypothesis", "browser-qa", "tests", "typecheck", "residual-risk"],
-    verificationGates: ["browser QA screenshot or interaction proof", "accessibility/overflow check", "typecheck"],
+    requiredEvidence: [
+      "surface-map",
+      "risk-hypothesis",
+      "visual-reference-research",
+      "browser-qa",
+      "tests",
+      "typecheck",
+      "residual-risk",
+    ],
+    verificationGates: [
+      "real product screenshots or browser visual references before planning",
+      "source URLs and extracted reusable design principles",
+      "browser QA screenshot or interaction proof",
+      "accessibility/overflow check",
+      "typecheck",
+    ],
   },
   {
     id: "managed-agent-change",

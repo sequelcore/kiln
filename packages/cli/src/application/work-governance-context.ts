@@ -27,8 +27,10 @@ export function buildWorkGovernanceContext(config: KilnWorkGovernanceConfig | un
     "- Non-trivial work should be decomposed, delegated to configured managed agents when available, verified, and closed with evidence.",
     "- Use work_profile.list and work_item.update/list/complete to track broad work and fail closed on missing evidence.",
     "- Use work_item.execution.start/finish for approved goal-bound work so attempt history, evidence, and residual risk are recorded.",
+    "- Do not stop after scout or local read-only diagnosis when a governed work item has a write-capable route; create/use a goal and call work_item.execution.start.",
     "- If work_item.execution.start pauses for managed delegation, use its managedInvocationRequest with managed_agent.invoke, then restart with the returned managedInvocationId.",
     "- When delegating a work item with managed_agent.invoke, pass the work item id, expected evidence, result fields, done criteria, role intent, and residual-risk requirement.",
+    "- Visual UI work requires visual-reference-research before planning: use browser, computer-use, image-capable, or screenshot-capable tools when available, record source URLs, and extract reusable design principles rather than copying a product.",
     "- Model self-confidence is not evidence; executable checks, browser QA, formal proof, managed-agent review, and residual-risk reporting are stronger evidence.",
   ].filter((line): line is string => line !== undefined);
 
