@@ -2,7 +2,9 @@ import { OpenAICompatAdapter } from "./openai-compat.js";
 import { OpenCodeAuth, type OpenCodeTier } from "./opencode-auth.js";
 import { KilnError } from "../../engine/errors.js";
 
-export const OPENCODE_BASE_URL = "https://opencode.ai/zen/v1";
+export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
+export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const OPENCODE_BASE_URL = OPENCODE_ZEN_BASE_URL;
 
 export interface OpenCodeAdapterConfig {
   readonly apiKey: string;
@@ -22,7 +24,7 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
     }
     super({
       apiKey: config.apiKey,
-      baseUrl: OPENCODE_BASE_URL,
+      baseUrl: openCodeBaseUrlForTier(config.tier),
       defaultModel,
       providerName: config.tier === "zen" ? "opencode-zen" : "opencode-go",
       internalRetry: config.internalRetry,
@@ -48,6 +50,10 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
       defaultModel: opts.defaultModel,
     });
   }
+}
+
+export function openCodeBaseUrlForTier(tier: OpenCodeTier): string {
+  return tier === "go" ? OPENCODE_GO_BASE_URL : OPENCODE_ZEN_BASE_URL;
 }
 
 export class OpenCodeRateLimitError extends KilnError {

@@ -1573,6 +1573,54 @@ describe("attached runtime builtin tool surface", () => {
     });
   });
 
+  it("injects the runtime session id into goal.create when the model omits ownerSessionId", async () => {
+    const goalInputs: ToolInput[] = [];
+    const goalTool: DevTool = {
+      name: "goal.create",
+      description: "Create a goal.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: true,
+      },
+      annotations: {
+        readOnly: false,
+        idempotent: false,
+      },
+      async execute(input) {
+        goalInputs.push(input);
+        return {
+          output: JSON.stringify({ ownerSessionId: input.input.ownerSessionId }),
+          isError: false,
+        };
+      },
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [goalTool],
+      }),
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-goal",
+        name: "goal.create",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("goal.create")?.({
+      objective: "Governed UI refactor.",
+      ownerSessionId: null,
+    }, context) as ToolResult | undefined;
+
+    expect(result?.isError).toBe(false);
+    expect(goalInputs[0]?.input).toMatchObject({
+      ownerSessionId: session.id,
+    });
+  });
+
   it("propagates deferred core tool projection to runtime consumers", () => {
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: {

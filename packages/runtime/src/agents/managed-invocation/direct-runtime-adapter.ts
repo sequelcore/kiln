@@ -1,8 +1,10 @@
 import type {
   AuthorityDescriptor,
   Capability,
+  ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAgentWriteEvidence,
   ProviderAdapter,
   SandboxConfig,
   ToolDefinition,
@@ -10,6 +12,7 @@ import type {
 import {
   DefaultContextGovernor,
   defineManagedAgentAdapterDescriptor,
+  defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
   extractText,
   renderProjectedContext,
@@ -23,11 +26,16 @@ import type {
   PerCallToolConfig,
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
+  ToolExecutionSummary,
 } from "../../session/runtime-session-orchestrator.types.js";
 import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
 } from "./index.js";
+import {
+  collectManagedAgentLiveWriteEvidence,
+  normalizeManagedAgentLiveWriteChanges,
+} from "./live-write-event-bridge.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -37,6 +45,7 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly builtinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
+  readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly maxToolRounds?: number;
 }
 
@@ -62,11 +71,16 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.capabilityMap = config.capabilityMap;
     this.toolAuthority = config.toolAuthority;
     this.maxToolRounds = config.maxToolRounds;
+    const writeAuthority = config.writeAuthority !== undefined
+      ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
+      : undefined;
     this.descriptor = defineManagedAgentAdapterDescriptor({
       adapterDescriptorId: `adapter:${this.providerId}:direct-provider`,
       providerId: this.providerId,
       adapterKind: "direct",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedProfiles: writeAuthority !== undefined
+        ? ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"]
+        : ["foundation-readonly-plan"],
       supportedExecutionModes: ["direct-provider"],
       lifecycle: {
         exposesStart: true,
@@ -96,6 +110,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       },
       credentialRoute: { supported: true },
       memoryContext: { governedAdmission: true },
+      ...(writeAuthority !== undefined ? { writeAuthority } : {}),
       unsupportedFieldPolicy: "reject",
       cleanup: { supported: true },
     });
@@ -118,6 +133,11 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
 
     if (raced === TIMEOUT) {
       execution.catch(() => undefined);
+      const timeoutSummary = formatTimeoutSummary({
+        timeoutMs: request.authority.timeoutMs,
+        childSessionId,
+        childTurnId,
+      });
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
         lifecycleState: "timed-out",
@@ -130,7 +150,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         }],
         usage: unknownRuntimeUsage(),
         resultHandoff: {
-          summary: "Direct provider managed invocation timed out.",
+          summary: timeoutSummary,
           resourceUris: [managedInvocationUri(request.invocationId, "timeout")],
           memoryWriteProposalUris: [],
         },
@@ -181,6 +201,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         perCallConfig,
       );
       const summary = clipSummary(extractText(result.parts));
+      const writeEvidence = collectDirectRuntimeWriteEvidence(request, result.toolExecutions ?? []);
 
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
@@ -203,9 +224,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         },
         resultHandoff: {
           summary,
-          resourceUris: [managedInvocationUri(request.invocationId, "transcript")],
+          resourceUris: [
+            managedInvocationUri(request.invocationId, "transcript"),
+            ...writeEvidence.resultResourceUris,
+          ],
           memoryWriteProposalUris: [],
         },
+        ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
     } catch (err) {
       return defineManagedAgentInvocationRecord({
@@ -348,7 +373,42 @@ function buildChildSessionId(request: ManagedAgentInvocationRequest): string {
   return `${request.parentSessionId}:managed:${request.invocationId}`;
 }
 
-function managedInvocationUri(invocationId: string, kind: "transcript" | "timeout" | "failure"): string {
+function collectDirectRuntimeWriteEvidence(
+  request: ManagedAgentInvocationRequest,
+  toolExecutions: readonly ToolExecutionSummary[],
+): {
+  readonly evidence: readonly ManagedAgentWriteEvidence[];
+  readonly resultResourceUris: readonly string[];
+} {
+  const fileChanges = toolExecutions.flatMap((execution) =>
+    (execution.fileChanges ?? []).map((change) => ({
+      source: "tool-result" as const,
+      path: change.path,
+      changeType: change.changeType,
+      ...(change.linesAdded !== undefined ? { linesAdded: change.linesAdded } : {}),
+      ...(change.linesRemoved !== undefined ? { linesRemoved: change.linesRemoved } : {}),
+      ...(change.diffPreview !== undefined ? { diffPreview: change.diffPreview } : {}),
+      ...(change.diffTruncated !== undefined ? { diffTruncated: change.diffTruncated } : {}),
+    }))
+  );
+  if (fileChanges.length === 0) {
+    return {
+      evidence: [],
+      resultResourceUris: [],
+    };
+  }
+
+  const collected = collectManagedAgentLiveWriteEvidence({
+    request,
+    fileChanges: normalizeManagedAgentLiveWriteChanges(fileChanges),
+  });
+  return {
+    evidence: collected.evidence,
+    resultResourceUris: collected.attemptResourceUris,
+  };
+}
+
+function managedInvocationUri(invocationId: string, kind: string): string {
   return `kiln://managed-invocations/${invocationId}/${kind}`;
 }
 
@@ -357,7 +417,7 @@ function transcriptPointer(invocationId: string) {
     uri: managedInvocationUri(invocationId, "transcript"),
     redacted: "unknown" as const,
     truncated: false,
-    persisted: false,
+    persisted: true,
     retention: "session" as const,
   };
 }
@@ -384,6 +444,19 @@ function clipSummary(summary: string): string {
     return "Direct provider managed invocation completed.";
   }
   return trimmed.length > 2000 ? `${trimmed.slice(0, 1997)}...` : trimmed;
+}
+
+function formatTimeoutSummary(input: {
+  readonly timeoutMs: number;
+  readonly childSessionId: string;
+  readonly childTurnId: string;
+}): string {
+  return [
+    `Direct provider managed invocation timed out after ${input.timeoutMs}ms.`,
+    `Child session: ${input.childSessionId}.`,
+    `Child turn: ${input.childTurnId}.`,
+    "The parent invocation returned at the timeout boundary; partial child trace is unavailable from the direct provider adapter.",
+  ].join(" ");
 }
 
 function sleep(timeoutMs: number): Promise<void> {

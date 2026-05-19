@@ -74,19 +74,33 @@ Kiln-owned MCP client request timeout for that server. Use it for servers with
 long-running tools when the tool's own input does not expose a millisecond
 `timeout` field.
 
-Managed child invocation is derived from the same canonical routing hierarchy
-unless `managedAgents.routes` declares an explicit allowlist. When
-`routing.routes` is present, GUI, TUI, CLI run, and operator gateway sessions
-project eligible direct providers and harnesses with live-proven read-only
-result handoff into synthesized read-only `foundation-readonly-plan` routes for
-`managed_agent.invoke`.
+Kiln's economic routing posture is subscription-first where the provider exposes
+a compliant direct route. Direct subscription providers such as `codex-oauth`,
+`opencode-go`, and `opencode-zen` should be preferred for normal operator work
+because they preserve the user's paid access path without spawning a native CLI
+harness. Native harness providers such as `codex` and `opencode` are fallback
+routes for cases where a provider's terms, available API surface, or local
+capability proof requires the native harness. Keep those harness engines
+disabled or out of `routing.routes` unless the operator intentionally chooses
+that fallback.
+
+Managed child invocation is derived from the same canonical routing hierarchy.
+When `routing.routes` is present, GUI, TUI, CLI run, and operator gateway
+sessions project eligible direct providers and harnesses with live-proven
+read-only result handoff into synthesized read-only
+`foundation-readonly-plan` routes for `managed_agent.invoke`.
 Direct-provider projections require an explicit model and that model must be
 known tool-call-capable for Kiln runtime tools. If no ordered route list exists,
 Kiln falls back to the enabled supported child engines: `routing.defaultWorker`
 is preferred when it names `codex` or `opencode`; otherwise Kiln chooses the
 first enabled supported child engine. `managedAgents.routes` declares explicit
-allowlisted routes, and `managedAgents.enabled: false` disables the runtime tool
-even when a supported engine is enabled. A route whose provider has
+managed exceptions and authority-bearing routes. It is merged on top of derived
+read-only routes instead of replacing `routing.routes`; use it for write routes,
+special read-only exceptions, or explicit overrides, not as a duplicated routing
+graph. When `routing.routes` contains multiple models for the same provider,
+derived managed route IDs include a model slug so each team member remains
+addressable. `managedAgents.enabled: false` disables the runtime tool even when
+a supported engine is enabled. A route whose provider has
 `engines.<provider>.enabled: false` is unhealthy even if it is explicitly
 declared. A route is also unhealthy when the session-start engine probe cannot
 find or execute the target harness. Harness routes are also unhealthy when the
@@ -103,7 +117,11 @@ At runtime, Kiln projects the resolved route registry into the
 `managed_agent.invoke` tool definition so parent agents can see configured
 route ids and unavailable-route diagnostics. If multiple managed routes share a
 provider/profile, parent agents must select by `routeId` or by an exact
-configured model; provider-only selection fails closed as ambiguous.
+configured model unless a configured `agentProfile` contributes a route hint.
+When an agent-profile route hint exists, `managed_agent.invoke` uses it to
+disambiguate provider-only requests and rejects explicit route, provider, or
+model selections that contradict the hint. Provider-only selection without a
+hint fails closed as ambiguous.
 `modelTaskSuitability` entries override static suitability evidence for the
 matching provider/model/task. Use them for operator or project knowledge such
 as "this route is limited for frontend design" without changing global product
@@ -316,10 +334,12 @@ components:
 
 This example reflects a local operator setup where direct Codex OAuth is the
 primary deep-reasoning route, OpenCode Go contributes task-specialized direct
-models, OpenCode Zen free routes remain non-sensitive fallbacks, native Codex CLI is a harness fallback, OpenCode harness remains
-available for mechanical child work, and Claude is disabled until a valid
+models, OpenCode Zen free routes remain non-sensitive fallbacks, native CLI
+harnesses are disabled by default, and Claude is disabled until a valid
 subscription is available. It is a shape example only; secrets stay in
-environment variables or credential pools.
+environment variables or credential pools. Enable a native harness only as an
+explicit fallback when direct provider use is unavailable or not compliant with
+the provider terms for the desired workflow.
 For a complete sanitized file that includes task-aware skill selection and
 managed read-only routes, see
 `docs/examples/configs/task-aware-model-team.yaml`.
@@ -497,6 +517,8 @@ canonical `work_item_updated` session events and a model-readable
 `kiln://session/work-items` resource. Durable project doctrine still belongs in
 canonical config and docs; work items are session evidence, not reusable team
 policy.
+Use `work_item.execution.start` to enter active execution; `work_item.update`
+does not accept `status=in_progress`.
 
 Matching global agent profiles live under `~/.kiln/agents/`. They must use the
 canonical profile contract; partial native-agent files are not accepted as
@@ -552,10 +574,10 @@ child.
 managedAgents:
   enabled: true
   routes:
-    - id: codex-approved-write
-      kind: harness
-      provider: codex
-      model: gpt-5.3-codex-spark
+    - id: codex-oauth-critical-approved-write
+      kind: direct
+      provider: codex-oauth
+      model: gpt-5.5
       profiles:
         - foundation-apply-approved-writes
       workingDirectory: project
@@ -585,7 +607,7 @@ managedAgents:
         artifacts:
           mode: propose
           resourceUris:
-            - kiln://artifacts/managed-agent-write/codex-approved-write
+            - kiln://artifacts/managed-agent-write/codex-oauth-critical-approved-write
           retention: session
         tools:
           allowed:
@@ -600,17 +622,47 @@ managedAgents:
         mode: runtime-selected
 ```
 
-Only live-proven CLI harness providers currently expose approved workspace-write
-routes. Direct-provider write routes fail closed until direct write proof covers
-approved apply, rollback evidence, cleanup evidence, and replay. Read-only
-routes remain the default for analysis, planning, and review.
+Live-proven direct-provider adapters expose approved workspace-write routes for
+subscription-first setups when the route is explicit and includes
+`writeAuthority`. Read-only routes remain the default for analysis, planning,
+and review.
+
+For GUI/TUI operator turns, the composer authority selector is only the requested
+turn limit. Actual child edit capability comes from `managedAgents.routes[]`.
+If every managed route is `foundation-readonly-plan`, delegated implementation
+will correctly report that it cannot edit even when the parent turn is in
+`auto` authority. For subscription-first setups, do not add a native harness
+write route merely to make edits work; that changes the economic and auth
+surface. Use explicit direct managed routes for `codex-oauth`, `opencode-go`,
+and `opencode-zen` with `foundation-apply-approved-writes`, `tools.writes: true`,
+and `writeAuthority.approval.mode: required-before-apply`.
+
+For a task-aware team, keep read-only managed routes derived from
+`routing.routes` and add explicit write routes only for models that should
+implement under supervision. Prefer descriptive route IDs that encode the job:
+
+- `codex-oauth-critical-approved-write` for critical architecture-sensitive
+  edits, difficult backend changes, and test-heavy work.
+- `opencode-go-frontend-approved-write` for React, TypeScript, layout, and UI
+  implementation.
+- `opencode-go-backend-approved-write` for runtime, provider-routing, and
+  backend debugging.
+- `opencode-go-service-approved-write` for service, adapter, and data-flow
+  implementation.
+- `opencode-go-research-approved-write` for bounded research documentation
+  changes after sources are verified.
+- `opencode-go-mechanical-approved-write` and
+  `opencode-zen-mechanical-approved-write` for repetitive low-risk edits.
+- `opencode-zen-free-approved-write` as the cost-conscious direct-provider
+  fallback when the free route is sufficient.
 
 ### Supported providers
 
 `routing.defaultWorker` and `KILN_PROVIDER` accept engine/provider identifiers
-known to Kiln's registry. Harness routes such as `claude`, `codex`, and
-`opencode` are valid where the corresponding engine is enabled. Direct-provider
-identifiers remain available for direct runtime sessions.
+known to Kiln's registry. Direct subscription providers should appear before
+harness providers in normal user configs. Harness routes such as `claude`,
+`codex`, and `opencode` are valid where the corresponding engine is enabled, but
+they are fallback execution surfaces rather than the preferred economic route.
 
 | Provider ID | Description |
 |-------------|-------------|
@@ -867,6 +919,12 @@ suitability, agent-profile task affinity, the configured skill catalog, and
 unavailable-route diagnostics. This is why an operator can say "use the right
 child agent for this review" instead of spelling out every route field; the
 parent still chooses only from bounded Kiln ids.
+Resolved agent entries may include `routeId` and `providerRoute` hints. Hints
+come from explicit agent config first and from route suitability plus agent tier
+second. Fast profiles such as `scout` should resolve to bounded read-only Mini,
+Spark, or free routes when those routes are configured; heavyweight synthesis
+routes remain available for roles that need them but are not the default scout
+path.
 
 Canonical instruction profiles are the home for durable workflow standards
 such as "no dead code", "no redundancy", "DDD", "Clean Architecture", "TDD

@@ -61,6 +61,14 @@ function graphResponse(): GuiMemoryLatticeGraphResponse {
   };
 }
 
+async function waitForThreeMemoryGraph(): Promise<HTMLElement> {
+  await waitFor(
+    () => expect(screen.getByLabelText("Memory graph")).toHaveAttribute("data-renderer", "three"),
+    { timeout: 5000 },
+  );
+  return screen.getByLabelText("Memory graph");
+}
+
 describe("MemoryLatticePanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -107,7 +115,7 @@ describe("MemoryLatticePanel", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText("Memory graph")).toHaveAttribute("data-renderer", "three"));
+    await waitForThreeMemoryGraph();
     expect(screen.queryByRole("region", { name: "Memory record detail" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Admission evidence" }));
@@ -128,7 +136,7 @@ describe("MemoryLatticePanel", () => {
     );
 
     expect(screen.getByLabelText("Memory Lattice surface")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("Memory graph")).toHaveAttribute("data-renderer", "three"));
+    await waitForThreeMemoryGraph();
     expect(screen.getByRole("heading", { name: "Admission evidence" })).toBeInTheDocument();
     expect(screen.getByText("Latest admission")).toBeInTheDocument();
     expect(screen.getByText("admitted")).toBeInTheDocument();
@@ -288,7 +296,7 @@ describe("MemoryLatticePanel", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText("Memory graph")).toHaveAttribute("data-renderer", "three"));
+    await waitForThreeMemoryGraph();
     expect(screen.getByLabelText("Memory graph")).toHaveAttribute("data-reduced-motion", "true");
   });
 

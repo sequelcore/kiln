@@ -55,9 +55,13 @@ describe("GUI authority forwarding", () => {
       completeness: "authoritative",
       toolCount: 0,
     });
-    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "fail_closed",
+      admittedAuthority: "fail_closed",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
+      toolCount: 0,
     });
   });
 
@@ -81,8 +85,11 @@ describe("GUI authority forwarding", () => {
       completeness: "authoritative",
       toolCount: cfg.toolAllowlist?.size,
     });
-    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -114,8 +121,11 @@ describe("GUI authority forwarding", () => {
       completeness: "authoritative",
       toolCount: cfg.toolAllowlist?.size,
     });
-    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "read_only",
+      admittedAuthority: "read_only",
+      requestedAuthority: "planning",
+      executionMode: "plan",
       completeness: "authoritative",
     });
   });
@@ -219,8 +229,11 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("write")).toBe(false);
     expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
     expect(cfg.toolAuthority?.has("write")).toBe(false);
-    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -238,8 +251,11 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.size).toBe(0);
     expect(cfg.additionalTools).toEqual([]);
     expect(cfg.toolAuthority?.size).toBe(0);
-    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "fail_closed",
+      admittedAuthority: "fail_closed",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -253,8 +269,11 @@ describe("GUI authority forwarding", () => {
 
     expect(cfg.toolAllowlist?.has("write")).toBe(false);
     expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
-    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveGuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -296,8 +315,11 @@ describe("GUI authority forwarding", () => {
     );
     const defaultConfig = buildGuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
 
-    expect(deriveGuiDoneAuthorityStatus(doneTurnConfig, defaultConfig)).toEqual({
+    expect(deriveGuiDoneAuthorityStatus(doneTurnConfig, defaultConfig)).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "audited",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -325,12 +347,18 @@ describe("GUI authority forwarding", () => {
       authorityStatus,
     };
 
-    expect(welcomeFrame.authorityStatus).toEqual({
+    expect(welcomeFrame.authorityStatus).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
-    expect(doneFrame.authorityStatus).toEqual({
+    expect(doneFrame.authorityStatus).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });

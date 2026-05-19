@@ -176,6 +176,21 @@ const GuiProviderDiscoveryResultSchema = z.object({
 
 const GuiAuthorityStatusSchema = z.object({
   effective: z.enum(["fail_closed", "read_only", "idempotent", "audited", "destructive", "unknown"]),
+  admittedAuthority: z.enum(["fail_closed", "read_only", "idempotent", "audited", "destructive", "unknown"]).optional(),
+  requestedAuthority: z.enum(["planning", "auto", "read_only", "audited", "destructive"]).optional(),
+  executionMode: z.enum(["execute", "plan"]).optional(),
+  sandboxProjection: z.enum(["none", "read_only", "workspace_write", "unknown"]).optional(),
+  reason: z.string().optional(),
+  toolCount: z.number().int().min(0).optional(),
+  deniedToolCount: z.number().int().min(0).optional(),
+  policyInputs: z.array(z.object({
+    source: z.string(),
+    status: z.enum(["applied", "not_applicable", "unresolved"]),
+    reason: z.string(),
+    subjectId: z.string().optional(),
+    requestedAuthority: z.enum(["planning", "auto", "read_only", "audited", "destructive"]).optional(),
+    admittedAuthority: z.enum(["fail_closed", "read_only", "idempotent", "audited", "destructive", "unknown"]).optional(),
+  })).optional(),
   completeness: z.enum(["authoritative", "partial"]),
 });
 

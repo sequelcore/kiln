@@ -138,6 +138,45 @@ unknown tools remain MCP error results.
 
 ---
 
+## Governed Work Tools
+
+Governed execution uses explicit goal and work-item contracts:
+
+- `work_item.update` creates or updates bounded work items with workflow
+  profile, evidence, gates, route hints, and pause requirements.
+- `goal.create` creates the canonical goal run from existing work items and
+  links those work items to the goal before execution starts. Attached runtime
+  surfaces bind the goal to the current session when `ownerSessionId` is omitted
+  or null; callers should not pass placeholders such as `"current"`.
+- `work_item.execution.start` starts the next ready work item for an existing
+  goal. If the goal id is unknown, it returns a structured recoverable error
+  with `suggestedNextTool: "goal.create"` instead of accepting an invented id.
+  A started attempt is not closeout by itself; while the item remains
+  `in_progress`, the latest governed turn is projected as failed/blocked until
+  `work_item.execution.finish` or `work_item.complete` records terminal
+  evidence.
+- `work_item.execution.finish` closes the attempt and fails closed when
+  evidence, verification gates, goal evidence, or residual-risk closeout is
+  missing.
+
+Agents should not fabricate `goalRunId` values. They must call `goal.create`
+after creating the relevant work items and before starting execution.
+
+Execute-mode provider calls include shared governed closeout instructions. When
+`work_governance.assess` recommends orchestration or delegation, research,
+inspection, planning prose, and successful read-only scouts are intermediate
+evidence only. The parent must keep using the same governed work item until it
+starts execution, finishes execution, completes the item, submits a structured
+terminal plan, or records a concrete pause requirement. Open work items without
+terminal closeout project as failed consistently in CLI, TUI, and GUI.
+
+Optional array fields in these contracts use omission semantics. A model or
+surface may send `null` for optional arrays such as `pauseRequirements`,
+`include`, or `exclude`; tools normalize those values as omitted rather than
+failing schema intent after a recoverable model serialization choice.
+
+---
+
 ## Webhook tools
 
 Webhook tools expose external HTTP endpoints as tenant-scoped tools. Kiln signs requests with HMAC-SHA256 and returns the parsed JSON response as the tool result.

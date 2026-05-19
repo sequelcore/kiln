@@ -4,7 +4,9 @@ import {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
   isOperatorThemeName,
+  listOperatorCommands,
   type GuiAppDescriptor,
+  type GuiAuthorityStatus,
   type GuiInboundFrame,
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
@@ -14,6 +16,7 @@ import {
   type OperatorWorkspaceFileSnapshot,
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
+  type OperatorCommandDefinition,
 } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
@@ -100,6 +103,17 @@ const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
 };
 const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
+
+function operatorCommandToPaletteItem(command: OperatorCommandDefinition): CommandPaletteItem {
+  return {
+    id: command.id,
+    trigger: command.trigger,
+    title: command.title,
+    description: command.description,
+    keywords: command.keywords,
+  };
+}
+
 const MemoryLatticePanel = lazy(async () => {
   const module = await import("./memory-lattice/memory-lattice-panel.js");
   return { default: module.MemoryLatticePanel };
@@ -316,6 +330,14 @@ function toWsUrl(path: string): string {
   return `${protocol}//${window.location.host}${path}`;
 }
 
+function resolveGatewayHttpBaseUrl(): string {
+  const gatewayPort = import.meta.env.VITE_GATEWAY_PORT as string | undefined;
+  if (import.meta.env.DEV && gatewayPort) {
+    return `${window.location.protocol}//${window.location.hostname}:${gatewayPort}`;
+  }
+  return window.location.origin;
+}
+
 function waitForProviderSwitchResolution(provider: string, model: string | null): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const deadline = Date.now() + PROVIDER_SWITCH_WAIT_TIMEOUT_MS;
@@ -476,8 +498,21 @@ function ReasoningEffortControl(props: {
 
 function TurnAuthorityControl(props: {
   readonly value: RequestableTurnAuthority;
+  readonly authorityStatus: GuiAuthorityStatus | null;
   readonly onChange: (value: RequestableTurnAuthority) => void;
 }) {
+  const admitted = props.authorityStatus?.admittedAuthority ?? props.authorityStatus?.effective;
+  const sandbox = props.authorityStatus?.sandboxProjection;
+  const effectiveLabel = admitted && admitted !== props.value
+    ? `${TURN_AUTHORITY_LABELS[props.value]} -> ${admitted}`
+    : TURN_AUTHORITY_LABELS[props.value];
+  const title = [
+    `requested: ${props.value}`,
+    `admitted: ${admitted ?? "unknown"}`,
+    `execution: ${props.authorityStatus?.executionMode ?? "unknown"}`,
+    `sandbox: ${sandbox ?? "unknown"}`,
+    props.authorityStatus?.reason ? `reason: ${props.authorityStatus.reason}` : undefined,
+  ].filter(Boolean).join("\n");
   return (
     <Select
       value={props.value}
@@ -487,8 +522,8 @@ function TurnAuthorityControl(props: {
         }
       }}
     >
-      <SelectTrigger size="sm" aria-label="Turn authority" className="min-w-28">
-        <SelectValue />
+      <SelectTrigger size="sm" aria-label="Turn authority" title={title} className="min-w-36">
+        <span className="truncate">{effectiveLabel}</span>
       </SelectTrigger>
       <SelectContent align="end">
         <SelectGroup>
@@ -623,6 +658,7 @@ export function AppShell() {
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const resumeTargetId = useSessionStore((state) => state.resumeTargetId);
   const turnCounter = useSessionStore((state) => state.turnCounter);
+  const authorityStatus = useSessionStore((state) => state.authorityStatus);
   const activityPhase = useSessionStore((state) => state.activityPhase);
   const interactiveUseSnapshot = useSessionStore((state) => state.interactiveUseSnapshot);
   const browserSessionState = useSessionStore((state) => state.browserSessionState);
@@ -665,7 +701,7 @@ export function AppShell() {
   const setResume = useSessionStore((state) => state.setResume);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
-  const gatewayClient = useMemo(() => new GuiGatewayClient(window.location.origin), []);
+  const gatewayClient = useMemo(() => new GuiGatewayClient(resolveGatewayHttpBaseUrl()), []);
   const changedFiles = useMemo(() => deriveChangedFiles(timelineEntries), [timelineEntries]);
   const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
   const workItems = useMemo(() => deriveWorkItems(timelineEntries), [timelineEntries]);
@@ -1154,36 +1190,7 @@ export function AppShell() {
     description: `Apply ${theme}.`,
     keywords: ["theme", theme, OPERATOR_THEME_LABELS[theme].toLowerCase()],
   }));
-  const rootCommands: readonly CommandPaletteItem[] = [
-    {
-      id: "new-session",
-      trigger: "new session",
-      title: "New Session",
-      description: "Reset the current conversation and start clean.",
-      keywords: ["session", "reset", "new"],
-    },
-    {
-      id: "theme",
-      trigger: "theme",
-      title: "Theme",
-      description: "Open the theme picker commands.",
-      keywords: ["appearance", "dark", "light"],
-    },
-    {
-      id: "provider",
-      trigger: "provider",
-      title: "Provider",
-      description: "Open the provider and model picker.",
-      keywords: ["model", "routing"],
-    },
-    {
-      id: "setup",
-      trigger: "setup",
-      title: "Setup",
-      description: "Open config and projection status.",
-      keywords: ["config", "status", "shims"],
-    },
-  ];
+  const rootCommands: readonly CommandPaletteItem[] = listOperatorCommands("gui").map(operatorCommandToPaletteItem);
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
   const runtimeBootstrapReady = gatewayReady && providerCatalogStatus === "ready";
   const bootstrapTitle = gatewayError || providerCatalogStatus === "error"
@@ -1201,22 +1208,21 @@ export function AppShell() {
   );
   const retryBootstrap = () => {
     clearErrorBanner();
+    setGatewayError(null);
+    setGatewayReady(false);
+    setGatewayAttempt((count) => count + 1);
     markProviderCatalogRefreshing();
     if (wsState === "open") {
       send({ type: "refresh_providers" });
     }
     void dashboardQuery.refetch();
-    if (gatewayError) {
-      setGatewayAttempt((count) => count + 1);
-    }
   };
 
   const executePaletteCommand = (command: CommandPaletteItem) => {
     closeComposerCommands();
     switch (command.id) {
-      case "new-session":
-        sendClear();
-        setSelectedSessionId(null);
+      case "clear":
+        startNewSession();
         closePalette();
         return;
       case "theme":
@@ -1228,8 +1234,48 @@ export function AppShell() {
         setIsProviderPickerOpen(true);
         closePalette();
         return;
+      case "effort": {
+        if (reasoningEffortOptions.length > 0) {
+          const currentIndex = resolvedReasoningEffort
+            ? reasoningEffortOptions.indexOf(resolvedReasoningEffort)
+            : -1;
+          const next = reasoningEffortOptions[(currentIndex + 1) % reasoningEffortOptions.length];
+          if (next) {
+            setReasoningEffort(next);
+          }
+        }
+        closePalette();
+        return;
+      }
+      case "authority": {
+        const currentIndex = TURN_AUTHORITY_OPTIONS.indexOf(requestedAuthority);
+        const next = TURN_AUTHORITY_OPTIONS[(currentIndex + 1) % TURN_AUTHORITY_OPTIONS.length];
+        if (next) {
+          setRequestedAuthority(next);
+        }
+        closePalette();
+        return;
+      }
+      case "resume":
+        setSessionPopoverOpen(true);
+        closePalette();
+        return;
+      case "plan":
+        setPlanMode(true);
+        setWorkbenchSurface("chat");
+        closePalette();
+        return;
+      case "exec":
+        setPlanMode(false);
+        setWorkbenchSurface("chat");
+        closePalette();
+        return;
       case "setup":
         setWorkbenchSurface("setup");
+        closePalette();
+        return;
+      case "goal":
+        setWorkbenchSurface("work");
         closePalette();
         return;
       default:
@@ -1627,6 +1673,7 @@ export function AppShell() {
             authorityControl={(
               <TurnAuthorityControl
                 value={requestedAuthority}
+                authorityStatus={authorityStatus}
                 onChange={setRequestedAuthority}
               />
             )}

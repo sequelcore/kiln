@@ -25,6 +25,14 @@ const READONLY_POLICY: KilnPermissionPolicy = {
   approval: "on-request",
   sandbox: "read-only",
 };
+const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY = {
+  proposalSupported: true,
+  approvedApplySupported: true,
+  memoryProposalSupported: true,
+  rollbackEvidence: true,
+  cleanupEvidence: true,
+  scopeReduction: true,
+} as const;
 
 function createRegistry(provider: ProviderId, available = true): SessionRegistry {
   return createRegistryForProviders([{ provider, available }]);
@@ -91,13 +99,20 @@ function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}):
   };
 }
 
-function makeDirectAdapter(providerId = "openai"): ManagedAgentRuntimeAdapter {
+function makeDirectAdapter(providerId = "openai", writeCapable = false): ManagedAgentRuntimeAdapter {
   return {
     descriptor: defineManagedAgentAdapterDescriptor({
       adapterDescriptorId: `adapter:${providerId}:direct-provider`,
       providerId,
       adapterKind: "direct",
-      supportedProfiles: ["foundation-readonly-plan"],
+      supportedProfiles: writeCapable
+        ? [
+          "foundation-readonly-plan",
+          "foundation-propose-writes",
+          "foundation-apply-approved-writes",
+          "foundation-memory-write-proposals",
+        ]
+        : ["foundation-readonly-plan"],
       supportedExecutionModes: ["direct-provider"],
       lifecycle: {
         exposesStart: true,
@@ -124,6 +139,7 @@ function makeDirectAdapter(providerId = "openai"): ManagedAgentRuntimeAdapter {
       },
       credentialRoute: { supported: true },
       memoryContext: { governedAdmission: true },
+      ...(writeCapable ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
       unsupportedFieldPolicy: "reject",
       cleanup: { supported: true },
     }),
@@ -297,6 +313,164 @@ describe("resolveManagedInvocationToolOptions", () => {
       profiles: ["foundation-readonly-plan"],
       reason: OPENCODE_UNADVERTISED_MODEL_REASON,
     });
+  });
+
+  it("keeps subscription-first routing on direct providers when harness engines are disabled", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "1",
+      engines: {
+        "codex-oauth": { enabled: true, billing: "subscription" },
+        "opencode-go": { enabled: true, billing: "subscription" },
+        "opencode-zen": { enabled: true, billing: "api-key" },
+        codex: { enabled: false, billing: "plus-quota" },
+        opencode: { enabled: false, billing: "free" },
+      },
+      routing: {
+        defaultWorker: "codex-oauth",
+        fallback: "opencode-zen",
+        routes: [
+          { provider: "codex-oauth", model: "gpt-5.5" },
+          { provider: "opencode-go", model: "minimax-m2.7" },
+          { provider: "opencode-zen", model: "deepseek-v4-flash-free" },
+        ],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistryForProviders([
+        { provider: "codex-oauth" },
+        { provider: "opencode-go" },
+        { provider: "opencode-zen" },
+        { provider: "codex", available: false },
+        { provider: "opencode", available: false },
+      ]),
+      surface: "gui",
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.routeHealth.map((route) => ({
+      routeId: route.routeId,
+      kind: route.kind,
+      provider: route.provider,
+      available: route.available,
+    }))).toEqual([
+      {
+        routeId: "codex-oauth-readonly",
+        kind: "direct",
+        provider: "codex-oauth",
+        available: true,
+      },
+      {
+        routeId: "opencode-go-readonly",
+        kind: "direct",
+        provider: "opencode-go",
+        available: true,
+      },
+      {
+        routeId: "opencode-zen-readonly",
+        kind: "direct",
+        provider: "opencode-zen",
+        available: true,
+      },
+    ]);
+    expect(result.managedInvocation?.routes.map((route) => route.providerId)).toEqual([
+      "codex-oauth",
+      "opencode-go",
+      "opencode-zen",
+    ]);
+  });
+
+  it("combines routing-derived read-only routes with explicit managed route exceptions", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "1",
+      engines: {
+        "codex-oauth": { enabled: true, billing: "subscription" },
+        "opencode-go": { enabled: true, billing: "subscription" },
+      },
+      routing: {
+        routes: [
+          { provider: "codex-oauth", model: "gpt-5.5" },
+          { provider: "opencode-go", model: "kimi-k2.6" },
+          { provider: "opencode-go", model: "deepseek-v4-pro" },
+        ],
+      },
+      managedAgents: {
+        enabled: true,
+        routes: [{
+          id: "opencode-go-approved-write",
+          kind: "direct",
+          provider: "opencode-go",
+          model: "deepseek-v4-pro",
+          profiles: ["foundation-apply-approved-writes"],
+          tools: {
+            allowed: ["read", "grep", "write", "apply-patch"],
+            writes: true,
+          },
+          writeAuthority: {
+            workspace: {
+              mode: "apply-approved",
+              allowedPaths: ["packages/runtime"],
+            },
+            approval: {
+              mode: "required-before-apply",
+            },
+          },
+        }],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistryForProviders([
+        { provider: "codex-oauth" },
+        { provider: "opencode-go" },
+      ]),
+      surface: "gui",
+      directAdapterFactory: (route) => makeDirectAdapter(
+        route.provider,
+        route.profiles.includes("foundation-apply-approved-writes"),
+      ),
+    });
+
+    expect(result.routeHealth.map((route) => ({
+      routeId: route.routeId,
+      provider: route.provider,
+      model: route.model,
+      profiles: route.profiles,
+      available: route.available,
+    }))).toEqual([
+      {
+        routeId: "codex-oauth-readonly",
+        provider: "codex-oauth",
+        model: "gpt-5.5",
+        profiles: ["foundation-readonly-plan"],
+        available: true,
+      },
+      {
+        routeId: "opencode-go-kimi-k2-6-readonly",
+        provider: "opencode-go",
+        model: "kimi-k2.6",
+        profiles: ["foundation-readonly-plan"],
+        available: true,
+      },
+      {
+        routeId: "opencode-go-deepseek-v4-pro-readonly",
+        provider: "opencode-go",
+        model: "deepseek-v4-pro",
+        profiles: ["foundation-readonly-plan"],
+        available: true,
+      },
+      {
+        routeId: "opencode-go-approved-write",
+        provider: "opencode-go",
+        model: "deepseek-v4-pro",
+        profiles: ["foundation-apply-approved-writes"],
+        available: true,
+      },
+    ]);
+    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual([
+      "codex-oauth-readonly",
+      "opencode-go-kimi-k2-6-readonly",
+      "opencode-go-deepseek-v4-pro-readonly",
+      "opencode-go-approved-write",
+    ]);
   });
 
   it("exposes unhealthy direct routing projections as unavailable tool routes", async () => {
@@ -545,6 +719,43 @@ describe("resolveManagedInvocationToolOptions", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("projects agent-aware route hints so fast scouts do not default to heavyweight synthesis routes", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-oauth-readonly",
+        kind: "direct",
+        provider: "codex-oauth",
+        model: "gpt-5.5",
+        profiles: ["foundation-readonly-plan"],
+      }, {
+        id: "codex-oauth-scout-readonly",
+        kind: "direct",
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex-oauth"),
+      surface: "gui",
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual([
+      "codex-oauth-readonly",
+      "codex-oauth-scout-readonly",
+    ]);
+    expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+      name: "scout",
+      tier: "fast",
+      routeId: "codex-oauth-scout-readonly",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.4-mini",
+      },
+    }));
   });
 
   it("keeps explicit routes unhealthy when their engine is disabled", async () => {
@@ -969,7 +1180,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
-  it("keeps direct provider write-capable routes unavailable until direct write proof exists", async () => {
+  it("resolves explicit live-proven direct provider routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
         id: "codex-oauth-approved-write",
@@ -995,14 +1206,43 @@ describe("resolveManagedInvocationToolOptions", () => {
       cwd: "C:/repo",
       registry: createRegistry("codex-oauth"),
       surface: "gui",
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider, true),
     });
 
-    expect(result.managedInvocation).toBeUndefined();
-    expect(result.routeHealth[0]).toMatchObject({
+    expect(result.routeHealth).toEqual([{
       routeId: "codex-oauth-approved-write",
-      available: false,
-      reason: "Direct managed invocation write-capable routes are not live-proven yet.",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-apply-approved-writes"],
+      available: true,
+    }]);
+    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
+      adapterKind: "direct",
+      supportedProfiles: [
+        "foundation-readonly-plan",
+        "foundation-propose-writes",
+        "foundation-apply-approved-writes",
+        "foundation-memory-write-proposals",
+      ],
+      writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
+    });
+    expect(result.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"]).toMatchObject({
+      permissionProfile: "apply-approved-writes",
+      writeAllowed: true,
+      workingDirectory: {
+        path: "C:/repo",
+        mode: "workspace-write",
+      },
+      writeAuthority: {
+        scope: {
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths: ["C:\\repo\\packages\\cli\\src\\config"],
+            deniedPaths: ["C:\\repo\\.git"],
+          },
+        },
+      },
     });
   });
 });

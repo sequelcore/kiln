@@ -117,6 +117,9 @@ surfaces:
   verification gates.
 - `work_item.update`
   Creates or updates a governed work item in the current session.
+  It cannot set `status=in_progress`; active execution is owned only by
+  `work_item.execution.start` so attempts, route evidence, and pause reasons
+  stay replayable.
 - `work_item.list`
   Lists current work items and their evidence status.
 - `work_item.complete`
@@ -137,6 +140,42 @@ surfaces:
 Parent agents should use these tools when the task may be broad, risky,
 cross-surface, provider/runtime-related, UI-related, or verification-heavy.
 They are shared runtime tools, not GUI-only behavior.
+
+An `orchestrate` or `delegate` recommendation is a control-plane obligation,
+not a status label. After `work_governance.assess` recommends orchestration or
+delegation, the same turn must materialize governed work through a durable
+artifact such as `submit_specification`, `submit_plan`, `goal.create`,
+`work_item.update`, `work_item.execution.start`, or `managed_agent.invoke`.
+Pure scouting, search, file reads, or a "next I will..." status message are not
+closeout evidence. Runtime records that turn as failed so GUI, TUI, CLI, SDK,
+and replay consumers do not show unmaterialized orchestration as completed work.
+Materialization is still not closeout. If the latest governed work-item snapshot
+has unresolved `pauseRequirements`, the objective is blocked. Until the
+canonical turn outcome enum gains a first-class `blocked` value, runtime must
+project that turn as `failed` and keep the blocking reason in the work-item
+evidence instead of reporting a completed turn.
+The same fail-closed rule applies when a governed turn creates or updates an
+open work item but never records a durable closeout artifact. A pending,
+in-progress, or blocked item must be followed in the same turn by an explicit
+plan, execution finish, completion, or formal pause evidence. Execution start
+is materialization, not closeout: if it leaves the work item `in_progress`, the
+turn remains blocked and is projected as `failed` until a later
+`work_item.execution.finish` or `work_item.complete` records terminal evidence.
+Read-only scouting and managed-child research can satisfy evidence requirements
+only after they are attached to that governed closeout path; they do not make an
+open work item a completed turn by themselves. This projection is derived from
+the canonical runtime event ledger, provider tool-execution summaries,
+surface-captured tool completions from live GUI/TUI streams, and persisted
+`gui-command`/`tui-command` transcript tool completions, so direct-provider,
+GUI, TUI, CLI, SDK, and replay surfaces cannot disagree about the same open
+governed work.
+
+Runtime also projects this rule into every execute-mode provider call as
+procedural governed context. The model is instructed not to end after research,
+inspection, planning prose, or a successful read-only scout when the work item is
+still open. It must continue on the same work item until it starts executable
+work, finishes execution, completes the item, submits a structured terminal
+plan, or records a concrete pause requirement that explains the block.
 
 Each runtime provider call carries an `effectiveTurnAuthority` snapshot in its
 per-call tool config. The snapshot is projected from the final admitted tool
@@ -216,6 +255,15 @@ required evidence, and materialized work item ids. That binding makes the run
 reconstructable from session evidence instead of relying on assistant text or a
 surface-local UI state.
 
+Goal route policy has one owner at a time. `managedAgentProfile` means the
+agent profile owns child route selection through its configured route hints.
+`preferredRouteId` means the caller owns the exact route. `goal.create` rejects
+requests that combine both fields because that duplicates authority and can
+produce cross-surface contradictions such as a scout profile being invoked with
+a non-scout route. Work items may still carry their own explicit route when the
+route is part of that item contract; goal-level preferred routes are not copied
+into profile-owned child requests.
+
 `materializeApprovedPlanWorkItems` deterministically converts approved plan
 work items into governed work items. The materialized items keep their source
 plan relationship, goal id, route hints, expected evidence, verification gates,
@@ -229,6 +277,9 @@ Execution attempts are part of the same evidence plane:
   and managed invocation linkage when delegated execution is used.
 - Managed-delegation attempts fail closed until the attempt is linked to a
   recorded `managed_agent.invoke` id.
+- Managed-delegation child failures before attempt linkage keep the work item
+  paused and mark the canonical parent turn failed; surfaces must not project
+  that state as completed local work.
 - `work_item.execution.finish` records evidence, verification gate results,
   skipped checks, and residual risk.
 - Failed verification gates block completion until a later attempt records a
@@ -295,6 +346,22 @@ to a recorded managed invocation id. If that id is missing,
 `work_item.execution.start` pauses with an actionable `managed_agent.invoke`
 request; after the child returns, the parent resumes the same work item with
 the recorded invocation id.
+
+Managed invocation failures are blocking evidence. A `managed_agent.invoke`
+result with status `failed`, `denied`, `timed-out`, or `cancelled`, whether it
+was called directly by the parent or through `work_item.execution.start`, makes
+the parent turn outcome `failed`.
+Surfaces must not project a completed turn when required managed-agent evidence
+failed or never materialized.
+The same rule applies when the latest work-governance tool result is an
+unresolved error or pause: the parent turn outcome is failed until a later
+governance result records successful recovery or closeout.
+Persisted session metadata separates lifecycle from turn outcome:
+`sessionLedger.currentPhase` describes the session lifecycle, while
+`lastTurnOutcome` describes the latest governed turn result. A GUI command
+session may therefore have `sessionLedger.currentPhase = "completed"` because
+the host process exited cleanly, and `lastTurnOutcome = "failed"` because the
+latest governed turn left blocking evidence.
 
 ## Formal Verification Candidates
 

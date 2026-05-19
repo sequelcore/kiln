@@ -337,13 +337,16 @@ available for surgical removal.
 
 ## Managed Agent Route Projection
 
-Ordered `routing.routes` project into governed managed-agent runtime routes
-when no explicit `managedAgents.routes` allowlist is present. Eligible direct
-providers require an explicit tool-call-capable model; harnesses require
-live-proven result handoff for the requested managed profile and use their route
-model, provider-specific `models.<engine>`, or the adapter's safe default. If no
-ordered route list exists, enabled supported child engines project into the same
-read-only route contract only when their handoff proof is complete. The CLI
+Ordered `routing.routes` project into governed read-only managed-agent runtime
+routes. Explicit `managedAgents.routes` entries are merged on top as authority
+exceptions or overrides; they do not replace the canonical route hierarchy.
+Eligible direct providers require an explicit tool-call-capable model; harnesses
+require live-proven result handoff for the requested managed profile and use
+their route model, provider-specific `models.<engine>`, or the adapter's safe
+default. If the same provider appears with multiple models, the synthesized
+managed route IDs include a model slug so those candidates remain distinct. If
+no ordered route list exists, enabled supported child engines project into the
+same read-only route contract only when their handoff proof is complete. The CLI
 resolves route health once using global config, engine availability, credential
 state, provider-advertised model catalogs, model capability, profile-specific
 harness proof, and optional managed-agent overrides, then passes the same
@@ -353,7 +356,7 @@ GUI, TUI, CLI run, and operator gateway sessions.
 CLI run also consumes the same provider/model task suitability contract when
 ordering configured `routing.routes`. This is a ranking step over canonical
 config, not a native harness projection and not a second route graph. Explicit
-`managedAgents.routes` remains the allowlist for child invocation; task
+`managedAgents.routes` is the exception layer for child invocation; task
 suitability can explain and rank healthy child routes but cannot synthesize
 write authority or bypass managed-agent admission.
 
@@ -388,9 +391,9 @@ handoff remains unavailable for `foundation-readonly-plan`.
   canonical workflow evidence; status surfaces may report drift, but must not
   repair them implicitly.
 - Managed-agent route projection is governed config, not assistant preference.
-- `routing.routes` is the default managed-agent route source; explicit
-  `managedAgents.routes` is an allowlist override, not a second routing graph to
-  keep in sync.
+- `routing.routes` is the managed-agent route source for read-only routes;
+  explicit `managedAgents.routes` is an exception and authority layer, not a
+  second routing graph to keep in sync.
 - Instruction profile, agent, and skill definitions are canonical only under
   Kiln-owned directories, never in native harness folders.
 - Config mutation is a governed proposal/approval/apply lifecycle; direct YAML,

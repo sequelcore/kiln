@@ -17,6 +17,7 @@ import {
 import {
   ManagedCliHarnessAdapter,
   type ManagedAgentRuntimeAdapter,
+  type ManagedInvocationAgentCatalogEntry,
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
@@ -35,7 +36,7 @@ import type {
   SessionRegistry,
 } from "../wrapper/session-registry.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
-import { loadAgentDefinitions } from "../application/agent-loader.js";
+import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
 import { createConfiguredSkillRegistry } from "./skill-registry.js";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
 
@@ -134,19 +135,7 @@ export async function resolveManagedInvocationToolOptions(
 
   const routes: ManagedInvocationToolRoute[] = [];
   const routeHealth: ManagedAgentRouteHealth[] = [];
-  const agentCatalog = (await loadAgentDefinitions(context.cwd)).map((agent) => ({
-    name: agent.name,
-    ...(agent.displayName ? { displayName: agent.displayName } : {}),
-    ...(agent.nicknameCandidates ? { nicknameCandidates: agent.nicknameCandidates } : {}),
-    role: agent.role,
-    goal: agent.goal,
-    tier: agent.tier,
-    ...(agent.skills ? { skills: agent.skills } : {}),
-    ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
-    ...(agent.routeId ? { routeId: agent.routeId } : {}),
-    ...(agent.providerRoute ? { providerRoute: agent.providerRoute } : {}),
-    ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
-  }));
+  const agentDefinitions = await loadAgentDefinitions(context.cwd);
   const userHome = context.userHome ?? homedir();
   const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, config.skills);
 
@@ -157,6 +146,7 @@ export async function resolveManagedInvocationToolOptions(
       routes.push(resolved.route);
     }
   }
+  const agentCatalog = agentDefinitions.map((agent) => projectManagedAgentCatalogEntry(agent, routes));
 
   const unavailableRoutes = routeHealth
     .filter((route) => !route.available)
@@ -188,6 +178,129 @@ export async function resolveManagedInvocationToolOptions(
       },
     } : {}),
   };
+}
+
+function projectManagedAgentCatalogEntry(
+  agent: KilnAgentDefinition,
+  routes: readonly ManagedInvocationToolRoute[],
+): ManagedInvocationAgentCatalogEntry {
+  const routeHint = resolveAgentRouteHint(agent, routes);
+  return {
+    name: agent.name,
+    ...(agent.displayName ? { displayName: agent.displayName } : {}),
+    ...(agent.nicknameCandidates ? { nicknameCandidates: agent.nicknameCandidates } : {}),
+    role: agent.role,
+    goal: agent.goal,
+    tier: agent.tier,
+    ...(agent.skills ? { skills: agent.skills } : {}),
+    ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
+    ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
+    ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
+    ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
+  };
+}
+
+function resolveAgentRouteHint(
+  agent: KilnAgentDefinition,
+  routes: readonly ManagedInvocationToolRoute[],
+): Pick<ManagedInvocationAgentCatalogEntry, "routeId" | "providerRoute"> | undefined {
+  const explicit = routeFromExplicitAgentHint(agent, routes);
+  if (explicit) {
+    return routeHint(explicit, agent);
+  }
+  const scored = routes
+    .map((route, index) => ({
+      route,
+      index,
+      score: scoreAgentRoute(agent, route),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const selected = scored[0]?.route;
+  return selected ? routeHint(selected, agent) : undefined;
+}
+
+function routeFromExplicitAgentHint(
+  agent: KilnAgentDefinition,
+  routes: readonly ManagedInvocationToolRoute[],
+): ManagedInvocationToolRoute | undefined {
+  if (agent.routeId) {
+    return routes.find((route) => route.routeId === agent.routeId);
+  }
+  if (agent.providerRoute) {
+    return routes.find((route) =>
+      route.providerId === agent.providerRoute?.providerId
+      && (!agent.providerRoute.model || route.model === agent.providerRoute.model)
+    );
+  }
+  return undefined;
+}
+
+function routeHint(
+  route: ManagedInvocationToolRoute,
+  agent: KilnAgentDefinition,
+): Pick<ManagedInvocationAgentCatalogEntry, "routeId" | "providerRoute"> {
+  return {
+    routeId: route.routeId,
+    providerRoute: {
+      providerId: route.providerId,
+      ...(route.model ? { model: route.model } : {}),
+      ...(agent.providerRoute?.reasoningEffort ? { reasoningEffort: agent.providerRoute.reasoningEffort } : {}),
+    },
+  };
+}
+
+function scoreAgentRoute(agent: KilnAgentDefinition, route: ManagedInvocationToolRoute): number {
+  let score = 0;
+  const normalizedRouteId = route.routeId.toLowerCase();
+  const normalizedAgentName = agent.name.toLowerCase();
+  if (normalizedRouteId.includes(normalizedAgentName)) {
+    score += 100;
+  }
+  for (const alias of [agent.displayName, ...(agent.nicknameCandidates ?? [])]) {
+    if (alias && normalizedRouteId.includes(alias.toLowerCase())) {
+      score += 60;
+    }
+  }
+  for (const affinity of agent.taskAffinity ?? []) {
+    const suitability = route.taskSuitability?.find((entry) => entry.task === affinity);
+    if (!suitability) {
+      continue;
+    }
+    if (suitability.level === "preferred") {
+      score += 30;
+    } else if (suitability.level === "capable") {
+      score += 20;
+    } else if (suitability.level === "limited") {
+      score += 5;
+    }
+  }
+  if (agent.tier === "fast") {
+    score += fastRouteScore(route);
+  } else if (agent.tier === "reasoning") {
+    score += reasoningRouteScore(route);
+  }
+  return score;
+}
+
+function fastRouteScore(route: ManagedInvocationToolRoute): number {
+  const model = route.model?.toLowerCase() ?? "";
+  let score = 0;
+  if (model.includes("mini") || model.includes("spark") || model.includes("free")) {
+    score += 40;
+  }
+  if (model.includes("5.5") || model.includes("pro") || model.includes("opus")) {
+    score -= 40;
+  }
+  return score;
+}
+
+function reasoningRouteScore(route: ManagedInvocationToolRoute): number {
+  const model = route.model?.toLowerCase() ?? "";
+  if (model.includes("5.5") || model.includes("pro") || model.includes("opus")) {
+    return 20;
+  }
+  return 0;
 }
 
 export function createManagedInvocationToolOptionsCatalog(
@@ -253,12 +366,10 @@ function resolveRouteConfigs(
   config: ManagedAgentRouteConfigSource,
 ): readonly KilnManagedAgentRouteConfig[] {
   const managedAgents = config.managedAgents;
-  if (managedAgents?.routes && managedAgents.routes.length > 0) {
-    return managedAgents.routes;
-  }
   const routingRoutes = synthesizeRoutesFromRouting(config);
-  if (routingRoutes.length > 0) {
-    return routingRoutes;
+  const explicitRoutes = managedAgents?.routes ?? [];
+  if (routingRoutes.length > 0 || explicitRoutes.length > 0) {
+    return mergeDerivedAndExplicitRoutes(routingRoutes, explicitRoutes);
   }
   if (managedAgents?.enabled === true) {
     return [synthesizeDefaultRoute(managedAgents)];
@@ -302,15 +413,21 @@ function synthesizeRouteFromEnabledEngines(
 function synthesizeRoutesFromRouting(
   config: ManagedAgentRouteConfigSource,
 ): readonly KilnManagedAgentRouteConfig[] {
-  const routes = config.routing?.routes
-    ?.map((route) => synthesizeRouteFromRoutingCandidate(route, config))
+  const routingRoutes = config.routing?.routes;
+  if (!routingRoutes) {
+    return [];
+  }
+  const providerCounts = countRoutingProviders(routingRoutes);
+  const routes = routingRoutes
+    .map((route) => synthesizeRouteFromRoutingCandidate(route, config, providerCounts))
     .filter((route): route is KilnManagedAgentRouteConfig => route !== undefined);
-  return routes ? dedupeRouteConfigs(routes) : [];
+  return dedupeRouteConfigs(routes);
 }
 
 function synthesizeRouteFromRoutingCandidate(
   route: { readonly provider: string; readonly model?: string },
   config: ManagedAgentRouteConfigSource,
+  providerCounts: ReadonlyMap<string, number>,
 ): KilnManagedAgentRouteConfig | undefined {
   const provider = route.provider.trim();
   if (!provider) {
@@ -319,11 +436,46 @@ function synthesizeRouteFromRoutingCandidate(
   if (!SUPPORTED_HARNESS_PROVIDERS.has(provider) && !isDirectProviderId(provider)) {
     return undefined;
   }
+  const model = route.model ?? config.models?.[provider];
   return synthesizeReadonlyRoute({
     provider,
-    model: route.model ?? config.models?.[provider],
+    model,
     profile: READONLY_PROFILE,
+    routeId: providerCounts.get(provider) && providerCounts.get(provider)! > 1 && model
+      ? `${provider}-${slugRouteIdSegment(model)}-readonly`
+      : undefined,
   });
+}
+
+function countRoutingProviders(
+  routes: readonly { readonly provider: string }[],
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const route of routes) {
+    const provider = route.provider.trim();
+    if (!provider) {
+      continue;
+    }
+    counts.set(provider, (counts.get(provider) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function mergeDerivedAndExplicitRoutes(
+  derivedRoutes: readonly KilnManagedAgentRouteConfig[],
+  explicitRoutes: readonly KilnManagedAgentRouteConfig[],
+): readonly KilnManagedAgentRouteConfig[] {
+  if (explicitRoutes.length === 0) {
+    return derivedRoutes;
+  }
+  if (derivedRoutes.length === 0) {
+    return explicitRoutes;
+  }
+  const explicitRouteIds = new Set(explicitRoutes.map((route) => route.id));
+  return [
+    ...derivedRoutes.filter((route) => !explicitRouteIds.has(route.id)),
+    ...explicitRoutes,
+  ];
 }
 
 function dedupeRouteConfigs(
@@ -345,10 +497,11 @@ function synthesizeReadonlyRoute(input: {
   readonly provider: string;
   readonly model?: string;
   readonly profile?: KilnManagedAgentProfile;
+  readonly routeId?: string;
 }): KilnManagedAgentRouteConfig {
   const { provider } = input;
   return {
-    id: `${provider}-readonly`,
+    id: input.routeId ?? `${provider}-readonly`,
     kind: SUPPORTED_HARNESS_PROVIDERS.has(provider) ? "harness" : "direct",
     provider,
     model: input.model ?? DEFAULT_MODELS[provider],
@@ -363,6 +516,11 @@ function synthesizeReadonlyRoute(input: {
     memory: { access: "read-only" },
     credentials: { mode: "runtime-selected" },
   };
+}
+
+function slugRouteIdSegment(value: string): string {
+  const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || "model";
 }
 
 function resolveDefaultChildProvider(
@@ -415,10 +573,7 @@ async function resolveRouteConfig(
   }
 
   if (routeConfig.kind === "direct") {
-    if (writeRequired) {
-      return unhealthy(baseHealth, "Direct managed invocation write-capable routes are not live-proven yet.");
-    }
-    return resolveDirectRouteConfig(routeConfig, context, config, baseHealth);
+    return resolveDirectRouteConfig(routeConfig, context, config, baseHealth, writeRequired);
   }
 
   if (!SUPPORTED_HARNESS_PROVIDERS.has(routeConfig.provider)) {
@@ -691,6 +846,7 @@ async function resolveDirectRouteConfig(
   context: ResolveManagedInvocationToolOptionsContext,
   config: ManagedAgentRouteConfigSource,
   baseHealth: Omit<ManagedAgentRouteHealth, "available" | "reason">,
+  writeRequired: boolean,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -710,6 +866,12 @@ async function resolveDirectRouteConfig(
   }
   if (!adapter) {
     return unhealthy(baseHealth, "Direct managed invocation routes require the direct provider managed runtime adapter.");
+  }
+  if (writeRequired) {
+    const writeSupport = validateDirectAdapterWriteSupport(adapter, normalizeProfiles(routeConfig.profiles));
+    if (!writeSupport.ok) {
+      return unhealthy(baseHealth, writeSupport.reason);
+    }
   }
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, normalizeProfiles(routeConfig.profiles));
   if (!profileResolution.ok) {
@@ -739,6 +901,36 @@ async function resolveDirectRouteConfig(
     },
     route,
   };
+}
+
+function validateDirectAdapterWriteSupport(
+  adapter: ManagedAgentRuntimeAdapter,
+  profiles: readonly ManagedAgentAdmissionProfile[],
+): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
+  const unsupportedProfile = profiles.find((profile) => !adapter.descriptor.supportedProfiles.includes(profile));
+  if (unsupportedProfile !== undefined) {
+    return {
+      ok: false,
+      reason: `Direct managed invocation adapter does not support profile '${unsupportedProfile}'.`,
+    };
+  }
+
+  const writeAuthority = adapter.descriptor.writeAuthority;
+  if (
+    writeAuthority?.proposalSupported !== true
+    || writeAuthority.approvedApplySupported !== true
+    || writeAuthority.memoryProposalSupported !== true
+    || writeAuthority.rollbackEvidence !== true
+    || writeAuthority.cleanupEvidence !== true
+    || writeAuthority.scopeReduction !== true
+  ) {
+    return {
+      ok: false,
+      reason: "Direct managed invocation adapter does not have live-proven write evidence support.",
+    };
+  }
+
+  return { ok: true };
 }
 
 function resolveTaskSuitability(

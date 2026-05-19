@@ -31,6 +31,15 @@ const WRITE_TOOL: ToolDefinition = {
   tags: new Set(["write"]),
 };
 
+const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY = {
+  proposalSupported: true,
+  approvedApplySupported: true,
+  memoryProposalSupported: true,
+  rollbackEvidence: true,
+  cleanupEvidence: true,
+  scopeReduction: true,
+} as const;
+
 function response(
   text: string,
   toolCalls: AgentResponse["toolCalls"] = [],
@@ -182,6 +191,146 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(toolResult?.content).toContain('Tool "write" is not available');
   });
 
+  it("admits explicit apply-approved direct-provider writes and records write evidence", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "kiln-direct-child-write-"));
+    const targetPath = join(workspaceRoot, "direct-write.txt");
+    const content = "DIRECT_CHILD_WRITE_MARKER\n";
+    const provider = providerWithResponses([
+      response("writing", [{
+        id: "tool-1",
+        name: "write",
+        input: {
+          filePath: targetPath,
+          content,
+        },
+      }]),
+      response("Direct child applied the approved workspace write."),
+    ]);
+    const writeTool = vi.fn(async (input: Record<string, unknown>) => {
+      writeFileSync(String(input.filePath), String(input.content), "utf8");
+      return {
+        output: "wrote direct-write.txt",
+        metadata: {
+          toolName: "write",
+          kind: "file",
+          operation: "write",
+          filePath: targetPath,
+          changeType: "created",
+          linesAdded: 1,
+          linesRemoved: 0,
+          diffPreview: `+ ${content.trimEnd()}`,
+          diffTruncated: false,
+        },
+      };
+    });
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "codex-oauth",
+      model: "gpt-test",
+      provider,
+      tools: [WRITE_TOOL],
+      builtinTools: new Map([["write", writeTool]]),
+      writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    try {
+      expect(adapter.descriptor).toMatchObject({
+        supportedProfiles: [
+          "foundation-readonly-plan",
+          "foundation-propose-writes",
+          "foundation-apply-approved-writes",
+          "foundation-memory-write-proposals",
+        ],
+        writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
+      });
+
+      const result = await service.invoke(request({
+        agentId: "direct-write:foundation-apply-approved-writes",
+        profile: "foundation-apply-approved-writes",
+        providerRoute: {
+          providerId: "codex-oauth",
+          surface: "direct-provider",
+          model: "gpt-test",
+        },
+        authority: {
+          ...request().authority,
+          permissionProfile: "apply-approved-writes",
+          toolAuthority: {
+            allowedToolNames: ["write"],
+            writeAllowed: true,
+            networkAllowed: false,
+          },
+          workingDirectory: {
+            path: workspaceRoot,
+            mode: "workspace-write",
+          },
+          writeAuthority: {
+            profile: "foundation-apply-approved-writes",
+            scope: {
+              workspace: {
+                mode: "apply-approved",
+                allowedPaths: [workspaceRoot],
+                deniedPaths: [],
+              },
+              memory: {
+                mode: "none",
+                operations: [],
+              },
+              artifacts: {
+                mode: "none",
+                resourceUris: [],
+                retention: "none",
+              },
+              tools: {
+                allowedToolNames: ["write"],
+                deniedToolNames: [],
+              },
+            },
+            approval: {
+              mode: "required-before-apply",
+              evidenceRequired: true,
+            },
+          },
+          memoryScope: {
+            scope: { kind: "project", id: "direct-write-test" },
+            access: "write-proposals",
+          },
+        },
+        input: {
+          summary: "Apply an approved direct write.",
+          prompt: "Write the admitted file and report completion.",
+        },
+      }), adapter);
+
+      expect(result.status).toBe("completed");
+      if (result.status !== "completed") {
+        throw new Error("expected completed");
+      }
+      expect(writeTool).toHaveBeenCalledWith(
+        { filePath: targetPath, content },
+        expect.objectContaining({
+          sandbox: expect.objectContaining({
+            policy: expect.objectContaining({
+              config: expect.objectContaining({
+                fsPolicy: "read-write",
+                allowedPaths: [workspaceRoot],
+              }),
+            }),
+          }),
+        }),
+      );
+      expect(result.record.lifecycleState).toBe("completed");
+      expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
+        "write-proposal-created",
+        "write-proposal-approved",
+        "write-attempt-completed",
+      ]);
+      expect(result.record.resultHandoff?.resourceUris).toContain("kiln://managed-invocations/inv-direct-1/write-attempts/1");
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("records a failed invocation when the child provider fails", async () => {
     const provider: ProviderAdapter = {
       name: "openai",
@@ -242,6 +391,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       uri: "kiln://managed-invocations/inv-direct-1/timeout",
       kind: "timeout",
     }]);
+    expect(result.record.resultHandoff?.summary).toContain("timed out after 1ms");
+    expect(result.record.resultHandoff?.summary).toContain(result.record.childSessionId);
+    expect(result.record.resultHandoff?.summary).toContain("partial child trace is unavailable");
   });
 
   it("integrates through managed_agent.invoke with Kiln builtin tools and returns only bounded handoff", async () => {

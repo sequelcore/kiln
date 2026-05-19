@@ -565,16 +565,14 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
-  it("waits for approval before invoking a managed child with destructive authority", async () => {
+  it("fails closed before approval when destructive authority selects a read-only profile", async () => {
     const adapter = makeAdapter();
     const surface = makeSurface(adapter);
     const session = makeSession();
-    let resolveApproval!: (decision: { readonly approved: boolean; readonly reason?: string }) => void;
-    const requestApproval = vi.fn(() =>
-      new Promise<{ readonly approved: boolean; readonly reason?: string }>((resolve) => {
-        resolveApproval = resolve;
-      })
-    );
+    const requestApproval = vi.fn(async () => ({
+      approved: true,
+      reason: "operator approved destructive child authority",
+    }));
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
       toolCall: {
@@ -585,7 +583,7 @@ describe("managed invocation runtime tool", () => {
       requestApproval,
     };
 
-    const pending = surface.callBuiltinTools.get("managed_agent.invoke")?.({
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       profile: "foundation-readonly-plan",
       providerRoute: {
         providerId: "opencode",
@@ -593,32 +591,18 @@ describe("managed invocation runtime tool", () => {
       },
       requestedAuthority: "destructive",
       task: "Apply a destructive managed change.",
-    }, context) as Promise<{
+    }, context) as {
       readonly output: string;
       readonly isError: boolean;
       readonly metadata: {
         readonly requestedAuthority?: string;
       };
-    }>;
+    };
 
-    await vi.waitFor(() => {
-      expect(requestApproval).toHaveBeenCalledTimes(1);
-    });
-    expect(requestApproval).toHaveBeenCalledWith(
-      "managed_agent.invoke requests destructive authority for route 'opencode-readonly' and profile 'foundation-readonly-plan'.",
-    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("destructive requested authority cannot select read-only managed profile");
+    expect(requestApproval).not.toHaveBeenCalled();
     expect(adapter.invoke).not.toHaveBeenCalled();
-
-    resolveApproval({ approved: true, reason: "operator approved destructive child authority" });
-    const result = await pending;
-
-    expect(result.isError).toBe(false);
-    expect(result.output).toContain("Child review completed.");
-    expect(result.metadata.requestedAuthority).toBe("destructive");
-    expect(adapter.invoke).toHaveBeenCalledTimes(1);
-    expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
-      requestedAuthority: "destructive",
-    });
   });
 
   it("fails closed when a managed child requests destructive authority without an approval flow", async () => {
@@ -648,7 +632,7 @@ describe("managed invocation runtime tool", () => {
     };
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain("destructive requested authority requires an approval flow");
+    expect(result.output).toContain("destructive requested authority cannot select read-only managed profile");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(session.sessionEvents).toEqual([]);
   });
@@ -958,6 +942,121 @@ describe("managed invocation runtime tool", () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain("route selection is ambiguous");
     expect(result.output).toContain("opencode-readonly-a, opencode-readonly-b");
+  });
+
+  it("uses the selected agent profile route hint to disambiguate route selection", async () => {
+    const fastAdapter = makeAdapter();
+    const slowAdapter = makeAdapter();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [
+          makeManagedRoute("opencode-readonly", "model-heavy", slowAdapter),
+          makeManagedRoute("opencode-scout-readonly", "model-fast", fastAdapter),
+        ],
+        agentCatalog: [{
+          name: "scout",
+          displayName: "Dewey",
+          role: "Read-only context scout",
+          goal: "Map impacted files quickly",
+          tier: "fast",
+          routeId: "opencode-scout-readonly",
+          providerRoute: {
+            providerId: "opencode",
+            model: "model-fast",
+          },
+        }],
+        contextResolver: async () => ({ admittedAgentProfile: "scout" }),
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+      },
+      agentProfile: "scout",
+      contextMode: "isolated",
+      task: "Scout the GUI surface.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly routeId?: string;
+        readonly providerRoute?: Record<string, unknown>;
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata.routeId).toBe("opencode-scout-readonly");
+    expect(result.metadata.providerRoute).toMatchObject({
+      providerId: "opencode",
+      model: "model-fast",
+    });
+    expect(fastAdapter.invoke).toHaveBeenCalledTimes(1);
+    expect(slowAdapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an explicit route contradicts the selected agent profile route hint", async () => {
+    const fastAdapter = makeAdapter();
+    const slowAdapter = makeAdapter();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [
+          makeManagedRoute("opencode-readonly", "model-heavy", slowAdapter),
+          makeManagedRoute("opencode-scout-readonly", "model-fast", fastAdapter),
+        ],
+        agentCatalog: [{
+          name: "scout",
+          displayName: "Dewey",
+          role: "Read-only context scout",
+          goal: "Map impacted files quickly",
+          tier: "fast",
+          routeId: "opencode-scout-readonly",
+          providerRoute: {
+            providerId: "opencode",
+            model: "model-fast",
+          },
+        }],
+        contextResolver: async () => ({ admittedAgentProfile: "scout" }),
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: {
+        providerId: "opencode",
+      },
+      agentProfile: "scout",
+      contextMode: "isolated",
+      task: "Scout the GUI surface.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("contradicts configured agentProfile 'scout' route hint");
+    expect(fastAdapter.invoke).not.toHaveBeenCalled();
+    expect(slowAdapter.invoke).not.toHaveBeenCalled();
+    expect(session.sessionEvents).toEqual([]);
   });
 
   it("reports configured but unavailable managed routes with their health reason", async () => {

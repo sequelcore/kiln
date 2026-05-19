@@ -48,6 +48,44 @@ export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" |
 export type OperatorExecutionMode = "execute" | "plan";
 export type OperatorTurnRequestedAuthority = "auto" | "read_only" | "audited" | "destructive";
 
+export type GuiAuthorityLevel =
+  | "fail_closed"
+  | "read_only"
+  | "idempotent"
+  | "audited"
+  | "destructive"
+  | "unknown";
+
+export type GuiAuthorityCompleteness = "authoritative" | "partial";
+
+export type GuiAuthoritySandboxProjection =
+  | "none"
+  | "read_only"
+  | "workspace_write"
+  | "unknown";
+
+export interface GuiAuthorityPolicyInput {
+  readonly source: string;
+  readonly status: "applied" | "not_applicable" | "unresolved";
+  readonly reason: string;
+  readonly subjectId?: string;
+  readonly requestedAuthority?: "planning" | OperatorTurnRequestedAuthority;
+  readonly admittedAuthority?: GuiAuthorityLevel;
+}
+
+export interface GuiAuthorityStatus {
+  readonly effective: GuiAuthorityLevel;
+  readonly admittedAuthority?: GuiAuthorityLevel;
+  readonly requestedAuthority?: "planning" | OperatorTurnRequestedAuthority;
+  readonly executionMode?: OperatorExecutionMode;
+  readonly sandboxProjection?: GuiAuthoritySandboxProjection;
+  readonly reason?: string;
+  readonly toolCount?: number;
+  readonly deniedToolCount?: number;
+  readonly policyInputs?: readonly GuiAuthorityPolicyInput[];
+  readonly completeness: GuiAuthorityCompleteness;
+}
+
 export interface GuiProviderModelCapabilities {
   readonly supportsFunctionTools?: boolean;
   readonly supportsRuntimeTools?: boolean;
@@ -159,6 +197,7 @@ export interface GuiSessionSummary {
   readonly tags?: readonly string[];
   readonly providersUsed: readonly string[];
   readonly lastProvider?: string;
+  readonly lastTurnOutcome?: "completed" | "failed" | "cancelled";
   readonly completedAt: string;
   readonly cost: number;
   readonly taskSummary: string;
@@ -241,6 +280,7 @@ export interface GuiSessionMeta {
   readonly task: string;
   readonly startedAt: string;
   readonly completedAt?: string;
+  readonly lastTurnOutcome?: "completed" | "failed" | "cancelled";
   readonly costUsd?: number;
   readonly toolCount?: number;
   readonly turnDepth?: number;
@@ -705,10 +745,7 @@ export type GuiInboundFrame =
         usedCachedSupport?: boolean;
         selectionReason?: string;
       };
-      authorityStatus?: {
-        effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
-        completeness: "authoritative" | "partial";
-        };
+      authorityStatus?: GuiAuthorityStatus;
       }
   | {
       type: "voice_synthesis_completed";
@@ -735,10 +772,7 @@ export type GuiInboundFrame =
       executionMode?: OperatorExecutionMode;
       workingDirectory?: string;
       domainLabel?: string;
-      authorityStatus?: {
-        effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
-        completeness: "authoritative" | "partial";
-      };
+      authorityStatus?: GuiAuthorityStatus;
     }
     | {
         type: "execution_mode_transitioned";

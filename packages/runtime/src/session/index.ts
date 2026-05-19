@@ -3,6 +3,11 @@ export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from
 export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
 export { collectRuntimeFeedbackEvidence } from "./session-feedback-evidence.js";
 export {
+  deriveGovernedTurnOutcome,
+  deriveGovernedTurnOutcomeFromToolRecords,
+} from "./governed-turn-outcome.js";
+export type { GovernedTurnOutcomeToolRecord } from "./governed-turn-outcome.js";
+export {
   buildEffectiveTurnAuthorityPolicyInputs,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,

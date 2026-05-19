@@ -61,9 +61,13 @@ describe("TUI authority forwarding", () => {
     const { buildTuiPerCallToolConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiPerCallToolConfig();
 
-    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "fail_closed",
+      admittedAuthority: "fail_closed",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
+      toolCount: 0,
     });
   });
 
@@ -83,8 +87,11 @@ describe("TUI authority forwarding", () => {
       completeness: "authoritative",
       toolCount: cfg.toolAllowlist?.size,
     });
-    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -178,8 +185,11 @@ describe("TUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("write")).toBe(false);
     expect(cfg.additionalTools?.some((tool) => tool.name === "write")).toBe(false);
     expect(cfg.toolAuthority?.has("write")).toBe(false);
-    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -226,8 +236,11 @@ describe("TUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.size).toBe(0);
     expect(cfg.additionalTools).toEqual([]);
     expect(cfg.toolAuthority?.size).toBe(0);
-    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toEqual({
+    expect(deriveTuiAuthorityStatusFromPerCallConfig(cfg)).toMatchObject({
       effective: "fail_closed",
+      admittedAuthority: "fail_closed",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -249,8 +262,11 @@ describe("TUI authority forwarding", () => {
     );
     const destructiveDefaultConfig = buildTuiTurnPerCallConfig("codex-oauth", "gpt-5.4-mini");
 
-    expect(deriveTuiDoneAuthorityStatus(doneTurnConfig, destructiveDefaultConfig)).toEqual({
+    expect(deriveTuiDoneAuthorityStatus(doneTurnConfig, destructiveDefaultConfig)).toMatchObject({
       effective: "read_only",
+      admittedAuthority: "read_only",
+      requestedAuthority: "read_only",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });
@@ -282,12 +298,18 @@ describe("TUI authority forwarding", () => {
       authorityStatus,
     });
 
-    expect(welcome.authorityStatus).toEqual({
+    expect(welcome.authorityStatus).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
-    expect(done.authorityStatus).toEqual({
+    expect(done.authorityStatus).toMatchObject({
       effective: "audited",
+      admittedAuthority: "audited",
+      requestedAuthority: "auto",
+      executionMode: "execute",
       completeness: "authoritative",
     });
   });

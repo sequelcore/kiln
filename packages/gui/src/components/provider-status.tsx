@@ -1,4 +1,5 @@
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
+import type { GuiAuthorityStatus } from "@kilnai/gateway-contracts";
 import { ChevronDownIcon } from "lucide-react";
 import { useSessionStore } from "../lib/session-store.js";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,16 @@ function formatWorkingDirectory(workingDirectory: string | undefined): string {
   return tail ? `.../${tail}` : normalized;
 }
 
+function formatAuthorityStatus(authorityStatus: GuiAuthorityStatus | null): string {
+  if (!authorityStatus) {
+    return "authority: unknown";
+  }
+  const requested = authorityStatus.requestedAuthority ?? "unknown";
+  const admitted = authorityStatus.admittedAuthority ?? authorityStatus.effective;
+  const sandbox = authorityStatus.sandboxProjection ? ` · sandbox ${authorityStatus.sandboxProjection}` : "";
+  return `authority: ${requested} -> ${admitted}${sandbox} · ${authorityStatus.completeness}`;
+}
+
 export function ProviderStatus(props: ProviderStatusProps) {
   const providers = useSessionStore((state) => state.providers);
   const activeProvider = useSessionStore((state) => state.activeProvider);
@@ -57,6 +68,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
   const compactLabel = displayProviderId
     ? `${displayLabel} / ${modelLabel}`
     : "Select provider / model";
+  const authorityLabel = formatAuthorityStatus(authorityStatus);
 
   if (props.compact) {
     return (
@@ -64,12 +76,17 @@ export function ProviderStatus(props: ProviderStatusProps) {
         type="button"
         variant={routeMode === "responding" ? "secondary" : "outline"}
         size="sm"
-        aria-label={`${compactLabel}. Click to change.`}
+        aria-label={`${compactLabel}. ${authorityLabel}. Click to change.`}
         onClick={props.onOpenPicker}
-        className="min-w-0 max-w-full justify-start"
+        className="h-auto min-w-0 max-w-full justify-start py-1.5 text-left"
       >
-        <span className="min-w-0 truncate">
-          {compactLabel}
+        <span className="grid min-w-0 gap-0.5">
+          <span className="min-w-0 truncate">
+            {compactLabel}
+          </span>
+          <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/80">
+            {authorityLabel}
+          </span>
         </span>
         <ChevronDownIcon data-icon="inline-end" />
       </Button>
@@ -101,9 +118,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-muted-foreground/75">
           <span>domain: {props.domainLabel ?? "—"}</span>
           <span>cwd: {formatWorkingDirectory(props.workingDirectory)}</span>
-          <span>
-            authority: {authorityStatus?.effective ?? "unknown"} · {authorityStatus?.completeness ?? "partial"}
-          </span>
+          <span>{authorityLabel}</span>
         </span>
       </span>
       {providerSwitching ? (

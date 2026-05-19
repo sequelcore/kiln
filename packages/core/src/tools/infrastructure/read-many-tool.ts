@@ -240,7 +240,7 @@ function formatOutput(output: ReadManyOutput, verbosity: ToolOutputVerbosity): s
 }
 
 function parseStringArray(value: unknown, key: string): { ok: true; value: readonly string[] } | { ok: false; result: ToolResult } {
-  if (value === undefined) return { ok: true, value: [] };
+  if (value === undefined || value === null) return { ok: true, value: [] };
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.length === 0)) {
     return { ok: false, result: toErrorResult(`Invalid input: "${key}" must be an array of non-empty strings`) };
   }

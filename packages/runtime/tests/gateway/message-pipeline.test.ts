@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventBus, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, textParts } from "@kilnai/core";
+import { EventBus, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, textParts } from "@kilnai/core";
 import type { MultimodalRoutedEvent, SttAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import type { SkillConfig } from "@kilnai/core";
 import { processAdmittedTurn, projectAdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
@@ -1305,6 +1305,69 @@ describe("processAdmittedTurn", () => {
     expect(governedContextContent).toContain("Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.");
   });
 
+  it("adds governed work closeout guidance for executable turns", async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      requestedAuthority: "auto",
+      perCallConfig: {
+        toolAllowlist: new Set(["work_governance.assess", "work_item.update", "work_item.execution.start", "work_item.execution.finish", "work_item.complete", "managed_agent.invoke"]),
+        perCallCapabilities: new Map([
+          ["work_governance.assess", {
+            name: "work_governance.assess",
+            description: "Assess governed work.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          }],
+          ["work_item.update", {
+            name: "work_item.update",
+            description: "Create or update governed work.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          }],
+          ["work_item.execution.start", {
+            name: "work_item.execution.start",
+            description: "Start governed execution.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          }],
+          ["work_item.execution.finish", {
+            name: "work_item.execution.finish",
+            description: "Finish governed execution.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          }],
+          ["work_item.complete", {
+            name: "work_item.complete",
+            description: "Complete governed work.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          }],
+          ["managed_agent.invoke", {
+            name: "managed_agent.invoke",
+            description: "Invoke a managed agent.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          }],
+        ]),
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("Governed work closeout:");
+    expect(governedContextContent).toContain("Do not end an execute-mode governed turn after only research, inspection, planning prose, or a read-only scout.");
+    expect(governedContextContent).toContain("After a successful managed_agent.invoke for an open work item, continue with the same work item until it is started, finished, completed, or explicitly blocked with a pause requirement.");
+    expect(governedContextContent).toContain("A pending, in_progress, or blocked work item without terminal closeout projects as failed in CLI, TUI, and GUI.");
+  });
+
   it("defers oversized active skills under budget pressure and records the procedural deferral in contextAudit", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
@@ -2317,6 +2380,717 @@ describe("processAdmittedTurn", () => {
       content: "done",
     });
   });
+
+  it("marks the canonical turn failed when managed delegation fails before execution starts", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "tool_result",
+          toolName: "work_item.execution.start",
+          durationMs: 120000,
+          success: false,
+          isError: true,
+          output: "Managed child invocation failed before work item execution could start.",
+          metadata: {
+            toolName: "work_item.execution.start",
+            operation: "managed_invocation_failed",
+            managedInvocationAutoStarted: false,
+          },
+          timestamp: new Date("2026-05-18T22:06:40.618Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("Managed scout timed out; the goal is blocked."),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+
+    const result = await processInboundMessage(makeBaseContext({ orchestrator, sessionRegistry }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when managed delegation failure is only reported in tool executions", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Managed scout failed before execution could start."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolCallId: "tool-work-start-failed",
+        toolName: "work_item.execution.start",
+        input: { goalRunId: "goal-1" },
+        output: "Managed child invocation failed before work item execution could start.",
+        resultSummary: "Managed child invocation failed before work item execution could start.",
+        durationMs: 120000,
+        success: false,
+        metadata: {
+          toolName: "work_item.execution.start",
+          operation: "managed_invocation_failed",
+          managedInvocationAutoStarted: false,
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when orchestration is recommended but no governed work is materialized", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("I mapped the surfaces and will create a plan next."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [
+        {
+          toolCallId: "tool-assess",
+          toolName: "work_governance.assess",
+          input: {
+            summary: "Refactor cross-surface UI.",
+            risk: "high",
+            triggers: ["ui", "cross-surface", "multi-file"],
+          },
+          output: [
+            "recommendation: orchestrate",
+            "reasons: default posture is orchestrate; delegation trigger matched: ui, cross-surface, multi-file",
+            "requiredEvidence: surface-map, plan, tests, typecheck, browser-qa, residual-risk",
+          ].join("\n"),
+          resultSummary: "recommendation: orchestrate",
+          durationMs: 2,
+          success: true,
+        },
+        {
+          toolCallId: "tool-tree",
+          toolName: "tree",
+          input: { path: ".", depth: 2 },
+          output: "73 entries under repo",
+          resultSummary: "73 entries under repo",
+          durationMs: 2,
+          success: true,
+        },
+      ],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when governed execution starts but remains open", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Created the governed work item and started execution."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [
+        {
+          toolCallId: "tool-assess",
+          toolName: "work_governance.assess",
+          input: {
+            summary: "Refactor cross-surface UI.",
+            risk: "high",
+            triggers: ["ui", "cross-surface", "multi-file"],
+          },
+          output: "recommendation: orchestrate",
+          resultSummary: "recommendation: orchestrate",
+          durationMs: 2,
+          success: true,
+        },
+        {
+          toolCallId: "tool-work-start",
+          toolName: "work_item.execution.start",
+          input: {
+            id: "work-ui-1",
+            summary: "Map and refactor UI shell.",
+            workflowProfile: "ui-change",
+          },
+          output: "{\"id\":\"work-ui-1\",\"status\":\"in_progress\"}",
+          resultSummary: "work item execution started",
+          durationMs: 2,
+          success: true,
+          metadata: {
+            toolName: "work_item.execution.start",
+            kind: "work_item",
+            operation: "execution_started",
+            id: "work-ui-1",
+            status: "in_progress",
+            item: {
+              id: "work-ui-1",
+              status: "in_progress",
+              pauseRequirements: [],
+              providedEvidence: ["surface-map"],
+              executionAttempts: [{
+                id: "goal-ui:work-ui-1:attempt:1",
+                status: "started",
+                executionMode: "managed_delegation",
+                managedInvocationId: "invocation-ui-1",
+              }],
+            },
+          },
+        },
+      ],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when governed work is created but never planned, paused, started, or closed", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Created work-1 and completed read-only scouting, but implementation is blocked on write authority."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [
+        {
+          toolCallId: "tool-assess",
+          toolName: "work_governance.assess",
+          input: {
+            summary: "Refactor cross-surface UI.",
+            risk: "high",
+            triggers: ["ui", "cross-surface", "multi-file"],
+          },
+          output: "recommendation: orchestrate",
+          resultSummary: "recommendation: orchestrate",
+          durationMs: 2,
+          success: true,
+        },
+        {
+          toolCallId: "tool-work-item",
+          toolName: "work_item.update",
+          input: {
+            id: "work-ui-1",
+            summary: "Map and refactor UI shell.",
+            workflowProfile: "ui-change",
+          },
+          output: "{\"id\":\"work-ui-1\",\"status\":\"pending\"}",
+          resultSummary: "work item updated",
+          durationMs: 2,
+          success: true,
+          metadata: {
+            toolName: "work_item.update",
+            kind: "work_item",
+            operation: "update",
+            id: "work-ui-1",
+            status: "pending",
+            item: {
+              id: "work-ui-1",
+              status: "pending",
+              pauseRequirements: [],
+              providedEvidence: [],
+              executionAttempts: [],
+            },
+          },
+        },
+        {
+          toolCallId: "tool-managed-scout",
+          toolName: "managed_agent.invoke",
+          input: {
+            profile: "foundation-readonly-plan",
+            routeId: "codex-oauth-scout-readonly",
+            workItemId: "work-ui-1",
+          },
+          output: "status: valid\n\nevidence:\n- UI surface map produced.",
+          resultSummary: "status: valid",
+          durationMs: 31000,
+          success: true,
+          metadata: {
+            toolName: "managed_agent.invoke",
+            kind: "managed-invocation",
+            status: "completed",
+            routeId: "codex-oauth-scout-readonly",
+            profile: "foundation-readonly-plan",
+          },
+        },
+      ],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when open governed work without closeout is reported through runtime events", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "tool_result",
+          toolName: "work_governance.assess",
+          durationMs: 2,
+          success: true,
+          isError: false,
+          output: "recommendation: orchestrate",
+          resultSummary: "recommendation: orchestrate",
+          timestamp: new Date("2026-05-19T17:24:41.077Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "tool_result",
+          toolName: "work_item.update",
+          durationMs: 2,
+          success: true,
+          isError: false,
+          output: "{\"item\":{\"id\":\"work-1\",\"status\":\"pending\"}}",
+          resultSummary: "work item updated",
+          metadata: {
+            toolName: "work_item.update",
+            kind: "work_item",
+            operation: "update",
+            id: "work-1",
+            status: "pending",
+            item: {
+              id: "work-1",
+              status: "pending",
+              pauseRequirements: [],
+              providedEvidence: [],
+              executionAttempts: [],
+            },
+          },
+          timestamp: new Date("2026-05-19T17:24:52.365Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "tool_result",
+          toolName: "managed_agent.invoke",
+          durationMs: 31000,
+          success: true,
+          isError: false,
+          output: "status: valid\n\nevidence:\n- UI surface map produced.",
+          resultSummary: "status: valid",
+          metadata: {
+            toolName: "managed_agent.invoke",
+            kind: "managed-invocation",
+            status: "completed",
+            routeId: "codex-oauth-scout-readonly",
+            profile: "foundation-readonly-plan",
+          },
+          timestamp: new Date("2026-05-19T17:25:38.752Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("Created work-1 and completed read-only scouting, but implementation is blocked on write authority."),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when open governed work without closeout is reported through surface capture", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Created work-1 and completed read-only scouting. Continuing with repository inspection next."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      turnCapture: {
+        finish: () => ({
+          toolCompletions: [
+            {
+              toolName: "work_governance.assess",
+              success: true,
+              output: "recommendation: orchestrate",
+              resultSummary: "recommendation: orchestrate",
+            },
+            {
+              toolName: "work_item.update",
+              success: true,
+              output: "{\"item\":{\"id\":\"work-1\",\"status\":\"pending\"}}",
+              resultSummary: "work item updated",
+              metadata: {
+                kind: "work_item",
+                operation: "update",
+                id: "work-1",
+                status: "pending",
+                item: {
+                  id: "work-1",
+                  status: "pending",
+                  pauseRequirements: [],
+                  providedEvidence: [],
+                  executionAttempts: [],
+                },
+              },
+            },
+            {
+              toolName: "managed_agent.invoke",
+              success: true,
+              output: "status: valid\n\nevidence:\n- UI surface map produced.",
+              resultSummary: "status: valid",
+              metadata: {
+                kind: "managed-invocation",
+                status: "completed",
+                routeId: "codex-oauth-scout-readonly",
+                profile: "foundation-readonly-plan",
+              },
+            },
+          ],
+        }),
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when governed work remains blocked by a pending pause requirement", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Created the work item and delegated read-only scouting; write authority is still pending."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [
+        {
+          toolCallId: "tool-assess",
+          toolName: "work_governance.assess",
+          input: {
+            summary: "Refactor cross-surface UI.",
+            risk: "high",
+            triggers: ["ui", "cross-surface", "multi-file"],
+          },
+          output: "recommendation: orchestrate",
+          resultSummary: "recommendation: orchestrate",
+          durationMs: 2,
+          success: true,
+        },
+        {
+          toolCallId: "tool-work-item",
+          toolName: "work_item.update",
+          input: {
+            id: "work-1",
+            summary: "Audit and redesign current UI/UX across repository surfaces.",
+            workflowProfile: "ui-change",
+          },
+          output: "{\"item\":{\"id\":\"work-1\"}}",
+          resultSummary: "work item updated",
+          durationMs: 2,
+          success: true,
+          metadata: {
+            toolName: "work_item.update",
+            kind: "work_item",
+            operation: "update",
+            id: "work-1",
+            status: "pending",
+            item: {
+              id: "work-1",
+              status: "pending",
+              pauseRequirements: [{
+                id: "write-authority",
+                kind: "authority_elevation",
+                summary: "Repository write authority is required to apply the requested refactor.",
+                status: "pending",
+              }],
+            },
+          },
+        },
+        {
+          toolCallId: "tool-managed-scout",
+          toolName: "managed_agent.invoke",
+          input: {
+            profile: "foundation-readonly-plan",
+            routeId: "codex-oauth-scout-readonly",
+            workItemId: "work-1",
+          },
+          output: "status: valid\n\nevidence:\n- UI surface map produced.",
+          resultSummary: "status: valid",
+          durationMs: 31000,
+          success: true,
+          metadata: {
+            toolName: "managed_agent.invoke",
+            kind: "managed-invocation",
+            status: "completed",
+            routeId: "codex-oauth-scout-readonly",
+            profile: "foundation-readonly-plan",
+          },
+        },
+      ],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn failed when governed execution pauses and is not resumed", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "tool_result",
+          toolName: "work_item.execution.start",
+          durationMs: 2,
+          success: false,
+          isError: true,
+          output: JSON.stringify({
+            status: "paused",
+            step: {
+              reasonCode: "work_item_in_progress",
+              reason: "Work item work-1 is already in progress.",
+            },
+          }),
+          timestamp: new Date("2026-05-19T03:42:23.197Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "tool_result",
+          toolName: "managed_agent.invoke",
+          durationMs: 31000,
+          success: true,
+          isError: false,
+          output: "status: valid",
+          metadata: {
+            toolName: "managed_agent.invoke",
+            kind: "managed-invocation",
+            status: "completed",
+            routeId: "codex-oauth-scout-readonly",
+          },
+          timestamp: new Date("2026-05-19T03:43:06.229Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("I started the governed work; the next concrete step is implementation."),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("removes provider tool-call markup from assistant egress text", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts([
+        "Need read managed full? It truncated.",
+        "<assistant to=functions.resource_read >\n",
+        "{\"uri\":\"kiln://artifacts/tool-results/artifact_3/content\"}",
+        "{\"uri\":\"kiln://artifacts/tool-results/artifact_3/content\"}",
+        "I started the governed cross-surface UI/UX refactor.",
+      ].join("")),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(extractText(result.result.parts)).not.toContain("<assistant to=");
+      expect(extractText(result.result.parts)).not.toContain("kiln://artifacts/tool-results");
+      expect(extractText(result.result.parts)).toContain("I started the governed cross-surface UI/UX refactor.");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.not.stringContaining("<assistant to="),
+    });
+  });
+
+  it("removes leaked internal scratchpad prefixes from assistant egress text", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Need create work item perhaps. Need inspect outputs.I’ll handle this as governed work."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(extractText(result.result.parts)).toBe("I’ll handle this as governed work.");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: "I’ll handle this as governed work.",
+    });
+  });
+
+  it.each(["failed", "denied", "timed-out", "cancelled"] as const)(
+    "marks the canonical turn failed when direct managed_agent.invoke returns %s",
+    async (status) => {
+      const session = makeMockSession();
+      const eventBus = new EventBus();
+      const orchestrator = {
+        processMessage: vi.fn().mockImplementation(async () => {
+          eventBus.emit({
+            type: "tool_result",
+            toolName: "managed_agent.invoke",
+            durationMs: 120000,
+            success: false,
+            isError: true,
+            output: `Direct provider managed invocation ${status}.`,
+            metadata: {
+              toolName: "managed_agent.invoke",
+              kind: "managed-invocation",
+              status,
+              routeId: "opencode-go-kimi-readonly",
+            },
+            timestamp: new Date("2026-05-18T23:37:13.855Z"),
+            sessionId: session.id,
+          });
+          return {
+            parts: textParts("The managed child failed; the goal is blocked."),
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            queued: false,
+          } satisfies OrchestrateResult;
+        }),
+        model: "gpt-5.5",
+        eventBus,
+      } as unknown as RuntimeSessionOrchestrator;
+      const sessionRegistry = makeMockSessionRegistry(session);
+
+      const result = await processInboundMessage(makeBaseContext({ orchestrator, sessionRegistry }));
+
+      expect(result.ok).toBe(true);
+      const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+      expect(ledger.at(-1)).toMatchObject({
+        kind: "turn_completed",
+        outcome: "failed",
+      });
+    },
+  );
 
   it("persists pre-admitted multimodal transform evidence supplied by ingress", async () => {
     const session = makeMockSession();

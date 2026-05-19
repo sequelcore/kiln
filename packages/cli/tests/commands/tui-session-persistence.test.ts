@@ -13,6 +13,7 @@ const {
   mockProjectGuiOperatorModels,
   mockResolveGuiProviderSwitch,
   mockCreateProviderCatalogService,
+  mockDeriveGovernedTurnOutcomeFromToolRecords,
 } = vi.hoisted(() => ({
   mockGatewaySessionCtor: vi.fn(),
   mockWaitForGateway: vi.fn(),
@@ -102,6 +103,25 @@ const {
       modelForAck: model,
     } as const;
   }),
+  mockDeriveGovernedTurnOutcomeFromToolRecords: vi.fn((records: readonly {
+    readonly toolName: string;
+    readonly success: boolean;
+    readonly metadata?: Record<string, unknown>;
+  }[] | undefined) => (
+    (records ?? []).some((record) => (
+      record.toolName === "managed_agent.invoke"
+      && !record.success
+      && record.metadata?.kind === "managed-invocation"
+      && record.metadata.status === "timed-out"
+    ) || (
+      record.toolName === "work_item.execution.start"
+      && record.success
+      && record.metadata?.kind === "work_item"
+      && record.metadata.status === "in_progress"
+    ))
+      ? "failed"
+      : undefined
+  )),
 }));
 
 vi.mock("@kilnai/tui", () => ({
@@ -143,6 +163,7 @@ vi.mock("@kilnai/runtime", () => ({
   markGuiProviderDiscoveryStale: (discovery: readonly unknown[]) => discovery,
   projectGuiOperatorModels: mockProjectGuiOperatorModels,
   createProviderCatalogService: mockCreateProviderCatalogService,
+  deriveGovernedTurnOutcomeFromToolRecords: mockDeriveGovernedTurnOutcomeFromToolRecords,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
   resolveGuiProviderSwitch: mockResolveGuiProviderSwitch,
 }));
@@ -484,6 +505,194 @@ describe("makeMultiProviderSessionFactory", () => {
     });
     expect(appendedEvents.find((event) => event.kind === "assistant_message")?.payload).toMatchObject({
       content: "Done.",
+    });
+  });
+
+  it("marks persisted GUI-command turns failed when governed tool completions are blocking", async () => {
+    const { store } = makeStore(null);
+    const timedOutManagedInvocation = JSON.stringify({
+      output: "Direct provider managed invocation timed out after 120000ms.",
+      isError: true,
+      metadata: {
+        toolName: "managed_agent.invoke",
+        kind: "managed-invocation",
+        status: "timed-out",
+        routeId: "codex-oauth-readonly",
+      },
+    });
+    const openWorkItem = JSON.stringify({
+      output: "{\"item\":{\"id\":\"work-1\",\"status\":\"pending\"}}",
+      isError: false,
+      metadata: {
+        toolName: "work_item.update",
+        kind: "work_item",
+        operation: "update",
+        id: "work-1",
+        status: "pending",
+        item: {
+          id: "work-1",
+          status: "pending",
+          pauseRequirements: [],
+          providedEvidence: ["surface-map"],
+          executionAttempts: [],
+        },
+      },
+    });
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-governed-failed",
+        providerSessionId: "prov-governed-failed",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
+          yield { type: "tool_result", toolName: "managed_agent.invoke", output: timedOutManagedInvocation };
+          yield { type: "tool_result", toolName: "work_item.update", output: openWorkItem };
+          yield { type: "text_delta", content: "Continuing with repository inspection next." };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "redesign UI" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    expect(appendedEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      payload: {
+        outcome: "failed",
+      },
+      source: {
+        surface: "gui",
+        component: "gui-command",
+      },
+    });
+    expect(mockDeriveGovernedTurnOutcomeFromToolRecords).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({
+        toolName: "managed_agent.invoke",
+        success: false,
+        metadata: expect.objectContaining({
+          kind: "managed-invocation",
+          status: "timed-out",
+        }),
+      }),
+      expect.objectContaining({
+        toolName: "work_item.update",
+        success: true,
+        metadata: expect.objectContaining({
+          kind: "work_item",
+          status: "pending",
+        }),
+      }),
+    ]));
+    expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
+      lastTurnOutcome: "failed",
+      sessionLedger: {
+        currentPhase: "completed",
+      },
+    });
+  });
+
+  it("marks persisted GUI-command turns failed when governed execution starts but remains open", async () => {
+    const { store } = makeStore(null);
+    const openExecutionStart = JSON.stringify({
+      output: JSON.stringify({
+        status: "started",
+        item: {
+          id: "work-1",
+          status: "in_progress",
+          pauseRequirements: [],
+          providedEvidence: ["surface-map"],
+          executionAttempts: [{
+            id: "goal-1:work-1:attempt:1",
+            status: "started",
+            executionMode: "managed_delegation",
+            managedInvocationId: "invocation-1",
+          }],
+        },
+      }),
+      isError: false,
+      metadata: {
+        toolName: "work_item.execution.start",
+        kind: "work_item",
+        operation: "execution_started",
+        id: "work-1",
+        status: "in_progress",
+        item: {
+          id: "work-1",
+          status: "in_progress",
+          pauseRequirements: [],
+          providedEvidence: ["surface-map"],
+          executionAttempts: [{
+            id: "goal-1:work-1:attempt:1",
+            status: "started",
+            executionMode: "managed_delegation",
+            managedInvocationId: "invocation-1",
+          }],
+        },
+      },
+    });
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-governed-open-start",
+        providerSessionId: "prov-governed-open-start",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
+          yield { type: "tool_result", toolName: "work_item.execution.start", output: openExecutionStart };
+          yield { type: "text_delta", content: "Execution has started; implementation is still pending." };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "redesign UI" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    expect(appendedEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      payload: {
+        outcome: "failed",
+      },
+      source: {
+        surface: "gui",
+        component: "gui-command",
+      },
+    });
+    expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
+      lastTurnOutcome: "failed",
+      sessionLedger: {
+        currentPhase: "completed",
+      },
     });
   });
 

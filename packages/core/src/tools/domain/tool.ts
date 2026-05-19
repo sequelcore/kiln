@@ -936,14 +936,14 @@ export const TOOL_SCHEMAS: Record<
   },
   glob: {
     name: "glob",
-    description: "Match files by glob pattern. Always pass a JSON object with a non-empty pattern string and optional path.",
+    description: "Match files by glob pattern. Always pass a JSON object with a non-empty pattern string and optional path. Brace alternates such as **/*.{ts,tsx,css} are supported.",
     inputSchema: {
       type: "object",
       properties: {
         pattern: {
           type: "string",
           minLength: 1,
-          description: "Glob pattern to match, such as **/*.ts or docs/changelog.md.",
+          description: "Glob pattern to match, such as **/*.ts, **/*.{ts,tsx,css}, or docs/changelog.md.",
         },
         path: {
           type: "string",

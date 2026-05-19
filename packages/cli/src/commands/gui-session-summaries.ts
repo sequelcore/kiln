@@ -37,6 +37,7 @@ export async function loadSessionSummaries(
     id: string;
     providersUsed: string[];
     lastProvider: string;
+    lastTurnOutcome?: "completed" | "failed" | "cancelled";
     completedAt: string;
     cost: number;
     taskSummary: string;
@@ -46,12 +47,14 @@ export async function loadSessionSummaries(
     if (!loadableSessionIds.has(session.sessionId)) {
       continue;
     }
+    const meta = await transcriptStore.readMeta(session.sessionId);
     const existing = summaries.get(session.sessionId);
     if (!existing) {
       summaries.set(session.sessionId, {
         id: session.sessionId,
         providersUsed: mergeProvidersUsed(session.providersUsed, [session.provider]),
         lastProvider: session.provider,
+        ...(meta?.lastTurnOutcome ? { lastTurnOutcome: meta.lastTurnOutcome } : {}),
         completedAt: session.completedAt,
         cost: session.cost,
         taskSummary: buildSessionSummary({
@@ -78,6 +81,9 @@ export async function loadSessionSummaries(
     });
     if (isGenericSummary(existing.taskSummary) && !isGenericSummary(candidateSummary)) {
       existing.taskSummary = candidateSummary;
+    }
+    if (meta?.lastTurnOutcome) {
+      existing.lastTurnOutcome = meta.lastTurnOutcome;
     }
     existing.cost += session.cost;
   }

@@ -1,6 +1,9 @@
 # Sanitized task-aware model team example.
 # Copy the shape, not the exact model list. Credentials stay in environment
 # variables or Kiln credential pools, never in this file.
+# This example is subscription-first: direct Codex OAuth and OpenCode Go/Zen are
+# normal routes; native CLI harness engines stay disabled unless intentionally
+# selected as fallback escape hatches.
 version: "1"
 engines:
   codex-oauth:
@@ -13,14 +16,14 @@ engines:
     enabled: true
     billing: api-key
   codex:
-    enabled: true
+    enabled: false
     billing: plus-quota
   opencode:
-    enabled: true
+    enabled: false
     billing: free
 routing:
   defaultWorker: codex-oauth
-  fallback: codex
+  fallback: opencode-zen
   routes:
     - provider: codex-oauth
       model: gpt-5.5
@@ -38,17 +41,11 @@ routing:
       model: deepseek-v4-flash
     - provider: opencode-zen
       model: minimax-m2.5-free
-    - provider: codex
-      model: gpt-5.4-mini
-    - provider: opencode
-      model: opencode/minimax-m2.5-free
   budgetAware: false
 models:
   codex-oauth: gpt-5.5
   opencode-go: minimax-m2.7
   opencode-zen: minimax-m2.5-free
-  codex: gpt-5.4-mini
-  opencode: opencode/minimax-m2.5-free
 reasoningPolicy:
   default: medium
   unsupported: omit
@@ -118,13 +115,35 @@ managedAgents:
   defaultProvider: codex-oauth
   defaultProfile: foundation-readonly-plan
   requireApproval: true
+  # Read-only managed routes are derived from routing.routes. Keep this list
+  # for authority-bearing routes and deliberate exceptions only.
   routes:
-    - id: codex-oauth-readonly
+    - id: codex-oauth-scout-readonly
+      kind: direct
+      provider: codex-oauth
+      model: gpt-5.4-mini
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+    - id: codex-oauth-critical-approved-write
       kind: direct
       provider: codex-oauth
       model: gpt-5.5
       profiles:
-        - foundation-readonly-plan
+        - foundation-apply-approved-writes
       workingDirectory: project
       timeoutMs: 120000
       tools:
@@ -133,18 +152,32 @@ managedAgents:
           - tree
           - grep
           - glob
+          - write
+          - edit
+          - apply-patch
         network: false
-        writes: false
+        writes: true
       memory:
-        access: read-only
+        access: write-proposals
       credentials:
         mode: runtime-selected
-    - id: opencode-go-kimi-readonly
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-go-frontend-approved-write
       kind: direct
       provider: opencode-go
       model: kimi-k2.6
       profiles:
-        - foundation-readonly-plan
+        - foundation-apply-approved-writes
       workingDirectory: project
       timeoutMs: 120000
       tools:
@@ -153,18 +186,32 @@ managedAgents:
           - tree
           - grep
           - glob
+          - write
+          - edit
+          - apply-patch
         network: false
-        writes: false
+        writes: true
       memory:
-        access: read-only
+        access: write-proposals
       credentials:
         mode: runtime-selected
-    - id: opencode-readonly
-      kind: harness
-      provider: opencode
-      model: opencode/minimax-m2.5-free
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-go-service-approved-write
+      kind: direct
+      provider: opencode-go
+      model: glm-5.1
       profiles:
-        - foundation-readonly-plan
+        - foundation-apply-approved-writes
       workingDirectory: project
       timeoutMs: 120000
       tools:
@@ -173,12 +220,230 @@ managedAgents:
           - tree
           - grep
           - glob
+          - write
+          - edit
+          - apply-patch
         network: false
-        writes: false
+        writes: true
       memory:
-        access: read-only
+        access: write-proposals
       credentials:
         mode: runtime-selected
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-go-backend-approved-write
+      kind: direct
+      provider: opencode-go
+      model: deepseek-v4-pro
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+          - write
+          - edit
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      credentials:
+        mode: runtime-selected
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-go-research-approved-write
+      kind: direct
+      provider: opencode-go
+      model: qwen3.6-plus
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+          - write
+          - edit
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      credentials:
+        mode: runtime-selected
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-go-mechanical-approved-write
+      kind: direct
+      provider: opencode-go
+      model: deepseek-v4-flash
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+          - write
+          - edit
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      credentials:
+        mode: runtime-selected
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-go-general-approved-write
+      kind: direct
+      provider: opencode-go
+      model: minimax-m2.7
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+          - write
+          - edit
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      credentials:
+        mode: runtime-selected
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-zen-mechanical-approved-write
+      kind: direct
+      provider: opencode-zen
+      model: deepseek-v4-flash-free
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+          - write
+          - edit
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      credentials:
+        mode: runtime-selected
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+    - id: opencode-zen-free-approved-write
+      kind: direct
+      provider: opencode-zen
+      model: minimax-m2.5-free
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      timeoutMs: 120000
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+          - write
+          - edit
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      credentials:
+        mode: runtime-selected
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - "."
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
 permissions:
   approval: on-request
   sandbox: read-only

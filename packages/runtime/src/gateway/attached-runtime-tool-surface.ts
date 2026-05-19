@@ -373,6 +373,8 @@ const RECORD_CLARIFICATION_CAPABILITY: Capability = {
   annotations: { readOnly: true },
 };
 
+const GOAL_CREATE_TOOL_NAME = "goal.create";
+
 export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
 ): AttachedRuntimeBuiltinToolSurface {
@@ -391,15 +393,20 @@ export function createAttachedRuntimeBuiltinToolSurface(
     ? buildRuntimeSurface(coreSurface, { requireSessionStores: requiresPlanningStores })
     : DEFAULT_BUILTIN_TOOL_SURFACE;
 
-  if (!themeController && options.executionMode !== "plan" && !options.managedInvocation) {
-    return baseSurface;
-  }
-
   const callBuiltinTools = new Map(baseSurface.callBuiltinTools);
   const capabilities = new Map(baseSurface.capabilities);
   const toolAuthority = new Map(baseSurface.toolAuthority);
   const toolCallMetadata = new Map(baseSurface.toolCallMetadata);
   const toolDefinitions = [...baseSurface.toolDefinitions];
+
+  const goalCreateExecutor = callBuiltinTools.get(GOAL_CREATE_TOOL_NAME);
+  if (goalCreateExecutor) {
+    callBuiltinTools.set(GOAL_CREATE_TOOL_NAME, createSessionAwareGoalCreateExecutor(goalCreateExecutor));
+  }
+
+  if (!themeController && options.executionMode !== "plan" && !options.managedInvocation && !goalCreateExecutor) {
+    return baseSurface;
+  }
 
   if (themeController) {
     callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
@@ -496,6 +503,19 @@ export function createAttachedRuntimeBuiltinToolSurface(
     listResources: baseSurface.listResources,
     listResourceTemplates: baseSurface.listResourceTemplates,
     readResource: baseSurface.readResource,
+  };
+}
+
+function createSessionAwareGoalCreateExecutor(goalCreateExecutor: RuntimeBuiltinToolExecutor): RuntimeBuiltinToolExecutor {
+  return async (input, context) => {
+    const ownerSessionId = readTextFromUnknown(input.ownerSessionId);
+    if (ownerSessionId || !context?.session.id) {
+      return goalCreateExecutor(input, context);
+    }
+    return goalCreateExecutor({
+      ...input,
+      ownerSessionId: context.session.id,
+    }, context);
   };
 }
 

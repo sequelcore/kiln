@@ -30,6 +30,7 @@ import type {
   VoiceConfig,
   VoiceFailureMode,
   VoiceSurface,
+  SessionTurnOutcome,
 } from "@kilnai/core";
 import { DefaultContextGovernor, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
@@ -67,7 +68,9 @@ import {
   type RuntimeTurnDangerousCommandOutcome,
   type RuntimeTurnFileChange,
   type RuntimeTurnProviderValidation,
+  type RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
+import { deriveGovernedTurnOutcome } from "../session/governed-turn-outcome.js";
 import { appendCanonicalTurnEvents, type RuntimeTurnAuthorityMutationViolation } from "../session/runtime-session-event-ledger.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
@@ -96,6 +99,52 @@ type RuntimePipelineLedgerEvent =
   | MultimodalRoutedEvent
   | ToolCalledEvent
   | ToolResultEvent;
+
+function deriveCanonicalTurnOutcome(input: {
+  readonly runtimeEvents: readonly RuntimePipelineLedgerEvent[];
+  readonly surfaceToolCompletions?: readonly RuntimeTurnToolCompletion[];
+  readonly toolExecutions?: readonly ToolExecutionSummary[];
+}): SessionTurnOutcome | undefined {
+  return deriveGovernedTurnOutcome({
+    runtimeToolResults: input.runtimeEvents.filter((event): event is ToolResultEvent => event.type === "tool_result"),
+    surfaceToolCompletions: input.surfaceToolCompletions,
+    toolExecutions: input.toolExecutions,
+  });
+}
+
+function sanitizeAssistantEgressParts(parts: readonly ContentPart[]): readonly ContentPart[] {
+  return parts.map((part) => {
+    if (part.type !== "text") {
+      return part;
+    }
+    return {
+      ...part,
+      text: sanitizeAssistantEgressText(part.text),
+    };
+  });
+}
+
+function sanitizeAssistantEgressText(text: string): string {
+  const withoutToolCallMarkup = stripLeakedProviderToolCallMarkup(text);
+  return stripLeakedInternalScratchpadPrefix(withoutToolCallMarkup);
+}
+
+function stripLeakedProviderToolCallMarkup(text: string): string {
+  const firstLeakedToolCall = text.search(/<assistant\s+to=[^>]+>/i);
+  if (firstLeakedToolCall < 0) {
+    return text;
+  }
+  return text
+    .slice(firstLeakedToolCall)
+    .replace(/<assistant\s+to=[^>]+>\s*(?:\{[^{}]*\}\s*)*/gi, "")
+    .trimStart();
+}
+
+function stripLeakedInternalScratchpadPrefix(text: string): string {
+  return text
+    .replace(/^(?:\s*Need\b[^.!?\n]{1,180}[.!?]\s*)+(?=(?:I['’]ll|I will|Current status:))/i, "")
+    .trimStart();
+}
 
 interface EgressPermissionRequest {
   readonly tenantId: string;
@@ -186,6 +235,7 @@ export interface AdmittedTurnContext {
         readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
         readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
         readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
+        readonly toolCompletions?: readonly RuntimeTurnToolCompletion[];
       }
       | undefined
       | Promise<{
@@ -193,6 +243,7 @@ export interface AdmittedTurnContext {
         readonly approvalTransitions?: readonly RuntimeTurnApprovalTransition[];
         readonly authorityDecisions?: readonly RuntimeTurnAuthorityDecision[];
         readonly dangerousCommandOutcomes?: readonly RuntimeTurnDangerousCommandOutcome[];
+        readonly toolCompletions?: readonly RuntimeTurnToolCompletion[];
       } | undefined>
     );
     readonly abort?: (sessionId: string) => void | Promise<void>;
@@ -1108,6 +1159,23 @@ function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToolConfig
   };
 }
 
+function buildGovernedWorkCloseoutContextCandidate(): ContextCandidate {
+  return {
+    kind: "procedural",
+    source: "runtime-governed-work-closeout",
+    required: true,
+    score: 1,
+    content: [
+      "Governed work closeout:",
+      "In execute mode, a work_governance.assess recommendation of orchestrate or delegate is not complete after research, inspection, planning prose, or a read-only scout.",
+      "Do not end an execute-mode governed turn after only research, inspection, planning prose, or a read-only scout.",
+      "Materialize governed work with the shared work tools, then either start execution, finish execution, complete the work item, submit a structured plan when planning is the terminal deliverable, or record a concrete pending pause requirement.",
+      "After a successful managed_agent.invoke for an open work item, continue with the same work item until it is started, finished, completed, or explicitly blocked with a pause requirement.",
+      "A pending, in_progress, or blocked work item without terminal closeout projects as failed in CLI, TUI, and GUI.",
+    ].join("\n"),
+  };
+}
+
 function projectRequestedAuthorityPerCallConfig(
   config: PerCallToolConfig | undefined,
   executionMode: OperatorExecutionMode,
@@ -1657,6 +1725,9 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     executionMode,
     requestedAuthority: ctx.requestedAuthority,
   }));
+  if (executionMode === "execute") {
+    proceduralContextCandidates.push(buildGovernedWorkCloseoutContextCandidate());
+  }
   if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
     const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
     for (const skill of resolved) {
@@ -1887,6 +1958,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
 
   let egressContextSummary = result.contextSummary;
   let egressToolExecutions = result.toolExecutions;
+  resultParts = sanitizeAssistantEgressParts(resultParts);
   const assistantDecision = await resolveEgressDecision(
     ctx,
     effectiveTenantId,
@@ -2010,6 +2082,11 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     userMessageContent: userText,
     assistantMessageContent: extractText(resultParts),
     queued: result.queued,
+    turnOutcome: deriveCanonicalTurnOutcome({
+      runtimeEvents: capturedRuntimeEvents,
+      surfaceToolCompletions: externalTurnCapture?.toolCompletions,
+      toolExecutions: result.toolExecutions,
+    }),
     turnStartedAt,
     turnCompletedAt: new Date(),
     continuity: runtimeContinuityPresentation.runtimeContinuity,

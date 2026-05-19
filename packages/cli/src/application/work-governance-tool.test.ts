@@ -836,6 +836,216 @@ describe("work-governance-tool", () => {
     expect(workItemStore.get(second.id)?.status).toBe("pending");
   });
 
+  it("creates a governed goal and links existing work items before execution starts", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      ownerSessionId: "session-current",
+    });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+
+    await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-goal-linked",
+        summary: "Execute governed linked work.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        expectedEvidence: ["tests"],
+      },
+    });
+
+    const createdGoal = await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-linked",
+        objective: "Execute linked work.",
+        planId: "plan-1",
+        workItemIds: ["work-goal-linked"],
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        authorityReason: "Approved plan.",
+        workflowProfile: "verification-heavy",
+      },
+    });
+
+    expect(createdGoal?.isError).toBe(false);
+    expect(goalRunStore.get("goal-linked")?.ownerSessionId).toBe("session-current");
+    expect(workItemStore.get("work-goal-linked")?.goalRunId).toBe("goal-linked");
+    expect(workItemStore.get("work-goal-linked")?.planId).toBe("plan-1");
+
+    const started = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: { goalRunId: "goal-linked" },
+    });
+
+    expect(started?.isError).toBe(false);
+    expect(started?.metadata).toMatchObject({
+      operation: "execution_started",
+      id: "work-goal-linked",
+      status: "in_progress",
+    });
+  });
+
+  it("rejects goal-level route and agent-profile ownership in the same route policy", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      ownerSessionId: "session-current",
+    });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+
+    await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-route-conflict",
+        summary: "Scout route ownership.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        expectedEvidence: ["surface-map"],
+      },
+    });
+
+    const createdGoal = await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-route-conflict",
+        objective: "Scout route ownership.",
+        planId: "plan-1",
+        workItemIds: ["work-route-conflict"],
+        maximumAuthority: "read_only",
+        escalationPolicy: "approval_required",
+        authorityReason: "Scouting only.",
+        workflowProfile: "verification-heavy",
+        preferredRouteId: "codex-oauth-readonly",
+        managedAgentProfile: "scout",
+      },
+    });
+
+    expect(createdGoal?.isError).toBe(true);
+    expect(createdGoal?.output).toContain("preferredRouteId");
+    expect(createdGoal?.output).toContain("managedAgentProfile");
+    expect(goalRunStore.get("goal-route-conflict")).toBeUndefined();
+    expect(workItemStore.get("work-route-conflict")?.routeId).toBeUndefined();
+  });
+
+  it("rejects manual in-progress transitions because execution.start owns active attempts", async () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-manual-progress",
+        summary: "Do not bypass execution start.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        status: "in_progress",
+      },
+    });
+
+    expect(created?.isError).toBe(true);
+    expect(created?.output).toContain("work_item.execution.start");
+    expect(workItemStore.get("work-manual-progress")).toBeUndefined();
+  });
+
+  it("fails fast instead of fabricating an owner session for goal creation", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+
+    await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-no-session",
+        summary: "Execute governed linked work.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        expectedEvidence: ["tests"],
+      },
+    });
+
+    const createdGoal = await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-no-session",
+        objective: "Execute linked work.",
+        planId: "plan-1",
+        workItemIds: ["work-no-session"],
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        authorityReason: "Approved plan.",
+        workflowProfile: "verification-heavy",
+      },
+    });
+
+    expect(createdGoal?.isError).toBe(true);
+    expect(createdGoal?.output).toContain("ownerSessionId");
+    expect(goalRunStore.get("goal-no-session")).toBeUndefined();
+  });
+
+  it("treats null optional work item arrays as omitted", async () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const result = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-null-optionals",
+        summary: "Create work item with omitted optional arrays.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        providedEvidence: null,
+        dependencies: null,
+        pauseRequirements: null,
+      },
+    });
+
+    expect(result?.isError).toBe(false);
+    expect(workItemStore.get("work-null-optionals")).toMatchObject({
+      providedEvidence: [],
+      dependencies: [],
+      pauseRequirements: [],
+    });
+  });
+
+  it("returns a recoverable goal.create contract error when execution references an unknown goal", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const result = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: { goalRunId: "goal-missing" },
+    });
+    const output = JSON.parse(result?.output ?? "{}") as {
+      readonly error?: {
+        readonly code?: string;
+        readonly recoverable?: boolean;
+        readonly suggestedNextTool?: string;
+      };
+    };
+
+    expect(result?.isError).toBe(true);
+    expect(output.error).toMatchObject({
+      code: "goal_not_found",
+      recoverable: true,
+      suggestedNextTool: "goal.create",
+    });
+  });
+
   it("pauses execution on unresolved work item requirements and resumes after update resolves them", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

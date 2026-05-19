@@ -75,6 +75,20 @@ OpenCode has two execution namespaces:
   model IDs come from the tier endpoint without the harness prefix, such as
   `minimax-m2.5-free`.
 
+Prefer the direct `opencode-go` and `opencode-zen` namespaces for normal Kiln
+work. OpenCode documents Go as a low-cost subscription that works like any other
+provider and can be used with other agents. The native `opencode` harness is an
+escape hatch for workflows that must run through the local OpenCode CLI; it
+should not be the default route when a direct tier credential is available.
+Source references: `https://dev.opencode.ai/docs/go/` and
+`https://opencode.ai/go`.
+
+Direct OpenCode tiers use distinct OpenAI-compatible endpoints. `opencode-go`
+routes chat calls to `https://opencode.ai/zen/go/v1`, while `opencode-zen`
+routes chat calls to `https://opencode.ai/zen/v1`. Model discovery and runtime
+execution must use the same tier namespace; a Go credential routed to the Zen
+endpoint is a configuration/runtime error, not a request for OAuth.
+
 Logout commands remove the provider's linked credential files. They do not
 modify unrelated provider directories.
 
@@ -147,6 +161,16 @@ Harness pool provider IDs:
 The selected harness home belongs to the child process launched by Kiln. The
 harness adapter remains responsible for provider-native token refresh and
 provider-specific auth mechanics.
+
+Harness credentials are not a substitute for subscription-provider routing.
+Use `codex` or `opencode` harness pools only when the operator intentionally
+selects the native CLI path, for example because the provider does not expose a
+direct compliant route for the requested workflow. Keep subscription-first
+configs on `codex-oauth`, `opencode-go`, and `opencode-zen`.
+For OpenAI-backed routes, review the current OpenAI Terms of Use and Service
+Terms before changing a subscription route into a different automation surface:
+`https://openai.com/policies/terms-of-use/` and
+`https://openai.com/policies/service-terms/`.
 
 ## Health States
 

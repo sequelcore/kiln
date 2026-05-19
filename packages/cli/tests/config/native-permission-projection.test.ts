@@ -157,7 +157,7 @@ describe("syncNativePermissionProjections", () => {
     expect((metadata.constraintInstructions as string[]).length).toBeGreaterThan(0);
   });
 
-  it("merges OpenCode JSON and writes kiln.permissionSync metadata", async () => {
+  it("merges OpenCode JSON without writing schema-invalid Kiln metadata", async () => {
     const opencodeConfigPath = join(paths.homePath, ".config", "opencode", "opencode.json");
     mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
     writeFileSync(
@@ -177,13 +177,7 @@ describe("syncNativePermissionProjections", () => {
     const config = readJson(opencodeConfigPath);
     expect(config.theme).toBe("ocean");
     expect(config.permission).toEqual({ default: "ask" });
-
-    const kiln = asRecord(config.kiln);
-    expect(kiln.legacyFlag).toBe(true);
-    const metadata = asRecord(kiln.permissionSync);
-    expect(metadata.backend).toBe("opencode");
-    expect((metadata.representableRules as unknown[]).length).toBeGreaterThan(0);
-    expect((metadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
+    expect(config.kiln).toBeUndefined();
   });
 
   it("writes non-empty translation metadata for granular policy across all backends", async () => {
@@ -206,9 +200,8 @@ describe("syncNativePermissionProjections", () => {
     expect((codexMetadata.constraintInstructions as string[]).length).toBeGreaterThan(0);
 
     const opencodeConfig = readJson(opencodeConfigPath);
-    const opencodeMetadata = asRecord(asRecord(opencodeConfig.kiln).permissionSync);
-    expect((opencodeMetadata.representableRules as unknown[]).length).toBeGreaterThan(0);
-    expect((opencodeMetadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
+    expect(opencodeConfig.permission).toEqual({ default: "ask" });
+    expect(opencodeConfig.kiln).toBeUndefined();
   });
 
   it("records native projection install state after permission sync", async () => {

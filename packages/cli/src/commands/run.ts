@@ -48,7 +48,7 @@ import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
 import type { RunSessionRouteCandidate } from "../application/run-session.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
-import { TranscriptStore } from "../wrapper/session-store.js";
+import { TranscriptStore, type PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
@@ -667,7 +667,11 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
+        workItemStore,
+        goalRunStore,
+        ownerSessionId: approvalMemorySessionId,
+      }),
     ],
   });
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
@@ -826,7 +830,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
   if (sessionSucceeded) {
     const completedAt = new Date().toISOString();
-    const meta = {
+    const meta: PersistedSessionMeta = {
       kilnSessionId: sessionId,
       provider: successfulProviderId ?? "unknown",
       title: initialMetadata.title,
@@ -840,6 +844,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       task,
       startedAt,
       completedAt,
+      lastTurnOutcome: "completed",
       costUsd: finalCostUsd,
       toolCount: toolCallCount,
       turnDepth,
@@ -912,6 +917,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   if (!sessionSucceeded) {
     await transcriptStore.finalize(sessionId, {
       completedAt: new Date().toISOString(),
+      lastTurnOutcome: "failed",
       title: initialMetadata.title,
       summary: initialMetadata.summary,
       tags: initialMetadata.tags,

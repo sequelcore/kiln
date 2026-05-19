@@ -5,6 +5,7 @@ import { useSessionStore } from "../src/lib/session-store.js";
 
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
+const waitForHealthMock = vi.fn();
 const sendMock = vi.fn();
 let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
 const commandPalettePropsLog: Array<{ open: boolean }> = [];
@@ -46,8 +47,8 @@ vi.mock("../src/lib/wait-for-gateway.js", () => ({
 
 vi.mock("../src/api/client.js", () => ({
   GuiGatewayClient: class {
-    async waitForHealth() {
-      return undefined;
+    async waitForHealth(...args: unknown[]) {
+      return waitForHealthMock(...args);
     }
 
     async loadSessions() {
@@ -213,6 +214,8 @@ describe("AppShell command palette and telemetry regressions", () => {
     installMatchMedia(false);
     resetStore();
     waitForGatewayMock.mockResolvedValue(undefined);
+    waitForHealthMock.mockReset();
+    waitForHealthMock.mockResolvedValue(undefined);
     dashboardRefetchMock.mockReset();
     dashboardQueryResult = {
       data: dashboardData,
@@ -437,5 +440,35 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(await screen.findByRole("status", { name: "Runtime bootstrap" })).toBeInTheDocument();
     expect(screen.getByText("Starting Kiln runtime")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New Session" })).not.toBeInTheDocument();
+  });
+
+  it("retries gateway health when runtime bootstrap is blocked by provider discovery failure", async () => {
+    dashboardQueryResult = {
+      data: null,
+      error: null,
+      isSuccess: false,
+      refetch: dashboardRefetchMock,
+    };
+    useSessionStore.setState({
+      providerCatalogStatus: "error",
+      providerCatalogError: "Could not load provider discovery.",
+      providers: [],
+      activeProvider: null,
+      activeModel: null,
+    });
+
+    render(<AppShell />);
+
+    expect(await screen.findByText("Kiln runtime needs attention")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(waitForHealthMock).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(waitForHealthMock).toHaveBeenCalledTimes(2);
+    });
+    expect(dashboardRefetchMock).toHaveBeenCalled();
   });
 });

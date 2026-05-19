@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context, Next } from "hono";
 import type { WSContext } from "hono/ws";
 import {
   createSessionBuiltinToolOptions,
@@ -26,6 +27,7 @@ import type {
   RuntimeTurnApprovalTransition,
   RuntimeTurnAuthorityDecision,
   RuntimeTurnFileChange,
+  RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
 import type { OnProviderSwitch, OnResumeSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
 import {
@@ -74,6 +76,7 @@ import {
   type GuiProviderModelCapabilities,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
+  type GuiAuthorityStatus,
   type KilnConfigSetupAction,
   type KilnConfigSetupActionResult,
   type KilnConfigSetupSnapshot,
@@ -228,15 +231,22 @@ export function buildGuiPerCallToolConfig(): PerCallToolConfig {
   });
 }
 
-type GuiAuthorityStatus = NonNullable<Extract<GuiInboundFrame, { type: "welcome" }>["authorityStatus"]>;
-
 export function deriveGuiAuthorityStatusFromPerCallConfig(
   config: PerCallToolConfig,
 ): GuiAuthorityStatus {
   if (config.effectiveTurnAuthority) {
+    const authority = config.effectiveTurnAuthority;
     return {
-      effective: config.effectiveTurnAuthority.admittedAuthority,
-      completeness: config.effectiveTurnAuthority.completeness,
+      effective: authority.admittedAuthority,
+      admittedAuthority: authority.admittedAuthority,
+      requestedAuthority: authority.requestedAuthority,
+      executionMode: authority.executionMode,
+      ...(authority.sandboxProjection ? { sandboxProjection: authority.sandboxProjection } : {}),
+      reason: authority.reason,
+      toolCount: authority.toolCount,
+      deniedToolCount: authority.deniedToolCount,
+      ...(authority.policyInputs ? { policyInputs: authority.policyInputs } : {}),
+      completeness: authority.completeness,
     };
   }
   const hasAllowlist = config.toolAllowlist !== undefined;
@@ -380,7 +390,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     options.onConnectionCountChange?.(count);
   };
 
-  app.use("/gui/api/*", async (c, next) => {
+  const guiCorsMiddleware = async (c: Context, next: Next): Promise<Response | void> => {
     c.header("Access-Control-Allow-Origin", "*");
     c.header("Access-Control-Allow-Headers", "Content-Type, Accept");
     c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -390,7 +400,11 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     }
 
     await next();
-  });
+  };
+
+  app.use("/health", guiCorsMiddleware);
+  app.use("/gui-api/*", guiCorsMiddleware);
+  app.use("/gui/api/*", guiCorsMiddleware);
 
   app.get("/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
   app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
@@ -1586,6 +1600,7 @@ class GuiActivityStreamer {
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
     authorityDecisions: RuntimeTurnAuthorityDecision[];
+    toolCompletions: RuntimeTurnToolCompletion[];
   } | null = null;
   private ws: WSContext | null = null;
   private eventBus: EventBus | null = null;
@@ -1624,6 +1639,7 @@ class GuiActivityStreamer {
       fileChanges: [],
       approvalTransitions: [],
       authorityDecisions: [],
+      toolCompletions: [],
     };
   }
 
@@ -1631,14 +1647,16 @@ class GuiActivityStreamer {
     fileChanges: readonly RuntimeTurnFileChange[];
     approvalTransitions: readonly RuntimeTurnApprovalTransition[];
     authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
+    toolCompletions: readonly RuntimeTurnToolCompletion[];
   } {
     if (!this.capture || this.capture.sessionId !== sessionId) {
-      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [] };
+      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [], toolCompletions: [] };
     }
     const captured = {
       fileChanges: [...this.capture.fileChanges],
       approvalTransitions: [...this.capture.approvalTransitions],
       authorityDecisions: [...this.capture.authorityDecisions],
+      toolCompletions: [...this.capture.toolCompletions],
     };
     this.capture = null;
     return captured;
@@ -1923,6 +1941,15 @@ class GuiActivityStreamer {
       }
       if (pending && pending.length === 0 && this.capture) {
         this.capture.pendingToolCallIds.delete(event.toolName);
+      }
+      if (this.capture) {
+        this.capture.toolCompletions.push({
+          toolName: event.toolName ?? "unknown",
+          success: !event.isError,
+          output: event.output ?? "",
+          resultSummary: event.outputSummary ?? event.output ?? "",
+          ...(event.metadata ? { metadata: event.metadata } : {}),
+        });
       }
       this.emitSessionEvent({
         kind: "tool_call_completed",

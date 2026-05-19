@@ -318,10 +318,11 @@ export function createManagedAgentInvokeToolDefinition(
       "",
       "For comparison tasks, invoke one managed child per selected route, then compare only successful handoffs. Report unavailable, failed, cancelled, or timed-out child invocations separately as missing evidence; do not treat them as opinions.",
       "For delegated work, choose an admitted agentProfile from the configured agent catalog when a profile clearly matches the child task. If no profile matches, omit agentProfile and invoke a generic governed child with the narrowest read-only route. Do not invent agentProfile names.",
+      "When a selected agentProfile lists routeId or providerRoute hints, follow those hints. A route, provider, or model that contradicts the selected agentProfile hint fails closed.",
       "Only request skills that are listed on a configured agent profile or otherwise known from the Kiln skill catalog. Do not invent skill names; unknown skills fail closed.",
       "When the child is executing a governed work item, pass workItemId, expectedEvidence, requiredResultFields, doneCriteria, roleIntent, and residualRiskRequired so the handoff is auditable across surfaces.",
       "Use contextMode=isolated unless you are also passing governed resourceUris. Do not use contextMode=resources without resourceUris.",
-      "Use routeId when the user asks for a specific route or when more than one route shares a provider. Omit providerRoute.model unless the user explicitly selected an exact configured model.",
+      "Use routeId when the user asks for a specific route or when more than one route shares a provider and no selected agentProfile route hint applies. Omit providerRoute.model unless the user explicitly selected an exact configured model.",
     ].join("\n"),
     inputSchema: schema,
   };
@@ -342,7 +343,12 @@ export function createManagedInvocationToolCallMetadataResolver(
     if (!parsed.ok) {
       return undefined;
     }
-    const routeResolution = resolveRoute(options.routes, parsed.input);
+    const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
+    const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile);
+    if (!agentRouteValidation.ok) {
+      return undefined;
+    }
+    const routeResolution = resolveRoute(options.routes, parsed.input, agentProfile);
     if (routeResolution.status !== "found") {
       return undefined;
     }
@@ -407,7 +413,16 @@ async function executeManagedInvocationTool(
     return errorResult(parsed.error);
   }
 
-  const routeResolution = resolveRoute(options.routes, parsed.input);
+  const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
+  const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile);
+  if (!agentRouteValidation.ok) {
+    return errorResult(agentRouteValidation.error, {
+      profile: parsed.input.profile,
+      agentProfile: parsed.input.agentProfile,
+      routeId: parsed.input.routeId,
+    });
+  }
+  const routeResolution = resolveRoute(options.routes, parsed.input, agentProfile);
   if (routeResolution.status === "ambiguous") {
     return errorResult(routeResolution.reason);
   }
@@ -693,6 +708,7 @@ function boundedPresentationText(value: string): string {
 function resolveRoute(
   routes: readonly ManagedInvocationToolRoute[],
   input: ManagedInvocationToolInput,
+  agentProfile?: ManagedInvocationAgentCatalogEntry,
 ): {
   readonly status: "found";
   readonly route: ManagedInvocationToolRoute;
@@ -702,10 +718,15 @@ function resolveRoute(
   readonly status: "ambiguous";
   readonly reason: string;
 } {
+  const hintedRouteId = input.routeId ?? agentProfile?.routeId;
+  const hintedModel = input.providerRoute.model
+    ?? (agentProfile?.providerRoute?.providerId === input.providerRoute.providerId
+      ? agentProfile.providerRoute.model
+      : undefined);
   const matches = routes.filter((route) =>
     route.providerId === input.providerRoute.providerId
-    && (!input.routeId || route.routeId === input.routeId)
-    && (!input.providerRoute.model || route.model === input.providerRoute.model)
+    && (!hintedRouteId || route.routeId === hintedRouteId)
+    && (!hintedModel || route.model === hintedModel)
     && route.profiles[input.profile] !== undefined
   );
   if (matches.length === 1) {
@@ -718,6 +739,51 @@ function resolveRoute(
     };
   }
   return { status: "missing" };
+}
+
+function resolveManagedAgentProfileEntry(
+  options: ManagedInvocationToolOptions,
+  profile: string | undefined,
+): ManagedInvocationAgentCatalogEntry | undefined {
+  if (!profile) {
+    return undefined;
+  }
+  return (options.agentCatalog ?? []).find((agent) =>
+    agent.name === profile
+    || agent.displayName === profile
+    || (agent.nicknameCandidates ?? []).includes(profile)
+  );
+}
+
+function validateAgentRouteHint(
+  input: ManagedInvocationToolInput,
+  agentProfile: ManagedInvocationAgentCatalogEntry | undefined,
+): { readonly ok: true } | { readonly ok: false; readonly error: string } {
+  if (!agentProfile) {
+    return { ok: true };
+  }
+  const label = input.agentProfile ?? agentProfile.name;
+  if (agentProfile.routeId && input.routeId && agentProfile.routeId !== input.routeId) {
+    return {
+      ok: false,
+      error: `managed_agent.invoke routeId '${input.routeId}' contradicts configured agentProfile '${label}' route hint '${agentProfile.routeId}'.`,
+    };
+  }
+  const hintedProvider = agentProfile.providerRoute?.providerId;
+  if (hintedProvider && hintedProvider !== input.providerRoute.providerId) {
+    return {
+      ok: false,
+      error: `managed_agent.invoke provider '${input.providerRoute.providerId}' contradicts configured agentProfile '${label}' provider hint '${hintedProvider}'.`,
+    };
+  }
+  const hintedModel = agentProfile.providerRoute?.model;
+  if (hintedModel && input.providerRoute.model && hintedModel !== input.providerRoute.model) {
+    return {
+      ok: false,
+      error: `managed_agent.invoke model '${input.providerRoute.model}' contradicts configured agentProfile '${label}' model hint '${hintedModel}'.`,
+    };
+  }
+  return { ok: true };
 }
 
 function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptions): string {
@@ -787,6 +853,7 @@ function buildManagedAgentSelectionDescription(options: ManagedInvocationToolOpt
     buildManagedTaskAffinityDescription(options),
     "Selection policy:",
     "- Use scout/context profiles before broad or ambiguous implementation.",
+    "- Follow routeId/providerRoute hints shown on the selected agent profile.",
     "- Use tdd/test profiles before behavior-changing work.",
     "- Use coding profiles for bounded implementation subtasks.",
     "- Use reviewer/validator profiles for quality gates, architecture checks, and risk review.",
@@ -1213,6 +1280,15 @@ function validateManagedInvocationRequestedAuthority(
     return {
       ok: false,
       error: `managed_agent.invoke read_only requested authority cannot select managed profile '${profile}'.`,
+    };
+  }
+  if (
+    profile === "foundation-readonly-plan"
+    && (requestedAuthority === "audited" || requestedAuthority === "destructive")
+  ) {
+    return {
+      ok: false,
+      error: `managed_agent.invoke ${requestedAuthority} requested authority cannot select read-only managed profile '${profile}'.`,
     };
   }
   return { ok: true };

@@ -131,6 +131,47 @@ describe("GUI session summaries", () => {
     });
   });
 
+  it("projects the latest turn outcome separately from session lifecycle phase", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-session-outcome-"));
+    const sessionStore = new SessionStore(tmpDir);
+    const transcriptStore = new TranscriptStore(tmpDir);
+    const sessionId = "kiln-gui:_gui:user-outcome:1776916221777";
+
+    await sessionStore.append({
+      sessionId,
+      provider: "codex-oauth",
+      task: "interactive",
+      completedAt: "2026-04-22T20:00:00.000Z",
+      cost: 0,
+      projectPath: tmpDir,
+    });
+    await transcriptStore.init(sessionId, {
+      kilnSessionId: sessionId,
+      provider: "codex-oauth",
+      task: "interactive",
+      startedAt: "2026-04-22T19:59:00.000Z",
+      completedAt: "2026-04-22T20:00:00.000Z",
+      lastTurnOutcome: "failed",
+      sessionLedger: {
+        currentPhase: "completed",
+      },
+    });
+
+    const summaries = await loadSessionSummaries(sessionStore, transcriptStore);
+    const detail = await loadSessionDetail(transcriptStore, sessionId);
+
+    expect(summaries[0]).toMatchObject({
+      id: sessionId,
+      lastTurnOutcome: "failed",
+    });
+    expect(detail?.meta).toMatchObject({
+      lastTurnOutcome: "failed",
+      sessionLedger: {
+        currentPhase: "completed",
+      },
+    });
+  });
+
   it("preserves canonical event kind and payload in session detail projection", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-session-detail-events-"));
     const transcriptStore = new TranscriptStore(tmpDir);

@@ -157,4 +157,33 @@ describe("ReadManyTool", () => {
       await removeTempDir(tempDir);
     }
   });
+
+  it("treats null include and exclude filters as omitted", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "a.txt"), "alpha", "utf8");
+
+      const tool = new ReadManyTool();
+      const result = await tool.execute(
+        {
+          name: "read_many",
+          input: {
+            paths: ["a.txt"],
+            include: null,
+            exclude: null,
+          },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("alpha");
+      expect(result.metadata).toMatchObject({
+        toolName: "read_many",
+        fileCount: 1,
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
 });

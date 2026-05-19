@@ -1,6 +1,7 @@
 import type {
   DefaultBuiltinToolRegistryOptions,
   DirectProviderId,
+  ManagedAgentAdapterWriteAuthorityDescriptor,
   ProviderAdapter,
 } from "@kilnai/core";
 import {
@@ -19,6 +20,19 @@ import {
 } from "../wrapper/direct-provider-adapter-factory.js";
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
+const WRITE_PROFILES = new Set([
+  "foundation-propose-writes",
+  "foundation-apply-approved-writes",
+  "foundation-memory-write-proposals",
+]);
+const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY: ManagedAgentAdapterWriteAuthorityDescriptor = {
+  proposalSupported: true,
+  approvedApplySupported: true,
+  memoryProposalSupported: true,
+  rollbackEvidence: true,
+  cleanupEvidence: true,
+  scopeReduction: true,
+};
 
 export interface ManagedDirectProviderAdapterFactoryOptions {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
@@ -67,8 +81,14 @@ export function createManagedDirectProviderAdapterFactory(
       builtinTools: builtinToolSurface.callBuiltinTools,
       capabilityMap: builtinToolSurface.capabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
+      ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
+}
+
+function routeRequiresWriteAuthority(route: KilnManagedAgentRouteConfig): boolean {
+  return route.tools?.writes === true
+    || route.profiles?.some((profile) => WRITE_PROFILES.has(profile)) === true;
 }
 
 function requireDirectProvider(provider: string): DirectProviderId {

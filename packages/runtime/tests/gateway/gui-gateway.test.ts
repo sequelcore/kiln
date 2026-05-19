@@ -670,6 +670,45 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("exposes health with CORS for direct dev GUI polling", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    let appFetch: ((request: Request) => Promise<Response>) | undefined;
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port, fetch }: { port?: number; fetch: typeof appFetch }) => {
+        appFetch = fetch;
+        return {
+          port: port ?? 4810,
+          stop,
+        };
+      }),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+      });
+
+      const response = await appFetch!(new Request("http://localhost/health", {
+        headers: { origin: "http://localhost:5183" },
+      }));
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(await response.json()).toMatchObject({
+        status: "ok",
+        channel: "gui",
+      });
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("omits stale active provider/model selections from the welcome frame when they are absent from the authoritative models map", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

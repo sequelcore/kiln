@@ -213,7 +213,12 @@ Execution attempts are explicit. `work_item.execution.start` records the start
 of a governed attempt, including route and authority context. Delegated work
 links the attempt to `managed_agent.invoke`; if the managed invocation id is
 missing, runtime pauses the work item instead of pretending the delegation is
-traceable. `work_item.execution.finish` records evidence, verification-gate
+traceable. If the managed child fails before a parent attempt starts, the work
+item remains paused with `operation=managed_invocation_failed`, and the
+canonical turn is failed rather than completed. A successful start that leaves
+the item `in_progress` is also not closeout; the turn remains failed/blocked
+until `work_item.execution.finish` or `work_item.complete` records terminal
+evidence. `work_item.execution.finish` records evidence, verification-gate
 results, skipped checks, and residual risk.
 
 Closeout is evidence-gated. Missing required goal evidence, failed verification

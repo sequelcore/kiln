@@ -1,4 +1,4 @@
-import type { WorkItem, WorkItemExecutionAttempt, WorkItemStatus } from "../../work-governance/index.js";
+import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemStatus } from "../../work-governance/index.js";
 
 export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
@@ -35,6 +35,7 @@ export type WorkItemToolName =
   | "work_item.complete"
   | "work_item.execution.start"
   | "work_item.execution.finish";
+export type GoalToolName = "goal.create";
 export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
@@ -104,6 +105,7 @@ export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 export type WorkItemToolOperation = "update" | "list" | "complete" | "execution_started" | "execution_finished";
+export type GoalToolOperation = "create";
 export type ElicitationToolOperation = "elicit";
 export type MemoryToolOperation = "save";
 export type ResourceToolOperation = "list" | "list_templates" | "read";
@@ -419,6 +421,19 @@ export interface WorkItemToolResultMetadata<TToolName extends WorkItemToolName =
   readonly verbosity?: ToolOutputVerbosity;
 }
 
+export interface GoalToolResultMetadata<TToolName extends GoalToolName = GoalToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "goal";
+  readonly operation: GoalToolOperation;
+  readonly id?: string;
+  readonly goal?: GoalRun;
+  readonly linkedWorkItemIds?: readonly string[];
+  readonly missingWorkItemIds?: readonly string[];
+  readonly sequence?: number;
+  readonly errorCode?: "invalid_input" | "not_found";
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
 export interface ElicitationToolResultMetadata<TToolName extends ElicitationToolName = ElicitationToolName> {
   readonly toolName: TToolName;
   readonly kind: "elicitation";
@@ -476,9 +491,9 @@ export type ToolSpecificResultMetadata =
   | CatalogToolResultMetadata
   | CodeToolResultMetadata
   | MonitorToolResultMetadata
+  | GoalToolResultMetadata
   | WorkItemToolResultMetadata
   | TaskStateToolResultMetadata
-  | WorkItemToolResultMetadata
   | ElicitationToolResultMetadata
   | MemoryToolResultMetadata
   | ResourceToolResultMetadata;
@@ -647,6 +662,17 @@ export function workItemToolMetadata<TToolName extends WorkItemToolName>(
   return {
     toolName,
     kind: "work_item",
+    ...metadata,
+  };
+}
+
+export function goalToolMetadata<TToolName extends GoalToolName>(
+  toolName: TToolName,
+  metadata: Omit<GoalToolResultMetadata<TToolName>, "toolName" | "kind">,
+): GoalToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "goal",
     ...metadata,
   };
 }

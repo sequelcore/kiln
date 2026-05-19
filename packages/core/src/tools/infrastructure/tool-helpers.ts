@@ -188,18 +188,52 @@ async function walk(currentPath: string, out: string[]): Promise<void> {
 
 export function matchesGlob(candidatePath: string, globPattern: string): boolean {
   const normalizedPath = normalizePath(candidatePath);
-  const normalizedPattern = normalizePath(globPattern);
-  const matcher = globToRegExp(normalizedPattern);
-  if (normalizedPattern.includes("/")) return matcher.test(normalizedPath);
-  return matcher.test(basename(normalizedPath));
+  return expandGlobAlternates(globPattern).some((normalizedPattern) => {
+    const matcher = globToRegExp(normalizedPattern);
+    if (normalizedPattern.includes("/")) return matcher.test(normalizedPath);
+    return matcher.test(basename(normalizedPath));
+  });
+}
+
+export function expandGlobAlternates(globPattern: string): readonly string[] {
+  return uniqueStrings(expandFirstBraceGroup(normalizePath(globPattern)));
+}
+
+function expandFirstBraceGroup(pattern: string): string[] {
+  const start = pattern.indexOf("{");
+  if (start < 0) {
+    return [pattern];
+  }
+
+  const end = pattern.indexOf("}", start + 1);
+  if (end < 0) {
+    return [pattern];
+  }
+
+  const body = pattern.slice(start + 1, end);
+  const alternatives = body.split(",").map((value) => value.trim()).filter(Boolean);
+  if (alternatives.length < 2) {
+    return [pattern];
+  }
+
+  const prefix = pattern.slice(0, start);
+  const suffix = pattern.slice(end + 1);
+  return alternatives.flatMap((alternative) => expandFirstBraceGroup(`${prefix}${alternative}${suffix}`));
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 export function globToRegExp(pattern: string): RegExp {
   const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  const withDoubleStar = escaped.replace(/\*\*/g, "::DOUBLE_STAR::");
+  const withGlobstarSlash = escaped.replace(/\*\*\//g, "::GLOBSTAR_SLASH::");
+  const withDoubleStar = withGlobstarSlash.replace(/\*\*/g, "::DOUBLE_STAR::");
   const withSingleStar = withDoubleStar.replace(/\*/g, "[^/]*");
   const withQuestion = withSingleStar.replace(/\?/g, ".");
-  const source = withQuestion.replace(/::DOUBLE_STAR::/g, ".*");
+  const source = withQuestion
+    .replace(/::GLOBSTAR_SLASH::/g, "(?:.*/)?")
+    .replace(/::DOUBLE_STAR::/g, ".*");
   return new RegExp(`^${source}$`);
 }
 

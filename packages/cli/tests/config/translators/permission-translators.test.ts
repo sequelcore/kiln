@@ -88,14 +88,12 @@ describe("permission projection translators", () => {
 
     expect(projection).toMatchObject({
       targetId: "opencode-config",
-      managedFields: ["permission", "kiln.permissionSync"],
+      managedFields: ["permission"],
       document: {
         theme: "ocean",
         permission: { default: "ask" },
       },
     });
-    const kiln = asRecord(projection.document.kiln);
-    expect(kiln.legacyFlag).toBe(true);
-    expect(asRecord(kiln.permissionSync).backend).toBe("opencode");
+    expect(projection.document.kiln).toBeUndefined();
   });
 });

@@ -2,6 +2,7 @@ import type {
   DevTool,
   ToolInput,
   ToolResult,
+  WorkItem,
   WorkItemPauseRequirement,
   WorkItemPauseRequirementKind,
   WorkItemPauseRequirementStatus,
@@ -10,13 +11,21 @@ import type {
 } from "@kilnai/core";
 import {
   finishGoalExecutionAttempt,
+  goalToolMetadata,
   GoalRunStore,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
   WorkItemStore,
   workItemToolMetadata,
 } from "@kilnai/core";
-import type { GoalExecutionStep, GoalRun } from "@kilnai/core";
+import type {
+  GoalExecutionStep,
+  GoalRun,
+  GoalRunAuthorityLevel,
+  GoalRunEscalationPolicy,
+  GoalRunEvidenceRequirement,
+  WorkItemUpsertInput,
+} from "@kilnai/core";
 import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceEvidence,
@@ -64,6 +73,9 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
 ];
 
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
+const WORK_ITEM_UPDATE_STATUSES: readonly WorkItemStatus[] = ["pending", "blocked", "completed", "cancelled"];
+const GOAL_AUTHORITY_LEVELS: readonly GoalRunAuthorityLevel[] = ["read_only", "audited", "destructive"];
+const GOAL_ESCALATION_POLICIES: readonly GoalRunEscalationPolicy[] = ["deny", "approval_required"];
 const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[] = [
   "operator_input",
   "credentials",
@@ -87,6 +99,7 @@ export function createWorkGovernanceTools(
   options: {
     readonly workItemStore?: WorkItemStore;
     readonly goalRunStore?: GoalRunStore;
+    readonly ownerSessionId?: string;
   } = {},
 ): readonly DevTool[] {
   const store = options.workItemStore ?? new WorkItemStore();
@@ -97,6 +110,7 @@ export function createWorkGovernanceTools(
     new WorkItemUpdateTool(config, store),
     new WorkItemListTool(store),
     new WorkItemCompleteTool(store),
+    new GoalCreateTool(goalRunStore, store, options.ownerSessionId),
     new WorkItemExecutionStartTool(goalRunStore, store),
     new WorkItemExecutionFinishTool(goalRunStore, store),
   ];
@@ -258,7 +272,10 @@ export class WorkItemUpdateTool implements DevTool {
     properties: {
       id: { type: "string", description: "Optional stable work item id. Omit to create a new id." },
       summary: { type: "string", minLength: 1, description: "Bounded work item summary." },
-      status: { enum: WORK_ITEM_STATUSES, description: "Optional lifecycle status." },
+      status: {
+        enum: WORK_ITEM_UPDATE_STATUSES,
+        description: "Optional lifecycle status. Active execution is owned by work_item.execution.start.",
+      },
       workflowProfile: {
         enum: WORK_GOVERNANCE_WORKFLOW_PROFILES.map((profile) => profile.id),
         description: "Optional workflow profile. When omitted, Kiln infers one from triggers and risk.",
@@ -326,6 +343,12 @@ export class WorkItemUpdateTool implements DevTool {
     const summary = readText(input.input.summary);
     if (!summary) {
       return { output: 'Invalid input: "summary" must be a non-empty string', isError: true };
+    }
+    if (input.input.status === "in_progress") {
+      return {
+        output: 'Invalid input: status "in_progress" is reserved for work_item.execution.start.',
+        isError: true,
+      };
     }
 
     const triggers = readTriggers(input.input.triggers);
@@ -529,6 +552,218 @@ export class WorkItemCompleteTool implements DevTool {
   }
 }
 
+export class GoalCreateTool implements DevTool {
+  readonly name = "goal.create";
+
+  readonly description = [
+    "Create a governed goal run from existing work items and link those work items to the goal.",
+    "Use this before work_item.execution.start; never invent a goalRunId without creating it through this tool.",
+  ].join(" ");
+
+  readonly annotations = {
+    readOnly: false,
+    idempotent: false,
+  };
+
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Optional stable goal id. Omit to create a generated id." },
+      objective: { type: "string", minLength: 1, description: "Operator-facing goal objective." },
+      ownerSessionId: {
+        type: "string",
+        description: "Owning session id. Omit only when the runtime supplied the current session id.",
+      },
+      planId: { type: "string", minLength: 1, description: "Approved plan id that owns this goal." },
+      planHash: { type: "string", description: "Optional approved plan content hash." },
+      workItemIds: {
+        type: "array",
+        minItems: 1,
+        items: { type: "string", minLength: 1 },
+        description: "Existing governed work item ids to execute under this goal.",
+      },
+      maximumAuthority: {
+        enum: GOAL_AUTHORITY_LEVELS,
+        description: "Maximum authority allowed while executing this goal.",
+      },
+      escalationPolicy: {
+        enum: GOAL_ESCALATION_POLICIES,
+        description: "How execution handles authority requests above maximumAuthority.",
+      },
+      authorityReason: { type: "string", minLength: 1, description: "Why this authority envelope is appropriate." },
+      workflowProfile: {
+        enum: WORK_GOVERNANCE_WORKFLOW_PROFILES.map((profile) => profile.id),
+        description: "Workflow profile governing this goal.",
+      },
+      preferredRouteId: { type: "string", description: "Optional preferred managed-agent route id." },
+      managedAgentProfile: { type: "string", description: "Optional managed-agent profile." },
+      evidenceRequirements: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", minLength: 1 },
+            description: { type: "string", minLength: 1 },
+            required: { type: "boolean" },
+          },
+          required: ["id", "description", "required"],
+          additionalProperties: false,
+        },
+        description: "Goal-level evidence requirements beyond work-item evidence.",
+      },
+      currentPhase: { type: "string", description: "Optional current execution phase." },
+    },
+    required: [
+      "objective",
+      "planId",
+      "workItemIds",
+      "maximumAuthority",
+      "escalationPolicy",
+      "authorityReason",
+      "workflowProfile",
+    ],
+    additionalProperties: false,
+  };
+
+  constructor(
+    private readonly goalRunStore: GoalRunStore,
+    private readonly workItemStore: WorkItemStore,
+    private readonly ownerSessionId?: string,
+  ) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const objective = readText(input.input.objective);
+    const planId = readText(input.input.planId);
+    const workItemIds = readTextArray(input.input.workItemIds);
+    const maximumAuthority = readGoalAuthorityLevel(input.input.maximumAuthority);
+    const escalationPolicy = readGoalEscalationPolicy(input.input.escalationPolicy);
+    const authorityReason = readText(input.input.authorityReason);
+    const workflowProfile = readText(input.input.workflowProfile);
+    const ownerSessionId = readText(input.input.ownerSessionId) ?? this.ownerSessionId;
+
+    const missingFields = [
+      ...(!objective ? ["objective"] : []),
+      ...(!ownerSessionId ? ["ownerSessionId"] : []),
+      ...(!planId ? ["planId"] : []),
+      ...(workItemIds.length === 0 ? ["workItemIds"] : []),
+      ...(!maximumAuthority ? ["maximumAuthority"] : []),
+      ...(!escalationPolicy ? ["escalationPolicy"] : []),
+      ...(!authorityReason ? ["authorityReason"] : []),
+      ...(!workflowProfile ? ["workflowProfile"] : []),
+    ];
+    if (missingFields.length > 0) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: "goal.create requires objective, ownerSessionId, planId, at least one workItemId, authority envelope, and workflowProfile.",
+        missingFields,
+      });
+    }
+
+    const goalObjective = objective!;
+    const goalPlanId = planId!;
+    const goalMaximumAuthority = maximumAuthority!;
+    const goalEscalationPolicy = escalationPolicy!;
+    const goalAuthorityReason = authorityReason!;
+    const goalWorkflowProfile = workflowProfile!;
+    const profile = findWorkflowProfile(goalWorkflowProfile);
+    if (!profile) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: `Unknown workflowProfile "${goalWorkflowProfile}".`,
+        missingFields: ["workflowProfile"],
+      });
+    }
+
+    const evidenceRequirements = readGoalEvidenceRequirements(input.input.evidenceRequirements);
+    if (!evidenceRequirements.ok) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: evidenceRequirements.message,
+        missingFields: ["evidenceRequirements"],
+      });
+    }
+
+    const missingWorkItemIds = workItemIds.filter((id) => !this.workItemStore.get(id));
+    if (missingWorkItemIds.length > 0) {
+      return {
+        output: JSON.stringify({
+          error: {
+            code: "work_items_not_found",
+            message: "Create missing work items with work_item.update before creating a goal.",
+            recoverable: true,
+            suggestedNextTool: "work_item.update",
+            missingWorkItemIds,
+          },
+        }, null, 2),
+        metadata: goalToolMetadata("goal.create", {
+          operation: "create",
+          missingWorkItemIds,
+          errorCode: "not_found",
+        }),
+        isError: true,
+      };
+    }
+
+    try {
+      const planHash = readText(input.input.planHash);
+      const preferredRouteId = readText(input.input.preferredRouteId);
+      const managedAgentProfile = readText(input.input.managedAgentProfile);
+      if (preferredRouteId && managedAgentProfile) {
+        return goalCreateContractError({
+          code: "invalid_input",
+          message: "goal.create cannot combine preferredRouteId and managedAgentProfile. Use managedAgentProfile when an agent profile owns route selection, or preferredRouteId when the caller owns the exact route.",
+          missingFields: ["preferredRouteId", "managedAgentProfile"],
+        });
+      }
+      const currentPhase = readText(input.input.currentPhase);
+      const goal = this.goalRunStore.create({
+        id: readText(input.input.id),
+        objective: goalObjective,
+        ownerSessionId: ownerSessionId!,
+        planId: goalPlanId,
+        ...(planHash ? { planHash } : {}),
+        workItemIds,
+        authorityEnvelope: {
+          maximumAuthority: goalMaximumAuthority,
+          escalationPolicy: goalEscalationPolicy,
+          reason: goalAuthorityReason,
+        },
+        routePolicy: {
+          workflowProfile: profile.id,
+          ...(preferredRouteId ? { preferredRouteId } : {}),
+          ...(managedAgentProfile ? { managedAgentProfile } : {}),
+        },
+        evidenceRequirements: evidenceRequirements.requirements,
+        ...(currentPhase ? { currentPhase } : {}),
+      });
+      const linkedWorkItemIds = workItemIds.flatMap((id) => {
+        const item = this.workItemStore.get(id);
+        if (!item) return [];
+        this.workItemStore.upsert(linkWorkItemToGoal(item, goal));
+        return [id];
+      });
+
+      return {
+        output: JSON.stringify({ goal, linkedWorkItemIds }, null, 2),
+        metadata: goalToolMetadata("goal.create", {
+          operation: "create",
+          id: goal.id,
+          goal,
+          linkedWorkItemIds,
+          sequence: goal.sequence,
+        }),
+        isError: false,
+      };
+    } catch (error) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: error instanceof Error ? error.message : String(error),
+        missingFields: [],
+      });
+    }
+  }
+}
+
 export class WorkItemExecutionStartTool implements DevTool {
   readonly name = "work_item.execution.start";
 
@@ -600,7 +835,32 @@ export class WorkItemExecutionStartTool implements DevTool {
     }
     const goal = this.goalRunStore.get(goalRunId);
     if (!goal) {
-      return { output: `Goal not found: ${goalRunId}`, isError: true };
+      return {
+        output: JSON.stringify({
+          error: {
+            code: "goal_not_found",
+            message: `Goal not found: ${goalRunId}`,
+            recoverable: true,
+            suggestedNextTool: "goal.create",
+            requiredInputShape: {
+              objective: "string",
+              ownerSessionId: "current runtime session id",
+              planId: "approved plan id",
+              workItemIds: ["existing work item id"],
+              maximumAuthority: GOAL_AUTHORITY_LEVELS,
+              escalationPolicy: GOAL_ESCALATION_POLICIES,
+              authorityReason: "string",
+              workflowProfile: "canonical workflow profile id",
+            },
+          },
+        }, null, 2),
+        metadata: workItemToolMetadata("work_item.execution.start", {
+          operation: "execution_started",
+          id: goalRunId,
+          errorCode: "not_found",
+        }),
+        isError: true,
+      };
     }
 
     const explicitWorkItemId = readText(input.input.workItemId);
@@ -796,6 +1056,110 @@ export class WorkItemExecutionFinishTool implements DevTool {
   }
 }
 
+function goalCreateContractError(input: {
+  readonly code: "invalid_input";
+  readonly message: string;
+  readonly missingFields: readonly string[];
+}): ToolResult {
+  return {
+    output: JSON.stringify({
+      error: {
+        code: input.code,
+        message: input.message,
+        recoverable: true,
+        suggestedNextTool: input.missingFields.includes("workItemIds") ? "work_item.update" : "goal.create",
+        requiredInputShape: {
+          objective: "string",
+          ownerSessionId: "current runtime session id",
+          planId: "approved plan id",
+          workItemIds: ["existing work item id"],
+          maximumAuthority: GOAL_AUTHORITY_LEVELS,
+          escalationPolicy: GOAL_ESCALATION_POLICIES,
+          authorityReason: "string",
+          workflowProfile: "canonical workflow profile id",
+        },
+        missingFields: input.missingFields,
+      },
+    }, null, 2),
+    metadata: goalToolMetadata("goal.create", {
+      operation: "create",
+      errorCode: "invalid_input",
+    }),
+    isError: true,
+  };
+}
+
+function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput {
+  const goalOwnedRouteId = goal.routePolicy.managedAgentProfile ? undefined : goal.routePolicy.preferredRouteId;
+  const routeId = item.routeId ?? goalOwnedRouteId;
+  return {
+    id: item.id,
+    summary: item.summary,
+    status: item.status,
+    workflowProfile: item.workflowProfile,
+    triggers: item.triggers,
+    expectedEvidence: item.expectedEvidence,
+    providedEvidence: item.providedEvidence,
+    verificationGates: item.verificationGates,
+    skippedVerificationGates: item.skippedVerificationGates,
+    verificationGateResults: item.verificationGateResults,
+    dependencies: item.dependencies,
+    pauseRequirements: item.pauseRequirements,
+    planId: goal.planId,
+    goalRunId: goal.id,
+    executionAttempts: item.executionAttempts,
+    ...(item.risk ? { risk: item.risk } : {}),
+    ...(item.surface ? { surface: item.surface } : {}),
+    ...(item.assignedAgentProfile ? { assignedAgentProfile: item.assignedAgentProfile } : {}),
+    ...(routeId ? { routeId } : {}),
+    ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
+    ...(item.residualRisk ? { residualRisk: item.residualRisk } : {}),
+    ...(goal.planHash ? { planHash: goal.planHash } : {}),
+    ...(item.sourceWorkItemId ? { sourceWorkItemId: item.sourceWorkItemId } : {}),
+    ...(item.routingRecommendation ? { routingRecommendation: item.routingRecommendation } : {}),
+  };
+}
+
+function readGoalAuthorityLevel(value: unknown): GoalRunAuthorityLevel | undefined {
+  return GOAL_AUTHORITY_LEVELS.includes(value as GoalRunAuthorityLevel)
+    ? value as GoalRunAuthorityLevel
+    : undefined;
+}
+
+function readGoalEscalationPolicy(value: unknown): GoalRunEscalationPolicy | undefined {
+  return GOAL_ESCALATION_POLICIES.includes(value as GoalRunEscalationPolicy)
+    ? value as GoalRunEscalationPolicy
+    : undefined;
+}
+
+function readGoalEvidenceRequirements(value: unknown):
+  | { readonly ok: true; readonly requirements: readonly GoalRunEvidenceRequirement[] }
+  | { readonly ok: false; readonly message: string } {
+  if (value === undefined) {
+    return { ok: true, requirements: [] };
+  }
+  if (!Array.isArray(value)) {
+    return { ok: false, message: "evidenceRequirements must be an array." };
+  }
+  const requirements: GoalRunEvidenceRequirement[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") {
+      return { ok: false, message: "Each evidence requirement must be an object." };
+    }
+    const record = candidate as Record<string, unknown>;
+    const id = readText(record.id);
+    const description = readText(record.description);
+    if (!id || !description || typeof record.required !== "boolean") {
+      return {
+        ok: false,
+        message: "Each evidence requirement must include id, description, and required.",
+      };
+    }
+    requirements.push({ id, description, required: record.required });
+  }
+  return { ok: true, requirements };
+}
+
 function buildManagedInvocationRequest(
   goal: GoalRun,
   step: ReadyGoalExecutionStep,
@@ -806,10 +1170,11 @@ function buildManagedInvocationRequest(
   readonly missingFields: readonly string[];
   readonly request: Record<string, unknown>;
 } {
-  const routeId = step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goal.routePolicy.preferredRouteId;
   const agentProfile = step.workItem.assignedAgentProfile
     ?? step.workItem.routingRecommendation?.agentProfile
     ?? goal.routePolicy.managedAgentProfile;
+  const goalOwnedRouteId = agentProfile ? undefined : goal.routePolicy.preferredRouteId;
+  const routeId = step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goalOwnedRouteId;
   const providerId = readText(input.managedProviderId);
   const model = readText(input.managedModel);
   const reasoningEffort = readText(input.managedReasoningEffort)
@@ -916,7 +1281,7 @@ function readStatus(value: unknown): WorkItemStatus | undefined {
 function readPauseRequirements(value: unknown):
   | { readonly ok: true; readonly requirements?: readonly WorkItemPauseRequirement[] }
   | { readonly ok: false; readonly message: string } {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     return { ok: true };
   }
   if (!Array.isArray(value)) {

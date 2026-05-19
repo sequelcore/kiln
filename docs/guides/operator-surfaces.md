@@ -72,6 +72,18 @@ such as `run`, `plan`, `gui`, `tui`, `gateway`, `auth`, `sync`, `route`,
 CLI changes should prefer deterministic output and clear failure modes over
 interactive decoration.
 
+## Shared Operator Commands
+
+GUI command palette, TUI slash commands, and CLI operator command discovery use
+the shared command catalog in
+`packages/gateway-contracts/src/operator-commands.ts`. Do not add private
+surface-local command lists for governed controls. Add the command once to the
+contract, declare the supported surfaces, then project it into the surface UI.
+
+The governed command set includes `/goal` on CLI, GUI, and TUI. Interactive
+surfaces also expose `/plan` and `/exec` so planning/execution state is visible
+and discoverable from the same command source.
+
 ## Gateway Integrations
 
 Discord, Slack, webhooks, product channels, and similar integrations should

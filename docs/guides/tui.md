@@ -118,6 +118,13 @@ The main screen is a two-column layout: a `chatArea` on the left and a `sidebar`
 
 Key bindings and input behavior come from `packages/tui/src/app.tsx`:
 
+Slash command discovery is not TUI-owned. The TUI projects
+`listOperatorCommands("tui")` from `@kilnai/gateway-contracts`, so commands
+shared with GUI or CLI must be added to
+`packages/gateway-contracts/src/operator-commands.ts` first. The current shared
+interactive commands include `/clear`, `/theme`, `/provider`, `/effort`,
+`/authority`, `/resume`, `/plan`, `/exec`, `/setup`, and `/goal`.
+
 - `Ctrl+C` exits immediately.
 - `Ctrl+V` pastes from the system clipboard.
 - `Enter` submits the current prompt when the session is idle.

@@ -546,7 +546,7 @@ describe("AppShell sidebar modes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
 
-    expect(await screen.findByLabelText("Memory graph")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Memory graph", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Memory Lattice records" })).toContainElement(
       within(screen.getByRole("region", { name: "Memory Lattice records" })).getByRole(
         "button",

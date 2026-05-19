@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { appendFile, mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
-import type { CanonicalSessionEventKind, SessionEventEnvelope, SessionEventSource } from '@kilnai/core';
+import type { CanonicalSessionEventKind, SessionEventEnvelope, SessionEventSource, SessionTurnOutcome } from '@kilnai/core';
 
 export interface ProviderThreadMeta {
   provider: string;
@@ -323,6 +323,7 @@ export interface PersistedSessionMeta {
   task: string;
   startedAt: string;
   completedAt?: string;
+  lastTurnOutcome?: SessionTurnOutcome;
   costUsd?: number;
   toolCount?: number;
   turnDepth?: number;

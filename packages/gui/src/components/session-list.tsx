@@ -186,6 +186,16 @@ export function SessionList(props: SessionListProps) {
                                   <span className="sr-only">Active</span>
                                 </>
                               ) : null}
+                              {session.lastTurnOutcome === "failed" ? (
+                                <span className="shrink-0 rounded-sm border border-destructive/30 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-destructive">
+                                  Failed
+                                </span>
+                              ) : null}
+                              {session.lastTurnOutcome === "cancelled" ? (
+                                <span className="shrink-0 rounded-sm border border-muted-foreground/30 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-muted-foreground">
+                                  Cancelled
+                                </span>
+                              ) : null}
                             </span>
                             {session.summary ? (
                               <span className="mt-0.5 line-clamp-1 text-xs leading-5 text-muted-foreground">{session.summary}</span>

@@ -56,6 +56,51 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     });
   });
 
+  it("marks direct managed runtime adapters write-capable only for explicit write routes", async () => {
+    const createProviderAdapter = vi.fn(async (_options: DirectProviderAdapterOptions) => provider());
+    const factory = createManagedDirectProviderAdapterFactory({
+      builtinToolOptions: createSessionBuiltinToolOptions(),
+      createProviderAdapter,
+    });
+
+    const adapter = await factory({
+      id: "codex-oauth-approved-write",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      profiles: ["foundation-apply-approved-writes"],
+      tools: {
+        allowed: ["read", "grep", "apply-patch"],
+        writes: true,
+      },
+      writeAuthority: {
+        workspace: {
+          mode: "apply-approved",
+          allowedPaths: ["packages/runtime"],
+        },
+        approval: {
+          mode: "required-before-apply",
+        },
+      },
+    });
+
+    expect(adapter?.descriptor).toMatchObject({
+      supportedProfiles: [
+        "foundation-readonly-plan",
+        "foundation-propose-writes",
+        "foundation-apply-approved-writes",
+        "foundation-memory-write-proposals",
+      ],
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+  });
+
   it("returns undefined for harness routes so harness projection remains owned by the route resolver", async () => {
     const createProviderAdapter = vi.fn(async (_options: DirectProviderAdapterOptions) => provider());
     const factory = createManagedDirectProviderAdapterFactory({ createProviderAdapter });

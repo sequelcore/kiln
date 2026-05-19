@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:d4475721b785f9926f15f70b5ee89dce5fababd1b3e7ce9f1547bfea24102f5d
+contentHash: sha256:8cca15d5ee64c577798efe9e8476ef311c7f87650b546a5760339555e88c8409
 -->
 # Claude Project Guidance
 
@@ -16,7 +16,7 @@ contentHash: sha256:d4475721b785f9926f15f70b5ee89dce5fababd1b3e7ce9f1547bfea2410
 - Name: kiln
 - Domain: default
 - Default provider: codex-oauth
-- Default model: gpt-5.4-mini
+- Default model: gpt-5.5
 - Max depth: 3
 - Parallel workers: 1
 
@@ -39,10 +39,10 @@ through `kiln project adopt`; do not put durable repo guidance directly in
 ## Commands
 
 - `build`: `bun run --filter '*' build`
-- `test`: `bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test`
+- `test`: `bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/native test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test`
 - `test:e2e`: `bun run --cwd packages/gui test:e2e`
 - `test:managed-agents:live`: `vitest run packages/runtime/tests/managed-agent/*.live.test.ts --maxWorkers=1`
-- `typecheck`: `tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit`
+- `typecheck`: `tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit`
 
 ## Canonical References
 
@@ -78,18 +78,22 @@ Follow the resolved Kiln work-governance policy before choosing direct execution
 | adversarial-reviewer (global) | Herkabe | Adversarial reviewer | read, grep, glob | gpt-5.4 | - | - |
 | architect (global) | Piama | Software architect | read, grep, glob, web | gpt-5.4 | - | - |
 | architecture-planner (global) | Lloyd | Architecture planner | read, grep, glob | gpt-5.4 | - | - |
-| coder (global) | Reese | Coding implementation specialist | read, grep, glob, write, bash | gpt-5.3-codex | - | - |
+| backend-coder (global) | DeepSeek | Backend and runtime implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | deepseek-v4-pro | - | - |
+| coder (global) | Reese | Coding implementation specialist; tasks: backend-coding, test-writing | read, grep, glob, write, bash | gpt-5.5 | - | - |
 | ddd-validator (global) | Ida | DDD and Clean Architecture validator | read, grep, glob | gpt-5.4-mini | - | - |
-| fast-coder (global) | Stevie | Fast implementation specialist | read, grep, glob, write, bash | gpt-5.3-codex-spark | - | - |
-| opencode (global) | Craig | OpenCode implementation worker | read, grep, glob, write, bash | gpt-5.4-mini | - | - |
+| fast-coder (global) | Stevie | Fast implementation specialist; tasks: mechanical-edit | read, grep, glob, write, bash | deepseek-v4-flash | - | - |
+| frontend-coder (global) | Kimi | Frontend implementation specialist; tasks: frontend-design | read, grep, glob, write, bash | kimi-k2.6 | - | - |
+| opencode (global) | Craig | OpenCode implementation worker; tasks: mechanical-edit | read, grep, glob, write, bash | minimax-m2.5-free | - | - |
 | planner (global) | Hal | Implementation planner | read, grep, glob | gpt-5.4 | - | - |
 | react-ts-reviewer (global) | Cynthia | React TypeScript reviewer | read, grep, glob | gpt-5.4-mini | - | - |
-| refactoring-specialist (global) | Jamie | Refactoring specialist | read, grep, glob, write, bash | gpt-5.4 | - | - |
-| researcher (global) | Abe | Technical researcher | read, grep, glob, web | gpt-5.4 | - | - |
+| refactoring-specialist (global) | Jamie | Refactoring specialist; tasks: mechanical-edit, backend-coding | read, grep, glob, write, bash | minimax-m2.7 | - | - |
+| research-writer (global) | Qwen | Research documentation implementation specialist; tasks: research | read, grep, glob, write, web | qwen3.6-plus | - | - |
+| researcher (global) | Abe | Technical researcher; tasks: research | read, grep, glob, web | qwen3.6-plus | - | - |
 | reviewer (global) | Lois | Code quality reviewer | read, grep, glob | gpt-5.4-mini | - | - |
 | scout (global) | Dewey | Read-only context scout | read, grep, glob | gpt-5.4-mini | - | - |
+| service-coder (global) | GLM | Service and adapter implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | glm-5.1 | - | - |
 | spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | gpt-5.4-mini | - | - |
-| tdd (global) | Malcolm | TDD guide | read, grep, glob, write, bash | gpt-5.4 | - | - |
+| tdd (global) | Malcolm | TDD guide; tasks: test-writing | read, grep, glob, write, bash | gpt-5.5 | - | - |
 
 ## Usage
 

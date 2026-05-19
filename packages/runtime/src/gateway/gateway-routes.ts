@@ -66,6 +66,7 @@ import {
 } from "./message-pipeline.js";
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { verifySignedArtifactMediaRequest } from "./public-media-delivery.js";
+import type { RuntimeSession } from "../session/runtime-session.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -613,10 +614,11 @@ async function listAppGatewayGuiSessions(config: GatewayServerConfig): Promise<r
     const firstUserMessage = session.conversationHistory.find((message) => message.role === "user");
     const taskSummary = firstUserMessage ? extractText(firstUserMessage.parts) : `${session.appName} session`;
     const lastProvider = session.sessionLedger.lastProvider;
+    const providersUsed = collectSessionProvidersUsed(session);
     return {
       id: session.id,
       title: session.appName,
-      providersUsed: lastProvider ? [lastProvider] : [],
+      providersUsed,
       ...(lastProvider ? { lastProvider } : {}),
       completedAt: session.lastActivityAt.toISOString(),
       cost: 0,
@@ -657,6 +659,31 @@ async function getAppGatewayGuiSessionDetail(
     },
     events: [],
   };
+}
+
+function collectSessionProvidersUsed(session: RuntimeSession): readonly string[] {
+  const providers = new Set<string>();
+  if (session.sessionLedger.lastProvider) {
+    providers.add(session.sessionLedger.lastProvider);
+  }
+  for (const event of session.sessionEvents) {
+    if (event.kind === "provider_routed") {
+      providers.add(event.provider.provider);
+    }
+    if (
+      (
+        event.kind === "agent_invocation_requested"
+        || event.kind === "agent_invocation_started"
+        || event.kind === "agent_invocation_completed"
+        || event.kind === "agent_invocation_failed"
+        || event.kind === "agent_invocation_cancelled"
+      )
+      && event.providerRoute?.providerId
+    ) {
+      providers.add(event.providerRoute.providerId);
+    }
+  }
+  return [...providers];
 }
 
 type AppGatewayGuiRuntimeSelection =
@@ -904,7 +931,7 @@ function parseGuiOutboundFrame(data: unknown): GuiOutboundFrame | null {
   }
 }
 
-async function collectAppGatewayRuntimeSessions(config: GatewayServerConfig): Promise<readonly import("../session/runtime-session.js").RuntimeSession[]> {
+async function collectAppGatewayRuntimeSessions(config: GatewayServerConfig): Promise<readonly RuntimeSession[]> {
   const registries = new Set<import("../session/session-registry.js").SessionRegistry>();
   for (const app of config.apps) {
     if (app.providerAdapterRuntime) {

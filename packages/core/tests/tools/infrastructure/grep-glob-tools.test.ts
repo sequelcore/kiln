@@ -182,6 +182,38 @@ describe("GlobTool", () => {
     }
   });
 
+  it("matches brace alternates consistently in the fallback walker", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "src"), { recursive: true });
+      await writeFile(join(tempDir, "src", "layout.css"), "body {}\n", "utf8");
+      await writeFile(join(tempDir, "src", "view.tsx"), "export const View = () => null;\n", "utf8");
+      await writeFile(join(tempDir, "src", "model.ts"), "export const model = true;\n", "utf8");
+      await writeFile(join(tempDir, "src", "notes.md"), "# notes\n", "utf8");
+
+      const tool = new GlobTool({
+        environmentProvider: async () => ({}),
+      });
+
+      const result = await tool.execute(
+        {
+          name: "glob",
+          input: { pattern: "src/**/*.{css,tsx,ts}", path: tempDir },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("src/layout.css");
+      expect(result.output).toContain("src/view.tsx");
+      expect(result.output).toContain("src/model.ts");
+      expect(result.output).not.toContain("src/notes.md");
+      expect(result.metadata?.["count"]).toBe(3);
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("uses fd fast path when available", async () => {
     const commandRunner = vi.fn(async () => ({
       stdout: "src/one.ts\nsrc/two.ts\n",
@@ -211,6 +243,89 @@ describe("GlobTool", () => {
       30_000,
     );
     expect(commandRunner).toHaveBeenCalledTimes(1);
+  });
+
+  it("expands brace alternates before calling fd so fast path matches fallback semantics", async () => {
+    const commandRunner = vi.fn(async (_binary: string, args: readonly string[], cwd: string) => {
+      if (cwd.endsWith("src") && args[3] === "**/*.css") {
+        return { stdout: "layout.css\n", stderr: "" };
+      }
+      if (cwd.endsWith("src") && args[3] === "**/*.tsx") {
+        return { stdout: "view.tsx\n", stderr: "" };
+      }
+      if (cwd.endsWith("src") && args[3] === "**/*.ts") {
+        return { stdout: "model.ts\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+    const tool = new GlobTool({
+      environmentProvider: async () => ({
+        fd: { path: "fd-bin", version: "10.0.0" },
+      }),
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "glob",
+      input: { pattern: "src/**/*.{css,tsx,ts}", path: ".", verbosity: "summary" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toBe("3 matches");
+    expect(result.metadata?.["count"]).toBe(3);
+    expect(commandRunner).toHaveBeenNthCalledWith(
+      1,
+      "fd-bin",
+      ["--glob", "--type", "f", "**/*.css", "."],
+      join(process.cwd(), "src"),
+      30_000,
+    );
+    expect(commandRunner).toHaveBeenNthCalledWith(
+      2,
+      "fd-bin",
+      ["--glob", "--type", "f", "**/*.tsx", "."],
+      join(process.cwd(), "src"),
+      30_000,
+    );
+    expect(commandRunner).toHaveBeenNthCalledWith(
+      3,
+      "fd-bin",
+      ["--glob", "--type", "f", "**/*.ts", "."],
+      join(process.cwd(), "src"),
+      30_000,
+    );
+  });
+
+  it("matches multiple brace groups with literal directory prefixes in fd fast path", async () => {
+    const commandRunner = vi.fn(async (_binary: string, args: readonly string[], cwd: string) => {
+      if (cwd.endsWith(join("packages", "gui")) && args[3] === "**/*.tsx") {
+        return { stdout: "src/components/app-shell.tsx\n", stderr: "" };
+      }
+      if (cwd.endsWith(join("packages", "studio")) && args[3] === "**/*.css") {
+        return { stdout: "src/styles/tokens.css\n", stderr: "" };
+      }
+      throw Object.assign(new Error("no matches"), { code: 1, stdout: "", stderr: "" });
+    });
+    const tool = new GlobTool({
+      environmentProvider: async () => ({
+        fd: { path: "fd-bin", version: "10.0.0" },
+      }),
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "glob",
+      input: {
+        pattern: "packages/{gui,studio,widget,tui}/**/*.{tsx,ts,css,scss}",
+        path: ".",
+        verbosity: "raw",
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("packages/gui/src/components/app-shell.tsx");
+    expect(result.output).toContain("packages/studio/src/styles/tokens.css");
+    expect(result.metadata?.["count"]).toBe(2);
   });
 
   it("treats fd exit code 1 as a no-match success", async () => {

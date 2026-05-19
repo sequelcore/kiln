@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
   isGuiProviderModeless,
+  type GuiAuthorityStatus,
   type GuiInboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
@@ -63,6 +64,7 @@ import type {
   RuntimeTurnApprovalTransition,
   RuntimeTurnAuthorityDecision,
   RuntimeTurnFileChange,
+  RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
@@ -139,10 +141,7 @@ function tuiProviderAuthDebug(message: string, context?: Record<string, unknown>
   console.warn(`[tui-gateway:provider-auth][debug] ${message}`, context ?? {});
 }
 
-export interface TuiAuthorityStatus {
-  readonly effective: "fail_closed" | "read_only" | "idempotent" | "audited" | "destructive" | "unknown";
-  readonly completeness: "authoritative" | "partial";
-}
+export type TuiAuthorityStatus = GuiAuthorityStatus;
 
 export function buildTuiPerCallToolConfig(): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
@@ -154,9 +153,18 @@ export function deriveTuiAuthorityStatusFromPerCallConfig(
   config: PerCallToolConfig,
 ): TuiAuthorityStatus {
   if (config.effectiveTurnAuthority) {
+    const authority = config.effectiveTurnAuthority;
     return {
-      effective: config.effectiveTurnAuthority.admittedAuthority,
-      completeness: config.effectiveTurnAuthority.completeness,
+      effective: authority.admittedAuthority,
+      admittedAuthority: authority.admittedAuthority,
+      requestedAuthority: authority.requestedAuthority,
+      executionMode: authority.executionMode,
+      ...(authority.sandboxProjection ? { sandboxProjection: authority.sandboxProjection } : {}),
+      reason: authority.reason,
+      toolCount: authority.toolCount,
+      deniedToolCount: authority.deniedToolCount,
+      ...(authority.policyInputs ? { policyInputs: authority.policyInputs } : {}),
+      completeness: authority.completeness,
     };
   }
   const hasAllowlist = config.toolAllowlist !== undefined;
@@ -977,6 +985,7 @@ class TuiActivityStreamer {
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
     authorityDecisions: RuntimeTurnAuthorityDecision[];
+    toolCompletions: RuntimeTurnToolCompletion[];
   } | null = null;
   private ws: WSContext | null = null;
   private eventBus: EventBus | null = null;
@@ -1012,6 +1021,7 @@ class TuiActivityStreamer {
       fileChanges: [],
       approvalTransitions: [],
       authorityDecisions: [],
+      toolCompletions: [],
     };
   }
 
@@ -1019,14 +1029,16 @@ class TuiActivityStreamer {
     fileChanges: readonly RuntimeTurnFileChange[];
     approvalTransitions: readonly RuntimeTurnApprovalTransition[];
     authorityDecisions: readonly RuntimeTurnAuthorityDecision[];
+    toolCompletions: readonly RuntimeTurnToolCompletion[];
   } {
     if (!this.capture || this.capture.sessionId !== sessionId) {
-      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [] };
+      return { fileChanges: [], approvalTransitions: [], authorityDecisions: [], toolCompletions: [] };
     }
     const captured = {
       fileChanges: [...this.capture.fileChanges],
       approvalTransitions: [...this.capture.approvalTransitions],
       authorityDecisions: [...this.capture.authorityDecisions],
+      toolCompletions: [...this.capture.toolCompletions],
     };
     this.capture = null;
     return captured;
@@ -1285,6 +1297,15 @@ class TuiActivityStreamer {
       if (pending && pending.length === 0 && this.capture) {
         this.capture.pendingToolCallIds.delete(event.toolName);
       }
+      if (this.capture) {
+        this.capture.toolCompletions.push({
+          toolName: event.toolName ?? "unknown",
+          success: !event.isError,
+          output: event.output ?? "",
+          resultSummary: event.outputSummary ?? event.output ?? "",
+          ...(event.metadata ? { metadata: event.metadata } : {}),
+        });
+      }
       this.emitSessionEvent({
         kind: "tool_call_completed",
         timestamp: new Date().toISOString(),
@@ -1293,6 +1314,7 @@ class TuiActivityStreamer {
           toolName: event.toolName ?? "unknown",
           output: event.output ?? "",
           outputSummary: event.outputSummary ?? event.output ?? "",
+          ...(event.metadata ? { metadata: event.metadata } : {}),
           status: {
             state: event.isError ? "failed" : "succeeded",
           },

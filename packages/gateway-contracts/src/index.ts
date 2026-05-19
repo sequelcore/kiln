@@ -13,6 +13,17 @@ export {
 } from "./config-mutation.js";
 
 export type {
+  OperatorCommandDefinition,
+  OperatorCommandId,
+  OperatorCommandSurfaceKind,
+} from "./operator-commands.js";
+export {
+  OPERATOR_COMMANDS,
+  findOperatorCommand,
+  listOperatorCommands,
+} from "./operator-commands.js";
+
+export type {
   KilnConfigProjectSnapshot,
   KilnConfigReadResult,
   KilnConfigReadView,
@@ -52,6 +63,11 @@ export type {
   GuiProviderModelCapabilities,
   GuiProviderModelRouteHealth,
   GuiProviderReasoningEffort,
+  GuiAuthorityCompleteness,
+  GuiAuthorityLevel,
+  GuiAuthorityPolicyInput,
+  GuiAuthoritySandboxProjection,
+  GuiAuthorityStatus,
   OperatorExecutionMode,
   OperatorTurnRequestedAuthority,
   GuiProviderDiscoveryStatus,

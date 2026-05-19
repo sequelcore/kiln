@@ -75,6 +75,7 @@ import {
 import { getProjectContextArtifactCache } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
+  deriveGovernedTurnOutcomeFromToolRecords,
   markGuiProviderDiscoveryStale,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
@@ -84,6 +85,7 @@ import {
 import type {
   CliSessionFactoryContext,
   CliSessionRunOptions,
+  GovernedTurnOutcomeToolRecord,
   ManagedInvocationToolOptions,
   RuntimeSessionHydrator,
 } from "@kilnai/runtime";
@@ -395,6 +397,21 @@ function buildToolResultPayload(input: {
   };
 }
 
+function toolCompletionFromPayload(payload: Record<string, unknown>): GovernedTurnOutcomeToolRecord {
+  const status = payload.status && typeof payload.status === "object"
+    ? payload.status as Record<string, unknown>
+    : undefined;
+  return {
+    toolName: typeof payload.toolName === "string" ? payload.toolName : "unknown",
+    success: status?.state !== "failed",
+    output: typeof payload.output === "string" ? payload.output : undefined,
+    resultSummary: typeof payload.outputSummary === "string" ? payload.outputSummary : undefined,
+    ...(payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+      ? { metadata: payload.metadata as Record<string, unknown> }
+      : {}),
+  };
+}
+
 function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
   if (process.env.KILN_TUI_TRANSPORT?.toLowerCase() === "direct") {
     return "direct";
@@ -549,6 +566,7 @@ export async function makeMultiProviderSessionFactory(
         let assistantContent = "";
         let assistantDeltaIndex = 0;
         const pendingToolCallIds = new Map<string, string[]>();
+        const toolCompletions: GovernedTurnOutcomeToolRecord[] = [];
         let syntheticToolOrdinal = 0;
         const priorTranscript = await transcriptStore.readTranscript(capturedId);
         let transcriptSeq = priorTranscript.length;
@@ -632,15 +650,17 @@ export async function makeMultiProviderSessionFactory(
                   }, transcriptSurface, turnId),
                 );
               }
-              await transcriptStore.append(
-                capturedId,
-                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_result", buildToolResultPayload({
+              const toolResultPayload = buildToolResultPayload({
                   toolCallId,
                   toolName: event.toolName,
                   output: event.output,
                   ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
                   ...(event.isError !== undefined ? { isError: event.isError } : {}),
-                }), transcriptSurface, turnId),
+              });
+              toolCompletions.push(toolCompletionFromPayload(toolResultPayload));
+              await transcriptStore.append(
+                capturedId,
+                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_result", toolResultPayload, transcriptSurface, turnId),
               );
             } else if (event.type === "error") {
               turnIsError = true;
@@ -673,11 +693,14 @@ export async function makeMultiProviderSessionFactory(
               }, turnId),
             );
           }
+          const lastTurnOutcome = turnIsError || deriveGovernedTurnOutcomeFromToolRecords(toolCompletions) === "failed"
+            ? "failed"
+            : "completed";
           await transcriptStore.append(
             capturedId,
             persistedEvent(capturedId, ++transcriptSeq, "turn_completed", source("runtime"), {
               turnId,
-              outcome: turnIsError ? "failed" : "completed",
+              outcome: lastTurnOutcome,
               ...(assistantContent.trim().length > 0 ? { outputMessageId: assistantMessageId } : {}),
             }, turnId),
           );
@@ -695,9 +718,10 @@ export async function makeMultiProviderSessionFactory(
               title: metadata.title,
               summary: metadata.summary,
               tags: metadata.tags,
-              providersUsed: metadata.providersUsed,
-              providerThread: resumedSession.providerSessionId
-                ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
+            providersUsed: metadata.providersUsed,
+            lastTurnOutcome,
+            providerThread: resumedSession.providerSessionId
+              ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
                 : undefined,
               resumeStrategy,
               resumeFeedback,

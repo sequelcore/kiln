@@ -5,7 +5,7 @@ import pkg from "../package.json" with { type: "json" };
 import { migrateConfigJson } from "./kiln-yaml.js";
 import type { KilnAppConfig } from "./config.js";
 import type { ReasoningEffort } from "@kilnai/core";
-import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import { findOperatorCommand, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 type RunArgFlags = {
   apiKey?: string;
@@ -42,11 +42,13 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   const DIR_NAME = ".kiln";
   const VERSION = pkg.version as string;
   const DESCRIPTION = "Governed AI control-plane CLI";
+  const planCommand = findOperatorCommand("plan", "cli");
+  const goalCommand = findOperatorCommand("goal", "cli");
 
   const COMMANDS: Record<string, string> = {
     init: `Initialize ${APP_NAME} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
     run: "Start a CLI-only coding session with Claude Code (use --plan for plan mode, --agent for agent profile)",
-    plan: "Start a planning session before execution (3-phase workflow)",
+    plan: planCommand?.description ?? "Start a planning session before execution (3-phase workflow)",
     project: "Scout or adopt canonical repo context for generated project shims",
     status: "Show current phase, tasks, and costs",
     memory: "Browse and search memory layers",
@@ -56,7 +58,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     gateway: "Start persistent Gateway (multi-app hosting)",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
     gui: "Start the GUI operator surface or attach to an App Gateway",
-    goal: "Inspect and update canonical workflow goals from session transcripts",
+    goal: goalCommand?.description ?? "Inspect and update canonical workflow goals from session transcripts",
     feedback: "Create local-only redacted session feedback bundles and issue drafts",
     benchmark: "Inspect benchmark-facing profiles, external tracks, and readiness baselines",
     skill: "Manage skills (list, install, publish)",

@@ -56,13 +56,34 @@ describe("ProviderStatus", () => {
     useSessionStore.setState({
       authorityStatus: {
         effective: "fail_closed",
+        admittedAuthority: "fail_closed",
+        requestedAuthority: "auto",
+        executionMode: "execute",
+        sandboxProjection: "read_only",
         completeness: "authoritative",
       },
     });
 
     render(<ProviderStatus onOpenPicker={() => undefined} />);
 
-    expect(screen.getByText("authority: fail_closed · authoritative")).toBeInTheDocument();
+    expect(screen.getByText("authority: auto -> fail_closed · sandbox read_only · authoritative")).toBeInTheDocument();
+  });
+
+  it("shows authority in the compact composer status", () => {
+    useSessionStore.setState({
+      authorityStatus: {
+        effective: "audited",
+        admittedAuthority: "audited",
+        requestedAuthority: "auto",
+        executionMode: "execute",
+        sandboxProjection: "workspace_write",
+        completeness: "authoritative",
+      },
+    });
+
+    render(<ProviderStatus onOpenPicker={() => undefined} compact />);
+
+    expect(screen.getByText("authority: auto -> audited · sandbox workspace_write · authoritative")).toBeInTheDocument();
   });
 
   it("renders domain and working directory indicators in the status area", () => {
@@ -87,7 +108,7 @@ describe("ProviderStatus", () => {
 
     render(<ProviderStatus onOpenPicker={() => undefined} compact />);
 
-    expect(screen.getByRole("button", { name: "Select provider / model. Click to change." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select provider / model. authority: unknown. Click to change." })).toBeInTheDocument();
     expect(screen.getByText("Select provider / model")).toBeInTheDocument();
   });
 });

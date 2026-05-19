@@ -131,7 +131,10 @@ file-change evidence reads shared core `file` metadata first, so write and edit
 operations become structured evidence even when provider tool names are aliases.
 
 `grep` and `glob` remain core search tools. `grep` accepts file or directory
-paths while preserving the native `rg` fast path when available.
+paths while preserving the native `rg` fast path when available. `glob` supports
+brace alternates such as `**/*.{ts,tsx,css}` and normalizes that pattern before
+either the native `fd` fast path or fallback walker runs, so GUI, TUI, CLI, MCP,
+and managed-agent routes do not disagree about file discovery.
 
 ## Patch Tool
 

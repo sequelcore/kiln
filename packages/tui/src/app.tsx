@@ -11,14 +11,16 @@ import {
   getGuiProviderMetadata,
   isGuiProviderModeless,
   isOperatorThemeName,
+  listOperatorCommands,
   type GuiProviderCatalogStatus,
   type GuiProviderDiscoveryResult,
   type KilnConfigSetupAction,
   type KilnConfigSetupSnapshot,
+  type OperatorCommandDefinition,
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
-import type { Message, ReasoningEffort, ResumeSidebarInfo, SessionListItem } from "./state.js";
+import type { Message, ReasoningEffort, ResumeSidebarInfo, SessionListItem, SlashCommand } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
@@ -68,6 +70,16 @@ const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
   audited: "audited",
   destructive: "destructive",
 };
+
+function operatorCommandToSlashCommand(command: OperatorCommandDefinition): SlashCommand {
+  return {
+    id: command.id,
+    trigger: command.trigger,
+    title: command.title,
+    description: command.description,
+    type: "builtin",
+  };
+}
 
 export async function startTui(
   createSession: () => Promise<SessionLike>,
@@ -179,15 +191,7 @@ export async function startTui(
   }
   syncReasoningEffort();
 
-  const SLASH_COMMANDS = [
-    { id: "clear", trigger: "clear", title: "Clear session", description: "Start a new session", type: "builtin" as const },
-    { id: "theme", trigger: "theme", title: "Change theme", description: "Switch color theme", type: "builtin" as const },
-    { id: "provider", trigger: "provider", title: "Change provider", description: "Switch AI provider", type: "builtin" as const },
-    { id: "effort", trigger: "effort", title: "Change effort", description: "Cycle reasoning effort", type: "builtin" as const },
-    { id: "authority", trigger: "authority", title: "Change authority", description: "Cycle turn authority", type: "builtin" as const },
-    { id: "resume", trigger: "resume", title: "Resume session", description: "Browse and resume previous sessions", type: "builtin" as const },
-    { id: "setup", trigger: "setup", title: "Setup status", description: "Show config and projection status", type: "builtin" as const },
-  ];
+  const SLASH_COMMANDS = listOperatorCommands("tui").map(operatorCommandToSlashCommand);
 
   update(state, "slashCommands", SLASH_COMMANDS);
 
@@ -307,6 +311,28 @@ export async function startTui(
 
       if (text === "/authority") {
         cycleRequestedAuthority();
+        return;
+      }
+
+      if (text === "/resume") {
+        if (state.sessions.length > 0) {
+          update(state, "selectedSessionIndex", 0);
+          renderSidebarSessions(state, currentTheme, ui);
+          ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to resume")}`;
+        } else {
+          ui.commandBarStatus.content = t`${fg(currentTheme.textMuted)("No previous sessions available")}`;
+        }
+        return;
+      }
+
+      if (text === "/setup") {
+        void showSetupStatus();
+        return;
+      }
+
+      if (text === "/goal") {
+        renderSidebarWork(state, currentTheme, ui);
+        ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Goal workflow visible in work sidebar")}`;
         return;
       }
 
@@ -1728,7 +1754,7 @@ export async function startTui(
           update(state, "input", "");
           update(state, "slashPopoverOpen", false);
 
-          if (cmd.trigger === "clear") {
+          if (cmd.id === "clear") {
             void (async () => {
               const session = await createSession();
               const hasClear = typeof (session as unknown as { clear?: unknown }).clear === "function";
@@ -1746,24 +1772,58 @@ export async function startTui(
             })();
             return;
           }
-          if (cmd.trigger === "theme") {
+          if (cmd.id === "theme") {
             openThemePicker();
             return;
           }
-          if (cmd.trigger === "provider") {
+          if (cmd.id === "provider") {
             openProviderPicker();
             return;
           }
-          if (cmd.trigger === "resume") {
+          if (cmd.id === "effort") {
+            cycleReasoningEffort();
+            return;
+          }
+          if (cmd.id === "authority") {
+            cycleRequestedAuthority();
+            return;
+          }
+          if (cmd.id === "resume") {
             if (state.sessions.length > 0) {
               update(state, "selectedSessionIndex", 0);
               renderSidebarSessions(state, currentTheme, ui);
               ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to resume")}`;
+            } else {
+              ui.commandBarStatus.content = t`${fg(currentTheme.textMuted)("No previous sessions available")}`;
             }
             return;
           }
-          if (cmd.trigger === "setup") {
+          if (cmd.id === "plan") {
+            update(state, "planMode", true);
+            renderSidebarProvider(state, currentTheme, ui, domain);
+            ui.commandBarStatus.content = t`${fg(currentTheme.warning)("Plan mode enabled. Run /exec when ready to execute.")}`;
+            return;
+          }
+          if (cmd.id === "exec") {
+            void (async () => {
+              const session = await createSession();
+              const executePlanMode = (session as unknown as { executePlanMode?: unknown }).executePlanMode;
+              if (typeof executePlanMode === "function") {
+                executePlanMode.call(session);
+              }
+              update(state, "planMode", false);
+              renderSidebarProvider(state, currentTheme, ui, domain);
+              ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Execution mode enabled.")}`;
+            })();
+            return;
+          }
+          if (cmd.id === "setup") {
             void showSetupStatus();
+            return;
+          }
+          if (cmd.id === "goal") {
+            renderSidebarWork(state, currentTheme, ui);
+            ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Goal workflow visible in work sidebar")}`;
             return;
           }
         }

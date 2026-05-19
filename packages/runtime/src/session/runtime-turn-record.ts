@@ -45,6 +45,14 @@ export interface RuntimeTurnDangerousCommandOutcome {
   readonly reason: string;
 }
 
+export interface RuntimeTurnToolCompletion {
+  readonly toolName: string;
+  readonly success: boolean;
+  readonly output?: string;
+  readonly resultSummary?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
 export interface RuntimeTurnProviderValidation {
   readonly provider: string;
   readonly available: boolean;

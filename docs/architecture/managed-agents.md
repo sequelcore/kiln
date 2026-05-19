@@ -18,6 +18,15 @@ inputs. Canonical Kiln state is expressed through managed invocation requests,
 admission decisions, invocation records, write evidence, session events, and
 resource URIs.
 
+Subscription-backed direct providers are the preferred managed-agent route
+family when they are authenticated, compliant for the requested workflow, and
+live-proven for the required authority. Native CLI harnesses are fallback
+adapters, not the normal economic path. Do not promote a harness route simply
+because it can edit today if the operator's configured route strategy is
+`codex-oauth`, `opencode-go`, and `opencode-zen`; direct write routes must use
+the direct-provider runtime adapter and pass the same managed write evidence
+contract as any harness route.
+
 A managed invocation is admissible only when the runtime can prove the requested
 authority is complete and bounded. Missing provider route, adapter kind,
 execution mode, permission profile, tool authority, working directory, timeout,
@@ -30,6 +39,13 @@ persistence, and result handoff are explicitly admitted per invocation. Agent
 profile selection, skill access, and child context mode follow
 [`agent-context.md`](agent-context.md); they are requests that the runtime must
 resolve, admit, and record before execution.
+
+Route identity and agent profile identity must not be inferred independently by
+different surfaces. When a caller requests an `agentProfile`, that profile's
+route hint is the route-selection authority unless the work item itself carries
+an explicit route as part of its contract. Goal-level route policy cannot
+combine `managedAgentProfile` with `preferredRouteId`; contradictory route and
+profile pairs fail closed before child execution starts.
 
 ## Non-Boundaries
 
@@ -147,6 +163,11 @@ Runtime route projection must obtain that scope from explicit
 a write profile name is not sufficient by itself, because those fields do not
 define allowed paths, denied paths, approval mode, artifact retention, or memory
 proposal authority.
+Task-aware operator configs should name write routes by the work they are
+allowed to perform, for example `frontend-approved-write`,
+`backend-approved-write`, `research-approved-write`, or
+`mechanical-approved-write`. Model capability evidence can rank a route, but it
+must not silently turn every read-only model route into a writer.
 
 Memory writes are proposals unless explicitly admitted through the memory write
 profile. Artifact writes are represented through resource URIs. Large diffs,
@@ -204,6 +225,10 @@ keeps an in-progress evidence collector while a live session is running. If the
 session times out after a bounded write event, the timeout record still includes
 the observed write evidence and linked resource URIs. Provider errors containing
 cancel or abort semantics map to the canonical `cancelled` lifecycle state.
+Parent turns that contain terminal managed-child failures are recorded as failed
+from either runtime ledger events or canonical tool-execution summaries, so GUI,
+TUI, CLI, and replay consumers cannot report a blocked delegation as a completed
+turn just because the failure was captured through a different surface.
 
 The direct-provider adapter creates a child `RuntimeSessionOrchestrator` instead
 of launching a CLI harness. It reuses the provider adapter contract, runtime
@@ -220,10 +245,20 @@ managed working directory or explicitly admitted write scope, cannot write, and
 cannot use network tools unless the request authority admits network access.
 Models may still hallucinate hidden or out-of-scope tool calls, but the runtime
 allowlist and sandbox deny them before tool execution.
-Direct-provider write-capable managed routes remain unavailable until direct
-write proof covers approved apply, rollback evidence, cleanup evidence, and
-resource replay. Harness write proof does not automatically transfer to direct
-providers.
+Direct-provider write-capable managed routes are available only when the direct
+adapter descriptor advertises approved apply, rollback evidence, cleanup
+evidence, scope reduction, and replayable write evidence support. Harness write
+proof does not automatically transfer to direct providers.
+
+Operator-surface authority (`auto`, `read_only`, `audited`, `destructive`) is a
+per-turn admission request, not a route grant. GUI and TUI surfaces must display
+the admitted authority returned by the runtime, including sandbox projection,
+because a parent turn can be executable while every configured managed-agent
+child route remains read-only.
+Direct-provider timeout diagnostics are replayable even when the child runtime
+does not complete. The terminal timeout handoff records the timeout budget,
+child session id, and child turn id, and explicitly states when partial child
+trace is unavailable from the direct-provider adapter.
 
 CLI configuration resolves direct-provider managed routes through the same
 provider adapter factory used by native Kiln sessions. A direct route becomes
@@ -240,14 +275,19 @@ adapter differs.
 sessions that need a governed child invocation. It is not part of the core
 developer-tool registry and is not exposed by default. Runtime operator surfaces
 attach it only when the CLI provides a resolved managed invocation route
-registry. That registry may come from explicit `managedAgents.routes`, from
-eligible ordered `routing.routes`, or from the default read-only route
-synthesized from enabled supported child engines. Direct-provider projections
-must name a tool-call-capable model that can execute Kiln runtime tools; opaque
-provider aliases that cannot be proven tool-capable remain unhealthy instead of
-being exposed as child authority. For harness-backed child engines, route health
-includes the session-start engine availability probe, the provider-advertised
-model catalog, and model-specific live proof for the requested managed profile;
+registry. That registry is normally derived from eligible ordered
+`routing.routes`, with explicit `managedAgents.routes` merged on top for
+authority-bearing routes, special read-only exceptions, or overrides. If no
+ordered route exists, Kiln may synthesize the default read-only route from
+enabled supported child engines. Direct-provider projections must name a
+tool-call-capable model that can execute Kiln runtime tools; opaque provider
+aliases that cannot be proven tool-capable remain unhealthy instead of being
+exposed as child authority. When the same provider appears with multiple
+models, derived route IDs include a model slug so parent sessions can select a
+specific team member without relying on provider-only ambiguity. For
+harness-backed child engines, route health includes the session-start engine
+availability probe, the provider-advertised model catalog, and model-specific
+live proof for the requested managed profile;
 a configured child engine that is missing locally or names an unadvertised model
 does not receive `managed_agent.invoke` authority.
 Unhealthy configured routes are still carried as diagnostics so a failed tool
@@ -287,8 +327,12 @@ For write-capable profiles, route defaults include an explicit
 adapter family, or unproven write evidence support fails the route closed before
 `managed_agent.invoke` can execute it.
 When multiple routes share the same provider/profile, admission requires
-`routeId` or an exact configured model match. Ambiguous provider-only selection
-fails closed instead of silently picking the first route.
+`routeId`, an exact configured model match, or a configured agent-profile route
+hint. Ambiguous provider-only selection fails closed instead of silently picking
+the first route. If the parent supplies an `agentProfile` whose catalog entry
+has a route hint, the runtime uses that hint to disambiguate the route. An
+explicit `routeId`, provider id, or model that contradicts the selected
+agent-profile hint fails closed before adapter invocation.
 
 The model-facing `managed_agent.invoke` schema is narrowed from the admitted
 route and agent catalogs. `agentProfile` is limited to configured profile ids
@@ -297,6 +341,11 @@ skills are configured. Parent assistants may choose a configured child profile
 without the operator naming one, but they must not invent profiles or skills.
 If no configured profile matches a one-off read-only task, the parent omits
 `agentProfile` and invokes a generic governed child.
+The resolved agent catalog may include a route hint inferred from explicit
+agent config or from route suitability and agent tier. Fast profiles such as
+`scout` should bind to bounded read-only routes, for example a Mini or free
+route, instead of a heavyweight synthesis route reserved for architecture or
+research synthesis.
 
 `agentProfile`, `skills`, and `contextMode: "fork"` fail closed when the active
 surface has not configured a context resolver. `contextMode: "isolated"` is the
@@ -332,7 +381,7 @@ Current status:
 | Claude Code family | Scouted, not live-proven in Kiln. | Permission modes and tool names are adapter research only. |
 | Hermes Agent | Scouted as ACP-style future adapter candidate. | `delegate_task`, ACP permission, and terminal concepts are adapter inputs only. |
 | OpenClaw | Scouted as future harness or ACP adapter candidate. | Session, subagent, and tool-policy names are not Kiln contract fields. |
-| OpenAI direct API | Opt-in live read-only proof exists for builtin `read`; approved-write proof remains separate. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and evidence boundaries. |
+| Direct subscription providers (`codex-oauth`, `opencode-go`, `opencode-zen`) | Runtime adapter supports explicit approved-write managed routes when the route declares `writeAuthority`. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and `toolExecutions.fileChanges` reduced to canonical write evidence. |
 | Other direct API providers | Child runtime-session adapter exists with deterministic builtin tool sandbox proof; provider-family live proof remains separate. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and evidence boundaries. |
 
 Live tests are disabled by default. They require
@@ -376,14 +425,35 @@ storing the `managedInvocationId` on the execution attempt. The same attempt is
 projected through `work_item_execution_started` and
 `work_item_execution_finished` events and through
 `kiln://session/work-items`, so replay and operator surfaces can connect child
-evidence to the parent work item without parsing prose.
+evidence to the parent work item without parsing prose. A started attempt is
+still open work: until `work_item.execution.finish` or `work_item.complete`
+records terminal evidence, the parent turn is projected as failed/blocked
+rather than completed.
+Similarly, a successful read-only `managed_agent.invoke` scout does not close
+the parent work item by itself. Execute-mode parent turns receive runtime
+closeout guidance that requires them to continue on the same work item after the
+child handoff, either by starting/finishing/completing the item or by recording a
+concrete pause requirement.
 If the managed child fails before the work-item attempt can start, or the
 managed invocation request cannot be hydrated to a configured route/provider,
 the runtime returns the work item to an explicit paused result. The result
 metadata records `operation=managed_invocation_failed`,
 `managedInvocationAutoStarted=false`, the failure reason, and the managed
 invocation metadata so downstream surfaces can show that the child was
-attempted and no parent attempt was started.
+attempted and no parent attempt was started. The parent session turn is also
+recorded with failed outcome, which prevents GUI, TUI, CLI, and replay surfaces
+from treating a delegation timeout or route failure as a completed assistant
+turn.
+
+Assistant egress text must not expose provider-internal tool-call markup. If a
+direct provider returns raw assistant tool syntax such as `<assistant to=...>`
+plus JSON arguments in normal text, the runtime strips that markup before
+persisting `assistant_message` events or returning text to GUI, TUI, CLI, SDK,
+or replay consumers. Canonical tool results and transcript resources remain the
+evidence plane for tool activity. The same egress boundary strips short leading
+scratchpad-style prefixes that expose internal planning notes instead of
+operator-facing content; reasoning traces and scratch work must remain internal
+provider state, while canonical events carry replayable evidence.
 
 `managed_agent.invoke` tool results also emit a validated presentation intent
 for operator-facing route evidence. The first supported intent is a
@@ -405,6 +475,14 @@ routes, unhealthy provider/model pairs, unknown agent profiles, missing skills,
 or denied authority profiles still fail closed. Recommended skills are shown to
 the parent only when they are also present in the admitted skill catalog or on a
 configured agent profile.
+Agent-profile route hints are selection constraints, not authority grants. They
+can narrow a healthy route choice for the selected role, but they cannot make an
+unhealthy route available, broaden authority, admit missing skills, or bypass
+the managed invocation profile.
+Requested authority must also match the selected managed profile. A read-only
+profile cannot be elevated to audited or destructive authority by request text
+or approval flow; the parent must select an admitted write-capable profile and
+route instead.
 If `skills.selection.mode: auto` is configured, CLI-owned managed invocation
 may admit recommended skills for the selected route/task without requiring the
 parent model to repeat them in the tool call. This is still admission, not

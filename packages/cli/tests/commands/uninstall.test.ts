@@ -166,12 +166,10 @@ describe("uninstallNativeTargets", () => {
     const projected = {
       permission: { default: "ask" },
       theme: "ocean",
-      kiln: { permissionSync: { backend: "opencode" } },
     };
     const drifted = {
       permission: { default: "deny" },
       theme: "ocean",
-      kiln: { permissionSync: { backend: "opencode" } },
     };
 
     try {
@@ -184,7 +182,7 @@ describe("uninstallNativeTargets", () => {
             targetId: "opencode-config",
             filePath: opencodeConfigPath,
             document: projected,
-            managedFields: ["permission", "kiln.permissionSync"],
+            managedFields: ["permission"],
             updatedAt: "2026-05-06T12:00:00.000Z",
           }),
         ),
@@ -211,12 +209,10 @@ describe("uninstallNativeTargets", () => {
     const projected = {
       permission: { default: "ask" },
       theme: "ocean",
-      kiln: { permissionSync: { backend: "opencode" }, legacy: true },
     };
     const drifted = {
       permission: { default: "deny" },
       theme: "ocean",
-      kiln: { permissionSync: { backend: "opencode" }, legacy: true },
     };
 
     try {
@@ -229,7 +225,7 @@ describe("uninstallNativeTargets", () => {
             targetId: "opencode-config",
             filePath: opencodeConfigPath,
             document: projected,
-            managedFields: ["permission", "kiln.permissionSync"],
+            managedFields: ["permission"],
             updatedAt: "2026-05-06T12:00:00.000Z",
           }),
         ),
@@ -244,7 +240,6 @@ describe("uninstallNativeTargets", () => {
       });
       expect(JSON.parse(readFileSync(opencodeConfigPath, "utf-8"))).toEqual({
         theme: "ocean",
-        kiln: { legacy: true },
       });
       expect(readNativeProjectionInstallState(kilnDir).targets).toEqual({});
     } finally {

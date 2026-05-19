@@ -117,6 +117,18 @@ the same operator tool contract for parity, but because it has no live visual
 surface it only accepts persisted theme changes and writes the shared operator
 default.
 
+## Command Palette
+
+The GUI command palette projects `listOperatorCommands("gui")` from
+`@kilnai/gateway-contracts`. Shared commands must be added to
+`packages/gateway-contracts/src/operator-commands.ts`; do not add GUI-only
+duplicates for governed operator controls.
+
+The shared GUI catalog includes `goal`, `plan`, `exec`, `provider`, `theme`,
+`effort`, `authority`, `resume`, `setup`, and `clear`. `goal` opens the governed
+work/goal surface, and `plan`/`exec` toggle the same planning state used by the
+composer controls.
+
 ## Design System
 
 The GUI uses shadcn with Base UI primitives as its component baseline. The
@@ -278,6 +290,14 @@ defaults to the model's advertised `defaultReasoningEffort` when present. The
 selected effort is sent with the next message frame and is not a global GUI
 preference.
 
+Turn authority in the composer has two parts: the operator request and the
+gateway admission result. The authority selector sends the requested limit
+(`auto`, `read_only`, `audited`, or `destructive`) with the next turn, while the
+provider status chip displays the latest admitted authority projected by the
+runtime (`requested -> admitted`, sandbox, and completeness). Do not infer write
+capability from the selected provider alone; managed-agent writes require an
+explicit write-capable route in global config.
+
 For Codex OAuth, the model catalog is discovered from the authenticated Codex
 model endpoint. Reasoning levels are derived from that catalog, including the
 object-shaped `supported_reasoning_levels` response returned by ChatGPT-backed
@@ -349,6 +369,13 @@ For reasoning validation, select a Codex OAuth model that advertises reasoning
 levels, choose a non-default effort from the composer control, and send a turn.
 The request should complete through the same runtime session and the selected
 effort should apply only to that turn.
+
+For authority validation, select `Auto`, send a turn, and verify the composer
+status shows the admitted authority and sandbox. If the task delegates
+implementation to a managed child, the child must use
+`foundation-apply-approved-writes` and route health must show a configured
+write-capable harness route; read-only direct routes should continue to fail
+closed for edits.
 
 See `docs/architecture/session-model.md` for the canonical rules.
 

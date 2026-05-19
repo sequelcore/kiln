@@ -1,4 +1,4 @@
-import { basename, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import {
   detectToolEnvironment,
   type ToolEnvironment,
@@ -23,6 +23,7 @@ import {
   toSuccessResult,
   validateReadPath,
   walkFiles,
+  expandGlobAlternates,
 } from "./tool-helpers.js";
 import { parseOutputVerbosity, pluralize, splitNonEmptyLines } from "./output-verbosity.js";
 
@@ -101,40 +102,52 @@ export class GlobTool implements DevTool {
     pattern: string,
     verbosity: ToolOutputVerbosity,
   ): Promise<ToolResult> {
-    const args = ["--glob", "--type", "f", pattern, "."];
+    const patterns = expandGlobAlternates(pattern);
+    const matches: string[] = [];
     try {
-      const result = await this.commandRunner(
-        fdPath,
-        args,
-        searchRoot,
-        DEFAULT_TIMEOUT_MS,
-      );
+      for (const expandedPattern of patterns) {
+        const plan = planFastPathGlob(searchRoot, expandedPattern);
+        const args = ["--glob", "--type", "f", plan.pattern, "."];
+        try {
+          const result = await this.commandRunner(
+            fdPath,
+            args,
+            plan.cwd,
+            DEFAULT_TIMEOUT_MS,
+          );
 
-      const rawOutput = result.stdout.trim();
-      const matches = splitNonEmptyLines(rawOutput);
+          matches.push(...splitNonEmptyLines(result.stdout.trim()).map((line) => prefixFastPathMatch(line, plan.outputPrefix)));
+        } catch (error) {
+          const err = error as NodeJS.ErrnoException & {
+            stdout?: string;
+            stderr?: string;
+            code?: number | string;
+          };
+
+          if (String(err.code) === "1") {
+            continue;
+          }
+
+          throw err;
+        }
+      }
+
+      const uniqueMatches = [...new Set(matches)];
+      const rawOutput = uniqueMatches.join("\n");
       const metadata = searchToolMetadata("glob", {
         path: searchRoot,
         strategy: "fd",
-        count: matches.length,
+        count: uniqueMatches.length,
+        ...(uniqueMatches.length === 0 ? { noMatches: true } : {}),
         verbosity,
       });
-      return toSuccessResult(formatGlobOutput(rawOutput, matches, verbosity), metadata);
+      return toSuccessResult(formatGlobOutput(rawOutput, uniqueMatches, verbosity), metadata);
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
         stderr?: string;
         code?: number | string;
       };
-
-      if (String(err.code) === "1") {
-        return toSuccessResult(formatGlobOutput("", [], verbosity), searchToolMetadata("glob", {
-          path: searchRoot,
-          strategy: "fd",
-          count: 0,
-          noMatches: true,
-          verbosity,
-        }));
-      }
 
       const message =
         [err.stderr, err.stdout].filter(Boolean).join("").trim() ||
@@ -191,8 +204,57 @@ function formatGlobOutput(
   }
 
   if (verbosity === "summary") {
-    return `${matches.length} ${pluralize(matches.length, "match")}`;
+    return `${matches.length} ${pluralize(matches.length, "match", "matches")}`;
   }
 
   return rawOutput;
+}
+
+interface FastPathGlobPlan {
+  readonly cwd: string;
+  readonly pattern: string;
+  readonly outputPrefix: string;
+}
+
+function planFastPathGlob(searchRoot: string, pattern: string): FastPathGlobPlan {
+  const normalizedPattern = normalizePath(pattern);
+  const firstGlobIndex = firstGlobTokenIndex(normalizedPattern);
+  if (firstGlobIndex < 0) {
+    const slashIndex = normalizedPattern.lastIndexOf("/");
+    if (slashIndex < 0) {
+      return { cwd: searchRoot, pattern: normalizedPattern, outputPrefix: "" };
+    }
+    return {
+      cwd: join(searchRoot, ...normalizedPattern.slice(0, slashIndex).split("/")),
+      pattern: normalizedPattern.slice(slashIndex + 1),
+      outputPrefix: normalizedPattern.slice(0, slashIndex),
+    };
+  }
+
+  const slashIndex = normalizedPattern.lastIndexOf("/", firstGlobIndex);
+  if (slashIndex < 0) {
+    return { cwd: searchRoot, pattern: normalizedPattern, outputPrefix: "" };
+  }
+
+  const outputPrefix = normalizedPattern.slice(0, slashIndex);
+  return {
+    cwd: join(searchRoot, ...outputPrefix.split("/")),
+    pattern: normalizedPattern.slice(slashIndex + 1),
+    outputPrefix,
+  };
+}
+
+function firstGlobTokenIndex(pattern: string): number {
+  const indexes = ["*", "?", "["]
+    .map((token) => pattern.indexOf(token))
+    .filter((index) => index >= 0);
+  return indexes.length === 0 ? -1 : Math.min(...indexes);
+}
+
+function prefixFastPathMatch(match: string, outputPrefix: string): string {
+  const normalized = normalizePath(match).replace(/^\.\//, "");
+  if (!outputPrefix) {
+    return normalized;
+  }
+  return `${outputPrefix}/${normalized}`;
 }
