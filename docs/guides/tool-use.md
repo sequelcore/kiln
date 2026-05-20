@@ -218,17 +218,16 @@ research and implementation into separate phases/routes.
 UI and visual-design work has one extra pre-plan evidence gate:
 `visual-reference-research`. Text search is not enough when the requested
 change depends on real visual taste, hierarchy, density, or product polish.
-Use browser, computer-use, image-capable, or screenshot-capable tools when
-available to inspect real product references, record source URLs, and extract
-reusable design principles without copying another product. A screenshot of a
-GitHub repository page, README text, file listing, stars, forks, or code
-navigation does not satisfy this gate by itself. Valid visual evidence must be
-one of: running product UI capture, product demo/video frame, embedded README
-product image, docs product image, or another screenshot that actually shows
-the product interface.
+Use running-product UI captures when they exist. If the reference repository has
+no public screenshots, inspect the frontend implementation itself and record
+code-backed evidence: source URLs, relevant frontend file paths,
+component/layout/navigation patterns, density, typography, panels, status
+areas, and reusable design principles without copying another product. A
+GitHub repository page, README text, file listing, stars, forks, issues, or code
+navigation screenshot does not satisfy this gate by itself.
 If browser/web tools are used for this phase, call `work_item.update` with
 `providedEvidence: ["visual-reference-research"]` and a passed
-`verificationGateResults` visual gate before replying, submitting a plan, or
+`verificationGateResults` frontend-reference gate before replying, submitting a plan, or
 starting the next phase.
 
 Execute-mode provider calls include shared governed closeout instructions. When

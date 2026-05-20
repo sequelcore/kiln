@@ -128,9 +128,11 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       userId: request.requestedBy,
       systemPrompt: request.input.summary,
     });
-    const execution = this.runChildRuntime(input, childSession);
-    const timeout = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
-    const raced: ManagedAgentInvocationRecord | typeof TIMEOUT = await Promise.race([execution, timeout]);
+    const abortController = new AbortController();
+    const execution = this.runChildRuntime(input, childSession, abortController.signal);
+    const timeout = createManagedInvocationTimeout(request.authority.timeoutMs, abortController);
+    const raced: ManagedAgentInvocationRecord | typeof TIMEOUT = await Promise.race([execution, timeout.promise]);
+    timeout.cancel();
 
     if (raced === TIMEOUT) {
       execution.catch(() => undefined);
@@ -167,6 +169,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   private async runChildRuntime(
     input: ManagedAgentRuntimeInvocationInput,
     childSession: RuntimeSession,
+    abortSignal: AbortSignal,
   ): Promise<ManagedAgentInvocationRecord> {
     const request = input.request;
     const childSessionId = childSession.id;
@@ -191,6 +194,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const orchestrator = new RuntimeSessionOrchestrator(deps);
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
+        abortSignal,
         toolAllowlist: allowedToolNames,
         additionalTools: tools,
         ...(capabilityMap ? { perCallCapabilities: capabilityMap } : {}),
@@ -521,8 +525,26 @@ function formatCredentialCause(cause: unknown): string | undefined {
   return `last error ${String(cause)}`;
 }
 
-function sleep(timeoutMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(timeoutMs, 0)));
+function createManagedInvocationTimeout(
+  timeoutMs: number,
+  abortController: AbortController,
+): { readonly promise: Promise<typeof TIMEOUT>; readonly cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const promise = new Promise<typeof TIMEOUT>((resolve) => {
+    timer = setTimeout(() => {
+      abortController.abort();
+      resolve(TIMEOUT);
+    }, Math.max(timeoutMs, 0));
+  });
+  return {
+    promise,
+    cancel: () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    },
+  };
 }
 
 function requireText(value: string | undefined, message: string): string {

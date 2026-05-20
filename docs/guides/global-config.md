@@ -951,11 +951,13 @@ path.
 Visual-reference research should use its own read-only, network-capable route
 and matching profile rather than borrowing the approved-write frontend route.
 For example, configure `visual-researcher` with
-`routeId: opencode-go-kimi-k2-6-readonly` and expose `web_search`,
-`web_fetch`, `browser_session_start`, `browser_navigate`, and
-`browser_observe` on that route. This keeps real visual evidence collection
-separate from code-writing authority while giving `managed_agent.invoke` a
-profile whose route hint matches the visual route.
+`routeId: opencode-go-qwen3-6-plus-readonly` and expose `web_search`,
+`web_fetch`, and `web_extract` on that route. Browser tools can still be added
+when a running product or demo needs to be captured, but the baseline
+frontend-reference phase must also support code-backed frontend implementation
+evidence when the reference repository has no screenshots. This keeps reference
+research separate from code-writing authority while giving `managed_agent.invoke`
+a profile whose route hint matches the research route.
 
 Canonical instruction profiles are the home for durable workflow standards
 such as "no dead code", "no redundancy", "DDD", "Clean Architecture", "TDD

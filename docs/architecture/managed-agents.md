@@ -153,11 +153,11 @@ Every authority profile includes:
 - optional write authority: workspace, memory, artifact, and tool write scopes
 
 The network flag is explicit route authority, and today it is admitted only for
-read-only profiles. Web, browser, computer-use, and image retrieval phases must
+read-only profiles. Web, browser, computer-use, source extraction, and image retrieval phases must
 run through `foundation-readonly-plan` routes with `networkAllowed: true`.
 Write-capable profiles fail closed when `networkAllowed` is true unless a future
 ADR introduces a separate combined write+network authority profile with its own
-proof obligations. This keeps visual research and file mutation as separate
+proof obligations. This keeps frontend-reference research and file mutation as separate
 auditable phases instead of giving one child both internet/browser and write
 authority by accident.
 
@@ -277,6 +277,13 @@ child session id, child turn id, transcript resource, and timeout diagnostic
 resource. It must not claim that all trace evidence is unavailable while also
 returning a transcript pointer; instead it distinguishes missing completed child
 handoff from replayable timeout evidence.
+Direct-provider timeouts are cancellation boundaries, not just `Promise.race`
+wrappers. When the managed authority timeout expires, the runtime must abort the
+child provider request through the shared provider adapter contract, stop retry
+backoff, and suppress any late child output from becoming parent-visible
+assistant text. Providers that cannot observe cancellation must be represented
+as limited in route evidence rather than treated as equivalent to abortable
+routes.
 When the timed-out or failed child was executing an intermediate
 `executionPhase` whose `completionTool` is `work_item.update`, the
 `managed_agent.invoke` result must also carry `managedInvocationRecovery`.
@@ -294,6 +301,15 @@ It must return a structured phase-completion envelope with the managed
 `work_item.execution.start` call. A completed child handoff is still not a
 recorded work-governance phase until the parent records the phase evidence on
 the same work item.
+The phase-completion envelope is valid only when the handoff is substantive for
+the expected evidence. A generic adapter summary such as "managed invocation
+completed" is not evidence. For visual-reference phases, the handoff must point
+to running-product UI captures when they exist, or to code-backed frontend
+implementation evidence with source URLs and relevant frontend file paths when
+public screenshots are unavailable. Otherwise the runtime projects
+`handoff_not_substantive`, returns the same recovery contract as a failed
+evidence phase, and blocks phase recording until the parent obtains real
+frontend-reference evidence.
 
 CLI configuration resolves direct-provider managed routes through the same
 provider adapter factory used by native Kiln sessions. A direct route becomes

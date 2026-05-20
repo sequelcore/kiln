@@ -52,8 +52,8 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
   },
   "ui-change": {
     "visual-reference-research": [
-      "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
-      "source URLs and extracted reusable design principles",
+      "frontend-reference evidence before planning: running-product UI captures when available, or code-backed frontend implementation evidence when the reference has no public screenshots",
+      "source URLs, relevant frontend file paths, and extracted reusable design principles; repository chrome, stars/forks/issues, and raw file listings alone do not count",
     ],
     "browser-qa": ["browser QA screenshot or interaction proof", "accessibility/overflow check"],
     typecheck: ["typecheck"],
@@ -119,7 +119,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
   },
   {
     id: "ui-change",
-    description: "Operator-facing or browser-facing change requiring interaction, responsive, and visual evidence.",
+    description: "Operator-facing or browser-facing change requiring interaction, responsive checks, and frontend-reference evidence.",
     triggers: ["ui", "cross-surface"],
     minimumRisk: "medium",
     recommendedAgentProfiles: ["scout", "react-ts-reviewer", "reviewer"],
@@ -134,8 +134,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
       "residual-risk",
     ],
     verificationGates: [
-      "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
-      "source URLs and extracted reusable design principles",
+      "frontend-reference evidence before planning: running-product UI captures when available, or code-backed frontend implementation evidence when the reference has no public screenshots",
+      "source URLs, relevant frontend file paths, and extracted reusable design principles; repository chrome, stars/forks/issues, and raw file listings alone do not count",
       "browser QA screenshot or interaction proof",
       "accessibility/overflow check",
       "typecheck",

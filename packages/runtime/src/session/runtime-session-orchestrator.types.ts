@@ -267,6 +267,7 @@ export interface ModelRoutingPolicyConfig {
 export interface PerCallToolConfig {
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
+  readonly abortSignal?: AbortSignal;
   readonly tenantId?: string;
   readonly additionalTools?: readonly ToolDefinition[];
   readonly perCallCapabilities?: ReadonlyMap<string, Capability>;

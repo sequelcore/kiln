@@ -76,7 +76,7 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
 const WORK_ITEM_UPDATE_STATUSES: readonly WorkItemStatus[] = ["pending", "blocked", "completed", "cancelled"];
 const VISUAL_REFERENCE_PHASE_ROUTE = "visual-reference-research";
-const VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER = "<read-only web/browser-capable route id>";
+const VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER = "<read-only web/frontend-reference capable route id>";
 const GOAL_AUTHORITY_LEVELS: readonly GoalRunAuthorityLevel[] = ["read_only", "audited", "destructive"];
 const GOAL_ESCALATION_POLICIES: readonly GoalRunEscalationPolicy[] = ["deny", "approval_required"];
 const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[] = [
@@ -318,11 +318,11 @@ export class WorkItemUpdateTool implements DevTool {
           [VISUAL_REFERENCE_PHASE_ROUTE]: {
             type: "string",
             minLength: 1,
-            description: "Read-only web/browser-capable managed route used only for visual-reference-research before approved-write UI work.",
+            description: "Read-only web/frontend-reference capable managed route used only for visual-reference-research before approved-write UI work.",
           },
         },
         additionalProperties: { type: "string" },
-        description: "Optional phase-specific managed route ids. For UI work on foundation-apply-approved-writes, set phaseRoutes.visual-reference-research to a read-only web/browser-capable route; do not leave phaseRoutes empty and do not use the write route for visual research.",
+        description: "Optional phase-specific managed route ids. For UI work on foundation-apply-approved-writes, set phaseRoutes.visual-reference-research to a read-only web/frontend-reference capable route; do not leave phaseRoutes empty and do not use the write route for frontend-reference research.",
       },
       authorityProfile: { type: "string", description: "Optional authority profile for the assigned work." },
       expectedEvidence: {
@@ -445,7 +445,7 @@ export class WorkItemUpdateTool implements DevTool {
           message: phaseRouteContract.message,
           nextTool: "work_item.update",
           retryInputPatch,
-          instruction: `Retry the same work_item.update call with phaseRoutes.${VISUAL_REFERENCE_PHASE_ROUTE} set to the read-only visual research route from the task or config. Do not paste this JSON as assistant text; only an actual work_item.update tool call counts.`,
+          instruction: `Retry the same work_item.update call with phaseRoutes.${VISUAL_REFERENCE_PHASE_ROUTE} set to the read-only frontend-reference route from the task or config. Do not paste this JSON as assistant text; only an actual work_item.update tool call counts.`,
         }),
         metadata: workItemToolMetadata("work_item.update", {
           operation: "update",
@@ -1442,7 +1442,7 @@ function buildManagedInvocationRequest(
     missingFields: providerId || routeId
       ? []
       : phaseRequiresReadOnlyVisualResearch
-        ? ["providerRoute.providerId or managedResearchRouteId for read-only visual-reference route"]
+        ? ["providerRoute.providerId or managedResearchRouteId for read-only frontend-reference route"]
         : ["providerRoute.providerId"],
     request,
   };
@@ -1532,7 +1532,7 @@ function phaseIdForEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): Ma
 function requiredToolNamesForPhaseEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): readonly string[] {
   return uniqueText([
     ...(evidence.includes("visual-reference-research")
-      ? ["web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"]
+      ? ["web_search", "web_fetch", "web_extract"]
       : []),
     ...(evidence.includes("browser-qa")
       ? ["browser_session_start", "browser_navigate", "browser_observe"]
@@ -1555,7 +1555,7 @@ function formatManagedInvocationTask(
     lines.push(`Produce only this phase evidence: ${phase.expectedEvidence.join(", ")}.`);
   }
   if (phase.id === "visual-reference-research") {
-    lines.push("Use read-only visual research authority. Capture actual product UI, demo/video frames, running-app captures, README images, or docs images; repository chrome, file listings, README text, stars/forks, and code navigation do not count.");
+    lines.push("Use read-only frontend-reference research authority. Prefer running-product UI captures when available. If the reference repository has no public screenshots, inspect the frontend implementation itself and produce code-backed evidence: component structure, layout/navigation model, spacing/typography/density, panels, work surfaces, composer-like interactions, status areas, and relevant frontend file paths. Repository chrome, stars/forks/issues, and raw file listings alone do not count.");
   }
   if (phase.requiredToolNames.length > 0) {
     lines.push(`This phase requires route tools: ${phase.requiredToolNames.join(", ")}.`);
@@ -1608,7 +1608,7 @@ function validateVisualReferenceEvidence(input: {
     return {
       ok: false,
       code: "visual_reference_product_ui_required",
-      message: "visual-reference-research requires a passed visual-reference verification gate with real product UI screenshot, demo, video, running app, README image, or docs image evidence.",
+      message: "visual-reference-research requires a passed frontend-reference verification gate with running-product UI capture evidence when available, or code-backed frontend implementation evidence when screenshots are unavailable.",
     };
   }
   const evidenceText = passedVisualResults
@@ -1620,12 +1620,12 @@ function validateVisualReferenceEvidence(input: {
   if (
     containsPlaceholderVisualEvidence(evidenceText)
     || isRepositoryChromeOnlyEvidence(evidenceText)
-    || !containsProductUiVisualEvidence(evidenceText)
+    || !containsFrontendReferenceEvidence(evidenceText)
   ) {
     return {
       ok: false,
       code: "visual_reference_product_ui_required",
-      message: "a screenshot of GitHub repository chrome, file listings, README text, stars, forks, or code navigation does not satisfy visual-reference-research; capture the product UI, a demo/video frame, or an embedded product screenshot instead.",
+      message: "repository chrome, stars, forks, issues, README text, or raw file listings alone do not satisfy visual-reference-research; provide product UI capture evidence or code-backed frontend implementation evidence with source URLs and relevant frontend file paths.",
     };
   }
   return { ok: true };
@@ -1658,7 +1658,7 @@ function validatePhaseRouteContract(input: {
   return {
     ok: false,
     code: "visual_reference_phase_route_required",
-    message: "UI work assigned to an approved-write route must declare phaseRoutes.visual-reference-research with a read-only web/browser-capable route before visual-reference-research is accepted. Do not use the write route for visual research.",
+    message: "UI work assigned to an approved-write route must declare phaseRoutes.visual-reference-research with a read-only web/frontend-reference capable route before visual-reference-research is accepted. Do not use the write route for frontend-reference research.",
   };
 }
 
@@ -1666,9 +1666,13 @@ function isVisualReferenceGate(gate: string): boolean {
   const normalized = gate.toLowerCase();
   return normalized.includes("visual-reference")
     || normalized.includes("visual reference")
+    || normalized.includes("frontend-reference")
+    || normalized.includes("frontend reference")
+    || normalized.includes("frontend implementation")
     || normalized.includes("real product screenshot")
     || normalized.includes("browser visual reference")
-    || normalized.includes("source urls and extracted reusable design principles");
+    || normalized.includes("source urls")
+    || normalized.includes("source URLs");
 }
 
 function isRepositoryChromeOnlyEvidence(value: string): boolean {
@@ -1682,7 +1686,11 @@ function isRepositoryChromeOnlyEvidence(value: string): boolean {
   if (!mentionsGithubRepo) {
     return false;
   }
-  return !containsProductUiVisualEvidence(value);
+  return !containsFrontendReferenceEvidence(value);
+}
+
+function containsFrontendReferenceEvidence(value: string): boolean {
+  return containsProductUiVisualEvidence(value) || containsCodeBackedFrontendEvidence(value);
 }
 
 function containsProductUiVisualEvidence(value: string): boolean {
@@ -1706,6 +1714,40 @@ function containsProductUiVisualEvidence(value: string): boolean {
     || normalized.includes("docs screenshot")
     || normalized.includes("frontend screenshot")
     || normalized.includes("browser visual reference");
+}
+
+function containsCodeBackedFrontendEvidence(value: string): boolean {
+  const normalized = value.toLowerCase();
+  const hasSource = normalized.includes("http://")
+    || normalized.includes("https://")
+    || normalized.includes("kiln://");
+  if (!hasSource) {
+    return false;
+  }
+  const hasFrontendSource = normalized.includes("frontend/")
+    || normalized.includes("frontend\\")
+    || normalized.includes("src/app")
+    || normalized.includes("src/components")
+    || normalized.includes(".tsx")
+    || normalized.includes(".jsx")
+    || normalized.includes(".css")
+    || normalized.includes("component")
+    || normalized.includes("layout")
+    || normalized.includes("navigation")
+    || normalized.includes("panel")
+    || normalized.includes("work surface")
+    || normalized.includes("composer")
+    || normalized.includes("status area")
+    || normalized.includes("typography")
+    || normalized.includes("spacing")
+    || normalized.includes("density");
+  return hasFrontendSource
+    && (normalized.includes("frontend implementation")
+      || normalized.includes("code-backed")
+      || normalized.includes("component structure")
+      || normalized.includes("layout pattern")
+      || normalized.includes("navigation model")
+      || normalized.includes("product ergonomics"));
 }
 
 function readManagedInvocationProfile(value: unknown): ManagedInvocationProfile | undefined {

@@ -377,34 +377,35 @@ the next phase. Only the final phase returns
 to link the managed invocation id to a started execution attempt and close the
 item. This keeps delegated work small, replayable, and cross-surface
 observable.
-Evidence phases that depend on external visual references also carry
+Evidence phases that depend on external UI or frontend references also carry
 `requiredToolNames` and implied route capabilities. Runtime validates those
 tools and the required `network` capability against the selected managed route
-before the child starts. A route that cannot run `web_search`, `web_fetch`, or
-browser observation tools, or that has those tools without network authority,
-fails closed as unavailable instead of timing out inside a child that cannot
-gather the required evidence.
+before the child starts. A route that cannot run the phase tools, or that has
+those tools without network authority when network is required, fails closed as
+unavailable instead of timing out inside a child that cannot gather the required
+evidence.
 For UI work, `visual-reference-research` is separate from `browser-qa`.
-Reference research happens before planning and must include real visual
-references gathered through browser, computer-use, image-capable, or
-screenshot-capable tools when available. Browser QA happens after
+Reference research happens before planning. It should use running-product UI
+captures when those exist, but it must not block on screenshots that a
+reference repository does not publish. In that case, code-backed frontend
+implementation evidence is valid when it records source URLs, relevant
+frontend file paths, component/layout/navigation patterns, density, typography,
+panels, status areas, and reusable design principles. Browser QA happens after
 implementation and proves the changed Kiln surface renders and behaves
 correctly. Repository chrome, README text, file lists, stars, forks, or code
-navigation screenshots are source-discovery evidence only; they do not satisfy
-visual-reference research unless the captured page contains an actual product
-UI image, demo frame, or running app surface.
+navigation screenshots are source-discovery evidence only; raw file listings
+alone do not satisfy frontend-reference research without actual implementation
+analysis.
 When an implementation work item uses a write route, visual-reference research
-must use a separate read-only browser-capable phase route. Store that explicit
+must use a separate read-only frontend-reference phase route. Store that explicit
 mapping in the work item `phaseRoutes`, for example
-`visual-reference-research: opencode-go-kimi-k2-6-readonly` for visual UI
-research or `visual-reference-research: opencode-go-qwen3-6-plus-readonly` for
-general evidence synthesis. The selected route must actually expose the phase
-`requiredToolNames` such as `web_search`, `web_fetch`, `browser_session_start`,
-`browser_navigate`, and `browser_observe`; a read-only route synthesized from
-generic routing without browser/web tools is not a valid visual-reference
-route. The
+`visual-reference-research: opencode-go-qwen3-6-plus-readonly` for frontend
+reference synthesis. The selected route must actually expose the phase
+`requiredToolNames` such as `web_search`, `web_fetch`, and `web_extract`; a
+read-only route synthesized from generic routing without web/source tools is not
+a valid frontend-reference route. The
 implementation phase then returns to the work item's write route after
-`work_item.update` records the visual evidence. A UI work item assigned to
+`work_item.update` records the frontend-reference evidence. A UI work item assigned to
 `foundation-apply-approved-writes` fails fast if it still expects
 `visual-reference-research` and omits `phaseRoutes.visual-reference-research`.
 The failure returns a structured `nextTool: work_item.update` recovery payload
@@ -431,10 +432,10 @@ they do not contradict the selected work item. A routed write work item keeps
 its configured write profile and is not downgraded to a read-only profile by a
 turn-level hint, except for explicit intermediate read-only phase routes such
 as `visual-reference-research`.
-If browser/web tools are used while a governed work item still expects
+If browser/web/source tools are used while a governed work item still expects
 `visual-reference-research`, the turn remains failed until a real
 `work_item.update` records that evidence on the same work item. Submitting a
-plan or prose summary does not clear the visual-reference obligation.
+plan or prose summary does not clear the frontend-reference obligation.
 
 Managed invocation failures are blocking evidence. A `managed_agent.invoke`
 result with status `failed`, `denied`, `timed-out`, or `cancelled`, whether it

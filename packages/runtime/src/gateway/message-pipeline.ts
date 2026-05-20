@@ -72,6 +72,7 @@ import {
 } from "../session/runtime-turn-record.js";
 import { deriveGovernedTurnOutcome } from "../session/governed-turn-outcome.js";
 import { appendCanonicalTurnEvents, type RuntimeTurnAuthorityMutationViolation } from "../session/runtime-session-event-ledger.js";
+import { sanitizeAssistantEgressText as sanitizeAssistantEgressTextCanonical } from "../session/assistant-egress-sanitizer.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
@@ -113,7 +114,7 @@ function deriveCanonicalTurnOutcome(input: {
 }
 
 function sanitizeAssistantEgressParts(parts: readonly ContentPart[]): readonly ContentPart[] {
-  return parts.map((part) => {
+  const sanitized = parts.map((part) => {
     if (part.type !== "text") {
       return part;
     }
@@ -122,12 +123,14 @@ function sanitizeAssistantEgressParts(parts: readonly ContentPart[]): readonly C
       text: sanitizeAssistantEgressText(part.text),
     };
   });
+  return compactAssistantTextParts(sanitized);
 }
 
-function sanitizeAssistantEgressText(text: string): string {
+export function sanitizeAssistantEgressText(text: string): string {
   const withoutToolCallMarkup = stripLeakedProviderToolCallMarkup(text);
   const withoutWorkItemPayload = stripLeakedWorkItemUpdatePayloadPrefix(withoutToolCallMarkup);
-  return stripLeakedInternalScratchpadPrefix(withoutWorkItemPayload);
+  const withoutScratchpadPrefix = stripLeakedInternalScratchpadPrefix(withoutWorkItemPayload);
+  return sanitizeAssistantEgressTextCanonical(withoutScratchpadPrefix);
 }
 
 function stripLeakedProviderToolCallMarkup(text: string): string {
@@ -143,9 +146,68 @@ function stripLeakedProviderToolCallMarkup(text: string): string {
 }
 
 function stripLeakedInternalScratchpadPrefix(text: string): string {
-  return text
-    .replace(/^(?:\s*Need\b[^.!?\n]{1,180}[.!?]\s*)+(?=(?:I['’]ll|I will|Current status:))/i, "")
-    .trimStart();
+  const trimmed = text.trimStart();
+  if (!startsWithScratchpadCue(trimmed)) {
+    return text;
+  }
+  const anchorIndex = findUserFacingAnchorIndex(trimmed);
+  if (anchorIndex > 0 && looksLikeScratchpadPrefix(trimmed.slice(0, anchorIndex))) {
+    return trimmed.slice(anchorIndex).trimStart();
+  }
+  if (looksLikeScratchpadPrefix(trimmed)) {
+    return "";
+  }
+  return text;
+}
+
+const SCRATCHPAD_CUE = /^(?:Need|Maybe|Use|Search|Check|Also)\b/i;
+const USER_FACING_ANCHOR = /\b(?:I['’]ll|I will|I['’]m|I'm|I created|I started|I found|Current status:|Started governed work|No implementation changes)/i;
+const SCRATCHPAD_INTERNAL_MARKER = /\b(?:maybe|perhaps|resource_read|web_extract|web_fetch|web_search|browser|tool|tools|github api|read-only command|Need\b.*\bNeed\b)|\?/i;
+
+function startsWithScratchpadCue(text: string): boolean {
+  return SCRATCHPAD_CUE.test(text);
+}
+
+function findUserFacingAnchorIndex(text: string): number {
+  const match = USER_FACING_ANCHOR.exec(text);
+  return match?.index ?? -1;
+}
+
+function looksLikeScratchpadPrefix(text: string): boolean {
+  return startsWithScratchpadCue(text) && SCRATCHPAD_INTERNAL_MARKER.test(text);
+}
+
+function compactAssistantTextParts(parts: readonly ContentPart[]): readonly ContentPart[] {
+  const compacted: ContentPart[] = [];
+  for (const part of parts) {
+    if (part.type !== "text") {
+      compacted.push(part);
+      continue;
+    }
+    if (part.text.length === 0) {
+      continue;
+    }
+    const previous = compacted.at(-1);
+    if (previous?.type !== "text") {
+      compacted.push(part);
+      continue;
+    }
+    compacted[compacted.length - 1] = {
+      ...previous,
+      text: joinAssistantText(previous.text, part.text),
+    };
+  }
+  return compacted;
+}
+
+function joinAssistantText(left: string, right: string): string {
+  if (left.length === 0 || right.length === 0 || /\s$/.test(left) || /^\s/.test(right)) {
+    return `${left}${right}`;
+  }
+  if (/[.!?]$/.test(left) && /^[A-Z`]/.test(right)) {
+    return `${left}\n\n${right}`;
+  }
+  return `${left} ${right}`;
 }
 
 function stripLeakedWorkItemUpdatePayloadPrefix(text: string): string {

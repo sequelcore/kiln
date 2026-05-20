@@ -45,6 +45,7 @@ export interface CreateMessageOptions {
   readonly outputSchema?: Record<string, unknown>;
   readonly maxTokens?: number;
   readonly reasoningEffort?: ReasoningEffort;
+  readonly signal?: AbortSignal;
 }
 
 /** Response from an agent */

@@ -401,9 +401,19 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
   });
 
   it("returns a timed-out invocation record when the child runtime exceeds authority timeout", async () => {
+    let observedSignal: AbortSignal | undefined;
+    let abortObserved = false;
     const provider: ProviderAdapter = {
       name: "openai",
-      createMessage: vi.fn(() => new Promise<AgentResponse>(() => undefined)),
+      createMessage: vi.fn((options) => {
+        observedSignal = options.signal;
+        return new Promise<AgentResponse>((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            abortObserved = true;
+            reject(new Error("provider request aborted"));
+          }, { once: true });
+        });
+      }),
       streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
     };
     const adapter = new ManagedDirectProviderRuntimeAdapter({
@@ -438,6 +448,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.record.resultHandoff?.summary).toContain(result.record.childSessionId);
     expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
     expect(result.record.resultHandoff?.summary).toContain("Inspect the transcript and timeout diagnostic resources");
+    expect(observedSignal).toBeDefined();
+    expect(observedSignal?.aborted).toBe(true);
+    expect(abortObserved).toBe(true);
   });
 
   it("integrates through managed_agent.invoke with Kiln builtin tools and returns only bounded handoff", async () => {

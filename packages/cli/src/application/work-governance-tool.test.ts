@@ -81,7 +81,7 @@ describe("work-governance-tool", () => {
     expect(result?.output).toContain('"visual-reference-research"');
     expect(result?.output).toContain('"browser-qa"');
     expect(result?.output).toContain('"evidenceMatrix"');
-    expect(result?.output).toContain('"real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count"');
+    expect(result?.output).toContain('"frontend-reference evidence before planning: running-product UI captures when available, or code-backed frontend implementation evidence when the reference has no public screenshots"');
     expect(result?.output).toContain('"browser QA screenshot or interaction proof"');
   });
 
@@ -182,8 +182,8 @@ describe("work-governance-tool", () => {
       "residual-risk",
     ]));
     expect(parsed.item.verificationGates).toEqual(expect.arrayContaining([
-      "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
-      "source URLs and extracted reusable design principles",
+      "frontend-reference evidence before planning: running-product UI captures when available, or code-backed frontend implementation evidence when the reference has no public screenshots",
+      "source URLs, relevant frontend file paths, and extracted reusable design principles; repository chrome, stars/forks/issues, and raw file listings alone do not count",
       "browser QA screenshot or interaction proof",
     ]));
   });
@@ -871,7 +871,7 @@ describe("work-governance-tool", () => {
         residualRisk: "No known residual risk after UI verification.",
         verificationGateResults: [
           {
-            gate: "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
+            gate: "frontend-reference evidence before planning: running-product UI captures when available, or code-backed frontend implementation evidence when the reference has no public screenshots",
             status: "passed",
             evidence: [
               "Product UI screenshot from running app at http://localhost:3000 with artifact kiln://artifacts/interactive-screenshots/artifact_1/content.",
@@ -1240,6 +1240,27 @@ describe("work-governance-tool", () => {
     expect(placeholderRejected?.isError).toBe(true);
     expect(placeholderRejected?.output).toContain("visual_reference_product_ui_required");
 
+    const codeBackedAccepted = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Collect frontend reference research.",
+        workflowProfile: "ui-change",
+        triggers: ["ui"],
+        expectedEvidence: ["visual-reference-research"],
+        providedEvidence: ["visual-reference-research"],
+        verificationGateResults: [{
+          gate: "visual-reference-research: frontend-reference evidence before planning",
+          status: "passed",
+          summary: "No public product screenshots were found. Code-backed frontend implementation evidence from https://github.com/sybil-solutions/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
+          evidence: [
+            "https://github.com/sybil-solutions/vllm-studio frontend/src/app and frontend/src/components .tsx files show component structure, layout pattern, navigation model, panels, status area, typography, spacing, and density.",
+          ],
+        }],
+      },
+    });
+
+    expect(codeBackedAccepted?.isError).toBe(false);
+
     const accepted = await updateTool?.execute({
       name: "work_item.update",
       input: {
@@ -1291,7 +1312,7 @@ describe("work-governance-tool", () => {
     expect(rejected?.output).toContain("visual_reference_phase_route_required");
     expect(rejected?.output).toContain("phaseRoutes.visual-reference-research");
     expect(rejected?.output).toContain('"nextTool": "work_item.update"');
-    expect(rejected?.output).toContain('"visual-reference-research": "<read-only web/browser-capable route id>"');
+    expect(rejected?.output).toContain('"visual-reference-research": "<read-only web/frontend-reference capable route id>"');
     expect(rejected?.output).toContain("Do not paste this JSON as assistant text");
     expect(rejected?.metadata).toMatchObject({
       kind: "work_item",
@@ -1734,7 +1755,7 @@ describe("work-governance-tool", () => {
     expect(output.managedInvocationRequest?.executionPhase).toMatchObject({
       id: "visual-reference-research",
       expectedEvidence: ["visual-reference-research"],
-      requiredToolNames: ["web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
+      requiredToolNames: ["web_search", "web_fetch", "web_extract"],
       completionTool: "work_item.update",
       finalPhase: false,
       autoStartAllowed: false,
@@ -1751,17 +1772,15 @@ describe("work-governance-tool", () => {
     expect(output.managedInvocationRequest?.requiredToolNames).toEqual([
       "web_search",
       "web_fetch",
-      "browser_session_start",
-      "browser_navigate",
-      "browser_observe",
+      "web_extract",
     ]);
     expect(output.managedInvocationRequest?.doneCriteria).toEqual([
       "Produce phase evidence: visual-reference-research.",
       "Stop after phase visual-reference-research; record evidence with work_item.update before requesting the next phase.",
     ]);
     expect(output.managedInvocationRequest?.task).toContain("Produce only this phase evidence: visual-reference-research.");
-    expect(output.managedInvocationRequest?.task).toContain("Use read-only visual research authority.");
-    expect(output.managedInvocationRequest?.task).toContain("This phase requires route tools: web_search, web_fetch, browser_session_start, browser_navigate, browser_observe.");
+    expect(output.managedInvocationRequest?.task).toContain("Use read-only frontend-reference research authority.");
+    expect(output.managedInvocationRequest?.task).toContain("This phase requires route tools: web_search, web_fetch, web_extract.");
     expect(output.managedInvocationRequest?.task).toContain("Do not expand into later phases.");
   });
 

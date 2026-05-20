@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventBus, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, textParts } from "@kilnai/core";
 import type { MultimodalRoutedEvent, SttAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import type { SkillConfig } from "@kilnai/core";
-import { processAdmittedTurn, projectAdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
+import { processAdmittedTurn, projectAdmittedTurnContext, sanitizeAssistantEgressText } from "../../src/gateway/message-pipeline.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/session-registry.js";
@@ -3106,6 +3106,51 @@ describe("processAdmittedTurn", () => {
     const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
     expect(assistantMessage).toMatchObject({
       content: "I’ll handle this as governed work.",
+    });
+  });
+
+  it("removes multi-delta internal scratchpad recovered from managed-agent timeout turns", async () => {
+    const leaked = [
+      "Need maybe use browser? Also can use github api? read-only command? Tools not listed but likely. ",
+      "Need collect visual evidence. Search maybe repo has images. Use web_extract GitHub tree?",
+      "Need use resource_read maybe.",
+      "I created the governed goal and work item, then started the required `visual-reference-research` phase.",
+    ].join("");
+
+    expect(sanitizeAssistantEgressText(leaked)).toBe(
+      "I created the governed goal and work item, then started the required `visual-reference-research` phase.",
+    );
+    expect(sanitizeAssistantEgressText("Need use resource_read maybe.")).toBe("");
+    expect(sanitizeAssistantEgressText("Need use web_fetch maybe GitHub source.")).toBe("");
+  });
+
+  it("keeps persisted assistant text readable when providers split adjacent text parts", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: [
+        { type: "text", text: "No implementation changes have been made." },
+        { type: "text", text: "I’ll continue visual research before implementation." },
+      ],
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(extractText(result.result.parts)).toContain("made.\n\nI’ll continue");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.stringContaining("made.\n\nI’ll continue"),
     });
   });
 

@@ -20,9 +20,27 @@ export function buildManagedInvocationPhaseCompletion(
   request: Record<string, unknown> | undefined,
   resultHandoff: ManagedInvocationPhaseResultHandoff | undefined,
 ): Record<string, unknown> | undefined {
+  if (!hasSubstantivePhaseHandoff(request, resultHandoff)) {
+    return undefined;
+  }
   return buildManagedInvocationPhaseAction(request, {
     status: "phase_completed_by_child",
     reason: "Managed child completed an intermediate execution phase. Record the phase evidence on the same work item before replying or starting the next phase.",
+    includeResultResources: true,
+    resultHandoff,
+  });
+}
+
+export function buildManagedInvocationPhaseHandoffRecovery(
+  request: Record<string, unknown> | undefined,
+  resultHandoff: ManagedInvocationPhaseResultHandoff | undefined,
+): Record<string, unknown> | undefined {
+  if (hasSubstantivePhaseHandoff(request, resultHandoff)) {
+    return undefined;
+  }
+  return buildManagedInvocationPhaseAction(request, {
+    status: "phase_evidence_required",
+    reason: "Managed child completed without substantive phase evidence. Treat this as a no-handoff result: inspect the transcript, continue recovery with admitted tools, and record the phase only after real frontend-reference evidence exists.",
     includeResultResources: true,
     resultHandoff,
   });
@@ -87,6 +105,57 @@ function buildManagedInvocationPhaseAction(
   };
 }
 
+function hasSubstantivePhaseHandoff(
+  request: Record<string, unknown> | undefined,
+  resultHandoff: ManagedInvocationPhaseResultHandoff | undefined,
+): boolean {
+  const phase = readRecord(request?.executionPhase);
+  if (!request || !phase || readText(phase.completionTool) !== "work_item.update") {
+    return true;
+  }
+  const evidenceToRecord = readTextArray(phase.expectedEvidence);
+  if (evidenceToRecord.length === 0) {
+    return true;
+  }
+  const summary = resultHandoff?.summary.trim() ?? "";
+  const resourceUris = resultHandoff?.resourceUris ?? [];
+  if (summary.length === 0 || resourceUris.length === 0) {
+    return false;
+  }
+  const normalized = summary.toLowerCase();
+  if (normalized === "direct provider managed invocation completed." || normalized === "managed invocation completed.") {
+    return false;
+  }
+  if (evidenceToRecord.includes(VISUAL_REFERENCE_PHASE_ID)) {
+    return hasFrontendReferenceEvidence(summary);
+  }
+  return true;
+}
+
+function hasFrontendReferenceEvidence(summary: string): boolean {
+  return hasVisualReferenceEvidence(summary) || hasCodeBackedFrontendReferenceEvidence(summary);
+}
+
+function hasVisualReferenceEvidence(summary: string): boolean {
+  const normalized = summary.toLowerCase();
+  const hasVisualArtifact = /\b(screenshot|capture|demo|video frame|image|artifact|browser_observe|running app|docs image|readme image)\b/i.test(summary);
+  const hasSource = /\bhttps?:\/\/|\bkiln:\/\//i.test(summary);
+  const rejectsPlaceholder = normalized.includes("<source url") || normalized.includes("<kiln://");
+  return hasVisualArtifact && hasSource && !rejectsPlaceholder;
+}
+
+function hasCodeBackedFrontendReferenceEvidence(summary: string): boolean {
+  const normalized = summary.toLowerCase();
+  const hasSource = /\bhttps?:\/\/|\bkiln:\/\//i.test(summary);
+  const rejectsPlaceholder = normalized.includes("<source url") || normalized.includes("<kiln://");
+  if (!hasSource || rejectsPlaceholder) {
+    return false;
+  }
+  const hasFrontendPathOrPattern = /\b(frontend\/|src\/app|src\/components|\.tsx|\.jsx|\.css|component|layout|navigation|panel|work surface|composer|status area|typography|spacing|density)\b/i.test(summary);
+  const declaresCodeBackedEvidence = /\b(frontend implementation|code-backed|component structure|layout pattern|navigation model|product ergonomics)\b/i.test(summary);
+  return hasFrontendPathOrPattern && declaresCodeBackedEvidence;
+}
+
 function visualReferenceRecoveryContract(): {
   readonly validEvidence: readonly string[];
   readonly invalidEvidence: readonly string[];
@@ -99,28 +168,30 @@ function visualReferenceRecoveryContract(): {
       "demo or video frame",
       "embedded README product image",
       "docs product image",
+      "code-backed frontend implementation evidence when the reference has no public screenshots",
+      "source URLs plus relevant frontend file paths and reusable design principles",
       "comparable real technical workstation UI screenshot with source URL",
     ],
     invalidEvidence: [
       "GitHub repository chrome",
-      "file listings",
+      "raw file listings without frontend implementation analysis",
       "README text without product UI imagery",
       "stars/forks/issues/navigation screenshots",
-      "code browser screenshots",
+      "code browser screenshots without component/layout evidence",
     ],
     localRecoveryInstructions: [
-      "Continue read-only research with web/browser tools before replying.",
-      "Prefer actual vLLM Studio product UI; if none is available, explicitly state that and use comparable real technical workstation UI references.",
-      "Record source URLs, screenshot or artifact URIs, and extracted reusable design principles.",
-      "Only call work_item.update after the visual-reference gate has passed with qualifying product UI evidence.",
+      "Continue read-only frontend-reference research before replying.",
+      "Prefer actual vLLM Studio product UI captures if available; if none are available, explicitly state that and inspect frontend implementation files instead.",
+      "Record source URLs, relevant frontend file paths, component/layout/navigation patterns, and extracted reusable design principles.",
+      "Only call work_item.update after the frontend-reference gate has passed with qualifying UI capture or code-backed frontend implementation evidence.",
     ],
     verificationGateResults: [{
-      gate: "visual-reference-research: real product UI screenshots, demo/video frames, running-app captures, README images, docs images, or comparable real technical workstation UI references; repository chrome or code listings do not count",
+      gate: "visual-reference-research: frontend-reference evidence before planning; running-product UI captures when available, or code-backed frontend implementation evidence when screenshots are unavailable; repository chrome, stars/forks/issues, and raw file listings alone do not count",
       status: "passed",
-      summary: "<summarize qualifying product UI evidence, source URLs, artifact URIs, and reusable design principles>",
+      summary: "<summarize qualifying frontend-reference evidence, source URLs, relevant frontend file paths, and reusable design principles>",
       evidence: [
-        "<source URL showing product UI or comparable technical workstation UI>",
-        "<kiln:// artifact URI for screenshot/image evidence>",
+        "<source URL showing product UI capture or frontend implementation source>",
+        "<relevant frontend file path or kiln:// artifact URI>",
       ],
     }],
   };

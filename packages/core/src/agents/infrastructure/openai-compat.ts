@@ -130,7 +130,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const body = this.buildRequestBody(options);
-    const response = await withRetry(() => this.sendRequest(body), this.retryOptions());
+    const response = await withRetry(() => this.sendRequest(body, options.signal), this.retryOptions(), options.signal);
     return this.mapResponse(response);
   }
 
@@ -145,8 +145,10 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         method: "POST",
         headers: this.buildHeaders(),
         body: JSON.stringify(body),
+        signal: options.signal,
       }),
       this.retryOptions(),
+      options.signal,
     );
 
     if (!response.ok) {
@@ -375,11 +377,12 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     };
   }
 
-  private async sendRequest(body: OpenAIRequestBody): Promise<OpenAIChatResponse> {
+  private async sendRequest(body: OpenAIRequestBody, signal?: AbortSignal): Promise<OpenAIChatResponse> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: this.buildHeaders(),
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -421,6 +424,9 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         maxRetries: 1,
         baseDelayMs: BASE_DELAY_MS,
         isRetryable: (error: unknown): boolean => {
+          if (isAbortError(error)) {
+            return false;
+          }
           const status = (error as Record<string, unknown>).status;
           return typeof status !== "number" || RETRYABLE_STATUSES.has(status);
         },
@@ -430,11 +436,22 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       maxRetries: MAX_RETRIES,
       baseDelayMs: BASE_DELAY_MS,
       isRetryable: (error: unknown): boolean => {
+        if (isAbortError(error)) {
+          return false;
+        }
         const status = (error as Record<string, unknown>).status;
         return typeof status !== "number" || RETRYABLE_STATUSES.has(status);
       },
     };
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const record = error as Record<string, unknown>;
+  return record.name === "AbortError" || record.code === "ABORT_ERR";
 }
 
 function unsupportedModality(provider: string, modality: string, reason: string): KilnError {

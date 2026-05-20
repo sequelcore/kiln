@@ -36,7 +36,7 @@ import {
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import { processAdmittedTurn } from "./message-pipeline.js";
+import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
 import type { RuntimeSessionHydrator } from "./message-pipeline.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import {
@@ -1250,12 +1250,16 @@ class TuiActivityStreamer {
         });
         return;
       }
+      const sanitizedDelta = sanitizeAssistantEgressText(event.content);
+      if (sanitizedDelta.length === 0) {
+        return;
+      }
       this.emitSessionEvent({
         kind: "assistant_delta",
         timestamp: new Date().toISOString(),
         payload: {
           messageId: this.capture ? `${this.capture.sessionId}:live:assistant` : "assistant-live",
-          delta: event.content,
+          delta: sanitizedDelta,
         },
       });
     } else if (event.type === "tool_use") {

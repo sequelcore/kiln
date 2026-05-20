@@ -76,6 +76,13 @@ function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}):
 }
 
 function makeAdapter(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): ManagedAgentRuntimeAdapter {
+  return makeAdapterWithHandoff("Child review completed.", overrides);
+}
+
+function makeAdapterWithHandoff(
+  summary: string,
+  overrides: Partial<ManagedAgentAdapterDescriptor> = {},
+): ManagedAgentRuntimeAdapter {
   return {
     descriptor: makeDescriptor(overrides),
     invoke: vi.fn(async ({ request, admission }: {
@@ -106,7 +113,7 @@ function makeAdapter(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): Ma
           retention: "session",
         },
         resultHandoff: {
-          summary: "Child review completed.",
+          summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
         },
@@ -679,7 +686,8 @@ describe("managed invocation runtime tool", () => {
   });
 
   it("returns a phase completion handoff when an explicit intermediate managed child succeeds", async () => {
-    const surface = makeSurface(makeAdapter());
+    const phaseSummary = "Captured product UI screenshot from https://example.com/vllm-studio-demo with artifact kiln://artifacts/screenshots/vllm-studio-ui.";
+    const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
@@ -742,7 +750,7 @@ describe("managed invocation runtime tool", () => {
     expect(output).toMatchObject({
       status: "completed",
       resultHandoff: {
-        summary: "Child review completed.",
+        summary: phaseSummary,
       },
       phaseCompletion: {
         nextTool: "work_item.update",
@@ -763,6 +771,136 @@ describe("managed invocation runtime tool", () => {
       workItemId: "work-ui",
       evidenceToRecord: ["visual-reference-research"],
       sourceResourceUris: [expect.stringContaining("kiln://managed-invocations/")],
+    });
+  });
+
+  it("accepts code-backed frontend implementation evidence when public screenshots are unavailable", async () => {
+    const phaseSummary = [
+      "No public screenshots were found.",
+      "Code-backed frontend implementation evidence from https://github.com/sybil-solutions/vllm-studio maps frontend/src/app and frontend/src/components .tsx component structure, layout pattern, navigation model, panels, typography, spacing, density, and product ergonomics.",
+    ].join(" ");
+    const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-phase-code-backed-complete",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Collect frontend reference research before UI implementation.",
+      summary: "Collect frontend reference research before UI implementation.",
+      workItemId: "work-ui",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["read"],
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+        instruction: "Record only this phase evidence before requesting the next phase.",
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly managedInvocationPhaseCompletion?: Record<string, unknown>;
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly phaseCompletion?: {
+        readonly evidenceToRecord?: readonly string[];
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(output.status).toBe("completed");
+    expect(output.phaseCompletion?.evidenceToRecord).toEqual(["visual-reference-research"]);
+    expect(result.metadata.managedInvocationPhaseCompletion).toMatchObject({
+      status: "phase_completed_by_child",
+      workItemId: "work-ui",
+    });
+  });
+
+  it("fails a visual phase child completion when the handoff is not substantive evidence", async () => {
+    const surface = makeSurface(makeAdapterWithHandoff("Direct provider managed invocation completed."));
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-phase-no-handoff",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Collect visual reference research before UI implementation.",
+      summary: "Collect visual reference research before UI implementation.",
+      workItemId: "work-ui",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["read"],
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+        instruction: "Record only this phase evidence before requesting the next phase.",
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly managedInvocationRecovery?: Record<string, unknown>;
+        readonly managedInvocationPhaseCompletion?: Record<string, unknown>;
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly recovery?: {
+        readonly status?: string;
+        readonly reason?: string;
+        readonly nextTool?: string;
+        readonly workItemId?: string;
+      };
+      readonly phaseCompletion?: Record<string, unknown>;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(output.status).toBe("handoff_not_substantive");
+    expect(output.phaseCompletion).toBeUndefined();
+    expect(output.recovery).toMatchObject({
+      status: "phase_evidence_required",
+      nextTool: "work_item.update",
+      workItemId: "work-ui",
+    });
+    expect(output.recovery?.reason).toContain("no-handoff");
+    expect(result.metadata.status).toBe("handoff_not_substantive");
+    expect(result.metadata.managedInvocationPhaseCompletion).toBeUndefined();
+    expect(result.metadata.managedInvocationRecovery).toMatchObject({
+      status: "phase_evidence_required",
+      workItemId: "work-ui",
     });
   });
 

@@ -21,7 +21,7 @@ import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestra
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import { processAdmittedTurn } from "./message-pipeline.js";
+import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import type {
   RuntimeTurnApprovalTransition,
@@ -1895,12 +1895,16 @@ class GuiActivityStreamer {
         });
         return;
       }
+      const sanitizedDelta = sanitizeAssistantEgressText(event.content);
+      if (sanitizedDelta.length === 0) {
+        return;
+      }
       this.emitSessionEvent({
         kind: "assistant_delta",
         timestamp: new Date().toISOString(),
         payload: {
           messageId: this.capture?.assistantMessageId ?? "assistant-live",
-          delta: event.content,
+          delta: sanitizedDelta,
         },
       });
     } else if (event.type === "tool_use") {

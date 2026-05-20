@@ -84,3 +84,19 @@ calling the tool. That is not a UI rendering problem; it is an unresolved
 governed phase. Kiln must fail the turn until the update is materialized and
 must strip leaked update payloads at the assistant egress boundary so internal
 contracts do not become user-facing chat content.
+
+2026-05-20 live-test follow-up 3: a foreground managed-agent timeout must
+cancel the child provider call, not only return a timeout record to the parent.
+OpenCode, Claude Code, Zed, Codex, and Hermes all model long-running or
+parallel work as owned child lifecycles with explicit status/cancel/join-style
+semantics, not as hidden work left running behind a completed parent turn. In
+Kiln, `managed_agent.invoke` remains a blocking phase gate; background and
+parallel agents require a separate nonblocking lifecycle before they can safely
+continue after the parent response.
+
+2026-05-20 live-test follow-up 4: a child lifecycle status of `completed` is
+not the same as a completed governed phase. The handoff must be substantive for
+the phase evidence contract. For visual-reference research, "completed" without
+running-product UI capture evidence or code-backed frontend implementation
+evidence is a no-handoff result and must project as recovery, not as
+`phase_completed_by_child`.

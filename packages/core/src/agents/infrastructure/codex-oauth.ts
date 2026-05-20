@@ -135,7 +135,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const request = this.buildRequest(options);
     const { body } = request;
-    const response = await this.postWith401Retry(body);
+    const response = await this.postWith401Retry(body, options.signal);
     const completed = await this.consumeStreamingResponse(response);
     return this.mapResponse(completed, request.toolNames);
   }
@@ -143,7 +143,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
     const request = this.buildRequest(options);
     const { body } = request;
-    const response = await this.postWith401Retry(body);
+    const response = await this.postWith401Retry(body, options.signal);
     const shouldBufferText = (options.tools?.length ?? 0) > 0;
     let collectedText = "";
     const collectedFunctionCallsByItemId = new Map<string, ResponsesOutputItem>();
@@ -367,14 +367,14 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     return items;
   }
 
-  private async postWith401Retry(body: ResponsesRequestBody): Promise<Response> {
-    const firstResponse = await this.post(body);
+  private async postWith401Retry(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
+    const firstResponse = await this.post(body, signal);
     if (firstResponse.status !== 401) {
       await this.ensureOk(firstResponse, body);
       return firstResponse;
     }
 
-    const retryResponse = await this.post(body);
+    const retryResponse = await this.post(body, signal);
     if (retryResponse.status === 401) {
       throw this.providerError("Codex OAuth request unauthorized after token refresh", {
         status: retryResponse.status,
@@ -385,7 +385,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     return retryResponse;
   }
 
-  private async post(body: ResponsesRequestBody): Promise<Response> {
+  private async post(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
     const token = await this.auth.getValidAccessToken();
     return await fetch(RESPONSES_URL, {
       method: "POST",
@@ -394,6 +394,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      signal,
     });
   }
 

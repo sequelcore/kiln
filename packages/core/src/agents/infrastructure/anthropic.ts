@@ -46,8 +46,10 @@ export class AnthropicAdapter implements ProviderAdapter {
     const response = await withRetry(
       () => this.client.messages.create(params, {
         headers: { "anthropic-beta": BETA_HEADER },
+        signal: options.signal,
       }),
       this.retryOptions(),
+      options.signal,
     );
 
     return this.mapResponse(response as Anthropic.Messages.Message);
@@ -60,9 +62,10 @@ export class AnthropicAdapter implements ProviderAdapter {
     const stream = await withRetry(
       () => this.client.messages.create(
         { ...params, stream: true },
-        { headers: { "anthropic-beta": BETA_HEADER } },
+        { headers: { "anthropic-beta": BETA_HEADER }, signal: options.signal },
       ),
       this.retryOptions(),
+      options.signal,
     );
 
     const toolInputBuffers = new Map<number, { id: string; name: string; json: string }>();
@@ -327,19 +330,35 @@ export class AnthropicAdapter implements ProviderAdapter {
       return {
         maxRetries: 1,
         baseDelayMs: BASE_DELAY_MS,
-        isRetryable: (error: unknown): boolean =>
-          !(error instanceof Anthropic.APIError) ||
-          RETRYABLE_STATUSES.has(error.status ?? 0),
+        isRetryable: (error: unknown): boolean => {
+          if (isAbortError(error)) {
+            return false;
+          }
+          return !(error instanceof Anthropic.APIError) ||
+            RETRYABLE_STATUSES.has(error.status ?? 0);
+        },
       };
     }
     return {
       maxRetries: MAX_RETRIES,
       baseDelayMs: BASE_DELAY_MS,
-      isRetryable: (error: unknown): boolean =>
-        !(error instanceof Anthropic.APIError) ||
-        RETRYABLE_STATUSES.has(error.status ?? 0),
+      isRetryable: (error: unknown): boolean => {
+        if (isAbortError(error)) {
+          return false;
+        }
+        return !(error instanceof Anthropic.APIError) ||
+          RETRYABLE_STATUSES.has(error.status ?? 0);
+      },
     };
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const record = error as Record<string, unknown>;
+  return record.name === "AbortError" || record.code === "ABORT_ERR";
 }
 
 /**

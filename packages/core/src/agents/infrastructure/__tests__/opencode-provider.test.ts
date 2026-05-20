@@ -137,6 +137,33 @@ describe("OpenCodeAdapter", () => {
         expect.any(Object),
       );
     });
+
+    it("passes caller abort signals to OpenCode chat requests", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })));
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      const controller = new AbortController();
+
+      const adapter = new OpenCodeAdapter({
+        apiKey: "sk-test",
+        tier: "go",
+        defaultModel: "qwen3.6-plus",
+      });
+
+      await adapter.createMessage({
+        system: "test",
+        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+        signal: controller.signal,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://opencode.ai/zen/go/v1/chat/completions",
+        expect.objectContaining({ signal: controller.signal }),
+      );
+    });
   });
 
   describe("fromAuth", () => {

@@ -21,6 +21,7 @@ import type {
 import { createSessionEvent } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeTurnFileChange } from "./runtime-turn-record.js";
+import { sanitizeAssistantEgressText } from "./assistant-egress-sanitizer.js";
 
 type CapturedRuntimeLedgerEvent =
   | ApprovalReceivedEvent
@@ -116,7 +117,9 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
   const turnOrdinal = nextCanonicalTurnOrdinal(session);
   const turnId = `${session.id}:turn:${turnOrdinal}`;
   const userMessageContent = input.userMessageContent.trim();
-  const assistantMessageContent = input.assistantMessageContent?.trim();
+  const assistantMessageContent = input.assistantMessageContent
+    ? sanitizeAssistantEgressText(input.assistantMessageContent).trim()
+    : undefined;
   const events: CanonicalSessionEvent[] = [];
   const runtimeSource = makeSource("runtime", "runtime", "message-pipeline");
   const userSource = makeSource("user", mapChannelToSurface(input.channel), "message-pipeline");

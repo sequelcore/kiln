@@ -28,6 +28,7 @@ import type { ManagedAgentRuntimeAdapter } from "./index.js";
 import { appendManagedInvocationSessionEvents } from "./session-events.js";
 import {
   buildManagedInvocationPhaseCompletion,
+  buildManagedInvocationPhaseHandoffRecovery,
   buildManagedInvocationPhaseRecovery,
 } from "./phase-recovery.js";
 
@@ -732,27 +733,33 @@ async function executeManagedInvocationTool(
   const recovery = terminalError
     ? buildManagedInvocationPhaseRecovery(rawInput)
     : undefined;
+  const handoffRecovery = terminalError
+    ? undefined
+    : buildManagedInvocationPhaseHandoffRecovery(rawInput, result.record.resultHandoff);
   const phaseCompletion = terminalError
     ? undefined
     : buildManagedInvocationPhaseCompletion(rawInput, result.record.resultHandoff);
+  const handoffError = handoffRecovery !== undefined;
+  const projectedStatus = handoffError ? "handoff_not_substantive" : result.record.lifecycleState;
   return {
-    output: recovery || phaseCompletion
+    output: recovery || handoffRecovery || phaseCompletion
       ? JSON.stringify({
-          status: result.record.lifecycleState,
+          status: projectedStatus,
           summary,
           ...(result.record.resultHandoff ? { resultHandoff: result.record.resultHandoff } : {}),
           ...(result.record.transcript ? { transcript: result.record.transcript } : {}),
           ...(recovery ? { recovery } : {}),
+          ...(handoffRecovery ? { recovery: handoffRecovery } : {}),
           ...(phaseCompletion ? { phaseCompletion } : {}),
         }, null, 2)
       : summary,
-    isError: terminalError,
+    isError: terminalError || handoffError,
     metadata: {
       toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
       kind: "managed-invocation",
       invocationId,
       routeId: route.routeId,
-      status: result.record.lifecycleState,
+      status: projectedStatus,
       profile: result.record.profile,
       providerRoute: result.record.providerRoute,
       ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
@@ -769,6 +776,7 @@ async function executeManagedInvocationTool(
       transcript: result.record.transcript,
       ...(result.record.diagnostics ? { diagnostics: result.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
+      ...(handoffRecovery ? { managedInvocationRecovery: handoffRecovery } : {}),
       ...(phaseCompletion ? { managedInvocationPhaseCompletion: phaseCompletion } : {}),
       sessionEventIds: events.map((event) => event.eventId),
       presentationIntent: buildManagedInvocationPresentationIntent({
@@ -777,9 +785,9 @@ async function executeManagedInvocationTool(
         providerId: result.record.providerRoute.providerId,
         model: result.record.providerRoute.model,
         contextMode: parsed.input.contextMode,
-        status: result.record.lifecycleState,
-        substantiveEvidence: hasSubstantiveManagedInvocationEvidence(result.record),
-        failureReason: terminalError ? summary : undefined,
+        status: projectedStatus,
+        substantiveEvidence: hasSubstantiveManagedInvocationEvidence(result.record) && !handoffError,
+        failureReason: terminalError || handoffError ? summary : undefined,
       }),
     },
   };

@@ -2,6 +2,7 @@ import type { ContentPart, EventBus, ToolDefinition } from "@kilnai/core";
 import {
   extractText,
   getInvalidToolInputDetails,
+  KilnError,
   normalizeToolCall,
   resolveExecutionIdentity,
 } from "@kilnai/core";
@@ -163,6 +164,7 @@ export class RuntimeSessionOrchestrator {
     );
 
     for (let round = 0; round < this.maxToolRounds; round++) {
+      throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
       if (round > 0 && !(await this.checkBudget(session.id))) {
         break;
       }
@@ -174,7 +176,9 @@ export class RuntimeSessionOrchestrator {
         tools: routing.hasTools ? routing.effectiveTools : undefined,
         maxTokens: this.deps.maxTokens,
         reasoningEffort: perCallConfig?.reasoningEffort,
+        signal: perCallConfig?.abortSignal,
       });
+      throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
 
       const usageTotals = this.telemetry.recordResponse(
         session.id,
@@ -360,6 +364,13 @@ export class RuntimeSessionOrchestrator {
 
     return undefined;
   }
+}
+
+function throwIfRuntimeTurnAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted !== true) {
+    return;
+  }
+  throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
 }
 
 function toPublicRoutingDecision(

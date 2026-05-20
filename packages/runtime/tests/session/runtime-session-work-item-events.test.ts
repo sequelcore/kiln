@@ -4,6 +4,33 @@ import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 
 describe("runtime work item session events", () => {
+  it("sanitizes canonical assistant messages before persistence", () => {
+    const session = new RuntimeSession({
+      appName: "kiln",
+      tenantId: "test-tenant",
+      userId: "operator",
+      systemPrompt: "test",
+    });
+    const timestamp = new Date("2026-05-20T18:20:17.000Z");
+
+    const events = appendCanonicalTurnEvents({
+      session,
+      channel: "gui",
+      userMessageContent: "Continue governed UI work",
+      assistantMessageContent: "Need use web_fetch maybe GitHub source.I'll continue the governed flow.",
+      queued: false,
+      turnStartedAt: timestamp,
+      turnCompletedAt: timestamp,
+      continuity: { strategy: "new-session" },
+      runtimeEvents: [],
+    });
+
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: "assistant_message",
+      content: "I'll continue the governed flow.",
+    }));
+  });
+
   it("projects work item tool metadata into canonical session events", () => {
     const session = new RuntimeSession({
       appName: "kiln",
