@@ -416,6 +416,9 @@ export interface WorkItemToolResultMetadata<TToolName extends WorkItemToolName =
   readonly missingVerificationGates?: readonly string[];
   readonly failedVerificationGates?: readonly string[];
   readonly missingResidualRisk?: boolean;
+  readonly requiredPhaseRoute?: string;
+  readonly suggestedNextTool?: WorkItemToolName;
+  readonly retryInputPatch?: Readonly<Record<string, unknown>>;
   readonly sequence?: number;
   readonly errorCode?: "invalid_input" | "not_found" | "missing_evidence";
   readonly verbosity?: ToolOutputVerbosity;

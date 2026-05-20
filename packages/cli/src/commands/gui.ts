@@ -116,17 +116,17 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
   });
-  const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
     : await createStagedManagedInvocationRouteCatalog(globalConfig, {
       cwd,
       registry,
       surface: "gui",
-      isProviderAvailable: (providerId) => engineAvailability.get(providerId),
+      isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
+      reloadConfig: () => readGlobalConfig() ?? globalConfig,
       onRefreshError: (error) => {
         console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
       },

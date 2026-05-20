@@ -177,6 +177,27 @@ still open. It must continue on the same work item until it starts executable
 work, finishes execution, completes the item, submits a structured terminal
 plan, or records a concrete pause requirement that explains the block.
 
+Intermediate execution phases are explicit recovery contracts. If
+`work_item.execution.start` pauses for managed delegation and the child route
+fails before producing the phase, the parent may complete the phase locally only
+by recording the phase evidence with `work_item.update` on the same work item.
+The runtime pause envelope must expose that next tool, work item id, evidence
+names, and the follow-up `work_item.execution.start` call so GUI, TUI, CLI, SDK,
+and replay consumers see the same recoverable state instead of a vague
+read-only or sandbox failure. Text that merely resembles the `work_item.update`
+input is not evidence and must not be treated as recovery. Because
+`work_item.update` requires a summary even on update, the recovery envelope must
+include a complete `workItemUpdateInputTemplate` rather than only an evidence
+name. The template is not evidence; placeholder source URLs, artifact URIs, or
+summaries must be replaced with real qualifying evidence before calling
+`work_item.update`.
+The same state transition applies when the managed child succeeds. A successful
+intermediate `managed_agent.invoke` returns a phase-completion envelope rather
+than completing work governance by itself. The parent must inspect the readable
+managed handoff resources when needed, call `work_item.update` with the supplied
+same-work-item template after replacing placeholders with real evidence, and
+then call `work_item.execution.start` again for the next phase.
+
 Each runtime provider call carries an `effectiveTurnAuthority` snapshot in its
 per-call tool config. The snapshot is projected from the final admitted tool
 allowlist and tool-authority map, so operator displays summarize the same
@@ -260,9 +281,12 @@ agent profile owns child route selection through its configured route hints.
 `preferredRouteId` means the caller owns the exact route. `goal.create` rejects
 requests that combine both fields because that duplicates authority and can
 produce cross-surface contradictions such as a scout profile being invoked with
-a non-scout route. Work items may still carry their own explicit route when the
-route is part of that item contract; goal-level preferred routes are not copied
-into profile-owned child requests.
+a non-scout route. The one exception is redundant input: when every linked work
+item already owns the same exact route and agent profile, `goal.create`
+canonicalizes the goal route policy back to `workflowProfile` only, leaving the
+route on the work item where execution authority belongs. Work items may still
+carry their own explicit route when the route is part of that item contract;
+goal-level preferred routes are not copied into profile-owned child requests.
 
 `materializeApprovedPlanWorkItems` deterministically converts approved plan
 work items into governed work items. The materialized items keep their source
@@ -329,7 +353,9 @@ handoff contract fields:
 
 - `workItemId`
 - `roleIntent`
+- `executionPhase`
 - `expectedEvidence`
+- `requiredToolNames`
 - `requiredResultFields`
 - `doneCriteria`
 - `residualRiskRequired`
@@ -341,22 +367,92 @@ themselves; authority still comes from the managed invocation profile and route.
 The parent remains accountable for integration and closeout. A child completion
 is not the same as task completion unless the required evidence gates are
 satisfied.
+For broad work items, `work_item.execution.start` scopes each generated
+managed invocation to the next missing evidence phase instead of asking one
+child to produce the entire work item in a single timeout window. Intermediate
+phases return `executionPhase.completionTool = "work_item.update"` and must be
+recorded as provided evidence on the same pending work item before requesting
+the next phase. Only the final phase returns
+`executionPhase.completionTool = "work_item.execution.finish"` and is eligible
+to link the managed invocation id to a started execution attempt and close the
+item. This keeps delegated work small, replayable, and cross-surface
+observable.
+Evidence phases that depend on external visual references also carry
+`requiredToolNames` and implied route capabilities. Runtime validates those
+tools and the required `network` capability against the selected managed route
+before the child starts. A route that cannot run `web_search`, `web_fetch`, or
+browser observation tools, or that has those tools without network authority,
+fails closed as unavailable instead of timing out inside a child that cannot
+gather the required evidence.
 For UI work, `visual-reference-research` is separate from `browser-qa`.
 Reference research happens before planning and must include real visual
 references gathered through browser, computer-use, image-capable, or
 screenshot-capable tools when available. Browser QA happens after
 implementation and proves the changed Kiln surface renders and behaves
-correctly.
+correctly. Repository chrome, README text, file lists, stars, forks, or code
+navigation screenshots are source-discovery evidence only; they do not satisfy
+visual-reference research unless the captured page contains an actual product
+UI image, demo frame, or running app surface.
+When an implementation work item uses a write route, visual-reference research
+must use a separate read-only browser-capable phase route. Store that explicit
+mapping in the work item `phaseRoutes`, for example
+`visual-reference-research: opencode-go-kimi-k2-6-readonly` for visual UI
+research or `visual-reference-research: opencode-go-qwen3-6-plus-readonly` for
+general evidence synthesis. The selected route must actually expose the phase
+`requiredToolNames` such as `web_search`, `web_fetch`, `browser_session_start`,
+`browser_navigate`, and `browser_observe`; a read-only route synthesized from
+generic routing without browser/web tools is not a valid visual-reference
+route. The
+implementation phase then returns to the work item's write route after
+`work_item.update` records the visual evidence. A UI work item assigned to
+`foundation-apply-approved-writes` fails fast if it still expects
+`visual-reference-research` and omits `phaseRoutes.visual-reference-research`.
+The failure returns a structured `nextTool: work_item.update` recovery payload
+with the required `phaseRoutes.visual-reference-research` patch shape. The
+parent must retry the tool call; assistant text that merely contains the JSON
+does not create governed state. This prevents a parent from doing local browser
+research outside the governed managed phase and then continuing without
+recording evidence.
 Managed-delegation work items do not start until the execution attempt is linked
 to a recorded managed invocation id. If that id is missing,
 `work_item.execution.start` pauses with an actionable `managed_agent.invoke`
 request; after the child returns, the parent resumes the same work item with
 the recorded invocation id.
+For intermediate phases, that pause is expected and should project as a
+successful handoff rather than a tool failure. Parent agents must invoke the
+exact returned `managedInvocationRequest`; if the request omits `agentProfile`,
+the parent must not add a guessed profile. Runtime surfaces may attach a
+profile only when a single configured agent profile explicitly owns the same
+route id.
+The generated managed invocation request treats the work item route and
+authority profile as governed state, not as model-owned hints. Caller-supplied
+`managedProfile` or `requestedAuthority` values may narrow a route only when
+they do not contradict the selected work item. A routed write work item keeps
+its configured write profile and is not downgraded to a read-only profile by a
+turn-level hint, except for explicit intermediate read-only phase routes such
+as `visual-reference-research`.
+If browser/web tools are used while a governed work item still expects
+`visual-reference-research`, the turn remains failed until a real
+`work_item.update` records that evidence on the same work item. Submitting a
+plan or prose summary does not clear the visual-reference obligation.
 
 Managed invocation failures are blocking evidence. A `managed_agent.invoke`
 result with status `failed`, `denied`, `timed-out`, or `cancelled`, whether it
 was called directly by the parent or through `work_item.execution.start`, makes
 the parent turn outcome `failed`.
+For intermediate phases, the blocking result may include
+`managedInvocationRecovery.nextTool = work_item.update`. That recovery is
+resolved only by a later successful `work_item.update` on the same work item
+whose `providedEvidence` contains every required phase evidence label.
+Recording the recovery in assistant text, submitting a plan, or continuing with
+local read-only inspection without the update keeps the turn failed.
+Successful intermediate child completion follows the same rule. A
+`managed_agent.invoke` result with `managedInvocationPhaseCompletion` or
+`phaseCompletion` and `nextTool = work_item.update` is still unresolved until a
+later successful `work_item.update` records every required phase evidence label
+on the same work item. The parent must never paste the update payload,
+`providedEvidence`, or `verificationGateResults` into assistant text as a
+substitute for the tool call.
 Surfaces must not project a completed turn when required managed-agent evidence
 failed or never materialized.
 The same rule applies when the latest work-governance tool result is an

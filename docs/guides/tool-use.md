@@ -165,13 +165,71 @@ After a scout or local read-only diagnosis, an open routed work item is still
 unfinished. The next governed step is `goal.create` when no goal exists, then
 `work_item.execution.start`; parent agents must not report a generic read-only
 sandbox block when a write-capable managed route is already selected.
+When `work_item.execution.start` returns or auto-starts a managed invocation,
+keep the selected route identity intact. Do not recover by switching from the
+work item's route to an unrelated read-only route unless an explicit fallback
+policy selects that route and records the reason. Route-owned requests may omit
+`providerRoute.providerId`; attached runtime surfaces hydrate provider/model
+from the configured `routeId`.
+For UI work, visual-reference research is an explicit exception to the write
+route: it must run through a read-only route with web/browser capability. Put
+that route in `phaseRoutes.visual-reference-research` on the work item, or pass
+`managedResearchRouteId` when starting that phase. After `work_item.update`
+records the phase evidence, later implementation phases return to the work
+item's write route. `work_item.update` rejects an approved-write UI work item
+that still expects `visual-reference-research` and does not declare
+`phaseRoutes.visual-reference-research`; do not create the work item with an
+empty `phaseRoutes` object. If `work_item.update` returns
+`visual_reference_phase_route_required`, retry `work_item.update` as an actual
+tool call with the returned `retryInputPatch` shape and the configured read-only
+route id. Do not paste the JSON recovery payload as assistant text; prose does
+not materialize governed state.
+For broad delegated work, treat the generated `executionPhase` as the active
+contract. If `executionPhase.completionTool` is `work_item.update`, the managed
+child is producing intermediate evidence only; record that phase's
+`expectedEvidence` on the same pending item and call
+`work_item.execution.start` again for the next phase. Do not call
+`work_item.execution.finish` or `work_item.complete` until the generated phase
+is final. If `executionPhase.completionTool` is `work_item.execution.finish`,
+link the returned managed invocation id with `work_item.execution.start` and
+then finish the attempt with the final evidence, checks, and residual risk.
+If a managed child fails before starting an intermediate phase but the parent
+collects that evidence locally, follow the runtime `recovery` object exactly:
+call `work_item.update` with the supplied `workItemUpdateInputTemplate`, then
+call `work_item.execution.start` again. The recovery template includes the
+required summary, provided evidence, and verification gate placeholders; replace
+only the placeholders with real evidence. Do not end the turn with local
+research prose while the phase evidence remains unrecorded. Writing the JSON
+shape in the assistant message is not recovery; only the actual tool call
+changes governed state. Intermediate evidence phases are not hidden auto-starts:
+the parent receives the hydrated `managed_agent.invoke` request and must invoke
+the child explicitly. Treat that object as exact tool input. Do not add
+`agentProfile` when it is absent, do not replace the route with a guessed
+profile, and do not paste the request as assistant text. If the runtime attaches
+`agentProfile` because exactly one configured profile owns the route, keep that
+value unchanged.
+When the generated request includes `requiredToolNames`, keep them intact in
+`managed_agent.invoke`. A route that cannot provide those tools is not a valid
+fallback for that phase; select a capable configured route or let runtime fail
+closed before the child starts. Web and browser tools also require route network
+authority. Do not put network authority on approved-write routes; split
+research and implementation into separate phases/routes.
 
 UI and visual-design work has one extra pre-plan evidence gate:
 `visual-reference-research`. Text search is not enough when the requested
 change depends on real visual taste, hierarchy, density, or product polish.
 Use browser, computer-use, image-capable, or screenshot-capable tools when
 available to inspect real product references, record source URLs, and extract
-reusable design principles without copying another product.
+reusable design principles without copying another product. A screenshot of a
+GitHub repository page, README text, file listing, stars, forks, or code
+navigation does not satisfy this gate by itself. Valid visual evidence must be
+one of: running product UI capture, product demo/video frame, embedded README
+product image, docs product image, or another screenshot that actually shows
+the product interface.
+If browser/web tools are used for this phase, call `work_item.update` with
+`providedEvidence: ["visual-reference-research"]` and a passed
+`verificationGateResults` visual gate before replying, submitting a plan, or
+starting the next phase.
 
 Execute-mode provider calls include shared governed closeout instructions. When
 `work_governance.assess` recommends orchestration or delegation, research,

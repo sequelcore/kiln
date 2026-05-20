@@ -15,6 +15,8 @@ import {
   createSessionBuiltinToolOptions,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineManagedAgentWriteAuthority,
+  defineManagedAgentWriteScope,
   textParts,
 } from "@kilnai/core";
 import {
@@ -207,7 +209,20 @@ function makeFailedManagedAdapter(): ManagedAgentRuntimeAdapter {
   };
 }
 
-function makeManagedExecutionStartTool(): DevTool & { readonly calls: ToolInput[] } {
+function makeManagedExecutionStartTool(
+  managedInvocationRequest: Record<string, unknown> = {
+    profile: "foundation-readonly-plan",
+    routeId: "opencode-readonly",
+    requestedAuthority: "read_only",
+    task: "Execute governed managed work.",
+    summary: "Execute governed managed work.",
+    workItemId: "work-managed",
+    expectedEvidence: ["managed-agent-review"],
+    requiredResultFields: ["summary", "evidence", "checks"],
+    doneCriteria: ["Return a bounded handoff."],
+    residualRiskRequired: false,
+  },
+): DevTool & { readonly calls: ToolInput[] } {
   const calls: ToolInput[] = [];
   return {
     name: "work_item.execution.start",
@@ -233,18 +248,7 @@ function makeManagedExecutionStartTool(): DevTool & { readonly calls: ToolInput[
             reason: "managedInvocationId is required before starting managed-delegation execution.",
             workItemId: "work-managed",
             nextTool: "managed_agent.invoke",
-            managedInvocationRequest: {
-              profile: "foundation-readonly-plan",
-              routeId: "opencode-readonly",
-              requestedAuthority: "read_only",
-              task: "Execute governed managed work.",
-              summary: "Execute governed managed work.",
-              workItemId: "work-managed",
-              expectedEvidence: ["managed-agent-review"],
-              requiredResultFields: ["summary", "evidence", "checks"],
-              doneCriteria: ["Return a bounded handoff."],
-              residualRiskRequired: false,
-            },
+            managedInvocationRequest,
           }, null, 2),
           isError: true,
         };
@@ -1446,8 +1450,26 @@ describe("attached runtime builtin tool surface", () => {
     });
   });
 
-  it("keeps managed-delegation work item execution paused when the managed child fails", async () => {
-    const startTool = makeManagedExecutionStartTool();
+  it("keeps intermediate evidence phases paused as successful explicit parent handoffs", async () => {
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      requestedAuthority: "read_only",
+      task: "Collect visual reference research before UI implementation.",
+      summary: "Collect visual reference research before UI implementation.",
+      workItemId: "work-managed",
+      expectedEvidence: ["visual-reference-research"],
+      requiredResultFields: ["summary", "evidence", "checks"],
+      doneCriteria: ["Return a bounded handoff."],
+      residualRiskRequired: false,
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["web_search", "browser_session_start"],
+        completionTool: "work_item.update",
+        instruction: "Record only this phase evidence before requesting the next phase.",
+      },
+    });
     const adapter = makeFailedManagedAdapter();
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: createSessionBuiltinToolOptions({
@@ -1463,7 +1485,7 @@ describe("attached runtime builtin tool surface", () => {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
               permissionProfile: "read-only",
-              allowedToolNames: ["read", "grep", "glob"],
+              allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
               workingDirectory: {
                 path: "C:/workspace/kiln",
                 mode: "read-only",
@@ -1478,6 +1500,18 @@ describe("attached runtime builtin tool surface", () => {
                 access: "read-only",
               },
             },
+          },
+        }],
+        agentCatalog: [{
+          name: "visual-researcher",
+          displayName: "Kimi",
+          role: "Visual research specialist",
+          goal: "Collect real visual reference evidence before frontend implementation.",
+          tier: "reasoning",
+          routeId: "opencode-readonly",
+          providerRoute: {
+            providerId: "opencode",
+            model: "opencode-default-model",
           },
         }],
       },
@@ -1502,23 +1536,154 @@ describe("attached runtime builtin tool surface", () => {
     };
     const output = JSON.parse(result.output) as Record<string, unknown>;
 
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBe(false);
     expect(output).toMatchObject({
       status: "paused",
-      reason: "Managed child invocation failed before work item execution could start.",
-    });
-    expect(startTool.calls).toHaveLength(1);
-    expect(adapter.invoke).toHaveBeenCalledTimes(1);
-    expect(result.metadata).toMatchObject({
-      operation: "managed_invocation_failed",
-      managedInvocationAutoStarted: false,
-      managedInvocationFailureReason: "Managed child invocation failed before work item execution could start.",
-      managedInvocation: {
-        toolName: "managed_agent.invoke",
-        status: "failed",
-        invocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
+      nextTool: "managed_agent.invoke",
+      managedInvocationRequest: {
+        routeId: "opencode-readonly",
+        agentProfile: "visual-researcher",
+        providerRoute: {
+          providerId: "opencode",
+          model: "opencode-default-model",
+        },
+        executionPhase: {
+          id: "visual-reference-research",
+          completionTool: "work_item.update",
+        },
+        workItemId: "work-managed",
       },
     });
+    expect(startTool.calls).toHaveLength(1);
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(result.metadata).toMatchObject({
+      operation: "managed_invocation_paused",
+      managedInvocationAutoStarted: false,
+      managedInvocationAutoStart: {
+        decision: "skipped",
+        reason: "intermediate_phase_requires_explicit_parent_invocation",
+      },
+    });
+  });
+
+  it("repairs intermediate phase routes to a compatible read-only route before pausing", async () => {
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-visual-without-browser",
+      requestedAuthority: "read_only",
+      task: "Collect visual reference research before UI implementation.",
+      summary: "Collect visual reference research before UI implementation.",
+      workItemId: "work-managed",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["web_search", "browser_session_start"],
+      requiredResultFields: ["summary", "evidence", "checks"],
+      doneCriteria: ["Return a bounded handoff."],
+      residualRiskRequired: false,
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["web_search", "browser_session_start"],
+        completionTool: "work_item.update",
+      },
+    });
+    const adapter = makeFailedManagedAdapter();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool],
+      }),
+      managedInvocation: {
+        routes: [
+          {
+            routeId: "opencode-visual-without-browser",
+            providerId: "opencode",
+            model: "model-without-browser",
+            adapter,
+            profiles: {
+              "foundation-readonly-plan": {
+                authorityProfileId: "authority:opencode:readonly-without-browser",
+                permissionProfile: "read-only",
+                allowedToolNames: ["read", "grep", "glob"],
+                workingDirectory: {
+                  path: "C:/workspace/kiln",
+                  mode: "read-only",
+                },
+                timeoutMs: 120000,
+              },
+            },
+          },
+          {
+            routeId: "opencode-visual-browser-readonly",
+            providerId: "opencode",
+            model: "model-with-browser",
+            adapter,
+            profiles: {
+              "foundation-readonly-plan": {
+                authorityProfileId: "authority:opencode:readonly-browser",
+                permissionProfile: "read-only",
+                allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
+                workingDirectory: {
+                  path: "C:/workspace/kiln",
+                  mode: "read-only",
+                },
+                timeoutMs: 120000,
+              },
+            },
+          },
+        ],
+        agentCatalog: [{
+          name: "visual-researcher",
+          role: "Visual research specialist",
+          goal: "Collect real visual reference evidence.",
+          tier: "reasoning",
+          routeId: "opencode-visual-browser-readonly",
+          providerRoute: {
+            providerId: "opencode",
+            model: "model-with-browser",
+          },
+        }],
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+    const output = JSON.parse(result.output) as Record<string, unknown>;
+
+    expect(result.isError).toBe(false);
+    expect(output).toMatchObject({
+      status: "paused",
+      managedInvocationRequest: {
+        routeId: "opencode-visual-browser-readonly",
+        agentProfile: "visual-researcher",
+        providerRoute: {
+          providerId: "opencode",
+          model: "model-with-browser",
+        },
+      },
+    });
+    expect(result.metadata).toMatchObject({
+      operation: "managed_invocation_paused",
+      managedInvocationRouteRepair: {
+        fromRouteId: "opencode-visual-without-browser",
+        toRouteId: "opencode-visual-browser-readonly",
+        reason: "required_tools_missing",
+      },
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
   });
 
   it("keeps managed-delegation work item execution paused when the managed route cannot be hydrated", async () => {
@@ -1570,6 +1735,129 @@ describe("attached runtime builtin tool surface", () => {
         kind: "managed-invocation",
         status: "failed",
       },
+    });
+  });
+
+  it("hydrates route-owned provider and authority when the paused request carries an incompatible profile hint", async () => {
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-go-frontend-approved-write",
+      requestedAuthority: "read_only",
+      task: "Execute governed frontend work.",
+      summary: "Execute governed frontend work.",
+      workItemId: "work-managed",
+      expectedEvidence: ["managed-agent-review"],
+      requiredResultFields: ["summary", "evidence", "checks"],
+      doneCriteria: ["Return a bounded handoff."],
+      residualRiskRequired: false,
+    });
+    const adapter = {
+      ...makeManagedAdapter(),
+      descriptor: makeManagedDescriptor({
+        providerId: "opencode-go",
+        supportedProfiles: ["foundation-apply-approved-writes"],
+        writeAuthority: {
+          proposalSupported: true,
+          approvedApplySupported: true,
+          memoryProposalSupported: true,
+          rollbackEvidence: true,
+          cleanupEvidence: true,
+          scopeReduction: true,
+        },
+      }),
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool],
+      }),
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-go-frontend-approved-write",
+          providerId: "opencode-go",
+          model: "kimi-k2.6",
+          adapter,
+          profiles: {
+            "foundation-apply-approved-writes": {
+              authorityProfileId: "authority:opencode-go:frontend",
+              permissionProfile: "apply-approved-writes",
+              writeAllowed: true,
+              allowedToolNames: ["read", "grep", "glob", "write"],
+              workingDirectory: {
+                path: "C:/workspace/kiln",
+                mode: "workspace-write",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode-go:runtime-selected",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "write-proposals",
+              },
+              writeAuthority: defineManagedAgentWriteAuthority({
+                profile: "foundation-apply-approved-writes",
+                scope: defineManagedAgentWriteScope({
+                  workspace: {
+                    mode: "apply-approved",
+                    allowedPaths: ["C:/workspace/kiln"],
+                    deniedPaths: ["C:/workspace/kiln/.git"],
+                  },
+                  memory: {
+                    mode: "propose",
+                    scope: { kind: "project", id: "kiln" },
+                    operations: ["create", "update"],
+                  },
+                  artifacts: {
+                    mode: "propose",
+                    resourceUris: ["kiln://artifacts/managed-agent-write/proposal-1"],
+                    retention: "session",
+                  },
+                  tools: {
+                    allowedToolNames: ["read", "grep", "glob", "write"],
+                    deniedToolNames: [],
+                  },
+                }),
+                approval: {
+                  mode: "required-before-apply",
+                  evidenceRequired: true,
+                },
+              }),
+            },
+          },
+        }],
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+
+    expect(result.isError).toBe(false);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
+      profile: "foundation-apply-approved-writes",
+      requestedAuthority: "audited",
+      providerRoute: {
+        providerId: "opencode-go",
+        model: "kimi-k2.6",
+      },
+    });
+    expect(startTool.calls[1]?.input).toMatchObject({
+      managedInvocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
     });
   });
 

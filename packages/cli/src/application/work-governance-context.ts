@@ -28,10 +28,15 @@ export function buildWorkGovernanceContext(config: KilnWorkGovernanceConfig | un
     "- Use work_profile.list and work_item.update/list/complete to track broad work and fail closed on missing evidence.",
     "- Use work_item.execution.start/finish for approved goal-bound work so attempt history, evidence, and residual risk are recorded.",
     "- Do not stop after scout or local read-only diagnosis when a governed work item has a write-capable route; create/use a goal and call work_item.execution.start.",
-    "- If work_item.execution.start pauses for managed delegation, use its managedInvocationRequest with managed_agent.invoke, then restart with the returned managedInvocationId.",
+    "- If work_item.execution.start pauses for managed delegation, call managed_agent.invoke with the exact managedInvocationRequest object it returned; do not add agentProfile when it is absent, and do not replace a route-owned request with a guessed profile.",
+    "- If managedInvocationRequest.executionPhase is intermediate, record that phase evidence with work_item.update after managed_agent.invoke succeeds or after valid recovery, then request the next phase; do not finish the work item until the final phase.",
+    "- If managed_agent.invoke returns phaseCompletion or recovery with nextTool = work_item.update, call work_item.update as a tool. Never print workItemUpdateInputTemplate, providedEvidence, or verificationGateResults JSON in assistant text.",
+    "- If work_item.execution.start returns recovery.workItemUpdateInputTemplate after a managed child failure, collect the missing evidence locally if possible, replace placeholders with real evidence, call work_item.update with that input, then call work_item.execution.start again before replying.",
     "- When delegating a work item with managed_agent.invoke, pass the work item id, expected evidence, result fields, done criteria, role intent, and residual-risk requirement.",
-    "- Visual UI work requires visual-reference-research before planning: use browser, computer-use, image-capable, or screenshot-capable tools when available, record source URLs, and extract reusable design principles rather than copying a product.",
+    "- Visual UI work with an approved-write route must declare phaseRoutes.visual-reference-research before execution; use that read-only web/browser-capable route for visual research, record actual product UI/demo/running-app/README-image/docs-image evidence, and treat repository chrome or code listings as source-discovery only.",
+    "- If work_item.update rejects with visual_reference_phase_route_required, immediately retry work_item.update as a tool call using its retryInputPatch shape and the configured read-only visual research route; do not paste JSON into assistant text.",
     "- Model self-confidence is not evidence; executable checks, browser QA, formal proof, managed-agent review, and residual-risk reporting are stronger evidence.",
+    "- User-facing handoffs must omit scratch notes, private planning text, and tool-output housekeeping.",
   ].filter((line): line is string => line !== undefined);
 
   return lines.join("\n");

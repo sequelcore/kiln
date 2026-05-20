@@ -52,7 +52,7 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
   },
   "ui-change": {
     "visual-reference-research": [
-      "real product screenshots or browser visual references before planning",
+      "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
       "source URLs and extracted reusable design principles",
     ],
     "browser-qa": ["browser QA screenshot or interaction proof", "accessibility/overflow check"],
@@ -134,7 +134,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
       "residual-risk",
     ],
     verificationGates: [
-      "real product screenshots or browser visual references before planning",
+      "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
       "source URLs and extracted reusable design principles",
       "browser QA screenshot or interaction proof",
       "accessibility/overflow check",

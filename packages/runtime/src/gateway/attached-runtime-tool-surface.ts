@@ -49,6 +49,7 @@ import {
   MANAGED_AGENT_INVOKE_TOOL,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
+import { buildManagedInvocationPhaseRecovery } from "../agents/managed-invocation/phase-recovery.js";
 import { authorityFromCapability } from "./tool-authority.js";
 
 export interface AttachedRuntimeBuiltinToolSurface {
@@ -531,7 +532,17 @@ function createManagedDelegationWorkItemStartExecutor(
       return initialResult;
     }
 
-    const managedRequest = hydrateManagedInvocationRequest(managedPause.request, managedInvocationOptions);
+    const preparedRequest = prepareManagedInvocationRequest(managedPause.request, managedInvocationOptions);
+    const managedRequest = preparedRequest.request;
+    const autoStartDecision = managedInvocationAutoStartDecision(managedRequest);
+    if (autoStartDecision.decision === "skipped") {
+      return managedDelegationAutoStartSkippedResult(
+        initialResult,
+        managedRequest,
+        autoStartDecision.reason,
+        preparedRequest.metadata,
+      );
+    }
     const managedContext = context
       ? {
         ...context,
@@ -574,16 +585,95 @@ function createManagedDelegationWorkItemStartExecutor(
   };
 }
 
+function managedInvocationAutoStartDecision(
+  managedRequest: Record<string, unknown>,
+): { readonly decision: "allowed" } | { readonly decision: "skipped"; readonly reason: string } {
+  const executionPhase = readRecord(managedRequest.executionPhase);
+  const completionTool = readTextFromUnknown(executionPhase?.completionTool);
+  if (executionPhase?.autoStartAllowed === false || completionTool === "work_item.update") {
+    return {
+      decision: "skipped",
+      reason: "intermediate_phase_requires_explicit_parent_invocation",
+    };
+  }
+  return { decision: "allowed" };
+}
+
+function managedDelegationAutoStartSkippedResult(
+  initialResult: unknown,
+  managedRequest: Record<string, unknown>,
+  reason: string,
+  requestMetadata: Record<string, unknown> | undefined = undefined,
+): RuntimeToolResultEnvelope {
+  const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
+  const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
+  const output = initialOutput
+    ? {
+        ...initialOutput,
+        managedInvocationRequest: managedRequest,
+      }
+    : {
+        status: "paused",
+        reason: "Managed child invocation requires explicit parent invocation.",
+        nextTool: MANAGED_AGENT_INVOKE_TOOL.name,
+        managedInvocationRequest: managedRequest,
+      };
+  return {
+    output: JSON.stringify(output, null, 2),
+    isError: false,
+    metadata: {
+      ...(initialEnvelope?.metadata ?? {}),
+      toolName: WORK_ITEM_EXECUTION_START_TOOL_NAME,
+      operation: "managed_invocation_paused",
+      managedInvocationAutoStarted: false,
+      managedInvocationAutoStart: {
+        decision: "skipped",
+        reason,
+      },
+      ...(requestMetadata ?? {}),
+    },
+  };
+}
+
+function prepareManagedInvocationRequest(
+  request: Record<string, unknown>,
+  options: ManagedInvocationToolOptions,
+): { readonly request: Record<string, unknown>; readonly metadata?: Record<string, unknown> } {
+  const hydrated = hydrateManagedInvocationRequest(request, options);
+  const repaired = repairManagedInvocationRouteForRequiredTools(hydrated, options);
+  return {
+    request: attachMatchingAgentProfile(repaired.request, options),
+    ...(repaired.metadata ? { metadata: repaired.metadata } : {}),
+  };
+}
+
 function hydrateManagedInvocationRequest(
   request: Record<string, unknown>,
   options: ManagedInvocationToolOptions,
 ): Record<string, unknown> {
   const providerRoute = readRecord(request.providerRoute);
-  if (readTextFromUnknown(providerRoute?.providerId)) {
-    return request;
-  }
   const routeId = readTextFromUnknown(request.routeId);
-  const profile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const requestedProfile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const exactRoute = routeId
+    ? options.routes.find((route) => route.routeId === routeId)
+    : undefined;
+  if (exactRoute) {
+    const profile = resolveManagedInvocationRouteProfile(exactRoute.profiles, requestedProfile);
+    return {
+      ...request,
+      routeId: exactRoute.routeId,
+      profile,
+      requestedAuthority: normalizeManagedInvocationRequestedAuthority(request.requestedAuthority, profile),
+      providerRoute: {
+        ...(providerRoute ?? {}),
+        providerId: exactRoute.providerId,
+        ...(readTextFromUnknown(providerRoute?.model) || !exactRoute.model
+          ? {}
+          : { model: exactRoute.model }),
+      },
+    };
+  }
+  const profile = requestedProfile;
   const matches = options.routes.filter((route) =>
     (!routeId || route.routeId === routeId)
     && route.profiles[profile] !== undefined
@@ -605,6 +695,118 @@ function hydrateManagedInvocationRequest(
   };
 }
 
+function repairManagedInvocationRouteForRequiredTools(
+  request: Record<string, unknown>,
+  options: ManagedInvocationToolOptions,
+): { readonly request: Record<string, unknown>; readonly metadata?: Record<string, unknown> } {
+  const routeId = readTextFromUnknown(request.routeId);
+  const requiredToolNames = requiredToolNamesFromManagedRequest(request);
+  if (!routeId || requiredToolNames.length === 0) {
+    return { request };
+  }
+  const route = options.routes.find((candidate) => candidate.routeId === routeId);
+  const profile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  if (!route || routeSupportsRequiredTools(route, profile, requiredToolNames)) {
+    return { request };
+  }
+  const compatibleRoutes = options.routes.filter((candidate) =>
+    candidate.routeId !== routeId
+    && routeSupportsRequiredTools(candidate, profile, requiredToolNames)
+  );
+  if (compatibleRoutes.length !== 1) {
+    return { request };
+  }
+  const replacement = compatibleRoutes[0]!;
+  const providerRoute = readRecord(request.providerRoute);
+  return {
+    request: {
+      ...request,
+      routeId: replacement.routeId,
+      providerRoute: {
+        ...(providerRoute ?? {}),
+        providerId: replacement.providerId,
+        ...(replacement.model ? { model: replacement.model } : {}),
+      },
+    },
+    metadata: {
+      managedInvocationRouteRepair: {
+        fromRouteId: routeId,
+        toRouteId: replacement.routeId,
+        reason: "required_tools_missing",
+        missingRequiredTools: requiredToolNames.filter((toolName) =>
+          !routeSupportsRequiredTools(route, profile, [toolName])
+        ),
+      },
+    },
+  };
+}
+
+function attachMatchingAgentProfile(
+  request: Record<string, unknown>,
+  options: ManagedInvocationToolOptions,
+): Record<string, unknown> {
+  if (readTextFromUnknown(request.agentProfile)) {
+    return request;
+  }
+  const routeId = readTextFromUnknown(request.routeId);
+  if (!routeId) {
+    return request;
+  }
+  const matches = (options.agentCatalog ?? []).filter((agent) => agent.routeId === routeId);
+  if (matches.length !== 1) {
+    return request;
+  }
+  return {
+    ...request,
+    agentProfile: matches[0]!.name,
+  };
+}
+
+function requiredToolNamesFromManagedRequest(request: Record<string, unknown>): readonly string[] {
+  const direct = readTextArray(request.requiredToolNames);
+  if (direct.length > 0) {
+    return direct;
+  }
+  const executionPhase = readRecord(request.executionPhase);
+  return readTextArray(executionPhase?.requiredToolNames);
+}
+
+function routeSupportsRequiredTools(
+  route: ManagedInvocationToolOptions["routes"][number],
+  profile: ManagedAgentAdmissionProfile,
+  requiredToolNames: readonly string[],
+): boolean {
+  const routeProfile = route.profiles[profile];
+  if (!routeProfile) {
+    return false;
+  }
+  const allowedTools = new Set(routeProfile.allowedToolNames);
+  return requiredToolNames.every((toolName) => allowedTools.has(toolName));
+}
+
+function resolveManagedInvocationRouteProfile(
+  profiles: ManagedInvocationToolOptions["routes"][number]["profiles"],
+  requestedProfile: ManagedAgentAdmissionProfile,
+): ManagedAgentAdmissionProfile {
+  if (profiles[requestedProfile] !== undefined) {
+    return requestedProfile;
+  }
+  const availableProfiles = Object.keys(profiles) as ManagedAgentAdmissionProfile[];
+  return availableProfiles.length === 1 ? availableProfiles[0]! : requestedProfile;
+}
+
+function normalizeManagedInvocationRequestedAuthority(
+  requestedAuthority: unknown,
+  profile: ManagedAgentAdmissionProfile,
+): unknown {
+  if (profile === "foundation-readonly-plan") {
+    return "read_only";
+  }
+  return requestedAuthority === "read_only" || requestedAuthority === undefined
+    ? "audited"
+    : requestedAuthority;
+}
+
 function parseManagedDelegationPause(result: unknown): { readonly request: Record<string, unknown> } | undefined {
   const envelope = readRuntimeToolResultEnvelope(result);
   if (!envelope?.isError) {
@@ -624,12 +826,15 @@ function managedDelegationPausedResult(
   reason: string,
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
+  const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
+  const recovery = buildManagedDelegationRecovery(initialOutput);
   return {
     output: JSON.stringify({
       status: "paused",
       reason,
-      initial: initialEnvelope ? parseJsonRecord(initialEnvelope.output) ?? initialEnvelope.output : initialResult,
+      initial: initialOutput ?? (initialEnvelope ? initialEnvelope.output : initialResult),
       ...(managedResult ? { managedInvocation: managedResult } : {}),
+      ...(recovery ? { recovery } : {}),
     }, null, 2),
     isError: true,
     metadata: {
@@ -637,10 +842,18 @@ function managedDelegationPausedResult(
       operation: "managed_invocation_failed",
       managedInvocationAutoStarted: false,
       managedInvocationFailureReason: reason,
+      ...(recovery ? { managedInvocationRecovery: recovery } : {}),
       ...(initialEnvelope?.metadata ? { initial: initialEnvelope.metadata } : {}),
       ...(managedResult?.metadata ? { managedInvocation: managedResult.metadata } : {}),
     },
   };
+}
+
+function buildManagedDelegationRecovery(
+  initialOutput: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  const request = readRecord(initialOutput?.managedInvocationRequest);
+  return buildManagedInvocationPhaseRecovery(request);
 }
 
 interface RuntimeToolResultEnvelope {
@@ -1515,6 +1728,12 @@ function asOptionalText(value: unknown): string | undefined {
 
 function readTextFromUnknown(value: unknown): string | undefined {
   return asOptionalText(value);
+}
+
+function readTextArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.map((item) => readTextFromUnknown(item)).filter((item): item is string => item !== undefined)
+    : [];
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

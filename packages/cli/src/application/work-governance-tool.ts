@@ -75,6 +75,8 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
 
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
 const WORK_ITEM_UPDATE_STATUSES: readonly WorkItemStatus[] = ["pending", "blocked", "completed", "cancelled"];
+const VISUAL_REFERENCE_PHASE_ROUTE = "visual-reference-research";
+const VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER = "<read-only web/browser-capable route id>";
 const GOAL_AUTHORITY_LEVELS: readonly GoalRunAuthorityLevel[] = ["read_only", "audited", "destructive"];
 const GOAL_ESCALATION_POLICIES: readonly GoalRunEscalationPolicy[] = ["deny", "approval_required"];
 const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[] = [
@@ -94,6 +96,22 @@ const MANAGED_INVOCATION_AUTHORITIES = ["auto", "read_only", "audited", "destruc
 type ManagedInvocationProfile = typeof MANAGED_INVOCATION_PROFILES[number];
 type ManagedInvocationAuthority = typeof MANAGED_INVOCATION_AUTHORITIES[number];
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
+type ManagedInvocationPhaseId =
+  | "visual-reference-research"
+  | "surface-diagnosis"
+  | "planning"
+  | "implementation-verification"
+  | "managed-review-closeout";
+
+interface ManagedInvocationPhase {
+  readonly id: ManagedInvocationPhaseId;
+  readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
+  readonly requiredToolNames: readonly string[];
+  readonly remainingEvidenceAfterPhase: readonly KilnWorkGovernanceEvidence[];
+  readonly finalPhase: boolean;
+  readonly completionTool: "work_item.update" | "work_item.execution.finish";
+  readonly completionInstruction: string;
+}
 
 export function createWorkGovernanceTools(
   config: KilnWorkGovernanceConfig | undefined,
@@ -294,6 +312,18 @@ export class WorkItemUpdateTool implements DevTool {
       surface: { type: "string", description: "Optional affected surface, such as gui, cli, tui, runtime, or docs." },
       assignedAgentProfile: { type: "string", description: "Optional configured Kiln agent profile assigned to the work item." },
       routeId: { type: "string", description: "Optional managed invocation route id." },
+      phaseRoutes: {
+        type: "object",
+        properties: {
+          [VISUAL_REFERENCE_PHASE_ROUTE]: {
+            type: "string",
+            minLength: 1,
+            description: "Read-only web/browser-capable managed route used only for visual-reference-research before approved-write UI work.",
+          },
+        },
+        additionalProperties: { type: "string" },
+        description: "Optional phase-specific managed route ids. For UI work on foundation-apply-approved-writes, set phaseRoutes.visual-reference-research to a read-only web/browser-capable route; do not leave phaseRoutes empty and do not use the write route for visual research.",
+      },
       authorityProfile: { type: "string", description: "Optional authority profile for the assigned work." },
       expectedEvidence: {
         type: "array",
@@ -310,6 +340,7 @@ export class WorkItemUpdateTool implements DevTool {
         items: { type: "string" },
         description: "Optional extra verification gates.",
       },
+      verificationGateResults: verificationGateResultsSchema(),
       dependencies: {
         type: "array",
         items: { type: "string" },
@@ -378,13 +409,62 @@ export class WorkItemUpdateTool implements DevTool {
       ...verificationGatesForWorkflowProfile(workflowProfile),
       ...readTextArray(input.input.verificationGates),
     ]);
+    const id = readText(input.input.id);
+    const existing = id ? this.store.get(id) : undefined;
+    const routeId = readText(input.input.routeId);
+    const authorityProfile = readText(input.input.authorityProfile) ?? workflowProfile.defaultAuthorityProfile;
+    const phaseRoutes = readTextRecord(input.input.phaseRoutes) ?? existing?.phaseRoutes;
+    const providedEvidence = readEvidence(input.input.providedEvidence);
+    const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
+    const visualEvidence = validateVisualReferenceEvidence({
+      providedEvidence,
+      verificationGateResults,
+    });
+    if (!visualEvidence.ok) {
+      return {
+        output: `Invalid input: ${visualEvidence.code}: ${visualEvidence.message}`,
+        isError: true,
+      };
+    }
+    const phaseRouteContract = validatePhaseRouteContract({
+      expectedEvidence,
+      providedEvidence,
+      routeId,
+      authorityProfile,
+      phaseRoutes,
+    });
+    if (!phaseRouteContract.ok) {
+      const retryInputPatch = {
+        phaseRoutes: {
+          [VISUAL_REFERENCE_PHASE_ROUTE]: VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER,
+        },
+      };
+      return {
+        output: formatInvalidInputRecovery({
+          code: phaseRouteContract.code,
+          message: phaseRouteContract.message,
+          nextTool: "work_item.update",
+          retryInputPatch,
+          instruction: `Retry the same work_item.update call with phaseRoutes.${VISUAL_REFERENCE_PHASE_ROUTE} set to the read-only visual research route from the task or config. Do not paste this JSON as assistant text; only an actual work_item.update tool call counts.`,
+        }),
+        metadata: workItemToolMetadata("work_item.update", {
+          operation: "update",
+          status: "blocked",
+          errorCode: "invalid_input",
+          requiredPhaseRoute: VISUAL_REFERENCE_PHASE_ROUTE,
+          suggestedNextTool: "work_item.update",
+          retryInputPatch,
+        }),
+        isError: true,
+      };
+    }
     const pauseRequirements = readPauseRequirements(input.input.pauseRequirements);
     if (!pauseRequirements.ok) {
       return { output: `Invalid input: ${pauseRequirements.message}`, isError: true };
     }
 
     const item = this.store.upsert({
-      id: readText(input.input.id),
+      id,
       summary,
       status: readStatus(input.input.status),
       workflowProfile: workflowProfile.id,
@@ -392,11 +472,13 @@ export class WorkItemUpdateTool implements DevTool {
       triggers,
       surface: readText(input.input.surface),
       assignedAgentProfile: readText(input.input.assignedAgentProfile),
-      routeId: readText(input.input.routeId),
-      authorityProfile: readText(input.input.authorityProfile) ?? workflowProfile.defaultAuthorityProfile,
+      routeId,
+      phaseRoutes,
+      authorityProfile,
       expectedEvidence,
-      providedEvidence: readEvidence(input.input.providedEvidence),
+      providedEvidence,
       verificationGates,
+      verificationGateResults,
       dependencies: readTextArray(input.input.dependencies),
       residualRisk: readText(input.input.residualRisk),
       pauseRequirements: pauseRequirements.requirements,
@@ -421,6 +503,23 @@ export class WorkItemUpdateTool implements DevTool {
   }
 }
 
+function formatInvalidInputRecovery(input: {
+  readonly code: string;
+  readonly message: string;
+  readonly nextTool: string;
+  readonly retryInputPatch: Readonly<Record<string, unknown>>;
+  readonly instruction: string;
+}): string {
+  return JSON.stringify({
+    error: "invalid_input",
+    code: input.code,
+    message: input.message,
+    nextTool: input.nextTool,
+    retryInputPatch: input.retryInputPatch,
+    instruction: input.instruction,
+  }, null, 2);
+}
+
 function nextGovernedExecutionStep(item: WorkItem): {
   readonly nextRequiredTools: readonly string[];
   readonly nextAction: string;
@@ -434,9 +533,49 @@ function nextGovernedExecutionStep(item: WorkItem): {
   const routeSuffix = item.routeId
     ? ` Route-owned execution is already selected through ${item.routeId}.`
     : "";
+  const visualRoute = item.phaseRoutes?.["visual-reference-research"];
+  const visualPhaseSuffix = visualRoute && item.expectedEvidence.includes("visual-reference-research") && !item.providedEvidence.includes("visual-reference-research")
+    ? ` The next missing phase is visual-reference-research; create or use a goal, then call work_item.execution.start so managed_agent.invoke uses read-only phase route ${visualRoute} before returning to the write route.`
+    : "";
   return {
     nextRequiredTools,
-    nextAction: `Do not stop after scout or local read-only diagnosis. Create or use a goal, then call work_item.execution.start so governed execution, managed delegation, evidence, and residual risk are recorded.${routeSuffix}`,
+    nextAction: `Do not stop after scout or local read-only diagnosis. Create or use a goal, then call work_item.execution.start so governed execution, managed delegation, evidence, and residual risk are recorded.${routeSuffix}${visualPhaseSuffix}`,
+  };
+}
+
+function normalizeGoalRoutePolicy(input: {
+  readonly workItems: readonly WorkItem[];
+  readonly preferredRouteId?: string;
+  readonly managedAgentProfile?: string;
+}):
+  | {
+    readonly ok: true;
+    readonly preferredRouteId?: string;
+    readonly managedAgentProfile?: string;
+  }
+  | {
+    readonly ok: false;
+    readonly message: string;
+  } {
+  const { preferredRouteId, managedAgentProfile } = input;
+  if (!preferredRouteId || !managedAgentProfile) {
+    return {
+      ok: true,
+      ...(preferredRouteId ? { preferredRouteId } : {}),
+      ...(managedAgentProfile ? { managedAgentProfile } : {}),
+    };
+  }
+
+  const routeIsAlreadyOwnedByEveryWorkItem = input.workItems.length > 0
+    && input.workItems.every((item) =>
+      item.routeId === preferredRouteId && item.assignedAgentProfile === managedAgentProfile);
+  if (routeIsAlreadyOwnedByEveryWorkItem) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    message: "goal.create cannot combine preferredRouteId and managedAgentProfile. Use managedAgentProfile when an agent profile owns route selection, preferredRouteId when the caller owns the exact route, or put an exact route on each work item instead of duplicating route ownership at goal level.",
   };
 }
 
@@ -520,11 +659,24 @@ export class WorkItemCompleteTool implements DevTool {
       return { output: 'Invalid input: "id" must be a non-empty string', isError: true };
     }
 
+    const providedEvidence = readEvidence(input.input.providedEvidence);
+    const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
+    const visualEvidence = validateVisualReferenceEvidence({
+      providedEvidence,
+      verificationGateResults,
+    });
+    if (!visualEvidence.ok) {
+      return {
+        output: `Invalid input: ${visualEvidence.code}: ${visualEvidence.message}`,
+        isError: true,
+      };
+    }
+
     const completion = this.store.complete({
       id,
-      providedEvidence: readEvidence(input.input.providedEvidence),
+      providedEvidence,
       skippedVerificationGates: readTextArray(input.input.skippedVerificationGates),
-      verificationGateResults: readVerificationGateResults(input.input.verificationGateResults),
+      verificationGateResults,
       residualRisk: readText(input.input.residualRisk),
     });
     if (!completion) {
@@ -740,10 +892,15 @@ export class GoalCreateTool implements DevTool {
       const planHash = readText(input.input.planHash);
       const preferredRouteId = readText(input.input.preferredRouteId);
       const managedAgentProfile = readText(input.input.managedAgentProfile);
-      if (preferredRouteId && managedAgentProfile) {
+      const routePolicy = normalizeGoalRoutePolicy({
+        workItems: workItemIds.map((id) => this.workItemStore.get(id)).filter((item): item is WorkItem => !!item),
+        preferredRouteId,
+        managedAgentProfile,
+      });
+      if (!routePolicy.ok) {
         return goalCreateContractError({
           code: "invalid_input",
-          message: "goal.create cannot combine preferredRouteId and managedAgentProfile. Use managedAgentProfile when an agent profile owns route selection, or preferredRouteId when the caller owns the exact route.",
+          message: routePolicy.message,
           missingFields: ["preferredRouteId", "managedAgentProfile"],
         });
       }
@@ -762,8 +919,8 @@ export class GoalCreateTool implements DevTool {
         },
         routePolicy: {
           workflowProfile: profile.id,
-          ...(preferredRouteId ? { preferredRouteId } : {}),
-          ...(managedAgentProfile ? { managedAgentProfile } : {}),
+          ...(routePolicy.preferredRouteId ? { preferredRouteId: routePolicy.preferredRouteId } : {}),
+          ...(routePolicy.managedAgentProfile ? { managedAgentProfile: routePolicy.managedAgentProfile } : {}),
         },
         evidenceRequirements: evidenceRequirements.requirements,
         ...(currentPhase ? { currentPhase } : {}),
@@ -832,6 +989,10 @@ export class WorkItemExecutionStartTool implements DevTool {
         type: "string",
         enum: MANAGED_INVOCATION_PROFILES,
         description: "Managed invocation authority profile to include in the suggested managed_agent.invoke request.",
+      },
+      managedResearchRouteId: {
+        type: "string",
+        description: "Optional read-only managed route id to use for visual-reference or web/browser research phases.",
       },
       requestedAuthority: {
         type: "string",
@@ -1041,15 +1202,27 @@ export class WorkItemExecutionFinishTool implements DevTool {
     }
 
     try {
+      const providedEvidence = readEvidence(input.input.providedEvidence);
+      const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
+      const visualEvidence = validateVisualReferenceEvidence({
+        providedEvidence,
+        verificationGateResults,
+      });
+      if (!visualEvidence.ok) {
+        return {
+          output: `Invalid input: ${visualEvidence.code}: ${visualEvidence.message}`,
+          isError: true,
+        };
+      }
       const finished = finishGoalExecutionAttempt({
         goalRunStore: this.goalRunStore,
         workItemStore: this.workItemStore,
         goalRunId,
         workItemId,
         attemptId,
-        providedEvidence: readEvidence(input.input.providedEvidence),
+        providedEvidence,
         skippedVerificationGates: readTextArray(input.input.skippedVerificationGates),
-        verificationGateResults: readVerificationGateResults(input.input.verificationGateResults),
+        verificationGateResults,
         residualRisk: readText(input.input.residualRisk),
         summary: readText(input.input.summary),
         closeoutSummary: readText(input.input.closeoutSummary),
@@ -1112,6 +1285,7 @@ function goalCreateContractError(input: {
           escalationPolicy: GOAL_ESCALATION_POLICIES,
           authorityReason: "string",
           workflowProfile: "canonical workflow profile id",
+          routePolicy: "choose preferredRouteId OR managedAgentProfile; if every linked work item already owns the same exact route and agent profile, omit both at goal level",
         },
         missingFields: input.missingFields,
       },
@@ -1205,21 +1379,30 @@ function buildManagedInvocationRequest(
   readonly missingFields: readonly string[];
   readonly request: Record<string, unknown>;
 } {
-  const agentProfile = step.workItem.assignedAgentProfile
+  const phase = resolveManagedInvocationPhase(step);
+  const phaseRequiresReadOnlyVisualResearch = phase.id === "visual-reference-research";
+  const agentProfile = phaseRequiresReadOnlyVisualResearch
+    ? undefined
+    : step.workItem.assignedAgentProfile
     ?? step.workItem.routingRecommendation?.agentProfile
     ?? goal.routePolicy.managedAgentProfile;
   const goalOwnedRouteId = agentProfile ? undefined : goal.routePolicy.preferredRouteId;
-  const routeId = step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goalOwnedRouteId;
+  const routeId = phaseRequiresReadOnlyVisualResearch
+    ? step.workItem.phaseRoutes?.[phase.id] ?? readText(input.managedResearchRouteId)
+    : step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goalOwnedRouteId;
   const providerId = readText(input.managedProviderId);
   const model = readText(input.managedModel);
   const reasoningEffort = readText(input.managedReasoningEffort)
     ?? step.workItem.routingRecommendation?.reasoningEffort;
-  const expectedEvidence = step.requiredEvidence;
+  const expectedEvidence = phase.expectedEvidence;
   const residualRiskRequired = expectedEvidence.includes("residual-risk");
+  const profile = phaseRequiresReadOnlyVisualResearch
+    ? "foundation-readonly-plan"
+    : readManagedInvocationProfile(step.workItem.authorityProfile)
+    ?? readManagedInvocationProfile(input.managedProfile)
+    ?? "foundation-readonly-plan";
   const request: Record<string, unknown> = {
-    profile: readManagedInvocationProfile(input.managedProfile)
-      ?? readManagedInvocationProfile(step.workItem.authorityProfile)
-      ?? "foundation-readonly-plan",
+    profile,
     ...(routeId ? { routeId } : {}),
     ...(providerId
       ? {
@@ -1230,41 +1413,161 @@ function buildManagedInvocationRequest(
         },
       }
       : {}),
-    requestedAuthority: readManagedInvocationAuthority(input.requestedAuthority)
-      ?? readManagedInvocationAuthority(step.workItem.authorityProfile)
-      ?? goal.authorityEnvelope.maximumAuthority,
-    task: formatManagedInvocationTask(goal, step),
+    requestedAuthority: resolveManagedInvocationAuthority(profile, input, goal),
+    task: formatManagedInvocationTask(goal, step, phase),
     summary: step.workItem.summary,
     workItemId: step.workItemId,
     ...(agentProfile ? { agentProfile } : {}),
     roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
+    executionPhase: {
+      id: phase.id,
+      expectedEvidence: phase.expectedEvidence,
+      requiredToolNames: phase.requiredToolNames,
+      remainingEvidenceAfterPhase: phase.remainingEvidenceAfterPhase,
+      finalPhase: phase.finalPhase,
+      completionTool: phase.completionTool,
+      autoStartAllowed: phase.completionTool === "work_item.execution.finish",
+      completionInstruction: phase.completionInstruction,
+    },
     expectedEvidence,
+    ...(phase.requiredToolNames.length > 0 ? { requiredToolNames: phase.requiredToolNames } : {}),
     requiredResultFields: managedInvocationResultFields(expectedEvidence),
-    doneCriteria: managedInvocationDoneCriteria(step),
+    doneCriteria: managedInvocationDoneCriteria(step, phase),
     residualRiskRequired,
   };
 
   return {
     routeId,
     agentProfile,
-    missingFields: providerId || routeId ? [] : ["providerRoute.providerId"],
+    missingFields: providerId || routeId
+      ? []
+      : phaseRequiresReadOnlyVisualResearch
+        ? ["providerRoute.providerId or managedResearchRouteId for read-only visual-reference route"]
+        : ["providerRoute.providerId"],
     request,
   };
 }
 
-function formatManagedInvocationTask(goal: GoalRun, step: ReadyGoalExecutionStep): string {
+function resolveManagedInvocationAuthority(
+  profile: ManagedInvocationProfile,
+  input: Record<string, unknown>,
+  goal: GoalRun,
+): ManagedInvocationAuthority {
+  if (profile === "foundation-readonly-plan") {
+    return "read_only";
+  }
+  const requestedAuthority = readManagedInvocationAuthority(input.requestedAuthority);
+  if (requestedAuthority && requestedAuthority !== "read_only") {
+    return requestedAuthority;
+  }
+  if (goal.authorityEnvelope.maximumAuthority !== "read_only") {
+    return goal.authorityEnvelope.maximumAuthority;
+  }
+  return "audited";
+}
+
+function resolveManagedInvocationPhase(step: ReadyGoalExecutionStep): ManagedInvocationPhase {
+  const missingEvidence = step.requiredEvidence
+    .filter((evidence): evidence is KilnWorkGovernanceEvidence => isEvidence(evidence))
+    .filter((evidence) => !step.workItem.providedEvidence.includes(evidence));
+  const targetEvidence = firstMatchingPhaseEvidence(missingEvidence);
+  const phaseId = phaseIdForEvidence(targetEvidence);
+  const remainingEvidenceAfterPhase = missingEvidence.filter((evidence) => !targetEvidence.includes(evidence));
+  const finalPhase = remainingEvidenceAfterPhase.length === 0;
+  return {
+    id: phaseId,
+    expectedEvidence: targetEvidence,
+    requiredToolNames: requiredToolNamesForPhaseEvidence(targetEvidence),
+    remainingEvidenceAfterPhase,
+    finalPhase,
+    completionTool: finalPhase ? "work_item.execution.finish" : "work_item.update",
+    completionInstruction: finalPhase
+      ? "This is the final evidence phase. After managed invocation returns, link the invocation id with work_item.execution.start and close it with work_item.execution.finish."
+      : "This is an intermediate evidence phase. After managed invocation returns, record only this phase evidence with work_item.update on the same pending work item, then call work_item.execution.start again for the next phase.",
+  };
+}
+
+function firstMatchingPhaseEvidence(
+  missingEvidence: readonly KilnWorkGovernanceEvidence[],
+): readonly KilnWorkGovernanceEvidence[] {
+  const uiReference = pickEvidence(missingEvidence, ["visual-reference-research"]);
+  if (uiReference.length > 0) return uiReference;
+
+  const diagnosis = pickEvidence(missingEvidence, ["surface-map", "risk-hypothesis"]);
+  if (diagnosis.length > 0) return diagnosis;
+
+  const planning = pickEvidence(missingEvidence, ["spec", "plan", "formal-proof"]);
+  if (planning.length > 0) return planning;
+
+  const verification = pickEvidence(missingEvidence, ["tests", "typecheck", "browser-qa"]);
+  if (verification.length > 0) return verification;
+
+  const closeout = pickEvidence(missingEvidence, ["managed-agent-review", "residual-risk"]);
+  if (closeout.length > 0) return closeout;
+
+  return missingEvidence;
+}
+
+function pickEvidence(
+  missingEvidence: readonly KilnWorkGovernanceEvidence[],
+  candidates: readonly KilnWorkGovernanceEvidence[],
+): readonly KilnWorkGovernanceEvidence[] {
+  return candidates.filter((evidence) => missingEvidence.includes(evidence));
+}
+
+function phaseIdForEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): ManagedInvocationPhaseId {
+  if (evidence.includes("visual-reference-research")) return "visual-reference-research";
+  if (evidence.some((candidate) => candidate === "surface-map" || candidate === "risk-hypothesis")) {
+    return "surface-diagnosis";
+  }
+  if (evidence.some((candidate) => candidate === "spec" || candidate === "plan" || candidate === "formal-proof")) {
+    return "planning";
+  }
+  if (evidence.some((candidate) => candidate === "tests" || candidate === "typecheck" || candidate === "browser-qa")) {
+    return "implementation-verification";
+  }
+  return "managed-review-closeout";
+}
+
+function requiredToolNamesForPhaseEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): readonly string[] {
+  return uniqueText([
+    ...(evidence.includes("visual-reference-research")
+      ? ["web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"]
+      : []),
+    ...(evidence.includes("browser-qa")
+      ? ["browser_session_start", "browser_navigate", "browser_observe"]
+      : []),
+  ]);
+}
+
+function formatManagedInvocationTask(
+  goal: GoalRun,
+  step: ReadyGoalExecutionStep,
+  phase = resolveManagedInvocationPhase(step),
+): string {
   const lines = [
     step.workItem.summary,
     `Goal: ${goal.objective}`,
     `Work item id: ${step.workItemId}`,
+    `Execution phase: ${phase.id}.`,
   ];
-  if (step.requiredEvidence.length > 0) {
-    lines.push(`Produce evidence: ${step.requiredEvidence.join(", ")}.`);
+  if (phase.expectedEvidence.length > 0) {
+    lines.push(`Produce only this phase evidence: ${phase.expectedEvidence.join(", ")}.`);
+  }
+  if (phase.id === "visual-reference-research") {
+    lines.push("Use read-only visual research authority. Capture actual product UI, demo/video frames, running-app captures, README images, or docs images; repository chrome, file listings, README text, stars/forks, and code navigation do not count.");
+  }
+  if (phase.requiredToolNames.length > 0) {
+    lines.push(`This phase requires route tools: ${phase.requiredToolNames.join(", ")}.`);
+  }
+  if (phase.remainingEvidenceAfterPhase.length > 0) {
+    lines.push(`Do not expand into later phases. Remaining evidence after this phase: ${phase.remainingEvidenceAfterPhase.join(", ")}.`);
   }
   if (step.workItem.verificationGates.length > 0) {
-    lines.push(`Verification gates: ${step.workItem.verificationGates.join("; ")}.`);
+    lines.push(`Work item verification gates for final closeout: ${step.workItem.verificationGates.join("; ")}.`);
   }
-  lines.push("Return a concise handoff with summary, evidence, checks, and residual risk when required.");
+  lines.push(phase.completionInstruction);
+  lines.push("Return a concise handoff with summary, evidence, checks, and residual risk when required. Do not include scratch notes, private planning text, or tool-output housekeeping in the user-facing handoff.");
   return lines.join("\n");
 }
 
@@ -1277,16 +1580,132 @@ function managedInvocationResultFields(expectedEvidence: readonly string[]): rea
   ]);
 }
 
-function managedInvocationDoneCriteria(step: ReadyGoalExecutionStep): readonly string[] {
+function managedInvocationDoneCriteria(step: ReadyGoalExecutionStep, phase: ManagedInvocationPhase): readonly string[] {
   return uniqueText([
-    ...step.workItem.verificationGates,
-    ...(step.requiredEvidence.length > 0
-      ? [`Produce required evidence: ${step.requiredEvidence.join(", ")}.`]
+    ...(phase.finalPhase ? step.workItem.verificationGates : []),
+    ...(phase.expectedEvidence.length > 0
+      ? [`Produce phase evidence: ${phase.expectedEvidence.join(", ")}.`]
       : []),
-    ...(step.requiredEvidence.includes("residual-risk")
+    ...(phase.remainingEvidenceAfterPhase.length > 0
+      ? [`Stop after phase ${phase.id}; record evidence with ${phase.completionTool} before requesting the next phase.`]
+      : []),
+    ...(phase.expectedEvidence.includes("residual-risk")
       ? ["Document residual risk before closeout."]
       : []),
   ]);
+}
+
+function validateVisualReferenceEvidence(input: {
+  readonly providedEvidence: readonly KilnWorkGovernanceEvidence[];
+  readonly verificationGateResults: readonly VerificationGateResult[];
+}): { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string } {
+  if (!input.providedEvidence.includes("visual-reference-research")) {
+    return { ok: true };
+  }
+  const passedVisualResults = input.verificationGateResults.filter((result) =>
+    result.status === "passed" && isVisualReferenceGate(result.gate));
+  if (passedVisualResults.length === 0) {
+    return {
+      ok: false,
+      code: "visual_reference_product_ui_required",
+      message: "visual-reference-research requires a passed visual-reference verification gate with real product UI screenshot, demo, video, running app, README image, or docs image evidence.",
+    };
+  }
+  const evidenceText = passedVisualResults
+    .flatMap((result) => [
+      result.summary ?? "",
+      ...(result.evidence ?? []),
+    ])
+    .join("\n");
+  if (
+    containsPlaceholderVisualEvidence(evidenceText)
+    || isRepositoryChromeOnlyEvidence(evidenceText)
+    || !containsProductUiVisualEvidence(evidenceText)
+  ) {
+    return {
+      ok: false,
+      code: "visual_reference_product_ui_required",
+      message: "a screenshot of GitHub repository chrome, file listings, README text, stars, forks, or code navigation does not satisfy visual-reference-research; capture the product UI, a demo/video frame, or an embedded product screenshot instead.",
+    };
+  }
+  return { ok: true };
+}
+
+function containsPlaceholderVisualEvidence(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized.includes("<source url")
+    || normalized.includes("<kiln://")
+    || normalized.includes("<summarize")
+    || normalized.includes("<artifact uri")
+    || normalized.includes("placeholder");
+}
+
+function validatePhaseRouteContract(input: {
+  readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
+  readonly providedEvidence: readonly KilnWorkGovernanceEvidence[];
+  readonly routeId?: string;
+  readonly authorityProfile?: string;
+  readonly phaseRoutes?: Readonly<Record<string, string>>;
+}): { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string } {
+  const requiresVisualReference = input.expectedEvidence.includes(VISUAL_REFERENCE_PHASE_ROUTE)
+    && !input.providedEvidence.includes(VISUAL_REFERENCE_PHASE_ROUTE);
+  if (!requiresVisualReference || !input.routeId || input.authorityProfile !== "foundation-apply-approved-writes") {
+    return { ok: true };
+  }
+  if (readText(input.phaseRoutes?.[VISUAL_REFERENCE_PHASE_ROUTE])) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    code: "visual_reference_phase_route_required",
+    message: "UI work assigned to an approved-write route must declare phaseRoutes.visual-reference-research with a read-only web/browser-capable route before visual-reference-research is accepted. Do not use the write route for visual research.",
+  };
+}
+
+function isVisualReferenceGate(gate: string): boolean {
+  const normalized = gate.toLowerCase();
+  return normalized.includes("visual-reference")
+    || normalized.includes("visual reference")
+    || normalized.includes("real product screenshot")
+    || normalized.includes("browser visual reference")
+    || normalized.includes("source urls and extracted reusable design principles");
+}
+
+function isRepositoryChromeOnlyEvidence(value: string): boolean {
+  const normalized = value.toLowerCase();
+  const mentionsGithubRepo = normalized.includes("github.com/")
+    || normalized.includes("repository files navigation")
+    || normalized.includes("github repo")
+    || normalized.includes("repo page")
+    || normalized.includes("stars")
+    || normalized.includes("forks");
+  if (!mentionsGithubRepo) {
+    return false;
+  }
+  return !containsProductUiVisualEvidence(value);
+}
+
+function containsProductUiVisualEvidence(value: string): boolean {
+  const normalized = value.toLowerCase();
+  const hasVisualPointer = normalized.includes("kiln://")
+    || normalized.includes("http://")
+    || normalized.includes("https://");
+  if (!hasVisualPointer) {
+    return false;
+  }
+  return normalized.includes("product ui")
+    || normalized.includes("app ui")
+    || normalized.includes("running app")
+    || normalized.includes("running vllm studio")
+    || normalized.includes("dashboard")
+    || normalized.includes("demo")
+    || normalized.includes("video")
+    || normalized.includes("readme image")
+    || normalized.includes("readme screenshot")
+    || normalized.includes("docs image")
+    || normalized.includes("docs screenshot")
+    || normalized.includes("frontend screenshot")
+    || normalized.includes("browser visual reference");
 }
 
 function readManagedInvocationProfile(value: unknown): ManagedInvocationProfile | undefined {
@@ -1436,6 +1855,16 @@ function readTextArray(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? uniqueText(value.map(readText).filter((item): item is string => item !== undefined))
     : [];
+}
+
+function readTextRecord(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([key, recordValue]) => [key.trim(), readText(recordValue)] as const)
+    .filter((entry): entry is readonly [string, string] => entry[0].length > 0 && typeof entry[1] === "string");
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function readText(value: unknown): string | undefined {

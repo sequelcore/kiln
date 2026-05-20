@@ -81,7 +81,7 @@ describe("work-governance-tool", () => {
     expect(result?.output).toContain('"visual-reference-research"');
     expect(result?.output).toContain('"browser-qa"');
     expect(result?.output).toContain('"evidenceMatrix"');
-    expect(result?.output).toContain('"real product screenshots or browser visual references before planning"');
+    expect(result?.output).toContain('"real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count"');
     expect(result?.output).toContain('"browser QA screenshot or interaction proof"');
   });
 
@@ -131,6 +131,27 @@ describe("work-governance-tool", () => {
     expect(missingTypes).toEqual([]);
   });
 
+  it("exposes the visual reference phase route as an explicit work item update field", () => {
+    const updateTool = createWorkGovernanceTools(policy)
+      .find((candidate) => candidate.name === "work_item.update");
+    const schema = updateTool?.inputSchema as {
+      readonly properties?: {
+        readonly phaseRoutes?: {
+          readonly properties?: Record<string, unknown>;
+        };
+      };
+    };
+
+    expect(schema.properties?.phaseRoutes).toMatchObject({
+      type: "object",
+      properties: {
+        "visual-reference-research": {
+          type: "string",
+        },
+      },
+    });
+  });
+
   it("materializes visual reference research before browser QA for UI work", async () => {
     const tools = createWorkGovernanceTools(policy);
     const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
@@ -161,7 +182,7 @@ describe("work-governance-tool", () => {
       "residual-risk",
     ]));
     expect(parsed.item.verificationGates).toEqual(expect.arrayContaining([
-      "real product screenshots or browser visual references before planning",
+      "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
       "source URLs and extracted reusable design principles",
       "browser QA screenshot or interaction proof",
     ]));
@@ -849,13 +870,24 @@ describe("work-governance-tool", () => {
         providedEvidence: parsed.item.expectedEvidence,
         residualRisk: "No known residual risk after UI verification.",
         verificationGateResults: [
+          {
+            gate: "real product UI screenshots, demo/video frames, running-app captures, README images, or docs images before planning; repository chrome or code listings do not count",
+            status: "passed",
+            evidence: [
+              "Product UI screenshot from running app at http://localhost:3000 with artifact kiln://artifacts/interactive-screenshots/artifact_1/content.",
+            ],
+          },
+          {
+            gate: "source URLs and extracted reusable design principles",
+            status: "passed",
+            evidence: ["Source URL https://github.com/sybil-solutions/vllm-studio plus running product UI screenshot."],
+          },
           { gate: "typecheck", status: "passed" },
         ],
       },
     });
 
     expect(blocked?.isError).toBe(true);
-    expect(blocked?.output).toContain("missing gate: real product screenshots or browser visual references before planning");
     expect(blocked?.output).toContain("missing gate: browser QA screenshot or interaction proof");
     expect(blocked?.output).toContain("missing gate: accessibility/overflow check");
     expect(blocked?.metadata).toMatchObject({
@@ -863,7 +895,6 @@ describe("work-governance-tool", () => {
       operation: "complete",
       status: "blocked",
       missingVerificationGates: [
-        "real product screenshots or browser visual references before planning",
         "browser QA screenshot or interaction proof",
         "accessibility/overflow check",
       ],
@@ -1023,6 +1054,60 @@ describe("work-governance-tool", () => {
     expect(workItemStore.get("work-route-conflict")?.routeId).toBeUndefined();
   });
 
+  it("normalizes redundant goal route hints when each linked work item already owns the exact route", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      ownerSessionId: "session-current",
+    });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+
+    await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-route-owned",
+        summary: "Execute route-owned UI work.",
+        workflowProfile: "ui-change",
+        triggers: ["ui"],
+        routeId: "opencode-go-frontend-approved-write",
+        phaseRoutes: {
+          "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
+        },
+        assignedAgentProfile: "frontend-coder",
+        authorityProfile: "foundation-apply-approved-writes",
+      },
+    });
+
+    const createdGoal = await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-route-owned",
+        objective: "Execute route-owned UI work.",
+        planId: "plan-1",
+        workItemIds: ["work-route-owned"],
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        authorityReason: "Work item owns the exact write route.",
+        workflowProfile: "ui-change",
+        preferredRouteId: "opencode-go-frontend-approved-write",
+        managedAgentProfile: "frontend-coder",
+      },
+    });
+
+    expect(createdGoal?.isError).toBe(false);
+    expect(goalRunStore.get("goal-route-owned")?.routePolicy).toEqual({
+      workflowProfile: "ui-change",
+    });
+    expect(workItemStore.get("work-route-owned")).toMatchObject({
+      goalRunId: "goal-route-owned",
+      routeId: "opencode-go-frontend-approved-write",
+      assignedAgentProfile: "frontend-coder",
+    });
+  });
+
   it("rejects manual in-progress transitions because execution.start owns active attempts", async () => {
     const workItemStore = new WorkItemStore({ now: fixedNow });
     const updateTool = createWorkGovernanceTools(policy, { workItemStore })
@@ -1107,6 +1192,140 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("rejects visual-reference evidence when the only screenshot is repository chrome", async () => {
+    const tools = createWorkGovernanceTools(policy);
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+
+    const rejected = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Collect visual reference research.",
+        workflowProfile: "ui-change",
+        triggers: ["ui"],
+        expectedEvidence: ["visual-reference-research"],
+        providedEvidence: ["visual-reference-research"],
+        verificationGateResults: [{
+          gate: "real product screenshots or browser visual references before planning",
+          status: "passed",
+          evidence: [
+            "Browser opened https://github.com/sybil-solutions/vllm-studio and captured repository files navigation screenshot kiln://artifacts/interactive-screenshots/artifact_23/content.",
+          ],
+        }],
+      },
+    });
+
+    expect(rejected?.isError).toBe(true);
+    expect(rejected?.output).toContain("visual_reference_product_ui_required");
+
+    const placeholderRejected = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Collect visual reference research.",
+        workflowProfile: "ui-change",
+        triggers: ["ui"],
+        expectedEvidence: ["visual-reference-research"],
+        providedEvidence: ["visual-reference-research"],
+        verificationGateResults: [{
+          gate: "visual-reference-research: real product UI evidence",
+          status: "passed",
+          summary: "<summarize qualifying product UI evidence, source URLs, artifact URIs, and reusable design principles>",
+          evidence: [
+            "<source URL showing product UI or comparable technical workstation UI>",
+            "<kiln:// artifact URI for screenshot/image evidence>",
+          ],
+        }],
+      },
+    });
+
+    expect(placeholderRejected?.isError).toBe(true);
+    expect(placeholderRejected?.output).toContain("visual_reference_product_ui_required");
+
+    const accepted = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Collect visual reference research.",
+        workflowProfile: "ui-change",
+        triggers: ["ui"],
+        expectedEvidence: ["visual-reference-research"],
+        providedEvidence: ["visual-reference-research"],
+        verificationGateResults: [{
+          gate: "real product screenshots or browser visual references before planning",
+          status: "passed",
+          evidence: [
+            "Product UI screenshot of the running vLLM Studio dashboard captured from http://localhost:3000 with artifact kiln://artifacts/interactive-screenshots/artifact_24/content.",
+          ],
+        }, {
+          gate: "source URLs and extracted reusable design principles",
+          status: "passed",
+          evidence: [
+            "Source URL https://github.com/sybil-solutions/vllm-studio; extracted product UI principles from the running dashboard screenshot.",
+          ],
+        }],
+      },
+    });
+
+    expect(accepted?.isError).toBe(false);
+  });
+
+  it("rejects routed UI write work without an explicit read-only visual research phase route", async () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const rejected = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-ui-with-write-route",
+        summary: "Refactor the GUI experience.",
+        workflowProfile: "ui-change",
+        risk: "high",
+        triggers: ["ui", "cross-surface"],
+        routeId: "opencode-go-frontend-approved-write",
+        authorityProfile: "foundation-apply-approved-writes",
+        expectedEvidence: ["visual-reference-research", "tests", "typecheck"],
+        phaseRoutes: {},
+      },
+    });
+
+    expect(rejected?.isError).toBe(true);
+    expect(rejected?.output).toContain("visual_reference_phase_route_required");
+    expect(rejected?.output).toContain("phaseRoutes.visual-reference-research");
+    expect(rejected?.output).toContain('"nextTool": "work_item.update"');
+    expect(rejected?.output).toContain('"visual-reference-research": "<read-only web/browser-capable route id>"');
+    expect(rejected?.output).toContain("Do not paste this JSON as assistant text");
+    expect(rejected?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "update",
+      status: "blocked",
+      errorCode: "invalid_input",
+      requiredPhaseRoute: "visual-reference-research",
+      suggestedNextTool: "work_item.update",
+    });
+    expect(workItemStore.get("work-ui-with-write-route")).toBeUndefined();
+
+    const accepted = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-ui-with-write-route",
+        summary: "Refactor the GUI experience.",
+        workflowProfile: "ui-change",
+        risk: "high",
+        triggers: ["ui", "cross-surface"],
+        routeId: "opencode-go-frontend-approved-write",
+        authorityProfile: "foundation-apply-approved-writes",
+        expectedEvidence: ["visual-reference-research", "tests", "typecheck"],
+        phaseRoutes: {
+          "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
+        },
+      },
+    });
+    const output = JSON.parse(accepted?.output ?? "{}") as { readonly nextAction?: string };
+
+    expect(accepted?.isError).toBe(false);
+    expect(output.nextAction).toContain("visual-reference-research");
+    expect(output.nextAction).toContain("opencode-go-qwen3-6-plus-readonly");
+  });
+
   it("returns explicit next governed execution tools after creating a pending routed work item", async () => {
     const workItemStore = new WorkItemStore({ now: fixedNow });
     const updateTool = createWorkGovernanceTools(policy, { workItemStore })
@@ -1121,6 +1340,9 @@ describe("work-governance-tool", () => {
         triggers: ["ui", "managed-agents"],
         assignedAgentProfile: "frontend-coder",
         routeId: "opencode-go-frontend-approved-write",
+        phaseRoutes: {
+          "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
+        },
         authorityProfile: "foundation-apply-approved-writes",
       },
     });
@@ -1333,9 +1555,17 @@ describe("work-governance-tool", () => {
       workItemId: "work-managed",
       agentProfile: "coder",
       roleIntent: "Execute governed work item work-managed for goal goal-managed.",
+      executionPhase: {
+        id: "managed-review-closeout",
+        expectedEvidence: ["managed-agent-review"],
+        requiredToolNames: [],
+        remainingEvidenceAfterPhase: [],
+        finalPhase: true,
+        completionTool: "work_item.execution.finish",
+      },
       expectedEvidence: ["managed-agent-review"],
       requiredResultFields: ["summary", "evidence", "checks"],
-      doneCriteria: ["review child handoff", "Produce required evidence: managed-agent-review."],
+      doneCriteria: ["review child handoff", "Produce phase evidence: managed-agent-review."],
       residualRiskRequired: false,
     });
     expect(missingInvocationOutput.managedInvocationRequest?.task).toContain("Execute delegated work.");
@@ -1418,6 +1648,181 @@ describe("work-governance-tool", () => {
     });
     expect(output.managedInvocationRequest?.providerRoute).toBeUndefined();
     expect(output.missingManagedInvocationFields).toBeUndefined();
+  });
+
+  it("scopes managed UI work to the next missing execution phase instead of the whole work item", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-ui-phase",
+      summary: "Refactor the GUI experience.",
+      workflowProfile: "ui-change",
+      triggers: ["ui", "cross-surface"],
+      expectedEvidence: [
+        "surface-map",
+        "risk-hypothesis",
+        "visual-reference-research",
+        "tests",
+        "typecheck",
+        "browser-qa",
+        "residual-risk",
+      ],
+      verificationGates: ["browser QA screenshot or interaction proof", "typecheck"],
+      goalRunId: "goal-managed-ui-phase",
+      routeId: "opencode-go-frontend-approved-write",
+      phaseRoutes: {
+        "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
+      },
+      assignedAgentProfile: "frontend-coder",
+      authorityProfile: "foundation-apply-approved-writes",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-ui-phase",
+      objective: "Refactor the GUI experience.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved UI work.",
+      },
+      routePolicy: {
+        workflowProfile: "ui-change",
+      },
+      evidenceRequirements: [],
+    });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const missingInvocation = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+      },
+    });
+    const output = JSON.parse(missingInvocation?.output ?? "{}") as {
+      readonly managedInvocationRequest?: {
+        readonly profile?: string;
+        readonly routeId?: string;
+        readonly agentProfile?: string;
+        readonly executionPhase?: {
+          readonly id?: string;
+          readonly expectedEvidence?: readonly string[];
+          readonly requiredToolNames?: readonly string[];
+          readonly remainingEvidenceAfterPhase?: readonly string[];
+          readonly completionTool?: string;
+          readonly finalPhase?: boolean;
+          readonly autoStartAllowed?: boolean;
+        };
+        readonly expectedEvidence?: readonly string[];
+        readonly requiredToolNames?: readonly string[];
+        readonly doneCriteria?: readonly string[];
+        readonly task?: string;
+      };
+      readonly missingManagedInvocationFields?: readonly string[];
+    };
+
+    expect(missingInvocation?.isError).toBe(true);
+    expect(output.managedInvocationRequest).toMatchObject({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-go-qwen3-6-plus-readonly",
+    });
+    expect(output.managedInvocationRequest?.agentProfile).toBeUndefined();
+    expect(output.missingManagedInvocationFields).toBeUndefined();
+    expect(output.managedInvocationRequest?.executionPhase).toMatchObject({
+      id: "visual-reference-research",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
+      completionTool: "work_item.update",
+      finalPhase: false,
+      autoStartAllowed: false,
+    });
+    expect(output.managedInvocationRequest?.executionPhase?.remainingEvidenceAfterPhase).toEqual([
+      "surface-map",
+      "risk-hypothesis",
+      "tests",
+      "typecheck",
+      "browser-qa",
+      "residual-risk",
+    ]);
+    expect(output.managedInvocationRequest?.expectedEvidence).toEqual(["visual-reference-research"]);
+    expect(output.managedInvocationRequest?.requiredToolNames).toEqual([
+      "web_search",
+      "web_fetch",
+      "browser_session_start",
+      "browser_navigate",
+      "browser_observe",
+    ]);
+    expect(output.managedInvocationRequest?.doneCriteria).toEqual([
+      "Produce phase evidence: visual-reference-research.",
+      "Stop after phase visual-reference-research; record evidence with work_item.update before requesting the next phase.",
+    ]);
+    expect(output.managedInvocationRequest?.task).toContain("Produce only this phase evidence: visual-reference-research.");
+    expect(output.managedInvocationRequest?.task).toContain("Use read-only visual research authority.");
+    expect(output.managedInvocationRequest?.task).toContain("This phase requires route tools: web_search, web_fetch, browser_session_start, browser_navigate, browser_observe.");
+    expect(output.managedInvocationRequest?.task).toContain("Do not expand into later phases.");
+  });
+
+  it("keeps explicit work item authority ahead of caller-supplied readonly managed hints", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-authority",
+      summary: "Execute delegated route-owned work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: ["review child handoff"],
+      goalRunId: "goal-managed-authority",
+      routeId: "opencode-go-frontend-approved-write",
+      assignedAgentProfile: "frontend-coder",
+      authorityProfile: "foundation-apply-approved-writes",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-authority",
+      objective: "Execute delegated route-owned work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: {
+        workflowProfile: "managed-agent-change",
+        managedAgentProfile: "frontend-coder",
+      },
+      evidenceRequirements: [],
+    });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const missingInvocation = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+        managedProfile: "foundation-readonly-plan",
+        requestedAuthority: "read_only",
+      },
+    });
+    const output = JSON.parse(missingInvocation?.output ?? "{}") as {
+      readonly managedInvocationRequest?: {
+        readonly profile?: string;
+        readonly requestedAuthority?: string;
+        readonly routeId?: string;
+      };
+    };
+
+    expect(missingInvocation?.isError).toBe(true);
+    expect(output.managedInvocationRequest).toMatchObject({
+      profile: "foundation-apply-approved-writes",
+      requestedAuthority: "audited",
+      routeId: "opencode-go-frontend-approved-write",
+    });
   });
 });
 

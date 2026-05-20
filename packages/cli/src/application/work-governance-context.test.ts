@@ -27,10 +27,16 @@ describe("work-governance-context", () => {
     expect(candidate?.content).toContain("Default posture: orchestrate");
     expect(candidate?.content).toContain("Require orchestration/delegation for: architecture, managed-agents");
     expect(candidate?.content).toContain("work_profile.list and work_item.update/list/complete");
-    expect(candidate?.content).toContain("use its managedInvocationRequest with managed_agent.invoke");
+    expect(candidate?.content).toContain("exact managedInvocationRequest object");
+    expect(candidate?.content).toContain("do not add agentProfile when it is absent");
+    expect(candidate?.content).toContain("executionPhase is intermediate");
+    expect(candidate?.content).toContain("recovery.workItemUpdateInputTemplate");
     expect(candidate?.content).toContain("Do not stop after scout");
-    expect(candidate?.content).toContain("Visual UI work requires visual-reference-research");
+    expect(candidate?.content).toContain("phaseRoutes.visual-reference-research");
+    expect(candidate?.content).toContain("visual_reference_phase_route_required");
+    expect(candidate?.content).toContain("do not paste JSON into assistant text");
     expect(candidate?.content).toContain("Model self-confidence is not evidence");
+    expect(candidate?.content).toContain("omit scratch notes");
   });
 
   it("does not add context when no work governance config exists", () => {
