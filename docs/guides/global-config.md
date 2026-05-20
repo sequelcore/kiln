@@ -527,7 +527,9 @@ UI work that depends on aesthetics or product polish requires
 `visual-reference-research` before planning. Text-only web search is
 insufficient for this evidence; agents should use browser, computer-use,
 image-capable, or screenshot-capable tools when available and record source
-URLs plus extracted design principles.
+URLs plus extracted design principles. Repository pages and code listings are
+source-discovery evidence only; the visual gate requires product UI, demo,
+video, running-app, README image, or docs image evidence.
 
 Matching global agent profiles live under `~/.kiln/agents/`. They must use the
 canonical profile contract; partial native-agent files are not accepted as
@@ -635,6 +637,18 @@ Live-proven direct-provider adapters expose approved workspace-write routes for
 subscription-first setups when the route is explicit and includes
 `writeAuthority`. Read-only routes remain the default for analysis, planning,
 and review.
+Network/browser research and approved workspace writes are separate authority
+profiles. Use a read-only route with `tools.network: true` and browser/web
+tools for visual-reference research. Approved-write routes must keep
+`tools.network: false`; config projection marks write routes with network
+authority unavailable instead of silently admitting a combined write+internet
+child. When creating a routed UI work item that uses an approved-write route,
+also set `phaseRoutes.visual-reference-research` to the read-only
+browser-capable route, for example `opencode-go-qwen3-6-plus-readonly`. If the
+tool rejects the work item with `visual_reference_phase_route_required`, retry
+`work_item.update` with the structured `retryInputPatch` shape and that
+configured route id; writing the JSON in normal assistant text is not a valid
+state transition.
 
 For GUI/TUI operator turns, the composer authority selector is only the requested
 turn limit. Actual child edit capability comes from `managedAgents.routes[]`.
@@ -658,8 +672,8 @@ implement under supervision. Prefer descriptive route IDs that encode the job:
   backend debugging.
 - `opencode-go-service-approved-write` for service, adapter, and data-flow
   implementation.
-- `opencode-go-research-approved-write` for bounded research documentation
-  changes after sources are verified.
+- `opencode-go-qwen3-6-plus-readonly` or another explicit read-only
+  browser-capable route for visual/reference research before planning.
 - `opencode-go-mechanical-approved-write` and
   `opencode-zen-mechanical-approved-write` for repetitive low-risk edits.
 - `opencode-zen-free-approved-write` as the cost-conscious direct-provider
@@ -934,6 +948,14 @@ second. Fast profiles such as `scout` should resolve to bounded read-only Mini,
 Spark, or free routes when those routes are configured; heavyweight synthesis
 routes remain available for roles that need them but are not the default scout
 path.
+Visual-reference research should use its own read-only, network-capable route
+and matching profile rather than borrowing the approved-write frontend route.
+For example, configure `visual-researcher` with
+`routeId: opencode-go-kimi-k2-6-readonly` and expose `web_search`,
+`web_fetch`, `browser_session_start`, `browser_navigate`, and
+`browser_observe` on that route. This keeps real visual evidence collection
+separate from code-writing authority while giving `managed_agent.invoke` a
+profile whose route hint matches the visual route.
 
 Canonical instruction profiles are the home for durable workflow standards
 such as "no dead code", "no redundancy", "DDD", "Clean Architecture", "TDD

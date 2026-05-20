@@ -14,11 +14,15 @@ import {
 
 export interface StagedManagedInvocationRouteCatalog {
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  refreshNow(): Promise<void>;
   startBackgroundRefresh(): void;
 }
 
 export interface CreateStagedManagedInvocationRouteCatalogOptions {
   readonly onRefreshError?: (error: unknown) => void;
+  readonly reloadConfig?: () => ManagedAgentRouteConfigSource | null | undefined;
+  readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModels>;
+  readonly refreshIntervalMs?: number;
 }
 
 type StagedManagedInvocationRouteContext = Omit<
@@ -31,8 +35,9 @@ export async function createStagedManagedInvocationRouteCatalog(
   context: StagedManagedInvocationRouteContext,
   options: CreateStagedManagedInvocationRouteCatalogOptions = {},
 ): Promise<StagedManagedInvocationRouteCatalog> {
+  const currentConfig = () => options.reloadConfig?.() ?? config;
   const resolve = (providerModels: ManagedAgentProviderModels) =>
-    resolveManagedInvocationToolOptions(config, {
+    resolveManagedInvocationToolOptions(currentConfig(), {
       ...context,
       providerModels,
       includeUnavailableRoutes: true,
@@ -41,30 +46,56 @@ export async function createStagedManagedInvocationRouteCatalog(
   const catalog = initial.managedInvocation
     ? createManagedInvocationToolOptionsCatalog(initial.managedInvocation)
     : undefined;
+  const discoverProviderModels = options.discoverProviderModels ?? discoverManagedAgentProviderModels;
+  let refreshInFlight: Promise<void> | undefined;
+  let refreshInterval: ReturnType<typeof setInterval> | undefined;
+
+  const refreshNow = async (): Promise<void> => {
+    if (!catalog) {
+      return;
+    }
+    if (refreshInFlight) {
+      return refreshInFlight;
+    }
+    refreshInFlight = refreshCatalog(catalog, resolve, discoverProviderModels, options.onRefreshError)
+      .finally(() => {
+        refreshInFlight = undefined;
+      });
+    return refreshInFlight;
+  };
 
   return {
     managedInvocation: catalog?.options,
+    refreshNow,
     startBackgroundRefresh() {
-      refreshCatalog(catalog, resolve, options.onRefreshError);
+      void refreshNow();
+      if (!catalog || refreshInterval !== undefined || options.refreshIntervalMs === 0) {
+        return;
+      }
+      refreshInterval = setInterval(() => {
+        void refreshNow();
+      }, options.refreshIntervalMs ?? 15000);
+      refreshInterval.unref?.();
     },
   };
 }
 
-function refreshCatalog(
+async function refreshCatalog(
   catalog: ManagedInvocationToolOptionsCatalog | undefined,
   resolve: (providerModels: ManagedAgentProviderModels) => ReturnType<typeof resolveManagedInvocationToolOptions>,
+  discoverProviderModels: () => Promise<ManagedAgentProviderModels>,
   onRefreshError: ((error: unknown) => void) | undefined,
-): void {
+): Promise<void> {
   if (!catalog) {
     return;
   }
-  void (async () => {
-    const providerModels = await discoverManagedAgentProviderModels();
+  try {
+    const providerModels = await discoverProviderModels();
     const refreshed = await resolve(providerModels);
     if (refreshed.managedInvocation) {
       catalog.update(refreshed.managedInvocation);
     }
-  })().catch((error: unknown) => {
+  } catch (error: unknown) {
     onRefreshError?.(error);
-  });
+  }
 }

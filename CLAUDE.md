@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:8cca15d5ee64c577798efe9e8476ef311c7f87650b546a5760339555e88c8409
+contentHash: sha256:e72ea8149287c3d6dfc273846219bc073b558f1252f821ecaea476ee2d1baaf0
 -->
 # Claude Project Guidance
 
@@ -94,6 +94,7 @@ Follow the resolved Kiln work-governance policy before choosing direct execution
 | service-coder (global) | GLM | Service and adapter implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | glm-5.1 | - | - |
 | spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | gpt-5.4-mini | - | - |
 | tdd (global) | Malcolm | TDD guide; tasks: test-writing | read, grep, glob, write, bash | gpt-5.5 | - | - |
+| visual-researcher (global) | Qwen | Visual reference research specialist; tasks: frontend-design, research | read, grep, glob, web | qwen3.6-plus | - | - |
 
 ## Usage
 

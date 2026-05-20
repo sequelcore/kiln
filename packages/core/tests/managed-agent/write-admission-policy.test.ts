@@ -154,6 +154,31 @@ describe("managed agent write admission policy", () => {
     });
   });
 
+  it("denies network authority on write profiles unless a future combined authority profile is introduced", () => {
+    const base = makeRequest("foundation-apply-approved-writes");
+    const request = defineManagedAgentInvocationRequest({
+      ...base,
+      authority: {
+        ...base.authority,
+        toolAuthority: {
+          ...base.authority.toolAuthority,
+          allowedToolNames: [
+            ...base.authority.toolAuthority.allowedToolNames,
+            "web_search",
+            "browser_session_start",
+            "browser_observe",
+          ],
+          networkAllowed: true,
+        },
+      },
+    });
+
+    const decision = evaluateManagedAgentAdmission(request, makeDescriptor());
+
+    expect(decision.status).toBe("denied");
+    expect(decision.missingCapabilities).toContain("request.authority.toolAuthority.networkAllowed.false");
+  });
+
   it("keeps foundation-readonly-plan fail-closed when any write authority is requested", () => {
     const request = {
       ...makeRequest(),

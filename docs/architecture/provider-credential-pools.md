@@ -127,6 +127,12 @@ credential is available.
 If no credential is available, the pool raises `AllCredentialsExhaustedError`.
 The error preserves the last provider error and outcome when exhaustion happens
 after one or more retry attempts.
+Runtime managed-invocation surfaces must include that preserved outcome in the
+operator-facing diagnostic, together with the provider and model selected by
+the route. A generic `All credentials in the pool are exhausted` message is not
+enough to prove that the operator has no subscription capacity; it may also
+mean that the selected route/model failed, every attempted credential cooled
+down, or the caller recovered through the wrong route.
 
 ## Pooled Adapter Contract
 

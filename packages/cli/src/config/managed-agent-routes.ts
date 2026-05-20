@@ -719,6 +719,13 @@ function buildWriteProfile(
   readonly ok: false;
   readonly reason: string;
 } {
+  const networkEnabled = (routeConfig.tools as { readonly network?: boolean } | undefined)?.network === true;
+  if (networkEnabled) {
+    return {
+      ok: false,
+      reason: `${profile} routes cannot enable tools.network. Use a separate foundation-readonly-plan route for web, browser, computer-use, or visual-reference research phases.`,
+    };
+  }
   const writeAuthority = buildWriteAuthority(routeConfig, cwd, profile);
   if (!writeAuthority.ok) {
     return writeAuthority;

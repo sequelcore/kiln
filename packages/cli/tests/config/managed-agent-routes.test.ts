@@ -758,6 +758,97 @@ describe("resolveManagedInvocationToolOptions", () => {
     }));
   });
 
+  it("lets explicit visual read-only routes override derived routing routes and bind a matching agent profile", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-visual-route-"));
+    try {
+      const agentsDir = join(root, ".kiln", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(
+        join(agentsDir, "visual-researcher.md"),
+        [
+          "---",
+          "name: visual-researcher",
+          "displayName: Kimi",
+          "role: Visual reference research specialist",
+          "goal: Collect real product UI evidence before frontend implementation.",
+          "tier: reasoning",
+          "routeId: opencode-go-kimi-k2-6-readonly",
+          "providerRoute:",
+          "  providerId: opencode-go",
+          "  model: kimi-k2.6",
+          "taskAffinity:",
+          "  - frontend-design",
+          "  - research",
+          "---",
+          "Collect visual evidence.",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      const result = await resolveManagedInvocationToolOptions({
+        version: "1",
+        engines: {
+          "opencode-go": { enabled: true, billing: "subscription" },
+        },
+        routing: {
+          routes: [
+            {
+              provider: "opencode-go",
+              model: "kimi-k2.6",
+            },
+            {
+              provider: "opencode-go",
+              model: "qwen3.6-plus",
+            },
+          ],
+        },
+        managedAgents: {
+          enabled: true,
+          routes: [{
+            id: "opencode-go-kimi-k2-6-readonly",
+            kind: "direct",
+            provider: "opencode-go",
+            model: "kimi-k2.6",
+            profiles: ["foundation-readonly-plan"],
+            tools: {
+              allowed: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
+              network: true,
+              writes: false,
+            },
+          }],
+        },
+      }, {
+        cwd: root,
+        userHome: root,
+        registry: createRegistryForProviders([{ provider: "opencode-go" }]),
+        surface: "gui",
+        directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      });
+
+      const visualRoute = result.managedInvocation?.routes.find((route) =>
+        route.routeId === "opencode-go-kimi-k2-6-readonly"
+      );
+      expect(result.managedInvocation?.routes.filter((route) =>
+        route.routeId === "opencode-go-kimi-k2-6-readonly"
+      )).toHaveLength(1);
+      expect(visualRoute?.profiles["foundation-readonly-plan"]).toMatchObject({
+        allowedToolNames: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
+        networkAllowed: true,
+      });
+      expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+        name: "visual-researcher",
+        routeId: "opencode-go-kimi-k2-6-readonly",
+        providerRoute: {
+          providerId: "opencode-go",
+          model: "kimi-k2.6",
+        },
+      }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps explicit routes unhealthy when their engine is disabled", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
@@ -1244,5 +1335,46 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
       },
     });
+  });
+
+  it("marks approved-write routes with network authority unavailable so visual research must use a separate read-only route", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "opencode-go-frontend-approved-write",
+        kind: "direct",
+        provider: "opencode-go",
+        model: "kimi-k2.6",
+        profiles: ["foundation-apply-approved-writes"],
+        tools: {
+          allowed: ["read", "web_search", "browser_observe", "write"],
+          network: true,
+          writes: true,
+        },
+        writeAuthority: {
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths: ["."],
+          },
+          approval: {
+            mode: "required-before-apply",
+          },
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode-go"),
+      surface: "gui",
+      includeUnavailableRoutes: true,
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider, true),
+    });
+
+    expect(result.managedInvocation?.routes).toEqual([]);
+    expect(result.managedInvocation?.unavailableRoutes).toEqual([{
+      routeId: "opencode-go-frontend-approved-write",
+      providerId: "opencode-go",
+      model: "kimi-k2.6",
+      profiles: ["foundation-apply-approved-writes"],
+      reason: "foundation-apply-approved-writes routes cannot enable tools.network. Use a separate foundation-readonly-plan route for web, browser, computer-use, or visual-reference research phases.",
+    }]);
   });
 });

@@ -585,7 +585,9 @@ function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapab
     } else if (request.authority.toolAuthority.writeAllowed !== false) {
       missingCapabilities.push("request.authority.toolAuthority.writeAllowed.false");
     }
-    if (request.authority.toolAuthority.networkAllowed !== false) missingCapabilities.push("request.authority.toolAuthority.networkAllowed.false");
+    if (request.profile !== "foundation-readonly-plan" && request.authority.toolAuthority.networkAllowed !== false) {
+      missingCapabilities.push("request.authority.toolAuthority.networkAllowed.false");
+    }
   }
   if (!request.authority.workingDirectory || !hasText(request.authority.workingDirectory.path)) {
     missingCapabilities.push("request.authority.workingDirectory");

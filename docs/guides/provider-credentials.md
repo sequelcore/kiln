@@ -65,6 +65,13 @@ multiple accounts or named workspaces. `status` and `logout` accept the same
 `--tier` and `--id` filters so operators can inspect or remove one credential
 without touching the other tier.
 
+An execution error that says all credentials were exhausted is a route-call
+diagnostic, not proof by itself that the subscription or OAuth login is empty.
+Check `kiln auth codex status` or `kiln auth opencode status --tier go|zen` for
+credential presence and cooldown. Managed-invocation diagnostics should also
+show the route provider/model and the last provider outcome so operators can
+separate real quota exhaustion from bad route/profile recovery.
+
 OpenCode has two execution namespaces:
 
 - `opencode` is the native harness provider. Its model catalog comes from
