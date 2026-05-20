@@ -73,6 +73,11 @@ define the active architecture contract. For doctrine, use
   capability, and `04` embedded browser operator surface, with `05` native
   cockpit projection performance still deferred.
 
+- `15-background-parallel-agent-surface.md`
+  External and local-repository research on foreground subagents, background
+  children, parallel worktree/session isolation, timeout recovery, and the
+  future Kiln nonblocking managed-agent lifecycle.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -96,3 +101,4 @@ define the active architecture contract. For doctrine, use
 12. `12-agent-tooling-next-surface.md`
 13. `13-work-governance-and-verification.md`
 14. `14-live-browser-operator-surface.md`
+15. `15-background-parallel-agent-surface.md`

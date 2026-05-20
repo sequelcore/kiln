@@ -106,6 +106,13 @@ invocation record, canonical session events, and managed tool metadata. Later
 provider health checks, model catalog changes, projection changes, or route
 configuration edits must not rewrite what the invocation was admitted to use.
 
+Long-running operator surfaces maintain a live route catalog before admission.
+GUI and TUI staged catalogs must refresh provider model discovery and re-read
+current global config instead of holding the process-start route objects
+forever. This refresh may update future route availability, network/tool
+authority, model selection, and agent route hints, but it never mutates an
+already admitted capability snapshot.
+
 The snapshot is intentionally normalized rather than provider-native. It records:
 
 - route id and admitted route-health reason
@@ -144,6 +151,15 @@ Every authority profile includes:
 - credential route: runtime-selected route ID or credentialless declaration
 - memory scope: project/domain scope plus read-only or proposal access
 - optional write authority: workspace, memory, artifact, and tool write scopes
+
+The network flag is explicit route authority, and today it is admitted only for
+read-only profiles. Web, browser, computer-use, and image retrieval phases must
+run through `foundation-readonly-plan` routes with `networkAllowed: true`.
+Write-capable profiles fail closed when `networkAllowed` is true unless a future
+ADR introduces a separate combined write+network authority profile with its own
+proof obligations. This keeps visual research and file mutation as separate
+auditable phases instead of giving one child both internet/browser and write
+authority by accident.
 
 ## Write Authority
 
@@ -257,8 +273,27 @@ because a parent turn can be executable while every configured managed-agent
 child route remains read-only.
 Direct-provider timeout diagnostics are replayable even when the child runtime
 does not complete. The terminal timeout handoff records the timeout budget,
-child session id, and child turn id, and explicitly states when partial child
-trace is unavailable from the direct-provider adapter.
+child session id, child turn id, transcript resource, and timeout diagnostic
+resource. It must not claim that all trace evidence is unavailable while also
+returning a transcript pointer; instead it distinguishes missing completed child
+handoff from replayable timeout evidence.
+When the timed-out or failed child was executing an intermediate
+`executionPhase` whose `completionTool` is `work_item.update`, the
+`managed_agent.invoke` result must also carry `managedInvocationRecovery`.
+That recovery envelope is the authoritative parent contract: collect the
+missing evidence locally or through a retry route, call `work_item.update` with
+the supplied template after replacing placeholders with real evidence, then
+call `work_item.execution.start` again. A parent must not treat timeout prose,
+local inspection, or a plan submission as recovery unless a later
+`work_item.update` records the required phase evidence.
+When the child completes the same intermediate phase successfully, the
+`managed_agent.invoke` result must not collapse to a generic success string.
+It must return a structured phase-completion envelope with the managed
+`resultHandoff`, readable `sourceResourceUris`, the next governed tool
+`work_item.update`, a complete `workItemUpdateInputTemplate`, and the follow-up
+`work_item.execution.start` call. A completed child handoff is still not a
+recorded work-governance phase until the parent records the phase evidence on
+the same work item.
 
 CLI configuration resolves direct-provider managed routes through the same
 provider adapter factory used by native Kiln sessions. A direct route becomes
@@ -338,6 +373,12 @@ a configured `routeId`, attached runtime surfaces hydrate the effective
 `providerRoute` from the route catalog before calling `managed_agent.invoke`.
 That request must not be reported as missing `providerRoute.providerId`; the
 route id is the credential/provider ownership handle in that flow.
+If a paused request also carries a stale or caller-supplied profile hint that is
+not supported by the selected route, the exact `routeId` remains the stronger
+identity signal. A single-profile route may replace the incompatible hint with
+its configured profile and normalize `read_only` authority to audited authority
+for write-capable routes. Multi-profile routes still fail closed when the route
+cannot determine the intended authority profile.
 
 The model-facing `managed_agent.invoke` schema is narrowed from the admitted
 route and agent catalogs. `agentProfile` is limited to configured profile ids
@@ -346,6 +387,13 @@ skills are configured. Parent assistants may choose a configured child profile
 without the operator naming one, but they must not invent profiles or skills.
 If no configured profile matches a one-off read-only task, the parent omits
 `agentProfile` and invokes a generic governed child.
+Paused work-governance requests are authoritative tool input, not examples for
+the parent to rewrite. A parent must call `managed_agent.invoke` with the exact
+`managedInvocationRequest` returned by `work_item.execution.start`; if
+`agentProfile` is absent, it stays absent. Attached runtime surfaces may add an
+agent profile only when exactly one configured profile has an explicit route
+hint matching the request route. That preserves fail-closed profile admission
+while avoiding model-side guessing for route-owned intermediate phases.
 The resolved agent catalog may include a route hint inferred from explicit
 agent config or from route suitability and agent tier. Fast profiles such as
 `scout` should bind to bounded read-only routes, for example a Mini or free
@@ -448,17 +496,40 @@ invocation metadata so downstream surfaces can show that the child was
 attempted and no parent attempt was started. The parent session turn is also
 recorded with failed outcome, which prevents GUI, TUI, CLI, and replay surfaces
 from treating a delegation timeout or route failure as a completed assistant
-turn.
+turn. Intermediate evidence phases are not auto-started by
+`work_item.execution.start`; the pause envelope keeps the hydrated
+`managed_agent.invoke` request visible so the parent explicitly starts the child
+and owns any timeout or local recovery decision. This expected pause is a
+successful actionable handoff, not a tool error; true route, provider, child, or
+recovery failures still return failed metadata. Before exposing the paused
+request, attached runtime surfaces verify that the selected route can provide
+the phase `requiredToolNames`. If the requested phase route lacks required
+tools and exactly one compatible read-only route exists, the request is repaired
+with structured `managedInvocationRouteRepair` metadata; otherwise the runtime
+fails closed rather than handing the parent an impossible child request. If a
+managed child failure later returns recovery guidance, the envelope includes a complete
+`workItemUpdateInputTemplate`, including the required work item summary,
+evidence-to-record, and phase-specific verification gate placeholders. Parent
+agents must execute that tool call only after local recovery evidence is
+actually collected; prose that describes the template is not recovery.
+The same fail-closed rule applies to successful intermediate children. A
+`managed_agent.invoke` result carrying `managedInvocationPhaseCompletion` or
+`phaseCompletion` is unresolved until a later successful `work_item.update`
+records every required evidence label on the same work item. Printing the
+template, `providedEvidence`, or `verificationGateResults` as assistant text is
+not a tool call and must not be treated as phase completion.
 
 Assistant egress text must not expose provider-internal tool-call markup. If a
 direct provider returns raw assistant tool syntax such as `<assistant to=...>`
-plus JSON arguments in normal text, the runtime strips that markup before
-persisting `assistant_message` events or returning text to GUI, TUI, CLI, SDK,
-or replay consumers. Canonical tool results and transcript resources remain the
-evidence plane for tool activity. The same egress boundary strips short leading
-scratchpad-style prefixes that expose internal planning notes instead of
-operator-facing content; reasoning traces and scratch work must remain internal
-provider state, while canonical events carry replayable evidence.
+or bare targets such as `to=functions.web_fetch` plus JSON arguments in normal
+text, the runtime strips that markup before persisting `assistant_message`
+events or returning text to GUI, TUI, CLI, SDK, or replay consumers. Canonical
+tool results and transcript resources remain the evidence plane for tool
+activity. The same egress boundary strips short leading scratchpad-style
+prefixes that expose internal planning notes instead of operator-facing
+content and leading `work_item.update` JSON payloads that a model accidentally
+emits as prose; reasoning traces and scratch work must remain internal provider
+state, while canonical events carry replayable evidence.
 
 `managed_agent.invoke` tool results also emit a validated presentation intent
 for operator-facing route evidence. The first supported intent is a

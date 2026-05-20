@@ -17,13 +17,19 @@ export function deriveGovernedTurnOutcome(input: {
 export function deriveGovernedTurnOutcomeFromToolRecords(
   toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
 ): SessionTurnOutcome | undefined {
-  if ((toolExecutions ?? []).some(isManagedInvocationBlockingExecutionFailure)) {
+  if (hasUnresolvedManagedInvocationBlockingExecutionFailure(toolExecutions)) {
+    return "failed";
+  }
+  if (hasUnrecordedManagedInvocationPhaseCompletion(toolExecutions)) {
     return "failed";
   }
   if (hasUnmaterializedOrchestrationRecommendation(toolExecutions)) {
     return "failed";
   }
   if (hasCurrentPendingPauseRequirement(toolExecutions)) {
+    return "failed";
+  }
+  if (hasUnrecordedVisualReferenceObligation(toolExecutions)) {
     return "failed";
   }
   if (hasOpenGovernedWorkWithoutCloseout(toolExecutions)) {
@@ -36,6 +42,91 @@ export function deriveGovernedTurnOutcomeFromToolRecords(
     .filter((execution) => isWorkGovernanceToolName(execution.toolName))
     .at(-1);
   return latestGovernanceExecution?.success === false ? "failed" : undefined;
+}
+
+function hasUnrecordedManagedInvocationPhaseCompletion(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
+): boolean {
+  const executions = toolExecutions ?? [];
+  return executions.some((execution, index) =>
+    isManagedInvocationPhaseCompletionPending(execution)
+    && !isManagedInvocationPhaseCompletionRecorded(execution, executions.slice(index + 1)));
+}
+
+function isManagedInvocationPhaseCompletionPending(execution: GovernedTurnOutcomeToolRecord): boolean {
+  if (execution.toolName !== "managed_agent.invoke" || !execution.success) {
+    return false;
+  }
+  const phaseCompletion = readManagedInvocationPhaseCompletion(execution);
+  return phaseCompletion?.nextTool === "work_item.update";
+}
+
+function isManagedInvocationPhaseCompletionRecorded(
+  execution: GovernedTurnOutcomeToolRecord,
+  laterExecutions: readonly GovernedTurnOutcomeToolRecord[],
+): boolean {
+  const phaseCompletion = readManagedInvocationPhaseCompletion(execution);
+  if (!phaseCompletion || phaseCompletion.nextTool !== "work_item.update") {
+    return false;
+  }
+  const workItemId = readText(phaseCompletion.workItemId);
+  const requiredEvidence = readTextArray(phaseCompletion.evidenceToRecord);
+  if (!workItemId || requiredEvidence.length === 0) {
+    return false;
+  }
+  return laterExecutions.some((candidate) => {
+    if (candidate.toolName !== "work_item.update" || !candidate.success) {
+      return false;
+    }
+    const snapshot = readWorkItemSnapshot(candidate);
+    if (!snapshot || snapshot.id !== workItemId) {
+      return false;
+    }
+    const providedEvidence = readTextArray(snapshot.item.providedEvidence);
+    return requiredEvidence.every((evidence) => providedEvidence.includes(evidence));
+  });
+}
+
+function readManagedInvocationPhaseCompletion(
+  execution: GovernedTurnOutcomeToolRecord,
+): Record<string, unknown> | undefined {
+  return readRecord(execution.metadata?.managedInvocationPhaseCompletion)
+    ?? readRecord(parseJsonRecord(execution.output)?.phaseCompletion);
+}
+
+function hasUnresolvedManagedInvocationBlockingExecutionFailure(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
+): boolean {
+  const executions = toolExecutions ?? [];
+  return executions.some((execution, index) =>
+    isManagedInvocationBlockingExecutionFailure(execution)
+    && !isManagedInvocationFailureRecovered(execution, executions.slice(index + 1)));
+}
+
+function isManagedInvocationFailureRecovered(
+  execution: GovernedTurnOutcomeToolRecord,
+  laterExecutions: readonly GovernedTurnOutcomeToolRecord[],
+): boolean {
+  const recovery = readRecord(execution.metadata?.managedInvocationRecovery);
+  if (!recovery || recovery.nextTool !== "work_item.update") {
+    return false;
+  }
+  const workItemId = readText(recovery.workItemId);
+  const requiredEvidence = readTextArray(recovery.evidenceToRecord);
+  if (!workItemId || requiredEvidence.length === 0) {
+    return false;
+  }
+  return laterExecutions.some((candidate) => {
+    if (candidate.toolName !== "work_item.update" || !candidate.success) {
+      return false;
+    }
+    const snapshot = readWorkItemSnapshot(candidate);
+    if (!snapshot || snapshot.id !== workItemId) {
+      return false;
+    }
+    const providedEvidence = readTextArray(snapshot.item.providedEvidence);
+    return requiredEvidence.every((evidence) => providedEvidence.includes(evidence));
+  });
 }
 
 function hasUnmaterializedOrchestrationRecommendation(
@@ -102,6 +193,33 @@ function hasCurrentPendingPauseRequirement(
   return false;
 }
 
+function hasUnrecordedVisualReferenceObligation(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
+): boolean {
+  const unresolvedVisualWorkItems = new Set<string>();
+  const observedVisualObligations = new Set<string>();
+
+  for (const execution of toolExecutions ?? []) {
+    const snapshot = readWorkItemSnapshot(execution);
+    if (snapshot) {
+      if (workItemHasProvidedEvidence(snapshot.item, "visual-reference-research")) {
+        unresolvedVisualWorkItems.delete(snapshot.id);
+        observedVisualObligations.delete(snapshot.id);
+      } else if (workItemExpectsEvidence(snapshot.item, "visual-reference-research") && workItemIsOpen(snapshot.item)) {
+        unresolvedVisualWorkItems.add(snapshot.id);
+      }
+    }
+
+    if (isSuccessfulVisualReferenceResearchTool(execution) || isSuccessfulPlanSubmission(execution)) {
+      for (const workItemId of unresolvedVisualWorkItems) {
+        observedVisualObligations.add(workItemId);
+      }
+    }
+  }
+
+  return observedVisualObligations.size > 0;
+}
+
 function hasOpenGovernedWorkWithoutCloseout(
   toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
 ): boolean {
@@ -132,6 +250,30 @@ function hasOpenGovernedWorkWithoutCloseout(
 function workItemIsOpen(item: Record<string, unknown>): boolean {
   const status = item.status;
   return status === "pending" || status === "in_progress" || status === "blocked";
+}
+
+function workItemExpectsEvidence(item: Record<string, unknown>, evidence: string): boolean {
+  return readTextArray(item.expectedEvidence).includes(evidence);
+}
+
+function workItemHasProvidedEvidence(item: Record<string, unknown>, evidence: string): boolean {
+  return readTextArray(item.providedEvidence).includes(evidence);
+}
+
+function isSuccessfulVisualReferenceResearchTool(execution: GovernedTurnOutcomeToolRecord): boolean {
+  if (!execution.success) {
+    return false;
+  }
+  return execution.toolName === "browser_session_start"
+    || execution.toolName === "browser_navigate"
+    || execution.toolName === "browser_observe"
+    || execution.toolName === "web_search"
+    || execution.toolName === "web_fetch"
+    || execution.toolName === "web_extract";
+}
+
+function isSuccessfulPlanSubmission(execution: GovernedTurnOutcomeToolRecord): boolean {
+  return execution.toolName === "submit_plan" && execution.success;
 }
 
 function isSuccessfulGovernedWorkCloseout(execution: GovernedTurnOutcomeToolRecord): boolean {
@@ -224,6 +366,16 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function readText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readTextArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.map(readText).filter((item): item is string => item !== undefined)
+    : [];
 }
 
 function workItemHasPendingPauseRequirement(item: Record<string, unknown>): boolean {

@@ -114,6 +114,49 @@ function makeAdapter(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): Ma
   };
 }
 
+function makeTimedOutAdapter(): ManagedAgentRuntimeAdapter {
+  return {
+    descriptor: makeDescriptor(),
+    invoke: vi.fn(async ({ request, admission }: {
+      readonly request: ManagedAgentInvocationRequest;
+      readonly admission: {
+        readonly capabilitySnapshot: ReturnType<typeof buildManagedAgentCapabilitySnapshot>;
+      };
+    }) =>
+      defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "timed-out",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        diagnostics: [{
+          uri: `kiln://managed-invocations/${request.invocationId}/timeout`,
+          kind: "timeout",
+        }],
+        resultHandoff: {
+          summary: "Direct child timed out before handoff.",
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/timeout`],
+          memoryWriteProposalUris: [],
+        },
+      })),
+  };
+}
+
 function makeSurface(
   adapter = makeAdapter(),
   sessionEventSink?: ManagedInvocationSessionEventSink,
@@ -565,6 +608,164 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
+  it("returns phase recovery instructions when an explicit intermediate managed child times out", async () => {
+    const surface = makeSurface(makeTimedOutAdapter());
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-timeout",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Collect visual reference research before UI implementation.",
+      summary: "Collect visual reference research before UI implementation.",
+      workItemId: "work-ui",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["read"],
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+        instruction: "Record only this phase evidence before requesting the next phase.",
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly managedInvocationRecovery?: Record<string, unknown>;
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly recovery?: {
+        readonly nextTool?: string;
+        readonly workItemId?: string;
+        readonly evidenceToRecord?: readonly string[];
+        readonly thenTool?: string;
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata.status).toBe("timed-out");
+    expect(result.metadata.managedInvocationRecovery).toMatchObject({
+      nextTool: "work_item.update",
+      workItemId: "work-ui",
+      evidenceToRecord: ["visual-reference-research"],
+      thenTool: "work_item.execution.start",
+    });
+    expect(output).toMatchObject({
+      status: "timed-out",
+      recovery: {
+        nextTool: "work_item.update",
+        workItemId: "work-ui",
+        evidenceToRecord: ["visual-reference-research"],
+        thenTool: "work_item.execution.start",
+      },
+    });
+  });
+
+  it("returns a phase completion handoff when an explicit intermediate managed child succeeds", async () => {
+    const surface = makeSurface(makeAdapter());
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-phase-complete",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Collect visual reference research before UI implementation.",
+      summary: "Collect visual reference research before UI implementation.",
+      workItemId: "work-ui",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["read"],
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+        instruction: "Record only this phase evidence before requesting the next phase.",
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly managedInvocationPhaseCompletion?: Record<string, unknown>;
+        readonly presentationIntent?: {
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly resultHandoff?: {
+        readonly summary?: string;
+        readonly resourceUris?: readonly string[];
+      };
+      readonly phaseCompletion?: {
+        readonly nextTool?: string;
+        readonly workItemId?: string;
+        readonly evidenceToRecord?: readonly string[];
+        readonly sourceResourceUris?: readonly string[];
+        readonly workItemUpdateInputTemplate?: Record<string, unknown>;
+        readonly thenTool?: string;
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(output).toMatchObject({
+      status: "completed",
+      resultHandoff: {
+        summary: "Child review completed.",
+      },
+      phaseCompletion: {
+        nextTool: "work_item.update",
+        workItemId: "work-ui",
+        evidenceToRecord: ["visual-reference-research"],
+        sourceResourceUris: [expect.stringContaining("kiln://managed-invocations/")],
+        workItemUpdateInputTemplate: {
+          id: "work-ui",
+          summary: "Collect visual reference research before UI implementation.",
+          providedEvidence: ["visual-reference-research"],
+        },
+        thenTool: "work_item.execution.start",
+      },
+    });
+    expect(result.metadata.managedInvocationPhaseCompletion).toMatchObject({
+      status: "phase_completed_by_child",
+      nextTool: "work_item.update",
+      workItemId: "work-ui",
+      evidenceToRecord: ["visual-reference-research"],
+      sourceResourceUris: [expect.stringContaining("kiln://managed-invocations/")],
+    });
+  });
+
   it("fails closed before approval when destructive authority selects a read-only profile", async () => {
     const adapter = makeAdapter();
     const surface = makeSurface(adapter);
@@ -602,6 +803,126 @@ describe("managed invocation runtime tool", () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain("destructive requested authority cannot select read-only managed profile");
     expect(requestApproval).not.toHaveBeenCalled();
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before invocation when the selected route lacks required phase tools", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Collect visual-reference-research.",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["web_search", "browser_observe"],
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly missingRequiredTools?: readonly string[];
+        readonly presentationIntent?: {
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("lacks required tools: web_search, browser_observe");
+    expect(result.metadata.missingRequiredTools).toEqual(["web_search", "browser_observe"]);
+    expect(result.metadata.presentationIntent?.rows?.[0]).toMatchObject({
+      status: "unavailable",
+      substantiveEvidence: false,
+      failureReason: "Missing required route tools: web_search, browser_observe",
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before invocation when visual phase tools are present without network authority", async () => {
+    const adapter = makeAdapter();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly-visual-without-network",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly-visual-without-network",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read", "web_search", "browser_observe"],
+              networkAllowed: false,
+              workingDirectory: {
+                path: "C:/workspace/kiln",
+                mode: "read-only",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Collect visual-reference-research.",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["web_search", "browser_observe"],
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly missingRequiredCapabilities?: readonly string[];
+        readonly presentationIntent?: {
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("lacks required capabilities: network");
+    expect(result.metadata.missingRequiredCapabilities).toEqual(["network"]);
+    expect(result.metadata.presentationIntent?.rows?.[0]).toMatchObject({
+      status: "unavailable",
+      substantiveEvidence: false,
+      failureReason: "Missing required route capabilities: network",
+    });
     expect(adapter.invoke).not.toHaveBeenCalled();
   });
 

@@ -8,6 +8,7 @@ import type {
   ToolDefinition,
 } from "@kilnai/core";
 import {
+  AllCredentialsExhaustedError,
   createSessionBuiltinToolOptions,
   defineManagedAgentInvocationRequest,
   textParts,
@@ -354,11 +355,49 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       throw new Error("expected completed");
     }
     expect(result.record.lifecycleState).toBe("failed");
-    expect(result.record.resultHandoff?.summary).toContain("Direct provider managed invocation failed.");
+    expect(result.record.resultHandoff?.summary).toContain("Direct provider managed invocation failed for provider openai, model gpt-test.");
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-invocations/inv-direct-1/failure",
       kind: "failure",
     }]);
+  });
+
+  it("records credential pool exhaustion with provider, model, and last outcome details", async () => {
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn(async () => {
+        throw new AllCredentialsExhaustedError(
+          new Error("model endpoint returned 429"),
+          { type: "rate-limited", resetAt: Date.parse("2026-05-19T23:30:00.000Z") },
+        );
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "codex-oauth",
+      model: "gpt-5.4-mini",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+    });
+
+    const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+      providerRoute: {
+        providerId: "codex-oauth",
+        surface: "direct-provider",
+        model: "gpt-5.4-mini",
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.resultHandoff?.summary).toContain("provider codex-oauth");
+    expect(result.record.resultHandoff?.summary).toContain("model gpt-5.4-mini");
+    expect(result.record.resultHandoff?.summary).toContain("last outcome rate-limited until 2026-05-19T23:30:00.000Z");
+    expect(result.record.resultHandoff?.summary).toContain("last error model endpoint returned 429");
   });
 
   it("returns a timed-out invocation record when the child runtime exceeds authority timeout", async () => {
@@ -391,9 +430,14 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       uri: "kiln://managed-invocations/inv-direct-1/timeout",
       kind: "timeout",
     }]);
+    expect(result.record.resultHandoff?.resourceUris).toEqual([
+      "kiln://managed-invocations/inv-direct-1/transcript",
+      "kiln://managed-invocations/inv-direct-1/timeout",
+    ]);
     expect(result.record.resultHandoff?.summary).toContain("timed out after 1ms");
     expect(result.record.resultHandoff?.summary).toContain(result.record.childSessionId);
-    expect(result.record.resultHandoff?.summary).toContain("partial child trace is unavailable");
+    expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
+    expect(result.record.resultHandoff?.summary).toContain("Inspect the transcript and timeout diagnostic resources");
   });
 
   it("integrates through managed_agent.invoke with Kiln builtin tools and returns only bounded handoff", async () => {

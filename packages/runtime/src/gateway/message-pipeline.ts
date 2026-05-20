@@ -126,17 +126,19 @@ function sanitizeAssistantEgressParts(parts: readonly ContentPart[]): readonly C
 
 function sanitizeAssistantEgressText(text: string): string {
   const withoutToolCallMarkup = stripLeakedProviderToolCallMarkup(text);
-  return stripLeakedInternalScratchpadPrefix(withoutToolCallMarkup);
+  const withoutWorkItemPayload = stripLeakedWorkItemUpdatePayloadPrefix(withoutToolCallMarkup);
+  return stripLeakedInternalScratchpadPrefix(withoutWorkItemPayload);
 }
 
 function stripLeakedProviderToolCallMarkup(text: string): string {
-  const firstLeakedToolCall = text.search(/<assistant\s+to=[^>]+>/i);
+  const firstLeakedToolCall = text.search(/<assistant\s+to=[^>]+>|to=functions\.[A-Za-z0-9_.-]+/i);
   if (firstLeakedToolCall < 0) {
     return text;
   }
   return text
     .slice(firstLeakedToolCall)
     .replace(/<assistant\s+to=[^>]+>\s*(?:\{[^{}]*\}\s*)*/gi, "")
+    .replace(/^\s*to=functions\.[A-Za-z0-9_.-]+\s*(?:\{[^{}]*\}\s*)*/i, "")
     .trimStart();
 }
 
@@ -144,6 +146,67 @@ function stripLeakedInternalScratchpadPrefix(text: string): string {
   return text
     .replace(/^(?:\s*Need\b[^.!?\n]{1,180}[.!?]\s*)+(?=(?:I['’]ll|I will|Current status:))/i, "")
     .trimStart();
+}
+
+function stripLeakedWorkItemUpdatePayloadPrefix(text: string): string {
+  const trimmedStart = text.trimStart();
+  if (!trimmedStart.startsWith("{")) {
+    return text;
+  }
+  const leadingJson = readLeadingJsonObject(trimmedStart);
+  if (!leadingJson || !looksLikeWorkItemUpdatePayload(leadingJson.value)) {
+    return text;
+  }
+  return trimmedStart.slice(leadingJson.endIndex).trimStart();
+}
+
+function readLeadingJsonObject(text: string): { readonly value: Record<string, unknown>; readonly endIndex: number } | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char !== "}") {
+      continue;
+    }
+    depth -= 1;
+    if (depth !== 0) {
+      continue;
+    }
+    try {
+      const value = JSON.parse(text.slice(0, index + 1)) as unknown;
+      return value && typeof value === "object" && !Array.isArray(value)
+        ? { value: value as Record<string, unknown>, endIndex: index + 1 }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function looksLikeWorkItemUpdatePayload(value: Record<string, unknown>): boolean {
+  return typeof value.id === "string"
+    && Array.isArray(value.providedEvidence)
+    && Array.isArray(value.verificationGateResults);
 }
 
 interface EgressPermissionRequest {

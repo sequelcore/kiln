@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "@kilnai/core";
 import {
+  AllCredentialsExhaustedError,
   DefaultContextGovernor,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
@@ -151,7 +152,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         usage: unknownRuntimeUsage(),
         resultHandoff: {
           summary: timeoutSummary,
-          resourceUris: [managedInvocationUri(request.invocationId, "timeout")],
+          resourceUris: [
+            managedInvocationUri(request.invocationId, "transcript"),
+            managedInvocationUri(request.invocationId, "timeout"),
+          ],
           memoryWriteProposalUris: [],
         },
       });
@@ -245,7 +249,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         }],
         usage: unknownRuntimeUsage(),
         resultHandoff: {
-          summary: `Direct provider managed invocation failed. ${err instanceof Error ? err.message : String(err)}`,
+          summary: formatDirectProviderFailure(err, request.providerRoute),
           resourceUris: [managedInvocationUri(request.invocationId, "failure")],
           memoryWriteProposalUris: [],
         },
@@ -455,8 +459,66 @@ function formatTimeoutSummary(input: {
     `Direct provider managed invocation timed out after ${input.timeoutMs}ms.`,
     `Child session: ${input.childSessionId}.`,
     `Child turn: ${input.childTurnId}.`,
-    "The parent invocation returned at the timeout boundary; partial child trace is unavailable from the direct provider adapter.",
+    "No completed child handoff was produced before timeout.",
+    "Inspect the transcript and timeout diagnostic resources for replayable route, authority, context, and terminal-state evidence.",
   ].join(" ");
+}
+
+function formatDirectProviderFailure(
+  error: unknown,
+  providerRoute: ManagedAgentInvocationRequest["providerRoute"],
+): string {
+  const route = [
+    `provider ${providerRoute.providerId}`,
+    providerRoute.model ? `model ${providerRoute.model}` : undefined,
+    providerRoute.reasoningEffort ? `reasoning ${providerRoute.reasoningEffort}` : undefined,
+  ].filter((part): part is string => part !== undefined).join(", ");
+  return `Direct provider managed invocation failed for ${route}. ${formatManagedProviderError(error)}`;
+}
+
+function formatManagedProviderError(error: unknown): string {
+  if (error instanceof AllCredentialsExhaustedError) {
+    const details = [
+      formatCredentialOutcome(error.lastOutcome),
+      formatCredentialCause(error.cause),
+    ].filter((detail): detail is string => detail !== undefined);
+    return details.length > 0
+      ? `${error.message}: ${details.join("; ")}`
+      : error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function formatCredentialOutcome(outcome: AllCredentialsExhaustedError["lastOutcome"]): string | undefined {
+  if (!outcome) {
+    return undefined;
+  }
+  switch (outcome.type) {
+    case "rate-limited":
+      return outcome.resetAt
+        ? `last outcome rate-limited until ${new Date(outcome.resetAt).toISOString()}`
+        : "last outcome rate-limited";
+    case "quota-exceeded":
+      return "last outcome quota-exceeded";
+    case "auth-failed":
+      return "last outcome auth-failed";
+    case "connection-failed":
+      return "last outcome connection-failed";
+    case "unknown-error":
+      return outcome.message ? `last outcome unknown-error ${outcome.message}` : "last outcome unknown-error";
+    case "ok":
+      return "last outcome ok";
+  }
+}
+
+function formatCredentialCause(cause: unknown): string | undefined {
+  if (!cause) {
+    return undefined;
+  }
+  if (cause instanceof Error) {
+    return `last error ${cause.message}`;
+  }
+  return `last error ${String(cause)}`;
 }
 
 function sleep(timeoutMs: number): Promise<void> {

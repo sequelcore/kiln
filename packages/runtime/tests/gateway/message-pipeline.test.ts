@@ -3017,6 +3017,71 @@ describe("processAdmittedTurn", () => {
     });
   });
 
+  it("removes bare provider tool-call targets from assistant egress text", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts([
+        "Need inspect fetched maybe resource inaccessible? use web_fetch raw?",
+        "to=functions.web_fetch ",
+        "I’m blocked by the tool-call interface in this turn before I can continue the governed workflow correctly.",
+      ].join("")),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(extractText(result.result.parts)).not.toContain("to=functions.web_fetch");
+      expect(extractText(result.result.parts)).not.toContain("Need inspect fetched");
+      expect(extractText(result.result.parts)).toContain("I’m blocked by the tool-call interface");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.not.stringContaining("to=functions.web_fetch"),
+    });
+  });
+
+  it("removes leaked work_item.update payloads from assistant egress text", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts([
+        "{\"id\":\"work-1\",\"providedEvidence\":[\"visual-reference-research\"],\"verificationGateResults\":[{\"gate\":\"visual-reference-research\",\"status\":\"passed\"}]}",
+        "Started governed work for the GUI/UX refactor.\n\nCurrent status:\n- Created governed work item: `work-1`",
+      ].join("")),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(extractText(result.result.parts)).not.toContain("\"providedEvidence\"");
+      expect(extractText(result.result.parts)).not.toContain("\"verificationGateResults\"");
+      expect(extractText(result.result.parts)).toContain("Started governed work for the GUI/UX refactor.");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.not.stringContaining("\"providedEvidence\""),
+    });
+  });
+
   it("removes leaked internal scratchpad prefixes from assistant egress text", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();

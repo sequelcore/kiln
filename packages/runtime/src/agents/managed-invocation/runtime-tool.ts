@@ -26,6 +26,10 @@ import type {
 import { RuntimeManagedAgentInvocationService } from "./index.js";
 import type { ManagedAgentRuntimeAdapter } from "./index.js";
 import { appendManagedInvocationSessionEvents } from "./session-events.js";
+import {
+  buildManagedInvocationPhaseCompletion,
+  buildManagedInvocationPhaseRecovery,
+} from "./phase-recovery.js";
 
 export const MANAGED_AGENT_INVOKE_TOOL_NAME = "managed_agent.invoke";
 
@@ -142,9 +146,11 @@ interface ManagedInvocationToolInput {
   readonly workItemId?: string;
   readonly roleIntent?: string;
   readonly expectedEvidence?: readonly string[];
+  readonly requiredToolNames?: readonly string[];
   readonly requiredResultFields?: readonly string[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
+  readonly executionPhase?: Record<string, unknown>;
 }
 
 interface ManagedInvocationToolResult {
@@ -235,6 +241,11 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         items: { type: "string" },
         description: "Optional evidence the child is expected to produce or explicitly mark as unavailable.",
       },
+      requiredToolNames: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional exact tool names the selected route must allow before execution starts. The runtime fails closed when the route lacks any required tool.",
+      },
       requiredResultFields: {
         type: "array",
         items: { type: "string" },
@@ -248,6 +259,49 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       residualRiskRequired: {
         type: "boolean",
         description: "True when the child handoff must include explicit residual risk.",
+      },
+      executionPhase: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description: "Optional governed execution phase id, such as visual-reference-research.",
+          },
+          expectedEvidence: {
+            type: "array",
+            items: { type: "string" },
+            description: "Evidence this child phase must produce before the parent can advance.",
+          },
+          requiredToolNames: {
+            type: "array",
+            items: { type: "string" },
+            description: "Tool names required for this child phase.",
+          },
+          remainingEvidenceAfterPhase: {
+            type: "array",
+            items: { type: "string" },
+            description: "Evidence still expected after this phase completes.",
+          },
+          completionTool: {
+            type: "string",
+            enum: ["work_item.update", "work_item.execution.finish"],
+            description: "Governance tool that must record this phase result.",
+          },
+          finalPhase: {
+            type: "boolean",
+            description: "True when this child phase is the final execution phase.",
+          },
+          autoStartAllowed: {
+            type: "boolean",
+            description: "False when the parent must explicitly invoke the child before continuing.",
+          },
+          instruction: {
+            type: "string",
+            description: "Phase-specific instruction for recording evidence and follow-up.",
+          },
+        },
+        additionalProperties: false,
+        description: "Optional governed execution phase contract returned by work_item.execution.start. Pass it through unchanged when invoking the managed child.",
       },
     },
     required: ["profile", "providerRoute", "task"],
@@ -458,6 +512,57 @@ async function executeManagedInvocationTool(
   if (!profileDefaults) {
     return errorResult(`Managed invocation route '${route.routeId}' does not allow profile '${parsed.input.profile}'.`);
   }
+  const missingRequiredTools = missingManagedInvocationRequiredTools(
+    parsed.input.requiredToolNames ?? [],
+    profileDefaults.allowedToolNames,
+  );
+  if (missingRequiredTools.length > 0) {
+    return errorResult(
+      `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required tools: ${missingRequiredTools.join(", ")}.`,
+      {
+        routeId: route.routeId,
+        profile: parsed.input.profile,
+        missingRequiredTools,
+        requiredToolNames: parsed.input.requiredToolNames ?? [],
+        allowedToolNames: profileDefaults.allowedToolNames,
+        presentationIntent: buildManagedInvocationPresentationIntent({
+          routeId: route.routeId,
+          profile: parsed.input.profile,
+          providerId: route.providerId,
+          model: route.model,
+          contextMode: parsed.input.contextMode,
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: `Missing required route tools: ${missingRequiredTools.join(", ")}`,
+        }),
+      },
+    );
+  }
+  const missingRequiredCapabilities = missingManagedInvocationRequiredCapabilities(
+    parsed.input.requiredToolNames ?? [],
+    profileDefaults,
+  );
+  if (missingRequiredCapabilities.length > 0) {
+    return errorResult(
+      `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required capabilities: ${missingRequiredCapabilities.join(", ")}.`,
+      {
+        routeId: route.routeId,
+        profile: parsed.input.profile,
+        missingRequiredCapabilities,
+        requiredToolNames: parsed.input.requiredToolNames ?? [],
+        presentationIntent: buildManagedInvocationPresentationIntent({
+          routeId: route.routeId,
+          profile: parsed.input.profile,
+          providerId: route.providerId,
+          model: route.model,
+          contextMode: parsed.input.contextMode,
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: `Missing required route capabilities: ${missingRequiredCapabilities.join(", ")}`,
+        }),
+      },
+    );
+  }
   const requestedAuthority = resolveManagedInvocationRequestedAuthority(
     parsed.input.requestedAuthority,
     context.effectiveTurnAuthority?.requestedAuthority,
@@ -624,8 +729,23 @@ async function executeManagedInvocationTool(
 
   const summary = result.record.resultHandoff?.summary ?? `Managed invocation ${result.record.lifecycleState}.`;
   const terminalError = result.record.lifecycleState !== "completed";
+  const recovery = terminalError
+    ? buildManagedInvocationPhaseRecovery(rawInput)
+    : undefined;
+  const phaseCompletion = terminalError
+    ? undefined
+    : buildManagedInvocationPhaseCompletion(rawInput, result.record.resultHandoff);
   return {
-    output: summary,
+    output: recovery || phaseCompletion
+      ? JSON.stringify({
+          status: result.record.lifecycleState,
+          summary,
+          ...(result.record.resultHandoff ? { resultHandoff: result.record.resultHandoff } : {}),
+          ...(result.record.transcript ? { transcript: result.record.transcript } : {}),
+          ...(recovery ? { recovery } : {}),
+          ...(phaseCompletion ? { phaseCompletion } : {}),
+        }, null, 2)
+      : summary,
     isError: terminalError,
     metadata: {
       toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -647,6 +767,9 @@ async function executeManagedInvocationTool(
       childTurnId: result.record.childTurnId,
       resultHandoff: result.record.resultHandoff,
       transcript: result.record.transcript,
+      ...(result.record.diagnostics ? { diagnostics: result.record.diagnostics } : {}),
+      ...(recovery ? { managedInvocationRecovery: recovery } : {}),
+      ...(phaseCompletion ? { managedInvocationPhaseCompletion: phaseCompletion } : {}),
       sessionEventIds: events.map((event) => event.eventId),
       presentationIntent: buildManagedInvocationPresentationIntent({
         routeId: route.routeId,
@@ -655,7 +778,7 @@ async function executeManagedInvocationTool(
         model: result.record.providerRoute.model,
         contextMode: parsed.input.contextMode,
         status: result.record.lifecycleState,
-        substantiveEvidence: Boolean(result.record.resultHandoff?.summary),
+        substantiveEvidence: hasSubstantiveManagedInvocationEvidence(result.record),
         failureReason: terminalError ? summary : undefined,
       }),
     },
@@ -705,6 +828,43 @@ function boundedPresentationText(value: string): string {
   return value.length > 500 ? `${value.slice(0, 497)}...` : value;
 }
 
+function hasSubstantiveManagedInvocationEvidence(record: ManagedAgentInvocationRecord): boolean {
+  if (record.lifecycleState !== "completed") {
+    return false;
+  }
+  const summary = record.resultHandoff?.summary.trim();
+  if (!summary || summary === "Direct provider managed invocation completed.") {
+    return false;
+  }
+  return (record.resultHandoff?.resourceUris.length ?? 0) > 0;
+}
+
+function missingManagedInvocationRequiredTools(
+  requiredToolNames: readonly string[],
+  allowedToolNames: readonly string[],
+): readonly string[] {
+  const allowed = new Set(allowedToolNames);
+  return unique(requiredToolNames).filter((toolName) => !allowed.has(toolName));
+}
+
+function missingManagedInvocationRequiredCapabilities(
+  requiredToolNames: readonly string[],
+  profileDefaults: ManagedInvocationRouteProfile,
+): readonly string[] {
+  const missing: string[] = [];
+  if (unique(requiredToolNames).some(requiresNetworkCapability) && profileDefaults.networkAllowed !== true) {
+    missing.push("network");
+  }
+  if (requiredToolNames.includes("browser_observe") && !profileDefaults.allowedToolNames.includes("browser_observe")) {
+    missing.push("browserObservation");
+  }
+  return missing;
+}
+
+function requiresNetworkCapability(toolName: string): boolean {
+  return toolName.startsWith("web_") || toolName.startsWith("browser_");
+}
+
 function resolveRoute(
   routes: readonly ManagedInvocationToolRoute[],
   input: ManagedInvocationToolInput,
@@ -723,6 +883,22 @@ function resolveRoute(
     ?? (agentProfile?.providerRoute?.providerId === input.providerRoute.providerId
       ? agentProfile.providerRoute.model
       : undefined);
+  if (hintedRouteId) {
+    const exactMatches = routes.filter((route) =>
+      route.providerId === input.providerRoute.providerId
+      && route.routeId === hintedRouteId
+      && (!hintedModel || route.model === hintedModel)
+    );
+    if (exactMatches.length === 1) {
+      return { status: "found", route: exactMatches[0]! };
+    }
+    if (exactMatches.length > 1) {
+      return {
+        status: "ambiguous",
+        reason: `Managed invocation route selection is ambiguous for route '${hintedRouteId}' and provider '${input.providerRoute.providerId}'. Matching routes: ${exactMatches.map((route) => route.routeId).join(", ")}.`,
+      };
+    }
+  }
   const matches = routes.filter((route) =>
     route.providerId === input.providerRoute.providerId
     && (!hintedRouteId || route.routeId === hintedRouteId)
@@ -1125,6 +1301,7 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
     ? unique(input.skills.map(readText).filter((skill): skill is string => skill !== undefined))
     : undefined;
   const expectedEvidence = readTextArray(input.expectedEvidence);
+  const requiredToolNames = readTextArray(input.requiredToolNames);
   const requiredResultFields = readTextArray(input.requiredResultFields);
   const doneCriteria = readTextArray(input.doneCriteria);
   const requestedAuthority = parseManagedInvocationRequestedAuthority(input.requestedAuthority);
@@ -1159,9 +1336,11 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
       ...(readText(input.workItemId) ? { workItemId: readText(input.workItemId) } : {}),
       ...(readText(input.roleIntent) ? { roleIntent: readText(input.roleIntent) } : {}),
       ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
+      ...(requiredToolNames && requiredToolNames.length > 0 ? { requiredToolNames } : {}),
       ...(requiredResultFields && requiredResultFields.length > 0 ? { requiredResultFields } : {}),
       ...(doneCriteria && doneCriteria.length > 0 ? { doneCriteria } : {}),
       ...(typeof input.residualRiskRequired === "boolean" ? { residualRiskRequired: input.residualRiskRequired } : {}),
+      ...(readRecord(input.executionPhase) ? { executionPhase: readRecord(input.executionPhase)! } : {}),
     },
   };
 }
