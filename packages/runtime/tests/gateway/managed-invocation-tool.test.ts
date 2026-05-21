@@ -136,7 +136,7 @@ function makeTimedOutAdapter(): ManagedAgentRuntimeAdapter {
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
         profile: request.profile,
-        lifecycleState: "timed-out",
+        lifecycleState: "timed_out",
         providerRoute: request.providerRoute,
         adapterKind: request.adapterKind,
         executionMode: request.executionMode,
@@ -667,7 +667,7 @@ describe("managed invocation runtime tool", () => {
     };
 
     expect(result.isError).toBe(true);
-    expect(result.metadata.status).toBe("timed-out");
+    expect(result.metadata.status).toBe("timed_out");
     expect(result.metadata.managedInvocationRecovery).toMatchObject({
       nextTool: "work_item.update",
       workItemId: "work-ui",
@@ -675,7 +675,7 @@ describe("managed invocation runtime tool", () => {
       thenTool: "work_item.execution.start",
     });
     expect(output).toMatchObject({
-      status: "timed-out",
+      status: "timed_out",
       recovery: {
         nextTool: "work_item.update",
         workItemId: "work-ui",

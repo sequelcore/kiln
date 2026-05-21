@@ -143,7 +143,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       });
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
-        lifecycleState: "timed-out",
+        lifecycleState: "timed_out",
         childSessionId,
         childTurnId,
         transcript: transcriptPointer(request.invocationId),

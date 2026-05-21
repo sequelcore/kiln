@@ -261,7 +261,7 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
       persisted: true,
       retention: "session",
     },
-    diagnostics: lifecycleState === "timed-out"
+    diagnostics: lifecycleState === "timed_out"
       ? [{ uri: "kiln://artifacts/invocation-1/timeout", kind: "timeout" }]
       : lifecycleState === "failed"
         ? [{ uri: "kiln://artifacts/invocation-1/failure", kind: "failure" }]
@@ -397,6 +397,7 @@ describe("appendManagedInvocationSessionEvents", () => {
     expect(events[2]?.parentEventId).toBe(events[1]?.eventId);
     expect(events[1]).toMatchObject({
       invocationId: request.invocationId,
+      lifecycleState: "running",
       parentSessionId: request.parentSessionId,
       profile: record.profile,
       providerRoute: record.providerRoute,
@@ -407,6 +408,7 @@ describe("appendManagedInvocationSessionEvents", () => {
     });
     expect(events[2]).toMatchObject({
       invocationId: request.invocationId,
+      lifecycleState: "completed",
       parentSessionId: request.parentSessionId,
       profile: record.profile,
       providerRoute: record.providerRoute,
@@ -441,6 +443,21 @@ describe("appendManagedInvocationSessionEvents", () => {
         resourceUris: ["kiln://artifacts/invocation-1/result"],
         memoryWriteProposalUris: ["kiln://memory/write-proposals/1"],
       },
+      lifecycle: {
+        lifecycleState: "completed",
+        invocationId: request.invocationId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        routeId: "opencode-readonly",
+        providerId: "opencode",
+        model: "sonic",
+        contextMode: "isolated",
+        authorityProfileId: "foundation-readonly",
+        transcriptUri: "kiln://artifacts/invocation-1/transcript",
+        resultSummary: "Inspection completed.",
+        diagnosticUris: [],
+        handoffResourceUris: ["kiln://artifacts/invocation-1/result"],
+      },
     });
   });
 
@@ -451,7 +468,7 @@ describe("appendManagedInvocationSessionEvents", () => {
       errorCode?: string;
     }> = [
       { lifecycleState: "cancelled", terminalKind: "agent_invocation_cancelled" },
-      { lifecycleState: "timed-out", terminalKind: "agent_invocation_failed", errorCode: "ENGINE_TIMEOUT" },
+      { lifecycleState: "timed_out", terminalKind: "agent_invocation_failed", errorCode: "ENGINE_TIMEOUT" },
       { lifecycleState: "failed", terminalKind: "agent_invocation_failed", errorCode: "ENGINE_FAILURE" },
     ];
 
@@ -479,6 +496,28 @@ describe("appendManagedInvocationSessionEvents", () => {
         expect(events[2]).toMatchObject({ reason: expect.stringContaining("cancelled") });
       }
     }
+  });
+
+  it("keeps nonterminal managed child records visible without inventing a terminal event", () => {
+    const session = makeSession("session-parent-waiting");
+    const request = makeRequest(session.id, `${session.id}:turn:1`);
+    const record = makeRecord("waiting_for_approval");
+    const events = appendManagedInvocationSessionEvents({
+      session,
+      request,
+      decision: makeDecision("admitted"),
+      record,
+      timestamp: new Date("2026-05-03T10:02:00.000Z"),
+    });
+
+    expect(events.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+    ]);
+    expect(events[1]).toMatchObject({
+      invocationId: request.invocationId,
+      lifecycleState: "waiting_for_approval",
+    });
   });
 
   it("projects admitted write authority and write evidence through canonical managed invocation events", () => {

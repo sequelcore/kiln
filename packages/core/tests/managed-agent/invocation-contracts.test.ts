@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MANAGED_AGENT_LIFECYCLE_STATES,
+  buildManagedAgentLifecycleEvidence,
   defineManagedAgentInvocationRequest,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
@@ -95,6 +97,25 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
 }
 
 describe("managed agent invocation contracts", () => {
+  it("defines the canonical background-child lifecycle vocabulary without admission-only states", () => {
+    expect(MANAGED_AGENT_LIFECYCLE_STATES).toEqual([
+      "pending",
+      "starting",
+      "running",
+      "waiting_for_approval",
+      "completed",
+      "failed",
+      "timed_out",
+      "cancelled",
+      "stale",
+      "recovered",
+    ]);
+    expect(() => defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      lifecycleState: "timed-out" as ManagedAgentInvocationRecord["lifecycleState"],
+    })).toThrow("Unsupported managed invocation lifecycle state: timed-out");
+  });
+
   it("defines the foundation request with explicit route, authority, credential, memory, timeout, and lineage", () => {
     const request = defineManagedAgentInvocationRequest(makeRequest());
 
@@ -155,40 +176,7 @@ describe("managed agent invocation contracts", () => {
       cost: { currency: "USD", amount: "unknown" },
     };
 
-    const record: ManagedAgentInvocationRecord = defineManagedAgentInvocationRecord({
-      invocationId: "invocation-1",
-      agentId: "agent-reviewer",
-      parentSessionId: "session-parent",
-      parentTurnId: "turn-parent",
-      profile: "foundation-readonly-plan",
-      lifecycleState: "completed",
-      providerRoute: makeRequest().providerRoute,
-      adapterKind: "harness",
-      executionMode: "cli-harness",
-      authority: makeRequest().authority,
-      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
-        capturedAt: "2026-05-07T08:00:00.000Z",
-        routeId: "codex-oauth-readonly",
-      }),
-      childSessionId: "child-session-1",
-      transcript: {
-        uri: "kiln://artifacts/invocation-1/transcript",
-        redacted: true,
-        truncated: false,
-        persisted: true,
-        retention: "session",
-      },
-      diagnostics: [{
-        uri: "kiln://artifacts/invocation-1/diagnostics",
-        kind: "timeout",
-      }],
-      usage,
-      resultHandoff: {
-        summary: "No file writes were needed.",
-        resourceUris: ["kiln://artifacts/invocation-1/result"],
-        memoryWriteProposalUris: [],
-      },
-    });
+    const record: ManagedAgentInvocationRecord = defineManagedAgentInvocationRecord(makeCompletedRecordInput(usage));
 
     expect(record.lifecycleState).toBe("completed");
     expect(record.capabilitySnapshot.routeId).toBe("codex-oauth-readonly");
@@ -196,4 +184,78 @@ describe("managed agent invocation contracts", () => {
     expect(record.usage?.tokenClasses[2]).toEqual({ name: "cached_tokens", value: "unknown" });
     expect(record.resultHandoff?.summary).toBe("No file writes were needed.");
   });
+
+  it("derives replayable lifecycle evidence from the invocation record without a second lifecycle store", () => {
+    const record = defineManagedAgentInvocationRecord(makeCompletedRecordInput());
+
+    expect(buildManagedAgentLifecycleEvidence(record, { heartbeatAt: "2026-05-07T08:00:03.000Z" })).toMatchObject({
+      lifecycleState: "completed",
+      invocationId: "invocation-1",
+      parentSessionId: "session-parent",
+      parentTurnId: "turn-parent",
+      routeId: "codex-oauth-readonly",
+      providerId: "codex-oauth",
+      model: "gpt-5.4",
+      profile: "foundation-readonly-plan",
+      contextMode: "isolated",
+      authorityProfileId: "foundation-readonly",
+      resourceLease: {
+        workingDirectoryPath: "C:/workspace/kiln",
+        workingDirectoryMode: "read-only",
+        resourceUris: [],
+      },
+      transcriptUri: "kiln://artifacts/invocation-1/transcript",
+      heartbeatAt: "2026-05-07T08:00:03.000Z",
+      resultSummary: "No file writes were needed.",
+      diagnosticUris: ["kiln://artifacts/invocation-1/diagnostics"],
+      handoffResourceUris: ["kiln://artifacts/invocation-1/result"],
+    });
+  });
 });
+
+function makeCompletedRecordInput(
+  usage: ManagedAgentUsageReport = {
+    source: "adapter",
+    tokenClasses: [
+      { name: "input_tokens", value: 120 },
+      { name: "output_tokens", value: 45 },
+      { name: "cached_tokens", value: "unknown" },
+    ],
+    cost: { currency: "USD", amount: "unknown" },
+  },
+): ManagedAgentInvocationRecord {
+  return {
+    invocationId: "invocation-1",
+    agentId: "agent-reviewer",
+    parentSessionId: "session-parent",
+    parentTurnId: "turn-parent",
+    profile: "foundation-readonly-plan",
+    lifecycleState: "completed",
+    providerRoute: makeRequest().providerRoute,
+    adapterKind: "harness",
+    executionMode: "cli-harness",
+    authority: makeRequest().authority,
+    capabilitySnapshot: buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+    }),
+    childSessionId: "child-session-1",
+    transcript: {
+      uri: "kiln://artifacts/invocation-1/transcript",
+      redacted: true,
+      truncated: false,
+      persisted: true,
+      retention: "session",
+    },
+    diagnostics: [{
+      uri: "kiln://artifacts/invocation-1/diagnostics",
+      kind: "timeout",
+    }],
+    usage,
+    resultHandoff: {
+      summary: "No file writes were needed.",
+      resourceUris: ["kiln://artifacts/invocation-1/result"],
+      memoryWriteProposalUris: [],
+    },
+  };
+}

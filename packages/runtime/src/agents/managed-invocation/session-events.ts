@@ -1,4 +1,4 @@
-import { createSessionEvent } from "@kilnai/core";
+import { buildManagedAgentLifecycleEvidence, createSessionEvent } from "@kilnai/core";
 import type {
   CanonicalAgentInvocationCancelledEvent,
   CanonicalAgentInvocationCompletedEvent,
@@ -44,6 +44,7 @@ export function appendManagedInvocationSessionEvents(
     requestedBy: input.request.requestedBy,
     requestSource: input.request.requestSource,
     ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
+    lifecycleState: "pending",
     inputSummary: input.request.input.summary,
     source,
     timestamp,
@@ -62,6 +63,7 @@ export function appendManagedInvocationSessionEvents(
       agentId: input.request.agentId,
       parentSessionId: input.request.parentSessionId,
       ...managedInvocationIdentity(input.request),
+      lifecycleState: "failed",
       errorCode: "ADMISSION_DENIED",
       errorMessage: formatAdmissionDenied(input.decision),
       retriable: false,
@@ -88,6 +90,7 @@ export function appendManagedInvocationSessionEvents(
     agentId: input.record.agentId,
     parentSessionId: input.record.parentSessionId,
     ...managedInvocationIdentity(input.record, input.request),
+    lifecycleState: startedLifecycleState(input.record.lifecycleState),
     attempt: 1,
     source,
     timestamp,
@@ -135,6 +138,7 @@ function mapTerminalEvent(input: {
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
         ...managedInvocationIdentity(input.record, input.request),
+        lifecycleState: input.record.lifecycleState,
         durationMs: input.durationMs,
         resultSummary: input.record.resultHandoff?.summary,
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
@@ -152,13 +156,14 @@ function mapTerminalEvent(input: {
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
         ...managedInvocationIdentity(input.record, input.request),
+        lifecycleState: input.record.lifecycleState,
         reason: "Managed invocation cancelled.",
         cancelledBy: "runtime",
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
         source: input.source,
         timestamp: input.timestamp,
       });
-    case "timed-out":
+    case "timed_out":
       return createSessionEvent<"agent_invocation_failed">({
         kilnSessionId: input.session.id,
         sequence: input.sequence,
@@ -169,6 +174,7 @@ function mapTerminalEvent(input: {
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
         ...managedInvocationIdentity(input.record, input.request),
+        lifecycleState: input.record.lifecycleState,
         errorCode: "ENGINE_TIMEOUT",
         errorMessage: "Managed invocation timed out.",
         retriable: true,
@@ -187,6 +193,7 @@ function mapTerminalEvent(input: {
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
         ...managedInvocationIdentity(input.record, input.request),
+        lifecycleState: input.record.lifecycleState,
         errorCode: "ENGINE_FAILURE",
         errorMessage: "Managed invocation failed.",
         retriable: true,
@@ -197,6 +204,20 @@ function mapTerminalEvent(input: {
     default:
       return undefined;
   }
+}
+
+function startedLifecycleState(
+  lifecycleState: ManagedAgentInvocationRecord["lifecycleState"],
+): ManagedAgentInvocationRecord["lifecycleState"] {
+  if (
+    lifecycleState === "completed"
+    || lifecycleState === "failed"
+    || lifecycleState === "timed_out"
+    || lifecycleState === "cancelled"
+  ) {
+    return "running";
+  }
+  return lifecycleState;
 }
 
 function formatAdmissionDenied(decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>): string {
@@ -245,6 +266,7 @@ function admittedCapabilitySnapshot(
 
 function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvocationEvidence | undefined {
   const evidence: {
+    lifecycle?: SessionAgentInvocationEvidence["lifecycle"];
     childSessionId?: string;
     childTurnId?: string;
     transcript?: SessionAgentInvocationEvidence["transcript"];
@@ -254,6 +276,7 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     writeAuthority?: SessionAgentInvocationEvidence["writeAuthority"];
     writeEvidence?: SessionAgentInvocationEvidence["writeEvidence"];
   } = {};
+  evidence.lifecycle = buildManagedAgentLifecycleEvidence(record);
   if (record.childSessionId) {
     evidence.childSessionId = record.childSessionId;
   }

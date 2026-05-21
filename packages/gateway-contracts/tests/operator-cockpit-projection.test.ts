@@ -244,6 +244,61 @@ describe("operator cockpit read-only projection", () => {
     })).toThrow("must use http:// or https://");
   });
 
+  it("preserves managed child lifecycle state while projecting read-only invocation status", () => {
+    const started: OperatorSessionEvent = {
+      eventId: "lifecycle:event:1",
+      kilnSessionId: "lifecycle:session:1",
+      sequence: 1,
+      timestamp: "2026-05-21T12:00:00.000Z",
+      kind: "agent_invocation_started",
+      payload: {
+        instanceId: "lifecycle:instance:1",
+        sessionId: "lifecycle:session:1",
+        managedInvocationId: "lifecycle:child:1",
+        invocationId: "lifecycle:child:1",
+        agentId: "agent-reviewer",
+        lifecycleState: "running",
+        providerRoute: {
+          providerId: "opencode",
+          model: "sonic",
+        },
+      },
+    };
+    const failed: OperatorSessionEvent = {
+      eventId: "lifecycle:event:2",
+      kilnSessionId: "lifecycle:session:1",
+      sequence: 2,
+      timestamp: "2026-05-21T12:00:05.000Z",
+      kind: "agent_invocation_failed",
+      payload: {
+        instanceId: "lifecycle:instance:1",
+        sessionId: "lifecycle:session:1",
+        managedInvocationId: "lifecycle:child:1",
+        invocationId: "lifecycle:child:1",
+        agentId: "agent-reviewer",
+        lifecycleState: "timed_out",
+        errorCode: "ENGINE_TIMEOUT",
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-21T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "lifecycle:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [started, failed],
+    });
+
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "lifecycle:child:1",
+      status: "failed",
+      lifecycleState: "timed_out",
+      providerRoute: "opencode/sonic",
+    });
+  });
+
   it("projects tool resource links as target-aware read-only cockpit resources", () => {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "resource-links",

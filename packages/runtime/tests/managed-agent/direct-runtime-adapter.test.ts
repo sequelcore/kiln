@@ -435,7 +435,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     if (result.status !== "completed") {
       throw new Error("expected completed");
     }
-    expect(result.record.lifecycleState).toBe("timed-out");
+    expect(result.record.lifecycleState).toBe("timed_out");
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-invocations/inv-direct-1/timeout",
       kind: "timeout",

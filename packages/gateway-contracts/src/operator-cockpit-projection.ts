@@ -1,6 +1,4 @@
-import type {
-  OperatorSessionEvent,
-} from "./frames.js";
+import type { OperatorSessionEvent } from "./frames.js";
 import type {
   OperatorEventTone,
   ToolResultResourceLinkPresentation,
@@ -135,6 +133,8 @@ export interface OperatorCockpitInvocationProjection {
   readonly sessionId: string;
   readonly target: OperatorCockpitActionTarget;
   readonly status: OperatorCockpitInvocationStatus;
+  readonly lifecycleState?: string;
+  readonly providerRoute?: string;
   readonly eventCount: number;
   readonly latestEventId: string;
   readonly title: string;
@@ -206,6 +206,8 @@ interface InvocationAccumulator {
   readonly sessionId: string;
   readonly target: OperatorCockpitActionTarget;
   status: OperatorCockpitInvocationStatus;
+  lifecycleState?: string;
+  providerRoute?: string;
   eventCount: number;
   latestEventId: string;
   title: string;
@@ -339,6 +341,8 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.eventCount += 1;
       invocation.latestEventId = event.eventId;
       invocation.title = presentation.title;
+      invocation.lifecycleState = readString(payload.lifecycleState) ?? invocation.lifecycleState;
+      invocation.providerRoute = readProviderRoute(payload) ?? invocation.providerRoute;
       invocation.status = readInvocationStatus(event, payload);
       instance.invocations.add(managedInvocationKey);
       session.invocations.add(managedInvocationId);
@@ -592,6 +596,8 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     sessionId: input.sessionId,
     target: input.target,
     status: input.status,
+    ...(input.lifecycleState !== undefined ? { lifecycleState: input.lifecycleState } : {}),
+    ...(input.providerRoute !== undefined ? { providerRoute: input.providerRoute } : {}),
     eventCount: input.eventCount,
     latestEventId: input.latestEventId,
     title: input.title,

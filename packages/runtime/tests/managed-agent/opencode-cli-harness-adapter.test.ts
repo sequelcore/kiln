@@ -494,7 +494,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     if (result.status !== "completed") {
       throw new Error("Expected completed managed invocation result");
     }
-    expect(result.record.lifecycleState).toBe("timed-out");
+    expect(result.record.lifecycleState).toBe("timed_out");
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-invocations/invocation-opencode-1/timeout",
       kind: "timeout",
@@ -540,7 +540,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     if (result.status !== "completed") {
       throw new Error("Expected completed managed timeout result");
     }
-    expect(result.record.lifecycleState).toBe("timed-out");
+    expect(result.record.lifecycleState).toBe("timed_out");
     expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
       "write-proposal-created",
       "write-proposal-approved",

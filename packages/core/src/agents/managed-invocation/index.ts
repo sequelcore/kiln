@@ -56,16 +56,20 @@ export interface ManagedAgentAuthorityApproval {
   readonly reason?: string;
 }
 
-export type ManagedAgentLifecycleState =
-  | "requested"
-  | "denied"
-  | "admitted"
-  | "started"
-  | "completed"
-  | "failed"
-  | "cancelled"
-  | "timed-out"
-  | "cleaned-up";
+export const MANAGED_AGENT_LIFECYCLE_STATES = [
+  "pending",
+  "starting",
+  "running",
+  "waiting_for_approval",
+  "completed",
+  "failed",
+  "timed_out",
+  "cancelled",
+  "stale",
+  "recovered",
+] as const;
+
+export type ManagedAgentLifecycleState = typeof MANAGED_AGENT_LIFECYCLE_STATES[number];
 
 export interface ManagedAgentProviderRoute {
   readonly providerId: string;
@@ -289,6 +293,32 @@ export interface ManagedAgentResultHandoff {
   readonly summary: string;
   readonly resourceUris: readonly string[];
   readonly memoryWriteProposalUris: readonly string[];
+}
+
+export interface ManagedAgentResourceLeaseEvidence {
+  readonly workingDirectoryPath: string;
+  readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
+  readonly resourceUris: readonly string[];
+}
+
+export interface ManagedAgentLifecycleEvidence {
+  readonly lifecycleState: ManagedAgentLifecycleState;
+  readonly invocationId: string;
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly model?: string;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly contextMode: ManagedAgentInvocationContextMode;
+  readonly authorityProfileId: string;
+  readonly resourceLease: ManagedAgentResourceLeaseEvidence;
+  readonly transcriptUri?: string;
+  readonly heartbeatAt?: string;
+  readonly resultSummary?: string;
+  readonly diagnosticUris: readonly string[];
+  readonly usage?: ManagedAgentUsageReport;
+  readonly handoffResourceUris: readonly string[];
 }
 
 export interface ManagedAgentInvocationRecord {
@@ -731,6 +761,35 @@ function requireAuthorityApproval(input: ManagedAgentAuthorityApproval): Managed
   };
 }
 
+export function buildManagedAgentLifecycleEvidence(
+  record: ManagedAgentInvocationRecord,
+  input: { readonly heartbeatAt?: string } = {},
+): ManagedAgentLifecycleEvidence {
+  return {
+    lifecycleState: record.lifecycleState,
+    invocationId: record.invocationId,
+    parentSessionId: record.parentSessionId,
+    parentTurnId: record.parentTurnId,
+    routeId: record.capabilitySnapshot.routeId,
+    providerId: record.providerRoute.providerId,
+    ...(record.providerRoute.model !== undefined ? { model: record.providerRoute.model } : {}),
+    profile: record.profile,
+    contextMode: record.capabilitySnapshot.contextMode,
+    authorityProfileId: record.authority.authorityProfileId,
+    resourceLease: {
+      workingDirectoryPath: record.authority.workingDirectory.path,
+      workingDirectoryMode: record.authority.workingDirectory.mode,
+      resourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
+    },
+    ...(record.transcript?.uri !== undefined ? { transcriptUri: record.transcript.uri } : {}),
+    ...(input.heartbeatAt !== undefined ? { heartbeatAt: requireIsoTimestamp(input.heartbeatAt, "Managed invocation heartbeat timestamp is required") } : {}),
+    ...(record.resultHandoff?.summary !== undefined ? { resultSummary: record.resultHandoff.summary } : {}),
+    diagnosticUris: record.diagnostics?.map((diagnostic) => diagnostic.uri) ?? [],
+    ...(record.usage !== undefined ? { usage: record.usage } : {}),
+    handoffResourceUris: record.resultHandoff?.resourceUris ?? [],
+  };
+}
+
 function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuthorityProfile {
   const credentialRoute = input.credentialRoute;
   if (credentialRoute.mode === "runtime-selected") {
@@ -887,18 +946,7 @@ function requireProviderModelProofStatus(value: ManagedAgentProviderModelProofSt
 }
 
 function requireLifecycleState(value: ManagedAgentLifecycleState): ManagedAgentLifecycleState {
-  const states: readonly ManagedAgentLifecycleState[] = [
-    "requested",
-    "denied",
-    "admitted",
-    "started",
-    "completed",
-    "failed",
-    "cancelled",
-    "timed-out",
-    "cleaned-up",
-  ];
-  if (!states.includes(value)) {
+  if (!MANAGED_AGENT_LIFECYCLE_STATES.includes(value)) {
     throw new Error(`Unsupported managed invocation lifecycle state: ${value as string}`);
   }
   return value;

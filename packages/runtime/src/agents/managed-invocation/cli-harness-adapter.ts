@@ -166,7 +166,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       });
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input, childSessionId),
-        lifecycleState: "timed-out",
+        lifecycleState: "timed_out",
         diagnostics: [{
           uri: managedInvocationUri(request.invocationId, "timeout"),
           kind: "timeout",

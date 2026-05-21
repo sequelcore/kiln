@@ -7,6 +7,8 @@ import type {
   ManagedAgentInvocationContextMode,
   ManagedAgentInvocationHandoffContract,
   ManagedAgentExecutionMode,
+  ManagedAgentLifecycleEvidence,
+  ManagedAgentLifecycleState,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
   ManagedAgentWriteAuthority,
@@ -408,6 +410,7 @@ export interface SessionAgentInvocationIdentity {
   readonly providerRoute?: ManagedAgentProviderRoute;
   readonly adapterKind?: ManagedAgentAdapterKind;
   readonly executionMode?: ManagedAgentExecutionMode;
+  readonly lifecycleState?: ManagedAgentLifecycleState;
   readonly authorityProfileId?: string;
   readonly capabilitySnapshot?: ManagedAgentCapabilitySnapshot;
   readonly invocationContext?: SessionAgentInvocationContext;
@@ -459,6 +462,7 @@ export interface SessionAgentInvocationResultHandoff {
 }
 
 export interface SessionAgentInvocationEvidence {
+  readonly lifecycle?: ManagedAgentLifecycleEvidence;
   readonly childSessionId?: string;
   readonly childTurnId?: string;
   readonly transcript?: SessionAgentInvocationTranscriptPointer;

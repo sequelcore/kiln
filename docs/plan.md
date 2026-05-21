@@ -1,74 +1,78 @@
 ## Objective
 
-Clean up the Rust/native-surface split so the repository no longer carries
-throwaway Rust proof code. Rust remains a product and architecture decision, but
-it belongs to its own optimization roadmap. The native operator surface roadmap
-must stay focused on Electron/native UI, attach loops, and rendering evidence.
+Start Slice 1 of `docs/roadmap/01-background-parallel-agent-surface.md` by
+making the managed child invocation lifecycle vocabulary runtime-owned,
+explicit, and reusable across core contracts, runtime session events, and
+gateway projections.
 
-## Decision
+## Non-Goals
 
-Bun/TypeScript owns Kiln control-plane semantics, shared contracts, projection
-truth, benchmark gates, and all current operator surfaces. Rust will own only
-approved compute/native-helper modules after a dedicated module slice or ADR
-defines the port, parity harness, transport, fallback behavior, build shape, and
-verification evidence.
+- Do not add `managed_agent.start/status/join/cancel/list` yet.
+- Do not introduce a second lifecycle registry or surface-local store.
+- Do not change foreground `managed_agent.invoke` call behavior.
+- Do not implement worktree, sandbox, or port leases in this slice.
 
-No generic Rust readiness command, proof harness, or placeholder API remains in
-the monorepo. Future Rust work must enter as a real implementation slice, not as
-prototype residue.
+## Scout Summary
 
-## Cleanup Scope
+Owning bounded context:
 
-Files:
+- Core managed-invocation contract:
+  `packages/core/src/agents/managed-invocation/index.ts`
+- Runtime managed-invocation adapters and session event emission:
+  `packages/runtime/src/agents/managed-invocation/*`
+- Shared session event contract:
+  `packages/core/src/events/session-event.ts`
+- Gateway/operator projections:
+  `packages/gateway-contracts/src/operator-event-presentation.ts`,
+  `packages/gateway-contracts/src/operator-cockpit-projection.ts`
 
-- `packages/gateway-contracts/src/index.ts`
-- `packages/gateway-contracts/src/operator-cockpit-benchmark.ts`
-- `packages/gateway-contracts/tests/operator-cockpit-benchmark.test.ts`
-- `packages/native/src/shared/native-cockpit-contract.ts`
-- `packages/native/tests/native-boundary.test.ts`
-- `packages/cli/src/commands/benchmark.ts`
-- `packages/cli/tests/commands/benchmark.test.ts`
-- `packages/gateway-contracts/README.md`
-- `packages/cli/README.md`
-- `docs/guides/eval.md`
-- `docs/architecture/native-operator-surface.md`
-- `docs/roadmap/00.0.1-rust-module-optimization.md`
+Current facts:
 
-Deleted prototype files:
+- `ManagedAgentInvocationRecord.lifecycleState` already exists, but its values
+  mix request/admission and execution states:
+  `requested`, `denied`, `admitted`, `started`, `completed`, `failed`,
+  `cancelled`, `timed-out`, and `cleaned-up`.
+- Runtime session events already emit managed invocation request, start, and
+  terminal events through the session ledger.
+- Gateway contracts already render managed invocation events from the shared
+  session projection rather than a surface-local lifecycle store.
 
-- the gateway Rust kernel proof module
-- the gateway Rust readiness proof module
-- dedicated Rust proof tests under `packages/gateway-contracts/tests/`
+## First Slice
 
-## Implementation Steps
+1. Add a canonical managed child lifecycle state set in core:
+   `pending`, `starting`, `running`, `waiting_for_approval`, `completed`,
+   `failed`, `timed_out`, `cancelled`, `stale`, and `recovered`.
+2. Keep `ManagedAgentInvocationRecord.lifecycleState` as the single lifecycle
+   field, but validate it against the canonical set.
+3. Update runtime adapters and event mapping from `timed-out` to `timed_out`.
+4. Keep foreground `managed_agent.invoke` producing the same requested,
+   started, and terminal session events.
+5. Update focused tests first, then production code.
 
-1. Remove Rust prototype modules and gateway exports.
-2. Remove Rust candidacy fields from the native-surface benchmark gate.
-3. Remove native wrappers that reported Rust parity evidence.
-4. Remove the temporary Rust readiness benchmark command and its CLI test.
-5. Keep `docs/roadmap/00.0.1-rust-module-optimization.md` as the durable Rust
-   ownership decision.
-6. Keep `docs/roadmap/02-native-operator-surface.md` separate from Rust module
-   optimization.
-7. Update docs so they describe future Rust entry through a dedicated approved
-   module slice, not current in-repo proof code.
+## Test Plan
 
-## Verification
+Focused tests:
 
 ```bash
-bun run --cwd packages/gateway-contracts test -- tests/operator-cockpit-benchmark.test.ts
-bun run --cwd packages/native test -- tests/native-boundary.test.ts
-bun run --cwd packages/cli test -- tests/commands/benchmark.test.ts
-bun run --filter @kilnai/gateway-contracts typecheck
-bun run --filter @kilnai/native typecheck
-bun run --filter @kilnai/cli typecheck
+bun run --cwd packages/core test -- tests/managed-agent/invocation-contracts.test.ts
+bun run --cwd packages/runtime test -- tests/session/managed-invocation-session-events.test.ts
+```
+
+Broader verification:
+
+```bash
+bun run --filter @kilnai/core typecheck
+bun run --filter @kilnai/runtime typecheck
 git diff --check
 ```
 
-## Residual Risk
+## Risks
 
-- The 2026-05-17 benchmark artifact remains historical evidence only; it is not
-  a maintained CLI/API surface.
-- Future Rust work still needs a real module-specific parity harness and tests.
-- Native operator surface promotion remains blocked until browser/native
-  rendering evidence exists.
+- `timed-out` appears in runtime, CLI, GUI, and TUI tests for other status
+  domains. This slice must only change managed invocation lifecycle state, not
+  unrelated turn outcome or session persistence status strings.
+- Session event names remain stable for cross-surface compatibility. This
+  slice changes lifecycle evidence vocabulary, not event kind names.
+- Gateway cockpit currently projects status from event kinds; deeper read-only
+  lifecycle summaries belong to a later Slice 1 increment if they require new
+  public contract shape.

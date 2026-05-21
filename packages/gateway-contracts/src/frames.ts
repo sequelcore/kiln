@@ -419,6 +419,7 @@ export interface OperatorManagedAgentCapabilitySnapshot {
 export interface OperatorManagedAgentInvocationEventPayload extends Record<string, unknown> {
   readonly invocationId: string;
   readonly agentId: string;
+  readonly lifecycleState?: string;
   readonly profile?: string;
   readonly providerRoute?: OperatorManagedAgentProviderRoute;
   readonly adapterKind?: "direct" | "harness";
