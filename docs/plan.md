@@ -48,7 +48,7 @@ Deleted prototype files:
 4. Remove the temporary Rust readiness benchmark command and its CLI test.
 5. Keep `docs/roadmap/00.0.1-rust-module-optimization.md` as the durable Rust
    ownership decision.
-6. Keep `docs/roadmap/01-native-operator-surface.md` separate from Rust module
+6. Keep `docs/roadmap/02-native-operator-surface.md` separate from Rust module
    optimization.
 7. Update docs so they describe future Rust entry through a dedicated approved
    module slice, not current in-repo proof code.

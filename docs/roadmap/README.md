@@ -31,6 +31,9 @@ Use these documents as the stable source of truth before starting roadmap work:
   report evidence.
 - `docs/architecture/managed-agents.md` for managed invocation, child
   authority, write evidence, and replay invariants.
+- `docs/research/15-background-parallel-agent-surface.md` for the research
+  finding that background and parallel agents require a separate lifecycle,
+  explicit identity, isolation, status, cancellation, and handoff evidence.
 - `docs/architecture/config-projection.md`,
   `docs/architecture/harness-integration-capabilities.md`, and
   `docs/guides/global-config.md` for config projection, harness capabilities,
@@ -50,13 +53,21 @@ Use these documents as the stable source of truth before starting roadmap work:
    that consume shared contracts. This is separate from the native surface
    roadmap.
 
-1. [Native Operator Surface](./01-native-operator-surface.md)
+1. [Background And Parallel Agent Surface](./01-background-parallel-agent-surface.md)
+   Started on 2026-05-21. Current scope is the long-term managed child
+   lifecycle: nonblocking start/status/join/cancel/list, worktree and sandbox
+   leases, typed parallel orchestration modes, cross-surface cockpit
+   projection, and substantive handoff evidence. This track owns the runtime
+   primitive behind future background agents and should absorb transitional
+   `kiln run --workers` behavior into the shared lifecycle.
+
+2. [Native Operator Surface](./02-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark
    path: contract-only runner admission, orchestration planning, workload
    governance, and approval evidence before any live browser or native
    benchmark execution. It does not implement Rust optimization.
 
-2. [Session Feedback Pipeline](./02-session-feedback-pipeline.md)
+3. [Session Feedback Pipeline](./03-session-feedback-pipeline.md)
    Started on 2026-05-18. Scope is the operator feedback-to-fix pipeline:
    local-first feedback bundles, redaction, evidence selection, issue drafts,
    governed repair work items, and later draft pull-request flow. This is
@@ -104,8 +115,12 @@ not in roadmap files. Current completed areas include:
 2. Promote stable results into architecture or guide docs when a track closes.
 3. Delete completed roadmap files after doctrine is absorbed.
 4. Do not create near-duplicate roadmap files for one concern.
-5. Do not start live native benchmark execution, native operator UI, dispatch
+5. Do not add background or parallel child execution paths outside
+   `01-background-parallel-agent-surface.md`; child lifecycle, worktree/sandbox
+   leases, cancellation, status, join, handoff, and cockpit projection must use
+   the shared runtime-owned lifecycle.
+6. Do not start live native benchmark execution, native operator UI, dispatch
    paths, or gateway attach loops without an approved native-surface roadmap
    slice or ADR.
-6. Do not start Rust/WASM/sidecar modules without an approved Rust optimization
+7. Do not start Rust/WASM/sidecar modules without an approved Rust optimization
    roadmap slice or ADR and the Rust module promotion gates in `00.0.1`.

@@ -1,4 +1,4 @@
-# 2 - Session Feedback Pipeline
+# 03 - Session Feedback Pipeline
 
 Status: Active
 Started: 2026-05-18
@@ -15,7 +15,7 @@ This roadmap is separate from:
 
 - `00.0.1-rust-module-optimization.md`, which decides Bun and Rust execution
   boundaries for hot-path modules.
-- `01-native-operator-surface.md`, which decides native operator surface
+- `02-native-operator-surface.md`, which decides native operator surface
   projection and benchmark admission.
 - Existing CLI resume feedback, which scores session continuity and is not the
   same product feature.
