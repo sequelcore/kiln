@@ -42,11 +42,20 @@ import type {
 import type { EffectiveTurnAuthorityAdmissionContext } from "../session/effective-turn-authority.js";
 import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
 import {
+  createManagedAgentStartToolDefinition,
   createManagedAgentInvokeToolDefinition,
   createManagedInvocationToolCallMetadataResolver,
-  createManagedInvocationToolExecutor,
+  createManagedInvocationLifecycleToolExecutors,
+  MANAGED_AGENT_JOIN_CAPABILITY,
+  MANAGED_AGENT_JOIN_TOOL,
+  MANAGED_AGENT_LIST_CAPABILITY,
+  MANAGED_AGENT_LIST_TOOL,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
+  MANAGED_AGENT_START_CAPABILITY,
+  MANAGED_AGENT_START_TOOL,
+  MANAGED_AGENT_STATUS_CAPABILITY,
+  MANAGED_AGENT_STATUS_TOOL,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
 import { buildManagedInvocationPhaseRecovery } from "../agents/managed-invocation/phase-recovery.js";
@@ -466,10 +475,13 @@ export function createAttachedRuntimeBuiltinToolSurface(
   }
 
   if (options.managedInvocation) {
-    const managedInvocationExecutor = createManagedInvocationToolExecutor(options.managedInvocation);
-    callBuiltinTools.set(MANAGED_AGENT_INVOKE_TOOL.name, managedInvocationExecutor);
+    const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(options.managedInvocation);
+    const managedInvocationExecutor = managedInvocationExecutors.get(MANAGED_AGENT_INVOKE_TOOL.name);
+    for (const [toolName, executor] of managedInvocationExecutors) {
+      callBuiltinTools.set(toolName, executor);
+    }
     const workItemExecutionStart = callBuiltinTools.get(WORK_ITEM_EXECUTION_START_TOOL_NAME);
-    if (workItemExecutionStart) {
+    if (workItemExecutionStart && managedInvocationExecutor) {
       callBuiltinTools.set(
         WORK_ITEM_EXECUTION_START_TOOL_NAME,
         createManagedDelegationWorkItemStartExecutor(
@@ -479,16 +491,33 @@ export function createAttachedRuntimeBuiltinToolSurface(
         ),
       );
     }
-    capabilities.set(MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY);
+    const managedCapabilities = [
+      [MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY],
+      [MANAGED_AGENT_START_TOOL.name, MANAGED_AGENT_START_CAPABILITY],
+      [MANAGED_AGENT_STATUS_TOOL.name, MANAGED_AGENT_STATUS_CAPABILITY],
+      [MANAGED_AGENT_LIST_TOOL.name, MANAGED_AGENT_LIST_CAPABILITY],
+      [MANAGED_AGENT_JOIN_TOOL.name, MANAGED_AGENT_JOIN_CAPABILITY],
+    ] as const;
+    for (const [toolName, capability] of managedCapabilities) {
+      capabilities.set(toolName, capability);
+      const authority = authorityFromCapability(toolName, capability);
+      if (authority) {
+        toolAuthority.set(toolName, authority);
+      }
+    }
     toolCallMetadata.set(
       MANAGED_AGENT_INVOKE_TOOL.name,
       createManagedInvocationToolCallMetadataResolver(options.managedInvocation),
     );
-    const authority = authorityFromCapability(MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY);
-    if (authority) {
-      toolAuthority.set(MANAGED_AGENT_INVOKE_TOOL.name, authority);
-    }
+    toolCallMetadata.set(
+      MANAGED_AGENT_START_TOOL.name,
+      createManagedInvocationToolCallMetadataResolver(options.managedInvocation),
+    );
     toolDefinitions.push(createManagedAgentInvokeToolDefinition(options.managedInvocation));
+    toolDefinitions.push(createManagedAgentStartToolDefinition(options.managedInvocation));
+    toolDefinitions.push(MANAGED_AGENT_STATUS_TOOL);
+    toolDefinitions.push(MANAGED_AGENT_LIST_TOOL);
+    toolDefinitions.push(MANAGED_AGENT_JOIN_TOOL);
   }
 
   return {

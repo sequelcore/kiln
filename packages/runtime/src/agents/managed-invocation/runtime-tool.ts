@@ -4,6 +4,7 @@ import type {
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityApproval,
   ManagedAgentAuthorityProfile,
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
   ManagedAgentInvocationContextMode,
@@ -24,8 +25,17 @@ import type {
   RuntimeBuiltinToolExecutor,
 } from "../../session/runtime-session-orchestrator.types.js";
 import { RuntimeManagedAgentInvocationService } from "./index.js";
-import type { ManagedAgentRuntimeAdapter } from "./index.js";
-import { appendManagedInvocationSessionEvents } from "./session-events.js";
+import type {
+  ManagedAgentRuntimeAdapter,
+  ManagedAgentRuntimeInvocationResult,
+  ManagedAgentRuntimeInvocationSnapshot,
+} from "./index.js";
+import {
+  appendManagedInvocationSessionEvents,
+  appendManagedInvocationRuntimeFailureSessionEvent,
+  appendManagedInvocationStartSessionEvents,
+  appendManagedInvocationTerminalSessionEvent,
+} from "./session-events.js";
 import {
   buildManagedInvocationPhaseCompletion,
   buildManagedInvocationPhaseHandoffRecovery,
@@ -33,6 +43,10 @@ import {
 } from "./phase-recovery.js";
 
 export const MANAGED_AGENT_INVOKE_TOOL_NAME = "managed_agent.invoke";
+export const MANAGED_AGENT_START_TOOL_NAME = "managed_agent.start";
+export const MANAGED_AGENT_STATUS_TOOL_NAME = "managed_agent.status";
+export const MANAGED_AGENT_LIST_TOOL_NAME = "managed_agent.list";
+export const MANAGED_AGENT_JOIN_TOOL_NAME = "managed_agent.join";
 
 export interface ManagedInvocationRouteProfile {
   readonly authorityProfileId: string;
@@ -311,12 +325,95 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
   tags: new Set<string>(["managed-invocation", "operator-approval"]),
 };
 
+export const MANAGED_AGENT_START_TOOL: ToolDefinition = {
+  ...MANAGED_AGENT_INVOKE_TOOL,
+  name: MANAGED_AGENT_START_TOOL_NAME,
+  description: "Start a governed managed child agent invocation in the background through a configured Kiln runtime route. Returns after admission with an invocation id; use managed_agent.status, managed_agent.list, and managed_agent.join to observe or wait.",
+};
+
+export const MANAGED_AGENT_STATUS_TOOL: ToolDefinition = {
+  name: MANAGED_AGENT_STATUS_TOOL_NAME,
+  description: "Read the current lifecycle status for a managed child invocation in the current runtime session.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      invocationId: {
+        type: "string",
+        description: "Managed child invocation id returned by managed_agent.start.",
+      },
+    },
+    required: ["invocationId"],
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["managed-invocation", "operator-status"]),
+};
+
+export const MANAGED_AGENT_LIST_TOOL: ToolDefinition = {
+  name: MANAGED_AGENT_LIST_TOOL_NAME,
+  description: "List managed child invocations owned by the current runtime session.",
+  inputSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["managed-invocation", "operator-status"]),
+};
+
+export const MANAGED_AGENT_JOIN_TOOL: ToolDefinition = {
+  name: MANAGED_AGENT_JOIN_TOOL_NAME,
+  description: "Wait for a managed child invocation in the current runtime session and publish its terminal lifecycle evidence exactly once.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      invocationId: {
+        type: "string",
+        description: "Managed child invocation id returned by managed_agent.start.",
+      },
+    },
+    required: ["invocationId"],
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["managed-invocation", "operator-status"]),
+};
+
 export const MANAGED_AGENT_INVOKE_CAPABILITY: Capability = {
   name: MANAGED_AGENT_INVOKE_TOOL.name,
   description: MANAGED_AGENT_INVOKE_TOOL.description,
   schema: MANAGED_AGENT_INVOKE_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-approval"],
   annotations: { destructive: true },
+};
+
+export const MANAGED_AGENT_START_CAPABILITY: Capability = {
+  name: MANAGED_AGENT_START_TOOL.name,
+  description: MANAGED_AGENT_START_TOOL.description,
+  schema: MANAGED_AGENT_START_TOOL.inputSchema,
+  tags: ["managed-invocation", "operator-approval"],
+  annotations: { destructive: true },
+};
+
+export const MANAGED_AGENT_STATUS_CAPABILITY: Capability = {
+  name: MANAGED_AGENT_STATUS_TOOL.name,
+  description: MANAGED_AGENT_STATUS_TOOL.description,
+  schema: MANAGED_AGENT_STATUS_TOOL.inputSchema,
+  tags: ["managed-invocation", "operator-status"],
+  annotations: { readOnly: true },
+};
+
+export const MANAGED_AGENT_LIST_CAPABILITY: Capability = {
+  name: MANAGED_AGENT_LIST_TOOL.name,
+  description: MANAGED_AGENT_LIST_TOOL.description,
+  schema: MANAGED_AGENT_LIST_TOOL.inputSchema,
+  tags: ["managed-invocation", "operator-status"],
+  annotations: { readOnly: true },
+};
+
+export const MANAGED_AGENT_JOIN_CAPABILITY: Capability = {
+  name: MANAGED_AGENT_JOIN_TOOL.name,
+  description: MANAGED_AGENT_JOIN_TOOL.description,
+  schema: MANAGED_AGENT_JOIN_TOOL.inputSchema,
+  tags: ["managed-invocation", "operator-status"],
+  annotations: { destructive: false, idempotent: false },
 };
 
 export function createManagedAgentInvokeToolDefinition(
@@ -383,11 +480,39 @@ export function createManagedAgentInvokeToolDefinition(
   };
 }
 
+export function createManagedAgentStartToolDefinition(
+  options: ManagedInvocationToolOptions,
+): ToolDefinition {
+  const invokeDefinition = createManagedAgentInvokeToolDefinition(options);
+  return {
+    ...invokeDefinition,
+    name: MANAGED_AGENT_START_TOOL_NAME,
+    description: [
+      MANAGED_AGENT_START_TOOL.description,
+      "",
+      invokeDefinition.description,
+    ].join("\n"),
+  };
+}
+
 export function createManagedInvocationToolExecutor(
   options: ManagedInvocationToolOptions,
+  service = new RuntimeManagedAgentInvocationService(),
 ): RuntimeBuiltinToolExecutor {
-  const service = new RuntimeManagedAgentInvocationService();
   return async (input, context) => executeManagedInvocationTool(input, context, options, service);
+}
+
+export function createManagedInvocationLifecycleToolExecutors(
+  options: ManagedInvocationToolOptions,
+  service = new RuntimeManagedAgentInvocationService(),
+): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
+  return new Map([
+    [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(options, service)],
+    [MANAGED_AGENT_START_TOOL_NAME, async (input, context) => executeManagedInvocationStartTool(input, context, options, service)],
+    [MANAGED_AGENT_STATUS_TOOL_NAME, async (input, context) => executeManagedInvocationStatusTool(input, context, service)],
+    [MANAGED_AGENT_LIST_TOOL_NAME, async (_input, context) => executeManagedInvocationListTool(context, service)],
+    [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
+  ]);
 }
 
 export function createManagedInvocationToolCallMetadataResolver(
@@ -453,133 +578,171 @@ export function attachManagedInvocationSessionEventSink(
   };
 }
 
-async function executeManagedInvocationTool(
+interface PreparedManagedInvocationRequest {
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly parsed: ManagedInvocationToolInput;
+  readonly route: ManagedInvocationToolRoute;
+  readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
+  readonly capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput;
+}
+
+async function prepareManagedInvocationRequest(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
   options: ManagedInvocationToolOptions,
-  service: RuntimeManagedAgentInvocationService,
-): Promise<ManagedInvocationToolResult> {
+  toolName: string,
+): Promise<
+  | { readonly ok: true; readonly prepared: PreparedManagedInvocationRequest }
+  | { readonly ok: false; readonly result: ManagedInvocationToolResult }
+> {
   if (!context) {
-    return errorResult("managed_agent.invoke requires runtime session context.");
+    return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
   }
 
-  const parsed = parseInput(rawInput);
+  const parsed = parseInput(rawInput, toolName);
   if (!parsed.ok) {
-    return errorResult(parsed.error);
+    return { ok: false, result: errorResult(parsed.error, {}, toolName) };
   }
 
   const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
-  const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile);
+  const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile, toolName);
   if (!agentRouteValidation.ok) {
-    return errorResult(agentRouteValidation.error, {
-      profile: parsed.input.profile,
-      agentProfile: parsed.input.agentProfile,
-      routeId: parsed.input.routeId,
-    });
+    return {
+      ok: false,
+      result: errorResult(agentRouteValidation.error, {
+        profile: parsed.input.profile,
+        agentProfile: parsed.input.agentProfile,
+        routeId: parsed.input.routeId,
+      }, toolName),
+    };
   }
   const routeResolution = resolveRoute(options.routes, parsed.input, agentProfile);
   if (routeResolution.status === "ambiguous") {
-    return errorResult(routeResolution.reason);
+    return { ok: false, result: errorResult(routeResolution.reason, {}, toolName) };
   }
   if (routeResolution.status === "missing") {
     const unavailableRoute = resolveUnavailableRoute(options.unavailableRoutes ?? [], parsed.input);
     if (unavailableRoute) {
-      return errorResult(
-        `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}': ${unavailableRoute.reason}`,
-        {
-          routeId: unavailableRoute.routeId,
-          profile: parsed.input.profile,
-          providerRoute: {
-            providerId: unavailableRoute.providerId,
-            ...(unavailableRoute.model ? { model: unavailableRoute.model } : {}),
-          },
-          presentationIntent: buildManagedInvocationPresentationIntent({
+      return {
+        ok: false,
+        result: errorResult(
+          `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}': ${unavailableRoute.reason}`,
+          {
             routeId: unavailableRoute.routeId,
             profile: parsed.input.profile,
-            providerId: unavailableRoute.providerId,
-            model: unavailableRoute.model,
-            status: "unavailable",
-            substantiveEvidence: false,
-            failureReason: unavailableRoute.reason,
-          }),
-        },
-      );
+            providerRoute: {
+              providerId: unavailableRoute.providerId,
+              ...(unavailableRoute.model ? { model: unavailableRoute.model } : {}),
+            },
+            presentationIntent: buildManagedInvocationPresentationIntent({
+              routeId: unavailableRoute.routeId,
+              profile: parsed.input.profile,
+              providerId: unavailableRoute.providerId,
+              model: unavailableRoute.model,
+              status: "unavailable",
+              substantiveEvidence: false,
+              failureReason: unavailableRoute.reason,
+            }),
+          },
+          toolName,
+        ),
+      };
     }
-    return errorResult(`No managed invocation route is configured for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}'.`);
+    return {
+      ok: false,
+      result: errorResult(`No managed invocation route is configured for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}'.`, {}, toolName),
+    };
   }
   const route = routeResolution.route;
 
   const profileDefaults = route.profiles[parsed.input.profile];
   if (!profileDefaults) {
-    return errorResult(`Managed invocation route '${route.routeId}' does not allow profile '${parsed.input.profile}'.`);
+    return {
+      ok: false,
+      result: errorResult(`Managed invocation route '${route.routeId}' does not allow profile '${parsed.input.profile}'.`, {}, toolName),
+    };
   }
+
   const missingRequiredTools = missingManagedInvocationRequiredTools(
     parsed.input.requiredToolNames ?? [],
     profileDefaults.allowedToolNames,
   );
   if (missingRequiredTools.length > 0) {
-    return errorResult(
-      `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required tools: ${missingRequiredTools.join(", ")}.`,
-      {
-        routeId: route.routeId,
-        profile: parsed.input.profile,
-        missingRequiredTools,
-        requiredToolNames: parsed.input.requiredToolNames ?? [],
-        allowedToolNames: profileDefaults.allowedToolNames,
-        presentationIntent: buildManagedInvocationPresentationIntent({
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required tools: ${missingRequiredTools.join(", ")}.`,
+        {
           routeId: route.routeId,
           profile: parsed.input.profile,
-          providerId: route.providerId,
-          model: route.model,
-          contextMode: parsed.input.contextMode,
-          status: "unavailable",
-          substantiveEvidence: false,
-          failureReason: `Missing required route tools: ${missingRequiredTools.join(", ")}`,
-        }),
-      },
-    );
+          missingRequiredTools,
+          requiredToolNames: parsed.input.requiredToolNames ?? [],
+          allowedToolNames: profileDefaults.allowedToolNames,
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            routeId: route.routeId,
+            profile: parsed.input.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.input.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `Missing required route tools: ${missingRequiredTools.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
   }
+
   const missingRequiredCapabilities = missingManagedInvocationRequiredCapabilities(
     parsed.input.requiredToolNames ?? [],
     profileDefaults,
   );
   if (missingRequiredCapabilities.length > 0) {
-    return errorResult(
-      `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required capabilities: ${missingRequiredCapabilities.join(", ")}.`,
-      {
-        routeId: route.routeId,
-        profile: parsed.input.profile,
-        missingRequiredCapabilities,
-        requiredToolNames: parsed.input.requiredToolNames ?? [],
-        presentationIntent: buildManagedInvocationPresentationIntent({
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required capabilities: ${missingRequiredCapabilities.join(", ")}.`,
+        {
           routeId: route.routeId,
           profile: parsed.input.profile,
-          providerId: route.providerId,
-          model: route.model,
-          contextMode: parsed.input.contextMode,
-          status: "unavailable",
-          substantiveEvidence: false,
-          failureReason: `Missing required route capabilities: ${missingRequiredCapabilities.join(", ")}`,
-        }),
-      },
-    );
+          missingRequiredCapabilities,
+          requiredToolNames: parsed.input.requiredToolNames ?? [],
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            routeId: route.routeId,
+            profile: parsed.input.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.input.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `Missing required route capabilities: ${missingRequiredCapabilities.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
   }
+
   const requestedAuthority = resolveManagedInvocationRequestedAuthority(
     parsed.input.requestedAuthority,
     context.effectiveTurnAuthority?.requestedAuthority,
   );
-  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.input.profile);
+  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.input.profile, toolName);
   if (!authorityAdmission.ok) {
-    return errorResult(authorityAdmission.error, {
-      profile: parsed.input.profile,
-      requestedAuthority,
-      routeId: route.routeId,
-    });
+    return {
+      ok: false,
+      result: errorResult(authorityAdmission.error, {
+        profile: parsed.input.profile,
+        requestedAuthority,
+        routeId: route.routeId,
+      }, toolName),
+    };
   }
 
   const contextResolution = await resolveInvocationContext(parsed.input, options, route);
   if (!contextResolution.ok) {
-    return errorResult(contextResolution.error);
+    return { ok: false, result: errorResult(contextResolution.error, {}, toolName) };
   }
   const prompt = contextResolution.resolution.promptPrefix
     ? `${contextResolution.resolution.promptPrefix}\n\nTask:\n${parsed.input.task}`
@@ -592,14 +755,19 @@ async function executeManagedInvocationTool(
     routeId: route.routeId,
     profile: parsed.input.profile,
     context,
+    toolName,
   });
   if (!authorityApproval.ok) {
-    return errorResult(authorityApproval.error, {
-      profile: parsed.input.profile,
-      requestedAuthority,
-      routeId: route.routeId,
-    });
+    return {
+      ok: false,
+      result: errorResult(authorityApproval.error, {
+        profile: parsed.input.profile,
+        requestedAuthority,
+        routeId: route.routeId,
+      }, toolName),
+    };
   }
+
   const request = defineManagedAgentInvocationRequest({
     invocationId,
     agentId: `${route.routeId}:${parsed.input.profile}`,
@@ -649,35 +817,63 @@ async function executeManagedInvocationTool(
     },
   });
 
+  return {
+    ok: true,
+    prepared: {
+      context,
+      parsed: parsed.input,
+      route,
+      request,
+      capabilitySnapshotInput: {
+        routeId: route.routeId,
+        routeHealth: {
+          status: "healthy",
+          reason: "Configured managed invocation route selected by runtime tool.",
+        },
+        providerModelProof: {
+          status: "live-proven",
+          source: "managed-invocation-route-health",
+          requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
+        },
+        resourcePlane: {
+          available: true,
+          resourceUris: parsed.input.resourceUris ?? [],
+          reason: parsed.input.resourceUris && parsed.input.resourceUris.length > 0
+            ? "Governed resource URIs admitted by runtime context selection."
+            : "No governed resources requested.",
+        },
+        childIdentity: {
+          agentId: `${route.routeId}:${parsed.input.profile}`,
+          ...(parsed.input.agentProfile ? { requestedAgentProfile: parsed.input.agentProfile } : {}),
+          ...(contextResolution.resolution.admittedAgentProfile ? { admittedAgentProfile: contextResolution.resolution.admittedAgentProfile } : {}),
+          ...(managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile)
+            ? { displayName: managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile) }
+            : {}),
+          ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
+        },
+      },
+    },
+  };
+}
+
+async function executeManagedInvocationTool(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  options: ManagedInvocationToolOptions,
+  service: RuntimeManagedAgentInvocationService,
+): Promise<ManagedInvocationToolResult> {
+  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, options, MANAGED_AGENT_INVOKE_TOOL_NAME);
+  if (!preparedResult.ok) {
+    return preparedResult.result;
+  }
+  const { prepared } = preparedResult;
+
   const startedAt = Date.now();
-  const invocationResult = await service.invoke(request, route.adapter, {
-    routeId: route.routeId,
-    routeHealth: {
-      status: "healthy",
-      reason: "Configured managed invocation route selected by runtime tool.",
-    },
-    providerModelProof: {
-      status: "live-proven",
-      source: "managed-invocation-route-health",
-      requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
-    },
-    resourcePlane: {
-      available: true,
-      resourceUris: parsed.input.resourceUris ?? [],
-      reason: parsed.input.resourceUris && parsed.input.resourceUris.length > 0
-        ? "Governed resource URIs admitted by runtime context selection."
-        : "No governed resources requested.",
-    },
-    childIdentity: {
-      agentId: `${route.routeId}:${parsed.input.profile}`,
-      ...(parsed.input.agentProfile ? { requestedAgentProfile: parsed.input.agentProfile } : {}),
-      ...(contextResolution.resolution.admittedAgentProfile ? { admittedAgentProfile: contextResolution.resolution.admittedAgentProfile } : {}),
-      ...(managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile)
-        ? { displayName: managedAgentDisplayName(options, contextResolution.resolution.admittedAgentProfile ?? parsed.input.agentProfile) }
-        : {}),
-      ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
-    },
-  });
+  const invocationResult = await service.invoke(
+    prepared.request,
+    prepared.route.adapter,
+    prepared.capabilitySnapshotInput,
+  );
   const durationMs = Date.now() - startedAt;
   const result = invocationResult.status === "completed"
     ? {
@@ -686,12 +882,12 @@ async function executeManagedInvocationTool(
       }
     : invocationResult;
   const events = appendManagedInvocationSessionEvents({
-    session: context.session,
-    request,
+    session: prepared.context.session,
+    request: prepared.request,
     decision: result.decision,
     ...(result.status === "completed" ? { record: result.record, durationMs } : {}),
   });
-  await options.sessionEventSink?.publish(events, context);
+  await options.sessionEventSink?.publish(events, prepared.context);
 
   if (result.status === "denied") {
     return {
@@ -700,26 +896,26 @@ async function executeManagedInvocationTool(
       metadata: {
         toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
         kind: "managed-invocation",
-        invocationId,
-        routeId: route.routeId,
+        invocationId: prepared.request.invocationId,
+        routeId: prepared.route.routeId,
         status: "denied",
-        profile: request.profile,
-        providerRoute: request.providerRoute,
-        ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
-        adapterKind: request.adapterKind,
-        executionMode: request.executionMode,
-        requestedAuthority: request.requestedAuthority,
-        authorityProfileId: request.authority.authorityProfileId,
-        context: request.input.context,
-        ...(request.input.handoff ? { handoffContract: request.input.handoff } : {}),
+        profile: prepared.request.profile,
+        providerRoute: prepared.request.providerRoute,
+        ...(prepared.route.voiceProfile ? { voiceProfile: prepared.route.voiceProfile } : {}),
+        adapterKind: prepared.request.adapterKind,
+        executionMode: prepared.request.executionMode,
+        requestedAuthority: prepared.request.requestedAuthority,
+        authorityProfileId: prepared.request.authority.authorityProfileId,
+        context: prepared.request.input.context,
+        ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
         missingCapabilities: result.decision.missingCapabilities,
         sessionEventIds: events.map((event) => event.eventId),
         presentationIntent: buildManagedInvocationPresentationIntent({
-          routeId: route.routeId,
-          profile: request.profile,
-          providerId: request.providerRoute.providerId,
-          model: request.providerRoute.model,
-          contextMode: parsed.input.contextMode,
+          routeId: prepared.route.routeId,
+          profile: prepared.request.profile,
+          providerId: prepared.request.providerRoute.providerId,
+          model: prepared.request.providerRoute.model,
+          contextMode: prepared.parsed.contextMode,
           status: "denied",
           substantiveEvidence: false,
           failureReason: result.decision.reason,
@@ -728,26 +924,330 @@ async function executeManagedInvocationTool(
     };
   }
 
-  const summary = result.record.resultHandoff?.summary ?? `Managed invocation ${result.record.lifecycleState}.`;
-  const terminalError = result.record.lifecycleState !== "completed";
+  return terminalManagedInvocationResult({
+    toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
+    rawInput,
+    routeId: prepared.route.routeId,
+    ...(prepared.route.voiceProfile ? { voiceProfile: prepared.route.voiceProfile } : {}),
+    contextMode: prepared.parsed.contextMode,
+    request: prepared.request,
+    record: result.record,
+    sessionEventIds: events.map((event) => event.eventId),
+  });
+}
+
+async function executeManagedInvocationStartTool(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  options: ManagedInvocationToolOptions,
+  service: RuntimeManagedAgentInvocationService,
+): Promise<ManagedInvocationToolResult> {
+  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, options, MANAGED_AGENT_START_TOOL_NAME);
+  if (!preparedResult.ok) {
+    return preparedResult.result;
+  }
+  const { prepared } = preparedResult;
+  const startResult = await service.start(
+    prepared.request,
+    prepared.route.adapter,
+    prepared.capabilitySnapshotInput,
+  );
+  const events = appendManagedInvocationStartSessionEvents({
+    session: prepared.context.session,
+    request: prepared.request,
+    decision: startResult.decision,
+  });
+  await options.sessionEventSink?.publish(events, prepared.context);
+
+  if (startResult.status === "denied") {
+    return {
+      output: `Managed invocation denied: ${startResult.decision.reason}`,
+      isError: true,
+      metadata: {
+        toolName: MANAGED_AGENT_START_TOOL_NAME,
+        kind: "managed-invocation",
+        invocationId: prepared.request.invocationId,
+        routeId: prepared.route.routeId,
+        status: "denied",
+        lifecycleState: "failed",
+        profile: prepared.request.profile,
+        providerRoute: prepared.request.providerRoute,
+        adapterKind: prepared.request.adapterKind,
+        executionMode: prepared.request.executionMode,
+        requestedAuthority: prepared.request.requestedAuthority,
+        authorityProfileId: prepared.request.authority.authorityProfileId,
+        context: prepared.request.input.context,
+        ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
+        missingCapabilities: startResult.decision.missingCapabilities,
+        sessionEventIds: events.map((event) => event.eventId),
+      },
+    };
+  }
+
+  return {
+    output: JSON.stringify({
+      status: "started",
+      lifecycleState: startResult.snapshot.lifecycleState,
+      invocationId: startResult.snapshot.invocationId,
+      routeId: prepared.route.routeId,
+      profile: startResult.snapshot.profile,
+    }, null, 2),
+    isError: false,
+    metadata: {
+      toolName: MANAGED_AGENT_START_TOOL_NAME,
+      kind: "managed-invocation",
+      invocationId: startResult.snapshot.invocationId,
+      routeId: prepared.route.routeId,
+      status: "started",
+      lifecycleState: startResult.snapshot.lifecycleState,
+      profile: startResult.snapshot.profile,
+      providerRoute: startResult.snapshot.providerRoute,
+      ...(prepared.route.voiceProfile ? { voiceProfile: prepared.route.voiceProfile } : {}),
+      adapterKind: startResult.snapshot.adapterKind,
+      executionMode: startResult.snapshot.executionMode,
+      requestedAuthority: prepared.request.requestedAuthority,
+      authorityProfileId: startResult.snapshot.authorityProfileId,
+      capabilitySnapshot: startResult.snapshot.decision.capabilitySnapshot,
+      context: prepared.request.input.context,
+      ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
+      sessionEventIds: events.map((event) => event.eventId),
+    },
+  };
+}
+
+async function executeManagedInvocationStatusTool(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  service: RuntimeManagedAgentInvocationService,
+): Promise<ManagedInvocationToolResult> {
+  const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_STATUS_TOOL_NAME);
+  if (!session.ok) {
+    return session.result;
+  }
+  const invocationId = readInvocationId(rawInput, MANAGED_AGENT_STATUS_TOOL_NAME);
+  if (!invocationId.ok) {
+    return invocationId.result;
+  }
+  const snapshot = service.status(invocationId.value);
+  const visibility = visibleManagedInvocationSnapshot(snapshot, session.context.session.id, MANAGED_AGENT_STATUS_TOOL_NAME);
+  if (!visibility.ok) {
+    return visibility.result;
+  }
+  return managedInvocationSnapshotResult(MANAGED_AGENT_STATUS_TOOL_NAME, visibility.snapshot);
+}
+
+async function executeManagedInvocationListTool(
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  service: RuntimeManagedAgentInvocationService,
+): Promise<ManagedInvocationToolResult> {
+  const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_LIST_TOOL_NAME);
+  if (!session.ok) {
+    return session.result;
+  }
+  const invocations = service.list().filter((snapshot) => snapshot.parentSessionId === session.context.session.id);
+  return {
+    output: JSON.stringify({
+      status: "listed",
+      count: invocations.length,
+      invocations: invocations.map(projectManagedInvocationSnapshot),
+    }, null, 2),
+    isError: false,
+    metadata: {
+      toolName: MANAGED_AGENT_LIST_TOOL_NAME,
+      kind: "managed-invocation",
+      status: "listed",
+      count: invocations.length,
+      invocations: invocations.map(projectManagedInvocationSnapshot),
+    },
+  };
+}
+
+async function executeManagedInvocationJoinTool(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  options: ManagedInvocationToolOptions,
+  service: RuntimeManagedAgentInvocationService,
+): Promise<ManagedInvocationToolResult> {
+  const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_JOIN_TOOL_NAME);
+  if (!session.ok) {
+    return session.result;
+  }
+  const invocationId = readInvocationId(rawInput, MANAGED_AGENT_JOIN_TOOL_NAME);
+  if (!invocationId.ok) {
+    return invocationId.result;
+  }
+  const snapshot = service.status(invocationId.value);
+  const visibility = visibleManagedInvocationSnapshot(snapshot, session.context.session.id, MANAGED_AGENT_JOIN_TOOL_NAME);
+  if (!visibility.ok) {
+    return visibility.result;
+  }
+  const startedAt = Date.now();
+  let invocationResult: ManagedAgentRuntimeInvocationResult;
+  try {
+    invocationResult = await service.join(invocationId.value);
+  } catch (error) {
+    const failedSnapshot = service.status(invocationId.value);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const events = failedSnapshot
+      ? appendManagedInvocationRuntimeFailureSessionEvent({
+          session: session.context.session,
+          request: failedSnapshot.request,
+          decision: failedSnapshot.decision,
+          errorMessage,
+        })
+      : [];
+    await options.sessionEventSink?.publish(events, session.context);
+    return errorResult(
+      `Managed invocation join failed: ${errorMessage}`,
+      {
+        invocationId: invocationId.value,
+        status: failedSnapshot?.lifecycleState ?? "failed",
+        lifecycleState: failedSnapshot?.lifecycleState ?? "failed",
+        error: failedSnapshot?.error,
+        sessionEventIds: events.map((event) => event.eventId),
+      },
+      MANAGED_AGENT_JOIN_TOOL_NAME,
+    );
+  }
+  if (invocationResult.status === "denied") {
+    return errorResult(
+      `Managed invocation denied: ${invocationResult.decision.reason}`,
+      {
+        invocationId: invocationId.value,
+        status: "denied",
+        lifecycleState: "failed",
+        missingCapabilities: invocationResult.decision.missingCapabilities,
+      },
+      MANAGED_AGENT_JOIN_TOOL_NAME,
+    );
+  }
+  const routeId = invocationResult.record.capabilitySnapshot.routeId;
+  const record = persistManagedInvocationResources(invocationResult.record, options.artifactStore);
+  const terminalSnapshot = service.status(invocationId.value);
+  const durationMs = terminalSnapshot?.durationMs ?? Date.now() - startedAt;
+  const events = appendManagedInvocationTerminalSessionEvent({
+    session: session.context.session,
+    request: visibility.snapshot.request,
+    record,
+    durationMs,
+  });
+  await options.sessionEventSink?.publish(events, session.context);
+  return terminalManagedInvocationResult({
+    toolName: MANAGED_AGENT_JOIN_TOOL_NAME,
+    rawInput,
+    routeId,
+    voiceProfile: visibility.snapshot.decision.capabilitySnapshot.childIdentity.voiceProfile,
+    contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
+    request: visibility.snapshot.request,
+    record,
+    sessionEventIds: events.map((event) => event.eventId),
+  });
+}
+
+function requireManagedInvocationSessionContext(
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  toolName: string,
+): { readonly ok: true; readonly context: RuntimeBuiltinToolExecutionContext } | { readonly ok: false; readonly result: ManagedInvocationToolResult } {
+  if (!context) {
+    return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
+  }
+  return { ok: true, context };
+}
+
+function readInvocationId(
+  rawInput: Record<string, unknown>,
+  toolName: string,
+): { readonly ok: true; readonly value: string } | { readonly ok: false; readonly result: ManagedInvocationToolResult } {
+  const invocationId = readText(rawInput.invocationId);
+  if (!invocationId) {
+    return { ok: false, result: errorResult(`${toolName} requires invocationId.`, {}, toolName) };
+  }
+  return { ok: true, value: invocationId };
+}
+
+function visibleManagedInvocationSnapshot(
+  snapshot: ManagedAgentRuntimeInvocationSnapshot | undefined,
+  sessionId: string,
+  toolName: string,
+): { readonly ok: true; readonly snapshot: ManagedAgentRuntimeInvocationSnapshot } | { readonly ok: false; readonly result: ManagedInvocationToolResult } {
+  if (!snapshot || snapshot.parentSessionId !== sessionId) {
+    return {
+      ok: false,
+      result: errorResult("Managed invocation is not registered for this runtime session.", {
+        status: "not_found",
+      }, toolName),
+    };
+  }
+  return { ok: true, snapshot };
+}
+
+function managedInvocationSnapshotResult(
+  toolName: string,
+  snapshot: ManagedAgentRuntimeInvocationSnapshot,
+): ManagedInvocationToolResult {
+  const projected = projectManagedInvocationSnapshot(snapshot);
+  return {
+    output: JSON.stringify(projected, null, 2),
+    isError: false,
+    metadata: {
+      toolName,
+      kind: "managed-invocation",
+      status: projected.lifecycleState,
+      lifecycleState: projected.lifecycleState,
+      ...projected,
+    },
+  };
+}
+
+function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocationSnapshot): Record<string, unknown> {
+  return {
+    invocationId: snapshot.invocationId,
+    agentId: snapshot.agentId,
+    parentSessionId: snapshot.parentSessionId,
+    parentTurnId: snapshot.parentTurnId,
+    profile: snapshot.profile,
+    providerRoute: snapshot.providerRoute,
+    adapterKind: snapshot.adapterKind,
+    executionMode: snapshot.executionMode,
+    authorityProfileId: snapshot.authorityProfileId,
+    lifecycleState: snapshot.lifecycleState,
+    startedAt: snapshot.startedAt,
+    ...(snapshot.finishedAt ? { finishedAt: snapshot.finishedAt } : {}),
+    ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
+    terminalEvidenceAvailable: snapshot.record !== undefined || snapshot.error !== undefined,
+  };
+}
+
+function terminalManagedInvocationResult(input: {
+  readonly toolName: string;
+  readonly rawInput: Record<string, unknown>;
+  readonly routeId: string;
+  readonly voiceProfile?: string;
+  readonly contextMode?: ManagedAgentInvocationContextMode;
+  readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
+  readonly record: ManagedAgentInvocationRecord;
+  readonly sessionEventIds: readonly string[];
+}): ManagedInvocationToolResult {
+  const summary = input.record.resultHandoff?.summary ?? `Managed invocation ${input.record.lifecycleState}.`;
+  const terminalError = input.record.lifecycleState !== "completed";
   const recovery = terminalError
-    ? buildManagedInvocationPhaseRecovery(rawInput)
+    ? buildManagedInvocationPhaseRecovery(input.rawInput)
     : undefined;
   const handoffRecovery = terminalError
     ? undefined
-    : buildManagedInvocationPhaseHandoffRecovery(rawInput, result.record.resultHandoff);
+    : buildManagedInvocationPhaseHandoffRecovery(input.rawInput, input.record.resultHandoff);
   const phaseCompletion = terminalError
     ? undefined
-    : buildManagedInvocationPhaseCompletion(rawInput, result.record.resultHandoff);
+    : buildManagedInvocationPhaseCompletion(input.rawInput, input.record.resultHandoff);
   const handoffError = handoffRecovery !== undefined;
-  const projectedStatus = handoffError ? "handoff_not_substantive" : result.record.lifecycleState;
+  const projectedStatus = handoffError ? "handoff_not_substantive" : input.record.lifecycleState;
   return {
     output: recovery || handoffRecovery || phaseCompletion
       ? JSON.stringify({
           status: projectedStatus,
           summary,
-          ...(result.record.resultHandoff ? { resultHandoff: result.record.resultHandoff } : {}),
-          ...(result.record.transcript ? { transcript: result.record.transcript } : {}),
+          ...(input.record.resultHandoff ? { resultHandoff: input.record.resultHandoff } : {}),
+          ...(input.record.transcript ? { transcript: input.record.transcript } : {}),
           ...(recovery ? { recovery } : {}),
           ...(handoffRecovery ? { recovery: handoffRecovery } : {}),
           ...(phaseCompletion ? { phaseCompletion } : {}),
@@ -755,38 +1255,39 @@ async function executeManagedInvocationTool(
       : summary,
     isError: terminalError || handoffError,
     metadata: {
-      toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
+      toolName: input.toolName,
       kind: "managed-invocation",
-      invocationId,
-      routeId: route.routeId,
+      invocationId: input.record.invocationId,
+      routeId: input.routeId,
       status: projectedStatus,
-      profile: result.record.profile,
-      providerRoute: result.record.providerRoute,
-      ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
-      adapterKind: result.record.adapterKind,
-      executionMode: result.record.executionMode,
-      requestedAuthority: request.requestedAuthority,
-      authorityProfileId: result.record.authority.authorityProfileId,
-      capabilitySnapshot: result.record.capabilitySnapshot,
-      context: request.input.context,
-      ...(request.input.handoff ? { handoffContract: request.input.handoff } : {}),
-      childSessionId: result.record.childSessionId,
-      childTurnId: result.record.childTurnId,
-      resultHandoff: result.record.resultHandoff,
-      transcript: result.record.transcript,
-      ...(result.record.diagnostics ? { diagnostics: result.record.diagnostics } : {}),
+      lifecycleState: input.record.lifecycleState,
+      profile: input.record.profile,
+      providerRoute: input.record.providerRoute,
+      ...(input.voiceProfile ? { voiceProfile: input.voiceProfile } : {}),
+      adapterKind: input.record.adapterKind,
+      executionMode: input.record.executionMode,
+      requestedAuthority: input.request.requestedAuthority,
+      authorityProfileId: input.record.authority.authorityProfileId,
+      capabilitySnapshot: input.record.capabilitySnapshot,
+      context: input.request.input.context,
+      ...(input.request.input.handoff ? { handoffContract: input.request.input.handoff } : {}),
+      childSessionId: input.record.childSessionId,
+      childTurnId: input.record.childTurnId,
+      resultHandoff: input.record.resultHandoff,
+      transcript: input.record.transcript,
+      ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
       ...(handoffRecovery ? { managedInvocationRecovery: handoffRecovery } : {}),
       ...(phaseCompletion ? { managedInvocationPhaseCompletion: phaseCompletion } : {}),
-      sessionEventIds: events.map((event) => event.eventId),
+      sessionEventIds: input.sessionEventIds,
       presentationIntent: buildManagedInvocationPresentationIntent({
-        routeId: route.routeId,
-        profile: result.record.profile,
-        providerId: result.record.providerRoute.providerId,
-        model: result.record.providerRoute.model,
-        contextMode: parsed.input.contextMode,
+        routeId: input.routeId,
+        profile: input.record.profile,
+        providerId: input.record.providerRoute.providerId,
+        model: input.record.providerRoute.model,
+        contextMode: input.contextMode,
         status: projectedStatus,
-        substantiveEvidence: hasSubstantiveManagedInvocationEvidence(result.record) && !handoffError,
+        substantiveEvidence: hasSubstantiveManagedInvocationEvidence(input.record) && !handoffError,
         failureReason: terminalError || handoffError ? summary : undefined,
       }),
     },
@@ -942,6 +1443,7 @@ function resolveManagedAgentProfileEntry(
 function validateAgentRouteHint(
   input: ManagedInvocationToolInput,
   agentProfile: ManagedInvocationAgentCatalogEntry | undefined,
+  toolName = MANAGED_AGENT_INVOKE_TOOL_NAME,
 ): { readonly ok: true } | { readonly ok: false; readonly error: string } {
   if (!agentProfile) {
     return { ok: true };
@@ -950,21 +1452,21 @@ function validateAgentRouteHint(
   if (agentProfile.routeId && input.routeId && agentProfile.routeId !== input.routeId) {
     return {
       ok: false,
-      error: `managed_agent.invoke routeId '${input.routeId}' contradicts configured agentProfile '${label}' route hint '${agentProfile.routeId}'.`,
+      error: `${toolName} routeId '${input.routeId}' contradicts configured agentProfile '${label}' route hint '${agentProfile.routeId}'.`,
     };
   }
   const hintedProvider = agentProfile.providerRoute?.providerId;
   if (hintedProvider && hintedProvider !== input.providerRoute.providerId) {
     return {
       ok: false,
-      error: `managed_agent.invoke provider '${input.providerRoute.providerId}' contradicts configured agentProfile '${label}' provider hint '${hintedProvider}'.`,
+      error: `${toolName} provider '${input.providerRoute.providerId}' contradicts configured agentProfile '${label}' provider hint '${hintedProvider}'.`,
     };
   }
   const hintedModel = agentProfile.providerRoute?.model;
   if (hintedModel && input.providerRoute.model && hintedModel !== input.providerRoute.model) {
     return {
       ok: false,
-      error: `managed_agent.invoke model '${input.providerRoute.model}' contradicts configured agentProfile '${label}' model hint '${hintedModel}'.`,
+      error: `${toolName} model '${input.providerRoute.model}' contradicts configured agentProfile '${label}' model hint '${hintedModel}'.`,
     };
   }
   return { ok: true };
@@ -1283,7 +1785,10 @@ function formatChildIdentity(identity: ManagedAgentInvocationRecord["capabilityS
   return identity.displayName ?? identity.admittedAgentProfile ?? identity.requestedAgentProfile ?? identity.agentId;
 }
 
-function parseInput(input: Record<string, unknown>): { readonly ok: true; readonly input: ManagedInvocationToolInput } | { readonly ok: false; readonly error: string } {
+function parseInput(
+  input: Record<string, unknown>,
+  toolName = MANAGED_AGENT_INVOKE_TOOL_NAME,
+): { readonly ok: true; readonly input: ManagedInvocationToolInput } | { readonly ok: false; readonly error: string } {
   const profile = input.profile === undefined ? "foundation-readonly-plan" : input.profile;
   if (
     profile !== "foundation-readonly-plan"
@@ -1291,16 +1796,16 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
     && profile !== "foundation-apply-approved-writes"
     && profile !== "foundation-memory-write-proposals"
   ) {
-    return { ok: false, error: "managed_agent.invoke profile is not supported." };
+    return { ok: false, error: `${toolName} profile is not supported.` };
   }
   const providerRoute = readRecord(input.providerRoute);
   const providerId = readText(providerRoute?.providerId);
   if (!providerId) {
-    return { ok: false, error: "managed_agent.invoke requires providerRoute.providerId." };
+    return { ok: false, error: `${toolName} requires providerRoute.providerId.` };
   }
   const task = readText(input.task);
   if (!task) {
-    return { ok: false, error: "managed_agent.invoke requires task." };
+    return { ok: false, error: `${toolName} requires task.` };
   }
   const resourceUris = Array.isArray(input.resourceUris)
     ? input.resourceUris.map(readText).filter((uri): uri is string => uri !== undefined)
@@ -1314,14 +1819,14 @@ function parseInput(input: Record<string, unknown>): { readonly ok: true; readon
   const doneCriteria = readTextArray(input.doneCriteria);
   const requestedAuthority = parseManagedInvocationRequestedAuthority(input.requestedAuthority);
   if (!requestedAuthority.ok) {
-    return { ok: false, error: "managed_agent.invoke requestedAuthority is not supported." };
+    return { ok: false, error: `${toolName} requestedAuthority is not supported.` };
   }
   const contextMode = parseContextMode(input.contextMode);
   if (!contextMode) {
-    return { ok: false, error: "managed_agent.invoke contextMode is not supported." };
+    return { ok: false, error: `${toolName} contextMode is not supported.` };
   }
   if (contextMode === "resources" && (!resourceUris || resourceUris.length === 0)) {
-    return { ok: false, error: "managed_agent.invoke contextMode resources requires at least one resourceUris entry. Use contextMode isolated when no governed resources are supplied." };
+    return { ok: false, error: `${toolName} contextMode resources requires at least one resourceUris entry. Use contextMode isolated when no governed resources are supplied.` };
   }
   return {
     ok: true,
@@ -1462,11 +1967,12 @@ function managedAuthorityRank(authority: ManagedAgentRequestedAuthority): number
 function validateManagedInvocationRequestedAuthority(
   requestedAuthority: ManagedAgentRequestedAuthority,
   profile: ManagedAgentAdmissionProfile,
+  toolName = MANAGED_AGENT_INVOKE_TOOL_NAME,
 ): { readonly ok: true } | { readonly ok: false; readonly error: string } {
   if (requestedAuthority === "read_only" && profile !== "foundation-readonly-plan") {
     return {
       ok: false,
-      error: `managed_agent.invoke read_only requested authority cannot select managed profile '${profile}'.`,
+      error: `${toolName} read_only requested authority cannot select managed profile '${profile}'.`,
     };
   }
   if (
@@ -1475,7 +1981,7 @@ function validateManagedInvocationRequestedAuthority(
   ) {
     return {
       ok: false,
-      error: `managed_agent.invoke ${requestedAuthority} requested authority cannot select read-only managed profile '${profile}'.`,
+      error: `${toolName} ${requestedAuthority} requested authority cannot select read-only managed profile '${profile}'.`,
     };
   }
   return { ok: true };
@@ -1486,26 +1992,28 @@ async function requestManagedInvocationAuthorityApproval(input: {
   readonly routeId: string;
   readonly profile: ManagedAgentAdmissionProfile;
   readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly toolName?: string;
 }): Promise<
   | { readonly ok: true; readonly authorityApproval?: ManagedAgentAuthorityApproval }
   | { readonly ok: false; readonly error: string }
 > {
+  const toolName = input.toolName ?? MANAGED_AGENT_INVOKE_TOOL_NAME;
   if (input.requestedAuthority !== "destructive") {
     return { ok: true };
   }
   if (!input.context.requestApproval) {
     return {
       ok: false,
-      error: "managed_agent.invoke destructive requested authority requires an approval flow before child invocation.",
+      error: `${toolName} destructive requested authority requires an approval flow before child invocation.`,
     };
   }
 
-  const description = `managed_agent.invoke requests destructive authority for route '${input.routeId}' and profile '${input.profile}'.`;
+  const description = `${toolName} requests destructive authority for route '${input.routeId}' and profile '${input.profile}'.`;
   const approval = await input.context.requestApproval(description);
   if (!approval.approved) {
     return {
       ok: false,
-      error: `managed_agent.invoke destructive requested authority denied: ${approval.reason ?? "approval denied"}`,
+      error: `${toolName} destructive requested authority denied: ${approval.reason ?? "approval denied"}`,
     };
   }
   return {
@@ -1532,12 +2040,13 @@ function buildHandoffContract(input: ManagedInvocationToolInput): ManagedAgentIn
 function errorResult(
   output: string,
   metadata: Record<string, unknown> = {},
+  toolName = MANAGED_AGENT_INVOKE_TOOL_NAME,
 ): ManagedInvocationToolResult {
   return {
     output,
     isError: true,
     metadata: {
-      toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
+      toolName,
       kind: "managed-invocation",
       status: "failed",
       ...metadata,

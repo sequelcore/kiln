@@ -24,9 +24,135 @@ export interface AppendManagedInvocationSessionEventsInput {
   readonly timestamp?: Date;
 }
 
+export interface AppendManagedInvocationStartSessionEventsInput {
+  readonly session: RuntimeSession;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: ManagedAgentAdmissionDecision;
+  readonly timestamp?: Date;
+}
+
+export interface AppendManagedInvocationTerminalSessionEventInput {
+  readonly session: RuntimeSession;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly record: ManagedAgentInvocationRecord;
+  readonly durationMs?: number;
+  readonly timestamp?: Date;
+}
+
+export interface AppendManagedInvocationRuntimeFailureSessionEventInput {
+  readonly session: RuntimeSession;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly errorMessage: string;
+  readonly timestamp?: Date;
+}
+
 export function appendManagedInvocationSessionEvents(
   input: AppendManagedInvocationSessionEventsInput,
 ): readonly CanonicalSessionEvent[] {
+  const startEvents = collectManagedInvocationStartEvents({
+    ...input,
+    ...(input.record ? { startLifecycleState: startedLifecycleState(input.record.lifecycleState) } : {}),
+  });
+  if (input.decision.status === "denied") {
+    input.session.appendSessionEvents(startEvents.events);
+    return startEvents.events;
+  }
+
+  if (!input.record) {
+    throw new Error("Managed invocation record is required when admission is admitted");
+  }
+
+  const terminal = mapTerminalEvent({
+    session: input.session,
+    request: input.request,
+    record: input.record,
+    startedEventId: startEvents.startedEventId,
+    sequence: startEvents.nextSequence,
+    timestamp: startEvents.timestamp,
+    durationMs: input.durationMs,
+    source: startEvents.source,
+  });
+  const events = terminal ? [...startEvents.events, terminal] : startEvents.events;
+  input.session.appendSessionEvents(events);
+  return events;
+}
+
+export function appendManagedInvocationStartSessionEvents(
+  input: AppendManagedInvocationStartSessionEventsInput,
+): readonly CanonicalSessionEvent[] {
+  const startEvents = collectManagedInvocationStartEvents(input);
+  input.session.appendSessionEvents(startEvents.events);
+  return startEvents.events;
+}
+
+export function appendManagedInvocationTerminalSessionEvent(
+  input: AppendManagedInvocationTerminalSessionEventInput,
+): readonly CanonicalSessionEvent[] {
+  if (hasTerminalEvent(input.session, input.record.invocationId)) {
+    return [];
+  }
+  const source = makeSource();
+  const timestamp = input.timestamp ?? new Date();
+  const startedEventId = latestStartedEventId(input.session, input.record.invocationId);
+  const terminal = mapTerminalEvent({
+    session: input.session,
+    request: input.request,
+    record: input.record,
+    startedEventId,
+    sequence: input.session.nextSessionEventSequence(),
+    timestamp,
+    durationMs: input.durationMs,
+    source,
+  });
+  if (!terminal) {
+    return [];
+  }
+  input.session.appendSessionEvents([terminal]);
+  return [terminal];
+}
+
+export function appendManagedInvocationRuntimeFailureSessionEvent(
+  input: AppendManagedInvocationRuntimeFailureSessionEventInput,
+): readonly CanonicalSessionEvent[] {
+  if (hasTerminalEvent(input.session, input.request.invocationId)) {
+    return [];
+  }
+  const source = makeSource();
+  const timestamp = input.timestamp ?? new Date();
+  const startedEventId = latestStartedEventId(input.session, input.request.invocationId);
+  const event = createSessionEvent<"agent_invocation_failed">({
+    kilnSessionId: input.session.id,
+    sequence: input.session.nextSessionEventSequence(),
+    kind: "agent_invocation_failed",
+    turnId: input.request.parentTurnId,
+    ...(startedEventId !== undefined ? { parentEventId: startedEventId } : {}),
+    invocationId: input.request.invocationId,
+    agentId: input.request.agentId,
+    parentSessionId: input.request.parentSessionId,
+    ...managedInvocationIdentity(input.request, undefined, input.decision.capabilitySnapshot),
+    lifecycleState: "failed",
+    errorCode: "ENGINE_FAILURE",
+    errorMessage: input.errorMessage,
+    retriable: true,
+    source,
+    timestamp,
+  });
+  input.session.appendSessionEvents([event]);
+  return [event];
+}
+
+function collectManagedInvocationStartEvents(
+  input: AppendManagedInvocationStartSessionEventsInput & {
+    readonly startLifecycleState?: ManagedAgentInvocationRecord["lifecycleState"];
+  },
+): {
+  readonly events: readonly CanonicalSessionEvent[];
+  readonly nextSequence: number;
+  readonly timestamp: Date;
+  readonly source: SessionEventSource;
+  readonly startedEventId?: string;
+} {
   const source = makeSource();
   const timestamp = input.timestamp ?? new Date();
   const events: CanonicalSessionEvent[] = [];
@@ -53,7 +179,7 @@ export function appendManagedInvocationSessionEvents(
 
   if (input.decision.status === "denied") {
     const evidence = collectDeniedEvidence(input.request, input.decision, timestamp);
-    const denied = createSessionEvent<"agent_invocation_failed">({
+    events.push(createSessionEvent<"agent_invocation_failed">({
       kilnSessionId: input.session.id,
       sequence: nextSequence(),
       kind: "agent_invocation_failed",
@@ -70,62 +196,53 @@ export function appendManagedInvocationSessionEvents(
       ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
       source,
       timestamp,
-    });
-    events.push(denied);
-    input.session.appendSessionEvents(events);
-    return events;
-  }
-
-  if (!input.record) {
-    throw new Error("Managed invocation record is required when admission is admitted");
+    }));
+    return {
+      events,
+      nextSequence: sequence,
+      timestamp,
+      source,
+    };
   }
 
   const started = createSessionEvent<"agent_invocation_started">({
     kilnSessionId: input.session.id,
     sequence: nextSequence(),
     kind: "agent_invocation_started",
-    turnId: input.record.parentTurnId,
+    turnId: input.request.parentTurnId,
     parentEventId: requested.eventId,
-    invocationId: input.record.invocationId,
-    agentId: input.record.agentId,
-    parentSessionId: input.record.parentSessionId,
-    ...managedInvocationIdentity(input.record, input.request),
-    lifecycleState: startedLifecycleState(input.record.lifecycleState),
+    invocationId: input.request.invocationId,
+    agentId: input.request.agentId,
+    parentSessionId: input.request.parentSessionId,
+    ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
+    lifecycleState: input.startLifecycleState ?? "running",
     attempt: 1,
     source,
     timestamp,
   });
   events.push(started);
 
-  const terminal = mapTerminalEvent({
-    session: input.session,
-    request: input.request,
-    record: input.record,
-    started,
-    sequence: nextSequence(),
+  return {
+    events,
+    nextSequence: sequence,
     timestamp,
-    durationMs: input.durationMs,
     source,
-  });
-  if (terminal) {
-    events.push(terminal);
-  }
-
-  input.session.appendSessionEvents(events);
-  return events;
+    startedEventId: started.eventId,
+  };
 }
 
 function mapTerminalEvent(input: {
   readonly session: RuntimeSession;
   readonly request: ManagedAgentInvocationRequest;
   readonly record: ManagedAgentInvocationRecord;
-  readonly started: CanonicalAgentInvocationStartedEvent;
+  readonly startedEventId?: string;
   readonly sequence: number;
   readonly timestamp: Date;
   readonly durationMs?: number;
   readonly source: SessionEventSource;
 }): CanonicalAgentInvocationCompletedEvent | CanonicalAgentInvocationFailedEvent | CanonicalAgentInvocationCancelledEvent | undefined {
   const evidence = collectEvidence(input.record);
+  const lineage = input.startedEventId !== undefined ? { parentEventId: input.startedEventId } : {};
   switch (input.record.lifecycleState) {
     case "completed":
       return createSessionEvent<"agent_invocation_completed">({
@@ -133,7 +250,7 @@ function mapTerminalEvent(input: {
         sequence: input.sequence,
         kind: "agent_invocation_completed",
         turnId: input.record.parentTurnId,
-        parentEventId: input.started.eventId,
+        ...lineage,
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
@@ -151,7 +268,7 @@ function mapTerminalEvent(input: {
         sequence: input.sequence,
         kind: "agent_invocation_cancelled",
         turnId: input.record.parentTurnId,
-        parentEventId: input.started.eventId,
+        ...lineage,
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
@@ -169,7 +286,7 @@ function mapTerminalEvent(input: {
         sequence: input.sequence,
         kind: "agent_invocation_failed",
         turnId: input.record.parentTurnId,
-        parentEventId: input.started.eventId,
+        ...lineage,
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
@@ -188,7 +305,7 @@ function mapTerminalEvent(input: {
         sequence: input.sequence,
         kind: "agent_invocation_failed",
         turnId: input.record.parentTurnId,
-        parentEventId: input.started.eventId,
+        ...lineage,
         invocationId: input.record.invocationId,
         agentId: input.record.agentId,
         parentSessionId: input.record.parentSessionId,
@@ -206,14 +323,37 @@ function mapTerminalEvent(input: {
   }
 }
 
+function hasTerminalEvent(session: RuntimeSession, invocationId: string): boolean {
+  return session.sessionEvents.some((event) =>
+    "invocationId" in event &&
+    event.invocationId === invocationId &&
+    (
+      event.kind === "agent_invocation_completed" ||
+      event.kind === "agent_invocation_failed" ||
+      event.kind === "agent_invocation_cancelled"
+    )
+  );
+}
+
+function latestStartedEventId(session: RuntimeSession, invocationId: string): string | undefined {
+  return [...session.sessionEvents]
+    .reverse()
+    .find((event) =>
+      event.kind === "agent_invocation_started" &&
+      "invocationId" in event &&
+      event.invocationId === invocationId
+    )
+    ?.eventId;
+}
+
 function startedLifecycleState(
   lifecycleState: ManagedAgentInvocationRecord["lifecycleState"],
 ): ManagedAgentInvocationRecord["lifecycleState"] {
   if (
-    lifecycleState === "completed"
-    || lifecycleState === "failed"
-    || lifecycleState === "timed_out"
-    || lifecycleState === "cancelled"
+    lifecycleState === "completed" ||
+    lifecycleState === "failed" ||
+    lifecycleState === "timed_out" ||
+    lifecycleState === "cancelled"
   ) {
     return "running";
   }

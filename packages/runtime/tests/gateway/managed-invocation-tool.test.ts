@@ -25,9 +25,9 @@ import {
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
-function makeSession(): RuntimeSession {
+function makeSession(sessionId = "session-parent"): RuntimeSession {
   const session = new RuntimeSession({
-    sessionId: "session-parent",
+    sessionId,
     appName: "test-app",
     tenantId: "tenant-a",
     userId: "user-1",
@@ -164,6 +164,59 @@ function makeTimedOutAdapter(): ManagedAgentRuntimeAdapter {
   };
 }
 
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+function makeDeferredAdapter(): {
+  readonly adapter: ManagedAgentRuntimeAdapter;
+  readonly terminal: ReturnType<typeof deferred<ReturnType<typeof defineManagedAgentInvocationRecord>>>;
+} {
+  const terminal = deferred<ReturnType<typeof defineManagedAgentInvocationRecord>>();
+  const adapter: ManagedAgentRuntimeAdapter = {
+    descriptor: makeDescriptor(),
+    invoke: vi.fn(async ({ admission }) => {
+      const record = await terminal.promise;
+      return defineManagedAgentInvocationRecord({
+        ...record,
+        capabilitySnapshot: admission.capabilitySnapshot,
+      });
+    }),
+  };
+  return { adapter, terminal };
+}
+
+function makeRejectingDeferredAdapter(): {
+  readonly adapter: ManagedAgentRuntimeAdapter;
+  readonly terminal: ReturnType<typeof deferred<void>>;
+} {
+  const terminal = deferred<void>();
+  const adapter: ManagedAgentRuntimeAdapter = {
+    descriptor: makeDescriptor(),
+    invoke: vi.fn(async () => {
+      await terminal.promise;
+      throw new Error("child runtime crashed");
+    }),
+  };
+  return { adapter, terminal };
+}
+
 function makeSurface(
   adapter = makeAdapter(),
   sessionEventSink?: ManagedInvocationSessionEventSink,
@@ -247,7 +300,15 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface();
 
     expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.invoke")).toBe(false);
+    expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.start")).toBe(false);
+    expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.status")).toBe(false);
+    expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.list")).toBe(false);
+    expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.join")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.invoke")).toBe(false);
+    expect(surface.callBuiltinTools.has("managed_agent.start")).toBe(false);
+    expect(surface.callBuiltinTools.has("managed_agent.status")).toBe(false);
+    expect(surface.callBuiltinTools.has("managed_agent.list")).toBe(false);
+    expect(surface.callBuiltinTools.has("managed_agent.join")).toBe(false);
   });
 
   it("uses the same managed invocation surface contract for TUI turns", () => {
@@ -270,11 +331,470 @@ describe("managed invocation runtime tool", () => {
     );
 
     expect(executeConfig.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.start")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.status")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.list")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.join")).toBe(true);
     expect(executeConfig.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
       allowed: false,
       requiresApproval: true,
     });
     expect(planConfig.toolAllowlist?.has("managed_agent.invoke")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.start")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.status")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.list")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.join")).toBe(false);
+  });
+
+  it("exposes nonblocking managed child lifecycle tools backed by one runtime registry", async () => {
+    const { adapter, terminal } = makeDeferredAdapter();
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = makeSurface(adapter, sessionEventSink);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-bg",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const toolNames = surface.toolDefinitions.map((tool) => tool.name);
+    expect(toolNames).toEqual(expect.arrayContaining([
+      "managed_agent.invoke",
+      "managed_agent.start",
+      "managed_agent.status",
+      "managed_agent.list",
+      "managed_agent.join",
+    ]));
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+        readonly status: string;
+        readonly lifecycleState: string;
+        readonly routeId: string;
+        readonly sessionEventIds?: readonly string[];
+      };
+    };
+
+    expect(started).toMatchObject({
+      isError: false,
+      metadata: {
+        status: "started",
+        lifecycleState: "running",
+        routeId: "opencode-readonly",
+      },
+    });
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+    ]);
+    expect(started.metadata.sessionEventIds).toEqual(session.sessionEvents.map((event) => event.eventId));
+    expect(sessionEventSink.publish).toHaveBeenCalledWith(session.sessionEvents, context);
+
+    const status = await surface.callBuiltinTools.get("managed_agent.status")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-status", name: "managed_agent.status", input: {} },
+    }) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly lifecycleState?: string;
+      };
+    };
+    expect(status).toMatchObject({
+      isError: false,
+      metadata: {
+        status: "running",
+        lifecycleState: "running",
+      },
+    });
+
+    const listed = await surface.callBuiltinTools.get("managed_agent.list")?.({}, {
+      ...context,
+      toolCall: { id: "tool-call-list", name: "managed_agent.list", input: {} },
+    }) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocations?: readonly { readonly invocationId?: string; readonly lifecycleState?: string }[];
+      };
+    };
+    expect(listed).toMatchObject({
+      isError: false,
+      metadata: {
+        invocations: [
+          {
+            invocationId: started.metadata.invocationId,
+            lifecycleState: "running",
+          },
+        ],
+      },
+    });
+
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      invocationId: request.invocationId,
+      agentId: request.agentId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      profile: request.profile,
+      lifecycleState: "completed",
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authority: request.authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+        routeId: "opencode-readonly",
+      }),
+      childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+      resultHandoff: {
+        summary: "Child review completed.",
+        resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    await flushMicrotasks();
+
+    const completedStatusBeforeJoin = await surface.callBuiltinTools.get("managed_agent.status")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-status-complete", name: "managed_agent.status", input: {} },
+    }) as {
+      readonly metadata: {
+        readonly lifecycleState?: string;
+        readonly resultHandoff?: unknown;
+        readonly transcript?: unknown;
+        readonly terminalEvidenceAvailable?: boolean;
+      };
+    };
+    expect(completedStatusBeforeJoin.metadata).toMatchObject({
+      lifecycleState: "completed",
+      terminalEvidenceAvailable: true,
+    });
+    expect(completedStatusBeforeJoin.metadata.resultHandoff).toBeUndefined();
+    expect(completedStatusBeforeJoin.metadata.transcript).toBeUndefined();
+
+    const completedListBeforeJoin = await surface.callBuiltinTools.get("managed_agent.list")?.({}, {
+      ...context,
+      toolCall: { id: "tool-call-list-complete", name: "managed_agent.list", input: {} },
+    }) as {
+      readonly metadata: {
+        readonly invocations?: readonly {
+          readonly lifecycleState?: string;
+          readonly resultHandoff?: unknown;
+          readonly transcript?: unknown;
+          readonly terminalEvidenceAvailable?: boolean;
+        }[];
+      };
+    };
+    expect(completedListBeforeJoin.metadata.invocations?.[0]).toMatchObject({
+      lifecycleState: "completed",
+      terminalEvidenceAvailable: true,
+    });
+    expect(completedListBeforeJoin.metadata.invocations?.[0]?.resultHandoff).toBeUndefined();
+    expect(completedListBeforeJoin.metadata.invocations?.[0]?.transcript).toBeUndefined();
+
+    const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-join", name: "managed_agent.join", input: {} },
+    }) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly lifecycleState?: string;
+        readonly resultHandoff?: { readonly summary?: string };
+      };
+    };
+
+    expect(joined).toMatchObject({
+      output: expect.stringContaining("Child review completed."),
+      isError: false,
+      metadata: {
+        status: "completed",
+        lifecycleState: "completed",
+        resultHandoff: {
+          summary: "Child review completed.",
+        },
+      },
+    });
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_completed",
+    ]);
+    expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
+    expect(sessionEventSink.publish).toHaveBeenLastCalledWith([
+      expect.objectContaining({ kind: "agent_invocation_completed" }),
+    ], expect.objectContaining({
+      toolCall: expect.objectContaining({ name: "managed_agent.join" }),
+    }));
+
+    await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-join-2", name: "managed_agent.join", input: {} },
+    });
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_completed",
+    ]);
+  });
+
+  it("scopes nonblocking managed child lifecycle observation to the owning runtime session", async () => {
+    const { adapter } = makeDeferredAdapter();
+    const surface = makeSurface(adapter);
+    const ownerSession = makeSession("session-owner");
+    const otherSession = makeSession("session-other");
+    const ownerContext: RuntimeBuiltinToolExecutionContext = {
+      session: ownerSession,
+      toolCall: {
+        id: "tool-call-owner",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+    const otherContext: RuntimeBuiltinToolExecutionContext = {
+      session: otherSession,
+      toolCall: {
+        id: "tool-call-other",
+        name: "managed_agent.status",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+    }, ownerContext) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+
+    const crossSessionStatus = await surface.callBuiltinTools.get("managed_agent.status")?.({
+      invocationId: started.metadata.invocationId,
+    }, otherContext) as {
+      readonly isError: boolean;
+      readonly output: string;
+      readonly metadata: {
+        readonly status?: string;
+      };
+    };
+    expect(crossSessionStatus).toMatchObject({
+      isError: true,
+      output: expect.stringContaining("not registered for this runtime session"),
+      metadata: {
+        status: "not_found",
+      },
+    });
+
+    const crossSessionList = await surface.callBuiltinTools.get("managed_agent.list")?.({}, {
+      ...otherContext,
+      toolCall: { id: "tool-call-other-list", name: "managed_agent.list", input: {} },
+    }) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly count?: number;
+        readonly invocations?: readonly unknown[];
+      };
+    };
+    expect(crossSessionList).toMatchObject({
+      isError: false,
+      metadata: {
+        count: 0,
+        invocations: [],
+      },
+    });
+
+    const crossSessionJoin = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...otherContext,
+      toolCall: { id: "tool-call-other-join", name: "managed_agent.join", input: {} },
+    }) as {
+      readonly isError: boolean;
+      readonly output: string;
+      readonly metadata: {
+        readonly status?: string;
+      };
+    };
+    expect(crossSessionJoin).toMatchObject({
+      isError: true,
+      output: expect.stringContaining("not registered for this runtime session"),
+      metadata: {
+        status: "not_found",
+      },
+    });
+    expect(otherSession.sessionEvents).toEqual([]);
+  });
+
+  it("publishes terminal failure evidence when a background managed child rejects before join", async () => {
+    const { adapter, terminal } = makeRejectingDeferredAdapter();
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = makeSurface(adapter, sessionEventSink);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-rejecting",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+
+    terminal.resolve();
+    await flushMicrotasks();
+
+    const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-rejecting-join", name: "managed_agent.join", input: {} },
+    }) as {
+      readonly isError: boolean;
+      readonly output: string;
+      readonly metadata: {
+        readonly status?: string;
+        readonly lifecycleState?: string;
+        readonly sessionEventIds?: readonly string[];
+      };
+    };
+
+    expect(joined).toMatchObject({
+      isError: true,
+      output: expect.stringContaining("child runtime crashed"),
+      metadata: {
+        status: "failed",
+        lifecycleState: "failed",
+      },
+    });
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_failed",
+    ]);
+    expect(joined.metadata.sessionEventIds).toEqual([
+      session.sessionEvents[2]?.eventId,
+    ]);
+    expect(sessionEventSink.publish).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        kind: "agent_invocation_failed",
+        errorCode: "ENGINE_FAILURE",
+        errorMessage: "child runtime crashed",
+      }),
+    ], expect.objectContaining({
+      toolCall: expect.objectContaining({ name: "managed_agent.join" }),
+    }));
+  });
+
+  it("records nonblocking terminal duration from child runtime time instead of join wait time", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-05-21T00:00:00.000Z"));
+      const { adapter, terminal } = makeDeferredAdapter();
+      const surface = makeSurface(adapter);
+      const session = makeSession();
+      const context: RuntimeBuiltinToolExecutionContext = {
+        session,
+        toolCall: {
+          id: "tool-call-duration",
+          name: "managed_agent.start",
+          input: {},
+        },
+      };
+
+      const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "opencode",
+          model: "opencode-default-model",
+        },
+        task: "Inspect the managed invocation tool contract and report risks.",
+        requestedAuthority: "read_only",
+      }, context) as {
+        readonly metadata: {
+          readonly invocationId: string;
+        };
+      };
+      const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+
+      vi.setSystemTime(new Date("2026-05-21T00:00:01.234Z"));
+      terminal.resolve(defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+          routeId: "opencode-readonly",
+        }),
+        resultHandoff: {
+          summary: "Child review completed.",
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
+          memoryWriteProposalUris: [],
+        },
+      }));
+      await flushMicrotasks();
+
+      vi.setSystemTime(new Date("2026-05-21T00:00:06.234Z"));
+      await surface.callBuiltinTools.get("managed_agent.join")?.({
+        invocationId: started.metadata.invocationId,
+      }, {
+        ...context,
+        toolCall: { id: "tool-call-duration-join", name: "managed_agent.join", input: {} },
+      });
+
+      expect(session.sessionEvents[2]).toMatchObject({
+        kind: "agent_invocation_completed",
+        durationMs: 1234,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("projects configured managed routes into the model-facing tool definition", () => {
@@ -482,11 +1002,19 @@ describe("managed invocation runtime tool", () => {
 
     expect(surface.toolDefinitions.map((tool) => tool.name)).toContain("managed_agent.invoke");
     expect(executeConfig.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.start")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.status")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.list")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.join")).toBe(true);
     expect(executeConfig.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
       allowed: false,
       requiresApproval: true,
     });
     expect(planConfig.toolAllowlist?.has("managed_agent.invoke")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.start")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.status")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.list")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.join")).toBe(false);
 
     const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       profile: "foundation-readonly-plan",

@@ -59,10 +59,24 @@ export type {
 } from "./cli-harness-adapter.js";
 export {
   attachManagedInvocationSessionEventSink,
+  createManagedAgentStartToolDefinition,
   createManagedInvocationToolExecutor,
+  createManagedInvocationLifecycleToolExecutors,
+  MANAGED_AGENT_JOIN_CAPABILITY,
+  MANAGED_AGENT_JOIN_TOOL,
+  MANAGED_AGENT_JOIN_TOOL_NAME,
+  MANAGED_AGENT_LIST_CAPABILITY,
+  MANAGED_AGENT_LIST_TOOL,
+  MANAGED_AGENT_LIST_TOOL_NAME,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
   MANAGED_AGENT_INVOKE_TOOL_NAME,
+  MANAGED_AGENT_START_CAPABILITY,
+  MANAGED_AGENT_START_TOOL,
+  MANAGED_AGENT_START_TOOL_NAME,
+  MANAGED_AGENT_STATUS_CAPABILITY,
+  MANAGED_AGENT_STATUS_TOOL,
+  MANAGED_AGENT_STATUS_TOOL_NAME,
 } from "./runtime-tool.js";
 export type {
   ManagedInvocationContextResolution,
@@ -97,6 +111,10 @@ export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly executionMode: ManagedAgentInvocationRequest["executionMode"];
   readonly authorityProfileId: string;
   readonly lifecycleState: ManagedAgentLifecycleState;
+  readonly startedAt: string;
+  readonly finishedAt?: string;
+  readonly durationMs?: number;
+  readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly record?: ManagedAgentInvocationRecord;
   readonly error?: {
@@ -130,6 +148,8 @@ interface ManagedAgentRuntimeInvocationEntry {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   lifecycleState: ManagedAgentLifecycleState;
+  readonly startedAt: Date;
+  finishedAt?: Date;
   record?: ManagedAgentInvocationRecord;
   error?: Error;
   terminal?: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>>;
@@ -176,6 +196,7 @@ export class RuntimeManagedAgentInvocationService {
       request: registeredRequest,
       decision: registeredDecision,
       lifecycleState: "running",
+      startedAt: new Date(),
     };
     entry.terminal = this.invokeAdmitted({
       request: cloneJson(registeredRequest),
@@ -183,6 +204,7 @@ export class RuntimeManagedAgentInvocationService {
       admission: cloneJson(registeredDecision),
     }).then((record) => {
       const registeredRecord = cloneJson(record);
+      entry.finishedAt = new Date();
       entry.lifecycleState = registeredRecord.lifecycleState;
       entry.record = registeredRecord;
       return {
@@ -191,6 +213,7 @@ export class RuntimeManagedAgentInvocationService {
         record: registeredRecord,
       };
     }, (error: unknown) => {
+      entry.finishedAt = new Date();
       entry.lifecycleState = "failed";
       entry.error = toError(error);
       throw entry.error;
@@ -379,6 +402,10 @@ function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedA
     executionMode: entry.request.executionMode,
     authorityProfileId: entry.request.authority.authorityProfileId,
     lifecycleState: entry.lifecycleState,
+    startedAt: entry.startedAt.toISOString(),
+    ...(entry.finishedAt !== undefined ? { finishedAt: entry.finishedAt.toISOString() } : {}),
+    ...(entry.finishedAt !== undefined ? { durationMs: entry.finishedAt.getTime() - entry.startedAt.getTime() } : {}),
+    request: cloneJson(entry.request),
     decision: cloneJson(entry.decision),
     ...(entry.record !== undefined ? { record: cloneJson(entry.record) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
