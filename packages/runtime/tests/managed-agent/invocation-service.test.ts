@@ -138,6 +138,20 @@ function makeRecord(
   });
 }
 
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("RuntimeManagedAgentInvocationService", () => {
   it("admits through core policy before invoking the runtime adapter", async () => {
     const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
@@ -158,6 +172,151 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
   });
 
+  it("starts an admitted invocation without waiting for the adapter terminal record", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const invoke = vi.fn(async ({ admission }) => {
+      await terminal.promise;
+      return makeRecord(admission.capabilitySnapshot);
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode-readonly",
+    });
+
+    expect(started.status).toBe("started");
+    if (started.status !== "started") {
+      throw new Error("expected managed invocation to start");
+    }
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(started.snapshot).toMatchObject({
+      invocationId: "invocation-1",
+      agentId: "agent-reviewer",
+      parentSessionId: "session-parent",
+      parentTurnId: "turn-parent",
+      profile: "foundation-readonly-plan",
+      lifecycleState: "running",
+    });
+    expect(service.status("invocation-1")).toMatchObject({
+      invocationId: "invocation-1",
+      lifecycleState: "running",
+    });
+    expect(service.list()).toHaveLength(1);
+
+    terminal.resolve(makeRecord(started.decision.capabilitySnapshot));
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.lifecycleState).toBe("completed");
+    expect(service.status("invocation-1")).toMatchObject({
+      invocationId: "invocation-1",
+      lifecycleState: "completed",
+      record: joined.record,
+    });
+  });
+
+  it("returns immutable snapshots from the runtime registry boundary", async () => {
+    const request = makeRequest();
+    let adapterRecord: ManagedAgentInvocationRecord | undefined;
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => {
+        adapterRecord = makeRecord(admission.capabilitySnapshot);
+        return adapterRecord;
+      }),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(request, adapter);
+
+    expect(started.status).toBe("started");
+    if (started.status !== "started") {
+      throw new Error("expected managed invocation to start");
+    }
+
+    (request as { agentId: string }).agentId = "mutated-request";
+    (started.decision as { authorityProfileId: string }).authorityProfileId = "mutated-decision";
+    (started.snapshot as { agentId: string }).agentId = "mutated-snapshot";
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+
+    (adapterRecord as { agentId: string }).agentId = "mutated-record";
+    (joined.record as { agentId: string }).agentId = "mutated-result";
+
+    const snapshot = service.status("invocation-1");
+    expect(snapshot).toMatchObject({
+      invocationId: "invocation-1",
+      agentId: "agent-reviewer",
+      lifecycleState: "completed",
+      decision: { authorityProfileId: "foundation-readonly" },
+    });
+    expect(snapshot?.record?.agentId).toBe("agent-reviewer");
+    expect(service.list()[0]).toMatchObject({
+      invocationId: "invocation-1",
+      lifecycleState: "completed",
+      record: { agentId: "agent-reviewer" },
+    });
+
+    if (snapshot?.record) {
+      (snapshot.record as { agentId: string }).agentId = "mutated-status-record";
+    }
+    expect(service.status("invocation-1")?.record?.agentId).toBe("agent-reviewer");
+  });
+
+  it("marks adapter rejection as failed evidence and rejects join", async () => {
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async () => {
+        throw new Error("adapter crashed");
+      }),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter);
+
+    expect(started.status).toBe("started");
+    await expect(service.join("invocation-1")).rejects.toThrow("adapter crashed");
+    expect(service.status("invocation-1")).toMatchObject({
+      invocationId: "invocation-1",
+      lifecycleState: "failed",
+      error: { message: "adapter crashed" },
+    });
+  });
+
+  it("rejects duplicate runtime registration for the same invocation id", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => {
+        await terminal.promise;
+        return makeRecord(admission.capabilitySnapshot);
+      }),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter);
+
+    expect(started.status).toBe("started");
+    await expect(service.start(makeRequest(), adapter)).rejects.toThrow("already registered");
+
+    if (started.status === "started") {
+      terminal.resolve(makeRecord(started.decision.capabilitySnapshot));
+      await service.join(started.snapshot.invocationId);
+    }
+  });
+
   it("does not invoke the adapter when admission is denied", async () => {
     const invoke = vi.fn(async () => makeRecord());
     const adapter: ManagedAgentRuntimeAdapter = {
@@ -175,6 +334,24 @@ describe("RuntimeManagedAgentInvocationService", () => {
       status: "denied",
       missingCapabilities: expect.arrayContaining(["timeout.supported"]),
     });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("does not register denied starts as background invocations", async () => {
+    const invoke = vi.fn(async () => makeRecord());
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor({
+        timeout: { supported: false, diagnosticArtifactOnTimeout: false },
+      }),
+      invoke,
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter);
+
+    expect(started.status).toBe("denied");
+    expect(service.status("invocation-1")).toBeUndefined();
+    expect(service.list()).toEqual([]);
     expect(invoke).not.toHaveBeenCalled();
   });
 

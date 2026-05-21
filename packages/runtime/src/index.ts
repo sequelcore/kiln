@@ -88,6 +88,8 @@ export type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationResult,
+  ManagedAgentRuntimeInvocationSnapshot,
+  ManagedAgentRuntimeInvocationStartResult,
   ManagedInvocationContextResolution,
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolverInput,

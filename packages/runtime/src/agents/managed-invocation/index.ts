@@ -10,6 +10,7 @@ import type {
   ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAgentLifecycleState,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 export {
@@ -85,6 +86,24 @@ export interface ManagedAgentRuntimeAdapter {
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
 }
 
+export interface ManagedAgentRuntimeInvocationSnapshot {
+  readonly invocationId: string;
+  readonly agentId: string;
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
+  readonly profile: ManagedAgentInvocationRequest["profile"];
+  readonly providerRoute: ManagedAgentInvocationRequest["providerRoute"];
+  readonly adapterKind: ManagedAgentInvocationRequest["adapterKind"];
+  readonly executionMode: ManagedAgentInvocationRequest["executionMode"];
+  readonly authorityProfileId: string;
+  readonly lifecycleState: ManagedAgentLifecycleState;
+  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly record?: ManagedAgentInvocationRecord;
+  readonly error?: {
+    readonly message: string;
+  };
+}
+
 export type ManagedAgentRuntimeInvocationResult =
   | {
     readonly status: "completed";
@@ -96,30 +115,118 @@ export type ManagedAgentRuntimeInvocationResult =
     readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>;
   };
 
+export type ManagedAgentRuntimeInvocationStartResult =
+  | {
+    readonly status: "started";
+    readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+    readonly snapshot: ManagedAgentRuntimeInvocationSnapshot;
+  }
+  | {
+    readonly status: "denied";
+    readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>;
+  };
+
+interface ManagedAgentRuntimeInvocationEntry {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  lifecycleState: ManagedAgentLifecycleState;
+  record?: ManagedAgentInvocationRecord;
+  error?: Error;
+  terminal?: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>>;
+}
+
 export class RuntimeManagedAgentInvocationService {
+  private readonly invocations = new Map<string, ManagedAgentRuntimeInvocationEntry>();
+
   async invoke(
     request: ManagedAgentInvocationRequest,
     adapter: ManagedAgentRuntimeAdapter,
     capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput = {},
   ): Promise<ManagedAgentRuntimeInvocationResult> {
+    const started = await this.start(request, adapter, capabilitySnapshotInput);
+    if (started.status === "denied") {
+      return {
+        status: "denied",
+        decision: started.decision,
+      };
+    }
+    return this.join(started.snapshot.invocationId);
+  }
+
+  async start(
+    request: ManagedAgentInvocationRequest,
+    adapter: ManagedAgentRuntimeAdapter,
+    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput = {},
+  ): Promise<ManagedAgentRuntimeInvocationStartResult> {
+    if (this.invocations.has(request.invocationId)) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is already registered");
+    }
+
     const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, capabilitySnapshotInput);
     if (decision.status === "denied") {
       return {
         status: "denied",
-        decision,
+        decision: cloneJson(decision),
       };
     }
 
-    const record = await this.invokeAdmitted({
-      request,
+    const registeredRequest = cloneJson(request);
+    const registeredDecision = cloneJson(decision);
+    const entry: ManagedAgentRuntimeInvocationEntry = {
+      request: registeredRequest,
+      decision: registeredDecision,
+      lifecycleState: "running",
+    };
+    entry.terminal = this.invokeAdmitted({
+      request: cloneJson(registeredRequest),
       adapter,
-      admission: decision,
+      admission: cloneJson(registeredDecision),
+    }).then((record) => {
+      const registeredRecord = cloneJson(record);
+      entry.lifecycleState = registeredRecord.lifecycleState;
+      entry.record = registeredRecord;
+      return {
+        status: "completed",
+        decision: registeredDecision,
+        record: registeredRecord,
+      };
+    }, (error: unknown) => {
+      entry.lifecycleState = "failed";
+      entry.error = toError(error);
+      throw entry.error;
     });
+    entry.terminal.catch(() => undefined);
+    this.invocations.set(request.invocationId, entry);
 
     return {
+      status: "started",
+      decision: cloneJson(registeredDecision),
+      snapshot: snapshotInvocation(entry),
+    };
+  }
+
+  status(invocationId: string): ManagedAgentRuntimeInvocationSnapshot | undefined {
+    const entry = this.invocations.get(invocationId);
+    return entry ? snapshotInvocation(entry) : undefined;
+  }
+
+  list(): readonly ManagedAgentRuntimeInvocationSnapshot[] {
+    return Array.from(this.invocations.values(), snapshotInvocation);
+  }
+
+  async join(invocationId: string): Promise<ManagedAgentRuntimeInvocationResult> {
+    const entry = this.invocations.get(invocationId);
+    if (!entry) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is not registered");
+    }
+    if (!entry.terminal) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no terminal wait handle");
+    }
+    const result = await entry.terminal;
+    return {
       status: "completed",
-      decision,
-      record,
+      decision: cloneJson(result.decision),
+      record: cloneJson(result.record),
     };
   }
 
@@ -258,6 +365,32 @@ export class RuntimeManagedAgentInvocationService {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter broadened or changed admitted write authority");
     }
   }
+}
+
+function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedAgentRuntimeInvocationSnapshot {
+  return {
+    invocationId: entry.request.invocationId,
+    agentId: entry.request.agentId,
+    parentSessionId: entry.request.parentSessionId,
+    parentTurnId: entry.request.parentTurnId,
+    profile: entry.request.profile,
+    providerRoute: cloneJson(entry.request.providerRoute),
+    adapterKind: entry.request.adapterKind,
+    executionMode: entry.request.executionMode,
+    authorityProfileId: entry.request.authority.authorityProfileId,
+    lifecycleState: entry.lifecycleState,
+    decision: cloneJson(entry.decision),
+    ...(entry.record !== undefined ? { record: cloneJson(entry.record) } : {}),
+    ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
+  };
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function sameJson(left: unknown, right: unknown): boolean {
