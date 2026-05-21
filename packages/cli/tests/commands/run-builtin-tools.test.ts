@@ -25,6 +25,9 @@ const runWiringMocks = vi.hoisted(() => {
     printContextGovernancePreview: vi.fn(),
     printReport: vi.fn(),
     computeEvalScore: vi.fn(() => undefined),
+    cleanupWorktree: vi.fn().mockResolvedValue(undefined),
+    runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
+    preparedWorkingDirectory: undefined as string | undefined,
     capturedSessionConfigs: [] as unknown[],
     capturedRunSessionInputs: [] as unknown[],
     evaluateRouteHealth: vi.fn().mockResolvedValue({ healthy: true }),
@@ -189,13 +192,14 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
     readonly sessionStartTimeMs = Date.now();
 
     async prepare(task: string, cwd: string) {
+      const workingDirectory = runWiringMocks.preparedWorkingDirectory ?? cwd;
       return {
         domain: { displayName: "Kiln" },
         projectedContext: { blocks: [], estimatedTokens: 0 },
         systemPrompt: "System prompt",
         mcpServerEntryPath: "/tmp/mcp-entry.js",
-        workingDirectory: cwd,
-        worktreePath: cwd,
+        workingDirectory,
+        worktreePath: workingDirectory,
         task,
         resumeStrategy: "none",
       };
@@ -205,7 +209,13 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
       return { task: "test", domain: "Kiln", phaseReached: "implement", cost: { total: 0, byRoleModel: {} }, duration: 1 };
     }
 
-    async cleanupWorktree() {}
+    async cleanupWorktree(context: unknown) {
+      await runWiringMocks.cleanupWorktree(context);
+    }
+
+    async runVerification(gates: unknown, cwd: string) {
+      return runWiringMocks.runVerification(gates, cwd);
+    }
   },
 }));
 
@@ -280,6 +290,9 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.capturedRunSessionInputs.length = 0;
     runWiringMocks.evaluateRouteHealth.mockResolvedValue({ healthy: true });
     runWiringMocks.recordRouteOutcome.mockResolvedValue(undefined);
+    runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
+    runWiringMocks.runVerification.mockResolvedValue({ passed: true, checks: [] });
+    runWiringMocks.preparedWorkingDirectory = undefined;
     readGlobalConfigMock.mockReturnValue(undefined);
   });
 
@@ -326,6 +339,16 @@ describe("run command builtin tool wiring", () => {
         preferredProvider: "codex",
         requiresMcp: false,
       },
+    });
+  });
+
+  it("uses the prepared working directory for isolated session execution", async () => {
+    runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-1";
+
+    await runCommand(APP_CONFIG, "use isolated cwd", { provider: "codex", isolate: true });
+
+    expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
+      cwd: "C:/repo/.kiln-worktrees/session-1",
     });
   });
 
@@ -412,6 +435,29 @@ describe("run command builtin tool wiring", () => {
     });
   });
 
+  it("cleans up an isolated worktree before exiting when configured routes are unavailable", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
+    runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-unavailable";
+    runWiringMocks.evaluateRouteHealth.mockResolvedValue({
+      healthy: false,
+      reason: "configured route is cooling down.",
+    });
+
+    await expect(runCommand(APP_CONFIG, "ship it", {
+      provider: "openrouter",
+      model: "qwen/qwen3-coder:free",
+      isolate: true,
+    })).rejects.toThrow("process.exit");
+
+    expect(runWiringMocks.runSession).not.toHaveBeenCalled();
+    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(expect.objectContaining({
+      worktreePath: "C:/repo/.kiln-worktrees/session-unavailable",
+    }));
+    exit.mockRestore();
+  });
+
   it("records retryable direct provider failures as route health outcomes", async () => {
     const exit = vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("process.exit");
@@ -458,5 +504,55 @@ describe("run command builtin tool wiring", () => {
 
     expect(process.listenerCount("SIGINT")).toBe(beforeSigint);
     expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
+  });
+
+  it("runs verification gates inside the prepared working directory", async () => {
+    runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-verify";
+
+    await runCommand({
+      ...APP_CONFIG,
+      kilnYaml: {
+        ...APP_CONFIG.kilnYaml,
+        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+      },
+    }, "verify isolated cwd", { provider: "codex", isolate: true });
+
+    expect(runWiringMocks.runVerification).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: "typecheck" })]),
+      "C:/repo/.kiln-worktrees/session-verify",
+    );
+  });
+
+  it("cleans up an isolated worktree before exiting a failed run", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: false,
+      lastError: "Provider failed",
+      accumulatedText: "",
+      toolCallCount: 0,
+      turnDepth: 0,
+      successfulProviderId: undefined,
+      successfulModelId: undefined,
+      attempts: [{
+        providerId: "codex",
+        succeeded: false,
+        error: "Provider failed",
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand(APP_CONFIG, "ship it", { provider: "codex", isolate: true })).rejects.toThrow(
+      "process.exit",
+    );
+
+    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(expect.objectContaining({
+      worktreePath: process.cwd(),
+    }));
+    exit.mockRestore();
   });
 });

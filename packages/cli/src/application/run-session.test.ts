@@ -76,6 +76,7 @@ describe("runSession", () => {
       reasoningEffort: "xhigh",
     }));
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: "/repo",
       reasoningEffort: "xhigh",
     }));
   });

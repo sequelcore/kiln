@@ -578,6 +578,12 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   }
   const approvalMemorySessionId = resumeSessionId ?? sessionId;
   const previewContextGovernance = summarizeContextGovernance(context.projectedContext);
+  let worktreeCleaned = false;
+  const cleanupWorktreeOnce = async (): Promise<void> => {
+    if (worktreeCleaned) return;
+    await manager.cleanupWorktree(context);
+    worktreeCleaned = true;
+  };
   if (appConfig.kilnYaml?.contextGovernance?.previewBeforeApply) {
     printContextGovernancePreview(previewContextGovernance);
   }
@@ -611,6 +617,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     for (const reason of admittedRoutes.rejectedReasons) {
       console.error(`- ${reason}`);
     }
+    await cleanupWorktreeOnce();
     process.exit(1);
   }
   const admittedRouteCandidates = applyReasoningPolicyToRouteCandidates({
@@ -691,7 +698,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     task,
     systemPrompt: context.systemPrompt,
     mcpServerEntryPath: context.mcpServerEntryPath,
-    cwd,
+    cwd: context.workingDirectory,
     env,
     permissionPolicy: config.permissionPolicy,
     resumeSessionId: context.resumeSessionId,
@@ -726,15 +733,42 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     if (shutdownStarted) return;
     shutdownStarted = true;
     unregisterSignalHandlers();
-    void cleanupRegistry.runAll().finally(() => {
-      process.exit(130);
-    });
+    void cleanupRegistry.runAll()
+      .then(cleanupWorktreeOnce)
+      .finally(() => {
+        process.exit(130);
+      });
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
   signalHandlersRegistered = true;
 
   sessionHooks.sessionStart();
+  let runResult: Awaited<ReturnType<typeof runSession>>;
+  try {
+    runResult = await runSession({
+      registry,
+      cleanupRegistry,
+      manager,
+      context,
+      requirements,
+      routeCandidates: admittedRouteCandidates.length > 0 ? admittedRouteCandidates : undefined,
+      sessionConfig,
+      permissionPolicy: config.permissionPolicy,
+      permissionAgent: resolvedAgent?.name,
+      sessionId: approvalMemorySessionId,
+      approvalMemoryStore,
+      env,
+      sessionHooks,
+    });
+  } catch (error) {
+    await cleanupWorktreeOnce();
+    throw error;
+  } finally {
+    sessionHooks.sessionEnd();
+    unregisterSignalHandlers();
+  }
+
   const {
     finalCostUsd,
     sessionSucceeded,
@@ -748,24 +782,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     transcript,
     exactArtifacts,
     submittedPlan: submittedPlanFromSession,
-  } = await runSession({
-    registry,
-    cleanupRegistry,
-    manager,
-    context,
-    requirements,
-    routeCandidates: admittedRouteCandidates.length > 0 ? admittedRouteCandidates : undefined,
-    sessionConfig,
-    permissionPolicy: config.permissionPolicy,
-    permissionAgent: resolvedAgent?.name,
-    sessionId: approvalMemorySessionId,
-    approvalMemoryStore,
-    env,
-    sessionHooks,
-  }).finally(() => {
-    sessionHooks.sessionEnd();
-    unregisterSignalHandlers();
-  });
+  } = runResult;
 
   if (directRouteHealthStore) {
     for (const attempt of attempts) {
@@ -941,6 +958,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
   if (!sessionSucceeded && lastError) {
     console.error(`[kiln] All providers failed. Last error: ${lastError}`);
+    await cleanupWorktreeOnce();
     process.exit(1);
   }
 
@@ -953,7 +971,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       description: g.name,
       required: g.required ?? true,
     }));
-    verificationResult = await manager.runVerification(mappedGates, cwd);
+    verificationResult = await manager.runVerification(mappedGates, context.workingDirectory);
   }
 
   const evalScore = (() => {
@@ -1001,10 +1019,11 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   printReport(finalReport, "kiln");
 
   if (verificationResult && !verificationResult.passed) {
+    await cleanupWorktreeOnce();
     process.exit(1);
   }
 
-  await manager.cleanupWorktree(context);
+  await cleanupWorktreeOnce();
 
   if (flags.plan && submittedPlan !== undefined) {
     console.log("═══════════════════════════════");

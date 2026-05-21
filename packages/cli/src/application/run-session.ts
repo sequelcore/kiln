@@ -129,7 +129,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       for await (const event of session.run({
         prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
         system: options.context.systemPrompt,
-        cwd: process.cwd(),
+        cwd: options.context.workingDirectory,
         env: options.env,
         reasoningEffort: candidateReasoningEffort,
         requestedAuthority: options.sessionConfig.requestedAuthority,
