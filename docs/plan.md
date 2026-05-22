@@ -1,70 +1,66 @@
 ## Objective
 
 Continue Slice 3 of `docs/roadmap/01-background-parallel-agent-surface.md` by
-projecting managed-agent resource leases through the read-only operator gateway
-contracts.
+preserving an explicitly admitted managed-agent resource lease through runtime
+admission replay.
 
 ## Non-Goals
 
-- Do not provision worktrees, sandboxes, ports, or cleanup daemons in this cut.
-- Do not add a surface-local lifecycle or lease store.
-- Do not change runtime admission semantics.
-- Do not add compatibility shims for capability snapshots without leases.
+- Do not add worktree, sandbox, port, credential, or cleanup provisioning.
+- Do not relax capability snapshot equality.
+- Do not add compatibility fallbacks for malformed or incomplete leases.
+- Do not change operator surface projection; that was handled in the previous
+  slice.
 
 ## Scout Summary
 
 Owning bounded context:
 
-- Gateway frame contract:
-  `packages/gateway-contracts/src/frames.ts`
-- Operator event presentation:
-  `packages/gateway-contracts/src/operator-event-presentation.ts`
-- Read-only cockpit projection:
-  `packages/gateway-contracts/src/operator-cockpit-projection.ts`
+- Core admission snapshot contract:
+  `packages/core/src/agents/managed-invocation/index.ts`
+- Runtime admission replay:
+  `packages/runtime/src/agents/managed-invocation/index.ts`
+- Runtime service tests:
+  `packages/runtime/tests/managed-agent/invocation-service.test.ts`
 
 Current facts:
 
-- Core/runtime now include `capabilitySnapshot.resourceLease`.
-- Gateway frame types still expose `resourcePlane` but not `resourceLease`.
-- Operator event presentation shows route health, provider proof, resource
-  plane, and child identity, but hides lease evidence.
-- Cockpit invocation summaries preserve lifecycle state and provider route, but
-  not the resource lease behind the child.
+- Core can now derive or validate `capabilitySnapshot.resourceLease`.
+- Runtime `start` admits a snapshot and stores that exact decision.
+- Runtime `invokeAdmitted` replays core admission before invoking the adapter.
+- The replay helper currently reconstructs snapshot input from the admitted
+  snapshot, and must preserve lease evidence exactly so custom lease evidence
+  does not become a default working-directory lease.
 
 ## This Cut
 
-1. Add an operator-facing resource lease snapshot type and include it in
-   `OperatorManagedAgentCapabilitySnapshot`.
-2. Present lease mode, working directory, and lease resource URIs in managed
-   invocation event details.
-3. Preserve the latest observed lease in read-only cockpit invocation
-   projections.
-4. Prefer the runtime capability snapshot as the lease source; fall back to
-   terminal lifecycle evidence only when the snapshot is not present.
-5. Keep all changes in gateway-contracts and tests; runtime already emits the
-   snapshot and lifecycle evidence.
+1. Add a failing runtime service test that starts with explicit resource lease
+   evidence and joins successfully.
+2. Preserve `resourceLease` in the runtime replay snapshot input.
+3. Keep snapshot equality strict so adapters cannot broaden or mutate leases.
+4. Verify focused runtime tests, core contract tests, typecheck, and diff
+   hygiene.
 
 ## Test Plan
 
-Focused red tests first:
+Focused red test first:
 
 ```bash
-bun run --filter @kilnai/gateway-contracts test -- tests/operator-event-presentation.test.ts tests/operator-cockpit-projection.test.ts
+bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts
 ```
 
 Verification for this cut:
 
 ```bash
-bun run --filter @kilnai/gateway-contracts test
+bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts tests/session/managed-invocation-session-events.test.ts
+bun run --filter @kilnai/core test -- tests/managed-agent/invocation-contracts.test.ts
 bun run typecheck
 git diff --check
 ```
 
 ## Risks
 
-- Operator presentation must not dump the full capability snapshot as
-  "Structured value".
-- Cockpit projection must remain read-only and target-aware; lease data is
-  evidence, not an action target by itself.
-- Runtime/GUI/TUI tests may need rebuilt core outputs if they consume local
-  package builds, but no runtime production change is expected.
+- Runtime replay must preserve exact admitted evidence without creating a
+  second policy path.
+- The fix must not weaken `assertRecordWithinAdmission`; adapter output must
+  still match the admitted capability snapshot byte-for-byte.

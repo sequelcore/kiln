@@ -546,6 +546,7 @@ function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnapshot): M
     routeHealth: snapshot.routeHealth,
     providerModelProof: snapshot.providerModelProof,
     resourcePlane: snapshot.resourcePlane,
+    resourceLease: snapshot.resourceLease,
     childIdentity: snapshot.childIdentity,
   };
 }

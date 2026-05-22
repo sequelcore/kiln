@@ -234,6 +234,48 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
   });
 
+  it("preserves explicit resource lease evidence during runtime admission replay", async () => {
+    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+    const explicitLease = {
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/leases/invocation-1",
+      workingDirectoryMode: "read-only" as const,
+      resourceUris: [
+        "kiln://resources/context.md",
+        "kiln://artifacts/invocation-1/lease",
+      ],
+    };
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode-readonly",
+      resourcePlane: {
+        available: true,
+        resourceUris: explicitLease.resourceUris,
+      },
+      resourceLease: explicitLease,
+    });
+
+    expect(started.status).toBe("started");
+    if (started.status !== "started") {
+      throw new Error("expected managed invocation to start");
+    }
+
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(joined.record.capabilitySnapshot.resourceLease).toEqual(explicitLease);
+    expect(service.status("invocation-1")?.decision.capabilitySnapshot.resourceLease).toEqual(explicitLease);
+  });
+
   it("returns immutable snapshots from the runtime registry boundary", async () => {
     const request = makeRequest();
     let adapterRecord: ManagedAgentInvocationRecord | undefined;
