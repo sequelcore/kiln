@@ -59,9 +59,10 @@ Use these documents as the stable source of truth before starting roadmap work:
    exist. Slice 3 is in progress: lease evidence, operator projection,
    health/cleanup metadata, same-checkout write guards, and runtime-owned
    isolated-worktree acquire/release exist. Same-path isolated collisions,
-   path aliases, lease-manager drift, git worktree root confinement, and
-   pre-launch cancellation during acquire are covered; sandbox, port, env,
-   credential leases, stale recovery, and product wiring remain open.
+   path aliases, lease-manager drift, git worktree root confinement,
+   pre-launch cancellation during acquire, and product config wiring for
+   git-backed isolated worktree leases are covered; sandbox, port, env,
+   credential leases, and stale recovery remain open.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

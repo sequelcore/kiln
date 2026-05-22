@@ -17,6 +17,8 @@ import {
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { buildTuiTurnPerCallConfig } from "../../src/gateway/tui-gateway.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { RuntimeManagedAgentInvocationService } from "../../src/agents/managed-invocation/index.js";
+import type { ManagedAgentWorktreeLeaseManager } from "../../src/agents/managed-invocation/index.js";
 import {
   attachManagedInvocationSessionEventSink,
   type ManagedInvocationSessionEventSink,
@@ -584,6 +586,158 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
       "agent_invocation_completed",
     ]);
+  });
+
+  it("materializes invocation-scoped isolated worktree paths before adapter execution", async () => {
+    const worktreeLeaseManager: ManagedAgentWorktreeLeaseManager = {
+      acquire: vi.fn(async ({ request, lease }) => ({
+        ...lease,
+        healthStatus: "healthy",
+        cleanupStatus: "pending",
+        resourceUris: [...lease.resourceUris, `kiln://artifacts/${request.invocationId}/worktree-lease`],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released",
+        cleanupStatus: "completed",
+      })),
+    };
+    const adapter = makeAdapterWithHandoff("Approved write completed.", {
+      supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: false,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        invocationService: new RuntimeManagedAgentInvocationService({ worktreeLeaseManager }),
+        routes: [{
+          routeId: "opencode-approved-write",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-apply-approved-writes": {
+              authorityProfileId: "authority:opencode:approved-write",
+              permissionProfile: "apply-approved-writes",
+              allowedToolNames: ["read", "grep", "apply-patch"],
+              writeAllowed: true,
+              networkAllowed: false,
+              workingDirectory: {
+                path: "C:/workspace/kiln/.kiln/managed-worktrees",
+                mode: "isolated-worktree",
+              },
+              workingDirectoryLease: {
+                mode: "git-worktree",
+                sourcePath: "C:/workspace/kiln",
+                rootPath: "C:/workspace/kiln/.kiln/managed-worktrees",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+              writeAuthority: defineManagedAgentWriteAuthority({
+                profile: "foundation-apply-approved-writes",
+                scope: {
+                  workspace: {
+                    mode: "apply-approved",
+                    allowedPaths: ["C:/workspace/kiln/packages/runtime/src"],
+                    deniedPaths: ["C:/workspace/kiln/.git"],
+                  },
+                  memory: {
+                    mode: "none",
+                    operations: [],
+                  },
+                  artifacts: {
+                    mode: "none",
+                    resourceUris: [],
+                    retention: "none",
+                  },
+                  tools: {
+                    allowedToolNames: ["apply-patch"],
+                    deniedToolNames: [],
+                  },
+                },
+                approval: {
+                  mode: "required-before-apply",
+                  evidenceRequired: true,
+                },
+              }),
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-write",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+      requestApproval: vi.fn(async () => ({
+        approved: true,
+        reason: "operator approved managed write",
+      })),
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-apply-approved-writes",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "destructive",
+      task: "Apply the approved runtime edit.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    const expectedPath = "C:\\workspace\\kiln\\.kiln\\managed-worktrees\\managed-session-parent-1-tool-call-write";
+    expect(worktreeLeaseManager.acquire).toHaveBeenCalledWith(expect.objectContaining({
+      lease: expect.objectContaining({
+        workingDirectoryPath: expectedPath,
+        workingDirectoryMode: "isolated-worktree",
+      }),
+    }));
+    expect(adapter.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({
+        authority: expect.objectContaining({
+          workingDirectory: {
+            path: expectedPath,
+            mode: "isolated-worktree",
+          },
+          writeAuthority: expect.objectContaining({
+            scope: expect.objectContaining({
+              workspace: expect.objectContaining({
+                allowedPaths: [
+                  "C:/workspace/kiln/.kiln/managed-worktrees/managed-session-parent-1-tool-call-write/packages/runtime/src",
+                ],
+                deniedPaths: [
+                  "C:/workspace/kiln/.kiln/managed-worktrees/managed-session-parent-1-tool-call-write/.git",
+                ],
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
   });
 
   it("scopes nonblocking managed child lifecycle observation to the owning runtime session", async () => {

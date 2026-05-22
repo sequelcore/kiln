@@ -584,6 +584,9 @@ child.
 ```yaml
 managedAgents:
   enabled: true
+  worktreeLease:
+    mode: git
+    rootPath: .kiln/managed-worktrees
   routes:
     - id: codex-oauth-critical-approved-write
       kind: direct
@@ -591,7 +594,7 @@ managedAgents:
       model: gpt-5.5
       profiles:
         - foundation-apply-approved-writes
-      workingDirectory: project
+      workingDirectory: isolated-worktree
       timeoutMs: 120000
       tools:
         allowed:
@@ -637,6 +640,10 @@ Live-proven direct-provider adapters expose approved workspace-write routes for
 subscription-first setups when the route is explicit and includes
 `writeAuthority`. Read-only routes remain the default for analysis, planning,
 and review.
+Use `managedAgents.worktreeLease` with `workingDirectory: isolated-worktree`
+for write-capable parallel children. The runtime creates an invocation-scoped
+git worktree under `rootPath` before adapter execution and releases it through
+managed-agent lifecycle cleanup evidence.
 Network/browser research and approved workspace writes are separate authority
 profiles. Use a read-only route with `tools.network: true` and browser/web
 tools for visual-reference research. Approved-write routes must keep

@@ -95,6 +95,7 @@ export {
   MANAGED_AGENT_STATUS_TOOL_NAME,
   ManagedCliHarnessAdapter,
   ManagedDirectProviderRuntimeAdapter,
+  ManagedGitWorktreeLeaseManager,
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,
 } from "./agents/managed-invocation/index.js";
@@ -102,6 +103,10 @@ export type {
   ManagedCliHarnessAdapterConfig,
   ManagedCliHarnessFilesystemBoundaryConfig,
   ManagedDirectProviderRuntimeAdapterConfig,
+  ManagedAgentWorktreeLeaseManager,
+  ManagedAgentWorktreeLeaseManagerInput,
+  ManagedAgentWorktreeLeaseReleaseInput,
+  ManagedGitWorktreeLeaseManagerConfig,
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationResult,

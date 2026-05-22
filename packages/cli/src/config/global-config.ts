@@ -575,6 +575,7 @@ function validateManagedAgents(value: unknown, operatorVoice: VoiceConfig | unde
   if (!isRecord(value)) {
     throw new KilnYamlError("managedAgents must be an object");
   }
+  validateManagedAgentWorktreeLease(value.worktreeLease);
   validateManagedAgentVoiceProfile(value.defaultVoiceProfile, "managedAgents.defaultVoiceProfile", operatorVoice);
   if (value.routes !== undefined) {
     if (!Array.isArray(value.routes)) {
@@ -602,8 +603,41 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
   if (value.timeoutMs !== undefined && (typeof value.timeoutMs !== "number" || value.timeoutMs <= 0)) {
     throw new KilnYamlError(`managedAgents.routes[${index}].timeoutMs must be positive`);
   }
+  if (
+    value.workingDirectory !== undefined
+    && value.workingDirectory !== "project"
+    && value.workingDirectory !== "isolated-worktree"
+  ) {
+    throw new KilnYamlError(`managedAgents.routes[${index}].workingDirectory must be "project" or "isolated-worktree"`);
+  }
   validateManagedAgentVoiceProfile(value.voiceProfile, `managedAgents.routes[${index}].voiceProfile`, operatorVoice);
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
+}
+
+function validateManagedAgentWorktreeLease(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError("managedAgents.worktreeLease must be an object");
+  }
+  for (const key of Object.keys(value)) {
+    if (!["mode", "rootPath", "ref", "gitBinary"].includes(key)) {
+      throw new KilnYamlError(`Unknown managedAgents.worktreeLease field: ${key}`);
+    }
+  }
+  if (value.mode !== "git") {
+    throw new KilnYamlError("managedAgents.worktreeLease.mode must be \"git\"");
+  }
+  if (typeof value.rootPath !== "string" || value.rootPath.trim().length === 0) {
+    throw new KilnYamlError("managedAgents.worktreeLease.rootPath is required");
+  }
+  if (value.ref !== undefined && (typeof value.ref !== "string" || value.ref.trim().length === 0)) {
+    throw new KilnYamlError("managedAgents.worktreeLease.ref must be a non-empty string");
+  }
+  if (value.gitBinary !== undefined && (typeof value.gitBinary !== "string" || value.gitBinary.trim().length === 0)) {
+    throw new KilnYamlError("managedAgents.worktreeLease.gitBinary must be a non-empty string");
+  }
 }
 
 function validateManagedAgentVoiceProfile(

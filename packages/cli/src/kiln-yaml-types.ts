@@ -397,6 +397,13 @@ export type KilnManagedAgentCredentialsConfig =
     readonly mode: "credentialless";
   };
 
+export interface KilnManagedAgentWorktreeLeaseConfig {
+  readonly mode: "git";
+  readonly rootPath: string;
+  readonly ref?: string;
+  readonly gitBinary?: string;
+}
+
 export interface KilnManagedAgentRouteConfig {
   readonly id: string;
   readonly kind: KilnManagedAgentRouteKind;
@@ -404,7 +411,7 @@ export interface KilnManagedAgentRouteConfig {
   readonly model?: string;
   readonly voiceProfile?: string;
   readonly profiles?: readonly KilnManagedAgentProfile[];
-  readonly workingDirectory?: "project";
+  readonly workingDirectory?: "project" | "isolated-worktree";
   readonly timeoutMs?: number;
   readonly tools?: KilnManagedAgentToolsConfig;
   readonly memory?: KilnManagedAgentMemoryConfig;
@@ -418,6 +425,7 @@ export interface KilnManagedAgentsConfig {
   readonly defaultProvider?: string;
   readonly defaultVoiceProfile?: string;
   readonly model?: string;
+  readonly worktreeLease?: KilnManagedAgentWorktreeLeaseConfig;
   readonly requireApproval?: boolean;
   readonly routes?: readonly KilnManagedAgentRouteConfig[];
 }

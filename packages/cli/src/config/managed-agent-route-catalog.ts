@@ -36,13 +36,19 @@ export async function createStagedManagedInvocationRouteCatalog(
   options: CreateStagedManagedInvocationRouteCatalogOptions = {},
 ): Promise<StagedManagedInvocationRouteCatalog> {
   const currentConfig = () => options.reloadConfig?.() ?? config;
+  let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
+  let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
   const resolve = (providerModels: ManagedAgentProviderModels) =>
     resolveManagedInvocationToolOptions(currentConfig(), {
       ...context,
+      ...(invocationService ? { invocationService } : {}),
+      ...(invocationServiceKey ? { invocationServiceKey } : {}),
       providerModels,
       includeUnavailableRoutes: true,
     });
   const initial = await resolve(PENDING_MANAGED_AGENT_PROVIDER_MODELS);
+  invocationService = initial.managedInvocation?.invocationService;
+  invocationServiceKey = initial.managedInvocation?.invocationServiceKey;
   const catalog = initial.managedInvocation
     ? createManagedInvocationToolOptionsCatalog(initial.managedInvocation)
     : undefined;
@@ -58,6 +64,10 @@ export async function createStagedManagedInvocationRouteCatalog(
       return refreshInFlight;
     }
     refreshInFlight = refreshCatalog(catalog, resolve, discoverProviderModels, options.onRefreshError)
+      .then(() => {
+        invocationService = catalog.options.invocationService;
+        invocationServiceKey = catalog.options.invocationServiceKey;
+      })
       .finally(() => {
         refreshInFlight = undefined;
       });
@@ -92,9 +102,18 @@ async function refreshCatalog(
   try {
     const providerModels = await discoverProviderModels();
     const refreshed = await resolve(providerModels);
-    if (refreshed.managedInvocation) {
-      catalog.update(refreshed.managedInvocation);
-    }
+    catalog.update(refreshed.managedInvocation ?? {
+      routes: [],
+      unavailableRoutes: [],
+      agentCatalog: [],
+      skillCatalog: [],
+      requestedBy: catalog.options.requestedBy,
+      requestSource: catalog.options.requestSource,
+      ...(catalog.options.artifactStore ? { artifactStore: catalog.options.artifactStore } : {}),
+      ...(catalog.options.invocationService ? { invocationService: catalog.options.invocationService } : {}),
+      ...(catalog.options.invocationServiceKey ? { invocationServiceKey: catalog.options.invocationServiceKey } : {}),
+      ...(catalog.options.sessionEventSink ? { sessionEventSink: catalog.options.sessionEventSink } : {}),
+    });
   } catch (error: unknown) {
     onRefreshError?.(error);
   }

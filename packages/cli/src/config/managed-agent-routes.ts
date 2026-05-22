@@ -16,6 +16,8 @@ import {
 } from "@kilnai/core";
 import {
   ManagedCliHarnessAdapter,
+  ManagedGitWorktreeLeaseManager,
+  RuntimeManagedAgentInvocationService,
   type ManagedAgentRuntimeAdapter,
   type ManagedInvocationAgentCatalogEntry,
   type ManagedInvocationRouteProfile,
@@ -71,6 +73,8 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly artifactStore?: ArtifactResourceStore;
+  readonly invocationService?: RuntimeManagedAgentInvocationService;
+  readonly invocationServiceKey?: string;
   readonly userHome?: string;
 }
 
@@ -159,6 +163,13 @@ export async function resolveManagedInvocationToolOptions(
     }));
   const shouldExposeManagedInvocation = routes.length > 0
     || (context.includeUnavailableRoutes === true && unavailableRoutes.length > 0);
+  const invocationService = createManagedInvocationService(
+    config,
+    context.cwd,
+    context.invocationService,
+    context.invocationServiceKey,
+  );
+  const invocationServiceKey = managedInvocationServiceKey(config, context.cwd);
 
   return {
     routeHealth,
@@ -171,6 +182,8 @@ export async function resolveManagedInvocationToolOptions(
         requestedBy: "assistant",
         requestSource: context.surface,
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
+        ...(invocationService ? { invocationService } : {}),
+        ...(invocationService && invocationServiceKey ? { invocationServiceKey } : {}),
         contextResolver: createManagedInvocationContextResolver(context.cwd, userHome, {
           skillConfig: config.skills,
           modelTaskSuitability: config.modelTaskSuitability,
@@ -329,6 +342,12 @@ export function createManagedInvocationToolOptionsCatalog(
       },
       get artifactStore() {
         return current.artifactStore;
+      },
+      get invocationService() {
+        return current.invocationService;
+      },
+      get invocationServiceKey() {
+        return current.invocationServiceKey;
       },
       get sessionEventSink() {
         return current.sessionEventSink;
@@ -611,7 +630,7 @@ async function resolveRouteConfig(
     );
   }
 
-  const profileResolution = buildRouteProfiles(routeConfig, context.cwd, profiles);
+  const profileResolution = buildRouteProfiles(routeConfig, context.cwd, profiles, config.managedAgents?.worktreeLease);
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
@@ -665,6 +684,7 @@ function buildRouteProfiles(
   routeConfig: KilnManagedAgentRouteConfig,
   cwd: string,
   profiles: readonly ManagedAgentAdmissionProfile[],
+  worktreeLeaseConfig: KilnManagedAgentsConfig["worktreeLease"] | undefined,
 ): {
   readonly ok: true;
   readonly profiles: ManagedInvocationToolRoute["profiles"];
@@ -672,14 +692,18 @@ function buildRouteProfiles(
   readonly ok: false;
   readonly reason: string;
 } {
+  const workingDirectoryLease = resolveWorkingDirectoryLease(routeConfig, cwd, worktreeLeaseConfig);
+  if (!workingDirectoryLease.ok) {
+    return workingDirectoryLease;
+  }
   const resolved: ManagedInvocationToolRoute["profiles"] = {};
   for (const profile of profiles) {
     if (profile === READONLY_PROFILE) {
-      resolved[profile] = buildReadonlyProfile(routeConfig, cwd);
+      resolved[profile] = buildReadonlyProfile(routeConfig, cwd, workingDirectoryLease.lease);
       continue;
     }
     if (profile === "foundation-propose-writes" || profile === "foundation-apply-approved-writes" || profile === "foundation-memory-write-proposals") {
-      const writeProfile = buildWriteProfile(routeConfig, cwd, profile);
+      const writeProfile = buildWriteProfile(routeConfig, cwd, profile, workingDirectoryLease.lease);
       if (!writeProfile.ok) {
         return writeProfile;
       }
@@ -694,14 +718,19 @@ function buildRouteProfiles(
   return { ok: true, profiles: resolved };
 }
 
-function buildReadonlyProfile(routeConfig: KilnManagedAgentRouteConfig, cwd: string): ManagedInvocationRouteProfile {
+function buildReadonlyProfile(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+  workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
+): ManagedInvocationRouteProfile {
   return {
     authorityProfileId: `authority:${routeConfig.id}:${READONLY_PROFILE}`,
     permissionProfile: "read-only",
     allowedToolNames: routeConfig.tools?.allowed ?? DEFAULT_ALLOWED_TOOLS,
     writeAllowed: false,
     networkAllowed: routeConfig.tools?.network === true,
-    workingDirectory: resolveWorkingDirectory(routeConfig, cwd),
+    workingDirectory: resolveWorkingDirectory(routeConfig, cwd, workingDirectoryLease),
+    ...(workingDirectoryLease ? { workingDirectoryLease } : {}),
     timeoutMs: routeConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     credentialRoute: resolveCredentialRoute(routeConfig),
     memoryScope: resolveMemoryScope(routeConfig, cwd),
@@ -712,6 +741,7 @@ function buildWriteProfile(
   routeConfig: KilnManagedAgentRouteConfig,
   cwd: string,
   profile: Exclude<KilnManagedAgentProfile, "foundation-readonly-plan">,
+  workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
 ): {
   readonly ok: true;
   readonly profile: ManagedInvocationRouteProfile;
@@ -739,10 +769,8 @@ function buildWriteProfile(
       allowedToolNames: routeConfig.tools?.allowed ?? (applyApproved ? DEFAULT_WRITE_ALLOWED_TOOLS : DEFAULT_ALLOWED_TOOLS),
       writeAllowed: applyApproved,
       networkAllowed: routeConfig.tools?.network === true,
-      workingDirectory: {
-        path: resolveWorkingDirectory(routeConfig, cwd).path,
-        mode: applyApproved ? "workspace-write" : "read-only",
-      },
+      workingDirectory: resolveWriteWorkingDirectory(routeConfig, cwd, applyApproved, workingDirectoryLease),
+      ...(workingDirectoryLease ? { workingDirectoryLease } : {}),
       timeoutMs: routeConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       credentialRoute: resolveCredentialRoute(routeConfig),
       memoryScope: resolveMemoryScope(routeConfig, cwd, writeAuthority.authority.scope.memory.mode === "propose" ? "write-proposals" : undefined),
@@ -794,6 +822,15 @@ function buildWriteAuthority(
     return {
       ok: false,
       reason: "Workspace write-capable managed invocation routes require at least one writeAuthority.workspace.allowedPaths entry.",
+    };
+  }
+  if (
+    routeConfig.workingDirectory === "isolated-worktree"
+    && allowedWorkspacePaths.some((path) => !isPathWithinOrEqual(cwd, path))
+  ) {
+    return {
+      ok: false,
+      reason: "isolated-worktree write routes require writeAuthority.workspace.allowedPaths to stay inside the repository root.",
     };
   }
   const memoryMode = profile === "foundation-memory-write-proposals"
@@ -880,7 +917,7 @@ async function resolveDirectRouteConfig(
       return unhealthy(baseHealth, writeSupport.reason);
     }
   }
-  const profileResolution = buildRouteProfiles(routeConfig, context.cwd, normalizeProfiles(routeConfig.profiles));
+  const profileResolution = buildRouteProfiles(routeConfig, context.cwd, normalizeProfiles(routeConfig.profiles), config.managedAgents?.worktreeLease);
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
@@ -1027,13 +1064,112 @@ function createHarnessSessionFactory(
   };
 }
 
-function resolveWorkingDirectory(
-  _routeConfig: KilnManagedAgentRouteConfig,
+function createManagedInvocationService(
+  config: ManagedAgentRouteConfigSource,
   cwd: string,
+  existingService: RuntimeManagedAgentInvocationService | undefined,
+  existingServiceKey: string | undefined,
+): RuntimeManagedAgentInvocationService | undefined {
+  const serviceKey = managedInvocationServiceKey(config, cwd);
+  if (!serviceKey) {
+    return undefined;
+  }
+  if (existingService && existingServiceKey === serviceKey) {
+    return existingService;
+  }
+  const leaseConfig = config.managedAgents?.worktreeLease;
+  if (!leaseConfig) {
+    return undefined;
+  }
+  return new RuntimeManagedAgentInvocationService({
+    worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
+      repositoryPath: cwd,
+      worktreeRootPath: normalizeManagedRoutePath(leaseConfig.rootPath, cwd),
+      ...(leaseConfig.ref ? { ref: leaseConfig.ref } : {}),
+      ...(leaseConfig.gitBinary ? { gitBinary: leaseConfig.gitBinary } : {}),
+    }),
+  });
+}
+
+function managedInvocationServiceKey(
+  config: ManagedAgentRouteConfigSource,
+  cwd: string,
+): string | undefined {
+  const leaseConfig = config.managedAgents?.worktreeLease;
+  if (!leaseConfig || !resolveRouteConfigs(config).some((route) => route.workingDirectory === "isolated-worktree")) {
+    return undefined;
+  }
+  return JSON.stringify({
+    mode: leaseConfig.mode,
+    repositoryPath: normalizeManagedRoutePath(cwd, cwd),
+    rootPath: normalizeManagedRoutePath(leaseConfig.rootPath, cwd),
+    ref: leaseConfig.ref ?? "HEAD",
+    gitBinary: leaseConfig.gitBinary ?? "git",
+  });
+}
+
+function resolveWorkingDirectory(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+  workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
 ): ManagedAgentWorkingDirectory {
+  if (routeConfig.workingDirectory === "isolated-worktree" && workingDirectoryLease) {
+    return {
+      path: workingDirectoryLease.rootPath,
+      mode: "isolated-worktree",
+    };
+  }
   return {
     path: cwd,
     mode: "read-only",
+  };
+}
+
+function resolveWriteWorkingDirectory(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+  applyApproved: boolean,
+  workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
+): ManagedAgentWorkingDirectory {
+  if (routeConfig.workingDirectory === "isolated-worktree" && workingDirectoryLease) {
+    return {
+      path: workingDirectoryLease.rootPath,
+      mode: "isolated-worktree",
+    };
+  }
+  return {
+    path: cwd,
+    mode: applyApproved ? "workspace-write" : "read-only",
+  };
+}
+
+function resolveWorkingDirectoryLease(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+  config: KilnManagedAgentsConfig["worktreeLease"] | undefined,
+): {
+  readonly ok: true;
+  readonly lease?: ManagedInvocationRouteProfile["workingDirectoryLease"];
+} | {
+  readonly ok: false;
+  readonly reason: string;
+} {
+  if (routeConfig.workingDirectory !== "isolated-worktree") {
+    return { ok: true };
+  }
+  if (!config) {
+    return {
+      ok: false,
+      reason: "isolated-worktree managed invocation routes require managedAgents.worktreeLease.rootPath.",
+    };
+  }
+  return {
+    ok: true,
+    lease: {
+      mode: "git-worktree",
+      sourcePath: cwd,
+      rootPath: normalizeManagedRoutePath(config.rootPath, cwd),
+    },
   };
 }
 
@@ -1042,8 +1178,11 @@ function normalizeManagedRoutePaths(paths: readonly string[], cwd: string): read
 }
 
 function normalizeManagedRoutePath(path: string, cwd: string): string {
-  if (win32.isAbsolute(path) || posix.isAbsolute(path)) {
-    return path;
+  if (win32.isAbsolute(path)) {
+    return win32.normalize(path);
+  }
+  if (posix.isAbsolute(path)) {
+    return posix.normalize(path);
   }
   if (win32.isAbsolute(cwd)) {
     return win32.resolve(cwd, path);
@@ -1052,6 +1191,22 @@ function normalizeManagedRoutePath(path: string, cwd: string): string {
     return posix.resolve(cwd, path);
   }
   return resolve(cwd, path);
+}
+
+function isPathWithinOrEqual(rootPath: string, candidatePath: string): boolean {
+  const caseInsensitive = isCaseInsensitivePath(rootPath) || isCaseInsensitivePath(candidatePath);
+  const root = normalizeComparablePath(rootPath, caseInsensitive);
+  const candidate = normalizeComparablePath(candidatePath, caseInsensitive);
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+function normalizeComparablePath(path: string, caseInsensitive: boolean): string {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/g, "");
+  return caseInsensitive ? normalized.toLowerCase() : normalized;
+}
+
+function isCaseInsensitivePath(path: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
 }
 
 function resolveCredentialRoute(

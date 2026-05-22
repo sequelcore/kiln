@@ -673,6 +673,104 @@ describe("global-config", () => {
     );
   });
 
+  it("readGlobalConfig() accepts managed-agent git worktree lease configuration", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  enabled: true",
+        "  worktreeLease:",
+        "    mode: git",
+        "    rootPath: .kiln/managed-worktrees",
+        "    ref: HEAD",
+        "  routes:",
+        "    - id: codex-approved-write",
+        "      kind: harness",
+        "      provider: codex",
+        "      workingDirectory: isolated-worktree",
+        "      profiles:",
+        "        - foundation-apply-approved-writes",
+        "      writeAuthority:",
+        "        workspace:",
+        "          mode: apply-approved",
+        "          allowedPaths:",
+        "            - packages/cli/src/config",
+        "        approval:",
+        "          mode: required-before-apply",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.managedAgents).toMatchObject({
+      worktreeLease: {
+        mode: "git",
+        rootPath: ".kiln/managed-worktrees",
+        ref: "HEAD",
+      },
+      routes: [
+        expect.objectContaining({
+          id: "codex-approved-write",
+          workingDirectory: "isolated-worktree",
+        }),
+      ],
+    });
+  });
+
+  it("readGlobalConfig() rejects malformed managed-agent worktree lease configuration", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  worktreeLease:",
+        "    mode: shell",
+        "    rootPath: .kiln/managed-worktrees",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("managedAgents.worktreeLease.mode must be \"git\"");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  worktreeLease:",
+        "    mode: git",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("managedAgents.worktreeLease.rootPath is required");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  routes:",
+        "    - id: codex-approved-write",
+        "      kind: harness",
+        "      provider: codex",
+        "      workingDirectory: shared-checkout",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow(
+      "managedAgents.routes[0].workingDirectory must be \"project\" or \"isolated-worktree\"",
+    );
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  worktreeLease:",
+        "    mode: git",
+        "    rootPath: .kiln/managed-worktrees",
+        "    gitBianary: git",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("Unknown managedAgents.worktreeLease field: gitBianary");
+  });
+
   it("readGlobalConfig() throws KilnYamlError when file is not a YAML object", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue("- not\n- an\n- object\n");

@@ -20,6 +20,7 @@ import type {
 } from "@kilnai/core";
 import { defineManagedAgentInvocationRequest } from "@kilnai/core";
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
+import { posix, resolve, win32 } from "node:path";
 import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
@@ -56,6 +57,7 @@ export interface ManagedInvocationRouteProfile {
   readonly writeAllowed?: boolean;
   readonly networkAllowed?: boolean;
   readonly workingDirectory: ManagedAgentWorkingDirectory;
+  readonly workingDirectoryLease?: ManagedInvocationWorkingDirectoryLease;
   readonly timeoutMs: number;
   readonly credentialRoute: ManagedAgentCredentialRoute;
   readonly memoryScope: ManagedAgentMemoryScope;
@@ -89,6 +91,8 @@ export interface ManagedInvocationToolOptions {
   readonly requestedBy?: string;
   readonly requestSource?: string;
   readonly artifactStore?: ArtifactResourceStore;
+  readonly invocationService?: RuntimeManagedAgentInvocationService;
+  readonly invocationServiceKey?: string;
   readonly sessionEventSink?: ManagedInvocationSessionEventSink;
   readonly contextResolver?: ManagedInvocationContextResolver;
 }
@@ -109,6 +113,12 @@ export interface ManagedInvocationAgentCatalogEntry {
     readonly reasoningEffort?: string;
   };
   readonly voiceProfile?: string;
+}
+
+export interface ManagedInvocationWorkingDirectoryLease {
+  readonly mode: "git-worktree";
+  readonly sourcePath: string;
+  readonly rootPath: string;
 }
 
 export interface ManagedInvocationSkillCatalogEntry {
@@ -527,14 +537,14 @@ export function createManagedAgentStartToolDefinition(
 
 export function createManagedInvocationToolExecutor(
   options: ManagedInvocationToolOptions,
-  service = new RuntimeManagedAgentInvocationService(),
+  service = options.invocationService ?? new RuntimeManagedAgentInvocationService(),
 ): RuntimeBuiltinToolExecutor {
   return async (input, context) => executeManagedInvocationTool(input, context, options, service);
 }
 
 export function createManagedInvocationLifecycleToolExecutors(
   options: ManagedInvocationToolOptions,
-  service = new RuntimeManagedAgentInvocationService(),
+  service = options.invocationService ?? new RuntimeManagedAgentInvocationService(),
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
   return new Map([
     [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(options, service)],
@@ -780,6 +790,7 @@ async function prepareManagedInvocationRequest(
     : parsed.input.task;
 
   const invocationId = buildInvocationId(context.session.id, context.session.userTurnCount, context.toolCall.id);
+  const resolvedAuthority = resolveManagedInvocationRouteAuthority(profileDefaults, invocationId);
   const handoffContract = buildHandoffContract(parsed.input);
   const authorityApproval = await requestManagedInvocationAuthorityApproval({
     requestedAuthority,
@@ -825,11 +836,11 @@ async function prepareManagedInvocationRequest(
         writeAllowed: profileDefaults.writeAllowed === true,
         networkAllowed: profileDefaults.networkAllowed === true,
       },
-      workingDirectory: profileDefaults.workingDirectory,
+      workingDirectory: resolvedAuthority.workingDirectory,
       timeoutMs: profileDefaults.timeoutMs,
       credentialRoute: profileDefaults.credentialRoute,
       memoryScope: profileDefaults.memoryScope,
-      ...(profileDefaults.writeAuthority ? { writeAuthority: profileDefaults.writeAuthority } : {}),
+      ...(resolvedAuthority.writeAuthority ? { writeAuthority: resolvedAuthority.writeAuthority } : {}),
     },
     input: {
       summary: parsed.input.summary,
@@ -885,6 +896,101 @@ async function prepareManagedInvocationRequest(
       },
     },
   };
+}
+
+function resolveManagedInvocationRouteAuthority(
+  profile: ManagedInvocationRouteProfile,
+  invocationId: string,
+): Pick<ManagedAgentAuthorityProfile, "workingDirectory" | "writeAuthority"> {
+  const workingDirectory = resolveManagedInvocationWorkingDirectory(profile, invocationId);
+  return {
+    workingDirectory,
+    ...(profile.writeAuthority
+      ? { writeAuthority: resolveManagedInvocationWriteAuthority(profile, workingDirectory) }
+      : {}),
+  };
+}
+
+function resolveManagedInvocationWorkingDirectory(
+  profile: ManagedInvocationRouteProfile,
+  invocationId: string,
+): ManagedAgentWorkingDirectory {
+  if (!profile.workingDirectoryLease || profile.workingDirectory.mode !== "isolated-worktree") {
+    return profile.workingDirectory;
+  }
+  return {
+    path: joinManagedInvocationLeasePath(profile.workingDirectoryLease.rootPath, sanitizeId(invocationId)),
+    mode: "isolated-worktree",
+  };
+}
+
+function resolveManagedInvocationWriteAuthority(
+  profile: ManagedInvocationRouteProfile,
+  workingDirectory: ManagedAgentWorkingDirectory,
+): ManagedAgentAuthorityProfile["writeAuthority"] {
+  const authority = profile.writeAuthority;
+  if (!authority || !profile.workingDirectoryLease || workingDirectory.mode !== "isolated-worktree") {
+    return authority;
+  }
+  return {
+    ...authority,
+    scope: {
+      ...authority.scope,
+      workspace: {
+        ...authority.scope.workspace,
+        allowedPaths: rebaseManagedInvocationLeasePaths(
+          authority.scope.workspace.allowedPaths,
+          profile.workingDirectoryLease.sourcePath,
+          workingDirectory.path,
+        ),
+        deniedPaths: rebaseManagedInvocationLeasePaths(
+          authority.scope.workspace.deniedPaths,
+          profile.workingDirectoryLease.sourcePath,
+          workingDirectory.path,
+        ),
+      },
+    },
+  };
+}
+
+function rebaseManagedInvocationLeasePaths(
+  paths: readonly string[],
+  sourceRootPath: string,
+  targetRootPath: string,
+): readonly string[] {
+  return paths.map((path) => rebaseManagedInvocationLeasePath(path, sourceRootPath, targetRootPath));
+}
+
+function rebaseManagedInvocationLeasePath(
+  path: string,
+  sourceRootPath: string,
+  targetRootPath: string,
+): string {
+  const normalizedPath = normalizeManagedInvocationPath(path);
+  const normalizedSource = normalizeManagedInvocationPath(sourceRootPath);
+  const normalizedTarget = normalizeManagedInvocationPath(targetRootPath);
+  if (normalizedPath === normalizedSource) {
+    return normalizedTarget;
+  }
+  const prefix = `${normalizedSource}/`;
+  if (!normalizedPath.startsWith(prefix)) {
+    return path;
+  }
+  return `${normalizedTarget}/${normalizedPath.slice(prefix.length)}`;
+}
+
+function normalizeManagedInvocationPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/g, "");
+}
+
+function joinManagedInvocationLeasePath(rootPath: string, childId: string): string {
+  if (win32.isAbsolute(rootPath) || rootPath.includes("\\")) {
+    return win32.join(rootPath, childId);
+  }
+  if (posix.isAbsolute(rootPath)) {
+    return posix.join(rootPath, childId);
+  }
+  return resolve(rootPath, childId);
 }
 
 async function executeManagedInvocationTool(

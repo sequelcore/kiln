@@ -1,90 +1,68 @@
+# Plan: Slice 3 Product Wiring for Managed Worktree Leases
+
 ## Objective
 
-Continue Slice 3 of `docs/roadmap/01-background-parallel-agent-surface.md` by
-adding runtime-owned isolated-worktree lease execution and terminal lease
-outcome evidence without mutating the admitted capability snapshot.
+Continue Slice 3 by wiring managed-agent route configuration into the runtime
+managed invocation surface so write-capable children can request
+`isolated-worktree` execution through a git-backed worktree lease manager.
 
-## Non-Goals
+## Scope
 
-- Do not provision real worktrees, sandboxes, ports, credentials, or cleanup
-- Do not provision sandboxes, ports, environment bindings, credential routes,
-  or cleanup daemons.
-- Do not add a surface-local lease store.
-- Do not add compatibility fallback shapes for incomplete leases.
-- Do not weaken adapter record equality or runtime admission replay.
-- Do not import or depend on CLI wrapper worktree management.
+- Add typed `managedAgents.worktreeLease` configuration for git-backed managed
+  child worktrees.
+- Allow managed-agent routes to opt into `workingDirectory: isolated-worktree`.
+- Project isolated routes into runtime `ManagedInvocationToolOptions` with a
+  shared invocation service backed by `ManagedGitWorktreeLeaseManager`.
+- Resolve each isolated child working directory to a deterministic
+  invocation-scoped path before admission.
+- Keep lifecycle/status/join/cancel tools on the same configured invocation
+  service across CLI, TUI, GUI, and attached runtime surfaces.
 
-## Scout Summary
+## Out Of Scope
 
-Owning bounded context:
+- Sandbox, artifact-directory, environment-variable, credential-route, and
+  dev-server port provisioning.
+- Stale lease sweeps and dirty-worktree recovery beyond the existing
+  per-invocation release boundary.
+- CLI wrapper worktree manager reuse or migration.
+- Native/Rust helpers.
 
-- Core managed invocation contract:
-  `packages/core/src/agents/managed-invocation/index.ts`
-- Runtime managed invocation registry:
-  `packages/runtime/src/agents/managed-invocation/index.ts`
-- Runtime session evidence:
-  `packages/runtime/src/agents/managed-invocation/session-events.ts`
+## Affected Files
 
-Current facts:
+- `packages/runtime/src/agents/managed-invocation/runtime-tool.ts`
+- `packages/cli/src/kiln-yaml-types.ts`
+- `packages/cli/src/config/global-config.ts`
+- `packages/cli/src/config/managed-agent-routes.ts`
+- `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`
+- `packages/cli/src/config/global-config.test.ts`
+- `packages/cli/src/config/managed-agent-route-catalog.test.ts`
+- `docs/roadmap/01-background-parallel-agent-surface.md`
+- `docs/roadmap/README.md`
 
-- Admission snapshots are immutable and runtime currently requires adapter
-  records to return the admitted capability snapshot exactly.
-- Lifecycle evidence is currently derived from the admitted snapshot lease,
-  which cannot honestly represent terminal cleanup/release outcomes.
-- Gateway already prefers terminal lifecycle lease evidence over admission
-  snapshots when present.
-- Runtime has no worktree lease execution boundary. CLI wrapper worktree
-  management exists outside this bounded context and must not be imported.
+## TDD Targets
 
-## This Cut
+1. Config parser accepts `managedAgents.worktreeLease` and
+   `workingDirectory: isolated-worktree`, and rejects malformed lease config.
+2. Route projection marks isolated routes with an invocation service and
+   worktree lease root.
+3. Runtime managed invocation tool materializes an invocation-scoped isolated
+   worktree path and calls the configured lease manager before adapter
+   execution.
 
-1. Add optional terminal `resourceLease` evidence to
-   `ManagedAgentInvocationRecord`.
-2. Build lifecycle evidence from terminal record lease when present, otherwise
-   from the admitted snapshot lease.
-3. Add a runtime `ManagedAgentWorktreeLeaseManager` port for
-   `isolated-worktree` invocations only.
-4. Reserve the invocation before any asynchronous worktree acquisition, acquire
-   the worktree lease before adapter execution, and release it only after the
-   adapter reaches a terminal result.
-5. Mark cleanup `completed` only when release executes successfully; mark
-   cleanup `failed`/health `leaked` with diagnostics when release fails.
-6. Fail closed when an `isolated-worktree` invocation starts without a runtime
-   worktree lease manager.
-7. Constrain git-backed worktree paths to an explicit runtime-configured
-   worktree root and reject lease-manager output that changes admitted path,
-   mode, identity, or non-invocation resource URIs.
-8. Canonicalize worktree paths before root/conflict checks, reject path aliases,
-   keep `join` valid while acquire is in flight, and record compensating cleanup
-   evidence when acquire fails after external side effects.
-
-## Test Plan
-
-Focused red tests first:
+## Verification
 
 ```bash
-bun run --filter @kilnai/core test -- tests/managed-agent/invocation-contracts.test.ts
-bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts tests/session/managed-invocation-session-events.test.ts
-```
-
-Verification for this cut:
-
-```bash
-bun run --filter @kilnai/core test -- tests/managed-agent/invocation-contracts.test.ts
-bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts tests/session/managed-invocation-session-events.test.ts
-bun run --filter @kilnai/gateway-contracts test -- tests/operator-event-presentation.test.ts tests/operator-cockpit-projection.test.ts
+bun run --filter @kilnai/cli test -- src/config/global-config.test.ts src/config/managed-agent-route-catalog.test.ts
+bun run --cwd packages/runtime test -- tests/gateway/managed-invocation-tool.test.ts tests/managed-agent/invocation-service.test.ts
 bun run typecheck
 git diff --check
 ```
 
 ## Risks
 
-- Dirty worktree policy must fail closed. Runtime must not delete or claim
-  cleanup for a worktree when the release boundary reports failure.
-- Terminal lease evidence must not mutate or replace the admitted capability
-  snapshot; otherwise runtime replay equality weakens.
-- Cancellation must not remove an isolated worktree while the adapter is still
-  unwinding; release belongs to terminal adapter handling, not the cancel
-  request itself.
-- Path confinement must treat `.`/`..` and slash variants as the same path
-  before checking roots or active isolated-worktree collisions.
+- Route projection must fail closed if an isolated-worktree route is configured
+  without a git worktree lease root.
+- The worktree path must be generated after invocation id creation; static
+  route-level worktree paths would collide under parallel children.
+- The service instance must be shared by lifecycle tools, otherwise `start`,
+  `status`, `join`, and `cancel` would observe different registries.

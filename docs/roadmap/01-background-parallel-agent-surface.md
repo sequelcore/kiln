@@ -163,6 +163,12 @@ Kiln now has the first runtime-owned managed-child lifecycle foundation:
   reports cleanup `completed` after the worktree is clean and
   `git worktree remove` succeeds; dirty or failed release is preserved as
   `cleanupStatus: failed` and `healthStatus: leaked`.
+- Product configuration can now select git-backed isolated worktree leases:
+  `managedAgents.worktreeLease` defines the lease root and route projection
+  admits `workingDirectory: isolated-worktree`. The shared managed invocation
+  tool options carry the configured runtime service across CLI, TUI, GUI, and
+  attached runtime surfaces, and each child receives an invocation-scoped
+  worktree path before admission.
 - `kiln run --workers` is still transitional CLI fan-out behavior, not yet
   rebased onto the managed-child lifecycle.
 
@@ -250,11 +256,12 @@ Completed:
   effects.
 - Terminal lifecycle evidence can carry release outcomes without mutating the
   admitted capability snapshot.
+- Product/runtime route configuration can choose the git-backed worktree lease
+  manager outside test harnesses through `managedAgents.worktreeLease` and
+  `workingDirectory: isolated-worktree`.
 
 Remaining:
 
-- Wire product/runtime configuration to choose the git-backed worktree lease
-  manager outside tests and harnesses.
 - Provision real sandbox, artifact-directory, environment, credential-route,
   and port leases.
 - Implement broader lease cleanup/recovery execution and stale sweeps beyond
