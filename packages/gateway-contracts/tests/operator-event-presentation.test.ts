@@ -321,6 +321,11 @@ describe("operator event presentation", () => {
           available: true,
           resourceUris: [],
         },
+        resourceLease: {
+          workingDirectoryPath: "C:/workspace/kiln",
+          workingDirectoryMode: "read-only",
+          resourceUris: ["kiln://resources/context.md"],
+        },
         childIdentity: {
           agentId: "codex-oauth:foundation-readonly-plan",
           displayName: "Piama",
@@ -349,6 +354,8 @@ describe("operator event presentation", () => {
       { label: "Provider proof", value: "live-proven" },
       { label: "Provider proof source", value: "managed-invocation-route-health" },
       { label: "Resource plane", value: "available" },
+      { label: "Resource lease", value: "read-only · C:/workspace/kiln" },
+      { label: "Lease resources", value: "kiln://resources/context.md" },
       { label: "Child identity", value: "Piama" },
       { label: "Invocation ID", value: "inv-1" },
       { label: "Duration", value: "950 ms" },
@@ -614,6 +621,11 @@ describe("operator event presentation", () => {
               available: true,
               resourceUris: [],
             },
+            resourceLease: {
+              workingDirectoryPath: "C:/workspace/kiln",
+              workingDirectoryMode: "read-only",
+              resourceUris: ["kiln://resources/context.md"],
+            },
             childIdentity: {
               agentId: "codex-oauth:foundation-readonly-plan",
               admittedAgentProfile: "architecture-reviewer",
@@ -664,6 +676,8 @@ describe("operator event presentation", () => {
       { label: "Provider proof", value: "live-proven" },
       { label: "Provider proof source", value: "managed-invocation-route-health" },
       { label: "Resource plane", value: "available" },
+      { label: "Resource lease", value: "read-only · C:/workspace/kiln" },
+      { label: "Lease resources", value: "kiln://resources/context.md" },
       { label: "Child identity", value: "architecture-reviewer" },
       { label: "Invocation ID", value: "inv-1" },
       { label: "Route ID", value: "codex-oauth" },

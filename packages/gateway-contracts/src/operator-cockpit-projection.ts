@@ -1,4 +1,7 @@
-import type { OperatorSessionEvent } from "./frames.js";
+import type {
+  OperatorManagedAgentResourceLeaseSnapshot,
+  OperatorSessionEvent,
+} from "./frames.js";
 import type {
   OperatorEventTone,
   ToolResultResourceLinkPresentation,
@@ -135,9 +138,16 @@ export interface OperatorCockpitInvocationProjection {
   readonly status: OperatorCockpitInvocationStatus;
   readonly lifecycleState?: string;
   readonly providerRoute?: string;
+  readonly resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   readonly eventCount: number;
   readonly latestEventId: string;
   readonly title: string;
+}
+
+export interface OperatorCockpitInvocationResourceLeaseProjection {
+  readonly workingDirectoryPath: string;
+  readonly workingDirectoryMode: OperatorManagedAgentResourceLeaseSnapshot["workingDirectoryMode"];
+  readonly resourceUris: readonly string[];
 }
 
 export type OperatorCockpitToolStatus =
@@ -208,6 +218,7 @@ interface InvocationAccumulator {
   status: OperatorCockpitInvocationStatus;
   lifecycleState?: string;
   providerRoute?: string;
+  resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   eventCount: number;
   latestEventId: string;
   title: string;
@@ -343,6 +354,7 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.title = presentation.title;
       invocation.lifecycleState = readString(payload.lifecycleState) ?? invocation.lifecycleState;
       invocation.providerRoute = readProviderRoute(payload) ?? invocation.providerRoute;
+      invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
       invocation.status = readInvocationStatus(event, payload);
       instance.invocations.add(managedInvocationKey);
       session.invocations.add(managedInvocationId);
@@ -598,6 +610,7 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     status: input.status,
     ...(input.lifecycleState !== undefined ? { lifecycleState: input.lifecycleState } : {}),
     ...(input.providerRoute !== undefined ? { providerRoute: input.providerRoute } : {}),
+    ...(input.resourceLease !== undefined ? { resourceLease: input.resourceLease } : {}),
     eventCount: input.eventCount,
     latestEventId: input.latestEventId,
     title: input.title,
@@ -679,6 +692,13 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function readStringList(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
 function readCostDeltaUsd(payload: Record<string, unknown>): number {
   const cost = asRecord(payload.cost);
   return readNumber(cost.deltaUsd) ?? readNumber(payload.deltaUsd) ?? 0;
@@ -690,6 +710,37 @@ function readProviderRoute(payload: Record<string, unknown>): string | null {
   const model = readString(payload.model) ?? readString(providerRoute.model);
   if (!provider) return null;
   return model ? `${provider}/${model}` : provider;
+}
+
+function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInvocationResourceLeaseProjection | null {
+  const hasCapabilitySnapshot = isRecordValue(payload.capabilitySnapshot);
+  const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence.lifecycle);
+  const snapshotLease = asRecord(capabilitySnapshot.resourceLease);
+  const lifecycleLease = asRecord(lifecycle.resourceLease);
+  const lease = hasCapabilitySnapshot ? snapshotLease : lifecycleLease;
+  const workingDirectoryPath = readString(lease.workingDirectoryPath);
+  const workingDirectoryMode = readWorkingDirectoryMode(lease.workingDirectoryMode);
+  if (!workingDirectoryPath || !workingDirectoryMode) {
+    return null;
+  }
+  return {
+    workingDirectoryPath,
+    workingDirectoryMode,
+    resourceUris: readStringList(lease.resourceUris),
+  };
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readWorkingDirectoryMode(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["workingDirectoryMode"] | null {
+  if (value === "read-only" || value === "workspace-write" || value === "isolated-worktree" || value === "sandbox") {
+    return value;
+  }
+  return null;
 }
 
 function readAuthority(payload: Record<string, unknown>): string | null {

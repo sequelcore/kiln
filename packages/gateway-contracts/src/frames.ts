@@ -393,6 +393,12 @@ export interface OperatorManagedAgentResourcePlaneSnapshot {
   readonly reason?: string;
 }
 
+export interface OperatorManagedAgentResourceLeaseSnapshot {
+  readonly workingDirectoryPath: string;
+  readonly workingDirectoryMode: "read-only" | "workspace-write" | "isolated-worktree" | "sandbox";
+  readonly resourceUris: readonly string[];
+}
+
 export interface OperatorManagedAgentChildIdentitySnapshot {
   readonly agentId: string;
   readonly requestedAgentProfile?: string;
@@ -413,6 +419,7 @@ export interface OperatorManagedAgentCapabilitySnapshot {
   readonly authorityProfile: Record<string, unknown>;
   readonly contextMode: "isolated" | "resources" | "fork";
   readonly resourcePlane: OperatorManagedAgentResourcePlaneSnapshot;
+  readonly resourceLease: OperatorManagedAgentResourceLeaseSnapshot;
   readonly childIdentity: OperatorManagedAgentChildIdentitySnapshot;
 }
 

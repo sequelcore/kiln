@@ -982,6 +982,7 @@ function addManagedCapabilitySnapshotDetails(
   const routeHealth = asRecord(snapshot.routeHealth);
   const providerModelProof = asRecord(snapshot.providerModelProof);
   const resourcePlane = asRecord(snapshot.resourcePlane);
+  const resourceLease = asRecord(snapshot.resourceLease);
   const childIdentity = asRecord(snapshot.childIdentity);
   addItem(details, "Capability snapshot", snapshot.snapshotId);
   addItem(details, "Captured", snapshot.capturedAt);
@@ -990,6 +991,10 @@ function addManagedCapabilitySnapshotDetails(
   addItem(details, "Provider proof", providerModelProof?.status);
   addItem(details, "Provider proof source", providerModelProof?.source);
   addItem(details, "Resource plane", resourcePlane?.available === true ? "available" : resourcePlane?.available === false ? "unavailable" : undefined);
+  const leasePath = readString(resourceLease?.workingDirectoryPath);
+  const leaseMode = readString(resourceLease?.workingDirectoryMode);
+  addItem(details, "Resource lease", leasePath && leaseMode ? `${leaseMode} · ${leasePath}` : leaseMode ?? leasePath);
+  addItem(details, "Lease resources", formatStringList(resourceLease?.resourceUris));
   addItem(details, "Child identity", childIdentity?.displayName ?? childIdentity?.admittedAgentProfile ?? childIdentity?.requestedAgentProfile ?? childIdentity?.agentId);
 }
 

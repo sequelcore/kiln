@@ -262,6 +262,13 @@ describe("operator cockpit read-only projection", () => {
           providerId: "opencode",
           model: "sonic",
         },
+        capabilitySnapshot: {
+          resourceLease: {
+            workingDirectoryPath: "C:/workspace/kiln",
+            workingDirectoryMode: "read-only",
+            resourceUris: ["kiln://resources/context.md"],
+          },
+        },
       },
     };
     const failed: OperatorSessionEvent = {
@@ -296,6 +303,54 @@ describe("operator cockpit read-only projection", () => {
       status: "failed",
       lifecycleState: "timed_out",
       providerRoute: "opencode/sonic",
+      resourceLease: {
+        workingDirectoryPath: "C:/workspace/kiln",
+        workingDirectoryMode: "read-only",
+        resourceUris: ["kiln://resources/context.md"],
+      },
+    });
+  });
+
+  it("projects terminal lifecycle resource lease evidence when no capability snapshot is attached", () => {
+    const completed: OperatorSessionEvent = {
+      eventId: "lifecycle:event:lease-only",
+      kilnSessionId: "lifecycle:session:lease-only",
+      sequence: 1,
+      timestamp: "2026-05-21T12:00:00.000Z",
+      kind: "agent_invocation_completed",
+      payload: {
+        instanceId: "lifecycle:instance:1",
+        sessionId: "lifecycle:session:lease-only",
+        managedInvocationId: "lifecycle:child:lease-only",
+        invocationId: "lifecycle:child:lease-only",
+        agentId: "agent-reviewer",
+        lifecycleState: "completed",
+        managedInvocationEvidence: {
+          lifecycle: {
+            resourceLease: {
+              workingDirectoryPath: "C:/workspace/kiln",
+              workingDirectoryMode: "read-only",
+              resourceUris: ["kiln://resources/context.md"],
+            },
+          },
+        },
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-21T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "lifecycle:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [completed],
+    });
+
+    expect(projection.invocations[0]?.resourceLease).toEqual({
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: ["kiln://resources/context.md"],
     });
   });
 
