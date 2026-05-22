@@ -207,6 +207,11 @@ describe("RuntimeManagedAgentInvocationService", () => {
       profile: "foundation-readonly-plan",
       lifecycleState: "running",
     });
+    expect(started.decision.capabilitySnapshot.resourceLease).toEqual({
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: [],
+    });
     expect(service.status("invocation-1")).toMatchObject({
       invocationId: "invocation-1",
       lifecycleState: "running",
@@ -221,6 +226,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
       throw new Error("expected managed invocation to complete");
     }
     expect(joined.record.lifecycleState).toBe("completed");
+    expect(joined.record.capabilitySnapshot.resourceLease).toEqual(started.decision.capabilitySnapshot.resourceLease);
     expect(service.status("invocation-1")).toMatchObject({
       invocationId: "invocation-1",
       lifecycleState: "completed",

@@ -4,6 +4,7 @@ import {
   buildManagedAgentLifecycleEvidence,
   defineManagedAgentInvocationRequest,
   defineManagedAgentAdapterDescriptor,
+  defineManagedAgentCapabilitySnapshot,
   defineManagedAgentInvocationRecord,
   buildManagedAgentCapabilitySnapshot,
 } from "../../src/agents/managed-invocation/index.js";
@@ -165,6 +166,49 @@ describe("managed agent invocation contracts", () => {
     expect(JSON.stringify(descriptor)).not.toMatch(/\bsubagent\b|\bteam\b|\bfork\b/);
   });
 
+  it("derives a replayable resource lease in the capability snapshot", () => {
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      input: {
+        ...baseRequest.input,
+        resourceUris: ["kiln://resources/context.md", "kiln://artifacts/invocation-1/input"],
+      },
+    });
+    const snapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+    });
+
+    expect(snapshot.resourceLease).toEqual({
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: ["kiln://resources/context.md", "kiln://artifacts/invocation-1/input"],
+    });
+  });
+
+  it("rejects malformed resource lease fields at the snapshot boundary", () => {
+    const snapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+    });
+
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      resourceLease: {
+        ...snapshot.resourceLease,
+        workingDirectoryMode: "shared-checkout" as typeof snapshot.resourceLease.workingDirectoryMode,
+      },
+    })).toThrow("Unsupported managed invocation working directory mode: shared-checkout");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      resourceLease: {
+        ...snapshot.resourceLease,
+        resourceUris: [""],
+      },
+    })).toThrow("Managed capability snapshot lease resource uri is required");
+  });
+
   it("records replayable lifecycle evidence, transcript flags, usage unknowns, and bounded result handoff", () => {
     const usage: ManagedAgentUsageReport = {
       source: "adapter",
@@ -187,8 +231,9 @@ describe("managed agent invocation contracts", () => {
 
   it("derives replayable lifecycle evidence from the invocation record without a second lifecycle store", () => {
     const record = defineManagedAgentInvocationRecord(makeCompletedRecordInput());
+    const lifecycleEvidence = buildManagedAgentLifecycleEvidence(record, { heartbeatAt: "2026-05-07T08:00:03.000Z" });
 
-    expect(buildManagedAgentLifecycleEvidence(record, { heartbeatAt: "2026-05-07T08:00:03.000Z" })).toMatchObject({
+    expect(lifecycleEvidence).toMatchObject({
       lifecycleState: "completed",
       invocationId: "invocation-1",
       parentSessionId: "session-parent",
@@ -210,6 +255,7 @@ describe("managed agent invocation contracts", () => {
       diagnosticUris: ["kiln://artifacts/invocation-1/diagnostics"],
       handoffResourceUris: ["kiln://artifacts/invocation-1/result"],
     });
+    expect(lifecycleEvidence.resourceLease).toEqual(record.capabilitySnapshot.resourceLease);
   });
 });
 

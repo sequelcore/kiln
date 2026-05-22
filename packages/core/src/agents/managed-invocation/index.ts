@@ -250,6 +250,7 @@ export interface ManagedAgentCapabilitySnapshot {
   readonly authorityProfile: ManagedAgentAuthorityProfile;
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly resourcePlane: ManagedAgentResourcePlaneSnapshot;
+  readonly resourceLease: ManagedAgentResourceLeaseEvidence;
   readonly childIdentity: ManagedAgentChildIdentitySnapshot;
 }
 
@@ -259,6 +260,7 @@ export interface ManagedAgentCapabilitySnapshotInput {
   readonly routeHealth?: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof?: ManagedAgentProviderModelProofSnapshot;
   readonly resourcePlane?: ManagedAgentResourcePlaneSnapshot;
+  readonly resourceLease?: ManagedAgentResourceLeaseEvidence;
   readonly childIdentity?: ManagedAgentChildIdentitySnapshot;
 }
 
@@ -458,6 +460,7 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
         ? { reason: requireText(input.resourcePlane.reason, "Managed capability snapshot resource reason is required") }
         : {}),
     },
+    resourceLease: requireResourceLease(input.resourceLease),
     childIdentity: {
       agentId: requireText(input.childIdentity.agentId, "Managed capability snapshot child agent id is required"),
       ...(input.childIdentity.requestedAgentProfile !== undefined
@@ -561,6 +564,10 @@ export function buildManagedAgentCapabilitySnapshot(
   descriptor: ManagedAgentAdapterDescriptor,
   input: ManagedAgentCapabilitySnapshotInput = {},
 ): ManagedAgentCapabilitySnapshot {
+  const resourcePlane = input.resourcePlane ?? {
+    available: true,
+    resourceUris: request.input.resourceUris ?? [],
+  };
   return defineManagedAgentCapabilitySnapshot({
     snapshotId: `${request.invocationId}:capability-snapshot`,
     capturedAt: input.capturedAt ?? new Date().toISOString(),
@@ -579,9 +586,11 @@ export function buildManagedAgentCapabilitySnapshot(
     adapterDescriptor: descriptor,
     authorityProfile: request.authority,
     contextMode: request.input.context?.mode ?? "isolated",
-    resourcePlane: input.resourcePlane ?? {
-      available: true,
-      resourceUris: request.input.resourceUris ?? [],
+    resourcePlane,
+    resourceLease: input.resourceLease ?? {
+      workingDirectoryPath: request.authority.workingDirectory.path,
+      workingDirectoryMode: request.authority.workingDirectory.mode,
+      resourceUris: resourcePlane.resourceUris,
     },
     childIdentity: input.childIdentity ?? {
       agentId: request.agentId,
@@ -776,11 +785,7 @@ export function buildManagedAgentLifecycleEvidence(
     profile: record.profile,
     contextMode: record.capabilitySnapshot.contextMode,
     authorityProfileId: record.authority.authorityProfileId,
-    resourceLease: {
-      workingDirectoryPath: record.authority.workingDirectory.path,
-      workingDirectoryMode: record.authority.workingDirectory.mode,
-      resourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
-    },
+    resourceLease: record.capabilitySnapshot.resourceLease,
     ...(record.transcript?.uri !== undefined ? { transcriptUri: record.transcript.uri } : {}),
     ...(input.heartbeatAt !== undefined ? { heartbeatAt: requireIsoTimestamp(input.heartbeatAt, "Managed invocation heartbeat timestamp is required") } : {}),
     ...(record.resultHandoff?.summary !== undefined ? { resultSummary: record.resultHandoff.summary } : {}),
@@ -808,7 +813,7 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
     },
     workingDirectory: {
       path: requireText(input.workingDirectory.path, "Managed invocation working directory is required"),
-      mode: input.workingDirectory.mode,
+      mode: requireWorkingDirectoryMode(input.workingDirectory.mode),
     },
     timeoutMs: requirePositiveNumber(input.timeoutMs, "Managed invocation timeout must be greater than zero"),
     credentialRoute,
@@ -896,6 +901,14 @@ function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentRes
   };
 }
 
+function requireResourceLease(input: ManagedAgentResourceLeaseEvidence): ManagedAgentResourceLeaseEvidence {
+  return {
+    workingDirectoryPath: requireText(input.workingDirectoryPath, "Managed capability snapshot lease working directory is required"),
+    workingDirectoryMode: requireWorkingDirectoryMode(input.workingDirectoryMode),
+    resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed capability snapshot lease resource uri is required")),
+  };
+}
+
 function requireAdmissionProfile(value: ManagedAgentAdmissionProfile): ManagedAgentAdmissionProfile {
   if (!MANAGED_AGENT_ADMISSION_PROFILES.includes(value)) {
     throw new Error(`Unsupported managed invocation profile: ${value as string}`);
@@ -922,6 +935,13 @@ function requireRequestedAuthority(value: ManagedAgentRequestedAuthority): Manag
     throw new Error(`Unsupported managed invocation requested authority: ${value as string}`);
   }
   return value;
+}
+
+function requireWorkingDirectoryMode(value: ManagedAgentWorkingDirectory["mode"]): ManagedAgentWorkingDirectory["mode"] {
+  if (value === "read-only" || value === "workspace-write" || value === "isolated-worktree" || value === "sandbox") {
+    return value;
+  }
+  throw new Error(`Unsupported managed invocation working directory mode: ${value as string}`);
 }
 
 function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy): ManagedAgentUnsupportedFieldPolicy {

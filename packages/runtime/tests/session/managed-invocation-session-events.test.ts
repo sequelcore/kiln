@@ -453,12 +453,19 @@ describe("appendManagedInvocationSessionEvents", () => {
         model: "sonic",
         contextMode: "isolated",
         authorityProfileId: "foundation-readonly",
+        resourceLease: {
+          workingDirectoryPath: "C:/workspace/kiln",
+          workingDirectoryMode: "read-only",
+          resourceUris: [],
+        },
         transcriptUri: "kiln://artifacts/invocation-1/transcript",
         resultSummary: "Inspection completed.",
         diagnosticUris: [],
         handoffResourceUris: ["kiln://artifacts/invocation-1/result"],
       },
     });
+    expect((evidence?.lifecycle as { resourceLease?: unknown }).resourceLease)
+      .toEqual(record.capabilitySnapshot.resourceLease);
   });
 
   it("maps cancellation and timeout/failure terminals to canonical events", () => {
