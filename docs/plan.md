@@ -1,68 +1,75 @@
-# Plan: Slice 3 Product Wiring for Managed Worktree Leases
+# Plan: Slice 3D Runtime Dev-Server Port Leases
 
 ## Objective
 
-Continue Slice 3 by wiring managed-agent route configuration into the runtime
-managed invocation surface so write-capable children can request
-`isolated-worktree` execution through a git-backed worktree lease manager.
+Continue Slice 3 by adding runtime-owned dev-server port leases to the managed
+invocation lifecycle. Port allocation must reuse the existing resource lease
+record, terminal cleanup evidence, and stale/cancel release pipeline so CLI,
+TUI, GUI, gateway, native, and resource-plane projections continue to consume
+one lifecycle truth.
 
 ## Scope
 
-- Add typed `managedAgents.worktreeLease` configuration for git-backed managed
-  child worktrees.
-- Allow managed-agent routes to opt into `workingDirectory: isolated-worktree`.
-- Project isolated routes into runtime `ManagedInvocationToolOptions` with a
-  shared invocation service backed by `ManagedGitWorktreeLeaseManager`.
-- Resolve each isolated child working directory to a deterministic
-  invocation-scoped path before admission.
-- Keep lifecycle/status/join/cancel tools on the same configured invocation
-  service across CLI, TUI, GUI, and attached runtime surfaces.
+- Add a `ManagedAgentDevServerPortLeaseManager` port to
+  `RuntimeManagedAgentInvocationService`.
+- Add an in-memory dev-server port lease manager that allocates from an
+  explicit configured port pool and rejects already-bound ports.
+- Acquire dev-server port leases before adapter execution and release them on
+  terminal completion, failure, cancellation, or stale recovery.
+- Preserve port lease resource and cleanup URIs in terminal `resourceLease`
+  evidence.
+- Validate port lease manager output with the same invocation-scoped URI
+  boundary as worktree and artifact leases.
+- Export the public runtime types and implementation.
 
 ## Out Of Scope
 
-- Sandbox, artifact-directory, environment-variable, credential-route, and
-  dev-server port provisioning.
-- Stale lease sweeps and dirty-worktree recovery beyond the existing
-  per-invocation release boundary.
-- CLI wrapper worktree manager reuse or migration.
-- Native/Rust helpers.
+- Passing allocated ports into child process environment variables.
+- Persistent port lease discovery after runtime restart.
+- Sandbox, environment-variable, and credential-route leases.
+- Daemonized cleanup scheduling.
+- Rebase of `kiln run --workers`.
 
 ## Affected Files
 
-- `packages/runtime/src/agents/managed-invocation/runtime-tool.ts`
-- `packages/cli/src/kiln-yaml-types.ts`
-- `packages/cli/src/config/global-config.ts`
-- `packages/cli/src/config/managed-agent-routes.ts`
-- `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`
-- `packages/cli/src/config/global-config.test.ts`
-- `packages/cli/src/config/managed-agent-route-catalog.test.ts`
+- `packages/runtime/src/agents/managed-invocation/index.ts`
+- `packages/runtime/tests/managed-agent/invocation-service.test.ts`
+- `packages/runtime/src/index.ts`
 - `docs/roadmap/01-background-parallel-agent-surface.md`
 - `docs/roadmap/README.md`
 
 ## TDD Targets
 
-1. Config parser accepts `managedAgents.worktreeLease` and
-   `workingDirectory: isolated-worktree`, and rejects malformed lease config.
-2. Route projection marks isolated routes with an invocation service and
-   worktree lease root.
-3. Runtime managed invocation tool materializes an invocation-scoped isolated
-   worktree path and calls the configured lease manager before adapter
-   execution.
+1. Runtime acquires a dev-server port lease before adapter execution and
+   releases it as terminal lifecycle evidence.
+2. Runtime rejects dev-server port manager resource URIs outside the invocation
+   namespace.
+3. The in-memory port manager allocates from a configured pool, blocks
+   concurrent reuse, releases on terminal cleanup, and records release
+   diagnostics.
+4. The in-memory port manager fails closed when every configured port is already
+   bound.
+5. Concurrent starts cannot reuse a port while an availability probe is still
+   in flight.
+6. Port probe setup failures surface as configuration/probe errors instead of
+   being flattened into capacity exhaustion.
 
 ## Verification
 
 ```bash
-bun run --filter @kilnai/cli test -- src/config/global-config.test.ts src/config/managed-agent-route-catalog.test.ts
-bun run --cwd packages/runtime test -- tests/gateway/managed-invocation-tool.test.ts tests/managed-agent/invocation-service.test.ts
+bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts
+bun run --filter @kilnai/runtime test
 bun run typecheck
 git diff --check
 ```
 
 ## Risks
 
-- Route projection must fail closed if an isolated-worktree route is configured
-  without a git worktree lease root.
-- The worktree path must be generated after invocation id creation; static
-  route-level worktree paths would collide under parallel children.
-- The service instance must be shared by lifecycle tools, otherwise `start`,
-  `status`, `join`, and `cancel` would observe different registries.
+- Port leases currently allocate and validate runtime availability, but do not
+  yet inject the selected port into child environments.
+- In-memory port reservations do not survive runtime restart; persistent stale
+  lease discovery remains a later Slice 3 concern.
+- The port manager must stay behind the managed invocation service boundary so
+  surfaces never create their own lease store.
+- Port probe concurrency must keep in-flight reservations distinct from active
+  leases so a single runtime process never hands out the same port twice.

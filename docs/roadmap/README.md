@@ -57,12 +57,17 @@ Use these documents as the stable source of truth before starting roadmap work:
    Started on 2026-05-21. Slices 1-2 are complete in code: managed-child
    lifecycle evidence and nonblocking `start/status/join/cancel/list` tools now
    exist. Slice 3 is in progress: lease evidence, operator projection,
-   health/cleanup metadata, same-checkout write guards, and runtime-owned
-   isolated-worktree acquire/release exist. Same-path isolated collisions,
-   path aliases, lease-manager drift, git worktree root confinement,
-   pre-launch cancellation during acquire, and product config wiring for
-   git-backed isolated worktree leases are covered; sandbox, port, env,
-   credential leases, and stale recovery remain open.
+   health/cleanup metadata, same-checkout write guards, runtime-owned
+   isolated-worktree acquire/release, and runtime-owned artifact-directory
+   acquire/release, and runtime-owned dev-server port acquire/release exist.
+   Same-path isolated collisions, path aliases, lease-manager drift, git
+   worktree root confinement, pre-launch cancellation during acquire, product
+   config wiring for git-backed isolated worktree leases, non-empty
+   artifact-directory preservation, explicit port-pool allocation,
+   concurrent port reservation, probe setup diagnostics, and in-memory stale
+   recovery with immediate cleanup of already-acquired stages are covered;
+   sandbox, env, credential leases, persistent restart recovery, and cleanup
+   daemon scheduling remain open.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

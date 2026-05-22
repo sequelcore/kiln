@@ -12,10 +12,12 @@ Active. Started on 2026-05-21. Current implementation status:
   `managed_agent.cancel`, and `managed_agent.list` exist as nonblocking
   lifecycle tools.
 - Slice 3 is in progress: lease evidence, operator projection, lifecycle
-  health/cleanup metadata, same-checkout write guards, and runtime-owned
-  isolated-worktree lease acquire/release now exist. Sandbox, port,
-  environment, credential-route, stale recovery, and cleanup daemon work remain
-  open.
+  health/cleanup metadata, same-checkout write guards, runtime-owned
+  isolated-worktree lease acquire/release, runtime-owned filesystem
+  artifact-directory lease acquire/release, runtime-owned dev-server port
+  lease acquire/release, and in-memory stale lease recovery now exist. Sandbox,
+  environment, credential-route, persistent restart recovery, and cleanup
+  daemon work remain open.
 - Slices 4-8 are not started.
 
 Recent implementation commits:
@@ -169,14 +171,39 @@ Kiln now has the first runtime-owned managed-child lifecycle foundation:
   tool options carry the configured runtime service across CLI, TUI, GUI, and
   attached runtime surfaces, and each child receives an invocation-scoped
   worktree path before admission.
+- Runtime now has a filesystem artifact-directory lease manager boundary for
+  managed invocations. It creates invocation-scoped artifact directories,
+  refuses to adopt pre-existing unmanaged directories, appends
+  `kiln://artifacts/{invocationId}/artifact-directory` evidence, removes empty
+  directories on release, preserves non-empty directories as explicit leaked
+  terminal evidence with `artifact-directory-preserved` diagnostics, and keeps
+  leaked/failed cleanup evidence sticky across later successful lease cleanup
+  stages.
+- Runtime now exposes an in-memory stale recovery sweep for managed
+  invocations. The sweep marks aged active children `stale`, aborts the adapter
+  signal, resolves the existing join handle with stale lifecycle evidence,
+  releases already-acquired worktree, artifact-directory, and dev-server port
+  lease stages even while a later acquisition stage is still pending, releases
+  later acquired stages when they return, preserves dirty worktrees as
+  leaked/failed cleanup evidence, and suppresses late adapter success or
+  failure so stale recovery remains the terminal lifecycle record.
+- Runtime now has a dev-server port lease manager boundary for managed
+  invocations. It allocates ports from an explicit runtime pool, refuses ports
+  that are already bound, records invocation-scoped
+  `kiln://artifacts/{invocationId}/dev-server-port/{port}` evidence, releases
+  allocations through terminal cleanup, reserves ports while availability
+  probes are in flight, surfaces probe setup failures separately from capacity
+  exhaustion, and keeps port cleanup evidence in the same terminal
+  `resourceLease` record as worktree and artifact leases.
 - `kiln run --workers` is still transitional CLI fan-out behavior, not yet
   rebased onto the managed-child lifecycle.
 
 The missing product primitive is now narrower: lease-backed execution must
-expand from isolated worktrees into sandbox, artifact directory, environment
-binding, credential route, and dev-server port leases, then project that
-lifecycle equivalently through CLI, TUI, GUI, native, gateway, and resource
-plane surfaces.
+expand from isolated worktrees, artifact directories, and dev-server ports into
+sandbox, environment binding, and credential route leases. Runtime restart
+recovery and daemonized stale cleanup must then project that lifecycle
+equivalently through CLI, TUI, GUI, native, gateway, and resource plane
+surfaces.
 
 ## Slices
 
@@ -245,6 +272,10 @@ Completed:
 - Runtime owns an isolated-worktree lease manager port and a git-backed
   implementation that acquires before adapter execution and releases on
   terminal adapter completion/cancellation.
+- Runtime owns an artifact-directory lease manager port and filesystem-backed
+  implementation that acquires invocation-scoped directories before adapter
+  execution, releases empty directories as terminal lease evidence, and
+  preserves non-empty directories as leaked terminal evidence.
 - Runtime rejects same-path isolated worktree collisions, refuses unmanaged
   pre-existing git worktree paths, confines git worktrees to a configured root,
   rejects path aliases/dot-segment escapes, and rejects lease-manager output
@@ -255,18 +286,28 @@ Completed:
   compensating cleanup evidence when acquisition fails after external side
   effects.
 - Terminal lifecycle evidence can carry release outcomes without mutating the
-  admitted capability snapshot.
+  admitted capability snapshot, and leaked cleanup state remains sticky when
+  later cleanup stages succeed.
 - Product/runtime route configuration can choose the git-backed worktree lease
   manager outside test harnesses through `managedAgents.worktreeLease` and
   `workingDirectory: isolated-worktree`.
+- Runtime can sweep stale in-memory invocations, abort adapter execution,
+  immediately release already-acquired lease stages, release later acquired
+  stages when an in-flight manager returns, preserve dirty worktrees as
+  leaked/failed evidence, keep `join` valid, and suppress late adapter output
+  after stale recovery.
+- Runtime owns a dev-server port lease manager port and an in-memory
+  implementation that allocates from explicit configured ports, rejects
+  already-bound ports, prevents concurrent and in-flight reuse, releases
+  allocations on terminal cleanup, records port resource/release evidence, and
+  reports bind probe misconfiguration distinctly from pool exhaustion.
 
 Remaining:
 
-- Provision real sandbox, artifact-directory, environment, credential-route,
-  and port leases.
-- Implement broader lease cleanup/recovery execution and stale sweeps beyond
-  per-invocation worktree release.
-- Add stale lease recovery and dirty-worktree preservation policy.
+- Provision real sandbox, environment, and credential-route leases.
+- Implement persistent stale lease discovery after runtime restart and
+  daemonized cleanup scheduling beyond explicit in-memory sweeps.
+- Add dirty-worktree adoption/review policy after leaked preservation evidence.
 
 Deliverables:
 
@@ -274,7 +315,7 @@ Deliverables:
   directory, environment variables, dev-server ports, and credential routes.
 - Require worktree or sandbox leases for write-capable parallel children.
 - Record lease creation, health, cleanup, and leak diagnostics.
-- Add stale lease recovery and dirty-worktree preservation policy.
+- Add persistent stale lease recovery and dirty-worktree adoption policy.
 - Reject same-checkout parallel writes unless an explicit approved write scope
   proves no overlap.
 

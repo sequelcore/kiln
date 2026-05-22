@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -15,7 +16,10 @@ import {
   defineManagedAgentWriteAuthority,
 } from "@kilnai/core";
 import {
+  ManagedInMemoryDevServerPortLeaseManager,
+  ManagedFilesystemArtifactDirectoryLeaseManager,
   ManagedGitWorktreeLeaseManager,
+  ManagedAgentLeaseAcquireError,
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
@@ -292,6 +296,50 @@ function deferred<T>(): {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function findAvailablePort(): Promise<number> {
+  return withOccupiedPort(async (port) => port, true);
+}
+
+async function withOccupiedPort<T>(
+  callback: (port: number) => Promise<T>,
+  closeBeforeCallback = false,
+): Promise<T> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (typeof address === "string" || address === null) {
+    await closeServer(server);
+    throw new Error("expected TCP server to bind to a numeric port");
+  }
+  if (closeBeforeCallback) {
+    await closeServer(server);
+    return callback(address.port);
+  }
+  try {
+    return await callback(address.port);
+  } finally {
+    await closeServer(server);
+  }
+}
+
+async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
+  if (!server.listening) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 describe("RuntimeManagedAgentInvocationService", () => {
@@ -813,6 +861,749 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(service.status("write-1")?.record?.resourceLease).toEqual(joined.record.resourceLease);
   });
 
+  it("acquires and releases artifact-directory leases around adapter execution", async () => {
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/artifact-directory",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/artifact-directory-cleanup",
+        ],
+      })),
+    };
+    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode-readonly",
+    });
+
+    expect(started.status).toBe("started");
+    if (started.status !== "started") {
+      throw new Error("expected managed invocation to start");
+    }
+    expect(artifactDirectoryLeaseManager.acquire.mock.invocationCallOrder[0])
+      .toBeLessThan(invoke.mock.invocationCallOrder[0]!);
+
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.capabilitySnapshot.resourceLease.cleanupStatus).toBe("not-required");
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-cleanup"],
+    });
+  });
+
+  it("rejects artifact-directory lease manager resource URIs outside the invocation namespace", async () => {
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: ["kiln://artifacts/other-invocation/artifact-directory"],
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+    await expect(service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("outside invocation artifacts");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("invocation-1")).toBeUndefined();
+  });
+
+  it("cancels during artifact-directory acquire without invoking the adapter", async () => {
+    const acquireGate = deferred<void>();
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        await acquireGate.promise;
+        return {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+        };
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-cleanup"],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+    const startedPromise = service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    const cancelled = await service.cancel("invocation-1", "Operator cancelled before artifact-directory acquisition completed.");
+
+    expect(cancelled.record.resourceLease).toBeUndefined();
+    expect(adapter.invoke).not.toHaveBeenCalled();
+
+    acquireGate.resolve();
+    const started = await startedPromise;
+    const joined = await service.join("invocation-1");
+
+    expect(started.status).toBe("started");
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(joined.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-cleanup"],
+    });
+  });
+
+  it("records failed artifact-directory release as leaked terminal lease evidence", async () => {
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+      })),
+      release: vi.fn(async () => {
+        throw new Error("artifact directory is locked");
+      }),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode-readonly",
+    });
+
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-cleanup-failed"],
+    });
+    expect(joined.record.diagnostics).toContainEqual({
+      uri: "kiln://artifacts/invocation-1/artifact-directory-cleanup-failed",
+      kind: "cleanup",
+    });
+  });
+
+  it("acquires and releases dev-server port leases around adapter execution", async () => {
+    const devServerPortLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/dev-server-port/49152",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/dev-server-port-release/49152",
+        ],
+      })),
+    };
+    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode-readonly",
+    });
+
+    expect(started.status).toBe("started");
+    if (started.status !== "started") {
+      throw new Error("expected managed invocation to start");
+    }
+    expect(devServerPortLeaseManager.acquire.mock.invocationCallOrder[0])
+      .toBeLessThan(invoke.mock.invocationCallOrder[0]!);
+
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(devServerPortLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: ["kiln://artifacts/invocation-1/dev-server-port/49152"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/dev-server-port-release/49152"],
+    });
+  });
+
+  it("rejects dev-server port lease manager resource URIs outside the invocation namespace", async () => {
+    const devServerPortLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: ["kiln://artifacts/other-invocation/dev-server-port/49152"],
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
+
+    await expect(service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("outside invocation artifacts");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("invocation-1")).toBeUndefined();
+  });
+
+  it("allocates and releases in-memory dev-server ports from the configured pool", async () => {
+    const port = await findAvailablePort();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const devServerPortLeaseManager = new ManagedInMemoryDevServerPortLeaseManager({
+      ports: [port],
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => {
+        await terminal.promise;
+        return makeRecord(admission.capabilitySnapshot);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    await expect(service.start(defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      invocationId: "invocation-2",
+    }), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("No managed dev-server ports are available");
+
+    terminal.resolve(makeRecord(started.status === "started" ? started.decision.capabilitySnapshot : undefined));
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      resourceUris: [`kiln://artifacts/invocation-1/dev-server-port/${port}`],
+      diagnosticUris: [`kiln://artifacts/invocation-1/dev-server-port-release/${port}`],
+    });
+  });
+
+  it("does not reuse an in-flight dev-server port reservation across concurrent starts", async () => {
+    const port = await findAvailablePort();
+    const terminals = new Map<string, ReturnType<typeof deferred<ManagedAgentInvocationRecord>>>();
+    const devServerPortLeaseManager = new ManagedInMemoryDevServerPortLeaseManager({
+      ports: [port],
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        const terminal = terminals.get(request.invocationId);
+        if (!terminal) {
+          throw new Error(`missing terminal for ${request.invocationId}`);
+        }
+        await terminal.promise;
+        return makeRecord(admission.capabilitySnapshot);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
+    terminals.set("invocation-1", deferred<ManagedAgentInvocationRecord>());
+    terminals.set("invocation-2", deferred<ManagedAgentInvocationRecord>());
+
+    const results = await Promise.allSettled([
+      service.start(makeRequest(), adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      }),
+      service.start(defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        invocationId: "invocation-2",
+      }), adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      }),
+    ]);
+
+    const started = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result) => result.status === "rejected");
+    expect(started).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+    expect(((rejected[0] as PromiseRejectedResult).reason as Error).message)
+      .toContain("No managed dev-server ports are available");
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+
+    const startedResult = (started[0] as PromiseFulfilledResult<ManagedAgentRuntimeInvocationStartResult>).value;
+    if (startedResult.status !== "started") {
+      throw new Error("expected one managed invocation to start");
+    }
+    terminals.get(startedResult.snapshot.invocationId)?.resolve(makeRecord(startedResult.decision.capabilitySnapshot));
+    const joined = await service.join(startedResult.snapshot.invocationId);
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease?.resourceUris).toEqual([
+      `kiln://artifacts/${startedResult.snapshot.invocationId}/dev-server-port/${port}`,
+    ]);
+  });
+
+  it("fails closed when configured dev-server ports are already bound", async () => {
+    const occupiedPort = await withOccupiedPort(async (port) => {
+      const devServerPortLeaseManager = new ManagedInMemoryDevServerPortLeaseManager({
+        ports: [port],
+      });
+      const adapter: ManagedAgentRuntimeAdapter = {
+        descriptor: makeDescriptor(),
+        invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      };
+      const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
+
+      await expect(service.start(makeRequest(), adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      })).rejects.toThrow("No managed dev-server ports are available");
+      expect(adapter.invoke).not.toHaveBeenCalled();
+      return port;
+    });
+
+    expect(occupiedPort).toBeGreaterThan(0);
+  });
+
+  it("surfaces dev-server port probe setup failures instead of reporting capacity exhaustion", async () => {
+    const devServerPortLeaseManager = new ManagedInMemoryDevServerPortLeaseManager({
+      ports: [49152],
+      host: "not-a-kiln-localhost.invalid",
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
+
+    let thrown: unknown;
+    try {
+      await service.start(makeRequest(), adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain("Managed dev-server port probe failed");
+    expect((thrown as Error).message).not.toContain("No managed dev-server ports are available");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("creates and releases filesystem artifact-directory lease directories", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "kiln-artifact-lease-"));
+    const artifactRootPath = join(tempRoot, "managed-artifacts");
+    const artifactDirectoryPath = join(artifactRootPath, "invocation-1");
+    try {
+      const terminal = deferred<ManagedAgentInvocationRecord>();
+      const artifactDirectoryLeaseManager = new ManagedFilesystemArtifactDirectoryLeaseManager({
+        artifactRootPath,
+      });
+      const adapter: ManagedAgentRuntimeAdapter = {
+        descriptor: makeDescriptor(),
+        invoke: vi.fn(async ({ admission }) => {
+          await terminal.promise;
+          return makeRecord(admission.capabilitySnapshot);
+        }),
+      };
+      const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+      const started = await service.start(makeRequest(), adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      });
+
+      expect(started.status).toBe("started");
+      await access(artifactDirectoryPath);
+
+      terminal.resolve(makeRecord(started.status === "started" ? started.decision.capabilitySnapshot : undefined));
+      const joined = await service.join("invocation-1");
+
+      expect(joined.status).toBe("completed");
+      if (joined.status !== "completed") {
+        throw new Error("expected managed invocation to complete");
+      }
+      await expect(access(artifactDirectoryPath)).rejects.toThrow();
+      expect(joined.record.resourceLease).toMatchObject({
+        healthStatus: "released",
+        cleanupStatus: "completed",
+        resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+        diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-cleanup"],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves non-empty filesystem artifact-directory leases as leaked evidence", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "kiln-artifact-lease-"));
+    const artifactRootPath = join(tempRoot, "managed-artifacts");
+    const artifactDirectoryPath = join(artifactRootPath, "invocation-1");
+    try {
+      const terminal = deferred<ManagedAgentInvocationRecord>();
+      const artifactDirectoryLeaseManager = new ManagedFilesystemArtifactDirectoryLeaseManager({
+        artifactRootPath,
+      });
+      const adapter: ManagedAgentRuntimeAdapter = {
+        descriptor: makeDescriptor(),
+        invoke: vi.fn(async ({ admission }) => {
+          await writeFile(join(artifactDirectoryPath, "child-output.txt"), "child artifact");
+          await terminal.promise;
+          return makeRecord(admission.capabilitySnapshot);
+        }),
+      };
+      const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+      const started = await service.start(makeRequest(), adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      });
+
+      expect(started.status).toBe("started");
+      terminal.resolve(makeRecord(started.status === "started" ? started.decision.capabilitySnapshot : undefined));
+      const joined = await service.join("invocation-1");
+
+      expect(joined.status).toBe("completed");
+      if (joined.status !== "completed") {
+        throw new Error("expected managed invocation to complete");
+      }
+      await access(artifactDirectoryPath);
+      await access(join(artifactDirectoryPath, "child-output.txt"));
+      expect(joined.record.resourceLease).toEqual({
+        leaseId: "invocation-1:resource-lease",
+        createdAt: "2026-05-07T08:00:00.000Z",
+        healthStatus: "leaked",
+        cleanupStatus: "failed",
+        workingDirectoryPath: "C:/workspace/kiln",
+        workingDirectoryMode: "read-only",
+        resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+        diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-preserved"],
+      });
+      expect(joined.record.diagnostics).toContainEqual({
+        uri: "kiln://artifacts/invocation-1/artifact-directory-preserved",
+        kind: "cleanup",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to adopt pre-existing filesystem artifact-directory lease paths", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "kiln-artifact-lease-"));
+    const artifactRootPath = join(tempRoot, "managed-artifacts");
+    await mkdir(join(artifactRootPath, "invocation-1"), { recursive: true });
+    try {
+      const artifactDirectoryLeaseManager = new ManagedFilesystemArtifactDirectoryLeaseManager({
+        artifactRootPath,
+      });
+      const adapter: ManagedAgentRuntimeAdapter = {
+        descriptor: makeDescriptor(),
+        invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      };
+      const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+      await expect(service.start(makeRequest(), adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      })).rejects.toThrow("refusing to adopt unmanaged artifact directory");
+      expect(adapter.invoke).not.toHaveBeenCalled();
+      expect(service.status("invocation-1")).toBeUndefined();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("composes artifact-directory and isolated worktree terminal lease evidence", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async () => {
+        throw new Error("worktree has uncommitted child changes");
+      }),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/artifact-directory",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/artifact-directory-cleanup",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      artifactDirectoryLeaseManager,
+      worktreeLeaseManager,
+    });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: [
+        "kiln://artifacts/write-1/worktree-lease",
+        "kiln://artifacts/write-1/artifact-directory",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/write-1/artifact-directory-cleanup",
+        "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
+      ],
+    });
+  });
+
+  it("attempts isolated worktree cleanup when artifact-directory release fails first", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/artifact-directory",
+        ],
+      })),
+      release: vi.fn(async () => {
+        throw new Error("artifact directory is locked");
+      }),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      artifactDirectoryLeaseManager,
+      worktreeLeaseManager,
+    });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: [
+        "kiln://artifacts/write-1/worktree-lease",
+        "kiln://artifacts/write-1/artifact-directory",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/write-1/artifact-directory-cleanup-failed",
+        "kiln://artifacts/write-1/worktree-cleanup",
+      ],
+    });
+  });
+
+  it("keeps non-empty artifact-directory preservation sticky after worktree cleanup succeeds", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/artifact-directory",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "leaked" as const,
+        cleanupStatus: "failed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/artifact-directory-preserved",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      artifactDirectoryLeaseManager,
+      worktreeLeaseManager,
+    });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: [
+        "kiln://artifacts/write-1/worktree-lease",
+        "kiln://artifacts/write-1/artifact-directory",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/write-1/artifact-directory-preserved",
+        "kiln://artifacts/write-1/worktree-cleanup",
+      ],
+    });
+  });
+
   it("cancels during isolated worktree acquire without invoking the adapter", async () => {
     const request = makeIsolatedWorktreeRequest();
     const acquireGate = deferred<void>();
@@ -913,7 +1704,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const request = makeIsolatedWorktreeRequest();
     const worktreeLeaseManager = {
       acquire: vi.fn(async () => {
-        throw new Error("git worktree add failed after creating files");
+        throw new ManagedAgentLeaseAcquireError("git worktree add failed after creating files", true);
       }),
       release: vi.fn(async ({ lease }) => ({
         ...lease,
@@ -1029,6 +1820,597 @@ describe("RuntimeManagedAgentInvocationService", () => {
       },
       error: { message: "adapter crashed after acquire" },
     });
+  });
+
+  it("recovers stale invocations by aborting adapters, releasing leases, and suppressing late success", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    let adapterSignal: AbortSignal | undefined;
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/artifact-directory",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/artifact-directory-cleanup",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ abortSignal }) => {
+        adapterSignal = abortSignal;
+        await terminal.promise;
+        return makeRecordForRequest(request);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      artifactDirectoryLeaseManager,
+      worktreeLeaseManager,
+    });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    expect(adapterSignal?.aborted).toBe(false);
+
+    const recovered = await service.recoverStaleInvocations({
+      staleAfterMs: 1,
+      now: new Date(Date.now() + 10_000),
+      reason: "Managed invocation heartbeat expired.",
+    });
+    const joined = await service.join("write-1");
+
+    expect(recovered.recovered).toHaveLength(1);
+    expect(adapterSignal?.aborted).toBe(true);
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.lifecycleState).toBe("stale");
+    expect(joined.record.resultHandoff?.summary).toBe("Managed invocation heartbeat expired.");
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: [
+        "kiln://artifacts/write-1/worktree-lease",
+        "kiln://artifacts/write-1/artifact-directory",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/write-1/artifact-directory-cleanup",
+        "kiln://artifacts/write-1/worktree-cleanup",
+      ],
+    });
+
+    terminal.resolve(makeRecordForRequest(request));
+    await flushMicrotasks();
+    expect(service.status("write-1")?.record?.lifecycleState).toBe("stale");
+  });
+
+  it("suppresses late adapter rejection after stale recovery", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async () => {
+        await terminal.promise;
+        return makeRecordForRequest(request);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    await service.recoverStaleInvocations({
+      staleAfterMs: 1,
+      now: new Date(Date.now() + 10_000),
+      reason: "Managed invocation heartbeat expired.",
+    });
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.lifecycleState).toBe("stale");
+
+    terminal.reject(new Error("adapter reported failure after stale recovery"));
+    await flushMicrotasks();
+    expect(service.status("write-1")?.record?.lifecycleState).toBe("stale");
+    expect(service.status("write-1")?.error).toBeUndefined();
+  });
+
+  it("waits for stale cleanup evidence before publishing a late adapter result", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const adapterTerminal = deferred<ManagedAgentInvocationRecord>();
+    const releaseGate = deferred<void>();
+    let joined: ManagedAgentRuntimeInvocationResult | undefined;
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => {
+        await releaseGate.promise;
+        return {
+          ...lease,
+          healthStatus: "released" as const,
+          cleanupStatus: "completed" as const,
+          diagnosticUris: [
+            ...lease.diagnosticUris,
+            "kiln://artifacts/write-1/worktree-cleanup",
+          ],
+        };
+      }),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async () => {
+        await adapterTerminal.promise;
+        return makeRecordForRequest(request);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    const recoveredPromise = service.recoverStaleInvocations({
+      staleAfterMs: 1,
+      now: new Date(Date.now() + 10_000),
+      reason: "Managed invocation heartbeat expired.",
+    });
+    await flushMicrotasks();
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+
+    const joinPromise = service.join("write-1").then((result) => {
+      joined = result;
+      return result;
+    });
+    adapterTerminal.resolve(makeRecordForRequest(request));
+    await flushMicrotasks();
+
+    expect(joined).toBeUndefined();
+    expect(service.status("write-1")?.record).toBeUndefined();
+    expect(service.list()[0]?.record).toBeUndefined();
+
+    releaseGate.resolve();
+    await recoveredPromise;
+    const completed = await joinPromise;
+
+    expect(completed.status).toBe("completed");
+    if (completed.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(completed.record.lifecycleState).toBe("stale");
+    expect(completed.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+    });
+    expect(service.status("write-1")?.record?.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+    });
+    expect(service.list()[0]?.record?.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+    });
+  });
+
+  it("recovers stale invocations during lease acquisition without invoking the adapter", async () => {
+    const acquireGate = deferred<void>();
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        await acquireGate.promise;
+        return {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+        };
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-cleanup"],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
+
+    const startedPromise = service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    const recovered = await service.recoverStaleInvocations({
+      staleAfterMs: 1,
+      now: new Date(Date.now() + 10_000),
+      reason: "Managed invocation heartbeat expired before lease acquisition completed.",
+    });
+
+    expect(recovered.recovered).toHaveLength(1);
+    expect(adapter.invoke).not.toHaveBeenCalled();
+
+    acquireGate.resolve();
+    const started = await startedPromise;
+    const joined = await service.join("invocation-1");
+
+    expect(started.status).toBe("started");
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.lifecycleState).toBe("stale");
+    expect(joined.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      resourceUris: ["kiln://artifacts/invocation-1/artifact-directory"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/artifact-directory-cleanup"],
+    });
+  });
+
+  it("keeps stale recovery latched when a later lease acquisition stage rejects", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const acquireGate = deferred<void>();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async () => {
+        await acquireGate.promise;
+        throw new Error("artifact directory root unavailable after worktree acquire");
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      artifactDirectoryLeaseManager,
+      worktreeLeaseManager,
+    });
+
+    const startedPromise = service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    await flushMicrotasks();
+
+    const recovered = await service.recoverStaleInvocations({
+      staleAfterMs: 1,
+      now: new Date(Date.now() + 10_000),
+      reason: "Managed invocation heartbeat expired during lease acquisition.",
+    });
+
+    expect(recovered.recovered).toHaveLength(1);
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+
+    let joinedBeforeAcquire: ManagedAgentRuntimeInvocationResult | undefined;
+    const joinBeforeAcquirePromise = service.join("write-1").then((result) => {
+      joinedBeforeAcquire = result;
+      return result;
+    });
+    await flushMicrotasks();
+    const resolvedJoinBeforeAcquire = joinedBeforeAcquire !== undefined;
+
+    acquireGate.resolve();
+    const started = await startedPromise;
+    const joined = await joinBeforeAcquirePromise;
+
+    expect(resolvedJoinBeforeAcquire).toBe(true);
+    expect(started.status).toBe("started");
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(artifactDirectoryLeaseManager.release).not.toHaveBeenCalled();
+    expect(joined.record.lifecycleState).toBe("stale");
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+    });
+  });
+
+  it("releases later acquired lease stages after stale recovery already cleaned earlier stages", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const acquireGate = deferred<void>();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        await acquireGate.promise;
+        return {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/write-1/artifact-directory",
+          ],
+        };
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/artifact-directory-cleanup",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      artifactDirectoryLeaseManager,
+      worktreeLeaseManager,
+    });
+
+    const startedPromise = service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    await flushMicrotasks();
+
+    await service.recoverStaleInvocations({
+      staleAfterMs: 1,
+      now: new Date(Date.now() + 10_000),
+      reason: "Managed invocation heartbeat expired during lease acquisition.",
+    });
+
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(artifactDirectoryLeaseManager.release).not.toHaveBeenCalled();
+
+    acquireGate.resolve();
+    const started = await startedPromise;
+    const joined = await service.join("write-1");
+
+    expect(started.status).toBe("started");
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(artifactDirectoryLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.lifecycleState).toBe("stale");
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: [
+        "kiln://artifacts/write-1/worktree-lease",
+        "kiln://artifacts/write-1/artifact-directory",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/write-1/worktree-cleanup",
+        "kiln://artifacts/write-1/artifact-directory-cleanup",
+      ],
+    });
+  });
+
+  it("preserves dirty worktrees as leaked evidence during stale recovery", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async () => {
+        throw new Error("worktree has uncommitted child changes");
+      }),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/artifact-directory",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/artifact-directory-cleanup",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async () => {
+        await terminal.promise;
+        return makeRecordForRequest(request);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      artifactDirectoryLeaseManager,
+      worktreeLeaseManager,
+    });
+
+    await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    await service.recoverStaleInvocations({
+      staleAfterMs: 1,
+      now: new Date(Date.now() + 10_000),
+      reason: "Managed invocation heartbeat expired.",
+    });
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.lifecycleState).toBe("stale");
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: [
+        "kiln://artifacts/write-1/worktree-lease",
+        "kiln://artifacts/write-1/artifact-directory",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/write-1/artifact-directory-cleanup",
+        "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
+      ],
+    });
+    expect(joined.record.diagnostics).toContainEqual({
+      uri: "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
+      kind: "cleanup",
+    });
+  });
+
+  it("does not recover fresh invocations and fails fast on invalid stale thresholds", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => {
+        await terminal.promise;
+        return makeRecord(admission.capabilitySnapshot);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    await expect(service.recoverStaleInvocations({ staleAfterMs: 0 })).rejects.toThrow("stale threshold");
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    const recovered = await service.recoverStaleInvocations({
+      staleAfterMs: Number.MAX_SAFE_INTEGER,
+      now: new Date(Date.now() + 10_000),
+    });
+
+    expect(recovered.recovered).toEqual([]);
+    expect(service.status("invocation-1")?.lifecycleState).toBe("running");
+
+    terminal.resolve(makeRecord(started.status === "started" ? started.decision.capabilitySnapshot : undefined));
+    await service.join("invocation-1");
   });
 
   it("returns immutable snapshots from the runtime registry boundary", async () => {
