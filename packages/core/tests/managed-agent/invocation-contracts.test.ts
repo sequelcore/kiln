@@ -321,6 +321,36 @@ describe("managed agent invocation contracts", () => {
     });
     expect(lifecycleEvidence.resourceLease).toEqual(record.capabilitySnapshot.resourceLease);
   });
+
+  it("uses terminal resource lease evidence without mutating the admitted capability snapshot", () => {
+    const record = defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      resourceLease: {
+        leaseId: "invocation-1:resource-lease",
+        createdAt: "2026-05-07T08:00:00.000Z",
+        healthStatus: "released",
+        cleanupStatus: "completed",
+        workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/invocation-1",
+        workingDirectoryMode: "isolated-worktree",
+        resourceUris: ["kiln://artifacts/invocation-1/worktree-lease"],
+        diagnosticUris: ["kiln://artifacts/invocation-1/worktree-cleanup"],
+      },
+    });
+
+    const lifecycleEvidence = buildManagedAgentLifecycleEvidence(record);
+
+    expect(record.capabilitySnapshot.resourceLease.cleanupStatus).toBe("not-required");
+    expect(lifecycleEvidence.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/invocation-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: ["kiln://artifacts/invocation-1/worktree-lease"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/worktree-cleanup"],
+    });
+  });
 });
 
 function makeCompletedRecordInput(

@@ -2,7 +2,33 @@
 
 ## Status
 
-Active. Started on 2026-05-21.
+Active. Started on 2026-05-21. Current implementation status:
+
+- Slice 1 is complete: the managed-child lifecycle vocabulary, evidence
+  contract, session ledger events, and read-only gateway projections are in
+  place.
+- Slice 2 is complete at the runtime/tool contract layer:
+  `managed_agent.start`, `managed_agent.status`, `managed_agent.join`,
+  `managed_agent.cancel`, and `managed_agent.list` exist as nonblocking
+  lifecycle tools.
+- Slice 3 is in progress: lease evidence, operator projection, lifecycle
+  health/cleanup metadata, same-checkout write guards, and runtime-owned
+  isolated-worktree lease acquire/release now exist. Sandbox, port,
+  environment, credential-route, stale recovery, and cleanup daemon work remain
+  open.
+- Slices 4-8 are not started.
+
+Recent implementation commits:
+
+- `fb6481ba` - lifecycle evidence contract.
+- `fb8c4338` - nonblocking runtime registry.
+- `e1a7d528` - nonblocking lifecycle tools.
+- `7c17425f` - governed cancellation.
+- `27e6a01d` - resource lease snapshot.
+- `20302895` - operator resource lease projection.
+- `0d8a8b7c` - admitted resource lease preservation.
+- `f303f493` - same-checkout parallel write guard.
+- `4526ba8a` - resource lease health, cleanup, and diagnostic evidence.
 
 Architecture sources:
 
@@ -110,24 +136,47 @@ ledger.
 
 ## Current State
 
-Kiln already has two partial primitives:
+Kiln now has the first runtime-owned managed-child lifecycle foundation:
 
-- `kiln run --workers` starts isolated CLI workers on the same task and now
-  routes session execution and verification through the prepared isolated
-  working directory.
-- `managed_agent.invoke` is a governed foreground child call. It blocks the
-  parent until completion, failure, cancellation, or timeout and is appropriate
-  for phase-gated delegation.
+- `managed_agent.start/status/join/cancel/list` provide nonblocking child
+  lifecycle control through runtime-managed invocation records.
+- `managed_agent.invoke` remains the governed foreground convenience path, but
+  it now participates in the same lifecycle evidence model.
+- Child lifecycle evidence records parent lineage, route identity, authority,
+  context, transcript/result handoff, usage unknowns, resource lease evidence,
+  and terminal state through the session ledger.
+- Gateway/operator projections expose read-only lifecycle and lease evidence
+  without creating a surface-local lifecycle store.
+- Resource leases now include `leaseId`, `createdAt`, `healthStatus`,
+  `cleanupStatus`, working directory path/mode, resource URIs, and diagnostic
+  URIs. Incomplete lifecycle leases fail closed instead of being merged with
+  admission snapshots.
+- Runtime rejects conflicting same-checkout write-capable children unless the
+  admitted approved-write scopes are explicit and disjoint.
+- Runtime has an isolated-worktree lease boundary for managed invocations:
+  `isolated-worktree` children require a runtime worktree lease manager,
+  acquire before adapter execution, and emit terminal lease evidence after
+  release. Runtime reserves the invocation before asynchronous acquisition,
+  rejects same-path isolated worktree collisions, validates manager output
+  against the admitted lease, and confines git-backed paths to an explicit
+  worktree root after canonical path normalization. Git-backed release only
+  reports cleanup `completed` after the worktree is clean and
+  `git worktree remove` succeeds; dirty or failed release is preserved as
+  `cleanupStatus: failed` and `healthStatus: leaked`.
+- `kiln run --workers` is still transitional CLI fan-out behavior, not yet
+  rebased onto the managed-child lifecycle.
 
-Those are useful but incomplete. The missing product primitive is the
-nonblocking managed child lifecycle that can be observed, cancelled, joined,
-and replayed across surfaces.
+The missing product primitive is now narrower: lease-backed execution must
+expand from isolated worktrees into sandbox, artifact directory, environment
+binding, credential route, and dev-server port leases, then project that
+lifecycle equivalently through CLI, TUI, GUI, native, gateway, and resource
+plane surfaces.
 
 ## Slices
 
 ### Slice 1 - Lifecycle Contract And Event Model
 
-Status: next.
+Status: complete in code. Keep open only for architecture-doc promotion.
 
 Deliverables:
 
@@ -157,7 +206,8 @@ Expected files:
 
 ### Slice 2 - Nonblocking Managed-Agent Tools
 
-Status: pending.
+Status: complete in code. Keep open only for cross-surface hardening and
+architecture-doc promotion.
 
 Deliverables:
 
@@ -172,7 +222,44 @@ Deliverables:
 
 ### Slice 3 - Workspace And Sandbox Leases
 
-Status: pending.
+Status: in progress.
+
+Completed:
+
+- Resource lease evidence is explicit in core lifecycle/capability contracts.
+- Lease snapshots are preserved through runtime start/join/session evidence.
+- Operator event details and read-only cockpit projections show lease identity,
+  creation time, health, cleanup status, resources, and diagnostics.
+- Terminal lifecycle lease evidence takes precedence over admission snapshot
+  evidence for operator projections.
+- Incomplete lifecycle lease evidence fails closed; it is not merged with
+  snapshot fallbacks.
+- Runtime blocks conflicting same-checkout parallel write children and allows
+  only explicit disjoint approved-write scopes.
+- Runtime owns an isolated-worktree lease manager port and a git-backed
+  implementation that acquires before adapter execution and releases on
+  terminal adapter completion/cancellation.
+- Runtime rejects same-path isolated worktree collisions, refuses unmanaged
+  pre-existing git worktree paths, confines git worktrees to a configured root,
+  rejects path aliases/dot-segment escapes, and rejects lease-manager output
+  that changes admitted lease identity, worktree path, mode, or
+  non-invocation resource URIs.
+- Runtime keeps `join` valid while isolated-worktree acquisition is in flight,
+  prevents pre-launch cancellation from invoking the adapter, and records
+  compensating cleanup evidence when acquisition fails after external side
+  effects.
+- Terminal lifecycle evidence can carry release outcomes without mutating the
+  admitted capability snapshot.
+
+Remaining:
+
+- Wire product/runtime configuration to choose the git-backed worktree lease
+  manager outside tests and harnesses.
+- Provision real sandbox, artifact-directory, environment, credential-route,
+  and port leases.
+- Implement broader lease cleanup/recovery execution and stale sweeps beyond
+  per-invocation worktree release.
+- Add stale lease recovery and dirty-worktree preservation policy.
 
 Deliverables:
 

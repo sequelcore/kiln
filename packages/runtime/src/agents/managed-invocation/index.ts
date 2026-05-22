@@ -1,4 +1,9 @@
+import { execFile } from "node:child_process";
+import { access } from "node:fs/promises";
+import { win32 as pathWin32 } from "node:path";
+import { promisify } from "node:util";
 import {
+  defineManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
   evaluateManagedAgentAdmission,
@@ -12,6 +17,7 @@ import type {
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
   ManagedAgentLifecycleState,
+  ManagedAgentResourceLeaseEvidence,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 export {
@@ -105,6 +111,124 @@ export interface ManagedAgentRuntimeAdapter {
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
 }
 
+export interface ManagedAgentWorktreeLeaseManagerInput {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly lease: ManagedAgentResourceLeaseEvidence;
+}
+
+export interface ManagedAgentWorktreeLeaseReleaseInput extends ManagedAgentWorktreeLeaseManagerInput {
+  readonly record: ManagedAgentInvocationRecord;
+}
+
+export interface ManagedAgentWorktreeLeaseManager {
+  acquire(input: ManagedAgentWorktreeLeaseManagerInput): Promise<ManagedAgentResourceLeaseEvidence>;
+  release(input: ManagedAgentWorktreeLeaseReleaseInput): Promise<ManagedAgentResourceLeaseEvidence>;
+}
+
+export interface RuntimeManagedAgentInvocationServiceOptions {
+  readonly worktreeLeaseManager?: ManagedAgentWorktreeLeaseManager;
+}
+
+export interface ManagedGitWorktreeLeaseManagerConfig {
+  readonly repositoryPath: string;
+  readonly worktreeRootPath: string;
+  readonly ref?: string;
+  readonly gitBinary?: string;
+}
+
+const execFileAsync = promisify(execFile);
+
+class ManagedAgentWorktreeLeaseAcquireError extends ManagedAgentRuntimeAdmissionError {
+  constructor(
+    message: string,
+    readonly sideEffected: boolean,
+  ) {
+    super(message);
+  }
+}
+
+export class ManagedGitWorktreeLeaseManager implements ManagedAgentWorktreeLeaseManager {
+  private readonly repositoryPath: string;
+  private readonly worktreeRootPath: string;
+  private readonly ref: string;
+  private readonly gitBinary: string;
+
+  constructor(config: ManagedGitWorktreeLeaseManagerConfig) {
+    this.repositoryPath = config.repositoryPath;
+    this.worktreeRootPath = config.worktreeRootPath;
+    this.ref = config.ref ?? "HEAD";
+    this.gitBinary = config.gitBinary ?? "git";
+  }
+
+  async acquire(input: ManagedAgentWorktreeLeaseManagerInput): Promise<ManagedAgentResourceLeaseEvidence> {
+    if (input.lease.workingDirectoryMode !== "isolated-worktree") {
+      throw new ManagedAgentRuntimeAdmissionError("Managed git worktree lease manager only supports isolated worktree leases");
+    }
+    this.assertWorktreePath(input.lease.workingDirectoryPath);
+    await this.ensureWorktree(input.lease.workingDirectoryPath);
+    return {
+      ...input.lease,
+      healthStatus: "healthy",
+      cleanupStatus: "pending",
+      resourceUris: uniqueStrings([
+        ...input.lease.resourceUris,
+        `kiln://artifacts/${input.request.invocationId}/worktree-lease`,
+      ]),
+    };
+  }
+
+  async release(input: ManagedAgentWorktreeLeaseReleaseInput): Promise<ManagedAgentResourceLeaseEvidence> {
+    this.assertWorktreePath(input.lease.workingDirectoryPath);
+    const dirtyStatus = await this.git(["-C", input.lease.workingDirectoryPath, "status", "--porcelain"]);
+    if (dirtyStatus.trim().length > 0) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed git worktree lease is dirty; preserving worktree for review");
+    }
+    await this.git(["-C", this.repositoryPath, "worktree", "remove", input.lease.workingDirectoryPath]);
+    return {
+      ...input.lease,
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      diagnosticUris: uniqueStrings([
+        ...input.lease.diagnosticUris,
+        `kiln://artifacts/${input.request.invocationId}/worktree-cleanup`,
+      ]),
+    };
+  }
+
+  private async ensureWorktree(path: string): Promise<void> {
+    if (await pathExists(path)) {
+      throw new ManagedAgentWorktreeLeaseAcquireError(
+        "Managed git worktree lease path already exists; refusing to adopt unmanaged checkout",
+        false,
+      );
+    }
+    try {
+      await this.git(["-C", this.repositoryPath, "worktree", "add", "--detach", path, this.ref]);
+    } catch (error) {
+      throw new ManagedAgentWorktreeLeaseAcquireError(toError(error).message, true);
+    }
+  }
+
+  private assertWorktreePath(path: string): void {
+    const normalizedRoot = normalizeLeasePath(this.worktreeRootPath);
+    const normalizedPath = normalizeLeasePath(path);
+    if (normalizedPath === normalizedRoot || !normalizedPath.startsWith(`${normalizedRoot}/`)) {
+      throw new ManagedAgentWorktreeLeaseAcquireError(
+        "Managed git worktree lease path is outside configured worktree root",
+        false,
+      );
+    }
+  }
+
+  private async git(args: readonly string[]): Promise<string> {
+    const { stdout } = await execFileAsync(this.gitBinary, [...args], {
+      windowsHide: true,
+    });
+    return stdout.toString();
+  }
+}
+
 export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly invocationId: string;
   readonly agentId: string;
@@ -161,6 +285,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   lifecycleState: ManagedAgentLifecycleState;
   readonly startedAt: Date;
   readonly abortController: AbortController;
+  worktreeLease?: ManagedAgentResourceLeaseEvidence;
   finishedAt?: Date;
   record?: ManagedAgentInvocationRecord;
   error?: Error;
@@ -169,6 +294,8 @@ interface ManagedAgentRuntimeInvocationEntry {
 
 export class RuntimeManagedAgentInvocationService {
   private readonly invocations = new Map<string, ManagedAgentRuntimeInvocationEntry>();
+
+  constructor(private readonly options: RuntimeManagedAgentInvocationServiceOptions = {}) {}
 
   async invoke(
     request: ManagedAgentInvocationRequest,
@@ -205,6 +332,7 @@ export class RuntimeManagedAgentInvocationService {
 
     const registeredRequest = cloneJson(request);
     const registeredDecision = cloneJson(decision);
+    const terminal = deferredTerminal();
     const abortController = new AbortController();
     const entry: ManagedAgentRuntimeInvocationEntry = {
       request: registeredRequest,
@@ -212,24 +340,61 @@ export class RuntimeManagedAgentInvocationService {
       lifecycleState: "running",
       startedAt: new Date(),
       abortController,
+      terminal: terminal.promise,
     };
+    terminal.promise.catch(() => undefined);
+    this.invocations.set(request.invocationId, entry);
+    try {
+      entry.worktreeLease = await this.acquireWorktreeLease(registeredRequest, registeredDecision);
+    } catch (error) {
+      const runtimeError = toError(error);
+      if (!this.shouldCompensateAcquireFailure(error)) {
+        this.invocations.delete(request.invocationId);
+        terminal.reject(runtimeError);
+        throw runtimeError;
+      }
+      entry.worktreeLease = registeredDecision.capabilitySnapshot.resourceLease;
+      entry.finishedAt = new Date();
+      entry.lifecycleState = "failed";
+      entry.error = runtimeError;
+      entry.record = await this.finalizeTerminalLease(
+        entry,
+        createFailedRecord(entry.request, entry.decision, runtimeError.message),
+      );
+      terminal.reject(runtimeError);
+      throw runtimeError;
+    }
+    if (entry.lifecycleState === "cancelled" && entry.record) {
+      entry.record = await this.finalizeTerminalLease(entry, entry.record);
+      terminal.resolve({
+        status: "completed",
+        decision: registeredDecision,
+        record: entry.record,
+      });
+      return {
+        status: "started",
+        decision: cloneJson(registeredDecision),
+        snapshot: snapshotInvocation(entry),
+      };
+    }
     const adapterTerminal: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>> = this.invokeAdmitted({
       request: cloneJson(registeredRequest),
       adapter,
       admission: cloneJson(registeredDecision),
       abortSignal: abortController.signal,
-    }).then((record) => {
+    }).then(async (record) => {
       if (entry.lifecycleState === "cancelled" && entry.record) {
         if (record.lifecycleState === "cancelled") {
           const registeredRecord = cloneJson(record);
           entry.finishedAt = new Date();
-          entry.record = mergeCancelledRecords(entry.record, registeredRecord);
+          entry.record = await this.finalizeTerminalLease(entry, mergeCancelledRecords(entry.record, registeredRecord));
           return {
             status: "completed",
             decision: registeredDecision,
             record: entry.record,
           } as const;
         }
+        entry.record = await this.finalizeTerminalLease(entry, entry.record);
         return {
           status: "completed",
           decision: registeredDecision,
@@ -239,28 +404,33 @@ export class RuntimeManagedAgentInvocationService {
       const registeredRecord = cloneJson(record);
       entry.finishedAt = new Date();
       entry.lifecycleState = registeredRecord.lifecycleState;
-      entry.record = registeredRecord;
+      entry.record = await this.finalizeTerminalLease(entry, registeredRecord);
       return {
         status: "completed",
         decision: registeredDecision,
-        record: registeredRecord,
+        record: entry.record,
       } as const;
-    }, (error: unknown) => {
+    }, async (error: unknown) => {
       if (entry.lifecycleState === "cancelled" && entry.record) {
+        entry.record = await this.finalizeTerminalLease(entry, entry.record);
         return {
           status: "completed",
           decision: registeredDecision,
           record: entry.record,
         } as const;
       }
+      const runtimeError = toError(error);
       entry.finishedAt = new Date();
       entry.lifecycleState = "failed";
-      entry.error = toError(error);
-      throw entry.error;
+      entry.error = runtimeError;
+      entry.record = await this.finalizeTerminalLease(
+        entry,
+        createFailedRecord(entry.request, entry.decision, runtimeError.message),
+      );
+      throw runtimeError;
     });
-    entry.terminal = adapterTerminal;
+    adapterTerminal.then(terminal.resolve, terminal.reject);
     adapterTerminal.catch(() => undefined);
-    this.invocations.set(request.invocationId, entry);
 
     return {
       status: "started",
@@ -414,12 +584,23 @@ export class RuntimeManagedAgentInvocationService {
   }
 
   private assertNoActiveWriteLeaseConflict(request: ManagedAgentInvocationRequest): void {
-    if (!isWorkspaceWriteInvocation(request)) {
+    if (!isWorkspaceWriteInvocation(request) && !isIsolatedWorktreeInvocation(request)) {
       return;
     }
 
     for (const entry of this.invocations.values()) {
-      if (isTerminalLifecycleState(entry.lifecycleState) || !isWorkspaceWriteInvocation(entry.request)) {
+      if (isTerminalLifecycleState(entry.lifecycleState)) {
+        continue;
+      }
+      if (isIsolatedWorktreeInvocation(request) && isIsolatedWorktreeInvocation(entry.request)) {
+        if (samePath(entry.request.authority.workingDirectory.path, request.authority.workingDirectory.path)) {
+          throw new ManagedAgentRuntimeAdmissionError(
+            `Managed agent isolated worktree path conflict: ${entry.request.invocationId} already holds ${request.authority.workingDirectory.path}`,
+          );
+        }
+        continue;
+      }
+      if (!isWorkspaceWriteInvocation(request) || !isWorkspaceWriteInvocation(entry.request)) {
         continue;
       }
       if (!samePath(entry.request.authority.workingDirectory.path, request.authority.workingDirectory.path)) {
@@ -479,6 +660,75 @@ export class RuntimeManagedAgentInvocationService {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent adapter broadened or changed admitted write authority");
     }
   }
+
+  private async acquireWorktreeLease(
+    request: ManagedAgentInvocationRequest,
+    decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
+  ): Promise<ManagedAgentResourceLeaseEvidence | undefined> {
+    if (request.authority.workingDirectory.mode !== "isolated-worktree") {
+      return undefined;
+    }
+    if (!this.options.worktreeLeaseManager) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent isolated worktree lease manager is required");
+    }
+    return validateResourceLease(request, decision, await this.options.worktreeLeaseManager.acquire({
+      request: cloneJson(request),
+      decision: cloneJson(decision),
+      lease: cloneJson(decision.capabilitySnapshot.resourceLease),
+    }));
+  }
+
+  private async finalizeTerminalLease(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    record: ManagedAgentInvocationRecord,
+  ): Promise<ManagedAgentInvocationRecord> {
+    if (!entry.worktreeLease || !this.options.worktreeLeaseManager) {
+      return defineManagedAgentInvocationRecord(record);
+    }
+    try {
+      const resourceLease = validateResourceLease(entry.request, entry.decision, await this.options.worktreeLeaseManager.release({
+        request: cloneJson(entry.request),
+        decision: cloneJson(entry.decision),
+        lease: cloneJson(entry.worktreeLease),
+        record: cloneJson(record),
+      }));
+      return defineManagedAgentInvocationRecord({
+        ...record,
+        resourceLease,
+      });
+    } catch {
+      const cleanupDiagnosticUri = `kiln://artifacts/${entry.request.invocationId}/worktree-lease-cleanup-failed`;
+      return defineManagedAgentInvocationRecord({
+        ...record,
+        resourceLease: {
+          ...entry.worktreeLease,
+          healthStatus: "leaked",
+          cleanupStatus: "failed",
+          diagnosticUris: uniqueStrings([...entry.worktreeLease.diagnosticUris, cleanupDiagnosticUri]),
+        },
+        diagnostics: [
+          ...(record.diagnostics ?? []),
+          {
+            uri: cleanupDiagnosticUri,
+            kind: "cleanup",
+          },
+        ],
+      });
+    }
+  }
+
+  private shouldCompensateAcquireFailure(error: unknown): boolean {
+    if (this.options.worktreeLeaseManager === undefined) {
+      return false;
+    }
+    if (error instanceof ManagedAgentWorktreeLeaseAcquireError) {
+      return error.sideEffected;
+    }
+    if (error instanceof ManagedAgentRuntimeAdmissionError) {
+      return false;
+    }
+    return true;
+  }
 }
 
 function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedAgentRuntimeInvocationSnapshot {
@@ -528,6 +778,31 @@ function createCancelledRecord(
   });
 }
 
+function createFailedRecord(
+  request: ManagedAgentInvocationRequest,
+  decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
+  reason: string,
+): ManagedAgentInvocationRecord {
+  return defineManagedAgentInvocationRecord({
+    invocationId: request.invocationId,
+    agentId: request.agentId,
+    parentSessionId: request.parentSessionId,
+    parentTurnId: request.parentTurnId,
+    profile: request.profile,
+    lifecycleState: "failed",
+    providerRoute: request.providerRoute,
+    adapterKind: request.adapterKind,
+    executionMode: request.executionMode,
+    authority: request.authority,
+    capabilitySnapshot: decision.capabilitySnapshot,
+    resultHandoff: {
+      summary: reason,
+      resourceUris: [],
+      memoryWriteProposalUris: [],
+    },
+  });
+}
+
 function mergeCancelledRecords(
   runtimeRecord: ManagedAgentInvocationRecord,
   adapterRecord: ManagedAgentInvocationRecord,
@@ -537,6 +812,11 @@ function mergeCancelledRecords(
   return defineManagedAgentInvocationRecord({
     ...adapterRecord,
     lifecycleState: "cancelled",
+    ...(runtimeRecord.resourceLease !== undefined
+      ? { resourceLease: runtimeRecord.resourceLease }
+      : adapterRecord.resourceLease !== undefined
+        ? { resourceLease: adapterRecord.resourceLease }
+        : {}),
     resultHandoff: {
       summary: runtimeHandoff?.summary ?? adapterHandoff?.summary ?? "Managed invocation cancelled.",
       resourceUris: adapterHandoff?.resourceUris ?? runtimeHandoff?.resourceUris ?? [],
@@ -552,6 +832,11 @@ function isTerminalLifecycleState(state: ManagedAgentLifecycleState): boolean {
 function isWorkspaceWriteInvocation(request: ManagedAgentInvocationRequest): boolean {
   return request.authority.toolAuthority.writeAllowed === true &&
     request.authority.workingDirectory.mode === "workspace-write";
+}
+
+function isIsolatedWorktreeInvocation(request: ManagedAgentInvocationRequest): boolean {
+  return request.authority.toolAuthority.writeAllowed === true &&
+    request.authority.workingDirectory.mode === "isolated-worktree";
 }
 
 function hasDisjointApprovedWorkspaceScope(
@@ -587,7 +872,8 @@ function pathsOverlap(left: string, right: string): boolean {
 }
 
 function normalizeLeasePath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/\/+$/u, "").toLowerCase();
+  const normalized = pathWin32.normalize(value.replace(/\//gu, "\\")).replace(/\\/gu, "/");
+  return normalized.replace(/\/+$/u, "").toLowerCase();
 }
 
 function cloneJson<T>(value: T): T {
@@ -600,6 +886,93 @@ function toError(error: unknown): Error {
 
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function deferredTerminal(): {
+  readonly promise: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>>;
+  readonly resolve: (value: Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function validateResourceLease(
+  request: ManagedAgentInvocationRequest,
+  decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
+  lease: ManagedAgentResourceLeaseEvidence,
+): ManagedAgentResourceLeaseEvidence {
+  const admittedLease = decision.capabilitySnapshot.resourceLease;
+  if (lease.leaseId !== admittedLease.leaseId) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime lease id does not match admission");
+  }
+  if (lease.createdAt !== admittedLease.createdAt) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime lease creation timestamp does not match admission");
+  }
+  if (lease.workingDirectoryMode !== admittedLease.workingDirectoryMode) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime lease working directory mode does not match admission");
+  }
+  if (!samePath(lease.workingDirectoryPath, admittedLease.workingDirectoryPath)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime lease working directory path does not match admission");
+  }
+  assertLeaseUrisWithinInvocation("resource", request.invocationId, admittedLease.resourceUris, lease.resourceUris);
+  assertLeaseUrisWithinInvocation("diagnostic", request.invocationId, admittedLease.diagnosticUris, lease.diagnosticUris);
+  return defineManagedAgentCapabilitySnapshot({
+    ...decision.capabilitySnapshot,
+    resourceLease: lease,
+  }).resourceLease;
+}
+
+function assertLeaseUrisWithinInvocation(
+  kind: string,
+  invocationId: string,
+  admittedUris: readonly string[],
+  candidateUris: readonly string[],
+): void {
+  for (const uri of admittedUris) {
+    if (!candidateUris.includes(uri)) {
+      throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime lease dropped admitted ${kind} uri`);
+    }
+  }
+  for (const uri of candidateUris) {
+    if (admittedUris.includes(uri)) {
+      continue;
+    }
+    if (!isInvocationArtifactUri(uri, invocationId)) {
+      throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime lease ${kind} uri is outside invocation artifacts`);
+    }
+  }
+}
+
+function isInvocationArtifactUri(uri: string, invocationId: string): boolean {
+  try {
+    const parsed = new URL(uri);
+    if (parsed.protocol !== "kiln:" || parsed.hostname !== "artifacts") {
+      return false;
+    }
+    const pathSegments = parsed.pathname.split("/").filter((segment) => segment.length > 0);
+    return pathSegments.length > 1 && pathSegments[0] === invocationId;
+  } catch {
+    return false;
+  }
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return Array.from(new Set(values));
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnapshot): ManagedAgentCapabilitySnapshotInput {

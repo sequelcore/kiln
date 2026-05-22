@@ -344,6 +344,7 @@ export interface ManagedAgentInvocationRecord {
   readonly executionMode: ManagedAgentExecutionMode;
   readonly authority: ManagedAgentAuthorityProfile;
   readonly capabilitySnapshot: ManagedAgentCapabilitySnapshot;
+  readonly resourceLease?: ManagedAgentResourceLeaseEvidence;
   readonly childSessionId?: string;
   readonly childTurnId?: string;
   readonly transcript?: ManagedAgentTranscriptPointer;
@@ -501,6 +502,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     executionMode: requireExecutionMode(input.executionMode),
     authority: requireAuthority(input.authority),
     capabilitySnapshot: defineManagedAgentCapabilitySnapshot(input.capabilitySnapshot),
+    ...(input.resourceLease !== undefined ? { resourceLease: requireResourceLease(input.resourceLease) } : {}),
     ...(input.childSessionId !== undefined ? { childSessionId: requireText(input.childSessionId, "Managed invocation child session id is required") } : {}),
     ...(input.childTurnId !== undefined ? { childTurnId: requireText(input.childTurnId, "Managed invocation child turn id is required") } : {}),
     ...(input.transcript !== undefined ? { transcript: requireTranscript(input.transcript) } : {}),
@@ -800,7 +802,7 @@ export function buildManagedAgentLifecycleEvidence(
     profile: record.profile,
     contextMode: record.capabilitySnapshot.contextMode,
     authorityProfileId: record.authority.authorityProfileId,
-    resourceLease: record.capabilitySnapshot.resourceLease,
+    resourceLease: record.resourceLease ?? record.capabilitySnapshot.resourceLease,
     ...(record.transcript?.uri !== undefined ? { transcriptUri: record.transcript.uri } : {}),
     ...(input.heartbeatAt !== undefined ? { heartbeatAt: requireIsoTimestamp(input.heartbeatAt, "Managed invocation heartbeat timestamp is required") } : {}),
     ...(record.resultHandoff?.summary !== undefined ? { resultSummary: record.resultHandoff.summary } : {}),

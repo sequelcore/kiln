@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   ManagedAgentAdapterDescriptor,
   ManagedAgentInvocationRequest,
@@ -12,6 +15,7 @@ import {
   defineManagedAgentWriteAuthority,
 } from "@kilnai/core";
 import {
+  ManagedGitWorktreeLeaseManager,
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
@@ -188,6 +192,22 @@ function makeApprovedWriteRequest(
   });
 }
 
+function makeIsolatedWorktreeRequest(invocationId = "write-1"): ManagedAgentInvocationRequest {
+  const request = makeApprovedWriteRequest(invocationId, [
+    `C:/workspace/kiln/.kiln/worktrees/${invocationId}/packages/core`,
+  ]);
+  return defineManagedAgentInvocationRequest({
+    ...request,
+    authority: {
+      ...request.authority,
+      workingDirectory: {
+        path: `C:/workspace/kiln/.kiln/worktrees/${invocationId}`,
+        mode: "isolated-worktree",
+      },
+    },
+  });
+}
+
 function makeRecord(
   capabilitySnapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
@@ -223,6 +243,33 @@ function makeRecord(
     resultHandoff: {
       summary: "Inspection completed.",
       resourceUris: ["kiln://artifacts/invocation-1/result"],
+      memoryWriteProposalUris: [],
+    },
+  });
+}
+
+function makeRecordForRequest(
+  request: ManagedAgentInvocationRequest,
+  capabilitySnapshot = buildManagedAgentCapabilitySnapshot(request, makeWriteDescriptor(), {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+  }),
+): ManagedAgentInvocationRecord {
+  return defineManagedAgentInvocationRecord({
+    invocationId: request.invocationId,
+    agentId: request.agentId,
+    parentSessionId: request.parentSessionId,
+    parentTurnId: request.parentTurnId,
+    profile: request.profile,
+    lifecycleState: "completed",
+    providerRoute: request.providerRoute,
+    adapterKind: request.adapterKind,
+    executionMode: request.executionMode,
+    authority: request.authority,
+    capabilitySnapshot,
+    resultHandoff: {
+      summary: "Write completed.",
+      resourceUris: [`kiln://artifacts/${request.invocationId}/result`],
       memoryWriteProposalUris: [],
     },
   });
@@ -417,6 +464,571 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(second.status).toBe("started");
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(service.list().map((snapshot) => snapshot.invocationId)).toEqual(["write-1", "write-2"]);
+  });
+
+  it("fails closed when an isolated worktree invocation has no runtime worktree lease manager", async () => {
+    const invoke = vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot));
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    await expect(service.start(makeIsolatedWorktreeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("isolated worktree lease manager");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(service.status("write-1")).toBeUndefined();
+  });
+
+  it("rejects concurrent duplicate isolated worktree starts before acquiring a lease", async () => {
+    const acquireGate = deferred<void>();
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        await acquireGate.promise;
+        return lease;
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const firstStart = service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    await expect(service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("already registered");
+    expect(worktreeLeaseManager.acquire).toHaveBeenCalledTimes(1);
+
+    acquireGate.resolve();
+    const started = await firstStart;
+
+    expect(started.status).toBe("started");
+    await service.join("write-1");
+  });
+
+  it("rejects concurrent isolated worktree starts for the same worktree path before acquiring twice", async () => {
+    const acquireGate = deferred<void>();
+    const firstRequest = makeIsolatedWorktreeRequest("write-1");
+    const secondRequest = makeIsolatedWorktreeRequest("write-2");
+    const sharedPath = firstRequest.authority.workingDirectory.path;
+    const secondSharedPathRequest = defineManagedAgentInvocationRequest({
+      ...secondRequest,
+      authority: {
+        ...secondRequest.authority,
+        workingDirectory: {
+          path: sharedPath,
+          mode: "isolated-worktree",
+        },
+      },
+    });
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        await acquireGate.promise;
+        return lease;
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const firstStart = service.start(firstRequest, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    await expect(service.start(secondSharedPathRequest, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("isolated worktree path");
+    expect(worktreeLeaseManager.acquire).toHaveBeenCalledTimes(1);
+    expect(adapter.invoke).not.toHaveBeenCalled();
+
+    acquireGate.resolve();
+    const started = await firstStart;
+
+    expect(started.status).toBe("started");
+    await service.join("write-1");
+  });
+
+  it("rejects isolated worktree path aliases before acquiring twice", async () => {
+    const acquireGate = deferred<void>();
+    const firstRequest = makeIsolatedWorktreeRequest("write-1");
+    const secondRequest = makeIsolatedWorktreeRequest("write-2");
+    const aliasPath = "C:/workspace/kiln/.kiln/worktrees/alias/../write-1";
+    const secondAliasRequest = defineManagedAgentInvocationRequest({
+      ...secondRequest,
+      authority: {
+        ...secondRequest.authority,
+        workingDirectory: {
+          path: aliasPath,
+          mode: "isolated-worktree",
+        },
+      },
+    });
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        await acquireGate.promise;
+        return lease;
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const firstStart = service.start(firstRequest, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    await expect(service.start(secondAliasRequest, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("isolated worktree path");
+    expect(worktreeLeaseManager.acquire).toHaveBeenCalledTimes(1);
+
+    acquireGate.resolve();
+    const started = await firstStart;
+
+    expect(started.status).toBe("started");
+    await service.join("write-1");
+  });
+
+  it("rejects git worktree lease paths outside the configured worktree root", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const escapedRequest = defineManagedAgentInvocationRequest({
+      ...request,
+      authority: {
+        ...request.authority,
+        workingDirectory: {
+          path: "C:/outside/kiln/worktrees/write-1",
+          mode: "isolated-worktree",
+        },
+      },
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
+        repositoryPath: "C:/workspace/kiln",
+        worktreeRootPath: "C:/workspace/kiln/.kiln/worktrees",
+      }),
+    });
+
+    await expect(service.start(escapedRequest, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("outside configured worktree root");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("write-1")).toBeUndefined();
+  });
+
+  it("rejects git worktree lease paths that escape the configured root through dot segments", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const escapedRequest = defineManagedAgentInvocationRequest({
+      ...request,
+      authority: {
+        ...request.authority,
+        workingDirectory: {
+          path: "C:/workspace/kiln/.kiln/worktrees/../outside/write-1",
+          mode: "isolated-worktree",
+        },
+      },
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
+        repositoryPath: "C:/workspace/kiln",
+        worktreeRootPath: "C:/workspace/kiln/.kiln/worktrees",
+      }),
+    });
+
+    await expect(service.start(escapedRequest, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("outside configured worktree root");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("write-1")).toBeUndefined();
+  });
+
+  it("rejects pre-existing git worktree lease paths instead of adopting them", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "kiln-worktree-root-"));
+    try {
+      const existingPath = join(tempRoot, "write-1");
+      const request = makeIsolatedWorktreeRequest();
+      const existingRequest = defineManagedAgentInvocationRequest({
+        ...request,
+        authority: {
+          ...request.authority,
+          workingDirectory: {
+            path: existingPath,
+            mode: "isolated-worktree",
+          },
+        },
+      });
+      const adapter: ManagedAgentRuntimeAdapter = {
+        descriptor: makeWriteDescriptor(),
+        invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+      };
+      const service = new RuntimeManagedAgentInvocationService({
+        worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
+          repositoryPath: "C:/workspace/kiln",
+          worktreeRootPath: tempRoot,
+        }),
+      });
+
+      await mkdir(existingPath);
+      await expect(service.start(existingRequest, adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      })).rejects.toThrow("refusing to adopt unmanaged checkout");
+      expect(adapter.invoke).not.toHaveBeenCalled();
+      expect(service.status("write-1")).toBeUndefined();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects worktree lease manager output that changes the admitted lease path", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/other-write",
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    await expect(service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("working directory path does not match admission");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("write-1")).toBeUndefined();
+  });
+
+  it("rejects worktree lease manager artifact URIs that escape the invocation by dot segments", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: ["kiln://artifacts/write-1/../other-invocation/worktree-lease"],
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    await expect(service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("resource uri is outside invocation artifacts");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("write-1")).toBeUndefined();
+  });
+
+  it("acquires and releases isolated worktree leases as terminal runtime evidence", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+      })),
+    };
+    const invoke = vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot));
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    if (started.status !== "started") {
+      throw new Error("expected managed invocation to start");
+    }
+    expect(worktreeLeaseManager.acquire.mock.invocationCallOrder[0])
+      .toBeLessThan(invoke.mock.invocationCallOrder[0]!);
+    expect(started.decision.capabilitySnapshot.resourceLease).toMatchObject({
+      healthStatus: "healthy",
+      cleanupStatus: "pending",
+      workingDirectoryMode: "isolated-worktree",
+    });
+
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.capabilitySnapshot.resourceLease.cleanupStatus).toBe("pending");
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+    });
+    expect(service.status("write-1")?.record?.resourceLease).toEqual(joined.record.resourceLease);
+  });
+
+  it("cancels during isolated worktree acquire without invoking the adapter", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const acquireGate = deferred<void>();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        await acquireGate.promise;
+        return lease;
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const startedPromise = service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    const cancelled = await service.cancel("write-1", "Operator cancelled before lease acquisition completed.");
+
+    expect(cancelled.record.resourceLease).toBeUndefined();
+    expect(adapter.invoke).not.toHaveBeenCalled();
+
+    acquireGate.resolve();
+    const started = await startedPromise;
+    const joined = await service.join("write-1");
+
+    expect(started.status).toBe("started");
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(joined.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+    });
+  });
+
+  it("waits for adapter terminal cancellation before releasing isolated worktree leases", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => lease),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async () => terminal.promise),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    const cancelled = await service.cancel("write-1", "Operator cancelled isolated worktree run.");
+
+    expect(cancelled.record.resourceLease).toBeUndefined();
+    expect(worktreeLeaseManager.release).not.toHaveBeenCalled();
+
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      ...makeRecordForRequest(request, started.status === "started" ? started.decision.capabilitySnapshot : undefined),
+      lifecycleState: "cancelled",
+      resultHandoff: {
+        summary: "Adapter observed cancellation.",
+        resourceUris: ["kiln://artifacts/write-1/cancel-cleanup"],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    const joined = await service.join("write-1");
+
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(joined.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+    });
+  });
+
+  it("records compensating cleanup when isolated worktree acquire fails after side effects", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async () => {
+        throw new Error("git worktree add failed after creating files");
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    await expect(service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("git worktree add failed after creating files");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(service.status("write-1")).toMatchObject({
+      lifecycleState: "failed",
+      record: {
+        lifecycleState: "failed",
+        resourceLease: {
+          healthStatus: "released",
+          cleanupStatus: "completed",
+        },
+      },
+    });
+  });
+
+  it("records failed isolated worktree release as leaked terminal lease evidence", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      })),
+      release: vi.fn(async () => {
+        throw new Error("worktree has uncommitted child changes");
+      }),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      diagnosticUris: ["kiln://artifacts/write-1/worktree-lease-cleanup-failed"],
+    });
+    expect(joined.record.diagnostics).toContainEqual({
+      uri: "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
+      kind: "cleanup",
+    });
+  });
+
+  it("releases isolated worktree leases when the adapter fails after acquire", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async () => {
+        throw new Error("adapter crashed after acquire");
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    await expect(service.join("write-1")).rejects.toThrow("adapter crashed after acquire");
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(service.status("write-1")).toMatchObject({
+      lifecycleState: "failed",
+      record: {
+        lifecycleState: "failed",
+        resourceLease: {
+          healthStatus: "released",
+          cleanupStatus: "completed",
+        },
+      },
+      error: { message: "adapter crashed after acquire" },
+    });
   });
 
   it("returns immutable snapshots from the runtime registry boundary", async () => {

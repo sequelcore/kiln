@@ -54,12 +54,23 @@ Use these documents as the stable source of truth before starting roadmap work:
    roadmap.
 
 1. [Background And Parallel Agent Surface](./01-background-parallel-agent-surface.md)
-   Started on 2026-05-21. Current scope is the long-term managed child
-   lifecycle: nonblocking start/status/join/cancel/list, worktree and sandbox
-   leases, typed parallel orchestration modes, cross-surface cockpit
-   projection, and substantive handoff evidence. This track owns the runtime
-   primitive behind future background agents and should absorb transitional
-   `kiln run --workers` behavior into the shared lifecycle.
+   Started on 2026-05-21. Slices 1-2 are complete in code: managed-child
+   lifecycle evidence and nonblocking `start/status/join/cancel/list` tools now
+   exist. Slice 3 is in progress: lease evidence, operator projection,
+   health/cleanup metadata, same-checkout write guards, and runtime-owned
+   isolated-worktree acquire/release exist. Same-path isolated collisions,
+   path aliases, lease-manager drift, git worktree root confinement, and
+   pre-launch cancellation during acquire are covered; sandbox, port, env,
+   credential leases, stale recovery, and product wiring remain open.
+   This track owns the runtime primitive behind future background agents and
+   should absorb transitional `kiln run --workers` behavior into the shared
+   lifecycle.
+
+1.1. [Answer-Only Eval Output](./01.1-answer-only-eval-output.md)
+   Added on 2026-05-21. Scope is the CLI/eval output boundary discovered during
+   local Codex CLI vs Kiln CLI testing: benchmark harnesses need deterministic
+   assistant-only or structured output so exact-format evals do not grade Kiln
+   operator telemetry as part of the answer.
 
 2. [Native Operator Surface](./02-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark

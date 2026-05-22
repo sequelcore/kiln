@@ -473,6 +473,37 @@ describe("appendManagedInvocationSessionEvents", () => {
       .toEqual(record.capabilitySnapshot.resourceLease);
   });
 
+  it("maps terminal resource lease evidence without rewriting the admitted snapshot", () => {
+    const session = makeSession();
+    const request = makeRequest(session.id, `${session.id}:turn:1`);
+    const terminalLease = {
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released" as const,
+      cleanupStatus: "completed" as const,
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/invocation-1",
+      workingDirectoryMode: "isolated-worktree" as const,
+      resourceUris: ["kiln://artifacts/invocation-1/worktree-lease"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/worktree-cleanup"],
+    };
+    const record = defineManagedAgentInvocationRecord({
+      ...makeRecord("completed"),
+      resourceLease: terminalLease,
+    });
+    const events = appendManagedInvocationSessionEvents({
+      session,
+      request,
+      decision: makeDecision("admitted"),
+      record,
+      timestamp: new Date("2026-05-03T10:00:05.000Z"),
+    });
+
+    const evidence = (events[2] as { managedInvocationEvidence?: Record<string, unknown> }).managedInvocationEvidence;
+
+    expect(record.capabilitySnapshot.resourceLease.cleanupStatus).toBe("not-required");
+    expect((evidence?.lifecycle as { resourceLease?: unknown }).resourceLease).toEqual(terminalLease);
+  });
+
   it("maps cancellation and timeout/failure terminals to canonical events", () => {
     const lifecycleCases: Array<{
       lifecycleState: ManagedAgentInvocationRecord["lifecycleState"];
