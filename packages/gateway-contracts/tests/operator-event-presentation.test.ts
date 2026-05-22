@@ -322,13 +322,32 @@ describe("operator event presentation", () => {
           resourceUris: [],
         },
         resourceLease: {
+          leaseId: "inv-1:resource-lease",
+          createdAt: "2026-05-07T08:00:00.000Z",
+          healthStatus: "healthy",
+          cleanupStatus: "not-required",
           workingDirectoryPath: "C:/workspace/kiln",
           workingDirectoryMode: "read-only",
           resourceUris: ["kiln://resources/context.md"],
+          diagnosticUris: [],
         },
         childIdentity: {
           agentId: "codex-oauth:foundation-readonly-plan",
           displayName: "Piama",
+        },
+      },
+      managedInvocationEvidence: {
+        lifecycle: {
+          resourceLease: {
+            leaseId: "inv-1:resource-lease",
+            createdAt: "2026-05-07T08:00:00.000Z",
+            healthStatus: "released",
+            cleanupStatus: "completed",
+            workingDirectoryPath: "C:/workspace/kiln",
+            workingDirectoryMode: "read-only",
+            resourceUris: ["kiln://resources/context.md"],
+            diagnosticUris: ["kiln://artifacts/inv-1/lease-diagnostics"],
+          },
         },
       },
       durationMs: 950,
@@ -355,7 +374,12 @@ describe("operator event presentation", () => {
       { label: "Provider proof source", value: "managed-invocation-route-health" },
       { label: "Resource plane", value: "available" },
       { label: "Resource lease", value: "read-only · C:/workspace/kiln" },
+      { label: "Lease ID", value: "inv-1:resource-lease" },
+      { label: "Lease created", value: "2026-05-07T08:00:00.000Z" },
+      { label: "Lease health", value: "released" },
+      { label: "Lease cleanup", value: "completed" },
       { label: "Lease resources", value: "kiln://resources/context.md" },
+      { label: "Lease diagnostics", value: "kiln://artifacts/inv-1/lease-diagnostics" },
       { label: "Child identity", value: "Piama" },
       { label: "Invocation ID", value: "inv-1" },
       { label: "Duration", value: "950 ms" },
@@ -622,9 +646,14 @@ describe("operator event presentation", () => {
               resourceUris: [],
             },
             resourceLease: {
+              leaseId: "inv-1:resource-lease",
+              createdAt: "2026-05-07T08:00:00.000Z",
+              healthStatus: "healthy",
+              cleanupStatus: "not-required",
               workingDirectoryPath: "C:/workspace/kiln",
               workingDirectoryMode: "read-only",
               resourceUris: ["kiln://resources/context.md"],
+              diagnosticUris: ["kiln://artifacts/inv-1/lease-diagnostics"],
             },
             childIdentity: {
               agentId: "codex-oauth:foundation-readonly-plan",
@@ -677,7 +706,12 @@ describe("operator event presentation", () => {
       { label: "Provider proof source", value: "managed-invocation-route-health" },
       { label: "Resource plane", value: "available" },
       { label: "Resource lease", value: "read-only · C:/workspace/kiln" },
+      { label: "Lease ID", value: "inv-1:resource-lease" },
+      { label: "Lease created", value: "2026-05-07T08:00:00.000Z" },
+      { label: "Lease health", value: "healthy" },
+      { label: "Lease cleanup", value: "not-required" },
       { label: "Lease resources", value: "kiln://resources/context.md" },
+      { label: "Lease diagnostics", value: "kiln://artifacts/inv-1/lease-diagnostics" },
       { label: "Child identity", value: "architecture-reviewer" },
       { label: "Invocation ID", value: "inv-1" },
       { label: "Route ID", value: "codex-oauth" },
@@ -686,6 +720,84 @@ describe("operator event presentation", () => {
       { label: "Summary", value: "Inspect managed agents architecture doc" },
     ]);
     expect(completed.details).not.toContainEqual({ label: "Provider Route", value: "Structured value" });
+  });
+
+  it("presents lifecycle-only managed resource lease evidence in operator details", () => {
+    const completed = presentOperatorEventPayload("agent_invocation_completed", {
+      invocationId: "inv-lease-only",
+      agentId: "agent-reviewer",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.4-mini",
+        surface: "direct-provider",
+      },
+      managedInvocationEvidence: {
+        lifecycle: {
+          resourceLease: {
+            leaseId: "inv-lease-only:resource-lease",
+            createdAt: "2026-05-07T08:00:00.000Z",
+            healthStatus: "healthy",
+            cleanupStatus: "completed",
+            workingDirectoryPath: "C:/workspace/kiln",
+            workingDirectoryMode: "read-only",
+            resourceUris: ["kiln://resources/context.md"],
+            diagnosticUris: ["kiln://artifacts/inv-lease-only/lease-diagnostics"],
+          },
+        },
+      },
+      resultSummary: "Inspection completed.",
+    });
+
+    expect(completed.details).toContainEqual({ label: "Resource lease", value: "read-only · C:/workspace/kiln" });
+    expect(completed.details).toContainEqual({ label: "Lease ID", value: "inv-lease-only:resource-lease" });
+    expect(completed.details).toContainEqual({ label: "Lease created", value: "2026-05-07T08:00:00.000Z" });
+    expect(completed.details).toContainEqual({ label: "Lease health", value: "healthy" });
+    expect(completed.details).toContainEqual({ label: "Lease cleanup", value: "completed" });
+    expect(completed.details).toContainEqual({ label: "Lease resources", value: "kiln://resources/context.md" });
+    expect(completed.details).toContainEqual({ label: "Lease diagnostics", value: "kiln://artifacts/inv-lease-only/lease-diagnostics" });
+  });
+
+  it("does not merge incomplete lifecycle lease deltas into operator details", () => {
+    const completed = presentOperatorEventPayload("agent_invocation_completed", {
+      invocationId: "inv-partial-lease-delta",
+      agentId: "agent-reviewer",
+      profile: "foundation-apply-approved-writes",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.4-mini",
+        surface: "direct-provider",
+      },
+      capabilitySnapshot: {
+        snapshotId: "inv-partial-lease-delta:capability-snapshot",
+        capturedAt: "2026-05-07T08:00:00.000Z",
+        resourceLease: {
+          leaseId: "inv-partial-lease-delta:resource-lease",
+          createdAt: "2026-05-07T08:00:00.000Z",
+          healthStatus: "healthy",
+          cleanupStatus: "pending",
+          workingDirectoryPath: "C:/workspace/kiln",
+          workingDirectoryMode: "workspace-write",
+          resourceUris: ["kiln://resources/context.md"],
+          diagnosticUris: [],
+        },
+      },
+      managedInvocationEvidence: {
+        lifecycle: {
+          resourceLease: {
+            healthStatus: "released",
+            cleanupStatus: "completed",
+            diagnosticUris: ["kiln://artifacts/inv-partial-lease-delta/lease-diagnostics"],
+          },
+        },
+      },
+      resultSummary: "Inspection completed.",
+    });
+
+    expect(completed.details).not.toContainEqual({ label: "Resource lease", value: "workspace-write · C:/workspace/kiln" });
+    expect(completed.details).not.toContainEqual({ label: "Lease health", value: "released" });
+    expect(completed.details).not.toContainEqual({ label: "Lease cleanup", value: "completed" });
+    expect(completed.details).not.toContainEqual({ label: "Lease diagnostics", value: "kiln://artifacts/inv-partial-lease-delta/lease-diagnostics" });
   });
 
   it("keeps low-signal runtime telemetry out of the inline transcript", () => {

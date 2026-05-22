@@ -394,9 +394,14 @@ export interface OperatorManagedAgentResourcePlaneSnapshot {
 }
 
 export interface OperatorManagedAgentResourceLeaseSnapshot {
+  readonly leaseId: string;
+  readonly createdAt: string;
+  readonly healthStatus: "healthy" | "stale" | "released" | "leaked";
+  readonly cleanupStatus: "not-required" | "pending" | "completed" | "failed" | "unknown";
   readonly workingDirectoryPath: string;
   readonly workingDirectoryMode: "read-only" | "workspace-write" | "isolated-worktree" | "sandbox";
   readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
 }
 
 export interface OperatorManagedAgentChildIdentitySnapshot {

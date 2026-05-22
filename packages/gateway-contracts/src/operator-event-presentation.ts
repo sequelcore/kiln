@@ -132,6 +132,14 @@ function formatStringList(value: unknown): string | null {
   return items.length > 0 ? items.join(", ") : null;
 }
 
+function readRequiredStringList(value: unknown): readonly string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const items = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return items.length === value.length ? items : null;
+}
+
 function addPrimitiveItems(
   items: OperatorEventDetailItem[],
   record: Record<string, unknown> | null,
@@ -976,26 +984,57 @@ function addManagedCapabilitySnapshotDetails(
   identity: Record<string, unknown>,
 ): void {
   const snapshot = asRecord(identity.capabilitySnapshot);
-  if (!snapshot) {
+  const evidence = asRecord(identity.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence?.lifecycle);
+  const rawSnapshotLease = asRecord(snapshot?.resourceLease);
+  const rawLifecycleLease = asRecord(lifecycle?.resourceLease);
+  const rawResourceLease = rawLifecycleLease ?? rawSnapshotLease;
+  const resourceLease = readCompleteResourceLease(rawResourceLease);
+  if (!snapshot && !rawResourceLease) {
     return;
   }
-  const routeHealth = asRecord(snapshot.routeHealth);
-  const providerModelProof = asRecord(snapshot.providerModelProof);
-  const resourcePlane = asRecord(snapshot.resourcePlane);
-  const resourceLease = asRecord(snapshot.resourceLease);
-  const childIdentity = asRecord(snapshot.childIdentity);
-  addItem(details, "Capability snapshot", snapshot.snapshotId);
-  addItem(details, "Captured", snapshot.capturedAt);
-  addItem(details, "Route health", routeHealth?.status);
-  addItem(details, "Route health reason", routeHealth?.reason);
-  addItem(details, "Provider proof", providerModelProof?.status);
-  addItem(details, "Provider proof source", providerModelProof?.source);
-  addItem(details, "Resource plane", resourcePlane?.available === true ? "available" : resourcePlane?.available === false ? "unavailable" : undefined);
+  const routeHealth = asRecord(snapshot?.routeHealth);
+  const providerModelProof = asRecord(snapshot?.providerModelProof);
+  const resourcePlane = asRecord(snapshot?.resourcePlane);
+  const childIdentity = asRecord(snapshot?.childIdentity);
+  if (snapshot) {
+    addItem(details, "Capability snapshot", snapshot.snapshotId);
+    addItem(details, "Captured", snapshot.capturedAt);
+    addItem(details, "Route health", routeHealth?.status);
+    addItem(details, "Route health reason", routeHealth?.reason);
+    addItem(details, "Provider proof", providerModelProof?.status);
+    addItem(details, "Provider proof source", providerModelProof?.source);
+    addItem(details, "Resource plane", resourcePlane?.available === true ? "available" : resourcePlane?.available === false ? "unavailable" : undefined);
+  }
   const leasePath = readString(resourceLease?.workingDirectoryPath);
   const leaseMode = readString(resourceLease?.workingDirectoryMode);
   addItem(details, "Resource lease", leasePath && leaseMode ? `${leaseMode} · ${leasePath}` : leaseMode ?? leasePath);
+  addItem(details, "Lease ID", resourceLease?.leaseId);
+  addItem(details, "Lease created", resourceLease?.createdAt);
+  addItem(details, "Lease health", resourceLease?.healthStatus);
+  addItem(details, "Lease cleanup", resourceLease?.cleanupStatus);
   addItem(details, "Lease resources", formatStringList(resourceLease?.resourceUris));
+  addItem(details, "Lease diagnostics", formatStringList(resourceLease?.diagnosticUris));
   addItem(details, "Child identity", childIdentity?.displayName ?? childIdentity?.admittedAgentProfile ?? childIdentity?.requestedAgentProfile ?? childIdentity?.agentId);
+}
+
+function readCompleteResourceLease(value: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  if (
+    !readString(value.leaseId)
+    || !readString(value.createdAt)
+    || !readString(value.healthStatus)
+    || !readString(value.cleanupStatus)
+    || !readString(value.workingDirectoryPath)
+    || !readString(value.workingDirectoryMode)
+    || !readRequiredStringList(value.resourceUris)
+    || !readRequiredStringList(value.diagnosticUris)
+  ) {
+    return null;
+  }
+  return value;
 }
 
 function providerIdentity(payload: Record<string, unknown>): { provider: string | null; model: string | null } {
@@ -1426,7 +1465,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
     details,
     payload,
     8,
-    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
+    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "managedInvocationEvidence", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
   );
   return {
     title: titles[kind] ?? "Agent invocation",

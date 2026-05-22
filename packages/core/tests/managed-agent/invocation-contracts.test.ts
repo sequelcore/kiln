@@ -181,9 +181,47 @@ describe("managed agent invocation contracts", () => {
     });
 
     expect(snapshot.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "healthy",
+      cleanupStatus: "not-required",
       workingDirectoryPath: "C:/workspace/kiln",
       workingDirectoryMode: "read-only",
       resourceUris: ["kiln://resources/context.md", "kiln://artifacts/invocation-1/input"],
+      diagnosticUris: [],
+    });
+  });
+
+  it("marks writable default resource leases as pending cleanup obligations", () => {
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      authority: {
+        ...baseRequest.authority,
+        permissionProfile: "workspace-write",
+        toolAuthority: {
+          ...baseRequest.authority.toolAuthority,
+          writeAllowed: true,
+        },
+        workingDirectory: {
+          path: "C:/workspace/kiln",
+          mode: "workspace-write",
+        },
+      },
+    });
+    const snapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-workspace-write",
+    });
+
+    expect(snapshot.resourceLease).toMatchObject({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "healthy",
+      cleanupStatus: "pending",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "workspace-write",
+      diagnosticUris: [],
     });
   });
 
@@ -207,6 +245,27 @@ describe("managed agent invocation contracts", () => {
         resourceUris: [""],
       },
     })).toThrow("Managed capability snapshot lease resource uri is required");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      resourceLease: {
+        ...snapshot.resourceLease,
+        healthStatus: "unknown" as typeof snapshot.resourceLease.healthStatus,
+      },
+    })).toThrow("Unsupported managed capability snapshot lease health status: unknown");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      resourceLease: {
+        ...snapshot.resourceLease,
+        cleanupStatus: "lost" as typeof snapshot.resourceLease.cleanupStatus,
+      },
+    })).toThrow("Unsupported managed capability snapshot lease cleanup status: lost");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      resourceLease: {
+        ...snapshot.resourceLease,
+        diagnosticUris: [""],
+      },
+    })).toThrow("Managed capability snapshot lease diagnostic uri is required");
   });
 
   it("records replayable lifecycle evidence, transcript flags, usage unknowns, and bounded result handoff", () => {
@@ -245,9 +304,14 @@ describe("managed agent invocation contracts", () => {
       contextMode: "isolated",
       authorityProfileId: "foundation-readonly",
       resourceLease: {
+        leaseId: "invocation-1:resource-lease",
+        createdAt: "2026-05-07T08:00:00.000Z",
+        healthStatus: "healthy",
+        cleanupStatus: "not-required",
         workingDirectoryPath: "C:/workspace/kiln",
         workingDirectoryMode: "read-only",
         resourceUris: [],
+        diagnosticUris: [],
       },
       transcriptUri: "kiln://artifacts/invocation-1/transcript",
       heartbeatAt: "2026-05-07T08:00:03.000Z",

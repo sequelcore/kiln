@@ -264,9 +264,14 @@ describe("operator cockpit read-only projection", () => {
         },
         capabilitySnapshot: {
           resourceLease: {
+            leaseId: "lifecycle:child:1:resource-lease",
+            createdAt: "2026-05-21T12:00:00.000Z",
+            healthStatus: "healthy",
+            cleanupStatus: "not-required",
             workingDirectoryPath: "C:/workspace/kiln",
             workingDirectoryMode: "read-only",
             resourceUris: ["kiln://resources/context.md"],
+            diagnosticUris: [],
           },
         },
       },
@@ -285,6 +290,32 @@ describe("operator cockpit read-only projection", () => {
         agentId: "agent-reviewer",
         lifecycleState: "timed_out",
         errorCode: "ENGINE_TIMEOUT",
+        capabilitySnapshot: {
+          resourceLease: {
+            leaseId: "lifecycle:child:1:resource-lease",
+            createdAt: "2026-05-21T12:00:00.000Z",
+            healthStatus: "healthy",
+            cleanupStatus: "not-required",
+            workingDirectoryPath: "C:/workspace/kiln",
+            workingDirectoryMode: "read-only",
+            resourceUris: ["kiln://resources/context.md"],
+            diagnosticUris: [],
+          },
+        },
+        managedInvocationEvidence: {
+          lifecycle: {
+            resourceLease: {
+              leaseId: "lifecycle:child:1:resource-lease",
+              createdAt: "2026-05-21T12:00:00.000Z",
+              healthStatus: "released",
+              cleanupStatus: "completed",
+              workingDirectoryPath: "C:/workspace/kiln",
+              workingDirectoryMode: "read-only",
+              resourceUris: ["kiln://resources/context.md"],
+              diagnosticUris: ["kiln://artifacts/lifecycle-child-1/lease-diagnostics"],
+            },
+          },
+        },
       },
     };
 
@@ -304,9 +335,14 @@ describe("operator cockpit read-only projection", () => {
       lifecycleState: "timed_out",
       providerRoute: "opencode/sonic",
       resourceLease: {
+        leaseId: "lifecycle:child:1:resource-lease",
+        createdAt: "2026-05-21T12:00:00.000Z",
+        healthStatus: "released",
+        cleanupStatus: "completed",
         workingDirectoryPath: "C:/workspace/kiln",
         workingDirectoryMode: "read-only",
         resourceUris: ["kiln://resources/context.md"],
+        diagnosticUris: ["kiln://artifacts/lifecycle-child-1/lease-diagnostics"],
       },
     });
   });
@@ -328,9 +364,14 @@ describe("operator cockpit read-only projection", () => {
         managedInvocationEvidence: {
           lifecycle: {
             resourceLease: {
+              leaseId: "lifecycle:child:lease-only:resource-lease",
+              createdAt: "2026-05-21T12:00:00.000Z",
+              healthStatus: "healthy",
+              cleanupStatus: "completed",
               workingDirectoryPath: "C:/workspace/kiln",
               workingDirectoryMode: "read-only",
               resourceUris: ["kiln://resources/context.md"],
+              diagnosticUris: ["kiln://artifacts/lifecycle-child-lease-only/lease-diagnostics"],
             },
           },
         },
@@ -348,10 +389,106 @@ describe("operator cockpit read-only projection", () => {
     });
 
     expect(projection.invocations[0]?.resourceLease).toEqual({
+      leaseId: "lifecycle:child:lease-only:resource-lease",
+      createdAt: "2026-05-21T12:00:00.000Z",
+      healthStatus: "healthy",
+      cleanupStatus: "completed",
       workingDirectoryPath: "C:/workspace/kiln",
       workingDirectoryMode: "read-only",
       resourceUris: ["kiln://resources/context.md"],
+      diagnosticUris: ["kiln://artifacts/lifecycle-child-lease-only/lease-diagnostics"],
     });
+  });
+
+  it("drops incomplete resource lease projections instead of defaulting required evidence lists", () => {
+    const started: OperatorSessionEvent = {
+      eventId: "lifecycle:event:incomplete-lease",
+      kilnSessionId: "lifecycle:session:incomplete-lease",
+      sequence: 1,
+      timestamp: "2026-05-21T12:00:00.000Z",
+      kind: "agent_invocation_started",
+      payload: {
+        instanceId: "lifecycle:instance:1",
+        sessionId: "lifecycle:session:incomplete-lease",
+        managedInvocationId: "lifecycle:child:incomplete-lease",
+        invocationId: "lifecycle:child:incomplete-lease",
+        agentId: "agent-reviewer",
+        lifecycleState: "running",
+        capabilitySnapshot: {
+          resourceLease: {
+            leaseId: "lifecycle:child:incomplete-lease:resource-lease",
+            createdAt: "2026-05-21T12:00:00.000Z",
+            healthStatus: "healthy",
+            cleanupStatus: "not-required",
+            workingDirectoryPath: "C:/workspace/kiln",
+            workingDirectoryMode: "read-only",
+          },
+        },
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-21T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "lifecycle:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [started],
+    });
+
+    expect(projection.invocations[0]?.resourceLease).toBeUndefined();
+  });
+
+  it("does not merge incomplete lifecycle lease deltas with admission snapshots", () => {
+    const started: OperatorSessionEvent = {
+      eventId: "lifecycle:event:partial-lease-delta",
+      kilnSessionId: "lifecycle:session:partial-lease-delta",
+      sequence: 1,
+      timestamp: "2026-05-21T12:00:00.000Z",
+      kind: "agent_invocation_completed",
+      payload: {
+        instanceId: "lifecycle:instance:1",
+        sessionId: "lifecycle:session:partial-lease-delta",
+        managedInvocationId: "lifecycle:child:partial-lease-delta",
+        invocationId: "lifecycle:child:partial-lease-delta",
+        agentId: "agent-reviewer",
+        lifecycleState: "completed",
+        capabilitySnapshot: {
+          resourceLease: {
+            leaseId: "lifecycle:child:partial-lease-delta:resource-lease",
+            createdAt: "2026-05-21T12:00:00.000Z",
+            healthStatus: "healthy",
+            cleanupStatus: "pending",
+            workingDirectoryPath: "C:/workspace/kiln",
+            workingDirectoryMode: "workspace-write",
+            resourceUris: ["kiln://resources/context.md"],
+            diagnosticUris: [],
+          },
+        },
+        managedInvocationEvidence: {
+          lifecycle: {
+            resourceLease: {
+              healthStatus: "released",
+              cleanupStatus: "completed",
+              diagnosticUris: ["kiln://artifacts/lifecycle-child-partial-lease-delta/lease-diagnostics"],
+            },
+          },
+        },
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-21T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "lifecycle:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [started],
+    });
+
+    expect(projection.invocations[0]?.resourceLease).toBeUndefined();
   });
 
   it("projects tool resource links as target-aware read-only cockpit resources", () => {

@@ -145,9 +145,14 @@ export interface OperatorCockpitInvocationProjection {
 }
 
 export interface OperatorCockpitInvocationResourceLeaseProjection {
+  readonly leaseId: string;
+  readonly createdAt: string;
+  readonly healthStatus: OperatorManagedAgentResourceLeaseSnapshot["healthStatus"];
+  readonly cleanupStatus: OperatorManagedAgentResourceLeaseSnapshot["cleanupStatus"];
   readonly workingDirectoryPath: string;
   readonly workingDirectoryMode: OperatorManagedAgentResourceLeaseSnapshot["workingDirectoryMode"];
   readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
 }
 
 export type OperatorCockpitToolStatus =
@@ -692,11 +697,12 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function readStringList(value: unknown): readonly string[] {
+function readRequiredStringList(value: unknown): readonly string[] | null {
   if (!Array.isArray(value)) {
-    return [];
+    return null;
   }
-  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  const strings = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return strings.length === value.length ? strings : null;
 }
 
 function readCostDeltaUsd(payload: Record<string, unknown>): number {
@@ -713,22 +719,41 @@ function readProviderRoute(payload: Record<string, unknown>): string | null {
 }
 
 function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInvocationResourceLeaseProjection | null {
-  const hasCapabilitySnapshot = isRecordValue(payload.capabilitySnapshot);
   const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
   const evidence = asRecord(payload.managedInvocationEvidence);
   const lifecycle = asRecord(evidence.lifecycle);
   const snapshotLease = asRecord(capabilitySnapshot.resourceLease);
   const lifecycleLease = asRecord(lifecycle.resourceLease);
-  const lease = hasCapabilitySnapshot ? snapshotLease : lifecycleLease;
+  const lease = isRecordValue(lifecycle.resourceLease) ? lifecycleLease : snapshotLease;
+  const leaseId = readString(lease.leaseId);
+  const createdAt = readString(lease.createdAt);
+  const healthStatus = readLeaseHealthStatus(lease.healthStatus);
+  const cleanupStatus = readLeaseCleanupStatus(lease.cleanupStatus);
   const workingDirectoryPath = readString(lease.workingDirectoryPath);
   const workingDirectoryMode = readWorkingDirectoryMode(lease.workingDirectoryMode);
-  if (!workingDirectoryPath || !workingDirectoryMode) {
+  const resourceUris = readRequiredStringList(lease.resourceUris);
+  const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
+  if (
+    !leaseId
+    || !createdAt
+    || !healthStatus
+    || !cleanupStatus
+    || !workingDirectoryPath
+    || !workingDirectoryMode
+    || !resourceUris
+    || !diagnosticUris
+  ) {
     return null;
   }
   return {
+    leaseId,
+    createdAt,
+    healthStatus,
+    cleanupStatus,
     workingDirectoryPath,
     workingDirectoryMode,
-    resourceUris: readStringList(lease.resourceUris),
+    resourceUris,
+    diagnosticUris,
   };
 }
 
@@ -738,6 +763,20 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 
 function readWorkingDirectoryMode(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["workingDirectoryMode"] | null {
   if (value === "read-only" || value === "workspace-write" || value === "isolated-worktree" || value === "sandbox") {
+    return value;
+  }
+  return null;
+}
+
+function readLeaseHealthStatus(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["healthStatus"] | null {
+  if (value === "healthy" || value === "stale" || value === "released" || value === "leaked") {
+    return value;
+  }
+  return null;
+}
+
+function readLeaseCleanupStatus(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["cleanupStatus"] | null {
+  if (value === "not-required" || value === "pending" || value === "completed" || value === "failed" || value === "unknown") {
     return value;
   }
   return null;

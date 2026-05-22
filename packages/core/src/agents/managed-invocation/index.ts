@@ -297,10 +297,19 @@ export interface ManagedAgentResultHandoff {
   readonly memoryWriteProposalUris: readonly string[];
 }
 
+export type ManagedAgentResourceLeaseHealthStatus = "healthy" | "stale" | "released" | "leaked";
+
+export type ManagedAgentResourceLeaseCleanupStatus = "not-required" | "pending" | "completed" | "failed" | "unknown";
+
 export interface ManagedAgentResourceLeaseEvidence {
+  readonly leaseId: string;
+  readonly createdAt: string;
+  readonly healthStatus: ManagedAgentResourceLeaseHealthStatus;
+  readonly cleanupStatus: ManagedAgentResourceLeaseCleanupStatus;
   readonly workingDirectoryPath: string;
   readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
   readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
 }
 
 export interface ManagedAgentLifecycleEvidence {
@@ -568,9 +577,10 @@ export function buildManagedAgentCapabilitySnapshot(
     available: true,
     resourceUris: request.input.resourceUris ?? [],
   };
+  const capturedAt = input.capturedAt ?? new Date().toISOString();
   return defineManagedAgentCapabilitySnapshot({
     snapshotId: `${request.invocationId}:capability-snapshot`,
-    capturedAt: input.capturedAt ?? new Date().toISOString(),
+    capturedAt,
     routeId: input.routeId ?? `${request.providerRoute.providerId}:${request.profile}`,
     routeHealth: input.routeHealth ?? {
       status: "healthy",
@@ -588,9 +598,14 @@ export function buildManagedAgentCapabilitySnapshot(
     contextMode: request.input.context?.mode ?? "isolated",
     resourcePlane,
     resourceLease: input.resourceLease ?? {
+      leaseId: `${request.invocationId}:resource-lease`,
+      createdAt: capturedAt,
+      healthStatus: "healthy",
+      cleanupStatus: request.authority.workingDirectory.mode === "read-only" ? "not-required" : "pending",
       workingDirectoryPath: request.authority.workingDirectory.path,
       workingDirectoryMode: request.authority.workingDirectory.mode,
       resourceUris: resourcePlane.resourceUris,
+      diagnosticUris: [],
     },
     childIdentity: input.childIdentity ?? {
       agentId: request.agentId,
@@ -903,9 +918,14 @@ function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentRes
 
 function requireResourceLease(input: ManagedAgentResourceLeaseEvidence): ManagedAgentResourceLeaseEvidence {
   return {
+    leaseId: requireText(input.leaseId, "Managed capability snapshot lease id is required"),
+    createdAt: requireIsoTimestamp(input.createdAt, "Managed capability snapshot lease created timestamp is required"),
+    healthStatus: requireResourceLeaseHealthStatus(input.healthStatus),
+    cleanupStatus: requireResourceLeaseCleanupStatus(input.cleanupStatus),
     workingDirectoryPath: requireText(input.workingDirectoryPath, "Managed capability snapshot lease working directory is required"),
     workingDirectoryMode: requireWorkingDirectoryMode(input.workingDirectoryMode),
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed capability snapshot lease resource uri is required")),
+    diagnosticUris: input.diagnosticUris.map((uri) => requireText(uri, "Managed capability snapshot lease diagnostic uri is required")),
   };
 }
 
@@ -942,6 +962,20 @@ function requireWorkingDirectoryMode(value: ManagedAgentWorkingDirectory["mode"]
     return value;
   }
   throw new Error(`Unsupported managed invocation working directory mode: ${value as string}`);
+}
+
+function requireResourceLeaseHealthStatus(value: ManagedAgentResourceLeaseHealthStatus): ManagedAgentResourceLeaseHealthStatus {
+  if (value === "healthy" || value === "stale" || value === "released" || value === "leaked") {
+    return value;
+  }
+  throw new Error(`Unsupported managed capability snapshot lease health status: ${value as string}`);
+}
+
+function requireResourceLeaseCleanupStatus(value: ManagedAgentResourceLeaseCleanupStatus): ManagedAgentResourceLeaseCleanupStatus {
+  if (value === "not-required" || value === "pending" || value === "completed" || value === "failed" || value === "unknown") {
+    return value;
+  }
+  throw new Error(`Unsupported managed capability snapshot lease cleanup status: ${value as string}`);
 }
 
 function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy): ManagedAgentUnsupportedFieldPolicy {

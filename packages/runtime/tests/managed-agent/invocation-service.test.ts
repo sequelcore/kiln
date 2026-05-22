@@ -298,9 +298,14 @@ describe("RuntimeManagedAgentInvocationService", () => {
       lifecycleState: "running",
     });
     expect(started.decision.capabilitySnapshot.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "healthy",
+      cleanupStatus: "not-required",
       workingDirectoryPath: "C:/workspace/kiln",
       workingDirectoryMode: "read-only",
       resourceUris: [],
+      diagnosticUris: [],
     });
     expect(service.status("invocation-1")).toMatchObject({
       invocationId: "invocation-1",
@@ -332,12 +337,17 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const service = new RuntimeManagedAgentInvocationService();
     const explicitLease = {
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "healthy" as const,
+      cleanupStatus: "not-required" as const,
       workingDirectoryPath: "C:/workspace/kiln/.kiln/leases/invocation-1",
       workingDirectoryMode: "read-only" as const,
       resourceUris: [
         "kiln://resources/context.md",
         "kiln://artifacts/invocation-1/lease",
       ],
+      diagnosticUris: [],
     };
 
     const started = await service.start(makeRequest(), adapter, {
