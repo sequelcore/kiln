@@ -147,6 +147,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       prompt,
       cwd,
       system,
+      ...(input.environment !== undefined ? { env: input.environment } : {}),
     }, collected);
     const timeoutPromise = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
     const cancelPromise = abortSignalPromise(input.abortSignal).then(() => CANCELLED);

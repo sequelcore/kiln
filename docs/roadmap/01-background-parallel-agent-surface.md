@@ -15,9 +15,10 @@ Active. Started on 2026-05-21. Current implementation status:
   health/cleanup metadata, same-checkout write guards, runtime-owned
   isolated-worktree lease acquire/release, runtime-owned filesystem
   artifact-directory lease acquire/release, runtime-owned dev-server port
-  lease acquire/release, and in-memory stale lease recovery now exist. Sandbox,
-  environment, credential-route, persistent restart recovery, and cleanup
-  daemon work remain open.
+  lease acquire/release, runtime-owned environment binding lease
+  acquire/release, and in-memory stale lease recovery now exist. Sandbox,
+  credential-route, persistent restart recovery, and cleanup daemon work
+  remain open.
 - Slices 4-8 are not started.
 
 Recent implementation commits:
@@ -195,12 +196,19 @@ Kiln now has the first runtime-owned managed-child lifecycle foundation:
   probes are in flight, surfaces probe setup failures separately from capacity
   exhaustion, and keeps port cleanup evidence in the same terminal
   `resourceLease` record as worktree and artifact leases.
+- Runtime now has an environment binding lease manager boundary for managed
+  invocations. It binds static values and dev-server-port-derived values after
+  earlier runtime leases, validates portable environment names and
+  case-insensitive collisions, forwards bindings through the runtime adapter
+  contract into CLI harness sessions, records only binding-name resource and
+  release URIs, and releases environment evidence before the dev-server port
+  stage.
 - `kiln run --workers` is still transitional CLI fan-out behavior, not yet
   rebased onto the managed-child lifecycle.
 
 The missing product primitive is now narrower: lease-backed execution must
-expand from isolated worktrees, artifact directories, and dev-server ports into
-sandbox, environment binding, and credential route leases. Runtime restart
+expand from isolated worktrees, artifact directories, dev-server ports, and
+environment bindings into sandbox and credential route leases. Runtime restart
 recovery and daemonized stale cleanup must then project that lifecycle
 equivalently through CLI, TUI, GUI, native, gateway, and resource plane
 surfaces.
@@ -301,10 +309,15 @@ Completed:
   already-bound ports, prevents concurrent and in-flight reuse, releases
   allocations on terminal cleanup, records port resource/release evidence, and
   reports bind probe misconfiguration distinctly from pool exhaustion.
+- Runtime owns an environment binding lease manager port and implementation
+  that binds static values or the previously leased dev-server port into child
+  adapter environment, validates portable names and case collisions, records
+  redacted binding-name resource/release evidence, and forwards bindings to CLI
+  harness sessions without placing values in lifecycle URIs.
 
 Remaining:
 
-- Provision real sandbox, environment, and credential-route leases.
+- Provision real sandbox and credential-route leases.
 - Implement persistent stale lease discovery after runtime restart and
   daemonized cleanup scheduling beyond explicit in-memory sweeps.
 - Add dirty-worktree adoption/review policy after leaked preservation evidence.

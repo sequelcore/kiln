@@ -9,6 +9,7 @@ export interface CliSessionRunOptions {
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
   readonly reasoningEffort?: ReasoningEffort;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /** Minimal session event union — structurally compatible with cli/wrapper/session SessionEvent. */

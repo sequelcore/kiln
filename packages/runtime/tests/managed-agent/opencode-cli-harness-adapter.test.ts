@@ -704,4 +704,64 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     });
     expect(JSON.stringify(restored.sessionEvents)).not.toContain("diff --git");
   });
+
+  it("forwards managed environment bindings to the CLI harness session without recording values as lease evidence", async () => {
+    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+      { type: "text_delta", content: `Port ${options.env?.KILN_DEV_SERVER_PORT ?? "missing"} received.` },
+      { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+    });
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-opencode-1/environment/KILN_DEV_SERVER_PORT",
+          ],
+        },
+        environment: {
+          KILN_DEV_SERVER_PORT: "49152",
+        },
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-opencode-1/environment-release/KILN_DEV_SERVER_PORT",
+        ],
+      })),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+
+    const result = await service.invoke(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(run.mock.calls[0]?.[0].env).toEqual({
+      KILN_DEV_SERVER_PORT: "49152",
+    });
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed managed invocation result");
+    }
+    expect(result.record.resultHandoff.summary).toBe("Port 49152 received.");
+    expect(result.record.resourceLease?.resourceUris).toEqual([
+      "kiln://artifacts/invocation-opencode-1/environment/KILN_DEV_SERVER_PORT",
+    ]);
+    expect(result.record.resourceLease?.diagnosticUris).toEqual([
+      "kiln://artifacts/invocation-opencode-1/environment-release/KILN_DEV_SERVER_PORT",
+    ]);
+    expect(result.record.resourceLease?.resourceUris).not.toContain(
+      "kiln://artifacts/invocation-opencode-1/environment/49152",
+    );
+  });
 });

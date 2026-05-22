@@ -17,6 +17,7 @@ import {
 } from "@kilnai/core";
 import {
   ManagedInMemoryDevServerPortLeaseManager,
+  ManagedRuntimeEnvironmentLeaseManager,
   ManagedFilesystemArtifactDirectoryLeaseManager,
   ManagedGitWorktreeLeaseManager,
   ManagedAgentLeaseAcquireError,
@@ -1262,6 +1263,505 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect((thrown as Error).message).toContain("Managed dev-server port probe failed");
     expect((thrown as Error).message).not.toContain("No managed dev-server ports are available");
     expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("acquires environment bindings after dev-server port leases and passes them to the adapter", async () => {
+    const devServerPortLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/dev-server-port/49152",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/dev-server-port-release/49152",
+        ],
+      })),
+    };
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT",
+          ],
+        },
+        environment: {
+          KILN_DEV_SERVER_PORT: "49152",
+        },
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT",
+        ],
+      })),
+    };
+    const invoke = vi.fn(async ({ admission, environment }) => {
+      expect(environment).toEqual({ KILN_DEV_SERVER_PORT: "49152" });
+      return makeRecord(admission.capabilitySnapshot);
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      devServerPortLeaseManager,
+      environmentLeaseManager,
+    });
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    expect(devServerPortLeaseManager.acquire.mock.invocationCallOrder[0])
+      .toBeLessThan(environmentLeaseManager.acquire.mock.invocationCallOrder[0]!);
+    expect(environmentLeaseManager.acquire.mock.invocationCallOrder[0])
+      .toBeLessThan(invoke.mock.invocationCallOrder[0]!);
+
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(environmentLeaseManager.release.mock.invocationCallOrder[0])
+      .toBeLessThan(devServerPortLeaseManager.release.mock.invocationCallOrder[0]!);
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: [
+        "kiln://artifacts/invocation-1/dev-server-port/49152",
+        "kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT",
+        "kiln://artifacts/invocation-1/dev-server-port-release/49152",
+      ],
+    });
+  });
+
+  it("rejects environment lease manager resource URIs outside the invocation namespace", async () => {
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          resourceUris: ["kiln://artifacts/other-invocation/environment/KILN_DEV_SERVER_PORT"],
+        },
+        environment: {
+          KILN_DEV_SERVER_PORT: "49152",
+        },
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+
+    await expect(service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("outside invocation artifacts");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(environmentLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(service.status("invocation-1")).toMatchObject({
+      lifecycleState: "failed",
+      record: {
+        lifecycleState: "failed",
+        resourceLease: {
+          healthStatus: "healthy",
+          cleanupStatus: "not-required",
+          resourceUris: [],
+        },
+      },
+    });
+  });
+
+  it("binds dev-server port lease evidence into environment without leaking values into URIs", async () => {
+    const devServerPortLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/dev-server-port/49152",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/dev-server-port-release/49152",
+        ],
+      })),
+    };
+    const environmentLeaseManager = new ManagedRuntimeEnvironmentLeaseManager({
+      bindings: [{
+        name: "KILN_DEV_SERVER_PORT",
+        valueFrom: "dev-server-port",
+      }],
+    });
+    const invoke = vi.fn(async ({ admission, environment }) => {
+      expect(environment).toEqual({ KILN_DEV_SERVER_PORT: "49152" });
+      return makeRecord(admission.capabilitySnapshot);
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      devServerPortLeaseManager,
+      environmentLeaseManager,
+    });
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease?.resourceUris).not.toContain(
+      "kiln://artifacts/invocation-1/environment/49152",
+    );
+    expect(joined.record.resourceLease).toMatchObject({
+      resourceUris: [
+        "kiln://artifacts/invocation-1/dev-server-port/49152",
+        "kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT",
+        "kiln://artifacts/invocation-1/dev-server-port-release/49152",
+      ],
+    });
+  });
+
+  it("rejects custom environment lease resource URIs that contain binding values", async () => {
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/environment/49152",
+          ],
+        },
+        environment: {
+          KILN_DEV_SERVER_PORT: "49152",
+        },
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+
+    await expect(service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("must not contain environment binding values");
+
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(environmentLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(environmentLeaseManager.release.mock.calls[0]?.[0].lease.resourceUris).toContain(
+      "kiln://artifacts/invocation-1/environment/49152",
+    );
+    expect(service.status("invocation-1")?.record?.resourceLease?.resourceUris).not.toContain(
+      "kiln://artifacts/invocation-1/environment/49152",
+    );
+    expect(service.status("invocation-1")?.record?.resourceLease?.diagnosticUris).toEqual([
+      "kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT",
+    ]);
+  });
+
+  it("rejects custom environment release diagnostic URIs that contain binding values", async () => {
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT",
+          ],
+        },
+        environment: {
+          KILN_DEV_SERVER_PORT: "49152",
+        },
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/environment-release/49152",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease?.healthStatus).toBe("leaked");
+    expect(joined.record.resourceLease?.cleanupStatus).toBe("failed");
+    expect(joined.record.resourceLease?.diagnosticUris).toEqual([
+      "kiln://artifacts/invocation-1/environment-cleanup-failed",
+    ]);
+    expect(joined.record.resourceLease?.diagnosticUris).not.toContain(
+      "kiln://artifacts/invocation-1/environment-release/49152",
+    );
+  });
+
+  it("removes rejected environment value URIs from cleanup diagnostics", async () => {
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/environment/49152",
+          ],
+        },
+        environment: {
+          KILN_DEV_SERVER_PORT: "49152",
+        },
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "failed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/environment/49152",
+          "kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+
+    await expect(service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("must not contain environment binding values");
+
+    const terminalRecord = service.status("invocation-1")?.record;
+    expect(terminalRecord?.resourceLease?.resourceUris).not.toContain(
+      "kiln://artifacts/invocation-1/environment/49152",
+    );
+    expect(terminalRecord?.resourceLease?.diagnosticUris).not.toContain(
+      "kiln://artifacts/invocation-1/environment/49152",
+    );
+    expect(terminalRecord?.diagnostics?.map((diagnostic) => diagnostic.uri)).not.toContain(
+      "kiln://artifacts/invocation-1/environment/49152",
+    );
+  });
+
+  it("releases environment leases when acquired environment output fails validation", async () => {
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT",
+          ],
+        },
+        environment: JSON.parse("{\"KILN_DEV_SERVER_PORT\":49152}") as Record<string, string>,
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+
+    await expect(service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("value must be a string");
+
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(environmentLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(service.status("invocation-1")).toMatchObject({
+      lifecycleState: "failed",
+      record: {
+        lifecycleState: "failed",
+        resourceLease: {
+          healthStatus: "released",
+          cleanupStatus: "completed",
+          resourceUris: ["kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT"],
+          diagnosticUris: ["kiln://artifacts/invocation-1/environment-release/KILN_DEV_SERVER_PORT"],
+        },
+      },
+    });
+  });
+
+  it("rejects prototype-sensitive managed environment binding names", async () => {
+    expect(() => new ManagedRuntimeEnvironmentLeaseManager({
+      bindings: [{ name: "__proto__", value: "49152" }],
+    })).toThrow("reserved environment binding name");
+
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/environment/__proto__",
+          ],
+        },
+        environment: JSON.parse("{\"__proto__\":\"49152\"}") as Record<string, string>,
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
+
+    await expect(service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("reserved environment binding name");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(environmentLeaseManager.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds the latest dev-server port lease when prior port evidence already exists", async () => {
+    const devServerPortLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/dev-server-port/49152",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/dev-server-port-release/49152",
+        ],
+      })),
+    };
+    const environmentLeaseManager = new ManagedRuntimeEnvironmentLeaseManager({
+      bindings: [{
+        name: "KILN_DEV_SERVER_PORT",
+        valueFrom: "dev-server-port",
+      }],
+    });
+    const invoke = vi.fn(async ({ admission, environment }) => {
+      expect(environment).toEqual({ KILN_DEV_SERVER_PORT: "49152" });
+      return makeRecord(admission.capabilitySnapshot);
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      devServerPortLeaseManager,
+      environmentLeaseManager,
+    });
+    const explicitLease = {
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "healthy" as const,
+      cleanupStatus: "not-required" as const,
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only" as const,
+      resourceUris: ["kiln://artifacts/invocation-1/dev-server-port/40000"],
+      diagnosticUris: [],
+    };
+
+    const started = await service.start(makeRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      resourceLease: explicitLease,
+      resourcePlane: {
+        available: true,
+        resourceUris: explicitLease.resourceUris,
+      },
+    });
+    expect(started.status).toBe("started");
+
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(joined.record.resourceLease?.resourceUris).toEqual([
+      "kiln://artifacts/invocation-1/dev-server-port/40000",
+      "kiln://artifacts/invocation-1/dev-server-port/49152",
+      "kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT",
+    ]);
   });
 
   it("creates and releases filesystem artifact-directory lease directories", async () => {

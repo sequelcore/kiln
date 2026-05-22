@@ -58,16 +58,19 @@ Use these documents as the stable source of truth before starting roadmap work:
    lifecycle evidence and nonblocking `start/status/join/cancel/list` tools now
    exist. Slice 3 is in progress: lease evidence, operator projection,
    health/cleanup metadata, same-checkout write guards, runtime-owned
-   isolated-worktree acquire/release, and runtime-owned artifact-directory
-   acquire/release, and runtime-owned dev-server port acquire/release exist.
+   isolated-worktree acquire/release, runtime-owned artifact-directory
+   acquire/release, runtime-owned dev-server port acquire/release, and
+   runtime-owned environment binding acquire/release exist.
    Same-path isolated collisions, path aliases, lease-manager drift, git
    worktree root confinement, pre-launch cancellation during acquire, product
    config wiring for git-backed isolated worktree leases, non-empty
    artifact-directory preservation, explicit port-pool allocation,
    concurrent port reservation, probe setup diagnostics, and in-memory stale
    recovery with immediate cleanup of already-acquired stages are covered;
-   sandbox, env, credential leases, persistent restart recovery, and cleanup
-   daemon scheduling remain open.
+   environment bindings now flow through runtime adapters into CLI harness
+   sessions without leaking values into lifecycle URIs; sandbox,
+   credential-route leases, persistent restart recovery, and cleanup daemon
+   scheduling remain open.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

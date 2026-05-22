@@ -1,75 +1,75 @@
-# Plan: Slice 3D Runtime Dev-Server Port Leases
+# Plan: Slice 3E Runtime Environment Binding Leases
 
 ## Objective
 
-Continue Slice 3 by adding runtime-owned dev-server port leases to the managed
-invocation lifecycle. Port allocation must reuse the existing resource lease
-record, terminal cleanup evidence, and stale/cancel release pipeline so CLI,
-TUI, GUI, gateway, native, and resource-plane projections continue to consume
-one lifecycle truth.
+Continue Slice 3 by adding runtime-owned environment binding leases to managed
+invocations. Environment values must be allocated inside the managed invocation
+lifecycle, passed to child adapters, and represented as redacted URI evidence
+in the existing terminal `resourceLease` record.
 
 ## Scope
 
-- Add a `ManagedAgentDevServerPortLeaseManager` port to
+- Add a `ManagedAgentEnvironmentLeaseManager` port to
   `RuntimeManagedAgentInvocationService`.
-- Add an in-memory dev-server port lease manager that allocates from an
-  explicit configured port pool and rejects already-bound ports.
-- Acquire dev-server port leases before adapter execution and release them on
-  terminal completion, failure, cancellation, or stale recovery.
-- Preserve port lease resource and cleanup URIs in terminal `resourceLease`
-  evidence.
-- Validate port lease manager output with the same invocation-scoped URI
-  boundary as worktree and artifact leases.
+- Add a runtime environment binding manager that can bind static values and
+  dev-server port lease values without leaking values into resource URIs.
+- Acquire environment bindings after worktree, artifact-directory, and
+  dev-server port leases, then release them before earlier resource stages.
+- Pass acquired environment bindings through `ManagedAgentRuntimeInvocationInput`.
+- Forward managed environment bindings to CLI harness sessions.
+- Validate environment lease manager output with the same invocation-scoped URI
+  boundary as existing runtime leases.
 - Export the public runtime types and implementation.
 
 ## Out Of Scope
 
-- Passing allocated ports into child process environment variables.
-- Persistent port lease discovery after runtime restart.
-- Sandbox, environment-variable, and credential-route leases.
+- Credential material injection.
+- Persistent environment lease discovery after runtime restart.
+- Sandbox and credential-route leases.
 - Daemonized cleanup scheduling.
 - Rebase of `kiln run --workers`.
 
 ## Affected Files
 
 - `packages/runtime/src/agents/managed-invocation/index.ts`
+- `packages/runtime/src/agents/managed-invocation/cli-harness-adapter.ts`
+- `packages/runtime/src/execution/cli-session-contract.ts`
 - `packages/runtime/tests/managed-agent/invocation-service.test.ts`
+- `packages/runtime/tests/managed-agent/opencode-cli-harness-adapter.test.ts`
 - `packages/runtime/src/index.ts`
 - `docs/roadmap/01-background-parallel-agent-surface.md`
 - `docs/roadmap/README.md`
 
 ## TDD Targets
 
-1. Runtime acquires a dev-server port lease before adapter execution and
-   releases it as terminal lifecycle evidence.
-2. Runtime rejects dev-server port manager resource URIs outside the invocation
-   namespace.
-3. The in-memory port manager allocates from a configured pool, blocks
-   concurrent reuse, releases on terminal cleanup, and records release
-   diagnostics.
-4. The in-memory port manager fails closed when every configured port is already
-   bound.
-5. Concurrent starts cannot reuse a port while an availability probe is still
-   in flight.
-6. Port probe setup failures surface as configuration/probe errors instead of
-   being flattened into capacity exhaustion.
+1. Runtime acquires environment bindings after dev-server port leases and
+   passes the environment to the adapter before execution.
+2. Runtime rejects environment lease manager resource URIs outside the
+   invocation namespace.
+3. The concrete environment binding manager derives a port value from the
+   existing dev-server port lease evidence without exposing that value in
+   lifecycle URIs.
+4. CLI harness sessions receive managed environment bindings through
+   `session.run`.
+5. Environment cleanup evidence is released before the dev-server port cleanup
+   stage.
 
 ## Verification
 
 ```bash
 bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts
+bun run --cwd packages/runtime test -- tests/managed-agent/opencode-cli-harness-adapter.test.ts
 bun run --filter @kilnai/runtime test
 bun run typecheck
+bun run --filter "*" build
 git diff --check
 ```
 
 ## Risks
 
-- Port leases currently allocate and validate runtime availability, but do not
-  yet inject the selected port into child environments.
-- In-memory port reservations do not survive runtime restart; persistent stale
-  lease discovery remains a later Slice 3 concern.
-- The port manager must stay behind the managed invocation service boundary so
-  surfaces never create their own lease store.
-- Port probe concurrency must keep in-flight reservations distinct from active
-  leases so a single runtime process never hands out the same port twice.
+- Environment binding values must not appear in resource or diagnostic URIs.
+- Environment names must be validated at the runtime boundary to avoid shell
+  injection and cross-platform case-collision surprises.
+- Direct-provider children currently do not spawn a subprocess, so this slice
+  only passes environment through the runtime adapter contract and proves CLI
+  harness forwarding.

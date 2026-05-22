@@ -106,6 +106,7 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly request: ManagedAgentInvocationRequest;
   readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly abortSignal: AbortSignal;
+  readonly environment?: ManagedAgentEnvironmentVariables;
 }
 
 export interface ManagedAgentRuntimeAdapter {
@@ -146,10 +147,27 @@ export interface ManagedAgentDevServerPortLeaseManager {
   release(input: ManagedAgentDevServerPortLeaseReleaseInput): Promise<ManagedAgentResourceLeaseEvidence>;
 }
 
+export type ManagedAgentEnvironmentVariables = Readonly<Record<string, string>>;
+
+export type ManagedAgentEnvironmentLeaseManagerInput = ManagedAgentWorktreeLeaseManagerInput;
+
+export interface ManagedAgentEnvironmentLease {
+  readonly lease: ManagedAgentResourceLeaseEvidence;
+  readonly environment: ManagedAgentEnvironmentVariables;
+}
+
+export type ManagedAgentEnvironmentLeaseReleaseInput = ManagedAgentWorktreeLeaseReleaseInput;
+
+export interface ManagedAgentEnvironmentLeaseManager {
+  acquire(input: ManagedAgentEnvironmentLeaseManagerInput): Promise<ManagedAgentEnvironmentLease>;
+  release(input: ManagedAgentEnvironmentLeaseReleaseInput): Promise<ManagedAgentResourceLeaseEvidence>;
+}
+
 export interface RuntimeManagedAgentInvocationServiceOptions {
   readonly worktreeLeaseManager?: ManagedAgentWorktreeLeaseManager;
   readonly artifactDirectoryLeaseManager?: ManagedAgentArtifactDirectoryLeaseManager;
   readonly devServerPortLeaseManager?: ManagedAgentDevServerPortLeaseManager;
+  readonly environmentLeaseManager?: ManagedAgentEnvironmentLeaseManager;
 }
 
 export interface ManagedGitWorktreeLeaseManagerConfig {
@@ -168,6 +186,20 @@ export interface ManagedInMemoryDevServerPortLeaseManagerConfig {
   readonly host?: string;
 }
 
+export type ManagedRuntimeEnvironmentBinding =
+  | {
+    readonly name: string;
+    readonly value: string;
+  }
+  | {
+    readonly name: string;
+    readonly valueFrom: "dev-server-port";
+  };
+
+export interface ManagedRuntimeEnvironmentLeaseManagerConfig {
+  readonly bindings: readonly ManagedRuntimeEnvironmentBinding[];
+}
+
 const execFileAsync = promisify(execFile);
 
 export class ManagedAgentLeaseAcquireError extends ManagedAgentRuntimeAdmissionError {
@@ -184,6 +216,8 @@ class ManagedAgentWorktreeLeaseAcquireError extends ManagedAgentLeaseAcquireErro
 class ManagedAgentArtifactDirectoryLeaseAcquireError extends ManagedAgentLeaseAcquireError {}
 
 class ManagedAgentDevServerPortLeaseAcquireError extends ManagedAgentLeaseAcquireError {}
+
+class ManagedAgentEnvironmentLeaseAcquireError extends ManagedAgentLeaseAcquireError {}
 
 export class ManagedGitWorktreeLeaseManager implements ManagedAgentWorktreeLeaseManager {
   private readonly repositoryPath: string;
@@ -422,6 +456,69 @@ export class ManagedInMemoryDevServerPortLeaseManager implements ManagedAgentDev
   }
 }
 
+export class ManagedRuntimeEnvironmentLeaseManager implements ManagedAgentEnvironmentLeaseManager {
+  private readonly bindings: readonly ManagedRuntimeEnvironmentBinding[];
+
+  constructor(config: ManagedRuntimeEnvironmentLeaseManagerConfig) {
+    if (config.bindings.length === 0) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed environment lease manager requires at least one binding");
+    }
+    this.bindings = config.bindings.map((binding) => ({
+      ...binding,
+      name: validateEnvironmentName(binding.name),
+    }));
+    assertNoEnvironmentNameCollisions(this.bindings.map((binding) => binding.name));
+  }
+
+  async acquire(input: ManagedAgentEnvironmentLeaseManagerInput): Promise<ManagedAgentEnvironmentLease> {
+    const environment = Object.create(null) as Record<string, string>;
+    for (const binding of this.bindings) {
+      environment[binding.name] = this.resolveBindingValue(input, binding);
+    }
+    return {
+      lease: {
+        ...input.lease,
+        healthStatus: "healthy",
+        cleanupStatus: "pending",
+        resourceUris: uniqueStrings([
+          ...input.lease.resourceUris,
+          ...this.bindings.map((binding) => environmentBindingResourceUri(input.request.invocationId, binding.name)),
+        ]),
+      },
+      environment,
+    };
+  }
+
+  async release(input: ManagedAgentEnvironmentLeaseReleaseInput): Promise<ManagedAgentResourceLeaseEvidence> {
+    return {
+      ...input.lease,
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      diagnosticUris: uniqueStrings([
+        ...input.lease.diagnosticUris,
+        ...this.bindings.map((binding) => environmentBindingReleaseUri(input.request.invocationId, binding.name)),
+      ]),
+    };
+  }
+
+  private resolveBindingValue(
+    input: ManagedAgentEnvironmentLeaseManagerInput,
+    binding: ManagedRuntimeEnvironmentBinding,
+  ): string {
+    if ("value" in binding) {
+      return binding.value;
+    }
+    const port = readDevServerPortLeaseValue(input.request.invocationId, input.lease.resourceUris);
+    if (port === undefined) {
+      throw new ManagedAgentEnvironmentLeaseAcquireError(
+        "Managed environment binding requires a dev-server port lease",
+        false,
+      );
+    }
+    return String(port);
+  }
+}
+
 export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly invocationId: string;
   readonly agentId: string;
@@ -495,6 +592,9 @@ interface ManagedAgentRuntimeInvocationEntry {
   readonly startedAt: Date;
   readonly abortController: AbortController;
   runtimeLease?: ManagedAgentResourceLeaseEvidence;
+  runtimeLeaseForRelease?: ManagedAgentResourceLeaseEvidence;
+  runtimeEnvironment?: ManagedAgentEnvironmentVariables;
+  environmentValueLeakingUris?: readonly string[];
   acquiredLeaseStages: ManagedAgentRuntimeLeaseStage[];
   releasedLeaseStages: ManagedAgentRuntimeLeaseStage[];
   adapterStarted: boolean;
@@ -505,7 +605,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   terminal?: ManagedAgentRuntimeInvocationTerminal;
 }
 
-type ManagedAgentRuntimeLeaseStage = "worktree" | "artifact-directory" | "dev-server-port";
+type ManagedAgentRuntimeLeaseStage = "worktree" | "artifact-directory" | "dev-server-port" | "environment";
 
 export class RuntimeManagedAgentInvocationService {
   private readonly invocations = new Map<string, ManagedAgentRuntimeInvocationEntry>();
@@ -585,6 +685,7 @@ export class RuntimeManagedAgentInvocationService {
         throw runtimeError;
       }
       entry.runtimeLease = entry.runtimeLease ?? registeredDecision.capabilitySnapshot.resourceLease;
+      entry.runtimeLeaseForRelease = entry.runtimeLeaseForRelease ?? entry.runtimeLease;
       entry.finishedAt = new Date();
       entry.lifecycleState = "failed";
       entry.error = runtimeError;
@@ -627,6 +728,7 @@ export class RuntimeManagedAgentInvocationService {
       adapter,
       admission: cloneJson(registeredDecision),
       abortSignal: abortController.signal,
+      ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
     }).then(async (record) => {
       if (entry.lifecycleState === "stale" && entry.record) {
         const staleRecord = await this.currentTerminalRecord(entry);
@@ -795,12 +897,15 @@ export class RuntimeManagedAgentInvocationService {
     readonly adapter: ManagedAgentRuntimeAdapter;
     readonly admission: ManagedAgentAdmissionDecision;
     readonly abortSignal?: AbortSignal;
+    readonly environment?: ManagedAgentEnvironmentVariables;
   }): Promise<ManagedAgentInvocationRecord> {
     const admission = this.requireRuntimeAdmission(input);
+    const environment = input.environment === undefined ? undefined : validateManagedEnvironment(input.environment);
     const record = await input.adapter.invoke({
       request: input.request,
       admission,
       abortSignal: input.abortSignal ?? new AbortController().signal,
+      ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
     });
     this.assertRecordWithinAdmission(record, input.request, admission);
     return record;
@@ -980,6 +1085,7 @@ export class RuntimeManagedAgentInvocationService {
       }
       entry.acquiredLeaseStages.push("worktree");
       entry.runtimeLease = lease;
+      entry.runtimeLeaseForRelease = lease;
     }
     if (this.options.artifactDirectoryLeaseManager) {
       try {
@@ -996,6 +1102,7 @@ export class RuntimeManagedAgentInvocationService {
       }
       entry.acquiredLeaseStages.push("artifact-directory");
       entry.runtimeLease = lease;
+      entry.runtimeLeaseForRelease = lease;
     }
     if (this.options.devServerPortLeaseManager) {
       try {
@@ -1012,6 +1119,45 @@ export class RuntimeManagedAgentInvocationService {
       }
       entry.acquiredLeaseStages.push("dev-server-port");
       entry.runtimeLease = lease;
+      entry.runtimeLeaseForRelease = lease;
+    }
+    if (this.options.environmentLeaseManager) {
+      try {
+        const previousLease = lease;
+        const environmentLease = await this.options.environmentLeaseManager.acquire({
+          request: cloneJson(entry.request),
+          decision: cloneJson(entry.decision),
+          lease: cloneJson(lease),
+        });
+        markLeaseStageAcquired(entry, "environment");
+        lease = validateResourceLease(entry.request, entry.decision, environmentLease.lease);
+        entry.runtimeLeaseForRelease = lease;
+        let environment: ManagedAgentEnvironmentVariables;
+        try {
+          environment = validateManagedEnvironment(environmentLease.environment);
+        } catch (error) {
+          entry.runtimeLease = lease;
+          throw error;
+        }
+        entry.runtimeEnvironment = mergeManagedEnvironment(
+          entry.runtimeEnvironment,
+          environment,
+        );
+        const leakingUris = environmentLeaseUrisContainingValues(previousLease, lease, environment);
+        if (leakingUris.length > 0) {
+          entry.environmentValueLeakingUris = uniqueStrings([
+            ...(entry.environmentValueLeakingUris ?? []),
+            ...leakingUris,
+          ]);
+          throw new ManagedAgentRuntimeAdmissionError("Managed environment lease URI must not contain environment binding values");
+        }
+        entry.runtimeLease = lease;
+      } catch (error) {
+        if (isSideEffectedLeaseAcquireError(error)) {
+          markLeaseStageAcquired(entry, "environment");
+        }
+        throw error;
+      }
     }
   }
 
@@ -1098,19 +1244,21 @@ export class RuntimeManagedAgentInvocationService {
         );
       }
     }
+    const terminalResourceLease = sanitizeEnvironmentLeaseEvidence(resourceLease, entry.environmentValueLeakingUris);
+    const terminalDiagnostics = sanitizeEnvironmentDiagnostics(diagnostics, entry.environmentValueLeakingUris);
     return defineManagedAgentInvocationRecord({
       ...record,
       resourceLease: {
-        ...resourceLease,
+        ...terminalResourceLease,
         ...(cleanupFailureUris.length > 0
           ? {
               healthStatus: "leaked" as const,
               cleanupStatus: "failed" as const,
-              diagnosticUris: uniqueStrings([...resourceLease.diagnosticUris, ...cleanupFailureUris]),
+              diagnosticUris: uniqueStrings([...terminalResourceLease.diagnosticUris, ...cleanupFailureUris]),
             }
           : {}),
       },
-      ...(diagnostics.length > 0 ? { diagnostics } : {}),
+      ...(terminalDiagnostics.length > 0 ? { diagnostics: terminalDiagnostics } : {}),
     });
   }
 
@@ -1120,6 +1268,21 @@ export class RuntimeManagedAgentInvocationService {
     record: ManagedAgentInvocationRecord,
     lease: ManagedAgentResourceLeaseEvidence,
   ): Promise<ManagedAgentResourceLeaseEvidence> {
+    if (stage === "environment") {
+      if (!this.options.environmentLeaseManager) {
+        throw new ManagedAgentRuntimeAdmissionError("Managed agent environment lease manager is required");
+      }
+      const releasedLease = validateResourceLease(entry.request, entry.decision, await this.options.environmentLeaseManager.release({
+        request: cloneJson(entry.request),
+        decision: cloneJson(entry.decision),
+        lease: cloneJson(lease),
+        record: cloneJson(record),
+      }));
+      if (entry.runtimeEnvironment !== undefined) {
+        assertEnvironmentLeaseUrisDoNotContainValues(lease, releasedLease, entry.runtimeEnvironment);
+      }
+      return releasedLease;
+    }
     if (stage === "dev-server-port") {
       if (!this.options.devServerPortLeaseManager) {
         throw new ManagedAgentRuntimeAdmissionError("Managed agent dev-server port lease manager is required");
@@ -1363,6 +1526,15 @@ function isSideEffectedLeaseAcquireError(error: unknown): boolean {
   return error instanceof ManagedAgentLeaseAcquireError && error.sideEffected;
 }
 
+function markLeaseStageAcquired(
+  entry: ManagedAgentRuntimeInvocationEntry,
+  stage: ManagedAgentRuntimeLeaseStage,
+): void {
+  if (!entry.acquiredLeaseStages.includes(stage)) {
+    entry.acquiredLeaseStages.push(stage);
+  }
+}
+
 function isNonEmptyDirectoryError(error: unknown): boolean {
   return isNodeError(error) && (error.code === "ENOTEMPTY" || error.code === "EEXIST");
 }
@@ -1453,6 +1625,8 @@ function cleanupFailureResourceName(stage: ManagedAgentRuntimeLeaseStage): strin
       return "artifact-directory";
     case "dev-server-port":
       return "dev-server-port";
+    case "environment":
+      return "environment";
   }
 
   const unreachableStage: never = stage;
@@ -1467,11 +1641,154 @@ function devServerPortReleaseUri(invocationId: string, port: number): string {
   return `kiln://artifacts/${invocationId}/dev-server-port-release/${port}`;
 }
 
+function environmentBindingResourceUri(invocationId: string, name: string): string {
+  return `kiln://artifacts/${invocationId}/environment/${name}`;
+}
+
+function environmentBindingReleaseUri(invocationId: string, name: string): string {
+  return `kiln://artifacts/${invocationId}/environment-release/${name}`;
+}
+
 function validateDevServerPort(port: number): number {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new ManagedAgentRuntimeAdmissionError("Managed dev-server port must be an integer from 1 to 65535");
   }
   return port;
+}
+
+function readDevServerPortLeaseValue(invocationId: string, resourceUris: readonly string[]): number | undefined {
+  for (let index = resourceUris.length - 1; index >= 0; index -= 1) {
+    const uri = resourceUris[index]!;
+    try {
+      const parsed = new URL(uri);
+      if (parsed.protocol !== "kiln:" || parsed.hostname !== "artifacts") {
+        continue;
+      }
+      const pathSegments = parsed.pathname.split("/").filter((segment) => segment.length > 0);
+      if (pathSegments.length !== 3 || pathSegments[0] !== invocationId || pathSegments[1] !== "dev-server-port") {
+        continue;
+      }
+      return validateDevServerPort(Number(pathSegments[2]));
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function validateManagedEnvironment(environment: ManagedAgentEnvironmentVariables): ManagedAgentEnvironmentVariables {
+  if (environment === null || typeof environment !== "object" || Array.isArray(environment)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed environment bindings must be a string map");
+  }
+  const validated = Object.create(null) as Record<string, string>;
+  for (const [name, value] of Object.entries(environment)) {
+    validated[validateEnvironmentName(name)] = validateEnvironmentValue(value);
+  }
+  assertNoEnvironmentNameCollisions(Object.keys(validated));
+  return validated;
+}
+
+function mergeManagedEnvironment(
+  existing: ManagedAgentEnvironmentVariables | undefined,
+  incoming: ManagedAgentEnvironmentVariables,
+): ManagedAgentEnvironmentVariables {
+  if (existing === undefined) {
+    return incoming;
+  }
+  const environment = Object.assign(Object.create(null), existing, incoming) as Record<string, string>;
+  assertNoEnvironmentNameCollisions(Object.keys(environment));
+  return environment;
+}
+
+function assertEnvironmentLeaseUrisDoNotContainValues(
+  previousLease: ManagedAgentResourceLeaseEvidence,
+  candidateLease: ManagedAgentResourceLeaseEvidence,
+  environment: ManagedAgentEnvironmentVariables,
+): void {
+  if (environmentLeaseUrisContainingValues(previousLease, candidateLease, environment).length > 0) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed environment lease URI must not contain environment binding values");
+  }
+}
+
+function environmentLeaseUrisContainingValues(
+  previousLease: ManagedAgentResourceLeaseEvidence,
+  candidateLease: ManagedAgentResourceLeaseEvidence,
+  environment: ManagedAgentEnvironmentVariables,
+): readonly string[] {
+  const environmentValues = environmentValueFragments(environment);
+  if (environmentValues.length === 0) {
+    return [];
+  }
+  const previousUris = new Set([...previousLease.resourceUris, ...previousLease.diagnosticUris]);
+  return [...candidateLease.resourceUris, ...candidateLease.diagnosticUris]
+    .filter((uri) => !previousUris.has(uri) && uriContainsEnvironmentValue(uri, environmentValues));
+}
+
+function sanitizeEnvironmentLeaseEvidence(
+  lease: ManagedAgentResourceLeaseEvidence,
+  rejectedUris: readonly string[] | undefined,
+): ManagedAgentResourceLeaseEvidence {
+  if (rejectedUris === undefined || rejectedUris.length === 0) {
+    return lease;
+  }
+  const rejectedUriSet = new Set(rejectedUris);
+  return {
+    ...lease,
+    resourceUris: lease.resourceUris.filter((uri) => !rejectedUriSet.has(uri)),
+    diagnosticUris: lease.diagnosticUris.filter((uri) => !rejectedUriSet.has(uri)),
+  };
+}
+
+function sanitizeEnvironmentDiagnostics(
+  diagnostics: readonly NonNullable<ManagedAgentInvocationRecord["diagnostics"]>[number][],
+  rejectedUris: readonly string[] | undefined,
+): readonly NonNullable<ManagedAgentInvocationRecord["diagnostics"]>[number][] {
+  if (rejectedUris === undefined || rejectedUris.length === 0) {
+    return diagnostics;
+  }
+  const rejectedUriSet = new Set(rejectedUris);
+  return diagnostics.filter((diagnostic) => !rejectedUriSet.has(diagnostic.uri));
+}
+
+function environmentValueFragments(environment: ManagedAgentEnvironmentVariables): readonly string[] {
+  return Object.values(environment).filter((value) => value.length > 0);
+}
+
+function uriContainsEnvironmentValue(uri: string, environmentValues: readonly string[]): boolean {
+  return environmentValues.some((value) => uri.includes(value) || uri.includes(encodeURIComponent(value)));
+}
+
+function validateEnvironmentName(name: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed environment binding name must be a portable environment variable name");
+  }
+  if (isReservedEnvironmentBindingName(name)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed environment binding name is a reserved environment binding name");
+  }
+  return name;
+}
+
+function validateEnvironmentValue(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new ManagedAgentRuntimeAdmissionError("Managed environment binding value must be a string");
+  }
+  return value;
+}
+
+function assertNoEnvironmentNameCollisions(names: readonly string[]): void {
+  const normalizedNames = new Set<string>();
+  for (const name of names) {
+    const normalizedName = name.toUpperCase();
+    if (normalizedNames.has(normalizedName)) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed environment binding names must not collide case-insensitively");
+    }
+    normalizedNames.add(normalizedName);
+  }
+}
+
+function isReservedEnvironmentBindingName(name: string): boolean {
+  const normalizedName = name.toLowerCase();
+  return normalizedName === "__proto__" || normalizedName === "prototype" || normalizedName === "constructor";
 }
 
 async function canBindTcpPort(host: string, port: number): Promise<boolean> {
@@ -1543,10 +1860,11 @@ function runtimeLeaseForTerminalRelease(
   entry: ManagedAgentRuntimeInvocationEntry,
   record: ManagedAgentInvocationRecord,
 ): ManagedAgentResourceLeaseEvidence | undefined {
-  if (entry.runtimeLease && record.resourceLease) {
-    return mergeRuntimeLeaseRelease(entry.runtimeLease, record.resourceLease);
+  const runtimeLease = entry.runtimeLeaseForRelease ?? entry.runtimeLease;
+  if (runtimeLease && record.resourceLease) {
+    return mergeRuntimeLeaseRelease(runtimeLease, record.resourceLease);
   }
-  return entry.runtimeLease ?? record.resourceLease;
+  return runtimeLease ?? record.resourceLease;
 }
 
 function mergeRuntimeLeaseRelease(
