@@ -9,6 +9,7 @@ import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentInvocationRequest,
   defineManagedAgentInvocationRecord,
+  defineManagedAgentWriteAuthority,
 } from "@kilnai/core";
 import {
   ManagedAgentRuntimeAdmissionError,
@@ -95,6 +96,95 @@ function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}):
     unsupportedFieldPolicy: "reject",
     cleanup: { supported: true },
     ...overrides,
+  });
+}
+
+function makeWriteDescriptor(): ManagedAgentAdapterDescriptor {
+  return makeDescriptor({
+    supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
+    writeAuthority: {
+      proposalSupported: true,
+      approvedApplySupported: true,
+      memoryProposalSupported: false,
+      rollbackEvidence: true,
+      cleanupEvidence: true,
+      scopeReduction: true,
+    },
+  });
+}
+
+function makeApprovedWriteRequest(
+  invocationId: string,
+  allowedPaths: readonly string[],
+): ManagedAgentInvocationRequest {
+  return defineManagedAgentInvocationRequest({
+    invocationId,
+    agentId: "agent-implementer",
+    parentSessionId: "session-parent",
+    parentTurnId: "turn-parent",
+    profile: "foundation-apply-approved-writes",
+    requestedBy: "operator",
+    requestSource: "manual",
+    providerRoute: {
+      providerId: "opencode",
+      surface: "cli-harness",
+      model: "sonic",
+    },
+    adapterKind: "harness",
+    executionMode: "cli-harness",
+    authority: {
+      authorityProfileId: "foundation-apply-approved-writes",
+      permissionProfile: "apply-approved-writes",
+      toolAuthority: {
+        allowedToolNames: ["read", "rg", "apply-patch"],
+        writeAllowed: true,
+        networkAllowed: false,
+      },
+      workingDirectory: {
+        path: "C:/workspace/kiln",
+        mode: "workspace-write",
+      },
+      timeoutMs: 120000,
+      credentialRoute: {
+        mode: "runtime-selected",
+        routeId: "credential-route:opencode:primary",
+      },
+      memoryScope: {
+        scope: { kind: "project", id: "kiln" },
+        access: "read-only",
+      },
+      writeAuthority: defineManagedAgentWriteAuthority({
+        profile: "foundation-apply-approved-writes",
+        scope: {
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths,
+            deniedPaths: ["C:/workspace/kiln/.git"],
+          },
+          memory: {
+            mode: "none",
+            operations: [],
+          },
+          artifacts: {
+            mode: "none",
+            resourceUris: [],
+            retention: "none",
+          },
+          tools: {
+            allowedToolNames: ["read", "rg", "apply-patch"],
+            deniedToolNames: ["git-commit"],
+          },
+        },
+        approval: {
+          mode: "required-before-apply",
+          evidenceRequired: true,
+          evidenceUris: [`kiln://approvals/${invocationId}`],
+        },
+      }),
+    },
+    input: {
+      summary: "Apply approved bounded changes",
+    },
   });
 }
 
@@ -274,6 +364,49 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(joined.record.capabilitySnapshot.resourceLease).toEqual(explicitLease);
     expect(service.status("invocation-1")?.decision.capabilitySnapshot.resourceLease).toEqual(explicitLease);
+  });
+
+  it("rejects overlapping same-checkout parallel approved-write invocations before adapter execution", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const invoke = vi.fn(async () => terminal.promise);
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const first = await service.start(makeApprovedWriteRequest("write-1", [
+      "C:/workspace/kiln/packages/core",
+    ]), adapter);
+
+    expect(first.status).toBe("started");
+    await expect(service.start(makeApprovedWriteRequest("write-2", [
+      "C:/workspace/kiln/packages/core/src/agents",
+    ]), adapter)).rejects.toThrow("same-checkout parallel write");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(service.status("write-2")).toBeUndefined();
+  });
+
+  it("allows same-checkout parallel approved-write invocations when workspace scopes are explicit and disjoint", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const invoke = vi.fn(async () => terminal.promise);
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const first = await service.start(makeApprovedWriteRequest("write-1", [
+      "C:/workspace/kiln/packages/core",
+    ]), adapter);
+    const second = await service.start(makeApprovedWriteRequest("write-2", [
+      "C:/workspace/kiln/packages/cli",
+    ]), adapter);
+
+    expect(first.status).toBe("started");
+    expect(second.status).toBe("started");
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(service.list().map((snapshot) => snapshot.invocationId)).toEqual(["write-1", "write-2"]);
   });
 
   it("returns immutable snapshots from the runtime registry boundary", async () => {

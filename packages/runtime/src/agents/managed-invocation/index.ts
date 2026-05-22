@@ -201,6 +201,7 @@ export class RuntimeManagedAgentInvocationService {
         decision: cloneJson(decision),
       };
     }
+    this.assertNoActiveWriteLeaseConflict(request);
 
     const registeredRequest = cloneJson(request);
     const registeredDecision = cloneJson(decision);
@@ -412,6 +413,27 @@ export class RuntimeManagedAgentInvocationService {
     }
   }
 
+  private assertNoActiveWriteLeaseConflict(request: ManagedAgentInvocationRequest): void {
+    if (!isWorkspaceWriteInvocation(request)) {
+      return;
+    }
+
+    for (const entry of this.invocations.values()) {
+      if (isTerminalLifecycleState(entry.lifecycleState) || !isWorkspaceWriteInvocation(entry.request)) {
+        continue;
+      }
+      if (!samePath(entry.request.authority.workingDirectory.path, request.authority.workingDirectory.path)) {
+        continue;
+      }
+      if (hasDisjointApprovedWorkspaceScope(entry.request, request)) {
+        continue;
+      }
+      throw new ManagedAgentRuntimeAdmissionError(
+        `Managed agent same-checkout parallel write conflict: ${entry.request.invocationId} already holds ${request.authority.workingDirectory.path}`,
+      );
+    }
+  }
+
   private assertRecordWithinAdmission(
     record: ManagedAgentInvocationRecord,
     request: ManagedAgentInvocationRequest,
@@ -525,6 +547,47 @@ function mergeCancelledRecords(
 
 function isTerminalLifecycleState(state: ManagedAgentLifecycleState): boolean {
   return state === "completed" || state === "failed" || state === "timed_out" || state === "cancelled";
+}
+
+function isWorkspaceWriteInvocation(request: ManagedAgentInvocationRequest): boolean {
+  return request.authority.toolAuthority.writeAllowed === true &&
+    request.authority.workingDirectory.mode === "workspace-write";
+}
+
+function hasDisjointApprovedWorkspaceScope(
+  active: ManagedAgentInvocationRequest,
+  incoming: ManagedAgentInvocationRequest,
+): boolean {
+  const activeWorkspace = active.authority.writeAuthority?.scope.workspace;
+  const incomingWorkspace = incoming.authority.writeAuthority?.scope.workspace;
+  if (
+    activeWorkspace?.mode !== "apply-approved" ||
+    incomingWorkspace?.mode !== "apply-approved" ||
+    activeWorkspace.allowedPaths.length === 0 ||
+    incomingWorkspace.allowedPaths.length === 0
+  ) {
+    return false;
+  }
+
+  return activeWorkspace.allowedPaths.every((activePath) =>
+    incomingWorkspace.allowedPaths.every((incomingPath) => !pathsOverlap(activePath, incomingPath))
+  );
+}
+
+function samePath(left: string, right: string): boolean {
+  return normalizeLeasePath(left) === normalizeLeasePath(right);
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  const normalizedLeft = normalizeLeasePath(left);
+  const normalizedRight = normalizeLeasePath(right);
+  return normalizedLeft === normalizedRight ||
+    normalizedLeft.startsWith(`${normalizedRight}/`) ||
+    normalizedRight.startsWith(`${normalizedLeft}/`);
+}
+
+function normalizeLeasePath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/\/+$/u, "").toLowerCase();
 }
 
 function cloneJson<T>(value: T): T {
