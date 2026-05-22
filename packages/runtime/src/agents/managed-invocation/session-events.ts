@@ -274,7 +274,7 @@ function mapTerminalEvent(input: {
         parentSessionId: input.record.parentSessionId,
         ...managedInvocationIdentity(input.record, input.request),
         lifecycleState: input.record.lifecycleState,
-        reason: "Managed invocation cancelled.",
+        reason: input.record.resultHandoff?.summary ?? "Managed invocation cancelled.",
         cancelledBy: "runtime",
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
         source: input.source,

@@ -152,6 +152,11 @@ function deferred<T>(): {
   return { promise, resolve, reject };
 }
 
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe("RuntimeManagedAgentInvocationService", () => {
   it("admits through core policy before invoking the runtime adapter", async () => {
     const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
@@ -292,6 +297,103 @@ describe("RuntimeManagedAgentInvocationService", () => {
       invocationId: "invocation-1",
       lifecycleState: "failed",
       error: { message: "adapter crashed" },
+    });
+  });
+
+  it("cancels a running invocation by aborting the adapter and suppressing late adapter failure", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    let adapterSignal: AbortSignal | undefined;
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission, abortSignal }) => {
+        adapterSignal = abortSignal;
+        await terminal.promise;
+        return makeRecord(admission.capabilitySnapshot);
+      }),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter);
+
+    expect(started.status).toBe("started");
+    expect(adapterSignal).toBeInstanceOf(AbortSignal);
+    expect(adapterSignal?.aborted).toBe(false);
+
+    const cancelled = await service.cancel("invocation-1", "Operator cancelled the child run.");
+
+    expect(adapterSignal?.aborted).toBe(true);
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.record.lifecycleState).toBe("cancelled");
+    expect(service.status("invocation-1")).toMatchObject({
+      invocationId: "invocation-1",
+      lifecycleState: "cancelled",
+      record: {
+        lifecycleState: "cancelled",
+        resultHandoff: {
+          summary: "Operator cancelled the child run.",
+        },
+      },
+    });
+
+    terminal.reject(new Error("adapter abort surfaced late"));
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(service.status("invocation-1")?.record?.lifecycleState).toBe("cancelled");
+    expect(service.status("invocation-1")?.error).toBeUndefined();
+  });
+
+  it("enriches a cancelled invocation when the adapter later returns cancellation evidence", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async () => terminal.promise),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter);
+
+    expect(started.status).toBe("started");
+    if (started.status !== "started") {
+      throw new Error("expected managed invocation to start");
+    }
+
+    await service.cancel("invocation-1", "Operator cancelled the child run.");
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      ...makeRecord(started.decision.capabilitySnapshot),
+      lifecycleState: "cancelled",
+      resultHandoff: {
+        summary: "Adapter cleanup completed after cancellation.",
+        resourceUris: ["kiln://artifacts/invocation-1/transcript", "kiln://artifacts/invocation-1/cancel-cleanup"],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    await flushMicrotasks();
+    const joined = await service.join("invocation-1");
+
+    expect(service.status("invocation-1")).toMatchObject({
+      lifecycleState: "cancelled",
+      record: {
+        lifecycleState: "cancelled",
+        transcript: {
+          uri: "kiln://artifacts/invocation-1/transcript",
+        },
+        resultHandoff: {
+          summary: "Operator cancelled the child run.",
+          resourceUris: ["kiln://artifacts/invocation-1/transcript", "kiln://artifacts/invocation-1/cancel-cleanup"],
+        },
+      },
+    });
+    expect(joined.record).toMatchObject({
+      lifecycleState: "cancelled",
+      transcript: {
+        uri: "kiln://artifacts/invocation-1/transcript",
+      },
+      resultHandoff: {
+        summary: "Operator cancelled the child run.",
+        resourceUris: ["kiln://artifacts/invocation-1/transcript", "kiln://artifacts/invocation-1/cancel-cleanup"],
+      },
     });
   });
 

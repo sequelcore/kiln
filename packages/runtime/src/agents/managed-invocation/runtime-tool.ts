@@ -47,6 +47,7 @@ export const MANAGED_AGENT_START_TOOL_NAME = "managed_agent.start";
 export const MANAGED_AGENT_STATUS_TOOL_NAME = "managed_agent.status";
 export const MANAGED_AGENT_LIST_TOOL_NAME = "managed_agent.list";
 export const MANAGED_AGENT_JOIN_TOOL_NAME = "managed_agent.join";
+export const MANAGED_AGENT_CANCEL_TOOL_NAME = "managed_agent.cancel";
 
 export interface ManagedInvocationRouteProfile {
   readonly authorityProfileId: string;
@@ -376,6 +377,27 @@ export const MANAGED_AGENT_JOIN_TOOL: ToolDefinition = {
   tags: new Set<string>(["managed-invocation", "operator-status"]),
 };
 
+export const MANAGED_AGENT_CANCEL_TOOL: ToolDefinition = {
+  name: MANAGED_AGENT_CANCEL_TOOL_NAME,
+  description: "Cancel a running managed child invocation in the current runtime session, signal the child adapter, and publish terminal cancellation evidence exactly once.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      invocationId: {
+        type: "string",
+        description: "Managed child invocation id returned by managed_agent.start.",
+      },
+      reason: {
+        type: "string",
+        description: "Operator-facing reason for cancellation.",
+      },
+    },
+    required: ["invocationId"],
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["managed-invocation", "operator-control"]),
+};
+
 export const MANAGED_AGENT_INVOKE_CAPABILITY: Capability = {
   name: MANAGED_AGENT_INVOKE_TOOL.name,
   description: MANAGED_AGENT_INVOKE_TOOL.description,
@@ -413,6 +435,14 @@ export const MANAGED_AGENT_JOIN_CAPABILITY: Capability = {
   description: MANAGED_AGENT_JOIN_TOOL.description,
   schema: MANAGED_AGENT_JOIN_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-status"],
+  annotations: { destructive: false, idempotent: false },
+};
+
+export const MANAGED_AGENT_CANCEL_CAPABILITY: Capability = {
+  name: MANAGED_AGENT_CANCEL_TOOL.name,
+  description: MANAGED_AGENT_CANCEL_TOOL.description,
+  schema: MANAGED_AGENT_CANCEL_TOOL.inputSchema,
+  tags: ["managed-invocation", "operator-control"],
   annotations: { destructive: false, idempotent: false },
 };
 
@@ -512,6 +542,7 @@ export function createManagedInvocationLifecycleToolExecutors(
     [MANAGED_AGENT_STATUS_TOOL_NAME, async (input, context) => executeManagedInvocationStatusTool(input, context, service)],
     [MANAGED_AGENT_LIST_TOOL_NAME, async (_input, context) => executeManagedInvocationListTool(context, service)],
     [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
+    [MANAGED_AGENT_CANCEL_TOOL_NAME, async (input, context) => executeManagedInvocationCancelTool(input, context, options, service)],
   ]);
 }
 
@@ -1140,6 +1171,69 @@ async function executeManagedInvocationJoinTool(
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
     record,
+    sessionEventIds: events.map((event) => event.eventId),
+  });
+}
+
+async function executeManagedInvocationCancelTool(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  options: ManagedInvocationToolOptions,
+  service: RuntimeManagedAgentInvocationService,
+): Promise<ManagedInvocationToolResult> {
+  const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_CANCEL_TOOL_NAME);
+  if (!session.ok) {
+    return session.result;
+  }
+  const invocationId = readInvocationId(rawInput, MANAGED_AGENT_CANCEL_TOOL_NAME);
+  if (!invocationId.ok) {
+    return invocationId.result;
+  }
+  const snapshot = service.status(invocationId.value);
+  const visibility = visibleManagedInvocationSnapshot(snapshot, session.context.session.id, MANAGED_AGENT_CANCEL_TOOL_NAME);
+  if (!visibility.ok) {
+    return visibility.result;
+  }
+  const reason = readText(rawInput.reason) ?? "Managed invocation cancelled.";
+  let terminalResult: Awaited<ReturnType<RuntimeManagedAgentInvocationService["join"]>>;
+  try {
+    await service.cancel(invocationId.value, reason);
+    terminalResult = await service.join(invocationId.value);
+  } catch (error) {
+    return errorResult(
+      `Managed invocation cancel failed: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        invocationId: invocationId.value,
+        status: service.status(invocationId.value)?.lifecycleState ?? "failed",
+      },
+      MANAGED_AGENT_CANCEL_TOOL_NAME,
+    );
+  }
+  if (terminalResult.status !== "completed") {
+    return errorResult(
+      "Managed invocation cancel failed: terminal record was not available after cancellation",
+      {
+        invocationId: invocationId.value,
+        status: terminalResult.status,
+      },
+      MANAGED_AGENT_CANCEL_TOOL_NAME,
+    );
+  }
+  const events = appendManagedInvocationTerminalSessionEvent({
+    session: session.context.session,
+    request: visibility.snapshot.request,
+    record: terminalResult.record,
+    durationMs: service.status(invocationId.value)?.durationMs,
+  });
+  await options.sessionEventSink?.publish(events, session.context);
+  return terminalManagedInvocationResult({
+    toolName: MANAGED_AGENT_CANCEL_TOOL_NAME,
+    rawInput,
+    routeId: terminalResult.record.capabilitySnapshot.routeId,
+    voiceProfile: visibility.snapshot.decision.capabilitySnapshot.childIdentity.voiceProfile,
+    contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
+    request: visibility.snapshot.request,
+    record: terminalResult.record,
     sessionEventIds: events.map((event) => event.eventId),
   });
 }

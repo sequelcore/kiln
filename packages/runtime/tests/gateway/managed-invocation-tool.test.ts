@@ -217,6 +217,27 @@ function makeRejectingDeferredAdapter(): {
   return { adapter, terminal };
 }
 
+function makeAbortableDeferredAdapter(): {
+  readonly adapter: ManagedAgentRuntimeAdapter;
+  readonly terminal: ReturnType<typeof deferred<ReturnType<typeof defineManagedAgentInvocationRecord>>>;
+  readonly signal: () => AbortSignal | undefined;
+} {
+  const terminal = deferred<ReturnType<typeof defineManagedAgentInvocationRecord>>();
+  let signal: AbortSignal | undefined;
+  const adapter: ManagedAgentRuntimeAdapter = {
+    descriptor: makeDescriptor(),
+    invoke: vi.fn(async ({ admission, abortSignal }) => {
+      signal = abortSignal;
+      const record = await terminal.promise;
+      return defineManagedAgentInvocationRecord({
+        ...record,
+        capabilitySnapshot: admission.capabilitySnapshot,
+      });
+    }),
+  };
+  return { adapter, terminal, signal: () => signal };
+}
+
 function makeSurface(
   adapter = makeAdapter(),
   sessionEventSink?: ManagedInvocationSessionEventSink,
@@ -304,11 +325,13 @@ describe("managed invocation runtime tool", () => {
     expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.status")).toBe(false);
     expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.list")).toBe(false);
     expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.join")).toBe(false);
+    expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.cancel")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.invoke")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.start")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.status")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.list")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.join")).toBe(false);
+    expect(surface.callBuiltinTools.has("managed_agent.cancel")).toBe(false);
   });
 
   it("uses the same managed invocation surface contract for TUI turns", () => {
@@ -335,6 +358,7 @@ describe("managed invocation runtime tool", () => {
     expect(executeConfig.toolAllowlist?.has("managed_agent.status")).toBe(true);
     expect(executeConfig.toolAllowlist?.has("managed_agent.list")).toBe(true);
     expect(executeConfig.toolAllowlist?.has("managed_agent.join")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.cancel")).toBe(true);
     expect(executeConfig.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
       allowed: false,
       requiresApproval: true,
@@ -344,6 +368,7 @@ describe("managed invocation runtime tool", () => {
     expect(planConfig.toolAllowlist?.has("managed_agent.status")).toBe(false);
     expect(planConfig.toolAllowlist?.has("managed_agent.list")).toBe(false);
     expect(planConfig.toolAllowlist?.has("managed_agent.join")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.cancel")).toBe(false);
   });
 
   it("exposes nonblocking managed child lifecycle tools backed by one runtime registry", async () => {
@@ -367,6 +392,7 @@ describe("managed invocation runtime tool", () => {
       "managed_agent.status",
       "managed_agent.list",
       "managed_agent.join",
+      "managed_agent.cancel",
     ]));
 
     const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
@@ -795,6 +821,209 @@ describe("managed invocation runtime tool", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("cancels a nonblocking managed child with terminal evidence and late-output suppression", async () => {
+    const { adapter, terminal, signal } = makeAbortableDeferredAdapter();
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = makeSurface(adapter, sessionEventSink);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-cancel-start",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+
+    expect(signal()).toBeInstanceOf(AbortSignal);
+    expect(signal()?.aborted).toBe(false);
+
+    const cancelledPromise = surface.callBuiltinTools.get("managed_agent.cancel")?.({
+      invocationId: started.metadata.invocationId,
+      reason: "Operator cancelled the managed child.",
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-cancel", name: "managed_agent.cancel", input: {} },
+    }) as Promise<{
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly lifecycleState?: string;
+        readonly sessionEventIds?: readonly string[];
+      };
+    }>;
+
+    await flushMicrotasks();
+    expect(signal()?.aborted).toBe(true);
+
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      invocationId: request.invocationId,
+      agentId: request.agentId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      profile: request.profile,
+      lifecycleState: "completed",
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authority: request.authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+        routeId: "opencode-readonly",
+      }),
+      resultHandoff: {
+        summary: "Late child output must be ignored.",
+        resourceUris: [`kiln://managed-invocations/${request.invocationId}/late`],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    const cancelled = await cancelledPromise;
+
+    expect(cancelled).toMatchObject({
+      output: expect.stringContaining("Operator cancelled the managed child."),
+      isError: true,
+      metadata: {
+        status: "cancelled",
+        lifecycleState: "cancelled",
+      },
+    });
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_cancelled",
+    ]);
+    expect(session.sessionEvents[2]).toMatchObject({
+      kind: "agent_invocation_cancelled",
+      reason: "Operator cancelled the managed child.",
+    });
+    expect(cancelled.metadata.sessionEventIds).toEqual([
+      session.sessionEvents[2]?.eventId,
+    ]);
+
+    const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-cancel-join", name: "managed_agent.join", input: {} },
+    }) as {
+      readonly output: string;
+      readonly metadata: {
+        readonly lifecycleState?: string;
+      };
+    };
+    expect(joined.output).toContain("Operator cancelled the managed child.");
+    expect(joined.output).not.toContain("Late child output must be ignored.");
+    expect(joined.metadata.lifecycleState).toBe("cancelled");
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_cancelled",
+    ]);
+  });
+
+  it("publishes adapter cancellation evidence from the cancel terminal event", async () => {
+    const { adapter, terminal, signal } = makeAbortableDeferredAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-cancel-evidence-start",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect cancellation evidence propagation.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+    const cancelPromise = surface.callBuiltinTools.get("managed_agent.cancel")?.({
+      invocationId: started.metadata.invocationId,
+      reason: "Operator cancelled with cleanup evidence.",
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-cancel-evidence", name: "managed_agent.cancel", input: {} },
+    }) as Promise<{
+      readonly metadata: {
+        readonly lifecycleState?: string;
+      };
+    }>;
+
+    await flushMicrotasks();
+    expect(signal()?.aborted).toBe(true);
+
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      invocationId: request.invocationId,
+      agentId: request.agentId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      profile: request.profile,
+      lifecycleState: "cancelled",
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authority: request.authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+        routeId: "opencode-readonly",
+      }),
+      transcript: {
+        uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+        redacted: "unknown",
+        truncated: false,
+        persisted: true,
+        retention: "session",
+      },
+      resultHandoff: {
+        summary: "Adapter cleanup completed.",
+        resourceUris: [`kiln://managed-invocations/${request.invocationId}/cancel-cleanup`],
+        memoryWriteProposalUris: [],
+      },
+    }));
+
+    const cancelled = await cancelPromise;
+
+    expect(cancelled.metadata.lifecycleState).toBe("cancelled");
+    expect(session.sessionEvents[2]).toMatchObject({
+      kind: "agent_invocation_cancelled",
+      reason: "Operator cancelled with cleanup evidence.",
+      managedInvocationEvidence: {
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+        },
+        resultHandoff: {
+          summary: "Operator cancelled with cleanup evidence.",
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/cancel-cleanup`],
+        },
+      },
+    });
   });
 
   it("projects configured managed routes into the model-facing tool definition", () => {

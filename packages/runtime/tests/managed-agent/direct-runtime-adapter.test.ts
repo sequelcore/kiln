@@ -65,6 +65,12 @@ function providerWithResponses(responses: readonly AgentResponse[]): ProviderAda
   };
 }
 
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocationRequest>[0]> = {}) {
   return defineManagedAgentInvocationRequest({
     invocationId: "inv-direct-1",
@@ -451,6 +457,54 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(observedSignal).toBeDefined();
     expect(observedSignal?.aborted).toBe(true);
     expect(abortObserved).toBe(true);
+  });
+
+  it("records external cancellation as a cancelled direct-provider invocation with evidence", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn((options) => {
+        observedSignal = options.signal;
+        return new Promise<AgentResponse>((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            reject(new Error("provider request aborted"));
+          }, { once: true });
+        });
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(request(), adapter);
+
+    expect(started.status).toBe("started");
+    await flushMicrotasks();
+
+    const cancelled = await service.cancel("inv-direct-1", "Operator stopped direct child.");
+    await flushMicrotasks();
+
+    expect(cancelled.record.lifecycleState).toBe("cancelled");
+    expect(observedSignal?.aborted).toBe(true);
+    expect(service.status("inv-direct-1")).toMatchObject({
+      lifecycleState: "cancelled",
+      record: {
+        lifecycleState: "cancelled",
+        transcript: {
+          uri: "kiln://managed-invocations/inv-direct-1/transcript",
+        },
+        resultHandoff: {
+          summary: "Operator stopped direct child.",
+          resourceUris: ["kiln://managed-invocations/inv-direct-1/transcript"],
+        },
+      },
+    });
+    expect(service.status("inv-direct-1")?.error).toBeUndefined();
   });
 
   it("integrates through managed_agent.invoke with Kiln builtin tools and returns only bounded handoff", async () => {

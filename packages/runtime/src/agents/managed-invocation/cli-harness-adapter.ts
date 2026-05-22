@@ -61,6 +61,7 @@ interface CollectedCliHarnessEvidence {
 }
 
 const TIMEOUT = Symbol("managed-cli-harness-timeout");
+const CANCELLED = Symbol("managed-cli-harness-cancelled");
 
 interface FilesystemBoundarySnapshot {
   readonly entries: readonly FilesystemBoundarySnapshotEntry[];
@@ -148,7 +149,36 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       system,
     }, collected);
     const timeoutPromise = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
-    const raced = await Promise.race([runPromise, timeoutPromise]);
+    const cancelPromise = abortSignalPromise(input.abortSignal).then(() => CANCELLED);
+    const raced = await Promise.race([runPromise, timeoutPromise, cancelPromise]);
+
+    if (typeof raced === "symbol" && raced === CANCELLED) {
+      runPromise.catch(() => undefined);
+      await session.dispose();
+      const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
+      const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
+      if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
+        await restoreFilesystemBoundary(filesystemSnapshot);
+      }
+      const writeEvidence = collectWriteEvidence({
+        request,
+        collected,
+        filesystemChanges,
+        readOnlyFilesystemViolation,
+      });
+      return defineManagedAgentInvocationRecord({
+        ...this.baseRecord(input, childSessionId),
+        lifecycleState: "cancelled",
+        transcript: transcriptPointer(request.invocationId),
+        usage: usageReport(collected.usage),
+        resultHandoff: {
+          summary: "Managed CLI harness invocation cancelled.",
+          resourceUris: writeEvidence.resultResourceUris,
+          memoryWriteProposalUris: [],
+        },
+        ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
+      });
+    }
 
     if (typeof raced === "symbol") {
       runPromise.catch(() => undefined);
@@ -548,6 +578,15 @@ function permissionPolicyFromAuthority(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function abortSignalPromise(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }
 
 function requireText(value: string, message: string): string {

@@ -1,70 +1,67 @@
 ## Objective
 
 Continue Slice 2 of `docs/roadmap/01-background-parallel-agent-surface.md` by
-exposing the nonblocking managed-agent lifecycle through model-callable runtime
-tools backed by the single runtime invocation service.
+adding governed cancellation to the nonblocking managed-agent lifecycle.
 
 ## Non-Goals
 
-- Do not expose `managed_agent.cancel` until adapters can receive a
-  cancellation signal and the runtime can suppress late child output with
-  evidence.
 - Do not add cross-process persistence, worktree leases, sandbox leases, or
   cleanup eviction in this cut.
-- Do not duplicate request admission or lifecycle semantics between
-  `managed_agent.invoke` and `managed_agent.start`.
-- Do not add surface-local lifecycle stores.
+- Do not add surface-local cancellation state.
+- Do not treat cancellation as a cosmetic status update; cancellation must
+  signal the adapter and suppress late child output.
+- Do not change foreground `managed_agent.invoke` behavior except to pass the
+  same runtime cancellation signal through the shared service path.
 
 ## Scout Summary
 
 Owning bounded context:
 
-- Tool definitions and executors:
-  `packages/runtime/src/agents/managed-invocation/runtime-tool.ts`
 - Runtime lifecycle service:
   `packages/runtime/src/agents/managed-invocation/index.ts`
+- Runtime tool definitions and executors:
+  `packages/runtime/src/agents/managed-invocation/runtime-tool.ts`
 - Session lifecycle events:
   `packages/runtime/src/agents/managed-invocation/session-events.ts`
-- Attached cross-surface tool registration:
+- Adapter cancellation propagation:
+  `packages/runtime/src/agents/managed-invocation/direct-runtime-adapter.ts`
+  and `packages/runtime/src/agents/managed-invocation/cli-harness-adapter.ts`
+- Attached cross-surface registration:
   `packages/runtime/src/gateway/attached-runtime-tool-surface.ts`
 
 Current facts:
 
-- `RuntimeManagedAgentInvocationService` now owns `start`, `status`, `list`,
-  `join`, and foreground `invoke` via start/join.
-- `runtime-tool.ts` still exposes only `managed_agent.invoke`.
-- `attached-runtime-tool-surface.ts` registers only the foreground tool and its
-  capability/authority/metadata resolver.
-- `appendManagedInvocationSessionEvents` currently emits requested, started,
-  and terminal events in one foreground call; nonblocking start/join need start
-  and terminal event appends without duplicating requested/started events.
+- `managed_agent.start/status/list/join` are exposed and backed by one runtime
+  invocation service.
+- Adapter descriptors already require `cancellation.supported` for admission.
+- Runtime adapters do not yet receive a service-owned cancellation signal.
+- `join` emits terminal lifecycle evidence exactly once.
 
 ## This Cut
 
-1. Add `managed_agent.start`, `managed_agent.status`, `managed_agent.list`, and
-   `managed_agent.join`.
-2. Make `start` return after admission and service registration, before adapter
-   terminal completion.
-3. Publish requested and started session events on `start`.
-4. Make `join` the only blocking wait primitive and publish exactly one
-   terminal session event for the invocation.
-5. Scope status, list, and join to the current runtime session.
-6. Keep `managed_agent.invoke` behavior-compatible while sharing the same
-   request-building and terminal-result formatting helpers.
+1. Add a service-owned abort controller per admitted invocation.
+2. Add `RuntimeManagedAgentInvocationService.cancel`.
+3. Pass an `AbortSignal` to runtime adapters.
+4. Make cancellation resolve the runtime terminal handle with a canonical
+   `cancelled` record and suppress any later adapter output.
+5. Add `managed_agent.cancel` with current-session scoping.
+6. Emit one `agent_invocation_cancelled` event through the existing terminal
+   session-event path.
+7. Keep plan mode from exposing `cancel`.
 
 ## Test Plan
 
 Focused red tests first:
 
 ```bash
-bun run --cwd packages/runtime test -- tests/gateway/managed-invocation-tool.test.ts
+bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts tests/gateway/managed-invocation-tool.test.ts
 ```
 
 Verification for this cut:
 
 ```bash
 bun run --filter @kilnai/runtime typecheck
-bun run --filter @kilnai/runtime test -- tests/gateway/managed-invocation-tool.test.ts
+bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts tests/gateway/managed-invocation-tool.test.ts tests/session/managed-invocation-session-events.test.ts
 git diff --check
 ```
 
@@ -72,13 +69,14 @@ Broader check before commit:
 
 ```bash
 bun run --filter @kilnai/runtime test
+bun run typecheck
 ```
 
 ## Risks
 
-- `start` and `invoke` must not diverge in route selection, authority
-  admission, context resolution, or request shape.
-- `join` must not emit duplicate terminal events when called repeatedly.
-- Status/list/join must not expose invocations from another runtime session.
-- Cancellation remains intentionally absent until the adapter contract can stop
-  provider work and prove late-output suppression.
+- Cancel must not leak another session's invocation id.
+- Cancel must not emit duplicate terminal events if cancel and join are both
+  called.
+- A late adapter completion after cancel must not overwrite the cancelled
+  record.
+- Adapters must receive a real abort signal so provider work has a stop path.

@@ -46,6 +46,8 @@ import {
   createManagedAgentInvokeToolDefinition,
   createManagedInvocationToolCallMetadataResolver,
   createManagedInvocationLifecycleToolExecutors,
+  MANAGED_AGENT_CANCEL_CAPABILITY,
+  MANAGED_AGENT_CANCEL_TOOL,
   MANAGED_AGENT_JOIN_CAPABILITY,
   MANAGED_AGENT_JOIN_TOOL,
   MANAGED_AGENT_LIST_CAPABILITY,
@@ -497,6 +499,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
       [MANAGED_AGENT_STATUS_TOOL.name, MANAGED_AGENT_STATUS_CAPABILITY],
       [MANAGED_AGENT_LIST_TOOL.name, MANAGED_AGENT_LIST_CAPABILITY],
       [MANAGED_AGENT_JOIN_TOOL.name, MANAGED_AGENT_JOIN_CAPABILITY],
+      [MANAGED_AGENT_CANCEL_TOOL.name, MANAGED_AGENT_CANCEL_CAPABILITY],
     ] as const;
     for (const [toolName, capability] of managedCapabilities) {
       capabilities.set(toolName, capability);
@@ -518,6 +521,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     toolDefinitions.push(MANAGED_AGENT_STATUS_TOOL);
     toolDefinitions.push(MANAGED_AGENT_LIST_TOOL);
     toolDefinitions.push(MANAGED_AGENT_JOIN_TOOL);
+    toolDefinitions.push(MANAGED_AGENT_CANCEL_TOOL);
   }
 
   return {

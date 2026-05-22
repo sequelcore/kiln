@@ -1,5 +1,6 @@
 import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
+  defineManagedAgentInvocationRecord,
   evaluateManagedAgentAdmission,
   isManagedAgentWriteAuthorityProfile,
 } from "@kilnai/core";
@@ -62,6 +63,9 @@ export {
   createManagedAgentStartToolDefinition,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
+  MANAGED_AGENT_CANCEL_CAPABILITY,
+  MANAGED_AGENT_CANCEL_TOOL,
+  MANAGED_AGENT_CANCEL_TOOL_NAME,
   MANAGED_AGENT_JOIN_CAPABILITY,
   MANAGED_AGENT_JOIN_TOOL,
   MANAGED_AGENT_JOIN_TOOL_NAME,
@@ -93,6 +97,7 @@ export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 export interface ManagedAgentRuntimeInvocationInput {
   readonly request: ManagedAgentInvocationRequest;
   readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly abortSignal: AbortSignal;
 }
 
 export interface ManagedAgentRuntimeAdapter {
@@ -144,11 +149,18 @@ export type ManagedAgentRuntimeInvocationStartResult =
     readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>;
   };
 
+export type ManagedAgentRuntimeInvocationCancelResult = {
+  readonly status: "cancelled";
+  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly record: ManagedAgentInvocationRecord;
+};
+
 interface ManagedAgentRuntimeInvocationEntry {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   lifecycleState: ManagedAgentLifecycleState;
   readonly startedAt: Date;
+  readonly abortController: AbortController;
   finishedAt?: Date;
   record?: ManagedAgentInvocationRecord;
   error?: Error;
@@ -192,17 +204,37 @@ export class RuntimeManagedAgentInvocationService {
 
     const registeredRequest = cloneJson(request);
     const registeredDecision = cloneJson(decision);
+    const abortController = new AbortController();
     const entry: ManagedAgentRuntimeInvocationEntry = {
       request: registeredRequest,
       decision: registeredDecision,
       lifecycleState: "running",
       startedAt: new Date(),
+      abortController,
     };
-    entry.terminal = this.invokeAdmitted({
+    const adapterTerminal: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>> = this.invokeAdmitted({
       request: cloneJson(registeredRequest),
       adapter,
       admission: cloneJson(registeredDecision),
+      abortSignal: abortController.signal,
     }).then((record) => {
+      if (entry.lifecycleState === "cancelled" && entry.record) {
+        if (record.lifecycleState === "cancelled") {
+          const registeredRecord = cloneJson(record);
+          entry.finishedAt = new Date();
+          entry.record = mergeCancelledRecords(entry.record, registeredRecord);
+          return {
+            status: "completed",
+            decision: registeredDecision,
+            record: entry.record,
+          } as const;
+        }
+        return {
+          status: "completed",
+          decision: registeredDecision,
+          record: entry.record,
+        } as const;
+      }
       const registeredRecord = cloneJson(record);
       entry.finishedAt = new Date();
       entry.lifecycleState = registeredRecord.lifecycleState;
@@ -211,14 +243,22 @@ export class RuntimeManagedAgentInvocationService {
         status: "completed",
         decision: registeredDecision,
         record: registeredRecord,
-      };
+      } as const;
     }, (error: unknown) => {
+      if (entry.lifecycleState === "cancelled" && entry.record) {
+        return {
+          status: "completed",
+          decision: registeredDecision,
+          record: entry.record,
+        } as const;
+      }
       entry.finishedAt = new Date();
       entry.lifecycleState = "failed";
       entry.error = toError(error);
       throw entry.error;
     });
-    entry.terminal.catch(() => undefined);
+    entry.terminal = adapterTerminal;
+    adapterTerminal.catch(() => undefined);
     this.invocations.set(request.invocationId, entry);
 
     return {
@@ -235,6 +275,33 @@ export class RuntimeManagedAgentInvocationService {
 
   list(): readonly ManagedAgentRuntimeInvocationSnapshot[] {
     return Array.from(this.invocations.values(), snapshotInvocation);
+  }
+
+  async cancel(invocationId: string, reason = "Managed invocation cancelled."): Promise<ManagedAgentRuntimeInvocationCancelResult> {
+    const entry = this.invocations.get(invocationId);
+    if (!entry) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is not registered");
+    }
+    if (entry.record?.lifecycleState === "cancelled") {
+      return {
+        status: "cancelled",
+        decision: cloneJson(entry.decision),
+        record: cloneJson(entry.record),
+      };
+    }
+    if (isTerminalLifecycleState(entry.lifecycleState)) {
+      throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime invocation is already terminal: ${entry.lifecycleState}`);
+    }
+
+    entry.abortController.abort(reason);
+    entry.finishedAt = new Date();
+    entry.lifecycleState = "cancelled";
+    entry.record = createCancelledRecord(entry.request, entry.decision, reason);
+    return {
+      status: "cancelled",
+      decision: cloneJson(entry.decision),
+      record: cloneJson(entry.record),
+    };
   }
 
   async join(invocationId: string): Promise<ManagedAgentRuntimeInvocationResult> {
@@ -257,11 +324,13 @@ export class RuntimeManagedAgentInvocationService {
     readonly request: ManagedAgentInvocationRequest;
     readonly adapter: ManagedAgentRuntimeAdapter;
     readonly admission: ManagedAgentAdmissionDecision;
+    readonly abortSignal?: AbortSignal;
   }): Promise<ManagedAgentInvocationRecord> {
     const admission = this.requireRuntimeAdmission(input);
     const record = await input.adapter.invoke({
       request: input.request,
       admission,
+      abortSignal: input.abortSignal ?? new AbortController().signal,
     });
     this.assertRecordWithinAdmission(record, input.request, admission);
     return record;
@@ -410,6 +479,52 @@ function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedA
     ...(entry.record !== undefined ? { record: cloneJson(entry.record) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
   };
+}
+
+function createCancelledRecord(
+  request: ManagedAgentInvocationRequest,
+  decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
+  reason: string,
+): ManagedAgentInvocationRecord {
+  return defineManagedAgentInvocationRecord({
+    invocationId: request.invocationId,
+    agentId: request.agentId,
+    parentSessionId: request.parentSessionId,
+    parentTurnId: request.parentTurnId,
+    profile: request.profile,
+    lifecycleState: "cancelled",
+    providerRoute: request.providerRoute,
+    adapterKind: request.adapterKind,
+    executionMode: request.executionMode,
+    authority: request.authority,
+    capabilitySnapshot: decision.capabilitySnapshot,
+    resultHandoff: {
+      summary: reason,
+      resourceUris: [],
+      memoryWriteProposalUris: [],
+    },
+  });
+}
+
+function mergeCancelledRecords(
+  runtimeRecord: ManagedAgentInvocationRecord,
+  adapterRecord: ManagedAgentInvocationRecord,
+): ManagedAgentInvocationRecord {
+  const runtimeHandoff = runtimeRecord.resultHandoff;
+  const adapterHandoff = adapterRecord.resultHandoff;
+  return defineManagedAgentInvocationRecord({
+    ...adapterRecord,
+    lifecycleState: "cancelled",
+    resultHandoff: {
+      summary: runtimeHandoff?.summary ?? adapterHandoff?.summary ?? "Managed invocation cancelled.",
+      resourceUris: adapterHandoff?.resourceUris ?? runtimeHandoff?.resourceUris ?? [],
+      memoryWriteProposalUris: adapterHandoff?.memoryWriteProposalUris ?? runtimeHandoff?.memoryWriteProposalUris ?? [],
+    },
+  });
+}
+
+function isTerminalLifecycleState(state: ManagedAgentLifecycleState): boolean {
+  return state === "completed" || state === "failed" || state === "timed_out" || state === "cancelled";
 }
 
 function cloneJson<T>(value: T): T {

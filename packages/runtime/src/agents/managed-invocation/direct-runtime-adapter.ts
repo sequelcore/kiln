@@ -129,10 +129,21 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       systemPrompt: request.input.summary,
     });
     const abortController = new AbortController();
+    const abortFromRuntime = () => abortController.abort(input.abortSignal.reason);
+    if (input.abortSignal.aborted) {
+      abortFromRuntime();
+    } else {
+      input.abortSignal.addEventListener("abort", abortFromRuntime, { once: true });
+    }
     const execution = this.runChildRuntime(input, childSession, abortController.signal);
     const timeout = createManagedInvocationTimeout(request.authority.timeoutMs, abortController);
-    const raced: ManagedAgentInvocationRecord | typeof TIMEOUT = await Promise.race([execution, timeout.promise]);
-    timeout.cancel();
+    let raced: ManagedAgentInvocationRecord | typeof TIMEOUT;
+    try {
+      raced = await Promise.race([execution, timeout.promise]);
+    } finally {
+      timeout.cancel();
+      input.abortSignal.removeEventListener("abort", abortFromRuntime);
+    }
 
     if (raced === TIMEOUT) {
       execution.catch(() => undefined);
@@ -241,6 +252,21 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
     } catch (err) {
+      if (input.abortSignal.aborted) {
+        return defineManagedAgentInvocationRecord({
+          ...this.baseRecord(input),
+          lifecycleState: "cancelled",
+          childSessionId,
+          childTurnId,
+          transcript: transcriptPointer(request.invocationId),
+          usage: unknownRuntimeUsage(),
+          resultHandoff: {
+            summary: String(input.abortSignal.reason ?? "Managed direct provider invocation cancelled."),
+            resourceUris: [managedInvocationUri(request.invocationId, "transcript")],
+            memoryWriteProposalUris: [],
+          },
+        });
+      }
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
         lifecycleState: "failed",

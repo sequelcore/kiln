@@ -275,7 +275,7 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
       cost: { currency: "unknown", amount: "unknown" },
     },
     resultHandoff: {
-      summary: "Inspection completed.",
+      summary: lifecycleState === "cancelled" ? "Operator cancelled managed invocation." : "Inspection completed.",
       resourceUris: ["kiln://artifacts/invocation-1/result"],
       memoryWriteProposalUris: ["kiln://memory/write-proposals/1"],
     },
