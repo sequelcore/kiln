@@ -106,6 +106,7 @@ export {
   ManagedRuntimeSandboxLeaseManager,
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,
+  runManagedAgentFanOutLifecycle,
 } from "./agents/managed-invocation/index.js";
 export type {
   ManagedAgentArtifactDirectoryLeaseManager,
@@ -153,6 +154,10 @@ export type {
   ManagedAgentRuntimeRecoveryStore,
   ManagedAgentStaleRecoveryInput,
   ManagedAgentStaleRecoveryResult,
+  ManagedAgentFanOutLifecycleChildRecord,
+  ManagedAgentFanOutLifecycleInput,
+  ManagedAgentFanOutLifecycleResult,
+  ManagedAgentFanOutLifecycleRouteSelector,
   ManagedInvocationContextResolution,
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolverInput,

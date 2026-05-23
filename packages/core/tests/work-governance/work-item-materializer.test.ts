@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createSessionEvent } from "../../src/events/index.js";
 import {
+  buildManagedAgentDecompositionOrchestrationRequest,
+  buildManagedAgentFanOutOrchestrationRequest,
+} from "../../src/agents/managed-invocation/index.js";
+import {
   GoalRunStore,
   materializeApprovedPlanWorkItems,
+  materializeManagedAgentOrchestrationWorkItems,
   reconstructWorkItemMaterializationsFromSessionEvents,
   WorkItemStore,
 } from "../../src/work-governance/index.js";
@@ -250,6 +255,191 @@ describe("materializeApprovedPlanWorkItems", () => {
       sequence: result.materialization.sequence,
       materializations: [result.materialization],
     });
+  });
+
+  it("materializes managed decomposition children with orchestration evidence and adoption gating", () => {
+    const workItemStore = new WorkItemStore({ now: () => "2026-05-22T20:00:00.000Z" });
+    const request = buildManagedAgentDecompositionOrchestrationRequest({
+      orchestrationId: "orch-decompose",
+      parentSessionId: "session-1",
+      parentTurnId: "turn-1",
+      requestedBy: "operator",
+      requestSource: "core-test",
+      task: "Split implementation work.",
+      maxConcurrentChildren: 2,
+      childPlans: [
+        {
+          roleIntent: "runtime-coder",
+          task: "Implement runtime helper.",
+        },
+        {
+          roleIntent: "cli-coder",
+          task: "Wire CLI surface.",
+        },
+      ],
+    });
+
+    const result = materializeManagedAgentOrchestrationWorkItems({
+      orchestrationRequest: request,
+      workItemStore,
+      goalRunId: "goal-orchestration",
+      workflowProfile: "managed-agent-change",
+      risk: "high",
+      assignedAgentProfile: "coder",
+      routeId: "codex-worker",
+      authorityProfile: "foundation-apply-approved-writes",
+    });
+
+    expect(result.workItems).toHaveLength(2);
+    expect(result.workItems.map((item) => item.id)).toEqual([
+      "orch-decompose:child:1:work-item",
+      "orch-decompose:child:2:work-item",
+    ]);
+    expect(result.workItems[0]).toMatchObject({
+      summary: "Implement runtime helper.",
+      workflowProfile: "managed-agent-change",
+      risk: "high",
+      triggers: ["managed-agent-change", "high", "decomposition", "collect-all"],
+      expectedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:completion-signal",
+        "managed-orchestration:merge:collect-all",
+        "managed-orchestration:adoption-gate",
+      ],
+      verificationGates: [
+        "managed orchestration child handoff",
+        "managed orchestration merge policy: collect-all",
+        "managed orchestration adoption gate",
+      ],
+      goalRunId: "goal-orchestration",
+      routeId: "codex-worker",
+      assignedAgentProfile: "coder",
+      authorityProfile: "foundation-apply-approved-writes",
+      managedOrchestration: {
+        orchestrationId: "orch-decompose",
+        mode: "decomposition",
+        childId: "orch-decompose:child:1",
+        ordinal: 1,
+        roleIntent: "runtime-coder",
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+        },
+      },
+    });
+
+    const blocked = workItemStore.complete({
+      id: result.workItems[0]!.id,
+      providedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:completion-signal",
+        "managed-orchestration:merge:collect-all",
+      ],
+    });
+    expect(blocked?.item.status).toBe("blocked");
+    expect(blocked?.missingEvidence).toEqual(["managed-orchestration:adoption-gate"]);
+
+    const spoofedAdoption = workItemStore.complete({
+      id: result.workItems[0]!.id,
+      providedEvidence: [
+        "managed-orchestration:adoption-gate",
+      ],
+    });
+    expect(spoofedAdoption?.item.status).toBe("blocked");
+    expect(spoofedAdoption?.missingEvidence).toEqual(["managed-orchestration:adoption-gate"]);
+
+    expect(() => workItemStore.complete({
+      id: result.workItems[0]!.id,
+      managedOrchestrationAdoption: {
+        target: "other-adoption-workflow" as "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-22T21:00:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-decompose/wrong-adoption"],
+      },
+    })).toThrow("Managed orchestration adoption target must be slice-6-handoff-review-adoption.");
+
+    expect(() => workItemStore.complete({
+      id: result.workItems[0]!.id,
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-22T21:00:00.000Z",
+        resourceUris: [],
+      },
+    })).toThrow("Managed orchestration adoption requires at least one resource uri.");
+
+    const adopted = workItemStore.complete({
+      id: result.workItems[0]!.id,
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-22T21:00:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-decompose/adoption-review"],
+      },
+    });
+    expect(adopted?.item.status).toBe("completed");
+    expect(adopted?.item.managedOrchestrationAdoption).toEqual({
+      target: "slice-6-handoff-review-adoption",
+      adoptedBy: "reviewer",
+      adoptedAt: "2026-05-22T21:00:00.000Z",
+      resourceUris: ["kiln://artifacts/orch-decompose/adoption-review"],
+    });
+    expect(adopted?.missingEvidence).toEqual([]);
+
+    const directlyAdopted = workItemStore.complete({
+      id: result.workItems[1]!.id,
+      providedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:completion-signal",
+        "managed-orchestration:merge:collect-all",
+      ],
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-22T21:05:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-decompose/child-2-adoption-review"],
+      },
+    });
+    expect(directlyAdopted?.item.status).toBe("completed");
+    expect(directlyAdopted?.missingEvidence).toEqual([]);
+  });
+
+  it("materializes fan-out work items with compare evidence without adoption gating", () => {
+    const result = materializeManagedAgentOrchestrationWorkItems({
+      orchestrationRequest: buildManagedAgentFanOutOrchestrationRequest({
+        orchestrationId: "orch-fan-out",
+        parentSessionId: "session-1",
+        parentTurnId: "turn-1",
+        requestedBy: "operator",
+        requestSource: "core-test",
+        task: "Generate duplicate candidates.",
+        childCount: 2,
+        maxConcurrentChildren: 2,
+      }),
+      workItemStore: new WorkItemStore({ now: () => "2026-05-22T20:00:00.000Z" }),
+      goalRunId: "goal-fan-out",
+    });
+
+    expect(result.workItems.map((item) => item.expectedEvidence)).toEqual([
+      [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:comparison-summary",
+        "managed-orchestration:merge:compare-and-select",
+      ],
+      [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:comparison-summary",
+        "managed-orchestration:merge:compare-and-select",
+      ],
+    ]);
+    expect(result.workItems.map((item) => item.managedOrchestration?.adoptionGate.required)).toEqual([
+      false,
+      false,
+    ]);
   });
 });
 

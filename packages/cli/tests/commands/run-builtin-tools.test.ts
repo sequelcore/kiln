@@ -26,7 +26,11 @@ const runWiringMocks = vi.hoisted(() => {
     printReport: vi.fn(),
     computeEvalScore: vi.fn(() => undefined),
     cleanupWorktree: vi.fn().mockResolvedValue(undefined),
+    cleanupRegistryRunAll: vi.fn().mockResolvedValue(undefined),
+    runManagedAgentFanOutLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
+    transcriptInit: vi.fn().mockResolvedValue(undefined),
+    transcriptFinalize: vi.fn().mockResolvedValue(undefined),
     preparedWorkingDirectory: undefined as string | undefined,
     capturedSessionConfigs: [] as unknown[],
     capturedRunSessionInputs: [] as unknown[],
@@ -74,6 +78,7 @@ vi.mock("@kilnai/runtime", () => ({
   ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
   ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
   RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
+  runManagedAgentFanOutLifecycle: runWiringMocks.runManagedAgentFanOutLifecycle,
   ProviderModelRouteHealthStore: class {
     evaluateRouteHealth(providerId: string, modelId: string) {
       return runWiringMocks.evaluateRouteHealth(providerId, modelId);
@@ -181,9 +186,13 @@ vi.mock("../../src/config/env-config.js", () => ({
 
 vi.mock("../../src/wrapper/session-store.js", () => ({
   TranscriptStore: class {
-    async init() {}
+    async init(...args: unknown[]) {
+      await runWiringMocks.transcriptInit(...args);
+    }
     async append() {}
-    async finalize() {}
+    async finalize(...args: unknown[]) {
+      await runWiringMocks.transcriptFinalize(...args);
+    }
     async readMeta() {
       return null;
     }
@@ -256,7 +265,7 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
 }));
 
 vi.mock("../../src/wrapper/cleanup-registry.js", () => ({
-  cleanupRegistry: { runAll: vi.fn() },
+  cleanupRegistry: { runAll: runWiringMocks.cleanupRegistryRunAll },
 }));
 
 vi.mock("../../src/wrapper/index.js", () => ({
@@ -294,7 +303,44 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.evaluateRouteHealth.mockResolvedValue({ healthy: true });
     runWiringMocks.recordRouteOutcome.mockResolvedValue(undefined);
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
+    runWiringMocks.cleanupRegistryRunAll.mockResolvedValue(undefined);
+    runWiringMocks.runManagedAgentFanOutLifecycle.mockResolvedValue({
+      orchestrationResult: {
+        orchestrationId: "cli-run-workers",
+        mode: "fan-out",
+        status: "completed",
+        childResults: [{
+          childId: "cli-run-workers:child:1",
+          ordinal: 1,
+          lifecycleState: "completed",
+          success: true,
+          resourceUris: [],
+          diagnosticUris: [],
+        }, {
+          childId: "cli-run-workers:child:2",
+          ordinal: 2,
+          lifecycleState: "completed",
+          success: true,
+          resourceUris: [],
+          diagnosticUris: [],
+        }],
+        completedAt: "2026-05-22T00:00:00.000Z",
+      },
+      childRecords: [{
+        childId: "cli-run-workers:child:1",
+        ordinal: 1,
+        invocationId: "cli-run-workers:child:1",
+        record: { lifecycleState: "completed" },
+      }, {
+        childId: "cli-run-workers:child:2",
+        ordinal: 2,
+        invocationId: "cli-run-workers:child:2",
+        record: { lifecycleState: "completed" },
+      }],
+    });
     runWiringMocks.runVerification.mockResolvedValue({ passed: true, checks: [] });
+    runWiringMocks.transcriptInit.mockResolvedValue(undefined);
+    runWiringMocks.transcriptFinalize.mockResolvedValue(undefined);
     runWiringMocks.preparedWorkingDirectory = undefined;
     readGlobalConfigMock.mockReturnValue(undefined);
   });
@@ -509,6 +555,105 @@ describe("run command builtin tool wiring", () => {
     expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
   });
 
+  it("keeps parallel-worker signal cleanup active across transcript initialization", async () => {
+    const beforeSigint = process.listenerCount("SIGINT");
+    const beforeSigterm = process.listenerCount("SIGTERM");
+    const transcriptInit = deferred<void>();
+    const registryCleanup = deferred<void>();
+    const events: string[] = [];
+    const exitCodes: Array<string | number | null | undefined> = [];
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      events.push("exit");
+      exitCodes.push(code);
+      return undefined as never;
+    }) as never);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    runWiringMocks.transcriptInit.mockReturnValueOnce(transcriptInit.promise);
+    runWiringMocks.transcriptFinalize.mockImplementationOnce(async () => {
+      events.push("finalize");
+    });
+    runWiringMocks.cleanupRegistryRunAll.mockImplementationOnce(async () => {
+      events.push("registry-cleanup");
+      await registryCleanup.promise;
+    });
+    runWiringMocks.cleanupWorktree.mockImplementationOnce(async () => {
+      events.push("worktree-cleanup");
+    });
+
+    const run = runCommand({
+      ...APP_CONFIG,
+      managedInvocation: parallelManagedInvocation(),
+    }, "parallel cleanup", { provider: "codex", workers: 2 }, { exitOnFailure: false });
+
+    await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
+    process.emit("SIGINT", "SIGINT");
+    expect(process.listenerCount("SIGINT")).toBeGreaterThan(beforeSigint);
+
+    transcriptInit.resolve();
+
+    await waitForCondition(() => events.includes("registry-cleanup"));
+    expect(process.listenerCount("SIGINT")).toBeGreaterThan(beforeSigint);
+    process.emit("SIGINT", "SIGINT");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(exitCodes).toEqual([]);
+
+    registryCleanup.resolve();
+
+    await waitForCondition(() => exitCodes.length > 0);
+    await run;
+
+    expect(exitCodes).toEqual([130]);
+    expect(events).toEqual(["finalize", "registry-cleanup", "worktree-cleanup", "exit"]);
+    expect(process.listenerCount("SIGINT")).toBe(beforeSigint);
+    expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
+    exit.mockRestore();
+  });
+
+  it("continues parallel-worker signal cleanup when transcript finalization fails", async () => {
+    const beforeSigint = process.listenerCount("SIGINT");
+    const beforeSigterm = process.listenerCount("SIGTERM");
+    const transcriptInit = deferred<void>();
+    const events: string[] = [];
+    const exitCodes: Array<string | number | null | undefined> = [];
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      events.push("exit");
+      exitCodes.push(code);
+      return undefined as never;
+    }) as never);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    runWiringMocks.transcriptInit.mockReturnValueOnce(transcriptInit.promise);
+    runWiringMocks.transcriptFinalize.mockImplementationOnce(async () => {
+      events.push("finalize");
+      throw new Error("finalize failed");
+    });
+    runWiringMocks.cleanupRegistryRunAll.mockImplementationOnce(async () => {
+      events.push("registry-cleanup");
+    });
+    runWiringMocks.cleanupWorktree.mockImplementationOnce(async () => {
+      events.push("worktree-cleanup");
+    });
+
+    const run = runCommand({
+      ...APP_CONFIG,
+      managedInvocation: parallelManagedInvocation(),
+    }, "parallel cleanup", { provider: "codex", workers: 2 }, { exitOnFailure: false });
+
+    await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
+    process.emit("SIGINT", "SIGINT");
+    transcriptInit.resolve();
+
+    await waitForCondition(() => exitCodes.length > 0);
+    await run;
+
+    expect(exitCodes).toEqual([130]);
+    expect(events).toEqual(["finalize", "registry-cleanup", "worktree-cleanup", "exit"]);
+    expect(errorSpy.mock.calls.map((call) => call[0]).join("\n")).toContain("Parallel worker cleanup failed");
+    expect(process.listenerCount("SIGINT")).toBe(beforeSigint);
+    expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
+    exit.mockRestore();
+  });
+
   it("runs verification gates inside the prepared working directory", async () => {
     runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-verify";
 
@@ -559,3 +704,52 @@ describe("run command builtin tool wiring", () => {
     exit.mockRestore();
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function waitForCondition(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
+function parallelManagedInvocation() {
+  return {
+    requestedBy: "operator",
+    requestSource: "cli:run-workers",
+    invocationService: {},
+    routes: [{
+      routeId: "codex-isolated",
+      providerId: "codex",
+      model: "gpt-5.5",
+      adapter: {
+        descriptor: {
+          lifecycle: {
+            exposesStart: true,
+            exposesTerminal: true,
+          },
+        },
+      },
+      profiles: {
+        "foundation-apply-approved-writes": {
+          workingDirectory: {
+            mode: "isolated-worktree",
+          },
+          workingDirectoryLease: {
+            mode: "git-worktree",
+          },
+        },
+      },
+    }],
+  } as never;
+}

@@ -51,7 +51,7 @@ import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index
 import { TranscriptStore, type PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
-import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
+import { readGlobalConfig, resolveGlobalDefaultModel, type KilnGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { inferRouteTask, resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { resolveConfiguredReasoningEffort } from "../config/reasoning-policy.js";
@@ -61,14 +61,17 @@ import { createWorkGovernanceTools } from "../application/work-governance-tool.j
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
-import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
+import { getEngineBudgetStatus, resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
   GoalRunStore,
   WorkItemStore,
+  admitManagedAgentOrchestrationRequest,
+  buildManagedAgentFanOutOrchestrationRequest,
   createSessionBuiltinToolOptions,
   type CanonicalSessionEventKind,
+  type ManagedAgentOrchestrationAdmissionLimits,
   type ReasoningEffort,
   type SessionEventSource,
   VerificationResult,
@@ -80,8 +83,10 @@ import {
   ProviderModelRouteHealthStore,
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
+  runManagedAgentFanOutLifecycle,
 } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
+import type { ManagedInvocationToolOptions } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export interface RunFlags {
@@ -418,6 +423,29 @@ function renderStructuredPlanSummary(input: unknown): string | undefined {
   return lines.join("\n");
 }
 
+export class RunCommandExitError extends Error {
+  readonly code: number;
+
+  constructor(code: number, message = `Kiln run exited with code ${code}`) {
+    super(message);
+    this.name = "RunCommandExitError";
+    this.code = code;
+  }
+}
+
+export interface RunCommandExecutionOptions {
+  readonly exitOnFailure?: boolean;
+  readonly globalConfig?: KilnGlobalConfig | null;
+  readonly getDailyTokensUsed?: (engineId: string) => number;
+}
+
+function exitRunCommand(code: number, options: RunCommandExecutionOptions): never {
+  if (options.exitOnFailure === false) {
+    throw new RunCommandExitError(code);
+  }
+  process.exit(code);
+}
+
 async function readSubmittedPlanFromTranscript(projectPath: string, sessionId: string): Promise<string | undefined> {
   try {
     const transcriptPath = join(projectPath, ".kiln", "sessions", sessionId, "transcript.jsonl");
@@ -460,16 +488,15 @@ async function promptForPlanApproval(): Promise<boolean> {
   return answer.trim().toLowerCase() === "y";
 }
 
-export async function runCommand(appConfig: KilnAppConfig, task: string, flags: RunFlags): Promise<void> {
+export async function runCommand(
+  appConfig: KilnAppConfig,
+  task: string,
+  flags: RunFlags,
+  executionOptions: RunCommandExecutionOptions = {},
+): Promise<void> {
   if (!task.trim()) {
     console.error(`Error: No task provided. Usage: kiln run "your task here"`);
-    process.exit(1);
-  }
-
-  const workerCount = flags.workers ?? 1;
-  if (workerCount > 1) {
-    await runParallelWorkers(appConfig, task, flags, workerCount);
-    return;
+    exitRunCommand(1, executionOptions);
   }
 
   const mode = resolveMode(flags);
@@ -480,7 +507,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     resolvedAgent = findAgent(definitions, flags.agent);
     if (!resolvedAgent) {
       console.error(`Error: Agent "${flags.agent}" not found in .kiln/agents/ or ~/.kiln/agents/`);
-      process.exit(1);
+      exitRunCommand(1, executionOptions);
     }
   }
 
@@ -509,7 +536,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     && (!preferredProvider || !isDirectApiProvider(preferredProvider))
   ) {
     console.error("--authority is only supported for direct API providers in CLI run. Use --plan for harness read-only planning.");
-    process.exit(1);
+    exitRunCommand(1, executionOptions);
   }
   const effectiveModel = configuredRouteCandidates[0]?.model
     ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig))
@@ -540,7 +567,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     );
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    exitRunCommand(1, executionOptions);
   }
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(identityAppConfig, resolvedAgent);
   const sessionId = randomUUID();
@@ -574,7 +601,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     );
   } catch (err) {
     console.error("Error: Failed to prepare session.", err instanceof Error ? err.message : err);
-    process.exit(1);
+    exitRunCommand(1, executionOptions);
   }
   const approvalMemorySessionId = resumeSessionId ?? sessionId;
   const previewContextGovernance = summarizeContextGovernance(context.projectedContext);
@@ -618,7 +645,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
       console.error(`- ${reason}`);
     }
     await cleanupWorktreeOnce();
-    process.exit(1);
+    exitRunCommand(1, executionOptions);
   }
   const admittedRouteCandidates = applyReasoningPolicyToRouteCandidates({
     candidates: admittedRoutes.candidates,
@@ -629,33 +656,6 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   });
 
   const requirements = buildRunSessionRequirements(preferredProvider);
-
-  const startedAt = new Date().toISOString();
-  const initialMetadata = deriveSessionMetadata({
-    task,
-    provider: preferredProvider,
-    model: effectiveModel,
-  });
-  await transcriptStore.init(sessionId, {
-    kilnSessionId: sessionId,
-    provider: preferredProvider ?? "unknown",
-    title: initialMetadata.title,
-    summary: initialMetadata.summary,
-    tags: initialMetadata.tags,
-    task,
-    startedAt,
-    resumeStrategy: context.resumeStrategy,
-    resumeFeedback: context.resumeFeedback,
-    sessionLedger: {
-      currentPhase: "prepare",
-      resumedFrom: resumeSessionId,
-      workingDirectory: context.workingDirectory,
-      worktreePath: context.worktreePath,
-    },
-    exactArtifacts: context.projectedContext.blocks
-      .filter((block) => block.kind === "artifact")
-      .map((block) => block.content),
-  });
 
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(appConfig, cwd, {
       memoryAuthority: {
@@ -693,6 +693,164 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+
+  const startedAt = new Date().toISOString();
+  const initialMetadata = deriveSessionMetadata({
+    task,
+    provider: preferredProvider,
+    model: effectiveModel,
+  });
+  const workerCount = flags.workers ?? 1;
+  if (workerCount > 1) {
+    let workerExitCode: number | undefined;
+    let workerError: string | undefined;
+    let workerSignalHandlersRegistered = false;
+    let workerShutdownStarted = false;
+    let workerFinalization: Promise<void> | undefined;
+    let workerTranscriptInit: Promise<void> | undefined;
+    let workerTranscriptInitialized = false;
+    const finalizeParallelWorkerTranscript = async (): Promise<void> => {
+      await workerTranscriptInit?.catch(() => undefined);
+      if (!workerTranscriptInitialized) return;
+      await transcriptStore.finalize(sessionId, {
+        completedAt: new Date().toISOString(),
+        lastTurnOutcome: workerExitCode === undefined && workerError === undefined ? "completed" : "failed",
+        title: initialMetadata.title,
+        summary: initialMetadata.summary,
+        tags: initialMetadata.tags,
+        costUsd: 0,
+        toolCount: workerCount,
+        turnDepth: 1,
+        resumeStrategy: context.resumeStrategy,
+        resumeFeedback: context.resumeFeedback,
+        sessionLedger: {
+          currentPhase: workerExitCode === undefined && workerError === undefined ? "completed" : "failed",
+          resumedFrom: resumeSessionId,
+          workingDirectory: context.workingDirectory,
+          worktreePath: context.worktreePath,
+          lastError: workerError,
+          lastProvider: flags.provider ?? preferredProvider,
+          toolCallCount: workerCount,
+          turnDepth: 1,
+        },
+      });
+    };
+    const finalizeAndCleanupParallelWorkerRun = (): Promise<void> => {
+      if (!workerFinalization) {
+        workerFinalization = (async () => {
+          const cleanupErrors: unknown[] = [];
+          try {
+            await finalizeParallelWorkerTranscript();
+          } catch (error) {
+            cleanupErrors.push(error);
+          }
+          try {
+            await cleanupRegistry.runAll();
+          } catch (error) {
+            cleanupErrors.push(error);
+          }
+          try {
+            await cleanupWorktreeOnce();
+          } catch (error) {
+            cleanupErrors.push(error);
+          } finally {
+            unregisterWorkerSignalHandlers();
+          }
+          if (cleanupErrors.length > 0) {
+            console.error(`Error: Parallel worker cleanup failed: ${cleanupErrors
+              .map((error) => error instanceof Error ? error.message : String(error))
+              .join("; ")}`);
+          }
+        })();
+      }
+      return workerFinalization;
+    };
+    const unregisterWorkerSignalHandlers = (): void => {
+      if (!workerSignalHandlersRegistered) return;
+      process.off("SIGINT", workerShutdown);
+      process.off("SIGTERM", workerShutdown);
+      workerSignalHandlersRegistered = false;
+    };
+    const workerShutdown = (signal: NodeJS.Signals): void => {
+      if (workerShutdownStarted) return;
+      workerShutdownStarted = true;
+      workerError = `Parallel worker run interrupted by ${signal}.`;
+      void finalizeAndCleanupParallelWorkerRun()
+        .catch((error) => {
+          console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+        })
+        .finally(() => {
+          process.exit(130);
+        });
+    };
+    process.on("SIGINT", workerShutdown);
+    process.on("SIGTERM", workerShutdown);
+    workerSignalHandlersRegistered = true;
+    try {
+      workerTranscriptInit = transcriptStore.init(sessionId, {
+        kilnSessionId: sessionId,
+        provider: preferredProvider ?? flags.provider ?? "managed-fan-out",
+        title: initialMetadata.title,
+        summary: initialMetadata.summary,
+        tags: initialMetadata.tags,
+        task,
+        startedAt,
+        resumeStrategy: context.resumeStrategy,
+        resumeFeedback: context.resumeFeedback,
+        sessionLedger: {
+          currentPhase: "parallel-workers",
+          resumedFrom: resumeSessionId,
+          workingDirectory: context.workingDirectory,
+          worktreePath: context.worktreePath,
+        },
+        exactArtifacts: context.projectedContext.blocks
+          .filter((block) => block.kind === "artifact")
+          .map((block) => block.content),
+      }).then(() => {
+        workerTranscriptInitialized = true;
+      });
+      await workerTranscriptInit;
+      await runParallelWorkers(appConfig, task, flags, workerCount, managedInvocation, {
+        ...executionOptions,
+        exitOnFailure: false,
+        globalConfig,
+      });
+    } catch (error) {
+      if (!(error instanceof RunCommandExitError)) {
+        workerError = error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+      workerExitCode = error.code;
+      workerError = `Parallel workers exited with code ${error.code}.`;
+    } finally {
+      await finalizeAndCleanupParallelWorkerRun();
+    }
+    if (workerExitCode !== undefined) {
+      exitRunCommand(workerExitCode, executionOptions);
+    }
+    return;
+  }
+
+  await transcriptStore.init(sessionId, {
+    kilnSessionId: sessionId,
+    provider: preferredProvider ?? "unknown",
+    title: initialMetadata.title,
+    summary: initialMetadata.summary,
+    tags: initialMetadata.tags,
+    task,
+    startedAt,
+    resumeStrategy: context.resumeStrategy,
+    resumeFeedback: context.resumeFeedback,
+    sessionLedger: {
+      currentPhase: "prepare",
+      resumedFrom: resumeSessionId,
+      workingDirectory: context.workingDirectory,
+      worktreePath: context.worktreePath,
+    },
+    exactArtifacts: context.projectedContext.blocks
+      .filter((block) => block.kind === "artifact")
+      .map((block) => block.content),
+  });
 
   const sessionConfig = {
     task,
@@ -959,7 +1117,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
   if (!sessionSucceeded && lastError) {
     console.error(`[kiln] All providers failed. Last error: ${lastError}`);
     await cleanupWorktreeOnce();
-    process.exit(1);
+    exitRunCommand(1, executionOptions);
   }
 
   let verificationResult: VerificationResult | undefined;
@@ -1020,7 +1178,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
   if (verificationResult && !verificationResult.passed) {
     await cleanupWorktreeOnce();
-    process.exit(1);
+    exitRunCommand(1, executionOptions);
   }
 
   await cleanupWorktreeOnce();
@@ -1034,7 +1192,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
     const approved = await promptForPlanApproval();
     if (approved) {
-      await runCommand(appConfig, task, { ...flags, plan: false });
+      await runCommand(appConfig, task, { ...flags, plan: false }, executionOptions);
     }
     return;
   }
@@ -1042,6 +1200,7 @@ export async function runCommand(appConfig: KilnAppConfig, task: string, flags: 
 
 interface WorkerResult {
   workerIndex: number;
+  childId: string;
   success: boolean;
   error?: string;
 }
@@ -1079,35 +1238,135 @@ function mapTranscriptTypeToSource(type: string): SessionEventSource {
   }
 }
 
+function resolveParallelWorkerAdmissionLimits(
+  appConfig: KilnAppConfig,
+  managedInvocation: ManagedInvocationToolOptions,
+  flags: RunFlags,
+  task: string,
+  workerCount: number,
+  executionOptions: RunCommandExecutionOptions,
+): ManagedAgentOrchestrationAdmissionLimits {
+  const lifecycleRoutes = managedInvocation.routes.filter((route) => {
+    if (flags.provider && route.providerId !== flags.provider) return false;
+    if (flags.model && route.model !== flags.model) return false;
+    const profile = route.profiles["foundation-apply-approved-writes"];
+    return profile !== undefined
+      && profile.workingDirectory.mode === "isolated-worktree"
+      && profile.workingDirectoryLease !== undefined
+      && route.adapter.descriptor.lifecycle.exposesStart
+      && route.adapter.descriptor.lifecycle.exposesTerminal;
+  });
+  const hasSingleLifecycleRoute = lifecycleRoutes.length === 1;
+  const complexity = scoreComplexity({ messageText: task, toolCount: 0, turnDepth: 1 }).class;
+  return {
+    maxChildren: appConfig.kilnYaml?.parallelWorkers ?? workerCount,
+    routeHealth: hasSingleLifecycleRoute ? "available" : "unavailable",
+    budget: resolveParallelWorkerBudgetAvailability(executionOptions.globalConfig, lifecycleRoutes, executionOptions),
+    workspace: hasSingleLifecycleRoute ? "available" : "unavailable",
+    taskRisk: complexity === "complex" || complexity === "expert"
+      ? "high"
+      : complexity === "moderate"
+        ? "medium"
+        : "low",
+  };
+}
+
+function resolveParallelWorkerBudgetAvailability(
+  globalConfig: KilnGlobalConfig | null | undefined,
+  lifecycleRoutes: readonly ManagedInvocationToolOptions["routes"][number][],
+  executionOptions: RunCommandExecutionOptions,
+): ManagedAgentOrchestrationAdmissionLimits["budget"] {
+  if (globalConfig?.routing?.budgetAware !== true) {
+    return "available";
+  }
+  if (!executionOptions.getDailyTokensUsed) {
+    return "unavailable";
+  }
+  if (lifecycleRoutes.length === 0) {
+    return "unavailable";
+  }
+  return lifecycleRoutes.some((route) =>
+    getEngineBudgetStatus(globalConfig, route.providerId, {
+      getDailyTokensUsed: executionOptions.getDailyTokensUsed,
+    }).withinBudget
+  )
+    ? "available"
+    : "unavailable";
+}
+
 export async function runParallelWorkers(
   appConfig: KilnAppConfig,
   task: string,
   flags: RunFlags,
   workerCount: number,
-  runner: (appConfig: KilnAppConfig, task: string, flags: RunFlags) => Promise<void> = runCommand,
+  managedInvocation: ManagedInvocationToolOptions | undefined,
+  executionOptions: RunCommandExecutionOptions = {},
 ): Promise<void> {
-  const results = await Promise.allSettled(
-    Array.from({ length: workerCount }, async (_, i) => {
-      await runner(appConfig, task, { ...flags, workers: 1, isolate: true });
-      return { workerIndex: i + 1, success: true };
-    }),
-  );
+  if (!managedInvocation) {
+    console.error("Error: Managed lifecycle fan-out requires configured managed agent routes.");
+    exitRunCommand(1, executionOptions);
+  }
 
-  const workerResults: WorkerResult[] = results.map((result, index) => {
-    if (result.status === "fulfilled") {
-      return result.value;
+  const orchestrationRequest = buildManagedAgentFanOutOrchestrationRequest({
+    orchestrationId: "cli-run-workers",
+    parentSessionId: "cli-run",
+    parentTurnId: "cli-run-workers",
+    requestedBy: "operator",
+    requestSource: "cli:run-workers",
+    task,
+    childCount: workerCount,
+    maxConcurrentChildren: workerCount,
+  });
+  const admission = admitManagedAgentOrchestrationRequest(orchestrationRequest, {
+    ...resolveParallelWorkerAdmissionLimits(appConfig, managedInvocation, flags, task, workerCount, executionOptions),
+  });
+  if (admission.status === "denied") {
+    console.error(`Error: ${admission.reason}.`);
+    for (const missingCapability of admission.missingCapabilities) {
+      console.error(`- ${missingCapability}`);
+    }
+    exitRunCommand(1, executionOptions);
+  }
+
+  let lifecycleResult: Awaited<ReturnType<typeof runManagedAgentFanOutLifecycle>>;
+  try {
+    lifecycleResult = await runManagedAgentFanOutLifecycle({
+      orchestrationRequest: admission.request,
+      managedInvocation,
+      routeSelector: {
+        ...(flags.provider ? { providerId: flags.provider } : {}),
+        ...(flags.model ? { model: flags.model } : {}),
+      },
+      requestedAuthority: flags.requestedAuthority ?? "audited",
+    });
+  } catch (error) {
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    exitRunCommand(1, executionOptions);
+  }
+
+  const workerResults: WorkerResult[] = lifecycleResult.childRecords.map((child) => {
+    if (child.record?.lifecycleState === "completed" || child.record?.lifecycleState === "recovered") {
+      return {
+        workerIndex: child.ordinal,
+        childId: child.childId,
+        success: true,
+      };
     }
     return {
-      workerIndex: index + 1,
+      workerIndex: child.ordinal,
+      childId: child.childId,
       success: false,
-      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      error: child.error ?? `lifecycle state ${child.record?.lifecycleState ?? "failed"}`,
     };
   });
+  const orchestrationResult = lifecycleResult.orchestrationResult;
 
   console.log("");
   console.log("═══════════════════════════════════════");
   console.log(" PARALLEL WORKERS COMPLETE");
   console.log("═══════════════════════════════════════");
+  console.log(` Orchestration: ${orchestrationResult.orchestrationId} (${orchestrationResult.mode})`);
+  console.log(` Status: ${orchestrationResult.status}`);
 
   for (const wr of workerResults) {
     if (wr.success) {
@@ -1123,6 +1382,6 @@ export async function runParallelWorkers(
   console.log(`${succeededCount}/${workerCount} workers succeeded`);
 
   if (succeededCount === 0) {
-    process.exit(1);
+    exitRunCommand(1, executionOptions);
   }
 }

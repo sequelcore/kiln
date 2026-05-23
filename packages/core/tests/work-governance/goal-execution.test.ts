@@ -673,6 +673,320 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("counts structured managed orchestration adoption toward goal closeout evidence", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-adoption-goal",
+      summary: "Adopt managed orchestration output.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:adoption-gate",
+      ],
+      verificationGates: ["managed orchestration adoption gate"],
+      managedOrchestration: {
+        orchestrationId: "orch-adoption-goal",
+        mode: "decomposition",
+        childId: "orch-adoption-goal:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required before closeout.",
+        },
+      },
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-adoption",
+      objective: "Close with managed adoption evidence.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [
+        {
+          id: "managed-orchestration:adoption-gate",
+          description: "Managed child output adopted.",
+          required: true,
+        },
+      ],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+    });
+
+    const completed = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["managed-orchestration:result-handoff"],
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-12T10:30:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-adoption-goal/adoption"],
+      },
+    });
+
+    expect(completed).toMatchObject({
+      missingEvidence: [],
+      missingGoalEvidence: [],
+      goal: {
+        status: "completed",
+      },
+      item: {
+        status: "completed",
+        providedEvidence: ["managed-orchestration:result-handoff"],
+        managedOrchestrationAdoption: {
+          target: "slice-6-handoff-review-adoption",
+          adoptedBy: "reviewer",
+        },
+      },
+    });
+    expect(completed.goal.closeoutSummary).toContain(
+      "Evidence: managed-orchestration:result-handoff, managed-orchestration:adoption-gate.",
+    );
+  });
+
+  it("ignores raw managed orchestration adoption evidence at goal closeout without structured adoption", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-raw-adoption-goal",
+      summary: "Attempt raw adoption evidence.",
+      status: "completed",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-orchestration:adoption-gate"],
+      providedEvidence: ["managed-orchestration:adoption-gate"],
+      verificationGates: ["managed orchestration adoption gate"],
+      managedOrchestration: {
+        orchestrationId: "orch-raw-adoption-goal",
+        mode: "decomposition",
+        childId: "orch-raw-adoption-goal:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required before closeout.",
+        },
+      },
+    });
+    const goal = goalRunStore.create({
+      id: "goal-raw-adoption",
+      objective: "Do not close with raw adoption evidence.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [
+        {
+          id: "managed-orchestration:adoption-gate",
+          description: "Managed child output adopted.",
+          required: true,
+        },
+      ],
+    });
+    const second = workItemStore.upsert({
+      id: "work-trigger-closeout",
+      summary: "Trigger closeout.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+    });
+    const goalWithSecondItem = goalRunStore.update({
+      id: goal.id,
+      workItemIds: [item.id, second.id],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goalWithSecondItem.id,
+      workItemId: second.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goalWithSecondItem.id,
+      workItemId: second.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+    });
+
+    expect(blocked).toMatchObject({
+      missingGoalEvidence: ["managed-orchestration:adoption-gate"],
+      goal: {
+        status: "active",
+        currentPhase: "paused:goal-closeout",
+      },
+    });
+  });
+
+  it("strips malformed replayed managed orchestration adoption before goal closeout", () => {
+    const replayStore = new WorkItemStore({ now: fixedNow });
+    const valid = replayStore.upsert({
+      id: "work-replayed-adoption",
+      summary: "Replay malformed adoption.",
+      status: "completed",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-orchestration:adoption-gate"],
+      providedEvidence: ["managed-orchestration:adoption-gate"],
+      verificationGates: ["managed orchestration adoption gate"],
+      managedOrchestration: {
+        orchestrationId: "orch-replayed-adoption",
+        mode: "decomposition",
+        childId: "orch-replayed-adoption:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required before closeout.",
+        },
+      },
+    });
+    const replayed = reconstructWorkItemsFromSessionEvents([
+      createSessionEvent({
+        kind: "work_item_updated",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        workItem: {
+          ...valid,
+          managedOrchestrationAdoption: {
+            target: "slice-6-handoff-review-adoption",
+            adoptedBy: "reviewer",
+            adoptedAt: "2026-05-12T10:30:00.000Z",
+            resourceUris: [],
+          },
+        },
+      }),
+    ]).items[0];
+    expect(replayed?.managedOrchestrationAdoption).toBeUndefined();
+
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    if (!replayed) throw new Error("replayed work item missing");
+    workItemStore.upsert(replayed);
+    const second = workItemStore.upsert({
+      id: "work-replay-trigger-closeout",
+      summary: "Trigger closeout after replay.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-replayed-adoption",
+      objective: "Do not close with malformed replayed adoption.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [replayed.id, second.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [
+        {
+          id: "managed-orchestration:adoption-gate",
+          description: "Managed child output adopted.",
+          required: true,
+        },
+      ],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: second.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: second.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+    });
+
+    expect(blocked.missingGoalEvidence).toEqual(["managed-orchestration:adoption-gate"]);
+  });
+
   it("generates goal closeout summary from linked work item evidence", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

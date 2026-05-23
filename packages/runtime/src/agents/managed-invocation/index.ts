@@ -52,6 +52,15 @@ export type {
   AppendManagedInvocationSessionEventsInput,
 } from "./session-events.js";
 export {
+  runManagedAgentFanOutLifecycle,
+} from "./fan-out.js";
+export type {
+  ManagedAgentFanOutLifecycleChildRecord,
+  ManagedAgentFanOutLifecycleInput,
+  ManagedAgentFanOutLifecycleResult,
+  ManagedAgentFanOutLifecycleRouteSelector,
+} from "./fan-out.js";
+export {
   collectManagedAgentLiveWriteDecisionEvidence,
   collectManagedAgentLiveWriteEvidence,
   normalizeManagedAgentLiveWriteChanges,

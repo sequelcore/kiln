@@ -83,7 +83,13 @@ Use these documents as the stable source of truth before starting roadmap work:
    dirty isolated worktree release failures now preserve the worktree and emit
    runtime-owned review-required evidence across recovery, gateway cockpit, and
    operator event surfaces without automatic adoption or parent checkout
-   mutation.
+   mutation. Slice 4A-D are code-complete: core now has typed orchestration modes,
+   fail-closed request adapters for every planned mode, fan-out
+   request/admission/result evidence, governed child work-item materialization
+   with merge/adoption policy metadata, and `kiln run --workers` now uses the
+   managed runtime lifecycle to start, observe, and join isolated worker
+   children instead of recursive CLI fan-out, with signal-safe transcript
+   finalization and worktree cleanup.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

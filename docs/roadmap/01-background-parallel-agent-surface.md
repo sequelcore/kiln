@@ -21,7 +21,18 @@ Active. Started on 2026-05-21. Current implementation status:
   stale lease recovery now exist. Persistent restart recovery now exists;
   runtime-owned cleanup daemon scheduling now exists; dirty worktree
   preservation now emits runtime-owned review-required evidence.
-- Slices 4-8 are not started.
+- Slice 4 is started. Slice 4A is complete in code: a typed fan-out
+  orchestration request/admission/result contract now exists, and
+  `kiln run --workers` consumes it before launching isolated workers. Slice 4B
+  is complete in code: core now exposes fail-closed request adapters for
+  decomposition, review swarm, route comparison, and background job modes.
+  Slice 4C is complete in code: `kiln run --workers` is hard-cut onto the
+  managed invocation lifecycle and now starts, observes, and joins children
+  through the runtime child registry instead of recursive CLI fan-out. Slice 4D
+  is complete in code: typed orchestration requests can now materialize
+  governed child work items with expected evidence, isolation, merge policy, and
+  Slice 6 adoption-gate metadata.
+- Slices 5-8 are not started.
 
 Recent implementation commits:
 
@@ -245,8 +256,16 @@ Kiln now has the first runtime-owned managed-child lifecycle foundation:
   cockpit/operator event surfaces project the typed evidence without parsing
   diagnostic URIs. This is review-required evidence only; automatic adoption or
   parent checkout mutation remains out of scope.
-- `kiln run --workers` is still transitional CLI fan-out behavior, not yet
-  rebased onto the managed-child lifecycle.
+- `kiln run --workers` now enters through a typed `fan-out` orchestration
+  request with explicit child expected evidence, isolation policy, merge
+  policy, configured worker-limit admission, managed lifecycle route/workspace
+  admission, and terminal orchestration result evidence. CLI worker fan-out no
+  longer recurses through `runCommand`; production execution requires a
+  configured isolated-worktree `foundation-apply-approved-writes` managed route
+  and a runtime invocation service, then starts children through
+  `RuntimeManagedAgentInvocationService.start`, verifies running status, joins
+  terminal records through `join`, and maps lifecycle records into orchestration
+  result evidence.
 
 The missing product primitive is now narrower: lease-backed execution has
 explicit in-memory stale recovery, persistent restart recovery, and
@@ -408,7 +427,55 @@ Deliverables:
 
 ### Slice 4 - Parallel Orchestration Modes
 
-Status: pending.
+Status: code-complete for Slice 4A, Slice 4B, Slice 4C, and Slice 4D. The
+remaining item below is a deferred budget-plane integration follow-up.
+
+Completed:
+
+- Core now defines typed orchestration modes for `fan-out`, `decomposition`,
+  `review-swarm`, `route-comparison`, and `background-job` without introducing
+  provider-native worker vocabulary into the managed invocation contract.
+- Core now validates orchestration requests with explicit parent lineage,
+  child requests, expected evidence, isolation policy, merge/adoption policy,
+  and terminal result evidence.
+- Core now exposes request adapters for `decomposition`, `review-swarm`,
+  `route-comparison`, and `background-job`, with per-mode expected evidence,
+  merge/adoption policy, isolated worktree requirements, and child-count
+  invariants enforced at the `define*` boundary.
+- Fan-out admission now fails closed against configured maximum child count,
+  route health availability, budget-aware usage availability, workspace
+  availability, and high task-risk signals.
+- `kiln run --workers` now builds a typed `fan-out` orchestration request,
+  enforces the configured `parallelWorkers` limit before launching children,
+  records each child result in orchestration result evidence, and reports the
+  orchestration mode/status in CLI output.
+- Runtime now owns a fan-out lifecycle helper that selects a lease-backed
+  isolated worktree managed route, constructs invocation-scoped child requests,
+  starts children through `RuntimeManagedAgentInvocationService.start`,
+  observes lifecycle status, joins terminal records, and returns normalized
+  orchestration evidence.
+- `kiln run --workers` now fails closed when no managed lifecycle route/service
+  is available or route selection is ambiguous, and no longer preserves the
+  legacy recursive child `runCommand` execution path. Route/workspace admission
+  now reflects actual configured managed lifecycle routes and task risk is
+  derived from the shared complexity scorer before child launch.
+- Core now materializes typed managed orchestration requests into governed child
+  work items. Each materialized work item carries child identity, role intent,
+  per-mode expected evidence, isolation policy, merge policy, and Slice 6
+  adoption-gate metadata. Adoption-required modes add
+  `managed-orchestration:adoption-gate` to expected evidence so closeout blocks
+  until a structured Slice 6 adoption resolution is recorded on the work item;
+  child-provided evidence cannot self-satisfy the gate.
+- `kiln run --workers` now fails closed for budget-aware routing when no live
+  usage source is available or every eligible lifecycle route is over budget.
+- `kiln run --workers` now installs parallel-worker `SIGINT`/`SIGTERM`
+  handlers before child launch and routes normal completion, failure, and
+  interruption through one transcript finalization and worktree cleanup path.
+
+Remaining:
+
+- Replace the CLI budget usage hook with live budget admission from the
+  runtime/session path when that budget plane is available.
 
 Deliverables:
 

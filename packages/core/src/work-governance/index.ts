@@ -33,6 +33,8 @@ export {
   startGoalExecutionAttempt,
 } from "./goal-execution.js";
 export type {
+  ManagedAgentOrchestrationWorkItemMaterializationInput,
+  ManagedAgentOrchestrationWorkItemMaterializationResult,
   WorkItemMaterialization,
   WorkItemMaterializationInput,
   WorkItemMaterializationResult,
@@ -40,6 +42,7 @@ export type {
 } from "./work-item-materializer.js";
 export {
   materializeApprovedPlanWorkItems,
+  materializeManagedAgentOrchestrationWorkItems,
   reconstructWorkItemMaterializationsFromSessionEvents,
 } from "./work-item-materializer.js";
 export type {
@@ -48,6 +51,12 @@ export type {
   WorkItemExecutionAttempt,
   WorkItemExecutionAttemptStatus,
   WorkItemExecutionMode,
+  WorkItemManagedOrchestrationAdoptionGate,
+  WorkItemManagedOrchestrationAdoptionResolution,
+  WorkItemManagedOrchestrationExpectedEvidence,
+  WorkItemManagedOrchestrationIsolationPolicy,
+  WorkItemManagedOrchestrationMergePolicy,
+  WorkItemManagedOrchestrationPolicy,
   WorkItemPauseRequirement,
   WorkItemPauseRequirementKind,
   WorkItemPauseRequirementStatus,

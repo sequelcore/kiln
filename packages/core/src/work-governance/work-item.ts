@@ -18,6 +18,48 @@ export type WorkItemPauseRequirementKind = "operator_input" | "credentials" | "a
 export type WorkItemPauseRequirementStatus = "pending" | "resolved";
 export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
 
+export interface WorkItemManagedOrchestrationExpectedEvidence {
+  readonly kind: string;
+  readonly label: string;
+  readonly required: boolean;
+}
+
+export interface WorkItemManagedOrchestrationIsolationPolicy {
+  readonly required: boolean;
+  readonly reason: string;
+  readonly workingDirectoryMode?: string;
+}
+
+export interface WorkItemManagedOrchestrationMergePolicy {
+  readonly mode: string;
+  readonly adoptionRequired: boolean;
+}
+
+export interface WorkItemManagedOrchestrationAdoptionGate {
+  readonly required: boolean;
+  readonly target: "slice-6-handoff-review-adoption";
+  readonly reason: string;
+}
+
+export interface WorkItemManagedOrchestrationAdoptionResolution {
+  readonly target: "slice-6-handoff-review-adoption";
+  readonly adoptedBy: string;
+  readonly adoptedAt: string;
+  readonly resourceUris: readonly string[];
+}
+
+export interface WorkItemManagedOrchestrationPolicy {
+  readonly orchestrationId: string;
+  readonly mode: string;
+  readonly childId: string;
+  readonly ordinal: number;
+  readonly roleIntent: string;
+  readonly expectedEvidence: readonly WorkItemManagedOrchestrationExpectedEvidence[];
+  readonly isolation: WorkItemManagedOrchestrationIsolationPolicy;
+  readonly mergePolicy: WorkItemManagedOrchestrationMergePolicy;
+  readonly adoptionGate: WorkItemManagedOrchestrationAdoptionGate;
+}
+
 export interface VerificationGateResult {
   readonly gate: string;
   readonly status: VerificationGateResultStatus;
@@ -79,6 +121,8 @@ export interface WorkItemUpsertInput {
   readonly goalRunId?: string;
   readonly sourceWorkItemId?: string;
   readonly routingRecommendation?: WorkItemRoutingRecommendation;
+  readonly managedOrchestration?: WorkItemManagedOrchestrationPolicy;
+  readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
   readonly executionAttempts?: readonly WorkItemExecutionAttempt[];
 }
 
@@ -101,6 +145,7 @@ export interface WorkItemCompletionInput {
   readonly skippedVerificationGates?: readonly string[];
   readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
+  readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
 }
 
 export interface WorkItemCompletionResult {
@@ -132,6 +177,7 @@ export interface WorkItemFinishExecutionAttemptInput {
   readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
   readonly summary?: string;
+  readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
 }
 
 export interface WorkItemFinishExecutionAttemptResult extends WorkItemCompletionResult {
@@ -197,6 +243,8 @@ export class WorkItemStore {
       goalRunId: input.goalRunId ?? existing?.goalRunId,
       sourceWorkItemId: input.sourceWorkItemId ?? existing?.sourceWorkItemId,
       routingRecommendation: input.routingRecommendation ?? existing?.routingRecommendation,
+      managedOrchestration: normalizeManagedOrchestrationPolicy(input.managedOrchestration ?? existing?.managedOrchestration),
+      managedOrchestrationAdoption: normalizeManagedOrchestrationAdoption(input.managedOrchestrationAdoption ?? existing?.managedOrchestrationAdoption),
       executionAttempts: input.executionAttempts ?? existing?.executionAttempts ?? [],
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -251,7 +299,13 @@ export class WorkItemStore {
     ]);
     const failedVerificationGates = failedGates(verificationGateResults);
     const missingVerificationGates = missingRequiredVerificationGates(existing, verificationGateResults, allSkippedVerificationGates);
-    const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
+    const managedOrchestrationAdoption = normalizeManagedOrchestrationAdoption(
+      input.managedOrchestrationAdoption ?? existing.managedOrchestrationAdoption,
+    );
+    const missingEvidence = missingExpectedEvidence({
+      ...existing,
+      managedOrchestrationAdoption,
+    }, providedEvidence);
     const residualRisk = input.residualRisk ?? existing.residualRisk;
     const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
     const status: WorkItemStatus = missingEvidence.length === 0
@@ -268,6 +322,7 @@ export class WorkItemStore {
       skippedVerificationGates: allSkippedVerificationGates,
       verificationGateResults,
       residualRisk,
+      managedOrchestrationAdoption,
     });
 
     return {
@@ -340,7 +395,13 @@ export class WorkItemStore {
     ]);
     const failedVerificationGates = failedGates(verificationGateResults);
     const missingVerificationGates = missingRequiredVerificationGates(existing, verificationGateResults, allSkippedVerificationGates);
-    const missingEvidence = existing.expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence));
+    const managedOrchestrationAdoption = normalizeManagedOrchestrationAdoption(
+      input.managedOrchestrationAdoption ?? existing.managedOrchestrationAdoption,
+    );
+    const missingEvidence = missingExpectedEvidence({
+      ...existing,
+      managedOrchestrationAdoption,
+    }, providedEvidence);
     const residualRisk = input.residualRisk ?? existing.residualRisk ?? attempt.residualRisk;
     const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
     const status: WorkItemStatus = missingEvidence.length === 0
@@ -368,6 +429,7 @@ export class WorkItemStore {
       skippedVerificationGates: allSkippedVerificationGates,
       verificationGateResults,
       residualRisk,
+      managedOrchestrationAdoption,
       executionAttempts: existing.executionAttempts.map((candidate) =>
         candidate.id === input.attemptId ? completedAttempt : candidate),
     });
@@ -400,7 +462,11 @@ export function reconstructWorkItemsFromSessionEvents(
     ) {
       continue;
     }
-    items.set(event.workItem.id, event.workItem);
+    const normalized = normalizeReplayedWorkItem(event.workItem);
+    if (!normalized) {
+      continue;
+    }
+    items.set(normalized.id, normalized);
     sequence = Math.max(sequence, event.workItem.sequence);
   }
   const ordered = [...items.values()].sort((left, right) => left.sequence - right.sequence);
@@ -409,6 +475,35 @@ export function reconstructWorkItemsFromSessionEvents(
     updatedAt: ordered.at(-1)?.updatedAt,
     sequence,
   };
+}
+
+function normalizeReplayedWorkItem(item: WorkItem): WorkItem | undefined {
+  const normalized = tryNormalizeReplayedWorkItem(item);
+  if (normalized) {
+    return normalized;
+  }
+  if (item.managedOrchestrationAdoption !== undefined) {
+    return tryNormalizeReplayedWorkItem({
+      ...item,
+      managedOrchestrationAdoption: undefined,
+    });
+  }
+  return undefined;
+}
+
+function tryNormalizeReplayedWorkItem(item: WorkItem): WorkItem | undefined {
+  try {
+    const store = new WorkItemStore({ now: () => item.updatedAt });
+    const normalized = store.upsert(item);
+    return {
+      ...normalized,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      sequence: item.sequence,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function unique<T extends string>(values: readonly T[]): readonly T[] {
@@ -464,6 +559,33 @@ function missingRequiredVerificationGates(
     .filter((gate) => !satisfied.has(gate));
 }
 
+function missingExpectedEvidence(
+  item: WorkItem,
+  providedEvidence: readonly string[],
+): readonly string[] {
+  return item.expectedEvidence.filter((evidence) => {
+    if (isSatisfiedManagedOrchestrationAdoptionGate(item, evidence)) {
+      return false;
+    }
+    if (isPendingManagedOrchestrationAdoptionGate(item, evidence)) {
+      return true;
+    }
+    return !providedEvidence.includes(evidence);
+  });
+}
+
+function isPendingManagedOrchestrationAdoptionGate(item: WorkItem, evidence: string): boolean {
+  return evidence === "managed-orchestration:adoption-gate"
+    && item.managedOrchestration?.adoptionGate.required === true
+    && item.managedOrchestrationAdoption?.target !== item.managedOrchestration.adoptionGate.target;
+}
+
+function isSatisfiedManagedOrchestrationAdoptionGate(item: WorkItem, evidence: string): boolean {
+  return evidence === "managed-orchestration:adoption-gate"
+    && item.managedOrchestration?.adoptionGate.required === true
+    && item.managedOrchestrationAdoption?.target === item.managedOrchestration.adoptionGate.target;
+}
+
 function isReviewVerificationGate(gate: string): boolean {
   const normalized = gate.toLowerCase();
   return normalized.includes("review") || normalized.includes("ddd");
@@ -509,4 +631,69 @@ function normalizePauseRequirements(
     byId.set(requirement.id, requirement);
   }
   return [...byId.values()];
+}
+
+function normalizeManagedOrchestrationPolicy(
+  policy: WorkItemManagedOrchestrationPolicy | undefined,
+): WorkItemManagedOrchestrationPolicy | undefined {
+  if (!policy) {
+    return undefined;
+  }
+  return {
+    orchestrationId: policy.orchestrationId.trim(),
+    mode: policy.mode.trim(),
+    childId: policy.childId.trim(),
+    ordinal: policy.ordinal,
+    roleIntent: policy.roleIntent.trim(),
+    expectedEvidence: policy.expectedEvidence.map((evidence) => ({
+      kind: evidence.kind.trim(),
+      label: evidence.label.trim(),
+      required: evidence.required === true,
+    })),
+    isolation: {
+      required: policy.isolation.required === true,
+      reason: policy.isolation.reason.trim(),
+      ...(policy.isolation.workingDirectoryMode
+        ? { workingDirectoryMode: policy.isolation.workingDirectoryMode.trim() }
+        : {}),
+    },
+    mergePolicy: {
+      mode: policy.mergePolicy.mode.trim(),
+      adoptionRequired: policy.mergePolicy.adoptionRequired === true,
+    },
+    adoptionGate: {
+      required: policy.adoptionGate.required === true,
+      target: "slice-6-handoff-review-adoption",
+      reason: policy.adoptionGate.reason.trim(),
+    },
+  };
+}
+
+function normalizeManagedOrchestrationAdoption(
+  adoption: WorkItemManagedOrchestrationAdoptionResolution | undefined,
+): WorkItemManagedOrchestrationAdoptionResolution | undefined {
+  if (!adoption) {
+    return undefined;
+  }
+  const adoptedAt = adoption.adoptedAt.trim();
+  if (Number.isNaN(Date.parse(adoptedAt))) {
+    throw new Error("Managed orchestration adoption timestamp is required.");
+  }
+  if (adoption.target !== "slice-6-handoff-review-adoption") {
+    throw new Error("Managed orchestration adoption target must be slice-6-handoff-review-adoption.");
+  }
+  const adoptedBy = adoption.adoptedBy.trim();
+  if (!adoptedBy) {
+    throw new Error("Managed orchestration adoption actor is required.");
+  }
+  const resourceUris = unique(adoption.resourceUris.map((uri) => uri.trim()).filter((uri) => uri.length > 0));
+  if (resourceUris.length === 0) {
+    throw new Error("Managed orchestration adoption requires at least one resource uri.");
+  }
+  return {
+    target: "slice-6-handoff-review-adoption",
+    adoptedBy,
+    adoptedAt,
+    resourceUris,
+  };
 }

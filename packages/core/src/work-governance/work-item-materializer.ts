@@ -1,5 +1,11 @@
 import type { SessionPlan, SessionPlanWorkItemDraft } from "../tools/infrastructure/plan-state-store.js";
 import { compareSessionEvents, type CanonicalSessionEvent } from "../events/session-event.js";
+import {
+  defineManagedAgentOrchestrationRequest,
+  type ManagedAgentOrchestrationChildRequest,
+  type ManagedAgentOrchestrationExpectedEvidence,
+  type ManagedAgentOrchestrationRequest,
+} from "../agents/managed-invocation/orchestration.js";
 import type { GoalRun } from "./goal-run.js";
 import type {
   WorkItem,
@@ -8,6 +14,26 @@ import type {
   WorkItemStore,
   WorkItemUpsertInput,
 } from "./work-item.js";
+
+export interface ManagedAgentOrchestrationWorkItemMaterializationInput {
+  readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
+  readonly workItemStore: WorkItemStore;
+  readonly goalRunId?: string;
+  readonly workflowProfile?: string;
+  readonly risk?: string;
+  readonly assignedAgentProfile?: string;
+  readonly routeId?: string;
+  readonly authorityProfile?: string;
+}
+
+export interface ManagedAgentOrchestrationWorkItemMaterializationResult {
+  readonly orchestrationId: string;
+  readonly mode: ManagedAgentOrchestrationRequest["mode"];
+  readonly workItemIds: readonly string[];
+  readonly createdWorkItemIds: readonly string[];
+  readonly reusedWorkItemIds: readonly string[];
+  readonly workItems: readonly WorkItem[];
+}
 
 export interface WorkItemMaterialization {
   readonly id: string;
@@ -95,6 +121,47 @@ export function materializeApprovedPlanWorkItems(
   return { materialization, workItems };
 }
 
+export function materializeManagedAgentOrchestrationWorkItems(
+  input: ManagedAgentOrchestrationWorkItemMaterializationInput,
+): ManagedAgentOrchestrationWorkItemMaterializationResult {
+  const request = defineManagedAgentOrchestrationRequest(input.orchestrationRequest);
+  const workItems: WorkItem[] = [];
+  const createdWorkItemIds: string[] = [];
+  const reusedWorkItemIds: string[] = [];
+
+  for (const child of request.childRequests) {
+    const workItemInput = toManagedAgentOrchestrationWorkItemInput({
+      request,
+      child,
+      goalRunId: input.goalRunId,
+      workflowProfile: input.workflowProfile,
+      risk: input.risk,
+      assignedAgentProfile: input.assignedAgentProfile,
+      routeId: input.routeId,
+      authorityProfile: input.authorityProfile,
+    });
+    const existing = input.workItemStore.get(workItemInput.id!);
+    if (existing) {
+      assertExistingManagedOrchestrationWorkItemMatches(existing, workItemInput);
+      workItems.push(existing);
+      reusedWorkItemIds.push(existing.id);
+      continue;
+    }
+    const item = input.workItemStore.upsert(workItemInput);
+    workItems.push(item);
+    createdWorkItemIds.push(item.id);
+  }
+
+  return {
+    orchestrationId: request.orchestrationId,
+    mode: request.mode,
+    workItemIds: workItems.map((item) => item.id),
+    createdWorkItemIds,
+    reusedWorkItemIds,
+    workItems,
+  };
+}
+
 export function reconstructWorkItemMaterializationsFromSessionEvents(
   events: readonly CanonicalSessionEvent[],
 ): WorkItemMaterializationSnapshot {
@@ -164,6 +231,73 @@ function toWorkItemInput(input: {
   };
 }
 
+function toManagedAgentOrchestrationWorkItemInput(input: {
+  readonly request: ManagedAgentOrchestrationRequest;
+  readonly child: ManagedAgentOrchestrationChildRequest;
+  readonly goalRunId?: string;
+  readonly workflowProfile?: string;
+  readonly risk?: string;
+  readonly assignedAgentProfile?: string;
+  readonly routeId?: string;
+  readonly authorityProfile?: string;
+}): WorkItemUpsertInput {
+  const mergeEvidence = `managed-orchestration:merge:${input.request.mergePolicy.mode}`;
+  const adoptionEvidence = input.request.mergePolicy.adoptionRequired
+    ? ["managed-orchestration:adoption-gate"]
+    : [];
+  return {
+    id: `${input.child.childId}:work-item`,
+    summary: input.child.task,
+    status: "pending",
+    workflowProfile: input.workflowProfile ?? "managed-agent-change",
+    risk: input.risk ?? "high",
+    triggers: [
+      input.workflowProfile ?? "managed-agent-change",
+      input.risk ?? "high",
+      input.request.mode,
+      input.request.mergePolicy.mode,
+    ],
+    assignedAgentProfile: input.assignedAgentProfile,
+    routeId: input.routeId,
+    authorityProfile: input.authorityProfile,
+    expectedEvidence: uniqueStrings([
+      ...input.child.expectedEvidence
+        .filter((evidence) => evidence.required)
+        .map(orchestrationEvidenceKey),
+      mergeEvidence,
+      ...adoptionEvidence,
+    ]),
+    verificationGates: uniqueStrings([
+      "managed orchestration child handoff",
+      `managed orchestration merge policy: ${input.request.mergePolicy.mode}`,
+      ...(input.request.mergePolicy.adoptionRequired ? ["managed orchestration adoption gate"] : []),
+    ]),
+    ...(input.goalRunId ? { goalRunId: input.goalRunId } : {}),
+    sourceWorkItemId: input.child.childId,
+    managedOrchestration: {
+      orchestrationId: input.request.orchestrationId,
+      mode: input.request.mode,
+      childId: input.child.childId,
+      ordinal: input.child.ordinal,
+      roleIntent: input.child.roleIntent,
+      expectedEvidence: input.child.expectedEvidence,
+      isolation: input.request.isolation,
+      mergePolicy: input.request.mergePolicy,
+      adoptionGate: {
+        required: input.request.mergePolicy.adoptionRequired,
+        target: "slice-6-handoff-review-adoption",
+        reason: input.request.mergePolicy.adoptionRequired
+          ? `Managed ${input.request.mode} orchestration requires Slice 6 adoption before closeout.`
+          : `Managed ${input.request.mode} orchestration does not require automatic parent adoption.`,
+      },
+    },
+  };
+}
+
+function orchestrationEvidenceKey(evidence: ManagedAgentOrchestrationExpectedEvidence): string {
+  return `managed-orchestration:${evidence.kind}`;
+}
+
 function routingRecommendation(
   draft: SessionPlanWorkItemDraft,
   plan: SessionPlan,
@@ -221,6 +355,26 @@ function assertExistingMatches(existing: WorkItem, input: WorkItemUpsertInput): 
   ].filter((value): value is string => Boolean(value));
   if (mismatches.length > 0) {
     throw new Error(`Existing work item ${existing.id} conflicts with approved plan materialization: ${mismatches.join(", ")}.`);
+  }
+}
+
+function assertExistingManagedOrchestrationWorkItemMatches(existing: WorkItem, input: WorkItemUpsertInput): void {
+  const mismatches = [
+    existing.summary !== input.summary ? "summary" : undefined,
+    existing.workflowProfile !== input.workflowProfile ? "workflowProfile" : undefined,
+    existing.risk !== input.risk ? "risk" : undefined,
+    existing.goalRunId !== input.goalRunId ? "goalRunId" : undefined,
+    existing.sourceWorkItemId !== input.sourceWorkItemId ? "sourceWorkItemId" : undefined,
+    existing.routeId !== input.routeId ? "routeId" : undefined,
+    existing.assignedAgentProfile !== input.assignedAgentProfile ? "assignedAgentProfile" : undefined,
+    existing.authorityProfile !== input.authorityProfile ? "authorityProfile" : undefined,
+    !sameStrings(existing.triggers, input.triggers) ? "triggers" : undefined,
+    !sameStrings(existing.expectedEvidence, input.expectedEvidence) ? "expectedEvidence" : undefined,
+    !sameStrings(existing.verificationGates, input.verificationGates) ? "verificationGates" : undefined,
+    !sameJson(existing.managedOrchestration, input.managedOrchestration) ? "managedOrchestration" : undefined,
+  ].filter((value): value is string => Boolean(value));
+  if (mismatches.length > 0) {
+    throw new Error(`Existing work item ${existing.id} conflicts with managed orchestration materialization: ${mismatches.join(", ")}.`);
   }
 }
 
@@ -308,6 +462,10 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
+}
+
 function sameRoutingRecommendation(
   left: WorkItemRoutingRecommendation | undefined,
   right: WorkItemRoutingRecommendation | undefined,
@@ -320,4 +478,8 @@ function sameRoutingRecommendation(
     && left.reasoningEffort === right.reasoningEffort
     && left.modelTaskSuitability === right.modelTaskSuitability
     && left.rationale === right.rationale;
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

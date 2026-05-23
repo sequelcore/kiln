@@ -84,6 +84,7 @@ export interface FinishGoalExecutionAttemptInput {
   readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
   readonly summary?: string;
+  readonly managedOrchestrationAdoption?: WorkItem["managedOrchestrationAdoption"];
   readonly closeoutSummary?: string;
 }
 
@@ -225,6 +226,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     verificationGateResults: input.verificationGateResults,
     residualRisk: input.residualRisk,
     summary: input.summary,
+    managedOrchestrationAdoption: input.managedOrchestrationAdoption,
   });
   if (!completed) {
     throw new Error(`Work item ${input.workItemId} attempt ${input.attemptId} was not found.`);
@@ -297,11 +299,17 @@ function missingRequiredGoalEvidence(goal: GoalRun, workItemStore: WorkItemStore
     if (!item) {
       continue;
     }
-    for (const evidence of item.providedEvidence) {
+    for (const evidence of goalProvidedEvidence(item)) {
       provided.add(evidence);
     }
     if (item.residualRisk) {
       provided.add("residual-risk");
+    }
+    if (
+      item.managedOrchestration?.adoptionGate.required === true
+      && item.managedOrchestrationAdoption?.target === item.managedOrchestration.adoptionGate.target
+    ) {
+      provided.add("managed-orchestration:adoption-gate");
     }
   }
   return goal.evidenceRequirements
@@ -316,7 +324,7 @@ function generateGoalCloseoutSummary(goal: GoalRun, workItemStore: WorkItemStore
     return item ? [item] : [];
   });
   const evidence = unique(items.flatMap((item) => [
-    ...item.providedEvidence,
+    ...goalProvidedEvidence(item),
     ...(item.residualRisk ? ["residual-risk"] : []),
   ]));
   const gateResults = items.flatMap((item) => item.verificationGateResults);
@@ -398,6 +406,19 @@ function paused(
     missingWorkItemIds,
     pendingPauseRequirements,
   };
+}
+
+function goalProvidedEvidence(item: WorkItem): readonly string[] {
+  return unique([
+    ...item.providedEvidence.filter((evidence) =>
+      evidence !== "managed-orchestration:adoption-gate"
+      || item.managedOrchestration?.adoptionGate.required !== true
+    ),
+    ...(item.managedOrchestration?.adoptionGate.required === true
+      && item.managedOrchestrationAdoption?.target === item.managedOrchestration.adoptionGate.target
+      ? ["managed-orchestration:adoption-gate"]
+      : []),
+  ]);
 }
 
 function unique(values: readonly string[]): readonly string[] {

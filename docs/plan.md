@@ -1,78 +1,61 @@
-# Plan: Slice 3J Dirty Worktree Review Policy
+# Slice 4D Plan - Governed Orchestration Work Items
 
 ## Objective
 
-Finish Slice 3 by making dirty isolated-worktree preservation an explicit
-runtime lifecycle policy. A dirty worktree must remain preserved for operator
-review, must not be auto-adopted or silently cleaned, and must project typed
-evidence through core, runtime recovery, and operator surfaces.
+Attach managed orchestration mode contracts to governed work items so child
+work is not just lifecycle evidence. Each materialized child work item must
+carry the mode expected evidence, merge policy, isolation policy, and a Slice 6
+adoption gate when the orchestration mode requires parent adoption.
 
-## Scope
+## Surface Map
 
-- Add typed dirty-worktree review evidence to managed resource leases.
-- Keep absence valid for leases that do not require review.
-- Attach review-required evidence only from the runtime-owned dirty worktree
-  cleanup path.
-- Reject manager-supplied review evidence so lease managers cannot forge
-  adoption state.
-- Preserve review evidence through terminal cleanup, persistent recovery, and
-  lease merge paths.
-- Project review evidence through gateway cockpit state and operator event
-  presentation.
-- Update roadmap state after verification.
+- Core work governance:
+  - `packages/core/src/work-governance/work-item.ts`
+  - `packages/core/src/work-governance/work-item-materializer.ts`
+  - `packages/core/src/work-governance/index.ts`
+- Tests:
+  - `packages/core/tests/work-governance/work-item-materializer.test.ts`
+  - `packages/core/tests/managed-agent/orchestration-contracts.test.ts`
+- Roadmap:
+  - `docs/roadmap/01-background-parallel-agent-surface.md`
+  - `docs/roadmap/README.md`
 
-## Out Of Scope
+## Risk Hypothesis
 
-- Auto-adopting dirty worktrees into the parent checkout.
-- Capturing raw `git status` or diff content in the lifecycle contract.
-- Adding mutation commands for approve/reject/adopt.
-- Reworking Slice 6 handoff, review, and adoption flows.
+- If orchestration evidence stays only on managed invocation records, governed
+  work items cannot enforce per-mode handoff or later adoption requirements.
+- Merge and adoption policy must remain data on the work item, not hidden CLI
+  behavior, so Slice 6 can consume the same contract.
+- Budget admission should not be faked. Budget-aware CLI fan-out must fail
+  closed when no live usage source is available or every eligible route is over
+  budget; a full runtime/session budget plane remains a follow-up.
 
-## Affected Files
+## Implementation Steps
 
-- `packages/core/src/agents/managed-invocation/index.ts`
-- `packages/core/tests/managed-agent/invocation-contracts.test.ts`
-- `packages/runtime/src/agents/managed-invocation/index.ts`
-- `packages/runtime/tests/managed-agent/invocation-service.test.ts`
-- `packages/gateway-contracts/src/frames.ts`
-- `packages/gateway-contracts/src/index.ts`
-- `packages/gateway-contracts/src/operator-cockpit-projection.ts`
-- `packages/gateway-contracts/src/operator-event-presentation.ts`
-- `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
-- `packages/gateway-contracts/tests/operator-event-presentation.test.ts`
-- `docs/roadmap/01-background-parallel-agent-surface.md`
-- `docs/roadmap/README.md`
-
-## TDD Targets
-
-1. Core preserves and validates `worktreeReview` evidence on terminal resource
-   leases.
-2. Runtime marks dirty isolated worktree preservation as `worktreeReview:
-   required`.
-3. Runtime rejects manager-injected `worktreeReview` evidence.
-4. Persisted restart recovery keeps dirty-worktree review evidence in recovered
-   records and recovery manifests.
-5. Gateway cockpit and operator event projections expose the typed review
-   evidence without URI parsing.
+1. Add work-item orchestration metadata for child identity, mode, expected
+   evidence, isolation, merge policy, and Slice 6 adoption gating.
+2. Add a deterministic materializer that converts a typed managed orchestration
+   request into governed child work items.
+3. Encode required orchestration evidence as work-item expected evidence,
+   including merge policy evidence and adoption-gate evidence when required.
+4. Prove fan-out does not force adoption while decomposition blocks closeout
+   until a structured adoption resolution exists.
+5. Update roadmap status and remaining Slice 4 work.
 
 ## Verification
 
-```bash
-bun run --cwd packages/core test -- tests/managed-agent/invocation-contracts.test.ts
-bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts
-bun run --cwd packages/gateway-contracts test -- tests/operator-cockpit-projection.test.ts tests/operator-event-presentation.test.ts
-bun run typecheck
-bun run --filter @kilnai/core test
-bun run --filter @kilnai/gateway-contracts test
-bun run --filter @kilnai/runtime test
-bun run --filter "*" build
-git diff --check
-```
+- `bun run --filter @kilnai/core test -- tests/work-governance/work-item-materializer.test.ts`
+- `bun run --filter @kilnai/core test -- tests/managed-agent/orchestration-contracts.test.ts`
+- `bun run typecheck`
+- `bun run --filter "*" build`
+- `git diff --check`
 
-## Risks
+## Residual Risk
 
-- `worktreeReview` must remain runtime-owned; lease managers and adapters cannot
-  forge adoption state.
-- Review evidence must be typed, not inferred from diagnostic URI strings.
-- Dirty preservation must remain fail-closed: no automatic cleanup, adoption, or
-  parent checkout mutation.
+- CLI fan-out now fails closed for budget-aware routing when usage data is
+  unavailable or all eligible routes are over budget. The remaining Slice 4
+  follow-up is replacing the CLI usage hook with the runtime/session budget
+  plane once that plane is exposed.
+- Adoption-required orchestration items now have a structured
+  `managedOrchestrationAdoption` resolution path. Ordinary child
+  `providedEvidence` cannot self-satisfy `managed-orchestration:adoption-gate`.

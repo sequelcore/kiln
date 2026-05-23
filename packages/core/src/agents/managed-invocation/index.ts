@@ -14,6 +14,7 @@ import type {
 
 export * from "./write-authority.js";
 export * from "./write-integration.js";
+export * from "./orchestration.js";
 
 export const MANAGED_AGENT_ADMISSION_PROFILES = [
   "foundation-readonly-plan",
