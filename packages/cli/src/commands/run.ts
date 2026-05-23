@@ -81,6 +81,7 @@ import {
 } from "@kilnai/core";
 import {
   ProviderModelRouteHealthStore,
+  createManagedAgentInvocationResourceProvider,
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
   runManagedAgentFanOutLifecycle,
@@ -667,7 +668,7 @@ export async function runCommand(
     });
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
-  const builtinToolOptions = createSessionBuiltinToolOptions({
+  let builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -693,6 +694,17 @@ export async function runCommand(
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+  if (managedInvocation?.invocationService) {
+    builtinToolOptions = createSessionBuiltinToolOptions({
+      ...builtinToolOptions,
+      resourceProviders: [
+        ...(builtinToolOptions.resourceProviders ?? []),
+        createManagedAgentInvocationResourceProvider({
+          service: managedInvocation.invocationService,
+        }),
+      ],
+    });
+  }
 
   const startedAt = new Date().toISOString();
   const initialMetadata = deriveSessionMetadata({

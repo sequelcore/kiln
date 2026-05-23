@@ -139,9 +139,34 @@ export interface OperatorCockpitInvocationProjection {
   readonly lifecycleState?: string;
   readonly providerRoute?: string;
   readonly resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
+  readonly transcript?: OperatorCockpitInvocationTranscriptProjection;
+  readonly resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
+  readonly diagnosticPointers: readonly OperatorCockpitInvocationDiagnosticPointerProjection[];
+  readonly evidenceResourceUris: readonly string[];
   readonly eventCount: number;
   readonly latestEventId: string;
   readonly title: string;
+}
+
+export interface OperatorCockpitInvocationTranscriptProjection {
+  readonly uri: string;
+  readonly redacted?: boolean | "unknown";
+  readonly truncated?: boolean | "unknown";
+  readonly persisted?: boolean | "unknown";
+  readonly retention?: "session" | "durable" | "external" | "unknown";
+  readonly format?: string;
+  readonly redaction?: string;
+}
+
+export interface OperatorCockpitInvocationResultHandoffProjection {
+  readonly summary?: string;
+  readonly resourceUris: readonly string[];
+  readonly memoryWriteProposalUris: readonly string[];
+}
+
+export interface OperatorCockpitInvocationDiagnosticPointerProjection {
+  readonly uri: string;
+  readonly kind?: "timeout" | "failure" | "adapter" | "cleanup";
 }
 
 export interface OperatorCockpitInvocationResourceLeaseProjection {
@@ -221,10 +246,14 @@ interface InvocationAccumulator {
   readonly instanceId: string;
   readonly sessionId: string;
   readonly target: OperatorCockpitActionTarget;
+  readonly diagnosticPointers: Map<string, OperatorCockpitInvocationDiagnosticPointerProjection>;
+  readonly evidenceResourceUris: Set<string>;
   status: OperatorCockpitInvocationStatus;
   lifecycleState?: string;
   providerRoute?: string;
   resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
+  transcript?: OperatorCockpitInvocationTranscriptProjection;
+  resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
   eventCount: number;
   latestEventId: string;
   title: string;
@@ -361,6 +390,7 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.lifecycleState = readString(payload.lifecycleState) ?? invocation.lifecycleState;
       invocation.providerRoute = readProviderRoute(payload) ?? invocation.providerRoute;
       invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
+      applyManagedInvocationEvidence(invocation, payload);
       invocation.status = readInvocationStatus(event, payload);
       instance.invocations.add(managedInvocationKey);
       session.invocations.add(managedInvocationId);
@@ -535,6 +565,8 @@ function getOrCreateInvocation(
     instanceId: input.instanceId,
     sessionId: input.sessionId,
     target: input.target,
+    diagnosticPointers: new Map<string, OperatorCockpitInvocationDiagnosticPointerProjection>(),
+    evidenceResourceUris: new Set<string>(),
     status: "unknown",
     eventCount: 0,
     latestEventId: input.latestEventId,
@@ -617,6 +649,10 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     ...(input.lifecycleState !== undefined ? { lifecycleState: input.lifecycleState } : {}),
     ...(input.providerRoute !== undefined ? { providerRoute: input.providerRoute } : {}),
     ...(input.resourceLease !== undefined ? { resourceLease: input.resourceLease } : {}),
+    ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
+    ...(input.resultHandoff !== undefined ? { resultHandoff: input.resultHandoff } : {}),
+    diagnosticPointers: Array.from(input.diagnosticPointers.values()).sort(compareDiagnosticPointers),
+    evidenceResourceUris: Array.from(input.evidenceResourceUris).sort(),
     eventCount: input.eventCount,
     latestEventId: input.latestEventId,
     title: input.title,
@@ -760,6 +796,156 @@ function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInv
   };
 }
 
+function applyManagedInvocationEvidence(
+  invocation: InvocationAccumulator,
+  payload: Record<string, unknown>,
+): void {
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  if (Object.keys(evidence).length === 0) {
+    const lease = invocation.resourceLease;
+    if (lease) {
+      addEvidenceResourceUris(invocation, [
+        ...lease.resourceUris,
+        ...lease.diagnosticUris,
+        ...(lease.worktreeReview?.resourceUris ?? []),
+        ...(lease.worktreeReview?.diagnosticUris ?? []),
+      ]);
+    }
+    return;
+  }
+
+  const transcript = readInvocationTranscript(evidence.transcript);
+  if (transcript) {
+    invocation.transcript = transcript;
+    addEvidenceResourceUris(invocation, [transcript.uri]);
+  }
+
+  const handoff = readInvocationResultHandoff(evidence.resultHandoff);
+  if (handoff) {
+    invocation.resultHandoff = handoff;
+    addEvidenceResourceUris(invocation, [
+      ...handoff.resourceUris,
+      ...handoff.memoryWriteProposalUris,
+    ]);
+  }
+
+  for (const diagnostic of readDiagnosticPointers(evidence.diagnostics)) {
+    invocation.diagnosticPointers.set(diagnostic.uri, diagnostic);
+    addEvidenceResourceUris(invocation, [diagnostic.uri]);
+  }
+
+  const lease = invocation.resourceLease;
+  if (lease) {
+    addEvidenceResourceUris(invocation, [
+      ...lease.resourceUris,
+      ...lease.diagnosticUris,
+      ...(lease.worktreeReview?.resourceUris ?? []),
+      ...(lease.worktreeReview?.diagnosticUris ?? []),
+    ]);
+  }
+}
+
+function readInvocationTranscript(value: unknown): OperatorCockpitInvocationTranscriptProjection | null {
+  if (!isRecordValue(value)) {
+    return null;
+  }
+  const uri = readString(value.uri);
+  if (!uri) {
+    return null;
+  }
+  const redacted = readBooleanOrUnknown(value.redacted);
+  const truncated = readBooleanOrUnknown(value.truncated);
+  const persisted = readBooleanOrUnknown(value.persisted);
+  const retention = readTranscriptRetention(value.retention);
+  const format = readString(value.format) ?? undefined;
+  const redaction = readString(value.redaction) ?? undefined;
+  return {
+    uri,
+    ...(redacted !== undefined ? { redacted } : {}),
+    ...(truncated !== undefined ? { truncated } : {}),
+    ...(persisted !== undefined ? { persisted } : {}),
+    ...(retention !== undefined ? { retention } : {}),
+    ...(format !== undefined ? { format } : {}),
+    ...(redaction !== undefined ? { redaction } : {}),
+  };
+}
+
+function readInvocationResultHandoff(value: unknown): OperatorCockpitInvocationResultHandoffProjection | null {
+  if (!isRecordValue(value)) {
+    return null;
+  }
+  const summary = readString(value.summary) ?? undefined;
+  const resourceUris = readOptionalStringList(value.resourceUris);
+  const memoryWriteProposalUris = readOptionalStringList(value.memoryWriteProposalUris);
+  if (!summary && resourceUris.length === 0 && memoryWriteProposalUris.length === 0) {
+    return null;
+  }
+  return {
+    ...(summary !== undefined ? { summary } : {}),
+    resourceUris,
+    memoryWriteProposalUris,
+  };
+}
+
+function readDiagnosticPointers(value: unknown): readonly OperatorCockpitInvocationDiagnosticPointerProjection[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!isRecordValue(item)) {
+      return [];
+    }
+    const uri = readString(item.uri);
+    if (!uri) {
+      return [];
+    }
+    const kind = readDiagnosticKind(item.kind);
+    return [{
+      uri,
+      ...(kind !== undefined ? { kind } : {}),
+    }];
+  });
+}
+
+function readBooleanOrUnknown(value: unknown): boolean | "unknown" | undefined {
+  if (typeof value === "boolean" || value === "unknown") {
+    return value;
+  }
+  return undefined;
+}
+
+function readTranscriptRetention(value: unknown): OperatorCockpitInvocationTranscriptProjection["retention"] | undefined {
+  if (value === "session" || value === "durable" || value === "external" || value === "unknown") {
+    return value;
+  }
+  return undefined;
+}
+
+function readDiagnosticKind(value: unknown): OperatorCockpitInvocationDiagnosticPointerProjection["kind"] | undefined {
+  if (value === "timeout" || value === "failure" || value === "adapter" || value === "cleanup") {
+    return value;
+  }
+  return undefined;
+}
+
+function readOptionalStringList(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => readString(item) ? [readString(item)!] : []);
+}
+
+function addEvidenceResourceUris(
+  invocation: InvocationAccumulator,
+  resourceUris: readonly string[],
+): void {
+  for (const uri of resourceUris) {
+    if (uri.trim().length > 0) {
+      invocation.evidenceResourceUris.add(uri);
+    }
+  }
+}
+
 function readWorktreeReview(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["worktreeReview"] | undefined {
   if (!isRecordValue(value)) {
     return undefined;
@@ -883,6 +1069,13 @@ function compareByInstanceThenSessionThenTool(
 function compareResourceLinks(
   a: OperatorCockpitResourceLinkProjection,
   b: OperatorCockpitResourceLinkProjection,
+): number {
+  return a.uri.localeCompare(b.uri);
+}
+
+function compareDiagnosticPointers(
+  a: OperatorCockpitInvocationDiagnosticPointerProjection,
+  b: OperatorCockpitInvocationDiagnosticPointerProjection,
 ): number {
   return a.uri.localeCompare(b.uri);
 }

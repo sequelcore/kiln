@@ -25,9 +25,14 @@ import type { DomainConfig, ContextArtifactCache } from "@kilnai/core";
 import { createCli } from "../../src/index.js";
 
 const runCommandMock = vi.hoisted(() => vi.fn());
+const managedAgentCommandMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../src/commands/run.js", () => ({
   runCommand: runCommandMock,
+}));
+
+vi.mock("../../src/commands/managed-agent.js", () => ({
+  managedAgentCommand: managedAgentCommandMock,
 }));
 
 const PYTHON_CONFIG: DomainConfig = {
@@ -344,6 +349,27 @@ describe("run command", () => {
           provider: "openai",
           requestedAuthority: "destructive",
         }),
+      );
+    });
+
+    it("dispatches managed-agent commands through the CLI entrypoint", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "managed-agent",
+        "list",
+        "--session",
+        "session-1",
+        "--json",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(managedAgentCommandMock).toHaveBeenCalledTimes(1);
+      expect(managedAgentCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "list",
+        ["--session", "session-1", "--json"],
       );
     });
   });

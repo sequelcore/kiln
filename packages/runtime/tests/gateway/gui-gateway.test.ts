@@ -32,7 +32,10 @@ import {
   type GuiCliProviderModelDiscovery,
 } from "../../src/gateway/gui-provider-models.js";
 import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
-import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import {
+  RuntimeManagedAgentInvocationService,
+  type ManagedAgentRuntimeAdapter,
+} from "../../src/agents/managed-invocation/index.js";
 import { CodexOAuthCredentialPoolService } from "../../src/agents/credential-pool/codex-oauth-credential-pool.js";
 import { OpenCodeCredentialPoolService } from "../../src/agents/credential-pool/opencode-credential-pool.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -2037,6 +2040,506 @@ describe("startGuiGateway static mount", () => {
         },
       }));
     } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails managed-agent cancel control closed when no live invocation service is configured", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
+        "Expected GUI provider discovery to finish before starting managed-agent control fixture.",
+      );
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "cancel",
+            sessionId: "session-1",
+            invocationId: "child-running",
+            reason: "Operator stopped duplicate work.",
+            requestId: "managed-agent-control-1",
+          }),
+        }),
+        wsCtx,
+      );
+
+      const controlResultFrame = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as { type: string })
+        .find((frame) => frame.type === "managed_agent_control_result");
+
+      expect(controlResultFrame).toMatchObject({
+        type: "managed_agent_control_result",
+        action: "cancel",
+        sessionId: "session-1",
+        invocationId: "child-running",
+        status: "failed",
+        reason: "Managed agent control requires a live invocation service.",
+        requestId: "managed-agent-control-1",
+      });
+      expect(typeof (controlResultFrame as { handledAt?: unknown } | undefined)?.handledAt).toBe("string");
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("cancels a live managed-agent invocation and streams terminal evidence", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const invocationService = new RuntimeManagedAgentInvocationService();
+    const baseManagedInvocation = makeManagedInvocationOptions();
+    const baseRoute = baseManagedInvocation.routes[0]!;
+    const controlRoute = {
+      ...baseRoute,
+      profiles: {
+        ...baseRoute.profiles,
+        "foundation-readonly-plan": {
+          ...baseRoute.profiles["foundation-readonly-plan"]!,
+          credentialRoute: { mode: "credentialless" as const },
+        },
+      },
+    };
+    const parentSessionId = "session-control";
+    let startedInvocationId = "";
+    const cancellableAdapter: ManagedAgentRuntimeAdapter = {
+      descriptor: baseRoute.adapter.descriptor,
+      invoke: async ({ request: adapterRequest, admission, abortSignal }) => {
+        if (!abortSignal.aborted) {
+          await new Promise<void>((resolve) => {
+            abortSignal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        }
+        return defineManagedAgentInvocationRecord({
+          invocationId: adapterRequest.invocationId,
+          agentId: adapterRequest.agentId,
+          parentSessionId: adapterRequest.parentSessionId,
+          parentTurnId: adapterRequest.parentTurnId,
+          profile: adapterRequest.profile,
+          lifecycleState: "cancelled",
+          providerRoute: adapterRequest.providerRoute,
+          adapterKind: adapterRequest.adapterKind,
+          executionMode: adapterRequest.executionMode,
+          authority: adapterRequest.authority,
+          capabilitySnapshot: admission.capabilitySnapshot,
+          resultHandoff: {
+            summary: "GUI child cancelled.",
+            resourceUris: [],
+            memoryWriteProposalUris: [],
+          },
+        });
+      },
+    };
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const session = await input.sessionRegistry.getOrCreate({
+        sessionId: parentSessionId,
+        appName: "kiln-gui",
+        tenantId: "_gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
+      if (!startManagedAgent) {
+        throw new Error("managed_agent.start was not attached to the GUI turn surface");
+      }
+      const toolResult = await startManagedAgent({
+        profile: "foundation-readonly-plan",
+        routeId: baseRoute.routeId,
+        providerRoute: {
+          providerId: baseRoute.providerId,
+          model: baseRoute.model,
+        },
+        task: "Inspect a long-running GUI child.",
+      }, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-start",
+          name: "managed_agent.start",
+          input: {},
+        },
+      });
+      if (toolResult.isError) {
+        throw new Error(toolResult.output);
+      }
+      startedInvocationId = (toolResult.metadata as { invocationId: string }).invocationId;
+      await input.sessionRegistry.save(session);
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Child is running." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: "trace-managed-control",
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation: {
+          ...baseManagedInvocation,
+          invocationService,
+          routes: [{
+            ...controlRoute,
+            adapter: cancellableAdapter,
+          }],
+        },
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
+        "Expected GUI provider discovery to finish before starting managed-agent control fixture.",
+      );
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start child" }),
+        }),
+        wsCtx,
+      );
+      expect(startedInvocationId).not.toBe("");
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "cancel",
+            sessionId: parentSessionId,
+            invocationId: startedInvocationId,
+            reason: "Operator stopped duplicate work.",
+            requestId: "managed-agent-control-accepted",
+          }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          action?: string;
+          status?: string;
+          requestId?: string;
+          event?: { kind: string; payload: Record<string, unknown> };
+        });
+      const controlResultFrame = outboundFrames.find((frame) => frame.type === "managed_agent_control_result");
+      const cancelledEventFrame = outboundFrames.find((frame) =>
+        frame.type === "session_event"
+        && frame.event?.kind === "agent_invocation_cancelled"
+      );
+
+      expect(controlResultFrame).toMatchObject({
+        type: "managed_agent_control_result",
+        action: "cancel",
+        sessionId: parentSessionId,
+        invocationId: startedInvocationId,
+        status: "accepted",
+        requestId: "managed-agent-control-accepted",
+      });
+      expect(cancelledEventFrame?.event?.payload).toMatchObject({
+        invocationId: startedInvocationId,
+        lifecycleState: "cancelled",
+        managedInvocationEvidence: {
+          lifecycle: {
+            resultSummary: "Operator stopped duplicate work.",
+          },
+        },
+      });
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("joins a live managed-agent invocation and streams terminal evidence", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const invocationService = new RuntimeManagedAgentInvocationService();
+    const baseManagedInvocation = makeManagedInvocationOptions();
+    const baseRoute = baseManagedInvocation.routes[0]!;
+    const controlRoute = {
+      ...baseRoute,
+      profiles: {
+        ...baseRoute.profiles,
+        "foundation-readonly-plan": {
+          ...baseRoute.profiles["foundation-readonly-plan"]!,
+          credentialRoute: { mode: "credentialless" as const },
+        },
+      },
+    };
+    const parentSessionId = "session-join-control";
+    let startedInvocationId = "";
+    let completeChild!: () => void;
+    const joinableAdapter: ManagedAgentRuntimeAdapter = {
+      descriptor: baseRoute.adapter.descriptor,
+      invoke: async ({ request: adapterRequest, admission }) => {
+        await new Promise<void>((resolve) => {
+          completeChild = resolve;
+        });
+        return defineManagedAgentInvocationRecord({
+          invocationId: adapterRequest.invocationId,
+          agentId: adapterRequest.agentId,
+          parentSessionId: adapterRequest.parentSessionId,
+          parentTurnId: adapterRequest.parentTurnId,
+          profile: adapterRequest.profile,
+          lifecycleState: "completed",
+          providerRoute: adapterRequest.providerRoute,
+          adapterKind: adapterRequest.adapterKind,
+          executionMode: adapterRequest.executionMode,
+          authority: adapterRequest.authority,
+          capabilitySnapshot: admission.capabilitySnapshot,
+          resultHandoff: {
+            summary: "Gateway join child completed.",
+            resourceUris: [],
+            memoryWriteProposalUris: [],
+          },
+        });
+      },
+    };
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const session = await input.sessionRegistry.getOrCreate({
+        sessionId: parentSessionId,
+        appName: "kiln-gui",
+        tenantId: "_gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
+      if (!startManagedAgent) {
+        throw new Error("managed_agent.start was not attached to the GUI turn surface");
+      }
+      const toolResult = await startManagedAgent({
+        profile: "foundation-readonly-plan",
+        routeId: baseRoute.routeId,
+        providerRoute: {
+          providerId: baseRoute.providerId,
+          model: baseRoute.model,
+        },
+        task: "Inspect a long-running GUI child.",
+      }, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-start",
+          name: "managed_agent.start",
+          input: {},
+        },
+      });
+      if (toolResult.isError) {
+        throw new Error(toolResult.output);
+      }
+      startedInvocationId = (toolResult.metadata as { invocationId: string }).invocationId;
+      await input.sessionRegistry.save(session);
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Child is running." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: "trace-managed-join-control",
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation: {
+          ...baseManagedInvocation,
+          invocationService,
+          routes: [{
+            ...controlRoute,
+            adapter: joinableAdapter,
+          }],
+        },
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
+        "Expected GUI provider discovery to finish before starting managed-agent join fixture.",
+      );
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start child" }),
+        }),
+        wsCtx,
+      );
+      expect(startedInvocationId).not.toBe("");
+      const joinPromise = handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "join",
+            sessionId: parentSessionId,
+            invocationId: startedInvocationId,
+            requestId: "managed-agent-join-accepted",
+          }),
+        }),
+        wsCtx,
+      );
+      await flushAsyncWork();
+      completeChild();
+      await joinPromise;
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "join",
+            sessionId: parentSessionId,
+            invocationId: startedInvocationId,
+            requestId: "managed-agent-join-replay",
+          }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          action?: string;
+          status?: string;
+          requestId?: string;
+          event?: { kind: string; payload: Record<string, unknown> };
+        });
+      const controlResultFrame = outboundFrames.find((frame) =>
+        frame.type === "managed_agent_control_result" && frame.action === "join"
+      );
+      const completedEventFrame = outboundFrames.find((frame) =>
+        frame.type === "session_event"
+        && frame.event?.kind === "agent_invocation_completed"
+      );
+      const completedEventFrames = outboundFrames.filter((frame) =>
+        frame.type === "session_event"
+        && frame.event?.kind === "agent_invocation_completed"
+      );
+      const replayControlResultFrame = outboundFrames.find((frame) =>
+        frame.type === "managed_agent_control_result" && frame.requestId === "managed-agent-join-replay"
+      );
+
+      expect(controlResultFrame).toMatchObject({
+        type: "managed_agent_control_result",
+        action: "join",
+        sessionId: parentSessionId,
+        invocationId: startedInvocationId,
+        status: "accepted",
+        requestId: "managed-agent-join-accepted",
+      });
+      expect(completedEventFrame?.event?.payload).toMatchObject({
+        invocationId: startedInvocationId,
+        lifecycleState: "completed",
+        managedInvocationEvidence: {
+          lifecycle: {
+            resultSummary: "Gateway join child completed.",
+          },
+        },
+      });
+      expect(replayControlResultFrame).toMatchObject({
+        type: "managed_agent_control_result",
+        action: "join",
+        sessionId: parentSessionId,
+        invocationId: startedInvocationId,
+        status: "accepted",
+        requestId: "managed-agent-join-replay",
+      });
+      expect(completedEventFrames).toHaveLength(2);
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });

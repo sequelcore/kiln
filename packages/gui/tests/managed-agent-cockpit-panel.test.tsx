@@ -1,0 +1,148 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { ManagedAgentCockpitPanel } from "../src/components/managed-agent-cockpit-panel.js";
+import type { OperatorCockpitManagedAgentViewState } from "@kilnai/gateway-contracts";
+
+describe("ManagedAgentCockpitPanel", () => {
+  it("renders shared managed-child view state with review and active controls", () => {
+    const onOpenResource = vi.fn();
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 1,
+      attentionCount: 2,
+      items: [
+        {
+          managedInvocationId: "child-review",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "completed",
+          lifecycleState: "completed",
+          providerRoute: "codex-oauth/gpt-5.5",
+          attentionState: "needs_review",
+          dirtyWorkspaceReviewRequired: true,
+          transcriptUri: "kiln://managed-agents/child-review/transcript",
+          resourceUris: [
+            "kiln://managed-agents/child-review/handoff",
+            "kiln://managed-agents/child-review/review",
+          ],
+          latestEventId: "event-review",
+          lifecycleTimeline: [
+            {
+              eventId: "event-review",
+              instanceId: "local",
+              sessionId: "session-1",
+              sequence: 2,
+              timestamp: "2026-05-23T12:01:00.000Z",
+              kind: "agent_invocation_completed",
+              title: "Agent invocation completed",
+              summary: "Review required.",
+              tone: "success",
+              target: {
+                instanceId: "local",
+                sessionId: "session-1",
+                eventId: "event-review",
+                managedInvocationId: "child-review",
+              },
+            },
+          ],
+          cancelControl: {
+            status: "unavailable",
+            reason: "Managed invocation is not active.",
+          },
+        },
+        {
+          managedInvocationId: "child-running",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "running",
+          lifecycleState: "running",
+          providerRoute: "codex-oauth/gpt-5.5",
+          attentionState: "active",
+          dirtyWorkspaceReviewRequired: false,
+          resourceUris: [],
+          latestEventId: "event-running",
+          lifecycleTimeline: [
+            {
+              eventId: "event-running",
+              instanceId: "local",
+              sessionId: "session-1",
+              sequence: 1,
+              timestamp: "2026-05-23T12:00:00.000Z",
+              kind: "agent_invocation_started",
+              title: "Agent invocation started",
+              tone: "running",
+              target: {
+                instanceId: "local",
+                sessionId: "session-1",
+                eventId: "event-running",
+                managedInvocationId: "child-running",
+              },
+            },
+          ],
+          cancelControl: {
+            status: "requires-control-channel",
+            reason: "Read-only cockpit projection cannot dispatch cancellation.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} onOpenResource={onOpenResource} />);
+
+    expect(screen.getByLabelText("Managed agents")).toHaveTextContent("2 attention");
+    expect(screen.getByLabelText("Managed agents")).toHaveTextContent("1 active");
+    expect(screen.getByText("child-review")).toBeVisible();
+    expect(screen.getByText("Review required")).toBeVisible();
+    expect(screen.getByText("Dirty worktree preserved")).toBeVisible();
+    expect(screen.getByText("child-running")).toBeVisible();
+    expect(screen.getByText("Cancel requires control channel")).toBeDisabled();
+    expect(screen.getByText("event-running")).toBeVisible();
+
+    fireEvent.click(screen.getByText("Transcript"));
+    fireEvent.click(screen.getByText("handoff"));
+
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-review/transcript");
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-review/handoff");
+  });
+
+  it("renders an empty read-only state without controls", () => {
+    render(<ManagedAgentCockpitPanel viewState={{ activeCount: 0, attentionCount: 0, items: [] }} />);
+
+    expect(screen.getByLabelText("Managed agents")).toHaveTextContent("No managed children in the current session");
+    expect(screen.queryByRole("button", { name: /cancel/i })).not.toBeInTheDocument();
+  });
+
+  it("dispatches live cancel when a control channel callback is present", () => {
+    const onCancel = vi.fn();
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 1,
+      attentionCount: 1,
+      items: [
+        {
+          managedInvocationId: "child-running",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "running",
+          lifecycleState: "running",
+          attentionState: "active",
+          dirtyWorkspaceReviewRequired: false,
+          resourceUris: [],
+          latestEventId: "event-running",
+          lifecycleTimeline: [],
+          cancelControl: {
+            status: "requires-control-channel",
+            reason: "Read-only cockpit projection cannot dispatch cancellation.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} onCancel={onCancel} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel managed child child-running" }));
+
+    expect(onCancel).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      invocationId: "child-running",
+    });
+  });
+});

@@ -55,6 +55,7 @@ import {
   attachManagedInvocationSessionEventSink,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
+import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
@@ -71,6 +72,7 @@ import {
   type GuiBrowserOperatorInputAckFrame,
   type GuiBrowserSessionState,
   type GuiInboundFrame,
+  type GuiManagedAgentControlAction,
   type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
@@ -334,6 +336,48 @@ function isBrowserOperatorInputConsumer(value: unknown): value is BrowserOperato
       && typeof value === "object"
       && typeof (value as { requestBrowserOperatorInput?: unknown }).requestBrowserOperatorInput === "function",
   );
+}
+
+function isManagedAgentControlAction(value: unknown): value is GuiManagedAgentControlAction {
+  return value === "cancel" || value === "join";
+}
+
+function findManagedInvocationTerminalSessionEvents(
+  events: readonly CanonicalSessionEvent[],
+  invocationId: string,
+): readonly CanonicalSessionEvent[] {
+  const terminal = [...events]
+    .reverse()
+    .find((event) =>
+      "invocationId" in event &&
+      event.invocationId === invocationId &&
+      (
+        event.kind === "agent_invocation_completed" ||
+        event.kind === "agent_invocation_failed" ||
+        event.kind === "agent_invocation_cancelled"
+      )
+    );
+  return terminal ? [terminal] : [];
+}
+
+function managedAgentControlResult(input: {
+  readonly action: GuiManagedAgentControlAction;
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly status: "accepted" | "failed";
+  readonly reason?: string;
+  readonly requestId?: string;
+}): GuiInboundFrame {
+  return {
+    type: "managed_agent_control_result",
+    action: input.action,
+    sessionId: input.sessionId,
+    invocationId: input.invocationId,
+    status: input.status,
+    ...(input.reason ? { reason: input.reason } : {}),
+    ...(input.requestId ? { requestId: input.requestId } : {}),
+    handledAt: new Date().toISOString(),
+  };
 }
 
 export function deriveGuiDoneAuthorityStatus(
@@ -1054,6 +1098,89 @@ function wireOperatorTransport(
                 type: "execution_mode_transitioned",
                 executionMode: toMode,
               } satisfies GuiInboundFrame));
+              return;
+            }
+
+            if (frame.type === "managed_agent_control") {
+              const action = isManagedAgentControlAction(frame.action) ? frame.action : undefined;
+              const sessionId = typeof frame.sessionId === "string" ? frame.sessionId.trim() : "";
+              const invocationId = typeof frame.invocationId === "string" ? frame.invocationId.trim() : "";
+              const requestId = typeof frame.requestId === "string" && frame.requestId.trim().length > 0
+                ? frame.requestId.trim()
+                : undefined;
+              const reason = typeof frame.reason === "string" && frame.reason.trim().length > 0
+                ? frame.reason.trim()
+                : "Operator cancelled the managed child from the GUI cockpit.";
+              const fail = (failureReason: string): void => {
+                ws.send(JSON.stringify(managedAgentControlResult({
+                  action: action ?? "cancel",
+                  sessionId: sessionId || "unknown-session",
+                  invocationId: invocationId || "unknown-invocation",
+                  status: "failed",
+                  reason: failureReason,
+                  ...(requestId ? { requestId } : {}),
+                })));
+              };
+
+              if (!action) {
+                fail("Managed agent control action must be cancel or join.");
+                return;
+              }
+              if (!sessionId || !invocationId) {
+                fail("Managed agent control requires sessionId and invocationId.");
+                return;
+              }
+              const invocationService = input.managedInvocation?.invocationService;
+              if (!invocationService) {
+                fail("Managed agent control requires a live invocation service.");
+                return;
+              }
+              const snapshot = invocationService.status(invocationId);
+              if (!snapshot) {
+                fail("Managed agent invocation is not registered in the live runtime.");
+                return;
+              }
+              if (snapshot.parentSessionId !== sessionId) {
+                fail("Managed agent invocation does not belong to the requested session.");
+                return;
+              }
+              const session = await sessionRegistry.getById(sessionId);
+              if (!session) {
+                fail("Managed agent control requires an active runtime session.");
+                return;
+              }
+
+              try {
+                if (action === "cancel") {
+                  await invocationService.cancel(invocationId, reason);
+                }
+                const terminalResult = await invocationService.join(invocationId);
+                if (terminalResult.status !== "completed") {
+                  fail(`Managed agent ${action} did not produce terminal evidence.`);
+                  return;
+                }
+                const terminalSnapshot = invocationService.status(invocationId);
+                const events = appendManagedInvocationTerminalSessionEvent({
+                  session,
+                  request: snapshot.request,
+                  record: terminalResult.record,
+                  durationMs: terminalSnapshot?.durationMs ?? snapshot.durationMs,
+                });
+                const terminalEvents = events.length > 0
+                  ? events
+                  : findManagedInvocationTerminalSessionEvents(session.sessionEvents, invocationId);
+                await sessionRegistry.save(session);
+                activityStreamer.forwardSessionEvents(terminalEvents);
+                ws.send(JSON.stringify(managedAgentControlResult({
+                  action,
+                  sessionId,
+                  invocationId,
+                  status: "accepted",
+                  ...(requestId ? { requestId } : {}),
+                })));
+              } catch (error) {
+                fail(error instanceof Error ? error.message : `Managed agent ${action} failed.`);
+              }
               return;
             }
 

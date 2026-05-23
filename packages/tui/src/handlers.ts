@@ -18,10 +18,16 @@ import {
   operatorIdentityInitials,
   projectAgentProfileIdentity,
   projectManagedAgentIdentity,
+  type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
 import type { ReactiveState, Message, ResumeSidebarInfo, PendingApproval, WorkItem } from "./state.js";
 import { update, createMessage } from "./state.js";
+import {
+  EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+  appendManagedAgentSessionEvent,
+  projectTuiManagedAgentViewState,
+} from "./managed-agent-cockpit.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
 
@@ -44,6 +50,7 @@ export interface HandlerContext {
   renderSidebarApprovals?: () => void;
   renderSidebarChanges?: () => void;
   renderSidebarWork?: () => void;
+  renderSidebarManagedAgents?: () => void;
 }
 
 /**
@@ -290,7 +297,7 @@ export function handleActivity(
   outputTokens: number | undefined,
   renderSidebarCost: () => void,
   renderSidebarApprovals?: () => void,
-  event?: { sessionId?: string; turnId?: string; approvalId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
+  event?: { sessionId?: string; turnId?: string; approvalId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionEvent?: OperatorSessionEvent }
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
@@ -355,6 +362,17 @@ export function handleActivity(
       details: output ?? details ?? "work item updated",
     });
   } else if (activity.startsWith("agent_invocation_")) {
+    if (event?.sessionEvent) {
+      const managedAgentSessionEvents = appendManagedAgentSessionEvent(
+        ctx.state.managedAgentSessionEvents,
+        event.sessionEvent,
+      );
+      if (managedAgentSessionEvents !== ctx.state.managedAgentSessionEvents) {
+        update(ctx.state, "managedAgentSessionEvents", managedAgentSessionEvents);
+        update(ctx.state, "managedAgents", projectTuiManagedAgentViewState(managedAgentSessionEvents));
+        ctx.renderSidebarManagedAgents?.();
+      }
+    }
     const identity = projectManagedAgentIdentity(input as Parameters<typeof projectManagedAgentIdentity>[0]);
     const identityLabel = identity ? `[${operatorIdentityInitials(identity.label)} ${identity.label}]` : null;
     update(ctx.state, "currentActivity", {
@@ -578,9 +596,12 @@ export async function sendMessage(
   update(ctx.state, "status", "running");
   update(ctx.state, "currentSessionId", undefined);
   update(ctx.state, "currentTurnId", undefined);
+  update(ctx.state, "managedAgentSessionEvents", []);
+  update(ctx.state, "managedAgents", EMPTY_TUI_MANAGED_AGENT_VIEW_STATE);
   update(ctx.state, "thinking", "");
   update(ctx.state, "thinkingVisible", false);
   renderSidebarCost();
+  ctx.renderSidebarManagedAgents?.();
   startSpinner();
   renderCommandBarStatus();
 

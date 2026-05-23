@@ -6,9 +6,21 @@ import {
   createNativeSurfaceProjection,
   createNativeSurfaceTelemetry,
 } from "../shared/native-surface";
+import {
+  createNativeCockpitReadOnlyProjection,
+  createNativeCockpitReadOnlyViewState,
+} from "../shared/native-cockpit-contract";
+import {
+  createNativeManagedAgentCancelControlFrame,
+  createNativeGatewayCockpitFrameState,
+  readNativeGatewayCockpitFrame,
+  reduceNativeGatewayCockpitFrame,
+  resolveNativeGatewayCockpitWebSocketUrl,
+} from "./native-gateway-cockpit";
 import type {
   EmbeddedBrowserOperatorSurfaceSnapshot,
 } from "./native-api";
+import { ManagedAgentCockpitPanel } from "./managed-agent-cockpit-panel";
 import "./styles.css";
 
 const gatewayUrl = new URLSearchParams(window.location.search).get("gateway")
@@ -25,15 +37,21 @@ const latestEvent: OperatorSessionEvent = {
     surface: "native",
     component: "native-foundation",
   },
-  payload: {},
+  payload: {
+    instanceId: "native-local",
+    sessionId: "native-local",
+  },
 };
 
 export function NativeSurfaceApp(): ReactElement {
   const startedAt = performance.timeOrigin;
   const browserRegionRef = useRef<HTMLDivElement | null>(null);
+  const cockpitGatewaySocketRef = useRef<WebSocket | null>(null);
   const [browserSnapshot, setBrowserSnapshot] = useState<EmbeddedBrowserOperatorSurfaceSnapshot | null>(null);
   const [browserError, setBrowserError] = useState<string | null>(null);
   const [browserBusy, setBrowserBusy] = useState(false);
+  const [cockpitFrameState, setCockpitFrameState] = useState(createNativeGatewayCockpitFrameState);
+  const cockpitGatewayWsUrl = useMemo(() => resolveNativeGatewayCockpitWebSocketUrl(gatewayUrl), []);
   const projection = useMemo(() => {
     return createNativeSurfaceProjection({
       connected: true,
@@ -60,6 +78,26 @@ export function NativeSurfaceApp(): ReactElement {
       droppedFrames: 0,
     });
   }, [startedAt]);
+  const cockpit = useMemo(() => {
+    const cockpitProjection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: new Date().toISOString(),
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+          gatewayUrl,
+        },
+      ],
+      events: cockpitFrameState.events,
+    });
+    return createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: cockpitProjection.view,
+      viewState: {},
+    });
+  }, [cockpitFrameState.events]);
   const browserApi = window.kilnNativeBrowser;
 
   const readBrowserRegionBounds = useCallback(() => {
@@ -130,6 +168,80 @@ export function NativeSurfaceApp(): ReactElement {
     void runBrowserAction(() => browserApi?.resumeRuntime() ?? Promise.resolve(null));
   }, [browserApi, runBrowserAction]);
 
+  const cancelManagedAgent = useCallback((input: { readonly sessionId: string; readonly invocationId: string }) => {
+    const ws = cockpitGatewaySocketRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setCockpitFrameState((current) => ({
+        ...current,
+        connectionState: "error",
+        error: "Native managed-agent cancellation requires an open gateway control channel.",
+      }));
+      return;
+    }
+    try {
+      ws.send(JSON.stringify(createNativeManagedAgentCancelControlFrame({
+        ...input,
+        requestId: `native-managed-agent-cancel-${Date.now()}`,
+        reason: "Operator cancelled the managed child from the native cockpit.",
+      })));
+    } catch (error: unknown) {
+      setCockpitFrameState((current) => ({
+        ...current,
+        connectionState: "error",
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    let closed = false;
+    const ws = new WebSocket(cockpitGatewayWsUrl);
+    cockpitGatewaySocketRef.current = ws;
+    ws.onmessage = (event) => {
+      try {
+        const frame = readNativeGatewayCockpitFrame(JSON.parse(String(event.data)));
+        if (frame) {
+          setCockpitFrameState((current) => reduceNativeGatewayCockpitFrame(current, frame));
+        }
+      } catch (error: unknown) {
+        if (!closed) {
+          setCockpitFrameState((current) => ({
+            ...current,
+            connectionState: "error",
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        }
+      }
+    };
+    ws.onerror = () => {
+      if (!closed) {
+        setCockpitFrameState((current) => ({
+          ...current,
+          connectionState: "error",
+          error: "Native cockpit gateway attach failed.",
+        }));
+      }
+    };
+    ws.onclose = () => {
+      if (cockpitGatewaySocketRef.current === ws) {
+        cockpitGatewaySocketRef.current = null;
+      }
+      if (!closed) {
+        setCockpitFrameState((current) => reduceNativeGatewayCockpitFrame(current, {
+          type: "native_gateway_closed",
+          reason: "Native cockpit gateway attach closed.",
+        }));
+      }
+    };
+    return () => {
+      closed = true;
+      if (cockpitGatewaySocketRef.current === ws) {
+        cockpitGatewaySocketRef.current = null;
+      }
+      ws.close();
+    };
+  }, [cockpitGatewayWsUrl]);
+
   useEffect(() => {
     if (!browserApi || !browserSnapshot || !browserRegionRef.current) return;
     const observer = new ResizeObserver(() => {
@@ -162,6 +274,10 @@ export function NativeSurfaceApp(): ReactElement {
             <dd>{projection.gatewayUrl}</dd>
           </div>
           <div>
+            <dt>Cockpit attach</dt>
+            <dd>{cockpitFrameState.connectionState}</dd>
+          </div>
+          <div>
             <dt>Session</dt>
             <dd>{projection.sessionId}</dd>
           </div>
@@ -174,6 +290,7 @@ export function NativeSurfaceApp(): ReactElement {
             <dd>{projection.providerRoute}</dd>
           </div>
         </dl>
+        {cockpitFrameState.error ? <p className="browser-error">{cockpitFrameState.error}</p> : null}
         <div className="browser-surface-toolbar" aria-label="Browser controls">
           <button type="button" onClick={openBrowser} disabled={browserBusy || !browserApi}>
             Open
@@ -228,6 +345,10 @@ export function NativeSurfaceApp(): ReactElement {
           </div>
         </dl>
       </section>
+      <ManagedAgentCockpitPanel
+        cockpit={cockpit}
+        onCancel={cockpitFrameState.connectionState === "open" ? cancelManagedAgent : undefined}
+      />
       <section className="native-panel" aria-label="Surface capabilities">
         <h2>Capabilities</h2>
         <ul className="capability-list">

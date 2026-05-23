@@ -60,6 +60,14 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     requestId: z.string().trim().min(1).optional(),
   }),
   z.object({
+    type: z.literal("managed_agent_control"),
+    action: z.enum(["cancel", "join"]),
+    sessionId: z.string().trim().min(1),
+    invocationId: z.string().trim().min(1),
+    reason: z.string().optional(),
+    requestId: z.string().trim().min(1).optional(),
+  }),
+  z.object({
     type: z.literal("browser_operator_input"),
     requestId: z.string().trim().min(1),
     sessionId: z.string().trim().min(1),
@@ -397,6 +405,16 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     sessionId: z.string().optional(),
     status: z.enum(["accepted", "blocked", "failed", "stale-session"]),
     reason: z.string().optional(),
+    handledAt: z.string(),
+  }),
+  z.object({
+    type: z.literal("managed_agent_control_result"),
+    action: z.enum(["cancel", "join"]),
+    sessionId: z.string().trim().min(1),
+    invocationId: z.string().trim().min(1),
+    status: z.enum(["accepted", "failed"]),
+    reason: z.string().optional(),
+    requestId: z.string().trim().min(1).optional(),
     handledAt: z.string(),
   }),
   z.object({

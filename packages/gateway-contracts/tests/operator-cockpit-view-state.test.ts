@@ -223,6 +223,115 @@ describe("operator cockpit read-only view state", () => {
     ))).toBe(true);
   });
 
+  it("derives managed child cockpit items with attention state, timeline, and evidence resources", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-view:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-view:event:running",
+          kilnSessionId: "managed-view:session:1",
+          sequence: 1,
+          timestamp: "2026-05-23T12:00:00.000Z",
+          kind: "agent_invocation_started",
+          payload: {
+            instanceId: "managed-view:instance:1",
+            sessionId: "managed-view:session:1",
+            managedInvocationId: "managed-view:child:running",
+            invocationId: "managed-view:child:running",
+            agentId: "agent-coder",
+            lifecycleState: "running",
+          },
+        },
+        {
+          eventId: "managed-view:event:review",
+          kilnSessionId: "managed-view:session:1",
+          sequence: 2,
+          timestamp: "2026-05-23T12:00:05.000Z",
+          kind: "agent_invocation_completed",
+          payload: {
+            instanceId: "managed-view:instance:1",
+            sessionId: "managed-view:session:1",
+            managedInvocationId: "managed-view:child:review",
+            invocationId: "managed-view:child:review",
+            agentId: "agent-coder",
+            lifecycleState: "completed",
+            managedInvocationEvidence: {
+              transcript: {
+                uri: "kiln://managed-invocations/managed-view-child-review/transcript",
+              },
+              resultHandoff: {
+                summary: "Review required.",
+                resourceUris: ["kiln://managed-invocations/managed-view-child-review/handoff"],
+                memoryWriteProposalUris: [],
+              },
+              lifecycle: {
+                resourceLease: {
+                  leaseId: "managed-view:child:review:lease",
+                  createdAt: "2026-05-23T12:00:00.000Z",
+                  healthStatus: "leaked",
+                  cleanupStatus: "failed",
+                  workingDirectoryPath: "C:/repo/.kiln/worktrees/managed-view-child-review",
+                  workingDirectoryMode: "isolated-worktree",
+                  resourceUris: ["kiln://managed-invocations/managed-view-child-review/worktree"],
+                  diagnosticUris: ["kiln://managed-invocations/managed-view-child-review/cleanup"],
+                  worktreeReview: {
+                    status: "required",
+                    reason: "dirty-worktree-preserved",
+                    resourceUris: ["kiln://managed-invocations/managed-view-child-review/review"],
+                    diagnosticUris: ["kiln://managed-invocations/managed-view-child-review/review-diagnostic"],
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.activeCount).toBe(1);
+    expect(view.managedAgents.attentionCount).toBe(2);
+    expect(view.managedAgents.items).toEqual([
+      expect.objectContaining({
+        managedInvocationId: "managed-view:child:review",
+        attentionState: "needs_review",
+        dirtyWorkspaceReviewRequired: true,
+        transcriptUri: "kiln://managed-invocations/managed-view-child-review/transcript",
+        resourceUris: [
+          "kiln://managed-invocations/managed-view-child-review/cleanup",
+          "kiln://managed-invocations/managed-view-child-review/handoff",
+          "kiln://managed-invocations/managed-view-child-review/review",
+          "kiln://managed-invocations/managed-view-child-review/review-diagnostic",
+          "kiln://managed-invocations/managed-view-child-review/transcript",
+          "kiln://managed-invocations/managed-view-child-review/worktree",
+        ],
+        lifecycleTimeline: [
+          expect.objectContaining({
+            eventId: "managed-view:event:review",
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        managedInvocationId: "managed-view:child:running",
+        attentionState: "active",
+        dirtyWorkspaceReviewRequired: false,
+        cancelControl: {
+          status: "requires-control-channel",
+          reason: "Read-only cockpit projection cannot dispatch cancellation.",
+        },
+      }),
+    ]);
+  });
+
   it("fails closed for scoped timeline filters without their enclosing target", () => {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "view-state-scoped-targets",

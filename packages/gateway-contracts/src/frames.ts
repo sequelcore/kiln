@@ -627,6 +627,30 @@ export interface GuiBrowserSessionControlFrame {
   readonly requestId?: string;
 }
 
+export type GuiManagedAgentControlAction = "cancel" | "join";
+
+export type GuiManagedAgentControlResultStatus = "accepted" | "failed";
+
+export interface GuiManagedAgentControlFrame {
+  readonly type: "managed_agent_control";
+  readonly action: GuiManagedAgentControlAction;
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly reason?: string;
+  readonly requestId?: string;
+}
+
+export interface GuiManagedAgentControlResultFrame {
+  readonly type: "managed_agent_control_result";
+  readonly action: GuiManagedAgentControlAction;
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly status: GuiManagedAgentControlResultStatus;
+  readonly reason?: string;
+  readonly requestId?: string;
+  readonly handledAt: string;
+}
+
 export interface GuiBrowserLiveViewportFrame {
   readonly type: "browser_live_viewport_frame";
   readonly sessionId: string;
@@ -721,6 +745,7 @@ export type GuiOutboundFrame =
   | OperatorThemeSetResultFrame
   | { type: "resume"; sessionId: string }
   | GuiBrowserSessionControlFrame
+  | GuiManagedAgentControlFrame
   | GuiBrowserOperatorInputFrame
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }
@@ -742,6 +767,7 @@ export type GuiInboundFrame =
   | GuiBrowserSessionUpdatedFrame
   | GuiBrowserLiveViewportFrame
   | GuiBrowserOperatorInputAckFrame
+  | GuiManagedAgentControlResultFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";

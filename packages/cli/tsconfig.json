@@ -8,6 +8,7 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
+    { "path": "../gateway-contracts" },
     { "path": "../core" },
     { "path": "../runtime" },
     { "path": "../tui" }

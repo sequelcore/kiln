@@ -7,6 +7,7 @@ import { useSessionStore } from "../src/lib/session-store.js";
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
+const loadResourceDataUrlMock = vi.fn();
 let guiWsOnFrame: ((frame: GuiInboundFrame) => void) | null = null;
 
 vi.mock("@tanstack/react-query", () => ({
@@ -83,6 +84,10 @@ vi.mock("../src/api/client.js", () => ({
         },
         filters: { depth: 0 },
       };
+    }
+
+    async loadResourceDataUrl(uri: string) {
+      return loadResourceDataUrlMock(uri);
     }
 
     async loadConfigSetup() {
@@ -217,6 +222,7 @@ function resetStore(): void {
   useSessionStore.setState({
     status: "ready",
     messages: [],
+    sessionEvents: [],
     timelineEntries: [
       {
         id: "event:file-1",
@@ -297,6 +303,7 @@ describe("AppShell sidebar modes", () => {
     installMatchMedia(false);
     resetStore();
     waitForGatewayMock.mockResolvedValue(undefined);
+    loadResourceDataUrlMock.mockResolvedValue("data:text/plain;base64,b2s=");
     useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
       const queryKey = options.queryKey?.join(":") ?? "";
       if (queryKey.includes("sessions")) {
@@ -468,6 +475,103 @@ describe("AppShell sidebar modes", () => {
 
     expect(screen.getByTestId("activity-log-panel")).toHaveTextContent("Activity: 2");
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
+  });
+
+  it("opens managed agents as a main workbench surface and opens resources from the click gesture", async () => {
+    const callOrder: string[] = [];
+    const openedWindow = {
+      location: { href: "" },
+      close: vi.fn(),
+    };
+    vi.spyOn(window, "open").mockImplementation(() => {
+      callOrder.push("open");
+      return openedWindow as unknown as Window;
+    });
+    loadResourceDataUrlMock.mockImplementation(async () => {
+      callOrder.push("load");
+      return "data:text/plain;base64,dHJhbnNjcmlwdA==";
+    });
+    useSessionStore.setState({
+      sessionEvents: [
+        {
+          eventId: "event-agent-completed",
+          kilnSessionId: "session-1",
+          sequence: 3,
+          timestamp: "2026-05-23T12:03:00.000Z",
+          kind: "agent_invocation_completed",
+          payload: {
+            invocationId: "child-gui",
+            lifecycleState: "completed",
+            providerRoute: {
+              providerId: "codex-oauth",
+              model: "gpt-5.5",
+            },
+            managedInvocationEvidence: {
+              transcript: {
+                uri: "kiln://managed-agents/child-gui/transcript",
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+
+    expect(screen.getByLabelText("Managed agents")).toHaveTextContent("child-gui");
+    expect(screen.getByTestId("session-list")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+
+    await waitFor(() => {
+      expect(loadResourceDataUrlMock).toHaveBeenCalledWith("kiln://managed-agents/child-gui/transcript");
+    });
+    expect(callOrder).toEqual(["open", "load"]);
+    expect(openedWindow.location.href).toBe("data:text/plain;base64,dHJhbnNjcmlwdA==");
+    expect(openedWindow.close).not.toHaveBeenCalled();
+  });
+
+  it("surfaces managed-agent cancel acknowledgement failures and clears them on acceptance", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    act(() => {
+      guiWsOnFrame?.({
+        type: "managed_agent_control_result",
+        action: "cancel",
+        sessionId: "session-1",
+        invocationId: "child-gui",
+        status: "failed",
+        reason: "Managed agent control requires a live invocation service.",
+        requestId: "managed-agent-control-1",
+        handledAt: "2026-05-23T12:04:00.000Z",
+      });
+    });
+
+    expect(screen.getByText("Managed agent control requires a live invocation service.")).toBeInTheDocument();
+
+    act(() => {
+      guiWsOnFrame?.({
+        type: "managed_agent_control_result",
+        action: "cancel",
+        sessionId: "session-1",
+        invocationId: "child-gui",
+        status: "accepted",
+        requestId: "managed-agent-control-1",
+        handledAt: "2026-05-23T12:04:01.000Z",
+      });
+    });
+
+    expect(screen.queryByText("Managed agent control requires a live invocation service.")).not.toBeInTheDocument();
   });
 
   it("keeps browser use out of the primary sidebar and opens it as a dynamic workbench tab", async () => {

@@ -429,6 +429,11 @@ describe("GatewaySession canonical session events", () => {
           profile: "foundation-readonly-plan",
         }),
         surfaces: ["conversation_inline", "activity_panel", "inspector"],
+        sessionEvent: expect.objectContaining({
+          eventId: "evt-agent",
+          kind: "agent_invocation_completed",
+          kilnSessionId: "session-1",
+        }),
       }),
     ]));
 

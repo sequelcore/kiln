@@ -502,6 +502,19 @@ function areSessionSummariesEqual(
   return true;
 }
 
+function appendSessionEvent(
+  events: readonly GuiSessionEvent[],
+  event: GuiSessionEvent,
+): readonly GuiSessionEvent[] {
+  const next = events.some((candidate) => candidate.eventId === event.eventId)
+    ? events.map((candidate) => candidate.eventId === event.eventId ? event : candidate)
+    : [...events, event];
+  return [...next].sort((a, b) => {
+    const sequenceCompare = a.sequence - b.sequence;
+    return sequenceCompare === 0 ? a.eventId.localeCompare(b.eventId) : sequenceCompare;
+  });
+}
+
 function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   readonly messages: readonly Message[];
   readonly timelineEntries: readonly TimelineEntry[];
@@ -1596,6 +1609,7 @@ interface SessionStoreState {
   readonly status: SessionStatus;
   readonly messages: readonly Message[];
   readonly timelineEntries: readonly TimelineEntry[];
+  readonly sessionEvents: readonly GuiSessionEvent[];
   readonly currentAssistant: string | null;
   readonly planMode: boolean;
   readonly activity: ActivityState | null;
@@ -1710,6 +1724,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   status: "idle",
   messages: [],
   timelineEntries: [],
+  sessionEvents: [],
   currentAssistant: null,
   planMode: initialPlanMode,
   activity: null,
@@ -1793,6 +1808,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       resumeTargetId: null,
       messages: [],
       timelineEntries: [],
+      sessionEvents: [],
       currentAssistant: null,
       activity: null,
       activityPhase: "idle",
@@ -1818,6 +1834,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       resumeTargetId: null,
       messages: loaded.messages,
       timelineEntries: loaded.timelineEntries,
+      sessionEvents: detail.events,
       currentAssistant: null,
       status: "ready",
       activity: null,
@@ -1970,6 +1987,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       set({ liveSessionId: event.kilnSessionId });
     }
     const payload = isObjectRecord(event.payload) ? event.payload : {};
+    set({ sessionEvents: appendSessionEvent(state.sessionEvents, event) });
 
     if (event.kind === "assistant_delta") {
       const delta = readString(payload.delta) ?? eventPayloadText(payload);
@@ -2776,6 +2794,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       messages: [],
       timelineEntries: [],
+      sessionEvents: [],
       currentAssistant: null,
       status: "ready",
       activity: null,
@@ -3149,6 +3168,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const isPreviewWithoutExplicitResume = state.selectedSessionId !== null && state.resumeTargetId === null;
     const baseMessages = isPreviewWithoutExplicitResume ? [] : state.messages;
     const baseTimelineEntries = isPreviewWithoutExplicitResume ? [] : state.timelineEntries;
+    const baseSessionEvents = isPreviewWithoutExplicitResume ? [] : state.sessionEvents;
     set({
       messages: [...baseMessages, userMessage],
       timelineEntries: [
@@ -3163,6 +3183,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       status: "running",
       selectedSessionId: null,
       liveSessionId: null,
+      sessionEvents: baseSessionEvents,
       activity: { phase: "thinking" },
       activityPhase: "thinking",
       routeMode: "responding",

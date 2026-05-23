@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { GuiInboundFrame, OperatorSessionEvent } from "@kilnai/gateway-contracts";
 import {
   createOperatorCockpitBenchmarkFixture,
 } from "@kilnai/gateway-contracts";
@@ -34,6 +35,12 @@ import {
   createNativeCockpitReadOnlyViewState,
   nativeCockpitActionAllowed,
 } from "../src/shared/native-cockpit-contract.js";
+import {
+  createNativeManagedAgentCancelControlFrame,
+  createNativeGatewayCockpitFrameState,
+  reduceNativeGatewayCockpitFrame,
+  resolveNativeGatewayCockpitWebSocketUrl,
+} from "../src/renderer/native-gateway-cockpit.js";
 
 describe("native operator surface foundation", () => {
   it("advertises native capability slots including the proven embedded browser host", () => {
@@ -482,6 +489,129 @@ describe("native operator surface foundation", () => {
     ]);
   });
 
+  it("resolves native gateway cockpit websocket endpoints without changing the runtime gateway", () => {
+    expect(resolveNativeGatewayCockpitWebSocketUrl("http://127.0.0.1:4810")).toBe(
+      "ws://127.0.0.1:4810/gui/ws?userId=native-operator",
+    );
+    expect(resolveNativeGatewayCockpitWebSocketUrl("https://kiln.example.test/base?ignored=true")).toBe(
+      "wss://kiln.example.test/gui/ws?userId=native-operator",
+    );
+    expect(resolveNativeGatewayCockpitWebSocketUrl("not a url")).toBe(
+      "ws://localhost:4810/gui/ws?userId=native-operator",
+    );
+    expect(resolveNativeGatewayCockpitWebSocketUrl("/relative")).toBe(
+      "ws://localhost:4810/gui/ws?userId=native-operator",
+    );
+  });
+
+  it("creates native managed-agent cancellation frames for the shared gateway control channel", () => {
+    expect(createNativeManagedAgentCancelControlFrame({
+      sessionId: "session-1",
+      invocationId: "child-running",
+      requestId: "native-managed-agent-cancel-1",
+      reason: "Operator cancelled the managed child from the native cockpit.",
+    })).toEqual({
+      type: "managed_agent_control",
+      action: "cancel",
+      sessionId: "session-1",
+      invocationId: "child-running",
+      requestId: "native-managed-agent-cancel-1",
+      reason: "Operator cancelled the managed child from the native cockpit.",
+    });
+
+    expect(() => createNativeManagedAgentCancelControlFrame({
+      sessionId: " ",
+      invocationId: "child-running",
+    })).toThrow("Native managed-agent cancellation requires sessionId and invocationId.");
+  });
+
+  it("ingests only read-only native gateway cockpit frames", () => {
+    const managedEvent: OperatorSessionEvent = {
+      eventId: "event-managed-started",
+      kilnSessionId: "session-1",
+      sequence: 1,
+      timestamp: "2026-05-23T12:00:00.000Z",
+      kind: "agent_invocation_started",
+      payload: {
+        instanceId: "native-local",
+        sessionId: "session-1",
+        managedInvocationId: "child-1",
+      },
+    };
+    const initial = createNativeGatewayCockpitFrameState();
+    const welcomed = reduceNativeGatewayCockpitFrame(initial, {
+      type: "welcome",
+      providers: [],
+      models: {},
+      executionMode: "execute",
+      authorityStatus: {
+        effective: "read_only",
+        completeness: "authoritative",
+      },
+    } satisfies GuiInboundFrame);
+    const withEvent = reduceNativeGatewayCockpitFrame(welcomed, {
+      type: "session_event",
+      event: managedEvent,
+    } satisfies GuiInboundFrame);
+    const deduped = reduceNativeGatewayCockpitFrame(withEvent, {
+      type: "session_event",
+      event: managedEvent,
+    } satisfies GuiInboundFrame);
+    const afterMutationAck = reduceNativeGatewayCockpitFrame(deduped, {
+      type: "managed_agent_control_result",
+      action: "cancel",
+      sessionId: "session-1",
+      invocationId: "child-1",
+      status: "accepted",
+      handledAt: "2026-05-23T12:00:01.000Z",
+    } satisfies GuiInboundFrame);
+
+    expect(welcomed.connectionState).toBe("open");
+    expect(withEvent.events).toEqual([managedEvent]);
+    expect(deduped.events).toHaveLength(1);
+    expect(afterMutationAck).toBe(deduped);
+  });
+
+  it("marks native gateway cockpit attach as closed without dropping read-only event state", () => {
+    const managedEvent: OperatorSessionEvent = {
+      eventId: "event-managed-started",
+      kilnSessionId: "session-1",
+      sequence: 1,
+      timestamp: "2026-05-23T12:00:00.000Z",
+      kind: "agent_invocation_started",
+      payload: {
+        instanceId: "native-local",
+        sessionId: "session-1",
+        managedInvocationId: "child-1",
+      },
+    };
+    const openState = reduceNativeGatewayCockpitFrame(
+      reduceNativeGatewayCockpitFrame(createNativeGatewayCockpitFrameState(), {
+        type: "welcome",
+        providers: [],
+        models: {},
+        executionMode: "execute",
+        authorityStatus: {
+          effective: "read_only",
+          completeness: "authoritative",
+        },
+      } satisfies GuiInboundFrame),
+      {
+        type: "session_event",
+        event: managedEvent,
+      } satisfies GuiInboundFrame,
+    );
+
+    const closed = reduceNativeGatewayCockpitFrame(openState, {
+      type: "native_gateway_closed",
+      reason: "socket closed",
+    });
+
+    expect(closed.connectionState).toBe("closed");
+    expect(closed.error).toBe("socket closed");
+    expect(closed.events).toEqual([managedEvent]);
+  });
+
   it("creates native read-only cockpit action intents without dispatching mutations", () => {
     const intent = createNativeCockpitReadOnlyActionIntent({
       surfaceId: "native:local",
@@ -510,7 +640,7 @@ describe("native operator surface foundation", () => {
     });
   });
 
-  it("rejects native cancellation intents until gateway dispatch is implemented", () => {
+  it("keeps read-only action intents from dispatching cancellation outside the gateway control channel", () => {
     expect(() => createNativeCockpitReadOnlyActionIntent({
       surfaceId: "native:local",
       action: "cancel",

@@ -1,4 +1,5 @@
 import type {
+  OperatorCockpitInvocationProjection,
   OperatorCockpitReadOnlyProjection,
   OperatorCockpitSessionProjection,
   OperatorCockpitTimelineEntry,
@@ -58,6 +59,42 @@ export interface OperatorCockpitReadOnlyViewState {
     readonly previousEventId?: string;
     readonly nextEventId?: string;
   };
+  readonly managedAgents: OperatorCockpitManagedAgentViewState;
+}
+
+export type OperatorCockpitManagedAgentAttentionState =
+  | "active"
+  | "needs_review"
+  | "failed"
+  | "cancelled"
+  | "clear"
+  | "unknown";
+
+export interface OperatorCockpitManagedAgentCancelControl {
+  readonly status: "requires-control-channel" | "unavailable";
+  readonly reason: string;
+}
+
+export interface OperatorCockpitManagedAgentViewItem {
+  readonly managedInvocationId: string;
+  readonly instanceId: string;
+  readonly sessionId: string;
+  readonly status: OperatorCockpitInvocationProjection["status"];
+  readonly lifecycleState?: string;
+  readonly providerRoute?: string;
+  readonly attentionState: OperatorCockpitManagedAgentAttentionState;
+  readonly dirtyWorkspaceReviewRequired: boolean;
+  readonly transcriptUri?: string;
+  readonly resourceUris: readonly string[];
+  readonly latestEventId: string;
+  readonly lifecycleTimeline: readonly OperatorCockpitTimelineEntry[];
+  readonly cancelControl: OperatorCockpitManagedAgentCancelControl;
+}
+
+export interface OperatorCockpitManagedAgentViewState {
+  readonly items: readonly OperatorCockpitManagedAgentViewItem[];
+  readonly activeCount: number;
+  readonly attentionCount: number;
 }
 
 export function createOperatorCockpitReadOnlyViewState(
@@ -81,7 +118,113 @@ export function createOperatorCockpitReadOnlyViewState(
     },
     timeline,
     replay,
+    managedAgents: createManagedAgentViewState(input.projection),
   };
+}
+
+function createManagedAgentViewState(
+  projection: OperatorCockpitReadOnlyProjection,
+): OperatorCockpitManagedAgentViewState {
+  const items = projection.invocations
+    .map((invocation) => projectManagedAgentItem(projection, invocation))
+    .sort(compareManagedAgentItems);
+  return {
+    items,
+    activeCount: items.filter((item) => item.attentionState === "active").length,
+    attentionCount: items.filter((item) => item.attentionState !== "clear").length,
+  };
+}
+
+function projectManagedAgentItem(
+  projection: OperatorCockpitReadOnlyProjection,
+  invocation: OperatorCockpitInvocationProjection,
+): OperatorCockpitManagedAgentViewItem {
+  const resourceUris = uniqueStrings(invocation.evidenceResourceUris);
+  const attentionState = managedAgentAttentionState(invocation);
+  return {
+    managedInvocationId: invocation.managedInvocationId,
+    instanceId: invocation.instanceId,
+    sessionId: invocation.sessionId,
+    status: invocation.status,
+    ...(invocation.lifecycleState !== undefined ? { lifecycleState: invocation.lifecycleState } : {}),
+    ...(invocation.providerRoute !== undefined ? { providerRoute: invocation.providerRoute } : {}),
+    attentionState,
+    dirtyWorkspaceReviewRequired: invocation.resourceLease?.worktreeReview?.status === "required",
+    ...(invocation.transcript?.uri ? { transcriptUri: invocation.transcript.uri } : {}),
+    resourceUris,
+    latestEventId: invocation.latestEventId,
+    lifecycleTimeline: projection.timeline.filter((entry) => (
+      entry.instanceId === invocation.instanceId
+      && entry.sessionId === invocation.sessionId
+      && entry.target.managedInvocationId === invocation.managedInvocationId
+    )),
+    cancelControl: managedAgentCancelControl(invocation),
+  };
+}
+
+function managedAgentAttentionState(
+  invocation: OperatorCockpitInvocationProjection,
+): OperatorCockpitManagedAgentAttentionState {
+  if (
+    invocation.resourceLease?.worktreeReview?.status === "required" ||
+    invocation.resourceLease?.healthStatus === "leaked" ||
+    invocation.resourceLease?.cleanupStatus === "failed"
+  ) {
+    return "needs_review";
+  }
+  if (invocation.status === "running" || invocation.status === "requested") {
+    return "active";
+  }
+  if (invocation.status === "failed") {
+    return "failed";
+  }
+  if (invocation.status === "cancelled") {
+    return "cancelled";
+  }
+  if (invocation.status === "completed") {
+    return "clear";
+  }
+  return "unknown";
+}
+
+function managedAgentCancelControl(
+  invocation: OperatorCockpitInvocationProjection,
+): OperatorCockpitManagedAgentCancelControl {
+  if (invocation.status === "running" || invocation.status === "requested") {
+    return {
+      status: "requires-control-channel",
+      reason: "Read-only cockpit projection cannot dispatch cancellation.",
+    };
+  }
+  return {
+    status: "unavailable",
+    reason: "Managed invocation is not active.",
+  };
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))].sort();
+}
+
+function compareManagedAgentItems(
+  a: OperatorCockpitManagedAgentViewItem,
+  b: OperatorCockpitManagedAgentViewItem,
+): number {
+  const attentionCompare = attentionRank(a.attentionState) - attentionRank(b.attentionState);
+  if (attentionCompare !== 0) return attentionCompare;
+  const sessionCompare = a.sessionId.localeCompare(b.sessionId);
+  return sessionCompare === 0 ? a.managedInvocationId.localeCompare(b.managedInvocationId) : sessionCompare;
+}
+
+function attentionRank(state: OperatorCockpitManagedAgentAttentionState): number {
+  switch (state) {
+    case "needs_review": return 0;
+    case "failed": return 1;
+    case "active": return 2;
+    case "cancelled": return 3;
+    case "unknown": return 4;
+    case "clear": return 5;
+  }
 }
 
 function resolveFocus(

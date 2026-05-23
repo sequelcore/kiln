@@ -72,6 +72,7 @@ export type {
 } from "./agents/credential-pool/index.js";
 export {
   attachManagedInvocationSessionEventSink,
+  createManagedAgentInvocationResourceProvider,
   createManagedAgentStartToolDefinition,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,

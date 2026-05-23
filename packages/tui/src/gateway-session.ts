@@ -209,6 +209,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       details: presentation.compactText,
       input: payload,
       surfaces: presentation.surfaces,
+      sessionEvent: event,
       ...scoped,
     };
   }

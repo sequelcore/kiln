@@ -6,6 +6,7 @@
 import { t, fg } from "@opentui/core";
 import { operatorIdentityInitials, projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
 import type { ReactiveState, Message, SessionListItem, PendingApproval, WorkItem } from "./state.js";
+import { formatManagedAgentCockpitLines } from "./managed-agent-cockpit.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
 
@@ -287,6 +288,19 @@ export function renderSidebarWork(
     .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
     .slice(0, 5);
   ui.sidebarWorkText.content = t`${fg(theme.text)(items.map(fmtWorkItem).join("\n"))}`;
+}
+
+/**
+ * Renders managed child invocations in the sidebar using shared cockpit state.
+ */
+export function renderSidebarManagedAgents(
+  state: ReactiveState,
+  theme: KilnTheme,
+  ui: UIComponents
+): void {
+  const lines = formatManagedAgentCockpitLines(state.managedAgents);
+  const color = state.managedAgents.attentionCount > 0 ? theme.warning : theme.textMuted;
+  ui.sidebarManagedAgentsText.content = t`${fg(color)(lines.join("\n"))}`;
 }
 
 /**

@@ -42,6 +42,7 @@ import {
   renderSidebarApprovals,
   renderSidebarChanges,
   renderSidebarWork,
+  renderSidebarManagedAgents,
   renderSlashPopover,
 } from "./render.js";
 import { setTuiOperatorThemeHandler } from "./operator-theme-handler.js";
@@ -353,6 +354,7 @@ export async function startTui(
           renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
           renderSidebarChanges: () => renderSidebarChanges(state, currentTheme, ui),
           renderSidebarWork: () => renderSidebarWork(state, currentTheme, ui),
+          renderSidebarManagedAgents: () => renderSidebarManagedAgents(state, currentTheme, ui),
         },
         text,
         thinkingNodeRef,
@@ -425,6 +427,7 @@ export async function startTui(
   renderSidebarApprovals(state, currentTheme, ui);
   renderSidebarChanges(state, currentTheme, ui);
   renderSidebarWork(state, currentTheme, ui);
+  renderSidebarManagedAgents(state, currentTheme, ui);
 
   // Load session history into sidebar
   if (loadSessions) {
@@ -1709,6 +1712,7 @@ export async function startTui(
             renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
             renderSidebarChanges: () => renderSidebarChanges(state, currentTheme, ui),
             renderSidebarWork: () => renderSidebarWork(state, currentTheme, ui),
+            renderSidebarManagedAgents: () => renderSidebarManagedAgents(state, currentTheme, ui),
           },
           inputText,
           thinkingNodeRef,

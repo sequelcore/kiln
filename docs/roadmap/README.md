@@ -89,7 +89,54 @@ Use these documents as the stable source of truth before starting roadmap work:
    with merge/adoption policy metadata, and `kiln run --workers` now uses the
    managed runtime lifecycle to start, observe, and join isolated worker
    children instead of recursive CLI fan-out, with signal-safe transcript
-   finalization and worktree cleanup.
+   finalization and worktree cleanup. Slice 5A is complete in code: managed
+   child invocations now expose shared read-only resource-plane snapshots under
+   `kiln://managed-agents/invocations`, and `kiln run` wires those resources
+   into the model-facing builtin resource surface whenever a managed invocation
+   service is present. Slice 5B is complete in code: `kiln managed-agent`
+   renders read-only list/status/transcript/resources views from persisted
+   canonical session events through the shared gateway cockpit projection.
+   Slice 5C is complete in code: shared gateway cockpit projections and
+   read-only view state now carry managed-child transcript, handoff,
+   diagnostic, review, attention, lifecycle timeline, and resource targets for
+   TUI/GUI/native rendering without surface-local lifecycle stores. Slice 5D
+   is complete in code: GUI now keeps canonical session events available for
+   shared cockpit projection and renders a read-only Agents workbench surface
+   for active/review managed children, lifecycle timelines, transcript and
+   resource links, and non-dispatched cancel state. Slice 5E is complete in
+   code: TUI now preserves canonical managed-child session events from the
+   gateway stream, projects them through the shared cockpit view-state, and
+   renders a read-only managed-agent sidebar with attention/active counts,
+   dirty-review markers, lifecycle event counts, transcript/resource URIs, and
+   non-dispatched cancel state. Slice 5F is complete in code: native now
+   renders a read-only managed-agent cockpit panel from the native wrapper over
+   shared gateway cockpit view-state, including attention/active counts,
+   status/route, dirty-review markers, transcript/resource URIs, lifecycle
+   timeline entries, and disabled cancel controls without native-local
+   lifecycle state. Slice 5G is complete in code: GUI now sends typed
+   managed-agent cancel control frames to the runtime gateway, gateway
+   cancellation fails closed without a live invocation service and matching
+   session lineage, and accepted cancellation streams canonical terminal
+   evidence back into the cockpit projection. Slice 5H is complete in code:
+   native now opens a read-only gateway WebSocket attach for cockpit state,
+   ingests canonical session events into the shared native cockpit projection,
+   de-duplicates event ids, and ignores mutation acknowledgement frames without
+   adding native dispatch. Slice 5I is complete in code: CLI now exposes
+   gateway-mediated `managed-agent cancel`, validates the target from
+   canonical transcript projection, sends the existing
+   `managed_agent_control` cancel frame to `/gui/ws`, waits for the typed
+   gateway acknowledgement, and does not create CLI-local lifecycle mutation.
+   Slice 5J is complete in code: CLI now exposes gateway-mediated
+   `managed-agent join`, validates the target from canonical transcript
+   projection, sends the shared `managed_agent_control` join frame to
+   `/gui/ws`, waits for runtime-owned terminal evidence and the typed gateway
+   acknowledgement, replays existing terminal evidence on repeated joins
+   without duplicating the ledger record, and does not create CLI-local
+   lifecycle mutation. Slice 5K is complete in code: native now exposes
+   gateway-mediated managed-agent cancellation over its existing `/gui/ws`
+   cockpit attach, emits the shared `managed_agent_control` cancel frame only
+   while the live channel is open, and keeps lifecycle projection owned by
+   runtime-streamed session events.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

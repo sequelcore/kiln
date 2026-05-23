@@ -418,6 +418,102 @@ describe("operator cockpit read-only projection", () => {
     });
   });
 
+  it("projects managed child transcript, handoff, diagnostics, and review resources as invocation evidence targets", () => {
+    const completed: OperatorSessionEvent = {
+      eventId: "evidence:event:completed",
+      kilnSessionId: "evidence:session:1",
+      sequence: 1,
+      timestamp: "2026-05-23T12:00:00.000Z",
+      kind: "agent_invocation_completed",
+      payload: {
+        instanceId: "evidence:instance:1",
+        sessionId: "evidence:session:1",
+        managedInvocationId: "evidence:child:1",
+        invocationId: "evidence:child:1",
+        agentId: "agent-reviewer",
+        lifecycleState: "completed",
+        managedInvocationEvidence: {
+          transcript: {
+            uri: "kiln://managed-invocations/evidence-child-1/transcript",
+            redacted: true,
+            truncated: false,
+            persisted: true,
+            retention: "session",
+          },
+          diagnostics: [
+            {
+              uri: "kiln://managed-invocations/evidence-child-1/diagnostics",
+              kind: "adapter",
+            },
+          ],
+          resultHandoff: {
+            summary: "Child produced review evidence.",
+            resourceUris: ["kiln://managed-invocations/evidence-child-1/handoff"],
+            memoryWriteProposalUris: ["kiln://managed-invocations/evidence-child-1/memory-proposal"],
+          },
+          lifecycle: {
+            resourceLease: {
+              leaseId: "evidence:child:1:resource-lease",
+              createdAt: "2026-05-23T12:00:00.000Z",
+              healthStatus: "leaked",
+              cleanupStatus: "failed",
+              workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/evidence-child-1",
+              workingDirectoryMode: "isolated-worktree",
+              resourceUris: ["kiln://managed-invocations/evidence-child-1/worktree"],
+              diagnosticUris: ["kiln://managed-invocations/evidence-child-1/cleanup-diagnostic"],
+              worktreeReview: {
+                status: "required",
+                reason: "dirty-worktree-preserved",
+                resourceUris: ["kiln://managed-invocations/evidence-child-1/worktree-review"],
+                diagnosticUris: ["kiln://managed-invocations/evidence-child-1/worktree-review-diagnostic"],
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "evidence:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [completed],
+    });
+
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "evidence:child:1",
+      transcript: {
+        uri: "kiln://managed-invocations/evidence-child-1/transcript",
+        redacted: true,
+        truncated: false,
+        persisted: true,
+        retention: "session",
+      },
+      resultHandoff: {
+        summary: "Child produced review evidence.",
+        resourceUris: ["kiln://managed-invocations/evidence-child-1/handoff"],
+        memoryWriteProposalUris: ["kiln://managed-invocations/evidence-child-1/memory-proposal"],
+      },
+      diagnosticPointers: [{
+        uri: "kiln://managed-invocations/evidence-child-1/diagnostics",
+        kind: "adapter",
+      }],
+      evidenceResourceUris: [
+        "kiln://managed-invocations/evidence-child-1/cleanup-diagnostic",
+        "kiln://managed-invocations/evidence-child-1/diagnostics",
+        "kiln://managed-invocations/evidence-child-1/handoff",
+        "kiln://managed-invocations/evidence-child-1/memory-proposal",
+        "kiln://managed-invocations/evidence-child-1/transcript",
+        "kiln://managed-invocations/evidence-child-1/worktree",
+        "kiln://managed-invocations/evidence-child-1/worktree-review",
+        "kiln://managed-invocations/evidence-child-1/worktree-review-diagnostic",
+      ],
+    });
+  });
+
   it("drops incomplete resource lease projections instead of defaulting required evidence lists", () => {
     const started: OperatorSessionEvent = {
       eventId: "lifecycle:event:incomplete-lease",

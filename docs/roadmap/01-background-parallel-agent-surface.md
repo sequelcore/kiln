@@ -32,7 +32,57 @@ Active. Started on 2026-05-21. Current implementation status:
   is complete in code: typed orchestration requests can now materialize
   governed child work items with expected evidence, isolation, merge policy, and
   Slice 6 adoption-gate metadata.
-- Slices 5-8 are not started.
+- Slice 5 is started. Slice 5A is complete in code: managed child invocations
+  now expose shared read-only resource-plane snapshots and `kiln run` wires
+  them into model-facing builtin resources when a managed invocation service is
+  present. Slice 5B is complete in code: the CLI `managed-agent` cockpit now
+  projects persisted canonical session events through the shared gateway
+  cockpit projection and exposes read-only `list`, `status`, `transcript`, and
+  `resources` views. Slice 5C is complete in code: managed child transcript,
+  handoff, diagnostic, review, attention, and lifecycle timeline targets now
+  live in shared gateway cockpit projection/view-state contracts. Slice 5D is
+  complete in code: GUI now retains canonical session events for shared cockpit
+  projection and renders a read-only Agents workbench surface for active/review
+  managed children, lifecycle timelines, transcript/resource links, and
+  non-dispatched cancel state. Slice 5E is complete in code: TUI now preserves
+  canonical managed-child session events from the gateway stream, projects them
+  through the shared cockpit view-state, and renders a read-only managed-agent
+  sidebar with attention/active counts, dirty-review markers, lifecycle event
+  counts, transcript/resource URIs, and non-dispatched cancel state. Slice 5F
+  is complete in code: native now renders a read-only managed-agent cockpit
+  panel from the native wrapper over shared gateway cockpit view-state,
+  including attention/active counts, status/route, dirty-review markers,
+  transcript/resource URIs, lifecycle timeline entries, and disabled cancel
+  controls without native-local lifecycle state. Slice 5G is complete in code:
+  GUI now dispatches managed-child cancellation over a typed gateway control
+  frame, the runtime gateway requires a live invocation service and matching
+  session lineage before cancelling, and accepted cancellation appends
+  canonical terminal evidence back into the session event stream. Slice 5H is
+  complete in code: native now opens a read-only gateway WebSocket attach,
+  ingests canonical `session_event` frames into the shared native cockpit
+  projection, de-duplicates event ids, and ignores mutation acknowledgement
+  frames instead of creating a native dispatch path. Slice 5I is complete in
+  code: the CLI `managed-agent cancel` command now validates the target through
+  canonical transcript projection, sends the existing gateway
+  `managed_agent_control` cancel frame to `/gui/ws`, waits for the typed
+  gateway acknowledgement, and leaves lifecycle mutation/evidence ownership in
+  the runtime gateway. Slice 5J is complete in code: the CLI
+  `managed-agent join` command now sends the shared gateway
+  `managed_agent_control` join frame to `/gui/ws`, the runtime gateway waits
+  through `RuntimeManagedAgentInvocationService.join`, appends canonical
+  terminal evidence once, streams or replays that canonical terminal evidence
+  as a session event, and the CLI renders that terminal evidence without
+  mutating local transcript state. Slice 5K is complete in code: native now
+  reuses its existing `/gui/ws` cockpit attach as a gateway control channel for
+  managed-agent cancellation, builds the shared `managed_agent_control` cancel
+  frame, enables panel cancellation only while that live channel exists, and
+  continues to keep lifecycle projection owned by streamed runtime session
+  events rather than native-local mutation state.
+- Slices 6-8 are not started.
+
+Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
+follow-ups and are attacked after the planned slices finish. They do not reopen
+a completed slice unless they block the next slice's implementation.
 
 Recent implementation commits:
 
@@ -266,14 +316,64 @@ Kiln now has the first runtime-owned managed-child lifecycle foundation:
   `RuntimeManagedAgentInvocationService.start`, verifies running status, joins
   terminal records through `join`, and maps lifecycle records into orchestration
   result evidence.
+- Managed child invocations now have a shared read-only resource-plane
+  projection. Runtime exposes aggregate and per-child
+  `kiln://managed-agents/invocations` resources with lifecycle summaries,
+  transcript pointers, handoff pointers, and lease/diagnostic resource bundles;
+  the default builtin tool surface can accept additional resource providers;
+  and `kiln run` attaches the managed invocation resource provider whenever a
+  managed invocation service is present.
+- CLI now has a read-only `managed-agent` cockpit command. It loads persisted
+  canonical session transcript events, adapts them through
+  `projectOperatorCockpitReadOnlyView`, and renders shared lifecycle status,
+  transcript pointers, and resource pointers for `list`, `status`,
+  `transcript`, and `resources` without creating a CLI-local lifecycle store.
+- CLI now has a gateway-mediated `managed-agent cancel` control. It resolves
+  the configured gateway to `/gui/ws`, sends the shared
+  `managed_agent_control` cancel frame with CLI operator identity, waits for
+  `managed_agent_control_result`, and does not mutate persisted transcript
+  state locally.
+- CLI now has a gateway-mediated `managed-agent join` control. It resolves the
+  configured gateway to `/gui/ws`, sends the shared `managed_agent_control`
+  join frame with CLI operator identity, observes the runtime-streamed terminal
+  `session_event`, waits for `managed_agent_control_result`, and renders
+  terminal evidence without mutating persisted transcript state locally.
+- Gateway cockpit projections now carry typed managed-child transcript,
+  result-handoff, diagnostic, and evidence resource pointers on invocation
+  projections. Read-only cockpit view state derives active child counts,
+  attention state, dirty-worktree review markers, per-child lifecycle
+  timelines, transcript links, resource links, and fail-closed cancel-control
+  state for all operator surfaces.
+- GUI now has a read-only Agents workbench surface backed by the shared
+  cockpit projection/view-state contract. The GUI store keeps canonical session
+  events available for projection without adding a managed-child lifecycle
+  store; the surface renders active/review managed children, lifecycle
+  timelines, transcript/resource links, dirty-worktree review state, and
+  non-dispatched cancel state. Resource links open a browser window from the
+  operator click gesture and navigate it after gateway resource resolution.
+- TUI now keeps canonical managed-agent session events on streamed activity
+  events and projects them through the same read-only cockpit view-state used
+  by CLI and GUI. The sidebar renders managed-child attention and active
+  counts, per-child status/route, dirty-worktree review markers, lifecycle
+  event counts, transcript/resource URIs, and read-only cancel-control state
+  without creating a TUI-local lifecycle store.
+- Native now has a read-only managed-agent cockpit renderer backed by the
+  native wrapper over shared gateway cockpit view-state. The panel renders
+  attention and active counts, child status and provider route, dirty-worktree
+  review markers, transcript/resource URIs, lifecycle timeline entries, and
+  disabled cancel controls while the native shell keeps live gateway attach and
+  mutation dispatch out of this cut.
 
 The missing product primitive is now narrower: lease-backed execution has
 explicit in-memory stale recovery, persistent restart recovery, and
 runtime-owned daemonized cleanup scheduling plus typed dirty-worktree
-review-required evidence. Full handoff/adoption workflows remain later
-background-agent surface work; Slice 3 lifecycle evidence now projects
-equivalently through CLI, TUI, GUI, native, gateway, and resource plane
-surfaces.
+review-required evidence, plus shared resource-plane, CLI cockpit, and
+gateway cockpit view-state projections for managed children, with GUI, TUI,
+and native rendering now consuming those shared contracts. Full
+handoff/adoption workflows remain later background-agent surface work;
+remaining Slice 5 live control and richer terminal/native drilldown cuts
+continue from the shared runtime and resource contracts rather than
+surface-local stores.
 
 ## Slices
 
@@ -428,7 +528,7 @@ Deliverables:
 ### Slice 4 - Parallel Orchestration Modes
 
 Status: code-complete for Slice 4A, Slice 4B, Slice 4C, and Slice 4D. The
-remaining item below is a deferred budget-plane integration follow-up.
+budget-plane item below is a deferred roadmap follow-up.
 
 Completed:
 
@@ -472,7 +572,7 @@ Completed:
   handlers before child launch and routes normal completion, failure, and
   interruption through one transcript finalization and worktree cleanup path.
 
-Remaining:
+Deferred follow-up:
 
 - Replace the CLI budget usage hook with live budget admission from the
   runtime/session path when that budget plane is available.
@@ -489,7 +589,100 @@ Deliverables:
 
 ### Slice 5 - Cross-Surface Cockpit Projection
 
-Status: pending.
+Status: started. Slice 5A, Slice 5B, Slice 5C, Slice 5D, Slice 5E, Slice 5F,
+Slice 5G, Slice 5H, Slice 5I, Slice 5J, and Slice 5K are complete in code;
+remaining CLI diff, TUI drilldown, native drilldown, and transcript/resource
+paging work continues in later Slice 5 cuts.
+
+Completed:
+
+- Runtime now exposes managed child invocations as read-only resource-plane
+  resources under `kiln://managed-agents/invocations`.
+- Aggregate and per-child resource reads include lifecycle summaries,
+  transcript pointers, handoff pointers, and lease/diagnostic resource bundles.
+- Core default builtin tool surfaces can accept extra resource providers
+  without creating a second resource registry or surface-local lifecycle store.
+- `kiln run` wires the managed invocation resource provider into model-facing
+  builtin resources whenever a managed invocation service is present.
+- CLI now exposes `kiln managed-agent list/status/transcript/resources` over
+  persisted canonical session events and the shared gateway cockpit projection.
+- The CLI cockpit renders read-only lifecycle, transcript, handoff, and
+  resource pointers from `projectOperatorCockpitReadOnlyView`, keeping CLI
+  behavior aligned with gateway/operator projections instead of introducing a
+  second lifecycle store.
+- Gateway cockpit invocation projections now include managed-child transcript,
+  result handoff, diagnostics, and de-duplicated evidence resource URIs.
+- Gateway read-only cockpit view state now derives per-child active/attention
+  state, dirty-worktree review markers, lifecycle timeline entries,
+  transcript/resource links, and explicit non-dispatched cancel-control state
+  for shared TUI/GUI/native rendering.
+- GUI now exposes an Agents workbench surface that derives managed-child state
+  from canonical session events through `projectOperatorCockpitReadOnlyView`
+  and `createOperatorCockpitReadOnlyViewState`, renders active/review children,
+  lifecycle timelines, transcript/resource links, dirty-worktree review state,
+  and non-dispatched cancel state, and opens resource windows synchronously from
+  the operator click before resolving gateway resource data.
+- TUI now preserves the canonical `OperatorSessionEvent` on managed-agent
+  activity events, normalizes missing TUI-local projection fields at the
+  surface boundary, and renders a read-only managed-agent sidebar from the
+  shared cockpit view-state instead of a TUI-local lifecycle cache.
+- TUI managed-agent sidebar output includes attention/active counts, child
+  status and provider route, dirty-worktree review markers, lifecycle event
+  counts, transcript/resource URIs, and explicit read-only cancel-control
+  state.
+- Native now exposes a managed-agent cockpit panel in the native shell. It
+  consumes `createNativeCockpitReadOnlyViewState`, renders the same managed
+  child attention/status/resource/timeline/cancel-control fields as the shared
+  cockpit contract, and leaves live gateway networking and mutation dispatch
+  unstarted.
+- GUI now has a real managed-agent cancel control path over the existing GUI
+  WebSocket. The shared contract carries `managed_agent_control` and
+  `managed_agent_control_result` frames, the GUI panel enables cancellation only
+  when a live dispatch callback exists, and the runtime gateway fails closed
+  unless a live invocation service, active runtime session, and matching
+  parent-session lineage are present before appending terminal cancellation
+  evidence.
+- Native now has a read-only gateway attach for managed-agent cockpit state.
+  The native renderer resolves the configured gateway URL to `/gui/ws`, opens a
+  WebSocket with native operator identity, accepts only read-only welcome,
+  session-event, and gateway-error frame effects into native cockpit state,
+  de-duplicates canonical session events by `eventId`, and continues to ignore
+  managed-agent mutation acknowledgement frames because lifecycle projection
+  remains owned by runtime-streamed session events.
+- CLI now has live managed-agent cancellation over the existing gateway control
+  channel. `kiln managed-agent cancel <id>` validates the invocation from
+  canonical transcript projection, sends a typed `managed_agent_control` cancel
+  frame to `/gui/ws`, waits for the matching typed acknowledgement, and keeps
+  cancellation state/evidence owned by the runtime gateway instead of writing a
+  CLI-local lifecycle record.
+- CLI now has live managed-agent join over the existing gateway control
+  channel. `kiln managed-agent join <id>` validates the invocation from
+  canonical transcript projection, sends a typed `managed_agent_control` join
+  frame to `/gui/ws`, waits for the runtime gateway to append and stream
+  canonical terminal evidence, replays existing terminal evidence on repeated
+  joins without duplicating the ledger record, then renders that terminal
+  evidence without writing a CLI-local lifecycle record.
+- Native now has live managed-agent cancellation over the existing gateway
+  control channel. The native renderer reuses its `/gui/ws` cockpit WebSocket,
+  builds the shared `managed_agent_control` cancel frame with native operator
+  identity, enables panel cancellation only when that live channel is open, and
+  keeps lifecycle state/evidence owned by runtime-streamed `session_event`
+  frames instead of native-local mutation acknowledgements.
+
+Remaining:
+
+- CLI worktree/diff summary once Slice 6 adoption and merge-readiness evidence
+  defines the stable review/adoption contract.
+- Native drilldown for full lifecycle timeline navigation, paginated
+  transcript/resource reads, and handoff/adoption evidence once the shared
+  resource and Slice 6 contracts expose those stable operations.
+- Richer TUI drilldown for full lifecycle timeline navigation, paginated
+  transcript/resource reads, and handoff/adoption evidence once the shared
+  resource and Slice 6 contracts expose those stable operations.
+- Gateway contract additions only where current read-only lifecycle and cockpit
+  projections are insufficient for those shared surfaces.
+- Paginated transcript/artifact resource reads once transcript storage exposes
+  page boundaries.
 
 Deliverables:
 

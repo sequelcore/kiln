@@ -3,7 +3,12 @@
  * @module @kilnai/tui
  */
 
-import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import type {
+  OperatorCockpitManagedAgentViewState,
+  OperatorSessionEvent,
+  OperatorTurnRequestedAuthority,
+} from "@kilnai/gateway-contracts";
+import { EMPTY_TUI_MANAGED_AGENT_VIEW_STATE } from "./managed-agent-cockpit.js";
 import type { MessageRole } from "./types.js";
 
 /** Message structure for TUI chat history. */
@@ -69,6 +74,10 @@ export interface ReactiveState {
   changedFiles: ChangedFile[];
   /** Governed work items observed in canonical session events. */
   workItems: WorkItem[];
+  /** Canonical managed-agent session events retained for current TUI projection. */
+  managedAgentSessionEvents: readonly OperatorSessionEvent[];
+  /** Shared cockpit projection for managed children visible in the TUI sidebar. */
+  managedAgents: OperatorCockpitManagedAgentViewState;
   /** Whether plan mode is active (read-only planning). */
   planMode: boolean;
   /** Available slash commands for command palette. */
@@ -211,6 +220,8 @@ export function createReactiveState(): ReactiveState {
     pendingApprovals: [],
     changedFiles: [],
     workItems: [],
+    managedAgentSessionEvents: [],
+    managedAgents: EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
     planMode: false,
     slashCommands: [],
     slashCommandIndex: -1,

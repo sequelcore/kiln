@@ -1,61 +1,47 @@
-# Slice 4D Plan - Governed Orchestration Work Items
+# Slice 5K Plan - Native Gateway-Mediated Managed-Agent Cancel
 
 ## Objective
 
-Attach managed orchestration mode contracts to governed work items so child
-work is not just lifecycle evidence. Each materialized child work item must
-carry the mode expected evidence, merge policy, isolation policy, and a Slice 6
-adoption gate when the orchestration mode requires parent adoption.
+Add native managed-agent cancellation as a gateway-mediated control request
+over the existing native `/gui/ws` cockpit attach.
+
+## Non-goals
+
+- No native-local lifecycle mutation or cancellation evidence synthesis.
+- No direct runtime-service construction from the native renderer.
+- No new native-only cancellation contract or endpoint.
+- No join, transcript paging, or adoption/diff workflow in this cut.
+- No worktree/diff/adoption behavior before Slice 6 defines that contract.
 
 ## Surface Map
 
-- Core work governance:
-  - `packages/core/src/work-governance/work-item.ts`
-  - `packages/core/src/work-governance/work-item-materializer.ts`
-  - `packages/core/src/work-governance/index.ts`
-- Tests:
-  - `packages/core/tests/work-governance/work-item-materializer.test.ts`
-  - `packages/core/tests/managed-agent/orchestration-contracts.test.ts`
-- Roadmap:
-  - `docs/roadmap/01-background-parallel-agent-surface.md`
-  - `docs/roadmap/README.md`
-
-## Risk Hypothesis
-
-- If orchestration evidence stays only on managed invocation records, governed
-  work items cannot enforce per-mode handoff or later adoption requirements.
-- Merge and adoption policy must remain data on the work item, not hidden CLI
-  behavior, so Slice 6 can consume the same contract.
-- Budget admission should not be faked. Budget-aware CLI fan-out must fail
-  closed when no live usage source is available or every eligible route is over
-  budget; a full runtime/session budget plane remains a follow-up.
+- Native gateway attach/control helper:
+  `packages/native/src/renderer/native-gateway-cockpit.ts`
+- Native renderer shell: `packages/native/src/renderer/native-surface-app.tsx`
+- Native managed-agent panel:
+  `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
+- Native boundary tests: `packages/native/tests/native-boundary.test.ts`
+- Native panel tests:
+  `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
+- Roadmap: `docs/roadmap/01-background-parallel-agent-surface.md`,
+  `docs/roadmap/README.md`
 
 ## Implementation Steps
 
-1. Add work-item orchestration metadata for child identity, mode, expected
-   evidence, isolation, merge policy, and Slice 6 adoption gating.
-2. Add a deterministic materializer that converts a typed managed orchestration
-   request into governed child work items.
-3. Encode required orchestration evidence as work-item expected evidence,
-   including merge policy evidence and adoption-gate evidence when required.
-4. Prove fan-out does not force adoption while decomposition blocks closeout
-   until a structured adoption resolution exists.
-5. Update roadmap status and remaining Slice 4 work.
+1. Add failing native tests for typed cancel frame construction and panel
+   enablement when a live control callback exists.
+2. Add a native helper that creates the shared `managed_agent_control` cancel
+   frame and fails closed on missing `sessionId` or `invocationId`.
+3. Wire the native renderer to keep the existing cockpit WebSocket as the only
+   control channel and send the typed cancel frame only while it is open.
+4. Enable panel cancellation only when the live gateway control callback is
+   present; otherwise keep disabled/read-only UI.
+5. Keep native state updates sourced from gateway `session_event` frames and
+   ignore acknowledgement frames for lifecycle projection.
+6. Update roadmap Slice 5 status and remaining-work bullets.
 
 ## Verification
 
-- `bun run --filter @kilnai/core test -- tests/work-governance/work-item-materializer.test.ts`
-- `bun run --filter @kilnai/core test -- tests/managed-agent/orchestration-contracts.test.ts`
-- `bun run typecheck`
-- `bun run --filter "*" build`
-- `git diff --check`
-
-## Residual Risk
-
-- CLI fan-out now fails closed for budget-aware routing when usage data is
-  unavailable or all eligible routes are over budget. The remaining Slice 4
-  follow-up is replacing the CLI usage hook with the runtime/session budget
-  plane once that plane is exposed.
-- Adoption-required orchestration items now have a structured
-  `managedOrchestrationAdoption` resolution path. Ordinary child
-  `providedEvidence` cannot self-satisfy `managed-orchestration:adoption-gate`.
+- Focused native boundary and panel tests.
+- Native package typecheck/test/build.
+- Full workspace typecheck/test/build plus `git diff --check` before closeout.

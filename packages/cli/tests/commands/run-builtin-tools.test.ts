@@ -27,6 +27,7 @@ const runWiringMocks = vi.hoisted(() => {
     computeEvalScore: vi.fn(() => undefined),
     cleanupWorktree: vi.fn().mockResolvedValue(undefined),
     cleanupRegistryRunAll: vi.fn().mockResolvedValue(undefined),
+    createManagedAgentInvocationResourceProvider: vi.fn(() => ({ id: "managed-agent-resource-provider" })),
     runManagedAgentFanOutLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
     transcriptInit: vi.fn().mockResolvedValue(undefined),
@@ -78,6 +79,7 @@ vi.mock("@kilnai/runtime", () => ({
   ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
   ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
   RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
+  createManagedAgentInvocationResourceProvider: runWiringMocks.createManagedAgentInvocationResourceProvider,
   runManagedAgentFanOutLifecycle: runWiringMocks.runManagedAgentFanOutLifecycle,
   ProviderModelRouteHealthStore: class {
     evaluateRouteHealth(providerId: string, modelId: string) {
@@ -304,6 +306,7 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.recordRouteOutcome.mockResolvedValue(undefined);
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
     runWiringMocks.cleanupRegistryRunAll.mockResolvedValue(undefined);
+    runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({ id: "managed-agent-resource-provider" });
     runWiringMocks.runManagedAgentFanOutLifecycle.mockResolvedValue({
       orchestrationResult: {
         orchestrationId: "cli-run-workers",
@@ -376,6 +379,26 @@ describe("run command builtin tool wiring", () => {
     expect(runWiringMocks.capturedSessionConfigs).toHaveLength(1);
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
+    });
+  });
+
+  it("wires managed invocation resources into model-facing builtin tool options", async () => {
+    const managedInvocation = parallelManagedInvocation();
+
+    await runCommand({
+      ...APP_CONFIG,
+      managedInvocation,
+    }, "ship it", { provider: "codex" });
+
+    expect(runWiringMocks.createManagedAgentInvocationResourceProvider).toHaveBeenCalledWith({
+      service: managedInvocation.invocationService,
+    });
+    expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
+      resourceProviders: expect.arrayContaining([{ id: "managed-agent-resource-provider" }]),
+    }));
+    expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
+      builtinToolOptions: { id: "session-builtin-tool-options" },
+      managedInvocation,
     });
   });
 

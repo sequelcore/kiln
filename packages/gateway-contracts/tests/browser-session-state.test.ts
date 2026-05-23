@@ -92,6 +92,29 @@ describe("browser session state frames", () => {
     expect(frame.sessionId).toBe("browser-1");
   });
 
+  it("carries managed-agent cancel control requests and acknowledgements", () => {
+    const outbound: GuiOutboundFrame = {
+      type: "managed_agent_control",
+      action: "cancel",
+      sessionId: "session-1",
+      invocationId: "child-1",
+      reason: "Operator stopped duplicate work.",
+      requestId: "managed-agent-control-1",
+    };
+    const inbound: GuiInboundFrame = {
+      type: "managed_agent_control_result",
+      action: "cancel",
+      sessionId: "session-1",
+      invocationId: "child-1",
+      status: "accepted",
+      requestId: "managed-agent-control-1",
+      handledAt: "2026-05-23T12:00:00.000Z",
+    };
+
+    expect(outbound.action).toBe("cancel");
+    expect(inbound.status).toBe("accepted");
+  });
+
   it("carries live viewport frames without requiring durable screenshot rows", () => {
     const frame: GuiInboundFrame = {
       type: "browser_live_viewport_frame",

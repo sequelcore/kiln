@@ -12,6 +12,7 @@ function resetSessionStore(): void {
     status: "idle",
     messages: [],
     timelineEntries: [],
+    sessionEvents: [],
     currentAssistant: null,
     planMode: false,
     activity: null,
@@ -501,6 +502,73 @@ describe("session-store", () => {
     expect(completedEntry.presentationDetails).toContainEqual({ label: "Agent profile", value: "architecture-reviewer" });
     expect(completedEntry.presentationDetails).toContainEqual({ label: "Skills", value: "ddd-review" });
     expect(completedEntry.presentationDetails).not.toContainEqual({ label: "Provider Route", value: "Structured value" });
+  });
+
+  it("keeps canonical live session events available for managed-agent cockpit projection", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-managed-live",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-managed-started",
+      kilnSessionId: "session-managed-live",
+      sequence: 1,
+      timestamp: "2026-05-23T12:00:00.000Z",
+      kind: "agent_invocation_started",
+      payload: {
+        invocationId: "child-live",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.5",
+        },
+      },
+    });
+
+    expect(useSessionStore.getState().sessionEvents).toEqual([
+      expect.objectContaining({
+        eventId: "evt-managed-started",
+        kind: "agent_invocation_started",
+        payload: expect.objectContaining({
+          invocationId: "child-live",
+        }),
+      }),
+    ]);
+  });
+
+  it("restores loaded canonical session events for managed-agent cockpit projection", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-managed-loaded",
+      meta: {
+        kilnSessionId: "session-managed-loaded",
+        title: "Loaded managed child",
+        task: "Loaded managed child",
+        startedAt: "2026-05-23T12:00:00.000Z",
+      },
+      events: [
+        {
+          eventId: "evt-managed-loaded",
+          kilnSessionId: "session-managed-loaded",
+          sequence: 1,
+          timestamp: "2026-05-23T12:00:00.000Z",
+          kind: "agent_invocation_completed",
+          payload: {
+            invocationId: "child-loaded",
+            lifecycleState: "completed",
+          },
+        },
+      ],
+    });
+
+    expect(useSessionStore.getState().sessionEvents).toEqual([
+      expect.objectContaining({
+        eventId: "evt-managed-loaded",
+        kind: "agent_invocation_completed",
+        payload: expect.objectContaining({
+          invocationId: "child-loaded",
+        }),
+      }),
+    ]);
   });
 
   it("tracks session telemetry from cost updates and canonical file-change events", () => {

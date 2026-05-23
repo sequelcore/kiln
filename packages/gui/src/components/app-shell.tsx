@@ -3,8 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
+  createOperatorCockpitReadOnlyViewState,
   isOperatorThemeName,
   listOperatorCommands,
+  projectOperatorCockpitReadOnlyView,
   type GuiAppDescriptor,
   type GuiAuthorityStatus,
   type GuiInboundFrame,
@@ -17,6 +19,8 @@ import {
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
   type OperatorCommandDefinition,
+  type OperatorSessionEvent,
+  type OperatorSessionEventKind,
 } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
@@ -28,6 +32,7 @@ import { OperatorSurfaceTabs, type OperatorSurfaceKind } from "./operator-surfac
 import { ChangedFilesPanel } from "./changed-files-panel.js";
 import { ApprovalsPanel } from "./approvals-panel.js";
 import { ActivityLogPanel } from "./activity-log-panel.js";
+import { ManagedAgentCockpitPanel } from "./managed-agent-cockpit-panel.js";
 import { WorkItemsPanel } from "./work-items-panel.js";
 import { WorkflowOverviewPanel } from "./workflow-overview-panel.js";
 import { ChatWorkbench } from "./chat-workbench.js";
@@ -43,6 +48,7 @@ import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/tim
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  Bot,
   CheckCheck,
   FileDiff,
   Folder,
@@ -165,13 +171,14 @@ function KilnMark() {
   );
 }
 
-type WorkbenchSurface = "chat" | "work" | "activity" | "memory" | "setup";
+type WorkbenchSurface = "chat" | "work" | "agents" | "activity" | "memory" | "setup";
 type InspectorMode = "workspace" | "changed" | "approvals";
 type MobileDrawerMode = "sessions" | "inspector";
 
 const workbenchSurfaceIcons: Record<WorkbenchSurface, LucideIcon> = {
   chat: MessagesSquare,
   work: ListChecks,
+  agents: Bot,
   activity: Activity,
   memory: Network,
   setup: Settings2,
@@ -182,6 +189,47 @@ const inspectorModeIcons: Record<InspectorMode, LucideIcon> = {
   changed: FileDiff,
   approvals: CheckCheck,
 };
+
+const GUI_COCKPIT_INSTANCE_ID = "local-gui";
+const MANAGED_AGENT_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
+  "agent_invocation_requested",
+  "agent_invocation_started",
+  "agent_invocation_completed",
+  "agent_invocation_failed",
+  "agent_invocation_cancelled",
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readEventString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeManagedAgentCockpitEvents(
+  events: readonly OperatorSessionEvent[],
+): readonly OperatorSessionEvent[] {
+  return events.flatMap((event) => {
+    if (!MANAGED_AGENT_EVENT_KINDS.includes(event.kind)) {
+      return [];
+    }
+    const payload = isRecord(event.payload) ? event.payload : {};
+    const managedInvocationId = readEventString(payload.managedInvocationId) ?? readEventString(payload.invocationId);
+    if (!managedInvocationId) {
+      return [];
+    }
+    return [{
+      ...event,
+      payload: {
+        ...payload,
+        instanceId: readEventString(payload.instanceId) ?? GUI_COCKPIT_INSTANCE_ID,
+        sessionId: readEventString(payload.sessionId) ?? event.kilnSessionId,
+        managedInvocationId,
+      },
+    }];
+  });
+}
 
 function NavButton<TMode extends string>(props: {
   readonly mode: TMode;
@@ -229,6 +277,7 @@ function PrimarySidebar(props: {
   readonly activeSurface: WorkbenchSurface;
   readonly collapsed: boolean;
   readonly activityCount: number;
+  readonly managedAgentAttentionCount: number;
   readonly sessionsOpen: boolean;
   readonly onSelectSurface: (surface: WorkbenchSurface) => void;
   readonly onToggleCollapsed: () => void;
@@ -278,14 +327,14 @@ function PrimarySidebar(props: {
       </header>
       <nav aria-label="Workbench surfaces" className={cn("border-b border-border/70 p-2", props.collapsed && "px-1")}>
         <div className="flex flex-col gap-1">
-          {(["chat", "work", "activity", "memory", "setup"] as const).map((surface) => (
+          {(["chat", "work", "agents", "activity", "memory", "setup"] as const).map((surface) => (
             <NavButton
               key={surface}
               mode={surface}
-              label={surface === "chat" ? "Chat" : surface === "work" ? "Work" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
+              label={surface === "chat" ? "Chat" : surface === "work" ? "Work" : surface === "agents" ? "Agents" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
               icon={workbenchSurfaceIcons[surface]}
               active={props.activeSurface === surface}
-              count={surface === "activity" ? props.activityCount : undefined}
+              count={surface === "agents" ? props.managedAgentAttentionCount : surface === "activity" ? props.activityCount : undefined}
               collapsed={props.collapsed}
               onClick={() => props.onSelectSurface(surface)}
             />
@@ -641,6 +690,7 @@ export function AppShell() {
 
   const status = useSessionStore((state) => state.status);
   const timelineEntries = useSessionStore((state) => state.timelineEntries);
+  const sessionEvents = useSessionStore((state) => state.sessionEvents);
   const providers = useSessionStore((state) => state.providers);
   const providerDiscovery = useSessionStore((state) => state.providerDiscovery);
   const planMode = useSessionStore((state) => state.planMode);
@@ -707,6 +757,23 @@ export function AppShell() {
   const workItems = useMemo(() => deriveWorkItems(timelineEntries), [timelineEntries]);
   const activityEntries = useMemo(() => timelineEntries.filter(isActivityTimelineEntry), [timelineEntries]);
   const conversationEntries = useMemo(() => timelineEntries.filter(isConversationTimelineEntry), [timelineEntries]);
+  const managedAgentCockpitView = useMemo(() => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: new Date().toISOString(),
+      attachTargets: [{
+        instanceId: GUI_COCKPIT_INSTANCE_ID,
+        label: "Local GUI",
+        kind: "local",
+        gatewayUrl: resolveGatewayHttpBaseUrl(),
+      }],
+      events: normalizeManagedAgentCockpitEvents(sessionEvents),
+    });
+    return createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    }).managedAgents;
+  }, [sessionEvents]);
+  const managedAgentAttentionCount = managedAgentCockpitView.attentionCount;
   const approvalCount = pendingApprovals.length;
   const activeModelCapabilities = activeProvider && activeModel
     ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]
@@ -882,6 +949,10 @@ export function AppShell() {
         event.preventDefault();
         setWorkbenchSurface("setup");
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === "9") {
+        event.preventDefault();
+        setWorkbenchSurface("agents");
+      }
       if (event.key === "Escape") {
         setIsPaletteOpen(false);
         setPaletteMode("root");
@@ -972,6 +1043,12 @@ export function AppShell() {
           onBrowserLiveViewportFrame(frame);
         } else if (frame.type === "browser_operator_input_ack") {
           onBrowserOperatorInputAck(frame);
+        } else if (frame.type === "managed_agent_control_result") {
+          if (frame.status === "failed") {
+            setErrorBanner(frame.reason ?? `Managed agent ${frame.action} failed for ${frame.invocationId}.`);
+          } else {
+            clearErrorBanner();
+          }
         } else if (frame.type === "memory_lattice_invalidated") {
           setMemoryLatticeInvalidationTick((tick) => tick + 1);
         }
@@ -1321,6 +1398,37 @@ export function AppShell() {
       setActiveSurface("chat");
     }
   };
+  const openManagedAgentResource = async (uri: string): Promise<void> => {
+    const resourceWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
+    if (!resourceWindow) {
+      setErrorBanner("Browser blocked the managed child resource window.");
+      return;
+    }
+    try {
+      const dataUrl = await gatewayClient.loadResourceDataUrl(uri);
+      if (!dataUrl) {
+        throw new Error("Managed child resource is not available.");
+      }
+      resourceWindow.location.href = dataUrl;
+    } catch (error) {
+      resourceWindow.close();
+      setErrorBanner(error instanceof Error ? error.message : "Could not open managed child resource.");
+    }
+  };
+  const cancelManagedAgent = (input: { readonly sessionId: string; readonly invocationId: string }): void => {
+    const sendFrame = sendRef.current;
+    if (!sendFrame) {
+      setErrorBanner("Managed agent control is unavailable until the gateway connection is open.");
+      return;
+    }
+    sendFrame({
+      type: "managed_agent_control",
+      action: "cancel",
+      sessionId: input.sessionId,
+      invocationId: input.invocationId,
+      reason: "Operator cancelled the managed child from the GUI cockpit.",
+    });
+  };
 
   const sessionsPanel = (
     <SessionList
@@ -1368,11 +1476,13 @@ export function AppShell() {
     ? activeChatWorkspaceSurface === "browser" ? "Browser" : "Chat"
     : workbenchSurface === "work"
         ? "Work"
+        : workbenchSurface === "agents"
+          ? "Agents"
         : workbenchSurface === "activity"
-          ? "Activity"
-          : workbenchSurface === "memory"
-            ? "Memory"
-            : "Setup";
+            ? "Activity"
+            : workbenchSurface === "memory"
+              ? "Memory"
+              : "Setup";
   const drawerTitle = mobileDrawerMode === "sessions" ? "Sessions" : "Inspector";
   const drawerAriaLabel = mobileDrawerMode === "sessions" ? "session drawer" : "inspector drawer";
 
@@ -1427,6 +1537,7 @@ export function AppShell() {
             activeSurface={workbenchSurface}
             collapsed={sidebarCollapsed}
             activityCount={activityEntries.length}
+            managedAgentAttentionCount={managedAgentAttentionCount}
             sessionsOpen={sessionPopoverOpen}
             onSelectSurface={(surface) => {
               setWorkbenchSurface(surface);
@@ -1474,7 +1585,7 @@ export function AppShell() {
               <Select
                 value={workbenchSurface}
                 onValueChange={(value) => {
-                  if (value === "chat" || value === "work" || value === "activity" || value === "memory" || value === "setup") {
+                  if (value === "chat" || value === "work" || value === "agents" || value === "activity" || value === "memory" || value === "setup") {
                     setWorkbenchSurface(value);
                     if (value === "chat") {
                       setActiveSurface(value);
@@ -1489,6 +1600,7 @@ export function AppShell() {
                   <SelectGroup>
                     <SelectItem value="chat">Chat</SelectItem>
                     <SelectItem value="work">Work</SelectItem>
+                    <SelectItem value="agents">Agents</SelectItem>
                     <SelectItem value="activity">Activity</SelectItem>
                     <SelectItem value="memory">Memory</SelectItem>
                     <SelectItem value="setup">Setup</SelectItem>
@@ -1513,7 +1625,7 @@ export function AppShell() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-foreground">{workbenchTitle}</p>
                 <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  {workbenchSurface === "chat" ? activeChatWorkspaceSurface === "browser" ? "interactive browser" : "conversation" : workbenchSurface === "work" ? "governed work items" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
+                  {workbenchSurface === "chat" ? activeChatWorkspaceSurface === "browser" ? "interactive browser" : "conversation" : workbenchSurface === "work" ? "governed work items" : workbenchSurface === "agents" ? "managed children" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -1729,6 +1841,14 @@ export function AppShell() {
               <div className="min-h-0 overflow-hidden">
                 <WorkItemsPanel items={workItems} />
               </div>
+            </div>
+          ) : workbenchSurface === "agents" ? (
+            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
+              <ManagedAgentCockpitPanel
+                viewState={managedAgentCockpitView}
+                onOpenResource={(uri) => void openManagedAgentResource(uri)}
+                onCancel={cancelManagedAgent}
+              />
             </div>
           ) : workbenchSurface === "activity" ? (
             <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">

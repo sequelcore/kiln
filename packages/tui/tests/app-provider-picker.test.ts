@@ -51,6 +51,7 @@ vi.mock("../src/render.js", () => ({
   renderSidebarApprovals: () => undefined,
   renderSidebarChanges: () => undefined,
   renderSidebarWork: () => undefined,
+  renderSidebarManagedAgents: () => undefined,
   renderSlashPopover: () => undefined,
 }));
 
@@ -70,6 +71,8 @@ vi.mock("../src/ui.js", () => ({
       sidebarFieldText: { content: "" },
       sidebarDivider: { content: "" },
       sidebarToolsBox: { content: { add: () => undefined } },
+      sidebarManagedAgentsText: { content: "" },
+      sidebarWorkText: { content: "" },
       sidebarSessionsText: { content: "" },
       sidebarApprovalsText: { content: "" },
       sidebarChangesText: { content: "" },

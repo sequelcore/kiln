@@ -44,6 +44,7 @@ export interface UIComponents {
   sidebarFieldText: InstanceType<typeof TextRenderable>;
   sidebarDivider: InstanceType<typeof TextRenderable>;
   sidebarToolsBox: InstanceType<typeof ScrollBoxRenderable>;
+  sidebarManagedAgentsText: InstanceType<typeof TextRenderable>;
   sidebarWorkText: InstanceType<typeof TextRenderable>;
   sidebarSessionsText: InstanceType<typeof TextRenderable>;
   sidebarApprovalsText: InstanceType<typeof TextRenderable>;
@@ -282,6 +283,22 @@ export function initUI(
   });
   sidebar.add(sidebarToolsBox);
 
+  const sidebarManagedAgentsLabel = new TextRenderable(renderer, {
+    id: "sidebar-managed-agents-label",
+    content: t`${fg(theme.textMuted)("managed agents")}`,
+    width: "100%",
+    height: 2,
+  });
+  sidebar.add(sidebarManagedAgentsLabel);
+
+  const sidebarManagedAgentsText = new TextRenderable(renderer, {
+    id: "sidebar-managed-agents",
+    content: t`${fg(theme.textMuted)("(none)")}`,
+    width: "100%",
+    flexGrow: 1,
+  });
+  sidebar.add(sidebarManagedAgentsText);
+
   const sidebarWorkLabel = new TextRenderable(renderer, {
     id: "sidebar-work-label",
     content: t`${fg(theme.textMuted)("work")}`,
@@ -377,6 +394,7 @@ export function initUI(
     sidebarFieldText,
     sidebarDivider,
     sidebarToolsBox,
+    sidebarManagedAgentsText,
     sidebarWorkText,
     sidebarSessionsText,
     sidebarApprovalsText,

@@ -61,6 +61,12 @@ export type {
   ManagedAgentFanOutLifecycleRouteSelector,
 } from "./fan-out.js";
 export {
+  createManagedAgentInvocationResourceProvider,
+} from "./resource-provider.js";
+export type {
+  ManagedAgentInvocationResourceProviderInput,
+} from "./resource-provider.js";
+export {
   collectManagedAgentLiveWriteDecisionEvidence,
   collectManagedAgentLiveWriteEvidence,
   normalizeManagedAgentLiveWriteChanges,

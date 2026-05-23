@@ -54,6 +54,45 @@ describe("ToolResourceRegistry", () => {
     expect(secondPage.nextCursor).toBeUndefined();
   });
 
+  it("includes configured resource providers in the shared registry", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      resourceProviders: [{
+        listResources: () => [{
+          uri: "kiln://custom/resource",
+          name: "custom_resource",
+          mimeType: "application/json",
+          annotations: { readOnlyHint: true },
+        }],
+        listTemplates: () => [{
+          uriTemplate: "kiln://custom/resource/{id}",
+          name: "custom_resource_detail",
+          mimeType: "application/json",
+          annotations: { readOnlyHint: true },
+        }],
+        read: async (uri: string) => {
+          if (uri !== "kiln://custom/resource") {
+            return undefined;
+          }
+          return {
+            contents: [{
+              uri,
+              mimeType: "application/json",
+              text: JSON.stringify({ ok: true }),
+            }],
+          };
+        },
+      }],
+    });
+
+    expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://custom/resource");
+    expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain(
+      "kiln://custom/resource/{id}",
+    );
+    await expect(surface.resources.read("kiln://custom/missing")).rejects.toThrow("Resource not found");
+    const result = await surface.resources.read("kiln://custom/resource");
+    expect(JSON.parse(result.contents[0]!.text)).toEqual({ ok: true });
+  });
+
   it("paginates resource templates with their own cursor namespace", () => {
     const surface = createDefaultBuiltinToolSurface();
 

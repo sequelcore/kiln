@@ -10,7 +10,7 @@ import {
   ToolResourceNotificationHub,
   type ToolResourceNotificationHubOptions,
 } from "./domain/tool-resource-notifications.js";
-import { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
+import { ToolResourceRegistry, type ToolResourceProvider } from "./domain/tool-resource-registry.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
 import { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";
@@ -131,6 +131,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly memoryResources?: MemoryGraphResourceProviderOptions;
   readonly memoryMutations?: DefaultMemoryMutationOptions;
   readonly artifactResources?: DefaultArtifactResourceOptions;
+  readonly resourceProviders?: readonly ToolResourceProvider[];
   readonly resourceNotifications?: ToolResourceNotificationHub | ToolResourceNotificationHubOptions;
   readonly resourceRegistry?: () => ToolResourceRegistry | undefined;
 }
@@ -400,6 +401,7 @@ export function createDefaultBuiltinToolSurface(
     ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
     ...(options.memoryResources ? [new MemoryGraphResourceProvider(options.memoryResources)] : []),
     new ArtifactResourceProvider({ store: artifactStore }),
+    ...(options.resourceProviders ?? []),
   ];
   const resourceRegistry = new ToolResourceRegistry({
     catalog,
