@@ -301,6 +301,17 @@ export type ManagedAgentResourceLeaseHealthStatus = "healthy" | "stale" | "relea
 
 export type ManagedAgentResourceLeaseCleanupStatus = "not-required" | "pending" | "completed" | "failed" | "unknown";
 
+export type ManagedAgentWorktreeReviewStatus = "required";
+
+export type ManagedAgentWorktreeReviewReason = "dirty-worktree-preserved";
+
+export interface ManagedAgentWorktreeReviewEvidence {
+  readonly status: ManagedAgentWorktreeReviewStatus;
+  readonly reason: ManagedAgentWorktreeReviewReason;
+  readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
+}
+
 export interface ManagedAgentResourceLeaseEvidence {
   readonly leaseId: string;
   readonly createdAt: string;
@@ -310,6 +321,7 @@ export interface ManagedAgentResourceLeaseEvidence {
   readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
+  readonly worktreeReview?: ManagedAgentWorktreeReviewEvidence;
 }
 
 export interface ManagedAgentLifecycleEvidence {
@@ -928,6 +940,20 @@ function requireResourceLease(input: ManagedAgentResourceLeaseEvidence): Managed
     workingDirectoryMode: requireWorkingDirectoryMode(input.workingDirectoryMode),
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed capability snapshot lease resource uri is required")),
     diagnosticUris: input.diagnosticUris.map((uri) => requireText(uri, "Managed capability snapshot lease diagnostic uri is required")),
+    ...(input.worktreeReview !== undefined ? { worktreeReview: requireWorktreeReview(input.worktreeReview) } : {}),
+  };
+}
+
+function requireWorktreeReview(input: ManagedAgentWorktreeReviewEvidence): ManagedAgentWorktreeReviewEvidence {
+  return {
+    status: requireWorktreeReviewStatus(input.status),
+    reason: requireWorktreeReviewReason(input.reason),
+    resourceUris: input.resourceUris.map((uri) =>
+      requireText(uri, "Managed capability snapshot worktree review resource uri is required")
+    ),
+    diagnosticUris: input.diagnosticUris.map((uri) =>
+      requireText(uri, "Managed capability snapshot worktree review diagnostic uri is required")
+    ),
   };
 }
 
@@ -978,6 +1004,23 @@ function requireResourceLeaseCleanupStatus(value: ManagedAgentResourceLeaseClean
     return value;
   }
   throw new Error(`Unsupported managed capability snapshot lease cleanup status: ${value as string}`);
+}
+
+function requireWorktreeReviewStatus(value: string): ManagedAgentWorktreeReviewStatus {
+  if (value === "required") {
+    return value;
+  }
+  throw new Error(`Unsupported managed capability snapshot worktree review status: ${value as string}`);
+}
+
+function requireWorktreeReviewReason(value: string): ManagedAgentWorktreeReviewReason {
+  if (value === "dirty-worktree-preserved") {
+    return value;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error("Managed capability snapshot worktree review reason is required");
+  }
+  throw new Error(`Unsupported managed capability snapshot worktree review reason: ${value as string}`);
 }
 
 function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy): ManagedAgentUnsupportedFieldPolicy {

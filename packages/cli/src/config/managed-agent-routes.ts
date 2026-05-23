@@ -17,6 +17,8 @@ import {
 import {
   ManagedCliHarnessAdapter,
   ManagedGitWorktreeLeaseManager,
+  ManagedRuntimeCredentialRouteLeaseManager,
+  ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
   type ManagedAgentRuntimeAdapter,
   type ManagedInvocationAgentCatalogEntry,
@@ -595,6 +597,10 @@ async function resolveRouteConfig(
     return resolveDirectRouteConfig(routeConfig, context, config, baseHealth, writeRequired);
   }
 
+  if (routeConfig.workingDirectory === "sandbox") {
+    return unhealthy(baseHealth, "Harness sandbox working-directory routes require live-proven sandbox enforcement.");
+  }
+
   if (!SUPPORTED_HARNESS_PROVIDERS.has(routeConfig.provider)) {
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not have a live-proven managed harness adapter.`);
   }
@@ -1078,16 +1084,28 @@ function createManagedInvocationService(
     return existingService;
   }
   const leaseConfig = config.managedAgents?.worktreeLease;
-  if (!leaseConfig) {
-    return undefined;
-  }
+  const routeConfigs = resolveRouteConfigs(config);
+  const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
+  const needsSandboxLease = routeConfigs.some((route) => route.kind === "direct" && route.workingDirectory === "sandbox");
+  const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
+
   return new RuntimeManagedAgentInvocationService({
-    worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
-      repositoryPath: cwd,
-      worktreeRootPath: normalizeManagedRoutePath(leaseConfig.rootPath, cwd),
-      ...(leaseConfig.ref ? { ref: leaseConfig.ref } : {}),
-      ...(leaseConfig.gitBinary ? { gitBinary: leaseConfig.gitBinary } : {}),
-    }),
+    ...(needsWorktreeLease && leaseConfig ? {
+      worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
+        repositoryPath: cwd,
+        worktreeRootPath: normalizeManagedRoutePath(leaseConfig.rootPath, cwd),
+        ...(leaseConfig.ref ? { ref: leaseConfig.ref } : {}),
+        ...(leaseConfig.gitBinary ? { gitBinary: leaseConfig.gitBinary } : {}),
+      }),
+    } : {}),
+    ...(needsSandboxLease ? {
+      sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
+    } : {}),
+    ...(credentialRouteIds.length > 0 ? {
+      credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+        allowedRouteIds: credentialRouteIds,
+      }),
+    } : {}),
   });
 }
 
@@ -1095,17 +1113,45 @@ function managedInvocationServiceKey(
   config: ManagedAgentRouteConfigSource,
   cwd: string,
 ): string | undefined {
+  const routeConfigs = resolveRouteConfigs(config);
   const leaseConfig = config.managedAgents?.worktreeLease;
-  if (!leaseConfig || !resolveRouteConfigs(config).some((route) => route.workingDirectory === "isolated-worktree")) {
+  const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
+  const needsSandboxLease = routeConfigs.some((route) => route.kind === "direct" && route.workingDirectory === "sandbox");
+  const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
+  if (!needsWorktreeLease && !needsSandboxLease && credentialRouteIds.length === 0) {
     return undefined;
   }
   return JSON.stringify({
-    mode: leaseConfig.mode,
-    repositoryPath: normalizeManagedRoutePath(cwd, cwd),
-    rootPath: normalizeManagedRoutePath(leaseConfig.rootPath, cwd),
-    ref: leaseConfig.ref ?? "HEAD",
-    gitBinary: leaseConfig.gitBinary ?? "git",
+    ...(needsWorktreeLease && leaseConfig ? {
+      worktreeLease: {
+        mode: leaseConfig.mode,
+        repositoryPath: normalizeManagedRoutePath(cwd, cwd),
+        rootPath: normalizeManagedRoutePath(leaseConfig.rootPath, cwd),
+        ref: leaseConfig.ref ?? "HEAD",
+        gitBinary: leaseConfig.gitBinary ?? "git",
+      },
+    } : {}),
+    ...(needsSandboxLease ? {
+      sandboxPolicy: {
+        mode: "kiln-tool-policy",
+        rootPath: normalizeManagedRoutePath(cwd, cwd),
+      },
+    } : {}),
+    ...(credentialRouteIds.length > 0 ? { credentialRouteIds } : {}),
   });
+}
+
+function collectRuntimeCredentialRouteIds(
+  routeConfigs: readonly KilnManagedAgentRouteConfig[],
+): readonly string[] {
+  const routeIds = new Set<string>();
+  for (const routeConfig of routeConfigs) {
+    const credentialRoute = resolveCredentialRoute(routeConfig);
+    if (credentialRoute.mode === "runtime-selected") {
+      routeIds.add(credentialRoute.routeId);
+    }
+  }
+  return [...routeIds].sort((left, right) => left.localeCompare(right));
 }
 
 function resolveWorkingDirectory(
@@ -1117,6 +1163,12 @@ function resolveWorkingDirectory(
     return {
       path: workingDirectoryLease.rootPath,
       mode: "isolated-worktree",
+    };
+  }
+  if (routeConfig.workingDirectory === "sandbox") {
+    return {
+      path: cwd,
+      mode: "sandbox",
     };
   }
   return {
@@ -1135,6 +1187,12 @@ function resolveWriteWorkingDirectory(
     return {
       path: workingDirectoryLease.rootPath,
       mode: "isolated-worktree",
+    };
+  }
+  if (routeConfig.workingDirectory === "sandbox") {
+    return {
+      path: cwd,
+      mode: "sandbox",
     };
   }
   return {
@@ -1215,10 +1273,13 @@ function resolveCredentialRoute(
   if (routeConfig.credentials?.mode === "credentialless") {
     return { mode: "credentialless" };
   }
+  const configuredRouteId = routeConfig.credentials?.mode === "runtime-selected"
+    ? routeConfig.credentials.routeId?.trim()
+    : undefined;
   return {
     mode: "runtime-selected",
-    routeId: routeConfig.credentials?.mode === "runtime-selected" && routeConfig.credentials.routeId
-      ? routeConfig.credentials.routeId
+    routeId: configuredRouteId
+      ? configuredRouteId
       : `credential-route:${routeConfig.provider}:runtime-selected`,
   };
 }

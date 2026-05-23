@@ -25,7 +25,11 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
 } from "../../session/runtime-session-orchestrator.types.js";
-import { RuntimeManagedAgentInvocationService } from "./index.js";
+import {
+  ManagedRuntimeCredentialRouteLeaseManager,
+  ManagedRuntimeSandboxLeaseManager,
+  RuntimeManagedAgentInvocationService,
+} from "./index.js";
 import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationResult,
@@ -537,14 +541,14 @@ export function createManagedAgentStartToolDefinition(
 
 export function createManagedInvocationToolExecutor(
   options: ManagedInvocationToolOptions,
-  service = options.invocationService ?? new RuntimeManagedAgentInvocationService(),
+  service = options.invocationService ?? createManagedInvocationService(options),
 ): RuntimeBuiltinToolExecutor {
   return async (input, context) => executeManagedInvocationTool(input, context, options, service);
 }
 
 export function createManagedInvocationLifecycleToolExecutors(
   options: ManagedInvocationToolOptions,
-  service = options.invocationService ?? new RuntimeManagedAgentInvocationService(),
+  service = options.invocationService ?? createManagedInvocationService(options),
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
   return new Map([
     [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(options, service)],
@@ -554,6 +558,46 @@ export function createManagedInvocationLifecycleToolExecutors(
     [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
     [MANAGED_AGENT_CANCEL_TOOL_NAME, async (input, context) => executeManagedInvocationCancelTool(input, context, options, service)],
   ]);
+}
+
+function createManagedInvocationService(
+  options: ManagedInvocationToolOptions,
+): RuntimeManagedAgentInvocationService {
+  return new RuntimeManagedAgentInvocationService({
+    sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
+    credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+      allowedRouteIds: managedInvocationCredentialRouteIds(options.routes),
+    }),
+  });
+}
+
+function managedInvocationCredentialRouteIds(
+  routes: readonly ManagedInvocationToolRoute[],
+): readonly string[] {
+  return unique(routes.flatMap((route) =>
+    Object.values(route.profiles).flatMap((profile) => {
+      if (profile?.credentialRoute?.mode !== "runtime-selected") {
+        return [];
+      }
+      return [normalizeManagedInvocationCredentialRouteId(profile.credentialRoute.routeId)];
+    })
+  ));
+}
+
+function normalizeManagedInvocationCredentialRoute(
+  route: ManagedAgentCredentialRoute,
+): ManagedAgentCredentialRoute {
+  if (route.mode !== "runtime-selected") {
+    return route;
+  }
+  return {
+    ...route,
+    routeId: normalizeManagedInvocationCredentialRouteId(route.routeId),
+  };
+}
+
+function normalizeManagedInvocationCredentialRouteId(routeId: string): string {
+  return routeId.trim();
 }
 
 export function createManagedInvocationToolCallMetadataResolver(
@@ -838,7 +882,7 @@ async function prepareManagedInvocationRequest(
       },
       workingDirectory: resolvedAuthority.workingDirectory,
       timeoutMs: profileDefaults.timeoutMs,
-      credentialRoute: profileDefaults.credentialRoute,
+      credentialRoute: normalizeManagedInvocationCredentialRoute(profileDefaults.credentialRoute),
       memoryScope: profileDefaults.memoryScope,
       ...(resolvedAuthority.writeAuthority ? { writeAuthority: resolvedAuthority.writeAuthority } : {}),
     },
@@ -1475,6 +1519,7 @@ function terminalManagedInvocationResult(input: {
       childTurnId: input.record.childTurnId,
       resultHandoff: input.record.resultHandoff,
       transcript: input.record.transcript,
+      ...(input.record.resourceLease ? { resourceLease: input.record.resourceLease } : {}),
       ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
       ...(handoffRecovery ? { managedInvocationRecovery: handoffRecovery } : {}),

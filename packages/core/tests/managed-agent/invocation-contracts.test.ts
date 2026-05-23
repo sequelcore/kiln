@@ -266,6 +266,30 @@ describe("managed agent invocation contracts", () => {
         diagnosticUris: [""],
       },
     })).toThrow("Managed capability snapshot lease diagnostic uri is required");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      resourceLease: {
+        ...snapshot.resourceLease,
+        worktreeReview: {
+          status: "approved" as "required",
+          reason: "dirty-worktree-preserved",
+          resourceUris: [`kiln://artifacts/${snapshot.snapshotId}/worktree-review`],
+          diagnosticUris: [`kiln://artifacts/${snapshot.snapshotId}/worktree-review-required`],
+        },
+      },
+    })).toThrow("Unsupported managed capability snapshot worktree review status: approved");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      resourceLease: {
+        ...snapshot.resourceLease,
+        worktreeReview: {
+          status: "required",
+          reason: " ",
+          resourceUris: [`kiln://artifacts/${snapshot.snapshotId}/worktree-review`],
+          diagnosticUris: [`kiln://artifacts/${snapshot.snapshotId}/worktree-review-required`],
+        },
+      },
+    })).toThrow("Managed capability snapshot worktree review reason is required");
   });
 
   it("records replayable lifecycle evidence, transcript flags, usage unknowns, and bounded result handoff", () => {
@@ -349,6 +373,35 @@ describe("managed agent invocation contracts", () => {
       workingDirectoryMode: "isolated-worktree",
       resourceUris: ["kiln://artifacts/invocation-1/worktree-lease"],
       diagnosticUris: ["kiln://artifacts/invocation-1/worktree-cleanup"],
+    });
+  });
+
+  it("preserves typed dirty-worktree review evidence in terminal lifecycle evidence", () => {
+    const record = defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      resourceLease: {
+        leaseId: "invocation-1:resource-lease",
+        createdAt: "2026-05-07T08:00:00.000Z",
+        healthStatus: "leaked",
+        cleanupStatus: "failed",
+        workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/invocation-1",
+        workingDirectoryMode: "isolated-worktree",
+        resourceUris: ["kiln://artifacts/invocation-1/worktree-lease"],
+        diagnosticUris: ["kiln://artifacts/invocation-1/worktree-lease-cleanup-failed"],
+        worktreeReview: {
+          status: "required",
+          reason: "dirty-worktree-preserved",
+          resourceUris: ["kiln://artifacts/invocation-1/worktree-review"],
+          diagnosticUris: ["kiln://artifacts/invocation-1/worktree-review-required"],
+        },
+      },
+    });
+
+    expect(buildManagedAgentLifecycleEvidence(record).resourceLease.worktreeReview).toEqual({
+      status: "required",
+      reason: "dirty-worktree-preserved",
+      resourceUris: ["kiln://artifacts/invocation-1/worktree-review"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/worktree-review-required"],
     });
   });
 });

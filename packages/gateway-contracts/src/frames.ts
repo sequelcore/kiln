@@ -393,6 +393,13 @@ export interface OperatorManagedAgentResourcePlaneSnapshot {
   readonly reason?: string;
 }
 
+export interface OperatorManagedAgentWorktreeReviewSnapshot {
+  readonly status: "required";
+  readonly reason: "dirty-worktree-preserved";
+  readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
+}
+
 export interface OperatorManagedAgentResourceLeaseSnapshot {
   readonly leaseId: string;
   readonly createdAt: string;
@@ -402,6 +409,7 @@ export interface OperatorManagedAgentResourceLeaseSnapshot {
   readonly workingDirectoryMode: "read-only" | "workspace-write" | "isolated-worktree" | "sandbox";
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
+  readonly worktreeReview?: OperatorManagedAgentWorktreeReviewSnapshot;
 }
 
 export interface OperatorManagedAgentChildIdentitySnapshot {

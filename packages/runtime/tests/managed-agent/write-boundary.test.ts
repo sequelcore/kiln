@@ -74,8 +74,7 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
       },
       timeoutMs: 120000,
       credentialRoute: {
-        mode: "runtime-selected",
-        routeId: "credential-route:opencode:primary",
+        mode: "credentialless",
       },
       memoryScope: {
         scope: { kind: "project", id: "kiln" },
@@ -149,7 +148,9 @@ function admitted(request: ManagedAgentInvocationRequest): Extract<ManagedAgentA
     profile: request.profile,
     adapterDescriptorId: "adapter:opencode:harness",
     authorityProfileId: request.authority.authorityProfileId,
-    credentialRouteId: "credential-route:opencode:primary",
+    ...(request.authority.credentialRoute.mode === "runtime-selected"
+      ? { credentialRouteId: request.authority.credentialRoute.routeId }
+      : {}),
     memoryScope: request.authority.memoryScope.scope,
     writeAuthority: request.authority.writeAuthority,
     capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {

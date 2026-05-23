@@ -366,12 +366,21 @@ describe("operator cockpit read-only projection", () => {
             resourceLease: {
               leaseId: "lifecycle:child:lease-only:resource-lease",
               createdAt: "2026-05-21T12:00:00.000Z",
-              healthStatus: "healthy",
-              cleanupStatus: "completed",
-              workingDirectoryPath: "C:/workspace/kiln",
-              workingDirectoryMode: "read-only",
-              resourceUris: ["kiln://resources/context.md"],
-              diagnosticUris: ["kiln://artifacts/lifecycle-child-lease-only/lease-diagnostics"],
+              healthStatus: "leaked",
+              cleanupStatus: "failed",
+              workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/lifecycle-child-lease-only",
+              workingDirectoryMode: "isolated-worktree",
+              resourceUris: ["kiln://artifacts/lifecycle-child-lease-only/worktree-lease"],
+              diagnosticUris: [
+                "kiln://artifacts/lifecycle-child-lease-only/worktree-lease-cleanup-failed",
+                "kiln://artifacts/lifecycle-child-lease-only/worktree-review-required",
+              ],
+              worktreeReview: {
+                status: "required",
+                reason: "dirty-worktree-preserved",
+                resourceUris: ["kiln://artifacts/lifecycle-child-lease-only/worktree-review"],
+                diagnosticUris: ["kiln://artifacts/lifecycle-child-lease-only/worktree-review-required"],
+              },
             },
           },
         },
@@ -391,12 +400,21 @@ describe("operator cockpit read-only projection", () => {
     expect(projection.invocations[0]?.resourceLease).toEqual({
       leaseId: "lifecycle:child:lease-only:resource-lease",
       createdAt: "2026-05-21T12:00:00.000Z",
-      healthStatus: "healthy",
-      cleanupStatus: "completed",
-      workingDirectoryPath: "C:/workspace/kiln",
-      workingDirectoryMode: "read-only",
-      resourceUris: ["kiln://resources/context.md"],
-      diagnosticUris: ["kiln://artifacts/lifecycle-child-lease-only/lease-diagnostics"],
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/lifecycle-child-lease-only",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: ["kiln://artifacts/lifecycle-child-lease-only/worktree-lease"],
+      diagnosticUris: [
+        "kiln://artifacts/lifecycle-child-lease-only/worktree-lease-cleanup-failed",
+        "kiln://artifacts/lifecycle-child-lease-only/worktree-review-required",
+      ],
+      worktreeReview: {
+        status: "required",
+        reason: "dirty-worktree-preserved",
+        resourceUris: ["kiln://artifacts/lifecycle-child-lease-only/worktree-review"],
+        diagnosticUris: ["kiln://artifacts/lifecycle-child-lease-only/worktree-review-required"],
+      },
     });
   });
 

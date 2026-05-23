@@ -26,7 +26,10 @@ import {
   scoreComplexity,
   textParts,
 } from "@kilnai/core";
-import { RuntimeManagedAgentInvocationService } from "../agents/managed-invocation/index.js";
+import {
+  ManagedRuntimeCredentialRouteLeaseManager,
+  RuntimeManagedAgentInvocationService,
+} from "../agents/managed-invocation/index.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import type {
   ModelRoutingPolicyConfig,
@@ -454,7 +457,11 @@ async function invokeManagedMultimodalDelegation(input: {
   readonly requirements: RuntimeMultimodalRequirements;
   readonly decision: ReturnType<typeof planMultimodalRoute>;
 }): Promise<RuntimeMultimodalDelegationExecutionResult> {
-  const service = new RuntimeManagedAgentInvocationService();
+  const service = new RuntimeManagedAgentInvocationService({
+    credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+      allowedRouteIds: runtimeMultimodalCredentialRouteIds(input.route),
+    }),
+  });
   const resourceUris = input.requirements.artifacts.map((artifact) => artifact.uri);
   const invocationId = createRuntimeMultimodalDelegationInvocationId(
     input.session.id,
@@ -677,6 +684,16 @@ function createRuntimeMultimodalDelegationInvocationId(
 ): string {
   const safeRouteId = routeId.replace(/[^a-zA-Z0-9_-]/g, "-");
   return `${sessionId}:turn:${turnOrdinal}:multimodal:${safeRouteId}`;
+}
+
+function runtimeMultimodalCredentialRouteIds(
+  route: RuntimeMultimodalDelegationRoute,
+): readonly string[] {
+  const credentialRoute = route.authority.credentialRoute;
+  if (credentialRoute.mode !== "runtime-selected") {
+    return [];
+  }
+  return [credentialRoute.routeId];
 }
 
 function multimodalRequirements(

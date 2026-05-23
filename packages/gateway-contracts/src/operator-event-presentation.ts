@@ -1015,6 +1015,18 @@ function addManagedCapabilitySnapshotDetails(
   addItem(details, "Lease cleanup", resourceLease?.cleanupStatus);
   addItem(details, "Lease resources", formatStringList(resourceLease?.resourceUris));
   addItem(details, "Lease diagnostics", formatStringList(resourceLease?.diagnosticUris));
+  const worktreeReview = asRecord(resourceLease?.worktreeReview);
+  const worktreeReviewStatus = readString(worktreeReview?.status);
+  const worktreeReviewReason = readString(worktreeReview?.reason);
+  addItem(
+    details,
+    "Worktree review",
+    worktreeReviewStatus && worktreeReviewReason
+      ? `${worktreeReviewStatus} · ${worktreeReviewReason}`
+      : worktreeReviewStatus ?? worktreeReviewReason,
+  );
+  addItem(details, "Worktree review resources", formatStringList(worktreeReview?.resourceUris));
+  addItem(details, "Worktree review diagnostics", formatStringList(worktreeReview?.diagnosticUris));
   addItem(details, "Child identity", childIdentity?.displayName ?? childIdentity?.admittedAgentProfile ?? childIdentity?.requestedAgentProfile ?? childIdentity?.agentId);
 }
 

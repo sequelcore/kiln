@@ -56,11 +56,12 @@ Use these documents as the stable source of truth before starting roadmap work:
 1. [Background And Parallel Agent Surface](./01-background-parallel-agent-surface.md)
    Started on 2026-05-21. Slices 1-2 are complete in code: managed-child
    lifecycle evidence and nonblocking `start/status/join/cancel/list` tools now
-   exist. Slice 3 is in progress: lease evidence, operator projection,
+   exist. Slice 3 is complete in code: lease evidence, operator projection,
    health/cleanup metadata, same-checkout write guards, runtime-owned
    isolated-worktree acquire/release, runtime-owned artifact-directory
    acquire/release, runtime-owned dev-server port acquire/release, and
-   runtime-owned environment binding acquire/release exist.
+   runtime-owned environment binding, credential-route, and policy-backed
+   sandbox acquire/release exist.
    Same-path isolated collisions, path aliases, lease-manager drift, git
    worktree root confinement, pre-launch cancellation during acquire, product
    config wiring for git-backed isolated worktree leases, non-empty
@@ -68,9 +69,21 @@ Use these documents as the stable source of truth before starting roadmap work:
    concurrent port reservation, probe setup diagnostics, and in-memory stale
    recovery with immediate cleanup of already-acquired stages are covered;
    environment bindings now flow through runtime adapters into CLI harness
-   sessions without leaking values into lifecycle URIs; sandbox,
-   credential-route leases, persistent restart recovery, and cleanup daemon
-   scheduling remain open.
+   sessions without leaking values into lifecycle URIs; credential-route
+   leases now record route-id evidence without credential values and are wired
+   through shared managed invocation service keys while runtime-selected routes
+   fail closed without a credential-route lease manager; policy-backed sandbox
+   leases now record `sandbox-policy` evidence for direct-provider routes and
+   fallback runtime-tool services while harness sandbox routes fail closed until
+   proof exists; persistent restart
+   recovery now writes validated manifests, reconstructs abandoned children as
+   `recovered`, reuses terminal lease cleanup, and preserves leaked evidence;
+   runtime-owned cleanup daemon scheduling now runs startup persisted recovery
+   once and recurring stale-only sweeps without overlapping recovery passes;
+   dirty isolated worktree release failures now preserve the worktree and emit
+   runtime-owned review-required evidence across recovery, gateway cockpit, and
+   operator event surfaces without automatic adoption or parent checkout
+   mutation.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

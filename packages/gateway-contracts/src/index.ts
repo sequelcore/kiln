@@ -94,6 +94,7 @@ export type {
   OperatorManagedAgentProviderModelProofSnapshot,
   OperatorManagedAgentResourcePlaneSnapshot,
   OperatorManagedAgentResourceLeaseSnapshot,
+  OperatorManagedAgentWorktreeReviewSnapshot,
   OperatorManagedAgentChildIdentitySnapshot,
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,

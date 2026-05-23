@@ -318,6 +318,44 @@ function mapTerminalEvent(input: {
         source: input.source,
         timestamp: input.timestamp,
       });
+    case "stale":
+      return createSessionEvent<"agent_invocation_failed">({
+        kilnSessionId: input.session.id,
+        sequence: input.sequence,
+        kind: "agent_invocation_failed",
+        turnId: input.record.parentTurnId,
+        ...lineage,
+        invocationId: input.record.invocationId,
+        agentId: input.record.agentId,
+        parentSessionId: input.record.parentSessionId,
+        ...managedInvocationIdentity(input.record, input.request),
+        lifecycleState: input.record.lifecycleState,
+        errorCode: "ENGINE_STALE",
+        errorMessage: input.record.resultHandoff?.summary ?? "Managed invocation marked stale by runtime recovery.",
+        retriable: true,
+        ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
+        source: input.source,
+        timestamp: input.timestamp,
+      });
+    case "recovered":
+      return createSessionEvent<"agent_invocation_failed">({
+        kilnSessionId: input.session.id,
+        sequence: input.sequence,
+        kind: "agent_invocation_failed",
+        turnId: input.record.parentTurnId,
+        ...lineage,
+        invocationId: input.record.invocationId,
+        agentId: input.record.agentId,
+        parentSessionId: input.record.parentSessionId,
+        ...managedInvocationIdentity(input.record, input.request),
+        lifecycleState: input.record.lifecycleState,
+        errorCode: "ENGINE_RECOVERED",
+        errorMessage: input.record.resultHandoff?.summary ?? "Managed invocation recovered after runtime restart.",
+        retriable: true,
+        ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
+        source: input.source,
+        timestamp: input.timestamp,
+      });
     default:
       return undefined;
   }
@@ -353,7 +391,9 @@ function startedLifecycleState(
     lifecycleState === "completed" ||
     lifecycleState === "failed" ||
     lifecycleState === "timed_out" ||
-    lifecycleState === "cancelled"
+    lifecycleState === "cancelled" ||
+    lifecycleState === "stale" ||
+    lifecycleState === "recovered"
   ) {
     return "running";
   }

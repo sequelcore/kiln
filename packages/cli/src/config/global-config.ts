@@ -607,8 +607,9 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
     value.workingDirectory !== undefined
     && value.workingDirectory !== "project"
     && value.workingDirectory !== "isolated-worktree"
+    && value.workingDirectory !== "sandbox"
   ) {
-    throw new KilnYamlError(`managedAgents.routes[${index}].workingDirectory must be "project" or "isolated-worktree"`);
+    throw new KilnYamlError(`managedAgents.routes[${index}].workingDirectory must be "project", "isolated-worktree", or "sandbox"`);
   }
   validateManagedAgentVoiceProfile(value.voiceProfile, `managedAgents.routes[${index}].voiceProfile`, operatorVoice);
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);

@@ -153,6 +153,7 @@ export interface OperatorCockpitInvocationResourceLeaseProjection {
   readonly workingDirectoryMode: OperatorManagedAgentResourceLeaseSnapshot["workingDirectoryMode"];
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
+  readonly worktreeReview?: OperatorManagedAgentResourceLeaseSnapshot["worktreeReview"];
 }
 
 export type OperatorCockpitToolStatus =
@@ -733,6 +734,7 @@ function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInv
   const workingDirectoryMode = readWorkingDirectoryMode(lease.workingDirectoryMode);
   const resourceUris = readRequiredStringList(lease.resourceUris);
   const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
+  const worktreeReview = readWorktreeReview(lease.worktreeReview);
   if (
     !leaseId
     || !createdAt
@@ -752,6 +754,26 @@ function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInv
     cleanupStatus,
     workingDirectoryPath,
     workingDirectoryMode,
+    resourceUris,
+    diagnosticUris,
+    ...(worktreeReview !== undefined ? { worktreeReview } : {}),
+  };
+}
+
+function readWorktreeReview(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["worktreeReview"] | undefined {
+  if (!isRecordValue(value)) {
+    return undefined;
+  }
+  const status = value.status === "required" ? value.status : null;
+  const reason = value.reason === "dirty-worktree-preserved" ? value.reason : null;
+  const resourceUris = readRequiredStringList(value.resourceUris);
+  const diagnosticUris = readRequiredStringList(value.diagnosticUris);
+  if (!status || !reason || !resourceUris || !diagnosticUris) {
+    return undefined;
+  }
+  return {
+    status,
+    reason,
     resourceUris,
     diagnosticUris,
   };

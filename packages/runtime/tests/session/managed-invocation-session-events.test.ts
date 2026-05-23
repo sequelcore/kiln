@@ -513,6 +513,8 @@ describe("appendManagedInvocationSessionEvents", () => {
       { lifecycleState: "cancelled", terminalKind: "agent_invocation_cancelled" },
       { lifecycleState: "timed_out", terminalKind: "agent_invocation_failed", errorCode: "ENGINE_TIMEOUT" },
       { lifecycleState: "failed", terminalKind: "agent_invocation_failed", errorCode: "ENGINE_FAILURE" },
+      { lifecycleState: "stale", terminalKind: "agent_invocation_failed", errorCode: "ENGINE_STALE" },
+      { lifecycleState: "recovered", terminalKind: "agent_invocation_failed", errorCode: "ENGINE_RECOVERED" },
     ];
 
     for (const testCase of lifecycleCases) {

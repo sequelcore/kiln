@@ -17,14 +17,23 @@ import {
 } from "@kilnai/core";
 import {
   ManagedInMemoryDevServerPortLeaseManager,
+  ManagedRuntimeCredentialRouteLeaseManager,
   ManagedRuntimeEnvironmentLeaseManager,
   ManagedFilesystemArtifactDirectoryLeaseManager,
+  ManagedFilesystemRuntimeRecoveryStore,
   ManagedGitWorktreeLeaseManager,
   ManagedAgentLeaseAcquireError,
   ManagedAgentRuntimeAdmissionError,
+  ManagedAgentRuntimeRecoveryDaemon,
+  ManagedAgentWorktreeReviewRequiredError,
+  ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
-import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import type {
+  ManagedAgentRuntimeAdapter,
+  ManagedAgentRuntimeRecoveryCheckpoint,
+  ManagedAgentRuntimeRecoveryStore,
+} from "../../src/agents/managed-invocation/index.js";
 
 function makeRequest(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
@@ -56,8 +65,7 @@ function makeRequest(): ManagedAgentInvocationRequest {
       },
       timeoutMs: 120000,
       credentialRoute: {
-        mode: "runtime-selected",
-        routeId: "credential-route:opencode:primary",
+        mode: "credentialless",
       },
       memoryScope: {
         scope: { kind: "project", id: "kiln" },
@@ -155,8 +163,7 @@ function makeApprovedWriteRequest(
       },
       timeoutMs: 120000,
       credentialRoute: {
-        mode: "runtime-selected",
-        routeId: "credential-route:opencode:primary",
+        mode: "credentialless",
       },
       memoryScope: {
         scope: { kind: "project", id: "kiln" },
@@ -213,6 +220,63 @@ function makeIsolatedWorktreeRequest(invocationId = "write-1"): ManagedAgentInvo
   });
 }
 
+function makeSandboxRequest(invocationId = "invocation-1"): ManagedAgentInvocationRequest {
+  const request = makeRequest();
+  return defineManagedAgentInvocationRequest({
+    ...request,
+    invocationId,
+    authority: {
+      ...request.authority,
+      workingDirectory: {
+        path: "C:/workspace/kiln",
+        mode: "sandbox",
+      },
+    },
+  });
+}
+
+function makeSandboxWriteRequest(
+  invocationId: string,
+  allowedPaths: readonly string[],
+): ManagedAgentInvocationRequest {
+  const request = makeApprovedWriteRequest(invocationId, allowedPaths);
+  return defineManagedAgentInvocationRequest({
+    ...request,
+    authority: {
+      ...request.authority,
+      workingDirectory: {
+        path: "C:/workspace/kiln",
+        mode: "sandbox",
+      },
+    },
+  });
+}
+
+function makeCredentiallessRequest(): ManagedAgentInvocationRequest {
+  const request = makeRequest();
+  return defineManagedAgentInvocationRequest({
+    ...request,
+    authority: {
+      ...request.authority,
+      credentialRoute: { mode: "credentialless" },
+    },
+  });
+}
+
+function makeCredentialRouteRequest(routeId = "credential-route:opencode:primary"): ManagedAgentInvocationRequest {
+  const request = makeRequest();
+  return defineManagedAgentInvocationRequest({
+    ...request,
+    authority: {
+      ...request.authority,
+      credentialRoute: {
+        mode: "runtime-selected",
+        routeId,
+      },
+    },
+  });
+}
+
 function makeRecord(
   capabilitySnapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
@@ -250,6 +314,28 @@ function makeRecord(
       resourceUris: ["kiln://artifacts/invocation-1/result"],
       memoryWriteProposalUris: [],
     },
+  });
+}
+
+function makeReadonlyRecordForRequest(
+  request: ManagedAgentInvocationRequest,
+  capabilitySnapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+  }),
+): ManagedAgentInvocationRecord {
+  return defineManagedAgentInvocationRecord({
+    ...makeRecord(capabilitySnapshot),
+    invocationId: request.invocationId,
+    agentId: request.agentId,
+    parentSessionId: request.parentSessionId,
+    parentTurnId: request.parentTurnId,
+    profile: request.profile,
+    providerRoute: request.providerRoute,
+    adapterKind: request.adapterKind,
+    executionMode: request.executionMode,
+    authority: request.authority,
+    capabilitySnapshot,
   });
 }
 
@@ -343,9 +429,31 @@ async function closeServer(server: ReturnType<typeof createServer>): Promise<voi
   });
 }
 
+function makeRecoveryStore(): ManagedAgentRuntimeRecoveryStore & {
+  readonly entries: Map<string, ManagedAgentRuntimeRecoveryCheckpoint>;
+  readonly save: ReturnType<typeof vi.fn<ManagedAgentRuntimeRecoveryStore["save"]>>;
+  readonly delete: ReturnType<typeof vi.fn<ManagedAgentRuntimeRecoveryStore["delete"]>>;
+  readonly listRecoverable: ReturnType<typeof vi.fn<ManagedAgentRuntimeRecoveryStore["listRecoverable"]>>;
+} {
+  const entries = new Map<string, ManagedAgentRuntimeRecoveryCheckpoint>();
+  const store = {
+    entries,
+    save: vi.fn(async (checkpoint: ManagedAgentRuntimeRecoveryCheckpoint) => {
+      entries.set(checkpoint.request.invocationId, JSON.parse(JSON.stringify(checkpoint)) as ManagedAgentRuntimeRecoveryCheckpoint);
+    }),
+    delete: vi.fn(async (invocationId: string) => {
+      entries.delete(invocationId);
+    }),
+    listRecoverable: vi.fn(async () => Array.from(entries.values()).map((checkpoint) =>
+      JSON.parse(JSON.stringify(checkpoint)) as ManagedAgentRuntimeRecoveryCheckpoint
+    )),
+  };
+  return store;
+}
+
 describe("RuntimeManagedAgentInvocationService", () => {
   it("admits through core policy before invoking the runtime adapter", async () => {
-    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const invoke = vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot));
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
       invoke,
@@ -426,7 +534,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
   });
 
   it("preserves explicit resource lease evidence during runtime admission replay", async () => {
-    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const invoke = vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot));
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
       invoke,
@@ -804,6 +912,33 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(service.status("write-1")).toBeUndefined();
   });
 
+  it("rejects worktree lease manager output that injects runtime-owned worktree review evidence", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        worktreeReview: {
+          status: "required" as const,
+          reason: "dirty-worktree-preserved" as const,
+          resourceUris: ["kiln://artifacts/write-1/worktree-review"],
+          diagnosticUris: ["kiln://artifacts/write-1/worktree-review-required"],
+        },
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    await expect(service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("worktree review evidence is runtime-owned");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("write-1")).toBeUndefined();
+  });
+
   it("acquires and releases isolated worktree leases as terminal runtime evidence", async () => {
     const request = makeIsolatedWorktreeRequest();
     const worktreeLeaseManager = {
@@ -862,6 +997,224 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(service.status("write-1")?.record?.resourceLease).toEqual(joined.record.resourceLease);
   });
 
+  it("fails closed when a sandbox invocation has no runtime sandbox lease manager", async () => {
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    await expect(service.start(makeSandboxRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("sandbox lease manager is required");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("invocation-1")).toBeUndefined();
+  });
+
+  it("acquires sandbox leases before artifact directories and releases them after later stages", async () => {
+    const sandboxLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/sandbox-policy",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/sandbox-policy-release",
+        ],
+      })),
+    };
+    const artifactDirectoryLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/artifact-directory",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/artifact-directory-cleanup",
+        ],
+      })),
+    };
+    const invoke = vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot));
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      sandboxLeaseManager,
+      artifactDirectoryLeaseManager,
+    });
+
+    const started = await service.start(makeSandboxRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(sandboxLeaseManager.acquire.mock.invocationCallOrder[0]).toBeLessThan(
+      artifactDirectoryLeaseManager.acquire.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(artifactDirectoryLeaseManager.acquire.mock.invocationCallOrder[0]).toBeLessThan(
+      invoke.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(artifactDirectoryLeaseManager.release.mock.invocationCallOrder[0]).toBeLessThan(
+      sandboxLeaseManager.release.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(joined.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      workingDirectoryMode: "sandbox",
+      resourceUris: [
+        "kiln://artifacts/invocation-1/sandbox-policy",
+        "kiln://artifacts/invocation-1/artifact-directory",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/invocation-1/artifact-directory-cleanup",
+        "kiln://artifacts/invocation-1/sandbox-policy-release",
+      ],
+    });
+  });
+
+  it("rejects sandbox lease manager resource URIs outside the invocation namespace", async () => {
+    const sandboxLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: ["kiln://artifacts/other-invocation/sandbox-policy"],
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ sandboxLeaseManager });
+
+    await expect(service.start(makeSandboxRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("outside invocation artifacts");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(sandboxLeaseManager.release).not.toHaveBeenCalled();
+    expect(service.status("invocation-1")).toBeUndefined();
+  });
+
+  it("records failed sandbox release when diagnostic URIs leave the invocation namespace", async () => {
+    const sandboxLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        cleanupStatus: "pending" as const,
+        resourceUris: ["kiln://artifacts/invocation-1/sandbox-policy"],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: ["kiln://artifacts/other-invocation/sandbox-policy-release"],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ sandboxLeaseManager });
+
+    const started = await service.start(makeSandboxRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "sandbox",
+      resourceUris: ["kiln://artifacts/invocation-1/sandbox-policy"],
+      diagnosticUris: ["kiln://artifacts/invocation-1/sandbox-policy-cleanup-failed"],
+    });
+  });
+
+  it("records concrete sandbox policy lease evidence without exposing policy details in URIs", async () => {
+    const sandboxLeaseManager = new ManagedRuntimeSandboxLeaseManager();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ sandboxLeaseManager });
+
+    const started = await service.start(makeSandboxRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease?.resourceUris).toEqual([
+      "kiln://artifacts/invocation-1/sandbox-policy",
+    ]);
+    expect(joined.record.resourceLease?.diagnosticUris).toEqual([
+      "kiln://artifacts/invocation-1/sandbox-policy-release",
+    ]);
+    expect(JSON.stringify(joined.record.resourceLease)).not.toContain("allowedPaths");
+  });
+
+  it("treats sandbox write invocations as same-checkout write conflicts", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const sandboxLeaseManager = new ManagedRuntimeSandboxLeaseManager();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ sandboxLeaseManager });
+
+    const first = await service.start(makeSandboxWriteRequest("write-1", ["C:/workspace/kiln/packages/core"]), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(first.status).toBe("started");
+
+    await expect(service.start(makeSandboxWriteRequest("write-2", ["C:/workspace/kiln/packages/core"]), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("same-checkout parallel write conflict");
+
+    terminal.resolve(makeRecordForRequest(
+      makeSandboxWriteRequest("write-1", ["C:/workspace/kiln/packages/core"]),
+      first.status === "started" ? first.decision.capabilitySnapshot : undefined,
+    ));
+    const joined = await service.join("write-1");
+    expect(joined.status).toBe("completed");
+  });
+
   it("acquires and releases artifact-directory leases around adapter execution", async () => {
     const artifactDirectoryLeaseManager = {
       acquire: vi.fn(async ({ lease }) => ({
@@ -882,7 +1235,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
         ],
       })),
     };
-    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const invoke = vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot));
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
       invoke,
@@ -931,7 +1284,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
     const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
 
@@ -962,7 +1315,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
     const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
 
@@ -1007,7 +1360,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
     const service = new RuntimeManagedAgentInvocationService({ artifactDirectoryLeaseManager });
 
@@ -1059,7 +1412,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
         ],
       })),
     };
-    const invoke = vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot));
+    const invoke = vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot));
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
       invoke,
@@ -1107,7 +1460,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
     const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
 
@@ -1246,7 +1599,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
     const service = new RuntimeManagedAgentInvocationService({ devServerPortLeaseManager });
 
@@ -1373,7 +1726,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
     const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
 
@@ -1486,7 +1839,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
     const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
 
@@ -1762,6 +2115,302 @@ describe("RuntimeManagedAgentInvocationService", () => {
       "kiln://artifacts/invocation-1/dev-server-port/49152",
       "kiln://artifacts/invocation-1/environment/KILN_DEV_SERVER_PORT",
     ]);
+  });
+
+  it("fails closed when runtime-selected credential routes have no credential-route lease manager", async () => {
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    await expect(service.start(makeCredentialRouteRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("credential-route lease manager is required");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("invocation-1")).toBeUndefined();
+  });
+
+  it("acquires credential-route leases after environment bindings and releases them first", async () => {
+    const request = makeCredentialRouteRequest();
+    const environmentLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        lease: {
+          ...lease,
+          healthStatus: "healthy" as const,
+          cleanupStatus: "pending" as const,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/environment/EMPTY",
+          ],
+        },
+        environment: {},
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/environment-release/EMPTY",
+        ],
+      })),
+    };
+    const credentialRouteLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "healthy" as const,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/credential-route/credential-route%3Aopencode%3Aprimary",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/credential-route-release/credential-route%3Aopencode%3Aprimary",
+        ],
+      })),
+    };
+    const invoke = vi.fn(async ({ request: adapterRequest, admission }) =>
+      makeReadonlyRecordForRequest(adapterRequest, admission.capabilitySnapshot));
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke,
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      environmentLeaseManager,
+      credentialRouteLeaseManager,
+    });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(environmentLeaseManager.acquire).toHaveBeenCalledTimes(1);
+    expect(credentialRouteLeaseManager.acquire).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(environmentLeaseManager.acquire.mock.invocationCallOrder[0]).toBeLessThan(
+      credentialRouteLeaseManager.acquire.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(credentialRouteLeaseManager.acquire.mock.invocationCallOrder[0]).toBeLessThan(
+      invoke.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(credentialRouteLeaseManager.release.mock.invocationCallOrder[0]).toBeLessThan(
+      environmentLeaseManager.release.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(joined.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+      resourceUris: [
+        "kiln://artifacts/invocation-1/environment/EMPTY",
+        "kiln://artifacts/invocation-1/credential-route/credential-route%3Aopencode%3Aprimary",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/invocation-1/credential-route-release/credential-route%3Aopencode%3Aprimary",
+        "kiln://artifacts/invocation-1/environment-release/EMPTY",
+      ],
+    });
+  });
+
+  it("rejects credential-route lease manager resource URIs outside the invocation namespace", async () => {
+    const credentialRouteLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "healthy" as const,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/other-invocation/credential-route/credential-route%3Aopencode%3Aprimary",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+
+    await expect(service.start(makeCredentialRouteRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("outside invocation artifacts");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(credentialRouteLeaseManager.release).not.toHaveBeenCalled();
+    expect(service.status("invocation-1")).toBeUndefined();
+  });
+
+  it("records failed credential-route release when diagnostic URIs leave the invocation namespace", async () => {
+    const credentialRouteLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "healthy" as const,
+        cleanupStatus: "pending" as const,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/invocation-1/credential-route/credential-route%3Aopencode%3Aprimary",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/other-invocation/credential-route-release/credential-route%3Aopencode%3Aprimary",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+
+    const started = await service.start(makeCredentialRouteRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(credentialRouteLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.resourceLease).toEqual({
+      leaseId: "invocation-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "read-only",
+      resourceUris: [
+        "kiln://artifacts/invocation-1/credential-route/credential-route%3Aopencode%3Aprimary",
+      ],
+      diagnosticUris: [
+        "kiln://artifacts/invocation-1/credential-route-cleanup-failed",
+      ],
+    });
+    expect(joined.record.resourceLease?.diagnosticUris).not.toContain(
+      "kiln://artifacts/other-invocation/credential-route-release/credential-route%3Aopencode%3Aprimary",
+    );
+  });
+
+  it("records credential-route lease evidence without exposing secret values", async () => {
+    const credentialRouteLeaseManager = new ManagedRuntimeCredentialRouteLeaseManager({
+      allowedRouteIds: ["credential-route:opencode:primary"],
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+
+    const started = await service.start(makeCredentialRouteRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease?.resourceUris).toEqual([
+      "kiln://artifacts/invocation-1/credential-route/credential-route%3Aopencode%3Aprimary",
+    ]);
+    expect(joined.record.resourceLease?.diagnosticUris).toEqual([
+      "kiln://artifacts/invocation-1/credential-route-release/credential-route%3Aopencode%3Aprimary",
+    ]);
+    expect(JSON.stringify(joined.record.resourceLease)).not.toContain("secret");
+  });
+
+  it("preserves credential route ids as opaque strings and encodes lifecycle evidence", async () => {
+    const request = makeCredentialRouteRequest("credential route/opencode primary");
+    const credentialRouteLeaseManager = new ManagedRuntimeCredentialRouteLeaseManager({
+      allowedRouteIds: ["credential route/opencode primary"],
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request: adapterRequest, admission }) =>
+        makeReadonlyRecordForRequest(adapterRequest, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease?.resourceUris).toEqual([
+      "kiln://artifacts/invocation-1/credential-route/credential%20route%2Fopencode%20primary",
+    ]);
+    expect(joined.record.resourceLease?.diagnosticUris).toEqual([
+      "kiln://artifacts/invocation-1/credential-route-release/credential%20route%2Fopencode%20primary",
+    ]);
+  });
+
+  it("rejects credential routes outside the configured runtime lease allowlist", async () => {
+    const credentialRouteLeaseManager = new ManagedRuntimeCredentialRouteLeaseManager({
+      allowedRouteIds: ["credential-route:opencode:secondary"],
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+
+    await expect(service.start(makeCredentialRouteRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("not admitted by the credential route lease manager");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(service.status("invocation-1")).toBeUndefined();
+  });
+
+  it("does not acquire credential-route leases for credentialless invocations", async () => {
+    const credentialRouteLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => lease),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => defineManagedAgentInvocationRecord({
+        ...makeRecord(admission.capabilitySnapshot),
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+      })),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+
+    const started = await service.start(makeCredentiallessRequest(), adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+    expect(started.status).toBe("started");
+    const joined = await service.join("invocation-1");
+
+    expect(joined.status).toBe("completed");
+    expect(credentialRouteLeaseManager.acquire).not.toHaveBeenCalled();
+    expect(credentialRouteLeaseManager.release).not.toHaveBeenCalled();
   });
 
   it("creates and releases filesystem artifact-directory lease directories", async () => {
@@ -2276,6 +2925,50 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
     expect(joined.record.diagnostics).toContainEqual({
       uri: "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
+      kind: "cleanup",
+    });
+  });
+
+  it("marks dirty isolated worktree preservation as requiring adoption review", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      })),
+      release: vi.fn(async () => {
+        throw new ManagedAgentWorktreeReviewRequiredError("Managed git worktree lease is dirty; preserving worktree for review");
+      }),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ worktreeLeaseManager });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    if (joined.status !== "completed") {
+      throw new Error("expected managed invocation to complete");
+    }
+    expect(joined.record.resourceLease?.worktreeReview).toEqual({
+      status: "required",
+      reason: "dirty-worktree-preserved",
+      resourceUris: ["kiln://artifacts/write-1/worktree-review"],
+      diagnosticUris: ["kiln://artifacts/write-1/worktree-review-required"],
+    });
+    expect(joined.record.resourceLease?.diagnosticUris).toEqual([
+      "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
+      "kiln://artifacts/write-1/worktree-review-required",
+    ]);
+    expect(joined.record.diagnostics).toContainEqual({
+      uri: "kiln://artifacts/write-1/worktree-review-required",
       kind: "cleanup",
     });
   });
@@ -2880,6 +3573,593 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(joined.record.diagnostics).toContainEqual({
       uri: "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
       kind: "cleanup",
+    });
+  });
+
+  it("persists runtime lease recovery checkpoints and deletes them after successful cleanup", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const recoveryStore = makeRecoveryStore();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager,
+    });
+
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    expect(started.status).toBe("started");
+    expect(recoveryStore.entries.get("write-1")).toMatchObject({
+      lifecycleState: "running",
+      acquiredLeaseStages: ["worktree"],
+      releasedLeaseStages: [],
+      runtimeLease: {
+        cleanupStatus: "pending",
+        resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      },
+    });
+
+    terminal.resolve(makeRecordForRequest(request, started.status === "started" ? started.decision.capabilitySnapshot : undefined));
+    const joined = await service.join("write-1");
+
+    expect(joined.status).toBe("completed");
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(recoveryStore.delete).toHaveBeenCalledWith("write-1");
+    expect(recoveryStore.entries.has("write-1")).toBe(false);
+  });
+
+  it("persists admitted lease evidence for side-effected acquire checkpoints", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async () => {
+        throw new ManagedAgentLeaseAcquireError("git worktree add failed after creating files", true);
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const service = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager,
+    });
+
+    await expect(service.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
+    }, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    })).rejects.toThrow("git worktree add failed");
+
+    expect(recoveryStore.save.mock.calls[0]?.[0]).toMatchObject({
+      lifecycleState: "running",
+      acquiredLeaseStages: ["worktree"],
+      runtimeLease: {
+        leaseId: "write-1:resource-lease",
+        workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+        resourceUris: [],
+      },
+      runtimeLeaseForRelease: {
+        leaseId: "write-1:resource-lease",
+      },
+    });
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(recoveryStore.delete).toHaveBeenCalledWith("write-1");
+  });
+
+  it("stores runtime recovery checkpoints in filesystem manifests", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "kiln-managed-recovery-"));
+    try {
+      const request = makeIsolatedWorktreeRequest();
+      const terminal = deferred<ManagedAgentInvocationRecord>();
+      const recoveryStore = new ManagedFilesystemRuntimeRecoveryStore({ rootPath });
+      const worktreeLeaseManager = {
+        acquire: vi.fn(async ({ lease }) => ({
+          ...lease,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/write-1/worktree-lease",
+          ],
+        })),
+        release: vi.fn(async ({ lease }) => ({
+          ...lease,
+          healthStatus: "released" as const,
+          cleanupStatus: "completed" as const,
+          diagnosticUris: [
+            ...lease.diagnosticUris,
+            "kiln://artifacts/write-1/worktree-cleanup",
+          ],
+        })),
+      };
+      const service = new RuntimeManagedAgentInvocationService({
+        recoveryStore,
+        worktreeLeaseManager,
+      });
+      const started = await service.start(request, {
+        descriptor: makeWriteDescriptor(),
+        invoke: vi.fn(async ({ request, admission }) => {
+          await terminal.promise;
+          return makeRecordForRequest(request, admission.capabilitySnapshot);
+        }),
+      }, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      });
+
+      const checkpoints = await recoveryStore.listRecoverable();
+
+      expect(started.status).toBe("started");
+      expect(checkpoints).toHaveLength(1);
+      expect(checkpoints[0]).toMatchObject({
+        lifecycleState: "running",
+        request: { invocationId: "write-1" },
+        acquiredLeaseStages: ["worktree"],
+        runtimeLease: {
+          cleanupStatus: "pending",
+          resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+        },
+      });
+
+      terminal.resolve(makeRecordForRequest(
+        request,
+        started.status === "started" ? started.decision.capabilitySnapshot : undefined,
+      ));
+      await service.join("write-1");
+
+      expect(await recoveryStore.listRecoverable()).toEqual([]);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed filesystem recovery checkpoints instead of adopting them", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "kiln-managed-recovery-"));
+    try {
+      const recoveryStore = new ManagedFilesystemRuntimeRecoveryStore({ rootPath });
+
+      await mkdir(rootPath, { recursive: true });
+      await writeFile(join(rootPath, "malformed.json"), JSON.stringify({ version: 1 }), "utf-8");
+
+      await expect(recoveryStore.listRecoverable()).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers persisted runtime lease checkpoints after restart and releases acquired stages", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    const firstTerminal = deferred<ManagedAgentInvocationRecord>();
+    const firstWorktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [
+          ...lease.resourceUris,
+          "kiln://artifacts/write-1/worktree-lease",
+        ],
+      })),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const firstAdapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await firstTerminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    };
+    const firstService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: firstWorktreeLeaseManager,
+    });
+    await firstService.start(request, firstAdapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    const restartedWorktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => lease),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      })),
+    };
+    const restartedService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: restartedWorktreeLeaseManager,
+    });
+
+    const recovered = await restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:10:00.000Z"),
+      reason: "Runtime restarted before managed invocation completed.",
+    });
+    const joined = await restartedService.join("write-1");
+    const secondRecovery = await restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:11:00.000Z"),
+    });
+
+    expect(recovered.recovered).toHaveLength(1);
+    expect(recovered.recovered[0]).toMatchObject({
+      invocationId: "write-1",
+      lifecycleState: "recovered",
+      record: {
+        lifecycleState: "recovered",
+        resourceLease: {
+          healthStatus: "released",
+          cleanupStatus: "completed",
+          resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+          diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+        },
+      },
+    });
+    expect(joined.status).toBe("completed");
+    expect(joined.record.lifecycleState).toBe("recovered");
+    expect(restartedWorktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(recoveryStore.entries.has("write-1")).toBe(false);
+    expect(secondRecovery.recovered).toEqual([]);
+  });
+
+  it("daemon startup recovers persisted checkpoints through the runtime service and filesystem store", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "kiln-managed-daemon-recovery-"));
+    try {
+      const request = makeIsolatedWorktreeRequest();
+      const recoveryStore = new ManagedFilesystemRuntimeRecoveryStore({ rootPath });
+      const terminal = deferred<ManagedAgentInvocationRecord>();
+      const firstService = new RuntimeManagedAgentInvocationService({
+        recoveryStore,
+        worktreeLeaseManager: {
+          acquire: vi.fn(async ({ lease }) => ({
+            ...lease,
+            resourceUris: [
+              ...lease.resourceUris,
+              "kiln://artifacts/write-1/worktree-lease",
+            ],
+          })),
+          release: vi.fn(async ({ lease }) => lease),
+        },
+      });
+
+      await firstService.start(request, {
+        descriptor: makeWriteDescriptor(),
+        invoke: vi.fn(async ({ request, admission }) => {
+          await terminal.promise;
+          return makeRecordForRequest(request, admission.capabilitySnapshot);
+        }),
+      }, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      });
+
+      expect(await recoveryStore.listRecoverable()).toHaveLength(1);
+
+      const release = vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/write-1/worktree-cleanup",
+        ],
+      }));
+      const restartedService = new RuntimeManagedAgentInvocationService({
+        recoveryStore,
+        worktreeLeaseManager: {
+          acquire: vi.fn(async ({ lease }) => lease),
+          release,
+        },
+      });
+      const callbacks: Array<() => void> = [];
+      const delays: number[] = [];
+      const setTimeoutImpl = vi.fn((callback: () => void, delay?: number) => {
+        callbacks.push(callback);
+        delays.push(delay ?? 0);
+        return { delay } as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout;
+      const clearTimeoutImpl = vi.fn() as unknown as typeof clearTimeout;
+      const daemon = new ManagedAgentRuntimeRecoveryDaemon({
+        service: restartedService,
+        staleAfterMs: 60000,
+        sweepIntervalMs: 2500,
+        now: () => new Date("2026-05-07T08:10:00.000Z"),
+        setTimeoutImpl,
+        clearTimeoutImpl,
+      });
+
+      daemon.start();
+      callbacks.shift()?.();
+      for (let index = 0; index < 20 && release.mock.calls.length === 0; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      const joined = await restartedService.join("write-1");
+
+      expect(joined.status).toBe("completed");
+      if (joined.status !== "completed") {
+        throw new Error("expected daemon recovery to complete");
+      }
+      expect(joined.record.lifecycleState).toBe("recovered");
+      expect(joined.record.resourceLease).toMatchObject({
+        healthStatus: "released",
+        cleanupStatus: "completed",
+        resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+        diagnosticUris: ["kiln://artifacts/write-1/worktree-cleanup"],
+      });
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(await recoveryStore.listRecoverable()).toEqual([]);
+      expect(delays).toEqual([0, 2500]);
+
+      daemon.stop();
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects checkpoints missing runtime lease evidence instead of adopting them", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const firstService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release: vi.fn(async ({ lease }) => lease),
+      },
+    });
+
+    await firstService.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    }, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    const checkpoint = recoveryStore.entries.get("write-1");
+    if (checkpoint === undefined) {
+      throw new Error("expected runtime acquire to persist recovery checkpoint");
+    }
+    const { runtimeLease: _runtimeLease, runtimeLeaseForRelease: _runtimeLeaseForRelease, ...checkpointWithoutRuntimeLease } = checkpoint;
+    recoveryStore.entries.set("write-1", checkpointWithoutRuntimeLease as unknown as ManagedAgentRuntimeRecoveryCheckpoint);
+    const release = vi.fn(async ({ lease }) => ({
+      ...lease,
+      healthStatus: "released" as const,
+      cleanupStatus: "completed" as const,
+      diagnosticUris: [
+        ...lease.diagnosticUris,
+        "kiln://artifacts/write-1/worktree-cleanup",
+      ],
+    }));
+    const restartedService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release,
+      },
+    });
+
+    await expect(restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:10:00.000Z"),
+    })).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
+
+    expect(release).not.toHaveBeenCalled();
+    expect(recoveryStore.entries.has("write-1")).toBe(true);
+  });
+
+  it("rejects terminal recovery checkpoints missing terminal records instead of resurrecting them", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const firstService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release: vi.fn(async ({ lease }) => lease),
+      },
+    });
+
+    await firstService.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    }, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    const checkpoint = recoveryStore.entries.get("write-1");
+    if (checkpoint === undefined) {
+      throw new Error("expected runtime acquire to persist recovery checkpoint");
+    }
+    const terminalCheckpointWithoutRecord = {
+      ...checkpoint,
+      lifecycleState: "completed",
+      finishedAt: "2026-05-07T08:01:00.000Z",
+    };
+    recoveryStore.entries.set("write-1", terminalCheckpointWithoutRecord as unknown as ManagedAgentRuntimeRecoveryCheckpoint);
+    const release = vi.fn(async ({ lease }) => ({
+      ...lease,
+      healthStatus: "released" as const,
+      cleanupStatus: "completed" as const,
+    }));
+    const restartedService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release,
+      },
+    });
+
+    await expect(restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:10:00.000Z"),
+    })).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
+
+    expect(release).not.toHaveBeenCalled();
+    expect(recoveryStore.entries.has("write-1")).toBe(true);
+  });
+
+  it("rejects terminal recovery checkpoints when record lifecycle does not match checkpoint state", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const firstService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release: vi.fn(async ({ lease }) => lease),
+      },
+    });
+
+    await firstService.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    }, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    const checkpoint = recoveryStore.entries.get("write-1");
+    if (checkpoint === undefined) {
+      throw new Error("expected runtime acquire to persist recovery checkpoint");
+    }
+    recoveryStore.entries.set("write-1", {
+      ...checkpoint,
+      lifecycleState: "stale",
+      finishedAt: "2026-05-07T08:01:00.000Z",
+      record: makeRecordForRequest(request, checkpoint.decision.capabilitySnapshot),
+    });
+    const release = vi.fn(async ({ lease }) => ({
+      ...lease,
+      healthStatus: "released" as const,
+      cleanupStatus: "completed" as const,
+    }));
+    const restartedService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release,
+      },
+    });
+
+    await expect(restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:10:00.000Z"),
+    })).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
+
+    expect(release).not.toHaveBeenCalled();
+    expect(recoveryStore.entries.has("write-1")).toBe(true);
+  });
+
+  it("preserves persisted recovery checkpoints when restart cleanup fails", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    const firstService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => ({
+          ...lease,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/write-1/worktree-lease",
+          ],
+        })),
+        release: vi.fn(async ({ lease }) => lease),
+      },
+    });
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    await firstService.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    }, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
+
+    const restartedService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release: vi.fn(async () => {
+          throw new ManagedAgentWorktreeReviewRequiredError("Managed git worktree lease is dirty; preserving worktree for review");
+        }),
+      },
+    });
+
+    const recovered = await restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:10:00.000Z"),
+      reason: "Runtime restarted before managed invocation completed.",
+    });
+
+    expect(recovered.recovered).toHaveLength(1);
+    expect(recovered.recovered[0]?.record?.resourceLease).toEqual({
+      leaseId: "write-1:resource-lease",
+      createdAt: "2026-05-07T08:00:00.000Z",
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/write-1",
+      workingDirectoryMode: "isolated-worktree",
+      resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
+      diagnosticUris: [
+        "kiln://artifacts/write-1/worktree-lease-cleanup-failed",
+        "kiln://artifacts/write-1/worktree-review-required",
+      ],
+      worktreeReview: {
+        status: "required",
+        reason: "dirty-worktree-preserved",
+        resourceUris: ["kiln://artifacts/write-1/worktree-review"],
+        diagnosticUris: ["kiln://artifacts/write-1/worktree-review-required"],
+      },
+    });
+    expect(recoveryStore.entries.get("write-1")).toMatchObject({
+      lifecycleState: "recovered",
+      runtimeLease: {
+        healthStatus: "leaked",
+        cleanupStatus: "failed",
+        worktreeReview: {
+          status: "required",
+        },
+      },
+      record: {
+        lifecycleState: "recovered",
+      },
     });
   });
 

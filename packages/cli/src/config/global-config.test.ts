@@ -716,6 +716,26 @@ describe("global-config", () => {
     });
   });
 
+  it("readGlobalConfig() accepts managed-agent sandbox working-directory routes", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  routes:",
+        "    - id: codex-oauth-sandbox-readonly",
+        "      kind: direct",
+        "      provider: codex-oauth",
+        "      workingDirectory: sandbox",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.managedAgents?.routes?.[0]).toMatchObject({
+      id: "codex-oauth-sandbox-readonly",
+      workingDirectory: "sandbox",
+    });
+  });
+
   it("readGlobalConfig() rejects malformed managed-agent worktree lease configuration", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
@@ -754,7 +774,7 @@ describe("global-config", () => {
     );
 
     expect(() => readGlobalConfig()).toThrow(
-      "managedAgents.routes[0].workingDirectory must be \"project\" or \"isolated-worktree\"",
+      "managedAgents.routes[0].workingDirectory must be \"project\", \"isolated-worktree\", or \"sandbox\"",
     );
 
     readFileSyncMock.mockReturnValue(

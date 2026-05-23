@@ -13,7 +13,10 @@ import {
   defineManagedAgentInvocationRequest,
   textParts,
 } from "@kilnai/core";
-import { RuntimeManagedAgentInvocationService } from "../../src/agents/managed-invocation/index.js";
+import {
+  ManagedRuntimeSandboxLeaseManager,
+  RuntimeManagedAgentInvocationService,
+} from "../../src/agents/managed-invocation/index.js";
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -101,8 +104,7 @@ function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocati
       },
       timeoutMs: 5000,
       credentialRoute: {
-        mode: "runtime-selected",
-        routeId: "credential-route:openai:runtime-selected",
+        mode: "credentialless",
       },
       memoryScope: {
         scope: { kind: "project", id: "repo" },
@@ -671,12 +673,14 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
 
     try {
-      const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+      const result = await new RuntimeManagedAgentInvocationService({
+        sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
+      }).invoke(request({
         authority: {
           ...request().authority,
           workingDirectory: {
             path: workspaceRoot,
-            mode: "read-only",
+            mode: "sandbox",
           },
         },
         input: {

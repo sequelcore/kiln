@@ -411,7 +411,7 @@ export interface KilnManagedAgentRouteConfig {
   readonly model?: string;
   readonly voiceProfile?: string;
   readonly profiles?: readonly KilnManagedAgentProfile[];
-  readonly workingDirectory?: "project" | "isolated-worktree";
+  readonly workingDirectory?: "project" | "isolated-worktree" | "sandbox";
   readonly timeoutMs?: number;
   readonly tools?: KilnManagedAgentToolsConfig;
   readonly memory?: KilnManagedAgentMemoryConfig;

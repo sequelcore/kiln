@@ -11,14 +11,16 @@ Active. Started on 2026-05-21. Current implementation status:
   `managed_agent.start`, `managed_agent.status`, `managed_agent.join`,
   `managed_agent.cancel`, and `managed_agent.list` exist as nonblocking
   lifecycle tools.
-- Slice 3 is in progress: lease evidence, operator projection, lifecycle
+- Slice 3 is complete in code: lease evidence, operator projection, lifecycle
   health/cleanup metadata, same-checkout write guards, runtime-owned
   isolated-worktree lease acquire/release, runtime-owned filesystem
   artifact-directory lease acquire/release, runtime-owned dev-server port
   lease acquire/release, runtime-owned environment binding lease
-  acquire/release, and in-memory stale lease recovery now exist. Sandbox,
-  credential-route, persistent restart recovery, and cleanup daemon work
-  remain open.
+  acquire/release, runtime-owned credential-route lease acquire/release,
+  runtime-owned policy-backed sandbox lease acquire/release, and in-memory
+  stale lease recovery now exist. Persistent restart recovery now exists;
+  runtime-owned cleanup daemon scheduling now exists; dirty worktree
+  preservation now emits runtime-owned review-required evidence.
 - Slices 4-8 are not started.
 
 Recent implementation commits:
@@ -203,13 +205,54 @@ Kiln now has the first runtime-owned managed-child lifecycle foundation:
   contract into CLI harness sessions, records only binding-name resource and
   release URIs, and releases environment evidence before the dev-server port
   stage.
+- Runtime now has a credential-route lease manager boundary for managed
+  invocations. Runtime-selected credential routes acquire after environment
+  bindings and before adapter execution, record invocation-scoped route-id
+  resource evidence without credential values, validate custom manager output
+  against the invocation artifact namespace, release before earlier lease
+  stages, and remain allowlist-bound through the shared CLI/TUI/GUI/run
+  managed invocation service key. Runtime-selected credential routes fail
+  closed when the runtime service lacks a credential-route lease manager.
+  Credentialless invocations do not acquire or release this lease.
+- Runtime now has a policy-backed sandbox lease manager boundary for managed
+  invocations. `sandbox` working-directory children require a sandbox lease
+  manager, acquire `sandbox-policy` evidence before artifact/port/environment
+  and credential-route stages, release after later stages, validate custom
+  manager output against the invocation artifact namespace, and keep sandbox
+  write children in same-checkout conflict detection because this is Kiln tool
+  policy enforcement rather than OS/container isolation. CLI route projection
+  admits `workingDirectory: sandbox` only for direct-provider routes where
+  Kiln owns builtin tool sandbox enforcement; harness sandbox routes remain
+  unavailable until live proof exists.
+- Runtime now has a durable managed-invocation recovery store boundary and a
+  filesystem-backed JSON manifest implementation. Runtime writes recovery
+  checkpoints after each acquired lease stage, deletes them after successful
+  terminal cleanup, preserves leaked cleanup evidence when release fails, and
+  exposes one-shot restart recovery that reconstructs abandoned invocations as
+  `recovered`, releases acquired lease stages through the existing reverse-order
+  cleanup path, and projects `stale`/`recovered` terminal records through
+  managed invocation session events.
+- Runtime now has a managed-invocation recovery daemon boundary. The daemon
+  schedules immediate startup persisted recovery and recurring stale in-memory
+  recovery through the same service methods, uses a `setTimeout` chain instead
+  of overlapping intervals, coalesces concurrent sweeps, retains the latest
+  scheduled failure for operator inspection, and keeps future sweeps scheduled.
+- Runtime now has a dirty-worktree review policy for isolated worktree release
+  failures. Dirty worktrees stay preserved for manual review, terminal cleanup
+  records runtime-owned `worktreeReview` evidence with `required` status and a
+  `dirty-worktree-preserved` reason, manager-injected review evidence is
+  rejected, persistent recovery preserves the review marker, and gateway
+  cockpit/operator event surfaces project the typed evidence without parsing
+  diagnostic URIs. This is review-required evidence only; automatic adoption or
+  parent checkout mutation remains out of scope.
 - `kiln run --workers` is still transitional CLI fan-out behavior, not yet
   rebased onto the managed-child lifecycle.
 
-The missing product primitive is now narrower: lease-backed execution must
-expand from isolated worktrees, artifact directories, dev-server ports, and
-environment bindings into sandbox and credential route leases. Runtime restart
-recovery and daemonized stale cleanup must then project that lifecycle
+The missing product primitive is now narrower: lease-backed execution has
+explicit in-memory stale recovery, persistent restart recovery, and
+runtime-owned daemonized cleanup scheduling plus typed dirty-worktree
+review-required evidence. Full handoff/adoption workflows remain later
+background-agent surface work; Slice 3 lifecycle evidence now projects
 equivalently through CLI, TUI, GUI, native, gateway, and resource plane
 surfaces.
 
@@ -263,7 +306,8 @@ Deliverables:
 
 ### Slice 3 - Workspace And Sandbox Leases
 
-Status: in progress.
+Status: complete in code. Keep open only for architecture-document promotion
+and later Slice 6 adoption workflow integration.
 
 Completed:
 
@@ -314,13 +358,42 @@ Completed:
   adapter environment, validates portable names and case collisions, records
   redacted binding-name resource/release evidence, and forwards bindings to CLI
   harness sessions without placing values in lifecycle URIs.
+- Runtime owns a credential-route lease manager port and implementation that
+  records admitted runtime-selected route-id resource/release evidence, rejects
+  non-invocation resource URIs from custom managers, enforces configured route
+  allowlists, fails closed when runtime-selected routes lack a manager, skips
+  credentialless invocations, and is wired into shared managed invocation route
+  options without a worktree-lease prerequisite.
+- Runtime owns a policy-backed sandbox lease manager port and implementation
+  that records `sandbox-policy` resource/release evidence, rejects
+  non-invocation resource and diagnostic URIs from custom managers, fails
+  closed when sandbox-mode children lack a manager, keeps sandbox write
+  invocations in same-checkout conflict detection, and is wired into shared
+  direct-provider managed invocation route options and fallback runtime-tool
+  services. Harness sandbox routes fail closed until equivalent sandbox
+  enforcement proof exists.
+- Runtime owns a persistent recovery-store port and filesystem-backed manifest
+  implementation. It writes validated recovery checkpoints after lease-stage
+  acquisition, reconstructs abandoned invocations after restart as `recovered`,
+  reuses the same terminal lease cleanup path, deletes manifests after proven
+  cleanup, preserves manifests with leaked evidence when cleanup fails, rejects
+  malformed checkpoints instead of adopting them, and maps `stale`/`recovered`
+  terminal records into canonical session failure events.
+- Runtime owns a recovery daemon boundary that schedules immediate one-shot
+  persisted recovery followed by recurring stale cleanup sweeps through the
+  same runtime service methods, uses non-overlapping `setTimeout` scheduling,
+  coalesces in-flight sweeps, and records the latest scheduled sweep failure.
+- Runtime owns dirty-worktree review-required evidence for preserved isolated
+  worktrees. Dirty release failures keep the worktree intact, append
+  invocation-scoped review resource/diagnostic URIs, reject manager-supplied
+  review markers, preserve review evidence through restart recovery, and expose
+  the typed review state through gateway cockpit projection and operator event
+  presentation.
 
 Remaining:
 
-- Provision real sandbox and credential-route leases.
-- Implement persistent stale lease discovery after runtime restart and
-  daemonized cleanup scheduling beyond explicit in-memory sweeps.
-- Add dirty-worktree adoption/review policy after leaked preservation evidence.
+- None for the Slice 3 runtime lifecycle scope. Parent adoption workflows
+  continue in Slice 6.
 
 Deliverables:
 
@@ -328,7 +401,8 @@ Deliverables:
   directory, environment variables, dev-server ports, and credential routes.
 - Require worktree or sandbox leases for write-capable parallel children.
 - Record lease creation, health, cleanup, and leak diagnostics.
-- Add persistent stale lease recovery and dirty-worktree adoption policy.
+- Add persistent stale lease recovery and dirty-worktree review-required
+  evidence.
 - Reject same-checkout parallel writes unless an explicit approved write scope
   proves no overlap.
 

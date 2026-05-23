@@ -14,7 +14,7 @@ import type {
   SessionProviderDescriptor,
 } from "../../src/wrapper/session-registry.js";
 import { SessionRegistry } from "../../src/wrapper/session-registry.js";
-import type { KilnGlobalConfig } from "../../src/config/global-config.js";
+import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   createManagedInvocationToolOptionsCatalog,
   resolveManagedInvocationToolOptions,
@@ -613,6 +613,162 @@ describe("resolveManagedInvocationToolOptions", () => {
         access: "read-only",
       },
     });
+  });
+
+  it("creates a managed invocation service for runtime-selected credential routes without worktree leases", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-readonly",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+        credentials: {
+          mode: "runtime-selected",
+          routeId: "credential-route:codex:primary",
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    });
+
+    expect(result.managedInvocation?.invocationService).toBeDefined();
+    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:codex:primary");
+  });
+
+  it("normalizes explicit runtime-selected credential route ids for profiles and service keys", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-readonly",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+        credentials: {
+          mode: "runtime-selected",
+          routeId: " credential-route:codex:primary ",
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    });
+
+    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"].credentialRoute).toEqual({
+      mode: "runtime-selected",
+      routeId: "credential-route:codex:primary",
+    });
+    expect(result.managedInvocation?.invocationService).toBeDefined();
+    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:codex:primary");
+    expect(result.managedInvocation?.invocationServiceKey).not.toContain(" credential-route:codex:primary ");
+  });
+
+  it("does not create a managed invocation service for credentialless routes without lease-backed resources", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-readonly",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+        credentials: {
+          mode: "credentialless",
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+    });
+
+    expect(result.managedInvocation?.invocationService).toBeUndefined();
+    expect(result.managedInvocation?.invocationServiceKey).toBeUndefined();
+  });
+
+  it("admits direct sandbox working-directory routes with a shared sandbox lease manager", async () => {
+    validateGlobalConfig(baseConfig({
+      routes: [{
+        id: "codex-oauth-sandbox-readonly",
+        kind: "direct",
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+        workingDirectory: "sandbox",
+      }],
+    }));
+
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-oauth-sandbox-readonly",
+        kind: "direct",
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+        workingDirectory: "sandbox",
+        tools: {
+          allowed: ["read", "grep"],
+          writes: false,
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex-oauth"),
+      surface: "gui",
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-oauth-sandbox-readonly",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }]);
+    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
+      workingDirectory: {
+        path: "C:/repo",
+        mode: "sandbox",
+      },
+    });
+    expect(result.managedInvocation?.invocationService).toBeDefined();
+    expect(result.managedInvocation?.invocationServiceKey).toContain("sandboxPolicy");
+  });
+
+  it("keeps harness sandbox working-directory routes unavailable until harness sandbox proof exists", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-sandbox-readonly",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+        workingDirectory: "sandbox",
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+      includeUnavailableRoutes: true,
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-sandbox-readonly",
+      kind: "harness",
+      provider: "codex",
+      model: "gpt-5.3-codex-spark",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: "Harness sandbox working-directory routes require live-proven sandbox enforcement.",
+    }]);
+    expect(result.managedInvocation?.routes).toEqual([]);
+    expect(result.managedInvocation?.unavailableRoutes).toContainEqual(expect.objectContaining({
+      routeId: "codex-sandbox-readonly",
+      reason: "Harness sandbox working-directory routes require live-proven sandbox enforcement.",
+    }));
   });
 
   it("exposes canonical agent profiles as managed invocation selection catalog", async () => {

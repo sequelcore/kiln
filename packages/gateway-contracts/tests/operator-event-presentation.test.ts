@@ -737,25 +737,40 @@ describe("operator event presentation", () => {
           resourceLease: {
             leaseId: "inv-lease-only:resource-lease",
             createdAt: "2026-05-07T08:00:00.000Z",
-            healthStatus: "healthy",
-            cleanupStatus: "completed",
-            workingDirectoryPath: "C:/workspace/kiln",
-            workingDirectoryMode: "read-only",
-            resourceUris: ["kiln://resources/context.md"],
-            diagnosticUris: ["kiln://artifacts/inv-lease-only/lease-diagnostics"],
+            healthStatus: "leaked",
+            cleanupStatus: "failed",
+            workingDirectoryPath: "C:/workspace/kiln/.kiln/worktrees/inv-lease-only",
+            workingDirectoryMode: "isolated-worktree",
+            resourceUris: ["kiln://artifacts/inv-lease-only/worktree-lease"],
+            diagnosticUris: [
+              "kiln://artifacts/inv-lease-only/worktree-lease-cleanup-failed",
+              "kiln://artifacts/inv-lease-only/worktree-review-required",
+            ],
+            worktreeReview: {
+              status: "required",
+              reason: "dirty-worktree-preserved",
+              resourceUris: ["kiln://artifacts/inv-lease-only/worktree-review"],
+              diagnosticUris: ["kiln://artifacts/inv-lease-only/worktree-review-required"],
+            },
           },
         },
       },
       resultSummary: "Inspection completed.",
     });
 
-    expect(completed.details).toContainEqual({ label: "Resource lease", value: "read-only · C:/workspace/kiln" });
+    expect(completed.details).toContainEqual({ label: "Resource lease", value: "isolated-worktree · C:/workspace/kiln/.kiln/worktrees/inv-lease-only" });
     expect(completed.details).toContainEqual({ label: "Lease ID", value: "inv-lease-only:resource-lease" });
     expect(completed.details).toContainEqual({ label: "Lease created", value: "2026-05-07T08:00:00.000Z" });
-    expect(completed.details).toContainEqual({ label: "Lease health", value: "healthy" });
-    expect(completed.details).toContainEqual({ label: "Lease cleanup", value: "completed" });
-    expect(completed.details).toContainEqual({ label: "Lease resources", value: "kiln://resources/context.md" });
-    expect(completed.details).toContainEqual({ label: "Lease diagnostics", value: "kiln://artifacts/inv-lease-only/lease-diagnostics" });
+    expect(completed.details).toContainEqual({ label: "Lease health", value: "leaked" });
+    expect(completed.details).toContainEqual({ label: "Lease cleanup", value: "failed" });
+    expect(completed.details).toContainEqual({ label: "Lease resources", value: "kiln://artifacts/inv-lease-only/worktree-lease" });
+    expect(completed.details).toContainEqual({
+      label: "Lease diagnostics",
+      value: "kiln://artifacts/inv-lease-only/worktree-lease-cleanup-failed, kiln://artifacts/inv-lease-only/worktree-review-required",
+    });
+    expect(completed.details).toContainEqual({ label: "Worktree review", value: "required · dirty-worktree-preserved" });
+    expect(completed.details).toContainEqual({ label: "Worktree review resources", value: "kiln://artifacts/inv-lease-only/worktree-review" });
+    expect(completed.details).toContainEqual({ label: "Worktree review diagnostics", value: "kiln://artifacts/inv-lease-only/worktree-review-required" });
   });
 
   it("does not merge incomplete lifecycle lease deltas into operator details", () => {

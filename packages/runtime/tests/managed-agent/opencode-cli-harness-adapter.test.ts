@@ -51,8 +51,7 @@ function makeRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
       },
       timeoutMs,
       credentialRoute: {
-        mode: "runtime-selected",
-        routeId: "credential-route:opencode:primary",
+        mode: "credentialless",
       },
       memoryScope: {
         scope: { kind: "project", id: "kiln" },
@@ -96,8 +95,7 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
       },
       timeoutMs,
       credentialRoute: {
-        mode: "runtime-selected",
-        routeId: "credential-route:opencode:primary",
+        mode: "credentialless",
       },
       memoryScope: {
         scope: { kind: "project", id: "kiln" },

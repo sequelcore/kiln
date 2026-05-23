@@ -1,75 +1,78 @@
-# Plan: Slice 3E Runtime Environment Binding Leases
+# Plan: Slice 3J Dirty Worktree Review Policy
 
 ## Objective
 
-Continue Slice 3 by adding runtime-owned environment binding leases to managed
-invocations. Environment values must be allocated inside the managed invocation
-lifecycle, passed to child adapters, and represented as redacted URI evidence
-in the existing terminal `resourceLease` record.
+Finish Slice 3 by making dirty isolated-worktree preservation an explicit
+runtime lifecycle policy. A dirty worktree must remain preserved for operator
+review, must not be auto-adopted or silently cleaned, and must project typed
+evidence through core, runtime recovery, and operator surfaces.
 
 ## Scope
 
-- Add a `ManagedAgentEnvironmentLeaseManager` port to
-  `RuntimeManagedAgentInvocationService`.
-- Add a runtime environment binding manager that can bind static values and
-  dev-server port lease values without leaking values into resource URIs.
-- Acquire environment bindings after worktree, artifact-directory, and
-  dev-server port leases, then release them before earlier resource stages.
-- Pass acquired environment bindings through `ManagedAgentRuntimeInvocationInput`.
-- Forward managed environment bindings to CLI harness sessions.
-- Validate environment lease manager output with the same invocation-scoped URI
-  boundary as existing runtime leases.
-- Export the public runtime types and implementation.
+- Add typed dirty-worktree review evidence to managed resource leases.
+- Keep absence valid for leases that do not require review.
+- Attach review-required evidence only from the runtime-owned dirty worktree
+  cleanup path.
+- Reject manager-supplied review evidence so lease managers cannot forge
+  adoption state.
+- Preserve review evidence through terminal cleanup, persistent recovery, and
+  lease merge paths.
+- Project review evidence through gateway cockpit state and operator event
+  presentation.
+- Update roadmap state after verification.
 
 ## Out Of Scope
 
-- Credential material injection.
-- Persistent environment lease discovery after runtime restart.
-- Sandbox and credential-route leases.
-- Daemonized cleanup scheduling.
-- Rebase of `kiln run --workers`.
+- Auto-adopting dirty worktrees into the parent checkout.
+- Capturing raw `git status` or diff content in the lifecycle contract.
+- Adding mutation commands for approve/reject/adopt.
+- Reworking Slice 6 handoff, review, and adoption flows.
 
 ## Affected Files
 
+- `packages/core/src/agents/managed-invocation/index.ts`
+- `packages/core/tests/managed-agent/invocation-contracts.test.ts`
 - `packages/runtime/src/agents/managed-invocation/index.ts`
-- `packages/runtime/src/agents/managed-invocation/cli-harness-adapter.ts`
-- `packages/runtime/src/execution/cli-session-contract.ts`
 - `packages/runtime/tests/managed-agent/invocation-service.test.ts`
-- `packages/runtime/tests/managed-agent/opencode-cli-harness-adapter.test.ts`
-- `packages/runtime/src/index.ts`
+- `packages/gateway-contracts/src/frames.ts`
+- `packages/gateway-contracts/src/index.ts`
+- `packages/gateway-contracts/src/operator-cockpit-projection.ts`
+- `packages/gateway-contracts/src/operator-event-presentation.ts`
+- `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
+- `packages/gateway-contracts/tests/operator-event-presentation.test.ts`
 - `docs/roadmap/01-background-parallel-agent-surface.md`
 - `docs/roadmap/README.md`
 
 ## TDD Targets
 
-1. Runtime acquires environment bindings after dev-server port leases and
-   passes the environment to the adapter before execution.
-2. Runtime rejects environment lease manager resource URIs outside the
-   invocation namespace.
-3. The concrete environment binding manager derives a port value from the
-   existing dev-server port lease evidence without exposing that value in
-   lifecycle URIs.
-4. CLI harness sessions receive managed environment bindings through
-   `session.run`.
-5. Environment cleanup evidence is released before the dev-server port cleanup
-   stage.
+1. Core preserves and validates `worktreeReview` evidence on terminal resource
+   leases.
+2. Runtime marks dirty isolated worktree preservation as `worktreeReview:
+   required`.
+3. Runtime rejects manager-injected `worktreeReview` evidence.
+4. Persisted restart recovery keeps dirty-worktree review evidence in recovered
+   records and recovery manifests.
+5. Gateway cockpit and operator event projections expose the typed review
+   evidence without URI parsing.
 
 ## Verification
 
 ```bash
+bun run --cwd packages/core test -- tests/managed-agent/invocation-contracts.test.ts
 bun run --cwd packages/runtime test -- tests/managed-agent/invocation-service.test.ts
-bun run --cwd packages/runtime test -- tests/managed-agent/opencode-cli-harness-adapter.test.ts
-bun run --filter @kilnai/runtime test
+bun run --cwd packages/gateway-contracts test -- tests/operator-cockpit-projection.test.ts tests/operator-event-presentation.test.ts
 bun run typecheck
+bun run --filter @kilnai/core test
+bun run --filter @kilnai/gateway-contracts test
+bun run --filter @kilnai/runtime test
 bun run --filter "*" build
 git diff --check
 ```
 
 ## Risks
 
-- Environment binding values must not appear in resource or diagnostic URIs.
-- Environment names must be validated at the runtime boundary to avoid shell
-  injection and cross-platform case-collision surprises.
-- Direct-provider children currently do not spawn a subprocess, so this slice
-  only passes environment through the runtime adapter contract and proves CLI
-  harness forwarding.
+- `worktreeReview` must remain runtime-owned; lease managers and adapters cannot
+  forge adoption state.
+- Review evidence must be typed, not inferred from diagnostic URI strings.
+- Dirty preservation must remain fail-closed: no automatic cleanup, adoption, or
+  parent checkout mutation.

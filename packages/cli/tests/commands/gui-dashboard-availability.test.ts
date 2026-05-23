@@ -123,6 +123,9 @@ vi.mock("@kilnai/runtime", () => ({
     toolAuthority: new Map(),
   })),
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
+  ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
+  ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
+  RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
   ManagedCliHarnessAdapter: class MockManagedCliHarnessAdapter {
     descriptor = {
       adapterKind: "harness",

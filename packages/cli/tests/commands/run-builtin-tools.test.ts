@@ -71,6 +71,9 @@ vi.mock("@kilnai/runtime", () => ({
     reason: "OpenCode models discovered.",
     authState: "authenticated",
   }),
+  ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
+  ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
+  RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
   ProviderModelRouteHealthStore: class {
     evaluateRouteHealth(providerId: string, modelId: string) {
       return runWiringMocks.evaluateRouteHealth(providerId, modelId);
