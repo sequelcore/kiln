@@ -40,6 +40,7 @@ import {
   createNativeGatewayCockpitFrameState,
   reduceNativeGatewayCockpitFrame,
   resolveNativeGatewayCockpitWebSocketUrl,
+  selectNativeManagedAgentDrilldownTarget,
 } from "../src/renderer/native-gateway-cockpit.js";
 
 describe("native operator surface foundation", () => {
@@ -570,6 +571,60 @@ describe("native operator surface foundation", () => {
     expect(withEvent.events).toEqual([managedEvent]);
     expect(deduped.events).toHaveLength(1);
     expect(afterMutationAck).toBe(deduped);
+  });
+
+  it("selects native managed-agent drilldown target from the latest canonical event", () => {
+    const events: OperatorSessionEvent[] = [
+      {
+        eventId: "event-managed-started",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-05-23T12:00:00.000Z",
+        kind: "agent_invocation_started",
+        payload: {
+          instanceId: "native-local",
+          sessionId: "session-1",
+          managedInvocationId: "child-1",
+        },
+      },
+      {
+        eventId: "event-managed-completed",
+        kilnSessionId: "session-1",
+        sequence: 2,
+        timestamp: "2026-05-23T12:00:01.000Z",
+        kind: "agent_invocation_completed",
+        payload: {
+          instanceId: "native-local",
+          sessionId: "session-1",
+          invocationId: "child-2",
+        },
+      },
+      {
+        eventId: "event-work-adoption",
+        kilnSessionId: "session-1",
+        sequence: 3,
+        timestamp: "2026-05-23T12:00:02.000Z",
+        kind: "work_item_updated",
+        payload: {
+          instanceId: "native-local",
+          sessionId: "session-1",
+          managedOrchestrationAdoptionGate: {
+            required: true,
+            status: "adopted",
+            childId: "child-3",
+            resourceUris: [],
+            blockingEvidence: [],
+          },
+        },
+      },
+    ];
+
+    expect(selectNativeManagedAgentDrilldownTarget(events)).toEqual({
+      instanceId: "native-local",
+      sessionId: "session-1",
+      managedInvocationId: "child-3",
+      replayEventId: "event-work-adoption",
+    });
   });
 
   it("marks native gateway cockpit attach as closed without dropping read-only event state", () => {

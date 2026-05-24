@@ -199,6 +199,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       output: presentation.summary,
       input: workItemActivityInput(payload),
       surfaces: presentation.surfaces,
+      sessionEvent: event,
       ...scoped,
     };
   }

@@ -2,17 +2,24 @@ import type { ReactElement } from "react";
 import type {
   NativeCockpitReadOnlyViewState,
 } from "../shared/native-cockpit-contract";
+import type {
+  OperatorCockpitManagedAgentDrilldownViewState,
+  OperatorCockpitManagedAgentViewItem,
+} from "@kilnai/gateway-contracts";
 
 export interface ManagedAgentCockpitPanelProps {
   readonly cockpit: NativeCockpitReadOnlyViewState;
   readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly selectedManagedInvocationId?: string;
 }
 
 export function ManagedAgentCockpitPanel({
   cockpit,
   onCancel,
+  selectedManagedInvocationId,
 }: ManagedAgentCockpitPanelProps): ReactElement {
   const managedAgents = cockpit.view.managedAgents;
+  const drilldown = resolveSelectedDrilldown(managedAgents.drilldown, selectedManagedInvocationId);
   return (
     <section className="native-panel managed-agent-panel" aria-label="Managed agent cockpit">
       <div className="panel-heading-row">
@@ -57,6 +64,10 @@ export function ManagedAgentCockpitPanel({
                 <div>
                   <dt>Review</dt>
                   <dd>{item.dirtyWorkspaceReviewRequired ? "dirty worktree" : "clear"}</dd>
+                </div>
+                <div>
+                  <dt>Adoption</dt>
+                  <dd>{item.adoptionGate?.status ?? "not visible"}</dd>
                 </div>
                 <div>
                   <dt>Cancel</dt>
@@ -106,6 +117,125 @@ export function ManagedAgentCockpitPanel({
           ))}
         </ol>
       )}
+      {drilldown ? <ManagedAgentDrilldownPanel drilldown={drilldown} /> : null}
+    </section>
+  );
+}
+
+function resolveSelectedDrilldown(
+  drilldown: OperatorCockpitManagedAgentDrilldownViewState | undefined,
+  selectedManagedInvocationId: string | undefined,
+): OperatorCockpitManagedAgentDrilldownViewState | undefined {
+  if (!drilldown) {
+    return undefined;
+  }
+  if (!drilldown.resolved || !selectedManagedInvocationId) {
+    return drilldown;
+  }
+  return drilldown.item.managedInvocationId === selectedManagedInvocationId ? drilldown : undefined;
+}
+
+function ManagedAgentDrilldownPanel({
+  drilldown,
+}: {
+  readonly drilldown: OperatorCockpitManagedAgentDrilldownViewState;
+}): ReactElement {
+  if (!drilldown.resolved) {
+    return (
+      <section className="managed-agent-detail" aria-label="Managed agent detail">
+        <h3>Managed Agent Detail</h3>
+        <p>Detail unavailable: {drilldown.reason}</p>
+      </section>
+    );
+  }
+  return <ResolvedManagedAgentDrilldown item={drilldown.item} drilldown={drilldown} />;
+}
+
+function ResolvedManagedAgentDrilldown({
+  item,
+  drilldown,
+}: {
+  readonly item: OperatorCockpitManagedAgentViewItem;
+  readonly drilldown: Extract<OperatorCockpitManagedAgentDrilldownViewState, { readonly resolved: true }>;
+}): ReactElement {
+  return (
+    <section className="managed-agent-detail" aria-label="Managed agent detail">
+      <header>
+        <h3>Managed Agent Detail</h3>
+        <strong>{item.managedInvocationId}</strong>
+      </header>
+      <dl className="managed-agent-details">
+        <div>
+          <dt>Lifecycle</dt>
+          <dd>{item.lifecycleState ?? "unknown"}</dd>
+        </div>
+        <div>
+          <dt>Latest</dt>
+          <dd>{item.latestEventId}</dd>
+        </div>
+        <div>
+          <dt>Replay</dt>
+          <dd>{drilldown.replay.entry.eventId}</dd>
+        </div>
+        <div>
+          <dt>Previous</dt>
+          <dd>{drilldown.replay.previousEventId ?? "--"}</dd>
+        </div>
+        <div>
+          <dt>Next</dt>
+          <dd>{drilldown.replay.nextEventId ?? "--"}</dd>
+        </div>
+        <div>
+          <dt>Adoption</dt>
+          <dd>{item.adoptionGate?.status ?? "not visible"}</dd>
+        </div>
+        {item.adoptionGate?.adoptedBy ? (
+          <div>
+            <dt>Adopted By</dt>
+            <dd>{item.adoptionGate.adoptedBy}</dd>
+          </div>
+        ) : null}
+        {item.adoptionGate?.adoptedAt ? (
+          <div>
+            <dt>Adopted At</dt>
+            <dd>{item.adoptionGate.adoptedAt}</dd>
+          </div>
+        ) : null}
+        {item.adoptionGate?.blockingEvidence.length ? (
+          <div>
+            <dt>Blocking Evidence</dt>
+            <dd>{item.adoptionGate.blockingEvidence.join(", ")}</dd>
+          </div>
+        ) : null}
+        {item.adoptionGate?.rejection ? (
+          <div>
+            <dt>Rejection</dt>
+            <dd>{[
+              item.adoptionGate.rejection.gate,
+              item.adoptionGate.rejection.summary,
+              ...item.adoptionGate.rejection.evidence,
+            ].filter(Boolean).join(" · ")}</dd>
+          </div>
+        ) : null}
+      </dl>
+      <ol className="timeline-list" aria-label={`${item.managedInvocationId} full lifecycle timeline`}>
+        {item.lifecycleTimeline.map((entry) => (
+          <li key={entry.eventId}>
+            <span>{entry.kind}</span>
+            <small>{entry.eventId}</small>
+            <small>{entry.compactText}</small>
+          </li>
+        ))}
+      </ol>
+      {item.resourceUris.length > 0 ? (
+        <ul className="resource-list" aria-label={`${item.managedInvocationId} full resources`}>
+          {item.resourceUris.map((uri) => (
+            <li key={uri}>
+              <code>{uri}</code>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

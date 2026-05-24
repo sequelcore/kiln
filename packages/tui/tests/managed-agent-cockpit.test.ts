@@ -5,6 +5,7 @@ import {
   appendManagedAgentSessionEvent,
   formatManagedAgentCockpitLines,
   projectTuiManagedAgentViewState,
+  selectTuiManagedAgentDrilldownTarget,
 } from "../src/managed-agent-cockpit.js";
 
 function event(
@@ -41,6 +42,7 @@ describe("TUI managed-agent cockpit projection", () => {
         providerId: "opencode-go",
         model: "minimax-m2.5",
       },
+      lifecycleState: "completed",
       capabilitySnapshot: {
         resourceLease: {
           leaseId: "lease-1",
@@ -85,6 +87,12 @@ describe("TUI managed-agent cockpit projection", () => {
       sessionId: "session-1",
       managedInvocationId: "child-running",
     });
+    expect(selectTuiManagedAgentDrilldownTarget(events)).toEqual({
+      instanceId: "local-tui",
+      sessionId: "session-1",
+      managedInvocationId: "child-review",
+      replayEventId: "evt-completed",
+    });
 
     const viewState = projectTuiManagedAgentViewState(events);
     expect(viewState.activeCount).toBe(1);
@@ -118,6 +126,201 @@ describe("TUI managed-agent cockpit projection", () => {
       "  res kiln://managed-agent/child-review/diff",
       "> child-running active running codex-oauth/gpt-5.5 events:1 cancel:control",
     ]));
+
+    const drilldownViewState = projectTuiManagedAgentViewState(events, {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-review",
+      },
+    });
+
+    expect(formatManagedAgentCockpitLines(drilldownViewState)).toEqual(expect.arrayContaining([
+      "drilldown child-review",
+      "  lifecycle completed",
+      "  latest evt-completed",
+      "  replay evt-completed",
+      "  prev -- next --",
+      "  timeline:",
+      "    3 agent_invocation_completed evt-completed",
+      "  resources:",
+      "    kiln://managed-agent/child-review/diff",
+      "    kiln://managed-agent/child-review/status",
+      "    kiln://managed-agent/child-review/transcript",
+      "    kiln://managed-agent/child-review/worktree",
+    ]));
+  });
+
+  it("formats unresolved drilldown from shared view state without local fallback data", () => {
+    const started = event("evt-started", 1, "agent_invocation_started", {
+      invocationId: "child-running",
+      lifecycleState: "running",
+    });
+    const events = appendManagedAgentSessionEvent([], started);
+
+    const viewState = projectTuiManagedAgentViewState(events, {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-missing",
+      },
+    });
+
+    expect(formatManagedAgentCockpitLines(viewState)).toEqual(expect.arrayContaining([
+      "drilldown unresolved managed-invocation-not-found",
+    ]));
+  });
+
+  it("retains runtime adoption-gate snapshots and formats managed child drilldown adoption state", () => {
+    let events = appendManagedAgentSessionEvent([], event("evt-completed", 1, "agent_invocation_completed", {
+      invocationId: "child-adopted",
+      lifecycleState: "completed",
+    }));
+    events = appendManagedAgentSessionEvent(events, event("evt-adoption", 2, "work_item_updated", {
+      instanceId: "local-tui",
+      sessionId: "session-1",
+      workItemId: "work-adopted",
+      managedOrchestrationAdoptionGate: {
+        required: true,
+        target: "slice-6-handoff-review-adoption",
+        reason: "Managed child output must be adopted before closeout.",
+        orchestrationId: "orch-adoption",
+        childId: "child-adopted",
+        mergePolicyMode: "manual",
+        status: "adopted",
+        adoptedBy: "operator",
+        adoptedAt: "2026-05-22T20:00:02.000Z",
+        resourceUris: ["kiln://artifacts/orch-adoption/adoption-review"],
+        blockingEvidence: [],
+      },
+    }));
+
+    expect(events.map((entry) => entry.eventId)).toEqual(["evt-completed", "evt-adoption"]);
+    expect(selectTuiManagedAgentDrilldownTarget(events)).toEqual({
+      instanceId: "local-tui",
+      sessionId: "session-1",
+      managedInvocationId: "child-adopted",
+      replayEventId: "evt-adoption",
+    });
+
+    const viewState = projectTuiManagedAgentViewState(events, {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-adopted",
+      },
+    });
+
+    expect(formatManagedAgentCockpitLines(viewState)).toEqual(expect.arrayContaining([
+      "- child-adopted clear completed events:1 adoption:adopted resources:1",
+      "drilldown child-adopted",
+      "  adoption adopted",
+      "  adopted by operator at 2026-05-22T20:00:02.000Z",
+      "  adoption resources:",
+      "    kiln://artifacts/orch-adoption/adoption-review",
+    ]));
+  });
+
+  it("formats blocked adoption-gate detail without implying merge readiness", () => {
+    let events = appendManagedAgentSessionEvent([], event("evt-completed", 1, "agent_invocation_completed", {
+      invocationId: "child-rejected",
+      lifecycleState: "completed",
+    }));
+    events = appendManagedAgentSessionEvent(events, event("evt-rejected", 2, "work_item_updated", {
+      instanceId: "local-tui",
+      sessionId: "session-1",
+      workItemId: "work-rejected",
+      managedOrchestrationAdoptionGate: {
+        required: true,
+        target: "slice-6-handoff-review-adoption",
+        reason: "Managed child output must be adopted before closeout.",
+        orchestrationId: "orch-rejected",
+        childId: "child-rejected",
+        mergePolicyMode: "manual",
+        status: "rejected",
+        resourceUris: [],
+        blockingEvidence: ["managed-orchestration:adoption-gate"],
+        rejection: {
+          gate: "managed orchestration adoption gate",
+          summary: "Reviewer rejected the child handoff.",
+          evidence: ["kiln://artifacts/orch-rejected/review"],
+          completedAt: "2026-05-22T20:00:02.000Z",
+        },
+      },
+    }));
+
+    const lines = formatManagedAgentCockpitLines(projectTuiManagedAgentViewState(events, {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-rejected",
+      },
+    }));
+
+    expect(lines).toEqual(expect.arrayContaining([
+      "! child-rejected needs_review completed events:1 adoption:rejected resources:1",
+      "  adoption rejected",
+      "  rejection managed orchestration adoption gate",
+      "  rejection summary Reviewer rejected the child handoff.",
+      "  rejection evidence kiln://artifacts/orch-rejected/review",
+      "  blocking managed-orchestration:adoption-gate",
+    ]));
+    expect(lines.join("\n")).not.toContain("merge");
+  });
+
+  it("rejects adoption-gate frames without matching gateway identity", () => {
+    const completed = event("evt-completed", 1, "agent_invocation_completed", {
+      invocationId: "child-adoption",
+      lifecycleState: "completed",
+    });
+    const missingIdentity = event("evt-missing-identity", 2, "work_item_updated", {
+      managedOrchestrationAdoptionGate: {
+        required: true,
+        target: "slice-6-handoff-review-adoption",
+        childId: "child-adoption",
+        status: "adopted",
+        resourceUris: ["kiln://artifacts/orch-adoption/adoption-review"],
+        blockingEvidence: [],
+      },
+    });
+    const crossSession = event("evt-cross-session", 3, "work_item_updated", {
+      instanceId: "local-tui",
+      sessionId: "session-other",
+      managedOrchestrationAdoptionGate: {
+        required: true,
+        target: "slice-6-handoff-review-adoption",
+        childId: "child-adoption",
+        status: "adopted",
+        resourceUris: ["kiln://artifacts/orch-adoption/adoption-review"],
+        blockingEvidence: [],
+      },
+    });
+
+    let events = appendManagedAgentSessionEvent([], completed);
+    events = appendManagedAgentSessionEvent(events, missingIdentity);
+    events = appendManagedAgentSessionEvent(events, crossSession);
+
+    expect(events.map((entry) => entry.eventId)).toEqual(["evt-completed"]);
+    expect(projectTuiManagedAgentViewState(events).items[0]?.adoptionGate).toBeUndefined();
+  });
+
+  it("keeps requested empty-event drilldown fail-closed", () => {
+    const viewState = projectTuiManagedAgentViewState([], {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-missing",
+      },
+    });
+
+    expect(viewState.drilldown).toEqual({
+      resolved: false,
+      reason: "managed-invocation-not-found",
+    });
+    expect(formatManagedAgentCockpitLines(viewState)).toEqual([
+      "(none)",
+      "drilldown unresolved managed-invocation-not-found",
+    ]);
   });
 
   it("formats the empty state without local lifecycle fallback text", () => {

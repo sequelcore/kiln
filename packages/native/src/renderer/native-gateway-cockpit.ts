@@ -1,6 +1,7 @@
 import type {
   GuiInboundFrame,
   GuiOutboundFrame,
+  OperatorCockpitManagedAgentDrilldownTarget,
   OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 
@@ -41,6 +42,29 @@ export function createNativeGatewayCockpitFrameState(): NativeGatewayCockpitFram
   return {
     connectionState: "planned",
     events: [],
+  };
+}
+
+export function selectNativeManagedAgentDrilldownTarget(
+  events: readonly OperatorSessionEvent[],
+): OperatorCockpitManagedAgentDrilldownTarget | undefined {
+  const event = [...events].sort(compareSessionEvents).findLast((candidate) => {
+    const payload = asRecord(candidate.payload);
+    return Boolean(readManagedInvocationId(payload));
+  });
+  if (!event) {
+    return undefined;
+  }
+  const payload = asRecord(event.payload);
+  const managedInvocationId = readManagedInvocationId(payload);
+  if (!managedInvocationId) {
+    return undefined;
+  }
+  return {
+    instanceId: readString(payload.instanceId) ?? "native-local",
+    sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
+    managedInvocationId,
+    replayEventId: event.eventId,
   };
 }
 
@@ -137,6 +161,32 @@ function isOperatorSessionEvent(value: unknown): value is OperatorSessionEvent {
     && typeof value.timestamp === "string"
     && typeof value.kind === "string"
     && isRecord(value.payload);
+}
+
+function compareSessionEvents(a: OperatorSessionEvent, b: OperatorSessionEvent): number {
+  if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+  const timestampCompare = a.timestamp.localeCompare(b.timestamp);
+  return timestampCompare === 0 ? a.eventId.localeCompare(b.eventId) : timestampCompare;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readManagedInvocationId(payload: Record<string, unknown>): string | undefined {
+  const attempt = asRecord(payload.attempt);
+  const workItem = asRecord(payload.workItem);
+  const adoptionGate = asRecord(payload.managedOrchestrationAdoptionGate);
+  return readString(payload.managedInvocationId)
+    ?? readString(payload.invocationId)
+    ?? readString(payload.latestManagedInvocationId)
+    ?? readString(attempt.managedInvocationId)
+    ?? readString(workItem.latestManagedInvocationId)
+    ?? readString(adoptionGate.childId);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

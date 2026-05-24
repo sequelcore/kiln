@@ -27,6 +27,7 @@ import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   appendManagedAgentSessionEvent,
   projectTuiManagedAgentViewState,
+  selectTuiManagedAgentDrilldownTarget,
 } from "./managed-agent-cockpit.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
@@ -357,22 +358,13 @@ export function handleActivity(
       ]);
       ctx.renderSidebarWork?.();
     }
+    appendManagedAgentProjectionEvent(ctx, event?.sessionEvent);
     update(ctx.state, "currentActivity", {
       phase: "planning",
       details: output ?? details ?? "work item updated",
     });
   } else if (activity.startsWith("agent_invocation_")) {
-    if (event?.sessionEvent) {
-      const managedAgentSessionEvents = appendManagedAgentSessionEvent(
-        ctx.state.managedAgentSessionEvents,
-        event.sessionEvent,
-      );
-      if (managedAgentSessionEvents !== ctx.state.managedAgentSessionEvents) {
-        update(ctx.state, "managedAgentSessionEvents", managedAgentSessionEvents);
-        update(ctx.state, "managedAgents", projectTuiManagedAgentViewState(managedAgentSessionEvents));
-        ctx.renderSidebarManagedAgents?.();
-      }
-    }
+    appendManagedAgentProjectionEvent(ctx, event?.sessionEvent);
     const identity = projectManagedAgentIdentity(input as Parameters<typeof projectManagedAgentIdentity>[0]);
     const identityLabel = identity ? `[${operatorIdentityInitials(identity.label)} ${identity.label}]` : null;
     update(ctx.state, "currentActivity", {
@@ -381,6 +373,27 @@ export function handleActivity(
       details: identity ? `${identityLabel} ${details ?? identity.subtitle ?? ""}`.trim() : details,
     });
   }
+}
+
+function appendManagedAgentProjectionEvent(
+  ctx: HandlerContext,
+  sessionEvent: OperatorSessionEvent | undefined,
+): void {
+  if (!sessionEvent) {
+    return;
+  }
+  const managedAgentSessionEvents = appendManagedAgentSessionEvent(
+    ctx.state.managedAgentSessionEvents,
+    sessionEvent,
+  );
+  if (managedAgentSessionEvents === ctx.state.managedAgentSessionEvents) {
+    return;
+  }
+  update(ctx.state, "managedAgentSessionEvents", managedAgentSessionEvents);
+  update(ctx.state, "managedAgents", projectTuiManagedAgentViewState(managedAgentSessionEvents, {
+    drilldownTarget: selectTuiManagedAgentDrilldownTarget(managedAgentSessionEvents),
+  }));
+  ctx.renderSidebarManagedAgents?.();
 }
 
 function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkItem | null {

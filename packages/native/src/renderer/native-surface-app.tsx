@@ -16,6 +16,7 @@ import {
   readNativeGatewayCockpitFrame,
   reduceNativeGatewayCockpitFrame,
   resolveNativeGatewayCockpitWebSocketUrl,
+  selectNativeManagedAgentDrilldownTarget,
 } from "./native-gateway-cockpit";
 import type {
   EmbeddedBrowserOperatorSurfaceSnapshot,
@@ -79,6 +80,7 @@ export function NativeSurfaceApp(): ReactElement {
     });
   }, [startedAt]);
   const cockpit = useMemo(() => {
+    const managedAgentDrilldownTarget = selectNativeManagedAgentDrilldownTarget(cockpitFrameState.events);
     const cockpitProjection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:local",
       projectedAt: new Date().toISOString(),
@@ -95,7 +97,9 @@ export function NativeSurfaceApp(): ReactElement {
     return createNativeCockpitReadOnlyViewState({
       surfaceId: "native:local",
       projection: cockpitProjection.view,
-      viewState: {},
+      viewState: {
+        ...(managedAgentDrilldownTarget ? { managedAgentDrilldownTarget } : {}),
+      },
     });
   }, [cockpitFrameState.events]);
   const browserApi = window.kilnNativeBrowser;
@@ -348,6 +352,11 @@ export function NativeSurfaceApp(): ReactElement {
       <ManagedAgentCockpitPanel
         cockpit={cockpit}
         onCancel={cockpitFrameState.connectionState === "open" ? cancelManagedAgent : undefined}
+        selectedManagedInvocationId={
+          cockpit.view.managedAgents.drilldown?.resolved
+            ? cockpit.view.managedAgents.drilldown.item.managedInvocationId
+            : undefined
+        }
       />
       <section className="native-panel" aria-label="Surface capabilities">
         <h2>Capabilities</h2>

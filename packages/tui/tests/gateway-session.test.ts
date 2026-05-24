@@ -522,6 +522,11 @@ describe("GatewaySession canonical session events", () => {
           latestManagedInvocationId: "invocation-1",
         }),
         surfaces: ["conversation_inline", "activity_panel", "inspector"],
+        sessionEvent: expect.objectContaining({
+          eventId: "evt-work-start",
+          kind: "work_item_execution_started",
+          kilnSessionId: "session-1",
+        }),
       }),
     ]));
 

@@ -185,4 +185,238 @@ describe("native managed-agent cockpit panel", () => {
     expect(markup).not.toContain("Cancel disabled");
     expect(markup).not.toContain("disabled=\"\"");
   });
+
+  it("renders selected managed child detail with full lifecycle and resources from shared state", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-requested", 1, "agent_invocation_requested", {
+          managedInvocationId: "child-detail",
+          lifecycleState: "pending",
+        }),
+        managedEvent("evt-started", 2, "agent_invocation_started", {
+          managedInvocationId: "child-detail",
+          lifecycleState: "running",
+        }),
+        managedEvent("evt-completed", 3, "agent_invocation_completed", {
+          managedInvocationId: "child-detail",
+          lifecycleState: "completed",
+          managedInvocationEvidence: {
+            transcript: {
+              uri: "kiln://managed-agent/child-detail/transcript",
+              retention: "session",
+            },
+            resultHandoff: {
+              summary: "Child detail completed.",
+              resourceUris: [
+                "kiln://managed-agent/child-detail/handoff",
+                "kiln://managed-agent/child-detail/report",
+                "kiln://managed-agent/child-detail/review",
+                "kiln://managed-agent/child-detail/diff",
+                "kiln://managed-agent/child-detail/log",
+              ],
+              memoryWriteProposalUris: [],
+            },
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "native-local",
+          sessionId: "session-1",
+          managedInvocationId: "child-detail",
+          replayEventId: "evt-started",
+        },
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      <ManagedAgentCockpitPanel cockpit={cockpit} selectedManagedInvocationId="child-detail" />,
+    );
+
+    expect(markup).toContain("Managed Agent Detail");
+    expect(markup).toContain("child-detail");
+    expect(markup).toContain("Replay");
+    expect(markup).toContain("evt-requested");
+    expect(markup).toContain("evt-started");
+    expect(markup).toContain("evt-completed");
+    expect(markup).toContain("kiln://managed-agent/child-detail/diff");
+    expect(markup).toContain("kiln://managed-agent/child-detail/handoff");
+    expect(markup).toContain("kiln://managed-agent/child-detail/log");
+    expect(markup).toContain("kiln://managed-agent/child-detail/report");
+    expect(markup).toContain("kiln://managed-agent/child-detail/review");
+    expect(markup).toContain("kiln://managed-agent/child-detail/transcript");
+  });
+
+  it("renders runtime adoption-gate state for selected managed child detail", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-completed", 1, "agent_invocation_completed", {
+          managedInvocationId: "child-adopted",
+          lifecycleState: "completed",
+        }),
+        managedEvent("evt-adoption", 2, "work_item_updated", {
+          workItemId: "work-adopted",
+          managedOrchestrationAdoptionGate: {
+            required: true,
+            target: "slice-6-handoff-review-adoption",
+            reason: "Managed child output must be adopted before closeout.",
+            orchestrationId: "orch-adoption",
+            childId: "child-adopted",
+            mergePolicyMode: "manual",
+            status: "adopted",
+            adoptedBy: "operator",
+            adoptedAt: "2026-05-23T12:00:02.000Z",
+            resourceUris: ["kiln://artifacts/orch-adoption/adoption-review"],
+            blockingEvidence: [],
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "native-local",
+          sessionId: "session-1",
+          managedInvocationId: "child-adopted",
+        },
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      <ManagedAgentCockpitPanel cockpit={cockpit} selectedManagedInvocationId="child-adopted" />,
+    );
+
+    expect(markup).toContain("Adoption");
+    expect(markup).toContain("adopted");
+    expect(markup).toContain("operator");
+    expect(markup).toContain("2026-05-23T12:00:02.000Z");
+    expect(markup).toContain("kiln://artifacts/orch-adoption/adoption-review");
+    expect(markup).not.toContain("Merge ready");
+  });
+
+  it("renders blocked adoption-gate detail without merge-readiness text", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-completed", 1, "agent_invocation_completed", {
+          managedInvocationId: "child-rejected",
+          lifecycleState: "completed",
+        }),
+        managedEvent("evt-rejected", 2, "work_item_updated", {
+          workItemId: "work-rejected",
+          managedOrchestrationAdoptionGate: {
+            required: true,
+            target: "slice-6-handoff-review-adoption",
+            reason: "Managed child output must be adopted before closeout.",
+            orchestrationId: "orch-rejected",
+            childId: "child-rejected",
+            mergePolicyMode: "manual",
+            status: "rejected",
+            resourceUris: [],
+            blockingEvidence: ["managed-orchestration:adoption-gate"],
+            rejection: {
+              gate: "managed orchestration adoption gate",
+              summary: "Reviewer rejected the child handoff.",
+              evidence: ["kiln://artifacts/orch-rejected/review"],
+              completedAt: "2026-05-23T12:00:02.000Z",
+            },
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "native-local",
+          sessionId: "session-1",
+          managedInvocationId: "child-rejected",
+        },
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      <ManagedAgentCockpitPanel cockpit={cockpit} selectedManagedInvocationId="child-rejected" />,
+    );
+
+    expect(markup).toContain("Adoption");
+    expect(markup).toContain("rejected");
+    expect(markup).toContain("Blocking Evidence");
+    expect(markup).toContain("managed-orchestration:adoption-gate");
+    expect(markup).toContain("Rejection");
+    expect(markup).toContain("managed orchestration adoption gate");
+    expect(markup).toContain("Reviewer rejected the child handoff.");
+    expect(markup).toContain("kiln://artifacts/orch-rejected/review");
+    expect(markup).not.toContain("Merge ready");
+  });
+
+  it("renders unresolved managed child drilldown without synthetic detail data", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-running", 1, "agent_invocation_started", {
+          managedInvocationId: "child-running",
+          lifecycleState: "running",
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "native-local",
+          sessionId: "session-1",
+          managedInvocationId: "child-missing",
+        },
+      },
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+
+    expect(markup).toContain("Managed Agent Detail");
+    expect(markup).toContain("Detail unavailable: managed-invocation-not-found");
+    expect(markup).not.toContain("child-missing</strong>");
+  });
 });
