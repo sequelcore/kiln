@@ -121,7 +121,11 @@ Active. Started on 2026-05-21. Current implementation status:
   adoption can satisfy closeout. Slice 6E is complete in code: worktree-backed
   write conflicts now return governed denied admission decisions with
   `resourceLease.worktreeConflict` evidence and shared operator projection
-  instead of throwing runtime-only overlap errors.
+  instead of throwing runtime-only overlap errors. Slice 6F is complete in
+  code: explicitly approved local feedback bundles now materialize governed
+  `feedback-repair` work item inputs with redacted approval, risk, file-impact,
+  verification, review, and residual-risk evidence through the existing
+  work-governance lifecycle.
   Slices 7-8 are not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
@@ -776,8 +780,9 @@ Deliverables:
 
 ### Slice 6 - Handoff, Review, And Adoption
 
-Status: started. Slice 6A, Slice 6B, Slice 6C, Slice 6D, and Slice 6E are
-complete in code; remaining governed review and repair cuts continue here.
+Status: closed in code after Slice 6F. Slice 6A, Slice 6B, Slice 6C, Slice
+6D, Slice 6E, and Slice 6F are complete in code. Live route and cross-surface
+hardening continues in Slice 7.
 
 Completed:
 
@@ -817,11 +822,18 @@ Completed:
   cockpit projection/view state, operator event presentation, CLI status/list
   output, and model-facing managed invocation resources all consume that same
   lease evidence without surface-local conflict state.
+- Approved local feedback bundles now convert into governed repair work item
+  inputs instead of a separate feedback repair engine. The core materializer
+  requires explicit approval evidence, risk hypothesis, file impact, and
+  verification criteria, redacts repair metadata before attaching it to the
+  work item, and emits the canonical tests, typecheck, managed-agent review,
+  and residual-risk evidence gates through the existing `WorkItemStore`
+  lifecycle.
 
 Deliverables:
 
 - Integrate with feedback/repair work items only after lifecycle and evidence
-  are stable.
+  are stable. Complete in code in Slice 6F.
 
 ### Slice 7 - Live Cross-Surface Hardening
 

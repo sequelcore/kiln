@@ -35,6 +35,18 @@ export {
   startGoalExecutionAttempt,
 } from "./goal-execution.js";
 export type {
+  FeedbackRepairApproval,
+  FeedbackRepairWorkItemInput,
+} from "./feedback-repair.js";
+export {
+  createFeedbackRepairWorkItemInput,
+  FEEDBACK_REPAIR_APPROVAL_EVIDENCE,
+  FEEDBACK_REPAIR_BUNDLE_EVIDENCE,
+  FEEDBACK_REPAIR_FILE_IMPACT_EVIDENCE,
+  FEEDBACK_REPAIR_RISK_HYPOTHESIS_EVIDENCE,
+  FEEDBACK_REPAIR_VERIFICATION_CRITERIA_EVIDENCE,
+} from "./feedback-repair.js";
+export type {
   ManagedAgentOrchestrationWorkItemMaterializationInput,
   ManagedAgentOrchestrationWorkItemMaterializationResult,
   WorkItemMaterialization,
@@ -54,6 +66,7 @@ export type {
   WorkItemExecutionFailureReason,
   WorkItemExecutionAttemptStatus,
   WorkItemExecutionMode,
+  WorkItemFeedbackRepairSource,
   WorkItemFailExecutionAttemptInput,
   WorkItemFailExecutionAttemptResult,
   WorkItemManagedOrchestrationAdoptionGate,

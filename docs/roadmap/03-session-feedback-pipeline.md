@@ -128,18 +128,32 @@ Verification:
 
 ### Slice 6 - Repair Work Item
 
-Status: Pending
+Status: Completed in code on 2026-05-24.
+
+Completed:
+
+- Core work-governance now converts explicitly approved local feedback bundles
+  into pending `feedback-repair` work item inputs.
+- Repair work items attach redacted approval actor/time/resource pointers, risk
+  hypothesis, file impact, verification criteria, and source feedback metadata.
+- Repair closeout uses existing work-governance evidence for feedback bundle,
+  explicit approval, risk hypothesis, file impact, verification criteria,
+  tests, typecheck, managed-agent review, and residual risk.
+- Missing approval, file impact, or verification criteria fails closed before a
+  repair work item can be created.
 
 Deliverables:
 
-- Convert approved feedback bundles into governed work items.
-- Attach risk hypothesis, file impact, and verification criteria.
-- Route implementation through existing Sequel/Kiln workflow.
+- Convert approved feedback bundles into governed work items. Complete.
+- Attach risk hypothesis, file impact, and verification criteria. Complete.
+- Route implementation through existing Sequel/Kiln workflow. Complete.
 
 Verification:
 
-- Work-governance tests.
-- Managed-agent evidence tests where repair tasks delegate.
+- `bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts`
+- `bun run --cwd packages/core test -- tests/work-governance/work-item-materializer.test.ts tests/work-governance/goal-execution.test.ts`
+- `bun run typecheck`
+- `bun run --cwd packages/core test`
 
 ### Slice 7 - Draft Pull Request Flow
 

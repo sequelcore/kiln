@@ -4,6 +4,15 @@ import {
   createFeedbackIssueDraft,
   redactFeedbackText,
 } from "../../src/feedback/index.js";
+import {
+  createFeedbackRepairWorkItemInput,
+  FEEDBACK_REPAIR_APPROVAL_EVIDENCE,
+  FEEDBACK_REPAIR_BUNDLE_EVIDENCE,
+  FEEDBACK_REPAIR_FILE_IMPACT_EVIDENCE,
+  FEEDBACK_REPAIR_RISK_HYPOTHESIS_EVIDENCE,
+  FEEDBACK_REPAIR_VERIFICATION_CRITERIA_EVIDENCE,
+  WorkItemStore,
+} from "../../src/index.js";
 
 describe("session feedback redaction", () => {
   it("redacts common credentials before feedback text can be exported", () => {
@@ -243,3 +252,389 @@ describe("session feedback issue draft", () => {
     expect(issue.markdown).toContain("\n````\n");
   });
 });
+
+describe("session feedback repair work item", () => {
+  it("converts an explicitly approved feedback bundle into a governed repair work item", () => {
+    const bundle = createFeedbackBundle({
+      feedbackId: "feedback-2026-05-18-repair",
+      createdAt: "2026-05-18T12:00:00.000Z",
+      sessionId: "session-123",
+      reporter: {
+        mode: "maintainer",
+        description: "Managed child cancellation did not update the GUI.",
+        actualBehavior: "The GUI stayed active after cancellation.",
+      },
+      evidenceSelection: {
+        includeSessionSummary: false,
+        includeTranscriptExcerpts: false,
+        includeToolFailures: false,
+        includeCommandOutput: false,
+        includeEnvironment: false,
+        includeGitStatus: false,
+        includeLogs: false,
+        includeFileChangeSummary: false,
+        includeDiagnosticFindings: true,
+      },
+      evidence: [{
+        kind: "diagnostic-finding",
+        title: "Cancellation event",
+        content: "agent_invocation_cancelled missing from projection",
+      }],
+    });
+
+    const workItemInput = createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:05:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-repair/approval"],
+      },
+      riskHypothesis: "Repair may touch shared managed-agent projection paths.",
+      fileImpact: [
+        "packages/runtime/src/gateway/operator-session-event-frame.ts",
+        "packages/gateway-contracts/src/operator-cockpit-projection.ts",
+      ],
+      verificationCriteria: [
+        "bun run --cwd packages/gateway-contracts test -- tests/operator-cockpit-projection.test.ts",
+        "bun run typecheck",
+      ],
+      routeId: "codex-managed-coder",
+      assignedAgentProfile: "coder",
+      authorityProfile: "audited",
+    });
+    const store = new WorkItemStore({ now: () => "2026-05-18T12:06:00.000Z" });
+    const item = store.upsert(workItemInput);
+
+    expect(item).toMatchObject({
+      id: "feedback:feedback-2026-05-18-repair:repair",
+      status: "pending",
+      workflowProfile: "feedback-repair",
+      risk: "medium",
+      surface: "session-feedback",
+      assignedAgentProfile: "coder",
+      routeId: "codex-managed-coder",
+      authorityProfile: "audited",
+      sourceFeedbackId: "feedback-2026-05-18-repair",
+      feedbackRepair: {
+        feedbackId: "feedback-2026-05-18-repair",
+        sessionId: "session-123",
+        bundleResourceUri: "kiln://feedback/feedback-2026-05-18-repair/bundle",
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:05:00.000Z",
+        approvalResourceUris: ["kiln://feedback/feedback-2026-05-18-repair/approval"],
+        riskHypothesis: "Repair may touch shared managed-agent projection paths.",
+        fileImpact: [
+          "packages/runtime/src/gateway/operator-session-event-frame.ts",
+          "packages/gateway-contracts/src/operator-cockpit-projection.ts",
+        ],
+        verificationCriteria: [
+          "bun run --cwd packages/gateway-contracts test -- tests/operator-cockpit-projection.test.ts",
+          "bun run typecheck",
+        ],
+      },
+    });
+    expect(item.expectedEvidence).toEqual([
+      FEEDBACK_REPAIR_BUNDLE_EVIDENCE,
+      FEEDBACK_REPAIR_APPROVAL_EVIDENCE,
+      FEEDBACK_REPAIR_RISK_HYPOTHESIS_EVIDENCE,
+      FEEDBACK_REPAIR_FILE_IMPACT_EVIDENCE,
+      FEEDBACK_REPAIR_VERIFICATION_CRITERIA_EVIDENCE,
+      "tests",
+      "typecheck",
+      "managed-agent-review",
+      "residual-risk",
+    ]);
+    expect(item.providedEvidence).toEqual([
+      FEEDBACK_REPAIR_BUNDLE_EVIDENCE,
+      FEEDBACK_REPAIR_APPROVAL_EVIDENCE,
+      FEEDBACK_REPAIR_RISK_HYPOTHESIS_EVIDENCE,
+      FEEDBACK_REPAIR_FILE_IMPACT_EVIDENCE,
+      FEEDBACK_REPAIR_VERIFICATION_CRITERIA_EVIDENCE,
+    ]);
+    expect(item.verificationGates).toEqual([
+      "bun run --cwd packages/gateway-contracts test -- tests/operator-cockpit-projection.test.ts",
+      "bun run typecheck",
+      "managed-agent review",
+    ]);
+  });
+
+  it("redacts repair metadata before it is attached to work governance", () => {
+    const bundle = createFeedbackBundle({
+      feedbackId: "feedback-2026-05-18-redacted-repair",
+      createdAt: "2026-05-18T12:00:00.000Z",
+      sessionId: "session-123",
+      reporter: {
+        mode: "maintainer",
+        description: "The command leaked a secret.",
+        actualBehavior: "Output included a token.",
+      },
+      evidenceSelection: {
+        includeSessionSummary: false,
+        includeTranscriptExcerpts: false,
+        includeToolFailures: false,
+        includeCommandOutput: false,
+        includeEnvironment: false,
+        includeGitStatus: false,
+        includeLogs: false,
+        includeFileChangeSummary: false,
+        includeDiagnosticFindings: false,
+      },
+      evidence: [],
+    });
+
+    const workItemInput = createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo@example.com",
+        approvedAt: "2026-05-18T12:05:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-redacted-repair/approval"],
+      },
+      riskHypothesis: "Do not leak sk-ant-secret123 in repair notes.",
+      fileImpact: ["packages/core/src/feedback/index.ts"],
+      verificationCriteria: ["Assert token sk-ant-secret123 is absent"],
+    });
+
+    expect(JSON.stringify(workItemInput)).not.toContain("sk-ant-secret123");
+    expect(JSON.stringify(workItemInput)).not.toContain("ricardo@example.com");
+    expect(workItemInput.feedbackRepair?.riskHypothesis).toContain("[REDACTED:credential]");
+    expect(workItemInput.feedbackRepair?.approvedBy).toContain("[REDACTED:email]");
+    expect(workItemInput.feedbackRepair?.verificationCriteria[0]).toContain("[REDACTED:credential]");
+  });
+
+  it("fails closed without explicit approval and repair criteria", () => {
+    const bundle = createFeedbackBundle({
+      feedbackId: "feedback-2026-05-18-blocked-repair",
+      createdAt: "2026-05-18T12:00:00.000Z",
+      sessionId: "session-123",
+      reporter: {
+        mode: "maintainer",
+        description: "The repair should be governed.",
+        actualBehavior: "No work item exists.",
+      },
+      evidenceSelection: {
+        includeSessionSummary: false,
+        includeTranscriptExcerpts: false,
+        includeToolFailures: false,
+        includeCommandOutput: false,
+        includeEnvironment: false,
+        includeGitStatus: false,
+        includeLogs: false,
+        includeFileChangeSummary: false,
+        includeDiagnosticFindings: false,
+      },
+      evidence: [],
+    });
+
+    expect(() => createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: {
+        approved: false,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:05:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-blocked-repair/approval"],
+      },
+      riskHypothesis: "Missing approval should block.",
+      fileImpact: ["packages/core/src/feedback/index.ts"],
+      verificationCriteria: ["bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts"],
+    } as never)).toThrow("Feedback repair work item requires explicit approval.");
+
+    expect(() => createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:05:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-blocked-repair/approval"],
+      },
+      riskHypothesis: "Missing impact should block.",
+      fileImpact: [],
+      verificationCriteria: ["bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts"],
+    })).toThrow("Feedback repair work item requires file impact.");
+
+    expect(() => createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:05:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-blocked-repair/approval"],
+      },
+      riskHypothesis: "Missing verification should block.",
+      fileImpact: ["packages/core/src/feedback/index.ts"],
+      verificationCriteria: [],
+    })).toThrow("Feedback repair work item requires verification criteria.");
+  });
+
+  it("fails closed for unsafe approval evidence and non-canonical approval timestamps", () => {
+    const bundle = feedbackRepairBundle("feedback-2026-05-18-unsafe-approval");
+
+    expect(() => createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:05:00Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-unsafe-approval/approval"],
+      },
+      riskHypothesis: "Approval timestamp must be canonical.",
+      fileImpact: ["packages/core/src/feedback/index.ts"],
+      verificationCriteria: ["bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts"],
+    })).toThrow("Feedback repair work item approval timestamp is required.");
+
+    expect(() => createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:05:00.000Z",
+        resourceUris: ["file:///C:/Users/Ricardo/secrets/approval.txt"],
+      },
+      riskHypothesis: "Approval evidence must stay inside local feedback resources.",
+      fileImpact: ["packages/core/src/feedback/index.ts"],
+      verificationCriteria: ["bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts"],
+    })).toThrow("Feedback repair work item approval evidence must be the local feedback resource URI.");
+  });
+
+  it("uses lossless repair ids and rejects mismatched repair provenance", () => {
+    const slashBundle = feedbackRepairBundle("feedback/a/b");
+    const dashBundle = feedbackRepairBundle("feedback/a-b");
+    const slashItemInput = createFeedbackRepairWorkItemInput({
+      bundle: slashBundle,
+      approval: feedbackRepairApproval("feedback/a/b"),
+      riskHypothesis: "Slash ids must not collide with dash ids.",
+      fileImpact: ["packages/core/src/work-governance/feedback-repair.ts"],
+      verificationCriteria: ["bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts"],
+    });
+    const dashItemInput = createFeedbackRepairWorkItemInput({
+      bundle: dashBundle,
+      approval: feedbackRepairApproval("feedback/a-b"),
+      riskHypothesis: "Dash ids must remain distinct.",
+      fileImpact: ["packages/core/src/work-governance/feedback-repair.ts"],
+      verificationCriteria: ["bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts"],
+    });
+
+    expect(slashItemInput.id).toBe("feedback:feedback%2Fa%2Fb:repair");
+    expect(dashItemInput.id).toBe("feedback:feedback%2Fa-b:repair");
+    expect(slashItemInput.id).not.toBe(dashItemInput.id);
+
+    const store = new WorkItemStore({ now: () => "2026-05-18T12:06:00.000Z" });
+    expect(() => store.upsert({
+      ...slashItemInput,
+      sourceFeedbackId: undefined,
+    })).toThrow("Feedback repair work item source feedback id is required.");
+    expect(() => store.upsert({
+      ...slashItemInput,
+      sourceFeedbackId: "different-feedback-id",
+    })).toThrow("Feedback repair work item source feedback id must match repair metadata.");
+  });
+
+  it("redacts repair metadata again during store normalization", () => {
+    const bundle = feedbackRepairBundle("feedback-2026-05-18-replay-redaction");
+    const workItemInput = createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: feedbackRepairApproval("feedback-2026-05-18-replay-redaction"),
+      riskHypothesis: "Initial repair metadata is clean.",
+      fileImpact: ["packages/core/src/work-governance/work-item.ts"],
+      verificationCriteria: ["managed-agent review"],
+    });
+    const tampered = {
+      ...workItemInput,
+      feedbackRepair: {
+        ...workItemInput.feedbackRepair,
+        approvedBy: "Ricardo +1 (555) 123-4567",
+        riskHypothesis: "Call +1 555 123 4567 and use sk-ant-secret123",
+        verificationCriteria: ["Verify +1 555 123 4567 is absent"],
+      },
+    };
+    const store = new WorkItemStore({ now: () => "2026-05-18T12:06:00.000Z" });
+    const item = store.upsert(tampered);
+
+    expect(JSON.stringify(item.feedbackRepair)).not.toContain("+1");
+    expect(JSON.stringify(item.feedbackRepair)).not.toContain("555");
+    expect(JSON.stringify(item.feedbackRepair)).not.toContain("sk-ant-secret123");
+    expect(item.feedbackRepair?.approvedBy).toContain("[REDACTED:phone]");
+    expect(item.feedbackRepair?.riskHypothesis).toContain("[REDACTED:credential]");
+    expect(item.feedbackRepair?.riskHypothesis).toContain("[REDACTED:phone]");
+  });
+
+  it("preserves repair metadata through completion and replay normalization", () => {
+    const bundle = feedbackRepairBundle("feedback-2026-05-18-replay-repair");
+    const workItemInput = createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: feedbackRepairApproval("feedback-2026-05-18-replay-repair"),
+      riskHypothesis: "Replay should keep repair provenance stable.",
+      fileImpact: ["packages/core/src/work-governance/work-item.ts"],
+      verificationCriteria: ["bun run typecheck", "managed-agent review"],
+    });
+    const store = new WorkItemStore({ now: () => "2026-05-18T12:06:00.000Z" });
+    const item = store.upsert(workItemInput);
+    const blocked = store.complete({
+      id: item.id,
+      providedEvidence: ["tests", "typecheck", "managed-agent-review", "residual-risk"],
+      verificationGateResults: [{
+        gate: "managed-agent review",
+        status: "passed",
+        completedAt: "2026-05-18T12:07:00.000Z",
+      }],
+    });
+    expect(blocked?.item.status).toBe("blocked");
+    expect(blocked?.missingVerificationGates).toEqual(["bun run typecheck"]);
+
+    const completed = store.complete({
+      id: item.id,
+      providedEvidence: ["tests", "typecheck", "managed-agent-review", "residual-risk"],
+      residualRisk: "No remaining repair-specific risk after tests, typecheck, and review passed.",
+      verificationGateResults: [{
+        gate: "bun run typecheck",
+        status: "passed",
+        completedAt: "2026-05-18T12:08:00.000Z",
+      }, {
+        gate: "managed-agent review",
+        status: "passed",
+        completedAt: "2026-05-18T12:08:00.000Z",
+      }],
+    });
+    const replayStore = new WorkItemStore({ now: () => "2026-05-18T12:08:00.000Z" });
+    const replayed = replayStore.upsert(completed?.item ?? item);
+
+    expect(completed?.item.status).toBe("completed");
+    expect(replayed.sourceFeedbackId).toBe("feedback-2026-05-18-replay-repair");
+    expect(replayed.feedbackRepair).toEqual(completed?.item.feedbackRepair);
+  });
+});
+
+function feedbackRepairBundle(feedbackId: string) {
+  return createFeedbackBundle({
+    feedbackId,
+    createdAt: "2026-05-18T12:00:00.000Z",
+    sessionId: "session-123",
+    reporter: {
+      mode: "maintainer",
+      description: "The repair should be governed.",
+      actualBehavior: "No governed repair work item exists.",
+    },
+    evidenceSelection: {
+      includeSessionSummary: false,
+      includeTranscriptExcerpts: false,
+      includeToolFailures: false,
+      includeCommandOutput: false,
+      includeEnvironment: false,
+      includeGitStatus: false,
+      includeLogs: false,
+      includeFileChangeSummary: false,
+      includeDiagnosticFindings: false,
+    },
+    evidence: [],
+  });
+}
+
+function feedbackRepairApproval(feedbackId: string) {
+  return {
+    approved: true,
+    approvedBy: "ricardo",
+    approvedAt: "2026-05-18T12:05:00.000Z",
+    resourceUris: [`kiln://feedback/${encodeURIComponent(feedbackId)}/approval`],
+  } as const;
+}

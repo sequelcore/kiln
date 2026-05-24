@@ -13,6 +13,19 @@ export interface WorkItemRoutingRecommendation {
   readonly rationale: string;
 }
 
+export interface WorkItemFeedbackRepairSource {
+  readonly feedbackId: string;
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly bundleResourceUri: string;
+  readonly approvedBy: string;
+  readonly approvedAt: string;
+  readonly approvalResourceUris: readonly string[];
+  readonly riskHypothesis: string;
+  readonly fileImpact: readonly string[];
+  readonly verificationCriteria: readonly string[];
+}
+
 export type WorkItemExecutionMode = "direct" | "managed_delegation";
 export type WorkItemExecutionAttemptStatus = "started" | "completed" | "blocked" | "failed" | "cancelled";
 export type WorkItemExecutionFailureReason =
@@ -221,7 +234,9 @@ export interface WorkItemUpsertInput {
   readonly planHash?: string;
   readonly goalRunId?: string;
   readonly sourceWorkItemId?: string;
+  readonly sourceFeedbackId?: string;
   readonly routingRecommendation?: WorkItemRoutingRecommendation;
+  readonly feedbackRepair?: WorkItemFeedbackRepairSource;
   readonly managedOrchestration?: WorkItemManagedOrchestrationPolicy;
   readonly managedOrchestrationResultHandoff?: WorkItemManagedOrchestrationResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
@@ -333,6 +348,14 @@ export class WorkItemStore {
     const now = this.now();
     const existing = input.id ? this.items.get(input.id) : undefined;
     const id = input.id ?? `work-${this.sequence + 1}`;
+    const sourceFeedbackId = input.sourceFeedbackId ?? existing?.sourceFeedbackId;
+    const feedbackRepair = normalizeFeedbackRepairSource(input.feedbackRepair ?? existing?.feedbackRepair);
+    if (feedbackRepair && !sourceFeedbackId) {
+      throw new Error("Feedback repair work item source feedback id is required.");
+    }
+    if (sourceFeedbackId && feedbackRepair && sourceFeedbackId.trim() !== feedbackRepair.feedbackId) {
+      throw new Error("Feedback repair work item source feedback id must match repair metadata.");
+    }
     const item: WorkItem = {
       id,
       summary: input.summary,
@@ -360,7 +383,9 @@ export class WorkItemStore {
       planHash: input.planHash ?? existing?.planHash,
       goalRunId: input.goalRunId ?? existing?.goalRunId,
       sourceWorkItemId: input.sourceWorkItemId ?? existing?.sourceWorkItemId,
+      sourceFeedbackId: sourceFeedbackId?.trim(),
       routingRecommendation: input.routingRecommendation ?? existing?.routingRecommendation,
+      feedbackRepair,
       managedOrchestration: normalizeManagedOrchestrationPolicy(input.managedOrchestration ?? existing?.managedOrchestration),
       managedOrchestrationResultHandoff: normalizeManagedOrchestrationResultHandoff(
         input.managedOrchestrationResultHandoff ?? existing?.managedOrchestrationResultHandoff,
@@ -884,14 +909,32 @@ function missingRequiredVerificationGates(
     requiredGatePredicates.push(isBrowserQaVerificationGate);
   }
   if (requiredGatePredicates.length === 0) {
-    return missingManagedOrchestrationReadinessVerificationGates(item, results);
+    return unique([
+      ...missingFeedbackRepairVerificationGates(item, results),
+      ...missingManagedOrchestrationReadinessVerificationGates(item, results),
+    ]);
   }
   return unique([
     ...item.verificationGates
     .filter((gate) => requiredGatePredicates.some((predicate) => predicate(gate)))
       .filter((gate) => !satisfied.has(gate)),
+    ...missingFeedbackRepairVerificationGates(item, results),
     ...missingManagedOrchestrationReadinessVerificationGates(item, results),
   ]);
+}
+
+function missingFeedbackRepairVerificationGates(
+  item: WorkItem,
+  results: readonly VerificationGateResult[],
+): readonly string[] {
+  const repair = item.feedbackRepair;
+  if (!repair) {
+    return [];
+  }
+  const passed = new Set(results
+    .filter((result) => result.status === "passed")
+    .map((result) => result.gate));
+  return repair.verificationCriteria.filter((gate) => !passed.has(gate));
 }
 
 function missingManagedOrchestrationReadinessVerificationGates(
@@ -1093,6 +1136,124 @@ function normalizePauseRequirements(
     byId.set(requirement.id, requirement);
   }
   return [...byId.values()];
+}
+
+function normalizeFeedbackRepairSource(
+  source: WorkItemFeedbackRepairSource | undefined,
+): WorkItemFeedbackRepairSource | undefined {
+  if (!source) {
+    return undefined;
+  }
+  const feedbackId = source.feedbackId.trim();
+  if (!feedbackId) {
+    throw new Error("Feedback repair work item feedback id is required.");
+  }
+  const sessionId = source.sessionId.trim();
+  if (!sessionId) {
+    throw new Error("Feedback repair work item session id is required.");
+  }
+  const createdAt = normalizeCanonicalUtcTimestamp(
+    source.createdAt,
+    "Feedback repair work item feedback timestamp is required.",
+  );
+  const bundleResourceUri = normalizeFeedbackRepairResourceUri(
+    source.bundleResourceUri,
+    feedbackId,
+    "bundle",
+    "Feedback repair work item requires bundle evidence.",
+  );
+  const approvedBy = redactRequiredFeedbackRepairText(
+    source.approvedBy,
+    "Feedback repair work item approval actor is required.",
+  );
+  const approvedAt = normalizeCanonicalUtcTimestamp(
+    source.approvedAt,
+    "Feedback repair work item approval timestamp is required.",
+  );
+  const approvalResourceUris = unique(source.approvalResourceUris
+    .map((uri) => normalizeFeedbackRepairResourceUri(
+      uri,
+      feedbackId,
+      "approval",
+      "Feedback repair work item requires approval evidence.",
+    )));
+  if (approvalResourceUris.length === 0) {
+    throw new Error("Feedback repair work item requires approval evidence.");
+  }
+  const riskHypothesis = redactRequiredFeedbackRepairText(
+    source.riskHypothesis,
+    "Feedback repair work item requires risk hypothesis.",
+  );
+  const fileImpact = unique(source.fileImpact
+    .map((path) => redactFeedbackRepairText(path))
+    .filter((path) => path.length > 0));
+  if (fileImpact.length === 0) {
+    throw new Error("Feedback repair work item requires file impact.");
+  }
+  const verificationCriteria = unique(source.verificationCriteria
+    .map((criterion) => redactFeedbackRepairText(criterion))
+    .filter((criterion) => criterion.length > 0));
+  if (verificationCriteria.length === 0) {
+    throw new Error("Feedback repair work item requires verification criteria.");
+  }
+  return {
+    feedbackId,
+    sessionId,
+    createdAt,
+    bundleResourceUri,
+    approvedBy,
+    approvedAt,
+    approvalResourceUris,
+    riskHypothesis,
+    fileImpact,
+    verificationCriteria,
+  };
+}
+
+function normalizeCanonicalUtcTimestamp(value: string, message: string): string {
+  const timestamp = value.trim();
+  const canonicalUtcIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  const parsed = Date.parse(timestamp);
+  if (!canonicalUtcIso.test(timestamp) || !Number.isFinite(parsed) || new Date(parsed).toISOString() !== timestamp) {
+    throw new Error(message);
+  }
+  return timestamp;
+}
+
+function normalizeFeedbackRepairResourceUri(
+  value: string,
+  feedbackId: string,
+  evidenceKind: "approval" | "bundle",
+  message: string,
+): string {
+  const uri = value.normalize("NFKC").trim();
+  if (!uri) {
+    throw new Error(message);
+  }
+  const expected = `kiln://feedback/${encodeURIComponent(feedbackId)}/${evidenceKind}`;
+  if (uri !== expected) {
+    throw new Error(`Feedback repair work item ${evidenceKind} evidence must be the local feedback resource URI.`);
+  }
+  return uri;
+}
+
+function redactRequiredFeedbackRepairText(value: string, message: string): string {
+  const redacted = redactFeedbackRepairText(value);
+  if (!redacted) {
+    throw new Error(message);
+  }
+  return redacted;
+}
+
+function redactFeedbackRepairText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/\bAuthorization:\s*Bearer\s+[A-Za-z0-9._~+/=-]{10,}/gi, "[REDACTED:credential]")
+    .replace(/\bsk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}\b/g, "[REDACTED:credential]")
+    .replace(/\b(?:github_pat|ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{8,}\b/g, "[REDACTED:credential]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED:email]")
+    .replace(/(?:\+?\d[\d\s().-]{7,}\d)/g, "[REDACTED:phone]")
+    .trim();
 }
 
 function normalizeManagedOrchestrationPolicy(

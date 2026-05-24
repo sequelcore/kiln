@@ -1,71 +1,61 @@
-# Slice 6E - Governed Worktree Conflict States
+# Slice 6F - Governed Feedback Repair Work Items
 
 ## Objective
 
-Continue Slice 6 without reopening Slice 5. Slice 6E implements governed
-conflict states for worktree-backed managed children so same-checkout and
-isolated-worktree write conflicts are denied with shared evidence instead of a
-runtime-only exception string.
+Close the remaining Slice 6 feedback/repair integration by converting
+explicitly approved local feedback bundles into governed repair work item
+inputs. The repair path must reuse the existing work-governance lifecycle,
+evidence, and verification gate model instead of creating a second repair
+engine.
 
 ## Decision
 
-Use the existing managed resource lease evidence path. A worktree write
-conflict is a failed resource lease admission outcome, so the structured state
-belongs under `ManagedAgentResourceLeaseEvidence.worktreeConflict` and is
-projected through session events, cockpit projections, CLI output, and event
-presentation.
+Add a core-owned feedback repair materializer under work governance. It accepts
+a redacted `FeedbackBundle`, explicit local approval evidence, risk hypothesis,
+file impact, and verification criteria, then returns a `WorkItemUpsertInput`
+that can be stored in the existing `WorkItemStore`.
 
 ## Non-Goals
 
-- Do not implement feedback or repair work items in this cut.
-- Do not add compatibility aliases or legacy conflict strings as contract.
-- Do not create a second top-level denial evidence model outside managed
-  invocation lifecycle evidence.
-- Do not change disjoint approved workspace scope behavior.
+- Do not create a repair runner, PR branch workflow, or network adapter.
+- Do not bypass work-item evidence, review, or residual-risk closeout.
+- Do not add legacy aliases, migration shims, or surface-local repair state.
+- Do not publish feedback outside the local approved bundle contract.
 
 ## Surface Map
 
-- Core managed invocation contract:
-  - `packages/core/src/agents/managed-invocation/index.ts`
-  - `packages/core/src/events/session-event.ts`
-- Runtime managed invocation:
-  - `packages/runtime/src/agents/managed-invocation/index.ts`
-  - `packages/runtime/src/agents/managed-invocation/session-events.ts`
-  - `packages/runtime/src/agents/managed-invocation/resource-provider.ts`
-  - `packages/runtime/src/agents/managed-invocation/runtime-tool.ts`
-- Gateway/operator projections:
-  - `packages/gateway-contracts/src/frames.ts`
-  - `packages/gateway-contracts/src/operator-cockpit-projection.ts`
-  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
-  - `packages/gateway-contracts/src/operator-event-presentation.ts`
-- CLI surface:
-  - `packages/cli/src/commands/managed-agent.ts`
+- Feedback contract:
+  - `packages/core/src/feedback/index.ts`
+- Work governance:
+  - `packages/core/src/work-governance/feedback-repair.ts`
+  - `packages/core/src/work-governance/work-item.ts`
+  - `packages/core/src/work-governance/index.ts`
 - Tests:
-  - `packages/runtime/tests/managed-agent/invocation-service.test.ts`
-  - `packages/runtime/tests/session/managed-invocation-session-events.test.ts`
-  - `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`
-  - `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
-  - `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
-  - `packages/gateway-contracts/tests/operator-event-presentation.test.ts`
-  - `packages/cli/src/commands/managed-agent.test.ts`
+  - `packages/core/tests/feedback/session-feedback.test.ts`
+- Roadmap:
+  - `docs/roadmap/01-background-parallel-agent-surface.md`
+  - `docs/roadmap/03-session-feedback-pipeline.md`
+  - `docs/roadmap/README.md`
 
 ## Expected Behavior
 
-- Active same-checkout write collisions and same-path isolated-worktree
-  collisions return denied managed admission decisions with
-  `worktreeConflict.status === "blocked"`.
-- Conflict evidence identifies the active invocation, requested invocation,
-  working directory mode/path, policy id, and retry-after invocation ids.
-- Denied managed invocation session events carry
-  `managedInvocationEvidence.lifecycle.resourceLease.worktreeConflict`.
-- Cockpit, event presentation, and CLI surfaces render the conflict through the
-  shared resource lease projection.
+- Approved local feedback bundles materialize as pending `feedback-repair`
+  work items on the `session-feedback` surface.
+- Repair work items carry source feedback id, approval actor/time/resource
+  pointers, risk hypothesis, file impact, verification criteria, and route or
+  authority hints when provided.
+- Required evidence includes the feedback bundle, explicit approval, risk
+  hypothesis, file impact, verification criteria, tests, typecheck,
+  managed-agent review, and residual risk.
+- Repair metadata is redacted before being attached to work governance.
+- Missing approval, file impact, or verification criteria fails closed before
+  a work item can be created.
 
 ## Verification
 
-- Add failing tests first for runtime denial evidence and cross-surface
-  projection.
-- Run focused package tests for runtime, gateway contracts, and CLI.
+- Add failing tests first for conversion, redaction, and fail-closed criteria.
+- Run `bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts`.
+- Run adjacent work-governance tests.
 - Run `bun run typecheck`.
-- Run broader package tests if focused checks pass.
-- Update the roadmap document at the end.
+- Run `bun run --cwd packages/core test`.
+- Update roadmap docs at the end.
