@@ -105,6 +105,7 @@ export type {
 
 type BunHonoAdapters = typeof import("hono/bun");
 type BunUpgradeWebSocket = ReturnType<BunHonoAdapters["createBunWebSocket"]>["upgradeWebSocket"];
+const GUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-gui";
 
 async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
   return import("hono/bun");
@@ -2167,6 +2168,7 @@ class GuiActivityStreamer {
       this.ws.send(JSON.stringify(toOperatorSessionEventFrame(event, {
         eventId: `${event.eventId}:live`,
         sequence,
+        instanceId: GUI_OPERATOR_COCKPIT_INSTANCE_ID,
       }) satisfies GuiInboundFrame));
     }
   }

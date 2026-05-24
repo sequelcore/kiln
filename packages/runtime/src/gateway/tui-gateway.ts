@@ -68,6 +68,7 @@ import type {
 } from "../session/runtime-turn-record.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
+const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
 
 async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
   return import("hono/bun");
@@ -1091,6 +1092,7 @@ class TuiActivityStreamer {
       this.ws.send(JSON.stringify(toOperatorSessionEventFrame(event, {
         eventId: `${event.eventId}:live`,
         sequence,
+        instanceId: TUI_OPERATOR_COCKPIT_INSTANCE_ID,
       }) satisfies GuiInboundFrame));
     }
   }

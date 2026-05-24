@@ -950,6 +950,16 @@ describe("TUI gateway message fail-closed behavior", () => {
         "agent_invocation_started",
         "agent_invocation_completed",
       ]);
+      expect(sessionEventFrames.map((frame) => frame.event?.payload.instanceId)).toEqual([
+        "local-tui",
+        "local-tui",
+        "local-tui",
+      ]);
+      expect(sessionEventFrames.map((frame) => frame.event?.payload.sessionId)).toEqual([
+        "tui-parent-session",
+        "tui-parent-session",
+        "tui-parent-session",
+      ]);
       expect(sessionEventFrames[2]?.event?.payload).toMatchObject({
         resultSummary: "TUI child review completed.",
         managedInvocationEvidence: {

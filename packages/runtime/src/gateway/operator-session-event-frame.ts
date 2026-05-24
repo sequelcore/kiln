@@ -1,4 +1,7 @@
-import type { CanonicalSessionEvent } from "@kilnai/core";
+import {
+  projectManagedOrchestrationAdoptionGate,
+  type CanonicalSessionEvent,
+} from "@kilnai/core";
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 
 export function toOperatorSessionEventFrame(
@@ -6,6 +9,7 @@ export function toOperatorSessionEventFrame(
   options: {
     readonly eventId: string;
     readonly sequence: number;
+    readonly instanceId?: string;
   },
 ): Extract<GuiInboundFrame, { type: "session_event" }> {
   return {
@@ -19,12 +23,15 @@ export function toOperatorSessionEventFrame(
       turnId: event.turnId,
       parentEventId: event.parentEventId,
       source: event.source,
-      payload: canonicalSessionEventPayload(event),
+      payload: canonicalSessionEventPayload(event, options),
     },
   };
 }
 
-function canonicalSessionEventPayload(event: CanonicalSessionEvent): Record<string, unknown> {
+function canonicalSessionEventPayload(
+  event: CanonicalSessionEvent,
+  options: { readonly instanceId?: string },
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   const envelopeKeys = new Set([
     "eventId",
@@ -41,5 +48,24 @@ function canonicalSessionEventPayload(event: CanonicalSessionEvent): Record<stri
       payload[key] = value;
     }
   }
+  if (options.instanceId && typeof payload.instanceId !== "string") {
+    payload.instanceId = options.instanceId;
+  }
+  if (typeof payload.sessionId !== "string") {
+    payload.sessionId = event.kilnSessionId;
+  }
+  if (isWorkItemEvent(event)) {
+    payload.managedOrchestrationAdoptionGate = projectManagedOrchestrationAdoptionGate(event.workItem);
+  }
   return payload;
+}
+
+function isWorkItemEvent(
+  event: CanonicalSessionEvent,
+): event is Extract<CanonicalSessionEvent, {
+  readonly kind: "work_item_updated" | "work_item_execution_started" | "work_item_execution_finished";
+}> {
+  return event.kind === "work_item_updated"
+    || event.kind === "work_item_execution_started"
+    || event.kind === "work_item_execution_finished";
 }

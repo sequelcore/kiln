@@ -332,6 +332,388 @@ describe("operator cockpit read-only view state", () => {
     ]);
   });
 
+  it("resolves managed child drilldown and scoped replay from canonical cockpit projection", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-detail:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-detail:event:requested",
+          kilnSessionId: "managed-detail:session:1",
+          sequence: 1,
+          timestamp: "2026-05-23T12:00:00.000Z",
+          kind: "agent_invocation_requested",
+          payload: {
+            instanceId: "managed-detail:instance:1",
+            sessionId: "managed-detail:session:1",
+            managedInvocationId: "managed-detail:child:1",
+            invocationId: "managed-detail:child:1",
+            agentId: "agent-coder",
+            lifecycleState: "pending",
+          },
+        },
+        {
+          eventId: "managed-detail:event:started",
+          kilnSessionId: "managed-detail:session:1",
+          sequence: 2,
+          timestamp: "2026-05-23T12:00:01.000Z",
+          kind: "agent_invocation_started",
+          payload: {
+            instanceId: "managed-detail:instance:1",
+            sessionId: "managed-detail:session:1",
+            managedInvocationId: "managed-detail:child:1",
+            invocationId: "managed-detail:child:1",
+            agentId: "agent-coder",
+            lifecycleState: "running",
+          },
+        },
+        {
+          eventId: "managed-detail:event:completed",
+          kilnSessionId: "managed-detail:session:1",
+          sequence: 3,
+          timestamp: "2026-05-23T12:00:02.000Z",
+          kind: "agent_invocation_completed",
+          payload: {
+            instanceId: "managed-detail:instance:1",
+            sessionId: "managed-detail:session:1",
+            managedInvocationId: "managed-detail:child:1",
+            invocationId: "managed-detail:child:1",
+            agentId: "agent-coder",
+            lifecycleState: "completed",
+            managedInvocationEvidence: {
+              transcript: {
+                uri: "kiln://managed-invocations/managed-detail-child-1/transcript",
+              },
+              resultHandoff: {
+                summary: "Child completed.",
+                resourceUris: [
+                  "kiln://managed-invocations/managed-detail-child-1/handoff",
+                  "kiln://managed-invocations/managed-detail-child-1/report",
+                ],
+                memoryWriteProposalUris: [],
+              },
+              diagnostics: [{
+                uri: "kiln://managed-invocations/managed-detail-child-1/diagnostic",
+                kind: "adapter",
+              }],
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "managed-detail:instance:1",
+          sessionId: "managed-detail:session:1",
+          managedInvocationId: "managed-detail:child:1",
+          replayEventId: "managed-detail:event:started",
+        },
+      },
+    });
+
+    expect(view.managedAgents.drilldown).toMatchObject({
+      resolved: true,
+      item: {
+        managedInvocationId: "managed-detail:child:1",
+        latestEventId: "managed-detail:event:completed",
+      },
+      replay: {
+        entry: {
+          eventId: "managed-detail:event:started",
+        },
+        previousEventId: "managed-detail:event:requested",
+        nextEventId: "managed-detail:event:completed",
+      },
+    });
+    expect(view.managedAgents.drilldown?.resolved && view.managedAgents.drilldown.item.lifecycleTimeline.map((entry) => entry.eventId)).toEqual([
+      "managed-detail:event:requested",
+      "managed-detail:event:started",
+      "managed-detail:event:completed",
+    ]);
+    expect(view.managedAgents.drilldown?.resolved && view.managedAgents.drilldown.item.resourceUris).toEqual([
+      "kiln://managed-invocations/managed-detail-child-1/diagnostic",
+      "kiln://managed-invocations/managed-detail-child-1/handoff",
+      "kiln://managed-invocations/managed-detail-child-1/report",
+      "kiln://managed-invocations/managed-detail-child-1/transcript",
+    ]);
+  });
+
+  it("projects runtime adoption-gate snapshots onto matching managed child drilldown only", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-adoption:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-adoption:event:completed",
+          kilnSessionId: "managed-adoption:session:1",
+          sequence: 1,
+          timestamp: "2026-05-23T12:00:00.000Z",
+          kind: "agent_invocation_completed",
+          payload: {
+            instanceId: "managed-adoption:instance:1",
+            sessionId: "managed-adoption:session:1",
+            managedInvocationId: "managed-adoption:child:adopted",
+            invocationId: "managed-adoption:child:adopted",
+            lifecycleState: "completed",
+          },
+        },
+        {
+          eventId: "managed-adoption:event:adopted",
+          kilnSessionId: "managed-adoption:session:1",
+          sequence: 2,
+          timestamp: "2026-05-23T12:00:01.000Z",
+          kind: "work_item_updated",
+          payload: {
+            instanceId: "managed-adoption:instance:1",
+            sessionId: "managed-adoption:session:1",
+            workItemId: "work-adopted",
+            managedOrchestrationAdoptionGate: {
+              required: true,
+              target: "slice-6-handoff-review-adoption",
+              reason: "Managed child output must be adopted before closeout.",
+              orchestrationId: "orch-adoption",
+              childId: "managed-adoption:child:adopted",
+              mergePolicyMode: "manual",
+              status: "adopted",
+              adoptedBy: "operator",
+              adoptedAt: "2026-05-23T12:00:01.000Z",
+              resourceUris: ["kiln://artifacts/orch-adoption/adoption-review"],
+              blockingEvidence: [],
+            },
+          },
+        },
+        {
+          eventId: "managed-adoption:event:mismatch",
+          kilnSessionId: "managed-adoption:session:1",
+          sequence: 3,
+          timestamp: "2026-05-23T12:00:02.000Z",
+          kind: "work_item_updated",
+          payload: {
+            instanceId: "managed-adoption:instance:1",
+            sessionId: "managed-adoption:session:1",
+            workItemId: "work-mismatch",
+            managedOrchestrationAdoptionGate: {
+              required: true,
+              target: "slice-6-handoff-review-adoption",
+              reason: "Must not attach to the selected child.",
+              orchestrationId: "orch-mismatch",
+              childId: "managed-adoption:child:other",
+              mergePolicyMode: "manual",
+              status: "pending_review",
+              resourceUris: [],
+              blockingEvidence: ["managed-orchestration:adoption-gate"],
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "managed-adoption:instance:1",
+          sessionId: "managed-adoption:session:1",
+          managedInvocationId: "managed-adoption:child:adopted",
+        },
+      },
+    });
+
+    const item = view.managedAgents.items.find((candidate) =>
+      candidate.managedInvocationId === "managed-adoption:child:adopted");
+
+    expect(item?.adoptionGate).toEqual({
+      required: true,
+      target: "slice-6-handoff-review-adoption",
+      reason: "Managed child output must be adopted before closeout.",
+      orchestrationId: "orch-adoption",
+      childId: "managed-adoption:child:adopted",
+      mergePolicyMode: "manual",
+      status: "adopted",
+      adoptedBy: "operator",
+      adoptedAt: "2026-05-23T12:00:01.000Z",
+      resourceUris: ["kiln://artifacts/orch-adoption/adoption-review"],
+      blockingEvidence: [],
+    });
+    expect(view.managedAgents.drilldown?.resolved && view.managedAgents.drilldown.item.adoptionGate?.status).toBe("adopted");
+    expect(view.managedAgents.items).toHaveLength(1);
+  });
+
+  it("projects not-required adoption-gate snapshots when runtime provides child correlation", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-adoption-not-required:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-adoption-not-required:event:completed",
+          kilnSessionId: "managed-adoption-not-required:session:1",
+          sequence: 1,
+          timestamp: "2026-05-23T12:00:00.000Z",
+          kind: "agent_invocation_completed",
+          payload: {
+            instanceId: "managed-adoption-not-required:instance:1",
+            sessionId: "managed-adoption-not-required:session:1",
+            managedInvocationId: "managed-adoption-not-required:child:1",
+            invocationId: "managed-adoption-not-required:child:1",
+            lifecycleState: "completed",
+          },
+        },
+        {
+          eventId: "managed-adoption-not-required:event:gate",
+          kilnSessionId: "managed-adoption-not-required:session:1",
+          sequence: 2,
+          timestamp: "2026-05-23T12:00:01.000Z",
+          kind: "work_item_updated",
+          payload: {
+            instanceId: "managed-adoption-not-required:instance:1",
+            sessionId: "managed-adoption-not-required:session:1",
+            workItemId: "work-not-required",
+            managedOrchestrationAdoptionGate: {
+              required: false,
+              target: "slice-6-handoff-review-adoption",
+              reason: "Managed fan-out orchestration does not require automatic parent adoption.",
+              orchestrationId: "orch-fan-out",
+              childId: "managed-adoption-not-required:child:1",
+              mergePolicyMode: "compare-and-select",
+              status: "not_required",
+              resourceUris: [],
+              blockingEvidence: [],
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.items).toEqual([
+      expect.objectContaining({
+        managedInvocationId: "managed-adoption-not-required:child:1",
+        attentionState: "clear",
+        adoptionGate: expect.objectContaining({
+          required: false,
+          status: "not_required",
+          childId: "managed-adoption-not-required:child:1",
+        }),
+      }),
+    ]);
+  });
+
+  it("fails closed for unresolved managed child detail targets", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "view-state-missing-detail",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 1,
+      childInvocationCount: 1,
+      eventCount: 8,
+      startedAt: "2026-05-14T12:00:00.000Z",
+    });
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-14T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "view-state-missing-detail:instance:1",
+          label: "Local / kiln",
+          kind: "local",
+        },
+      ],
+      events: fixture.events,
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "view-state-missing-detail:instance:1",
+          sessionId: "view-state-missing-detail:session:1",
+          managedInvocationId: "view-state-missing-detail:child:missing",
+        },
+      },
+    });
+
+    expect(view.managedAgents.drilldown).toEqual({
+      resolved: false,
+      reason: "managed-invocation-not-found",
+    });
+  });
+
+  it("fails closed when managed child drilldown replay is outside the selected lifecycle", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-replay:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-replay:event:child-1",
+          kilnSessionId: "managed-replay:session:1",
+          sequence: 1,
+          timestamp: "2026-05-23T12:00:00.000Z",
+          kind: "agent_invocation_started",
+          payload: {
+            instanceId: "managed-replay:instance:1",
+            sessionId: "managed-replay:session:1",
+            managedInvocationId: "managed-replay:child:1",
+            invocationId: "managed-replay:child:1",
+            lifecycleState: "running",
+          },
+        },
+        {
+          eventId: "managed-replay:event:child-2",
+          kilnSessionId: "managed-replay:session:1",
+          sequence: 2,
+          timestamp: "2026-05-23T12:00:01.000Z",
+          kind: "agent_invocation_started",
+          payload: {
+            instanceId: "managed-replay:instance:1",
+            sessionId: "managed-replay:session:1",
+            managedInvocationId: "managed-replay:child:2",
+            invocationId: "managed-replay:child:2",
+            lifecycleState: "running",
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {
+        managedAgentDrilldownTarget: {
+          instanceId: "managed-replay:instance:1",
+          sessionId: "managed-replay:session:1",
+          managedInvocationId: "managed-replay:child:1",
+          replayEventId: "managed-replay:event:child-2",
+        },
+      },
+    });
+
+    expect(view.managedAgents.drilldown).toEqual({
+      resolved: false,
+      reason: "replay-event-not-found",
+    });
+  });
+
   it("fails closed for scoped timeline filters without their enclosing target", () => {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "view-state-scoped-targets",

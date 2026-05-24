@@ -141,6 +141,7 @@ export interface OperatorCockpitInvocationProjection {
   readonly resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   readonly transcript?: OperatorCockpitInvocationTranscriptProjection;
   readonly resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
+  readonly adoptionGate?: OperatorCockpitManagedOrchestrationAdoptionGateProjection;
   readonly diagnosticPointers: readonly OperatorCockpitInvocationDiagnosticPointerProjection[];
   readonly evidenceResourceUris: readonly string[];
   readonly eventCount: number;
@@ -162,6 +163,35 @@ export interface OperatorCockpitInvocationResultHandoffProjection {
   readonly summary?: string;
   readonly resourceUris: readonly string[];
   readonly memoryWriteProposalUris: readonly string[];
+}
+
+export type OperatorCockpitManagedOrchestrationAdoptionGateStatus =
+  | "not_required"
+  | "pending_review"
+  | "adopted"
+  | "rejected"
+  | "blocked";
+
+export interface OperatorCockpitManagedOrchestrationAdoptionGateRejectionProjection {
+  readonly gate: string;
+  readonly summary?: string;
+  readonly evidence: readonly string[];
+  readonly completedAt?: string;
+}
+
+export interface OperatorCockpitManagedOrchestrationAdoptionGateProjection {
+  readonly required: boolean;
+  readonly status: OperatorCockpitManagedOrchestrationAdoptionGateStatus;
+  readonly target?: string;
+  readonly reason?: string;
+  readonly orchestrationId?: string;
+  readonly childId?: string;
+  readonly mergePolicyMode?: string;
+  readonly adoptedBy?: string;
+  readonly adoptedAt?: string;
+  readonly resourceUris: readonly string[];
+  readonly rejection?: OperatorCockpitManagedOrchestrationAdoptionGateRejectionProjection;
+  readonly blockingEvidence: readonly string[];
 }
 
 export interface OperatorCockpitInvocationDiagnosticPointerProjection {
@@ -254,6 +284,7 @@ interface InvocationAccumulator {
   resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   transcript?: OperatorCockpitInvocationTranscriptProjection;
   resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
+  adoptionGate?: OperatorCockpitManagedOrchestrationAdoptionGateProjection;
   eventCount: number;
   latestEventId: string;
   title: string;
@@ -315,6 +346,7 @@ export function projectOperatorCockpitReadOnlyView(
 
   const sessions = new Map<string, SessionAccumulator>();
   const invocations = new Map<string, InvocationAccumulator>();
+  const adoptionGates = new Map<string, OperatorCockpitManagedOrchestrationAdoptionGateProjection>();
   const tools = new Map<string, ToolAccumulator>();
   const providerRoutes = new Set<string>();
   const timeline: OperatorCockpitTimelineEntry[] = [];
@@ -349,6 +381,7 @@ export function projectOperatorCockpitReadOnlyView(
       presentation.toolPresentation?.resourceLinks ?? [],
       target,
     );
+    const adoptionGate = readManagedOrchestrationAdoptionGate(payload.managedOrchestrationAdoptionGate);
 
     instance.eventCount += 1;
     instance.sessions.add(sessionId);
@@ -368,8 +401,20 @@ export function projectOperatorCockpitReadOnlyView(
     session.authority = readAuthority(payload) ?? session.authority;
     addResourceUris(session.resourceLinks, resourceLinks);
 
+    if (adoptionGate?.childId) {
+      const adoptionKey = projectionKey(instanceId, sessionId, adoptionGate.childId);
+      adoptionGates.set(adoptionKey, adoptionGate);
+      const invocation = invocations.get(adoptionKey);
+      if (invocation) {
+        invocation.adoptionGate = adoptionGate;
+        addEvidenceResourceUris(invocation, adoptionGate.resourceUris);
+        addEvidenceResourceUris(invocation, adoptionGate.rejection?.evidence ?? []);
+      }
+    }
+
     if (managedInvocationId) {
       const managedInvocationKey = projectionKey(sessionId, managedInvocationId);
+      const adoptionKey = projectionKey(instanceId, sessionId, managedInvocationId);
       const invocationTarget: OperatorCockpitActionTarget = {
         instanceId,
         sessionId,
@@ -391,6 +436,12 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.providerRoute = readProviderRoute(payload) ?? invocation.providerRoute;
       invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
       applyManagedInvocationEvidence(invocation, payload);
+      const pendingAdoptionGate = adoptionGates.get(adoptionKey);
+      if (pendingAdoptionGate) {
+        invocation.adoptionGate = pendingAdoptionGate;
+        addEvidenceResourceUris(invocation, pendingAdoptionGate.resourceUris);
+        addEvidenceResourceUris(invocation, pendingAdoptionGate.rejection?.evidence ?? []);
+      }
       invocation.status = readInvocationStatus(event, payload);
       instance.invocations.add(managedInvocationKey);
       session.invocations.add(managedInvocationId);
@@ -651,6 +702,7 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     ...(input.resourceLease !== undefined ? { resourceLease: input.resourceLease } : {}),
     ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: input.resultHandoff } : {}),
+    ...(input.adoptionGate !== undefined ? { adoptionGate: input.adoptionGate } : {}),
     diagnosticPointers: Array.from(input.diagnosticPointers.values()).sort(compareDiagnosticPointers),
     evidenceResourceUris: Array.from(input.evidenceResourceUris).sort(),
     eventCount: input.eventCount,
@@ -884,6 +936,90 @@ function readInvocationResultHandoff(value: unknown): OperatorCockpitInvocationR
     ...(summary !== undefined ? { summary } : {}),
     resourceUris,
     memoryWriteProposalUris,
+  };
+}
+
+function readManagedOrchestrationAdoptionGate(
+  value: unknown,
+): OperatorCockpitManagedOrchestrationAdoptionGateProjection | null {
+  if (!isRecordValue(value)) {
+    return null;
+  }
+  if (typeof value.required !== "boolean") {
+    return null;
+  }
+  const status = readManagedOrchestrationAdoptionGateStatus(value.status);
+  const resourceUris = readRequiredStringList(value.resourceUris);
+  const blockingEvidence = readRequiredStringList(value.blockingEvidence);
+  if (!status || !resourceUris || !blockingEvidence) {
+    return null;
+  }
+  const rejection = readManagedOrchestrationAdoptionGateRejection(value.rejection);
+  if (value.rejection !== undefined && !rejection) {
+    return null;
+  }
+  const childId = readString(value.childId) ?? undefined;
+  if (!childId) {
+    return null;
+  }
+  const target = readString(value.target) ?? undefined;
+  const reason = readString(value.reason) ?? undefined;
+  const orchestrationId = readString(value.orchestrationId) ?? undefined;
+  const mergePolicyMode = readString(value.mergePolicyMode) ?? undefined;
+  const adoptedBy = readString(value.adoptedBy) ?? undefined;
+  const adoptedAt = readString(value.adoptedAt) ?? undefined;
+  return {
+    required: value.required,
+    status,
+    ...(target !== undefined ? { target } : {}),
+    ...(reason !== undefined ? { reason } : {}),
+    ...(orchestrationId !== undefined ? { orchestrationId } : {}),
+    childId,
+    ...(mergePolicyMode !== undefined ? { mergePolicyMode } : {}),
+    ...(adoptedBy !== undefined ? { adoptedBy } : {}),
+    ...(adoptedAt !== undefined ? { adoptedAt } : {}),
+    resourceUris,
+    ...(rejection !== undefined ? { rejection } : {}),
+    blockingEvidence,
+  };
+}
+
+function readManagedOrchestrationAdoptionGateStatus(
+  value: unknown,
+): OperatorCockpitManagedOrchestrationAdoptionGateStatus | null {
+  if (
+    value === "not_required"
+    || value === "pending_review"
+    || value === "adopted"
+    || value === "rejected"
+    || value === "blocked"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function readManagedOrchestrationAdoptionGateRejection(
+  value: unknown,
+): OperatorCockpitManagedOrchestrationAdoptionGateRejectionProjection | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecordValue(value)) {
+    return undefined;
+  }
+  const gate = readString(value.gate);
+  const evidence = readRequiredStringList(value.evidence);
+  if (!gate || !evidence) {
+    return undefined;
+  }
+  const summary = readString(value.summary) ?? undefined;
+  const completedAt = readString(value.completedAt) ?? undefined;
+  return {
+    gate,
+    ...(summary !== undefined ? { summary } : {}),
+    evidence,
+    ...(completedAt !== undefined ? { completedAt } : {}),
   };
 }
 

@@ -32,12 +32,20 @@ export interface OperatorCockpitReplayCursorTarget {
   readonly eventId: string;
 }
 
+export interface OperatorCockpitManagedAgentDrilldownTarget {
+  readonly instanceId: string;
+  readonly sessionId: string;
+  readonly managedInvocationId: string;
+  readonly replayEventId?: string;
+}
+
 export interface OperatorCockpitReadOnlyViewStateInput {
   readonly projection: OperatorCockpitReadOnlyProjection;
   readonly viewState: {
     readonly focusTarget?: OperatorCockpitFocusTarget;
     readonly filters?: OperatorCockpitTimelineFilters;
     readonly replayCursor?: OperatorCockpitReplayCursorTarget;
+    readonly managedAgentDrilldownTarget?: OperatorCockpitManagedAgentDrilldownTarget;
   };
 }
 
@@ -84,6 +92,7 @@ export interface OperatorCockpitManagedAgentViewItem {
   readonly providerRoute?: string;
   readonly attentionState: OperatorCockpitManagedAgentAttentionState;
   readonly dirtyWorkspaceReviewRequired: boolean;
+  readonly adoptionGate?: OperatorCockpitInvocationProjection["adoptionGate"];
   readonly transcriptUri?: string;
   readonly resourceUris: readonly string[];
   readonly latestEventId: string;
@@ -95,7 +104,28 @@ export interface OperatorCockpitManagedAgentViewState {
   readonly items: readonly OperatorCockpitManagedAgentViewItem[];
   readonly activeCount: number;
   readonly attentionCount: number;
+  readonly drilldown?: OperatorCockpitManagedAgentDrilldownViewState;
 }
+
+export type OperatorCockpitManagedAgentDrilldownFailureReason =
+  | "managed-invocation-not-found"
+  | "replay-event-not-found";
+
+export type OperatorCockpitManagedAgentDrilldownViewState =
+  | {
+    readonly resolved: true;
+    readonly item: OperatorCockpitManagedAgentViewItem;
+    readonly replay: {
+      readonly resolved: true;
+      readonly entry: OperatorCockpitTimelineEntry;
+      readonly previousEventId?: string;
+      readonly nextEventId?: string;
+    };
+  }
+  | {
+    readonly resolved: false;
+    readonly reason: OperatorCockpitManagedAgentDrilldownFailureReason;
+  };
 
 export function createOperatorCockpitReadOnlyViewState(
   input: OperatorCockpitReadOnlyViewStateInput,
@@ -118,12 +148,16 @@ export function createOperatorCockpitReadOnlyViewState(
     },
     timeline,
     replay,
-    managedAgents: createManagedAgentViewState(input.projection),
+    managedAgents: createManagedAgentViewState(
+      input.projection,
+      input.viewState.managedAgentDrilldownTarget,
+    ),
   };
 }
 
 function createManagedAgentViewState(
   projection: OperatorCockpitReadOnlyProjection,
+  drilldownTarget?: OperatorCockpitManagedAgentDrilldownTarget,
 ): OperatorCockpitManagedAgentViewState {
   const items = projection.invocations
     .map((invocation) => projectManagedAgentItem(projection, invocation))
@@ -132,6 +166,7 @@ function createManagedAgentViewState(
     items,
     activeCount: items.filter((item) => item.attentionState === "active").length,
     attentionCount: items.filter((item) => item.attentionState !== "clear").length,
+    ...(drilldownTarget ? { drilldown: resolveManagedAgentDrilldown(items, drilldownTarget) } : {}),
   };
 }
 
@@ -150,6 +185,7 @@ function projectManagedAgentItem(
     ...(invocation.providerRoute !== undefined ? { providerRoute: invocation.providerRoute } : {}),
     attentionState,
     dirtyWorkspaceReviewRequired: invocation.resourceLease?.worktreeReview?.status === "required",
+    ...(invocation.adoptionGate !== undefined ? { adoptionGate: invocation.adoptionGate } : {}),
     ...(invocation.transcript?.uri ? { transcriptUri: invocation.transcript.uri } : {}),
     resourceUris,
     latestEventId: invocation.latestEventId,
@@ -168,7 +204,10 @@ function managedAgentAttentionState(
   if (
     invocation.resourceLease?.worktreeReview?.status === "required" ||
     invocation.resourceLease?.healthStatus === "leaked" ||
-    invocation.resourceLease?.cleanupStatus === "failed"
+    invocation.resourceLease?.cleanupStatus === "failed" ||
+    (invocation.adoptionGate?.required === true
+      && invocation.adoptionGate.status !== "adopted"
+      && invocation.adoptionGate.status !== "not_required")
   ) {
     return "needs_review";
   }
@@ -199,6 +238,41 @@ function managedAgentCancelControl(
   return {
     status: "unavailable",
     reason: "Managed invocation is not active.",
+  };
+}
+
+function resolveManagedAgentDrilldown(
+  items: readonly OperatorCockpitManagedAgentViewItem[],
+  target: OperatorCockpitManagedAgentDrilldownTarget,
+): OperatorCockpitManagedAgentDrilldownViewState {
+  const item = items.find((candidate) => (
+    candidate.instanceId === target.instanceId
+    && candidate.sessionId === target.sessionId
+    && candidate.managedInvocationId === target.managedInvocationId
+  ));
+  if (!item) {
+    return {
+      resolved: false,
+      reason: "managed-invocation-not-found",
+    };
+  }
+  const replayEventId = target.replayEventId ?? item.latestEventId;
+  const replayIndex = item.lifecycleTimeline.findIndex((entry) => entry.eventId === replayEventId);
+  if (replayIndex === -1) {
+    return {
+      resolved: false,
+      reason: "replay-event-not-found",
+    };
+  }
+  return {
+    resolved: true,
+    item,
+    replay: {
+      resolved: true,
+      entry: item.lifecycleTimeline[replayIndex]!,
+      previousEventId: item.lifecycleTimeline[replayIndex - 1]?.eventId,
+      nextEventId: item.lifecycleTimeline[replayIndex + 1]?.eventId,
+    },
   };
 }
 

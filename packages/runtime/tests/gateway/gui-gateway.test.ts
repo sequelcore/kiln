@@ -1637,6 +1637,16 @@ describe("startGuiGateway static mount", () => {
         "agent_invocation_started",
         "agent_invocation_completed",
       ]);
+      expect(sessionEventFrames.map((frame) => frame.event?.payload.instanceId)).toEqual([
+        "local-gui",
+        "local-gui",
+        "local-gui",
+      ]);
+      expect(sessionEventFrames.map((frame) => frame.event?.payload.sessionId)).toEqual([
+        "gui-parent-session",
+        "gui-parent-session",
+        "gui-parent-session",
+      ]);
       expect(sessionEventFrames[2]?.event?.payload).toMatchObject({
         resultSummary: "GUI child review completed.",
         managedInvocationEvidence: {
