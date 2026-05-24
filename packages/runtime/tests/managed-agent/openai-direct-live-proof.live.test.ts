@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import {
   createSessionBuiltinToolOptions,
   defineManagedAgentInvocationRequest,
@@ -10,16 +10,12 @@ import {
 } from "../../src/index.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import {
-  describeManagedAgentLive,
+  KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
+  describeManagedAgentProviderLive,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 
-const KILN_LIVE_OPENAI_DIRECT_TESTS_ENV = "KILN_LIVE_OPENAI_DIRECT_TESTS";
-
-const describeOpenAIDirectLive =
-  process.env[KILN_LIVE_OPENAI_DIRECT_TESTS_ENV] === "1" ? describeManagedAgentLive : describe.skip;
-
-describeOpenAIDirectLive("managed agent OpenAI direct-provider live proof", () => {
+describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proof", KILN_LIVE_OPENAI_DIRECT_TESTS_ENV, () => {
   it("reads a governed fixture through Kiln builtin tool authority", async () => {
     await withManagedAgentLiveFixtureWorkspace({
       prefix: "kiln-managed-agent-openai-direct-readonly-",

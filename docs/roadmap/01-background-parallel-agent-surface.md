@@ -125,8 +125,11 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle.
-  Slices 7-8 are not started.
+  work-governance lifecycle. Slice 7A is complete in code: managed-agent live
+  tests now share one global-plus-provider opt-in gate, and the live route
+  matrix includes a Codex OAuth subscription-backed direct-provider read-only
+  proof through the same managed direct adapter path as configured routes.
+  Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -837,7 +840,18 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: pending.
+Status: started. Slice 7A is complete in code.
+
+Completed:
+
+- Managed-agent live tests now share one provider-specific opt-in gate layered
+  on `KILN_LIVE_MANAGED_AGENT_TESTS=1`, so direct, harness, and subscription
+  route proofs cannot run unless both the global and route-family flags are
+  explicit.
+- Added a Codex OAuth subscription-backed direct-provider live proof. The proof
+  uses the CLI direct-provider managed adapter factory, the runtime managed
+  invocation service, and Kiln builtin read-tool authority to read an isolated
+  fixture workspace without adding a subscription-specific lifecycle path.
 
 Deliverables:
 

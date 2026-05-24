@@ -1,0 +1,112 @@
+import { expect, it } from "vitest";
+import {
+  createSessionBuiltinToolOptions,
+  defineManagedAgentInvocationRequest,
+} from "@kilnai/core";
+import { RuntimeManagedAgentInvocationService } from "../../src/index.js";
+import { createManagedDirectProviderAdapterFactory } from "../../../cli/src/config/managed-agent-direct-adapters.js";
+import {
+  KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
+  describeManagedAgentProviderLive,
+  withManagedAgentLiveFixtureWorkspace,
+} from "./managed-agent-live-test-harness.js";
+
+describeManagedAgentProviderLive(
+  "managed agent Codex OAuth subscription direct-provider live proof",
+  KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
+  () => {
+    it("reads a governed fixture through the subscription-backed direct adapter", async () => {
+      await withManagedAgentLiveFixtureWorkspace({
+        prefix: "kiln-managed-agent-codex-oauth-direct-readonly-",
+        files: {
+          "proof.txt": [
+            "Managed subscription direct-provider live fixture.",
+            "keyword=kiln-codex-oauth-direct-live-proof",
+            "The child must obtain this keyword by calling the read tool.",
+            "",
+          ].join("\n"),
+        },
+      }, async (workspace) => {
+        const model = process.env.KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL ?? "gpt-5.5";
+        const adapter = await createManagedDirectProviderAdapterFactory({
+          builtinToolOptions: createSessionBuiltinToolOptions(),
+        })({
+          id: "codex-oauth-readonly-live",
+          kind: "direct",
+          provider: "codex-oauth",
+          model,
+          profiles: ["foundation-readonly-plan"],
+          workingDirectory: "project",
+          tools: {
+            allowed: ["read"],
+            writes: false,
+            network: false,
+          },
+          credentials: { mode: "runtime-selected" },
+          memory: { access: "read-only" },
+          timeoutMs: 120000,
+        });
+        if (!adapter) {
+          throw new Error("Expected Codex OAuth direct live adapter");
+        }
+        const request = defineManagedAgentInvocationRequest({
+          invocationId: "invocation-codex-oauth-direct-live-readonly-1",
+          agentId: "codex-oauth-direct-live:foundation-readonly-plan",
+          parentSessionId: "session-codex-oauth-direct-live-parent",
+          parentTurnId: "session-codex-oauth-direct-live-parent:turn:1",
+          profile: "foundation-readonly-plan",
+          requestedBy: "operator",
+          requestSource: "live-test",
+          providerRoute: {
+            providerId: "codex-oauth",
+            surface: "direct-provider",
+            model,
+          },
+          adapterKind: "direct",
+          executionMode: "direct-provider",
+          authority: {
+            authorityProfileId: "authority:codex-oauth-direct-live-readonly",
+            permissionProfile: "read-only",
+            toolAuthority: {
+              allowedToolNames: ["read"],
+              writeAllowed: false,
+              networkAllowed: false,
+            },
+            workingDirectory: {
+              path: workspace.workspaceRoot,
+              mode: "read-only",
+            },
+            timeoutMs: 120000,
+            credentialRoute: {
+              mode: "runtime-selected",
+              routeId: "credential-route:codex-oauth:runtime-selected",
+            },
+            memoryScope: {
+              scope: { kind: "project", id: "kiln" },
+              access: "read-only",
+            },
+          },
+          input: {
+            summary: "Read the Codex OAuth direct-provider live fixture through Kiln tools.",
+            prompt: [
+              "Call the read tool exactly once with filePath \"proof.txt\".",
+              "After reading the file, reply with the keyword value in the form:",
+              "DIRECT_CODEX_OAUTH_LIVE_PROOF:<keyword>",
+              "Do not guess the keyword. Do not modify files.",
+            ].join("\n"),
+          },
+        });
+
+        const result = await new RuntimeManagedAgentInvocationService().invoke(request, adapter);
+
+        expect(result.status).toBe("completed");
+        if (result.status !== "completed") {
+          throw new Error("Expected completed Codex OAuth direct-provider live proof");
+        }
+        expect(result.record.lifecycleState).toBe("completed");
+        expect(result.record.resultHandoff?.summary).toContain("kiln-codex-oauth-direct-live-proof");
+        await expect(workspace.readFile("proof.txt")).resolves.toContain("keyword=kiln-codex-oauth-direct-live-proof");
+      });
+    }, 180000);
+  },
+);

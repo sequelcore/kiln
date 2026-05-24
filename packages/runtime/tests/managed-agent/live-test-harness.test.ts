@@ -1,9 +1,12 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
+  KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
   expectManagedAgentLiveFilesystemAndEvidence,
   isManagedAgentLiveTestsEnabled,
+  isManagedAgentProviderLiveTestsEnabled,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
@@ -14,6 +17,23 @@ describe("managed agent live test harness", () => {
     expect(isManagedAgentLiveTestsEnabled({ [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "0" })).toBe(false);
     expect(isManagedAgentLiveTestsEnabled({ [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "true" })).toBe(false);
     expect(isManagedAgentLiveTestsEnabled({ [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1" })).toBe(true);
+  });
+
+  it("requires both the global and provider-specific live test flags", () => {
+    expect(isManagedAgentProviderLiveTestsEnabled(KILN_LIVE_OPENAI_DIRECT_TESTS_ENV, {
+      [KILN_LIVE_OPENAI_DIRECT_TESTS_ENV]: "1",
+    })).toBe(false);
+    expect(isManagedAgentProviderLiveTestsEnabled(KILN_LIVE_OPENAI_DIRECT_TESTS_ENV, {
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+    })).toBe(false);
+    expect(isManagedAgentProviderLiveTestsEnabled(KILN_LIVE_OPENAI_DIRECT_TESTS_ENV, {
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_OPENAI_DIRECT_TESTS_ENV]: "0",
+    })).toBe(false);
+    expect(isManagedAgentProviderLiveTestsEnabled(KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV, {
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]: "1",
+    })).toBe(true);
   });
 
   it("creates an isolated fixture workspace and removes it after failures", async () => {

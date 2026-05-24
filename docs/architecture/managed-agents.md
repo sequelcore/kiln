@@ -455,10 +455,13 @@ Current status:
 
 Live tests are disabled by default. They require
 `KILN_LIVE_MANAGED_AGENT_TESTS=1` plus provider-specific flags such as
-`KILN_LIVE_OPENCODE_TESTS=1`, `KILN_LIVE_CODEX_TESTS=1`, or
-`KILN_LIVE_OPENAI_DIRECT_TESTS=1`. OpenAI direct live proof uses
+`KILN_LIVE_OPENCODE_TESTS=1`, `KILN_LIVE_CODEX_TESTS=1`,
+`KILN_LIVE_OPENAI_DIRECT_TESTS=1`, or
+`KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS=1`. OpenAI direct live proof uses
 `KILN_LIVE_OPENAI_DIRECT_MODEL` when set and otherwise defaults to
-`gpt-4o-mini`. Live tests must use isolated fixture workspaces, bounded tracked
+`gpt-4o-mini`; Codex OAuth subscription direct live proof uses
+`KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL` when set and otherwise defaults to
+`gpt-5.5`. Live tests must use isolated fixture workspaces, bounded tracked
 paths, read-only denial cases, approved-write positive cases, cleanup, and
 replay assertions.
 

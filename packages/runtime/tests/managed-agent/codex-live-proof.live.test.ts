@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   ManagedCliHarnessAdapter,
@@ -7,7 +7,8 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import { CodexSession } from "../../../cli/src/wrapper/codex-session.js";
 import {
-  describeManagedAgentLive,
+  KILN_LIVE_CODEX_TESTS_ENV,
+  describeManagedAgentProviderLive,
   expectManagedAgentLiveFilesystemAndEvidence,
   makeManagedAgentLiveHarnessReadOnlyRequest,
   makeManagedAgentLiveHarnessWriteRequest,
@@ -15,12 +16,7 @@ import {
 } from "./managed-agent-live-test-harness.js";
 import type { CliSessionFactory } from "../../src/execution/cli-session-contract.js";
 
-const KILN_LIVE_CODEX_TESTS_ENV = "KILN_LIVE_CODEX_TESTS";
-
-const describeCodexLive =
-  process.env[KILN_LIVE_CODEX_TESTS_ENV] === "1" ? describeManagedAgentLive : describe.skip;
-
-describeCodexLive("managed agent Codex live proof", () => {
+describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_CODEX_TESTS_ENV, () => {
   it("does not accept a real Codex write attempt under read-only authority", async () => {
     await withManagedAgentLiveFixtureWorkspace({
       prefix: "kiln-managed-agent-codex-readonly-",

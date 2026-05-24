@@ -13,6 +13,10 @@ import type {
 } from "@kilnai/core";
 
 export const KILN_LIVE_MANAGED_AGENT_TESTS_ENV = "KILN_LIVE_MANAGED_AGENT_TESTS";
+export const KILN_LIVE_CODEX_TESTS_ENV = "KILN_LIVE_CODEX_TESTS";
+export const KILN_LIVE_OPENCODE_TESTS_ENV = "KILN_LIVE_OPENCODE_TESTS";
+export const KILN_LIVE_OPENAI_DIRECT_TESTS_ENV = "KILN_LIVE_OPENAI_DIRECT_TESTS";
+export const KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS";
 
 export interface ManagedAgentLiveFixtureWorkspace {
   readonly workspaceRoot: string;
@@ -61,8 +65,24 @@ export function isManagedAgentLiveTestsEnabled(env: Environment = process.env): 
   return env[KILN_LIVE_MANAGED_AGENT_TESTS_ENV] === "1";
 }
 
+export function isManagedAgentProviderLiveTestsEnabled(
+  providerFlagEnv: string,
+  env: Environment = process.env,
+): boolean {
+  return isManagedAgentLiveTestsEnabled(env) && env[providerFlagEnv] === "1";
+}
+
 export function describeManagedAgentLive(name: string, factory: () => void): void {
   const describeLive = isManagedAgentLiveTestsEnabled() ? describe : describe.skip;
+  describeLive(name, factory);
+}
+
+export function describeManagedAgentProviderLive(
+  name: string,
+  providerFlagEnv: string,
+  factory: () => void,
+): void {
+  const describeLive = isManagedAgentProviderLiveTestsEnabled(providerFlagEnv) ? describe : describe.skip;
   describeLive(name, factory);
 }
 

@@ -1,61 +1,57 @@
-# Slice 6F - Governed Feedback Repair Work Items
+# Slice 7A - Subscription Direct Live Route Proof
 
 ## Objective
 
-Close the remaining Slice 6 feedback/repair integration by converting
-explicitly approved local feedback bundles into governed repair work item
-inputs. The repair path must reuse the existing work-governance lifecycle,
-evidence, and verification gate model instead of creating a second repair
-engine.
+Start Slice 7 live hardening by adding the missing subscription-backed direct
+provider live proof and removing ad hoc live-test gating from individual
+managed-agent live tests.
 
 ## Decision
 
-Add a core-owned feedback repair materializer under work governance. It accepts
-a redacted `FeedbackBundle`, explicit local approval evidence, risk hypothesis,
-file impact, and verification criteria, then returns a `WorkItemUpsertInput`
-that can be stored in the existing `WorkItemStore`.
+Use the existing managed invocation runtime service, direct-provider adapter
+factory, builtin tool surface, and fixture workspace harness. Add one shared
+provider live-test gate so each route family is enabled by the global live flag
+plus its provider-specific opt-in flag.
 
 ## Non-Goals
 
-- Do not create a repair runner, PR branch workflow, or network adapter.
-- Do not bypass work-item evidence, review, or residual-risk closeout.
-- Do not add legacy aliases, migration shims, or surface-local repair state.
-- Do not publish feedback outside the local approved bundle contract.
+- Do not introduce a new managed-agent lifecycle store or worker plane.
+- Do not special-case subscription routes outside the direct-provider adapter
+  path.
+- Do not run live tests by default.
+- Do not add compatibility aliases or legacy env fallbacks.
 
 ## Surface Map
 
-- Feedback contract:
-  - `packages/core/src/feedback/index.ts`
-- Work governance:
-  - `packages/core/src/work-governance/feedback-repair.ts`
-  - `packages/core/src/work-governance/work-item.ts`
-  - `packages/core/src/work-governance/index.ts`
-- Tests:
-  - `packages/core/tests/feedback/session-feedback.test.ts`
+- Live harness:
+  - `packages/runtime/tests/managed-agent/managed-agent-live-test-harness.ts`
+- Live tests:
+  - `packages/runtime/tests/managed-agent/live-test-harness.test.ts`
+  - `packages/runtime/tests/managed-agent/openai-direct-live-proof.live.test.ts`
+  - `packages/runtime/tests/managed-agent/codex-live-proof.live.test.ts`
+  - `packages/runtime/tests/managed-agent/opencode-live-proof.live.test.ts`
+  - `packages/runtime/tests/managed-agent/codex-oauth-direct-live-proof.live.test.ts`
+- Direct provider factory:
+  - `packages/cli/src/config/managed-agent-direct-adapters.ts`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
-  - `docs/roadmap/03-session-feedback-pipeline.md`
-  - `docs/roadmap/README.md`
 
 ## Expected Behavior
 
-- Approved local feedback bundles materialize as pending `feedback-repair`
-  work items on the `session-feedback` surface.
-- Repair work items carry source feedback id, approval actor/time/resource
-  pointers, risk hypothesis, file impact, verification criteria, and route or
-  authority hints when provided.
-- Required evidence includes the feedback bundle, explicit approval, risk
-  hypothesis, file impact, verification criteria, tests, typecheck,
-  managed-agent review, and residual risk.
-- Repair metadata is redacted before being attached to work governance.
-- Missing approval, file impact, or verification criteria fails closed before
-  a work item can be created.
+- Live tests remain disabled unless `KILN_LIVE_MANAGED_AGENT_TESTS=1`.
+- Provider-family live tests also require their explicit provider opt-in flag.
+- Codex OAuth subscription direct live proof executes through the same
+  managed direct-provider adapter and runtime service as configured routes.
+- The subscription direct live proof reads the fixture through Kiln builtin
+  tool authority and records a canonical completed managed invocation.
 
 ## Verification
 
-- Add failing tests first for conversion, redaction, and fail-closed criteria.
-- Run `bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts`.
-- Run adjacent work-governance tests.
+- Add failing tests first for provider-specific live-test gating.
+- Run `bun run --cwd packages/runtime test -- tests/managed-agent/live-test-harness.test.ts`.
+- Run focused managed-agent live test files with default env to prove they
+  remain skipped.
+- Run `bun run --cwd packages/cli test -- tests/config/managed-agent-direct-adapters.test.ts`.
+- Run `bun run --cwd packages/runtime test -- tests/managed-agent/direct-runtime-adapter.test.ts`.
 - Run `bun run typecheck`.
-- Run `bun run --cwd packages/core test`.
-- Update roadmap docs at the end.
+- Update the roadmap after code verification.
