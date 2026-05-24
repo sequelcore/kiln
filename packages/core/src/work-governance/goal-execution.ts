@@ -5,8 +5,13 @@ import type {
 import { isTerminalGoalStatus } from "./goal-run.js";
 import {
   MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE,
+  MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE,
   projectManagedOrchestrationAdoptionGate,
+  projectManagedOrchestrationResultHandoff,
 } from "./work-item.js";
+import type {
+  ManagedAgentResultHandoff,
+} from "../agents/managed-invocation/index.js";
 import type {
   WorkItem,
   WorkItemExecutionAttempt,
@@ -88,6 +93,7 @@ export interface FinishGoalExecutionAttemptInput {
   readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
   readonly summary?: string;
+  readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItem["managedOrchestrationAdoption"];
   readonly closeoutSummary?: string;
 }
@@ -230,6 +236,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     verificationGateResults: input.verificationGateResults,
     residualRisk: input.residualRisk,
     summary: input.summary,
+    managedInvocationResultHandoff: input.managedInvocationResultHandoff,
     managedOrchestrationAdoption: input.managedOrchestrationAdoption,
   });
   if (!completed) {
@@ -311,6 +318,9 @@ function missingRequiredGoalEvidence(goal: GoalRun, workItemStore: WorkItemStore
     }
     if (projectManagedOrchestrationAdoptionGate(item).status === "adopted") {
       provided.add(MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE);
+    }
+    if (projectManagedOrchestrationResultHandoff(item).status === "recorded") {
+      provided.add(MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE);
     }
   }
   return goal.evidenceRequirements
@@ -411,10 +421,19 @@ function paused(
 
 function goalProvidedEvidence(item: WorkItem): readonly string[] {
   const adoptionGate = projectManagedOrchestrationAdoptionGate(item);
+  const resultHandoff = projectManagedOrchestrationResultHandoff(item);
   return unique([
-    ...item.providedEvidence.filter((evidence) => evidence !== MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE),
+    ...item.providedEvidence.filter((evidence) =>
+      (evidence !== MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE
+        || item.managedOrchestration?.adoptionGate.required !== true)
+      && (evidence !== MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE
+        || item.managedOrchestration === undefined)
+    ),
     ...(adoptionGate.status === "adopted"
       ? [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE]
+      : []),
+    ...(resultHandoff.status === "recorded"
+      ? [MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE]
       : []),
   ]);
 }

@@ -1,4 +1,5 @@
 import { compareSessionEvents, type CanonicalSessionEvent } from "../events/session-event.js";
+import type { ManagedAgentResultHandoff } from "../agents/managed-invocation/index.js";
 
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
@@ -20,6 +21,7 @@ export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
 
 export const MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET = "slice-6-handoff-review-adoption";
 export const MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE = "managed-orchestration:adoption-gate";
+export const MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE = "managed-orchestration:result-handoff";
 
 export interface WorkItemManagedOrchestrationExpectedEvidence {
   readonly kind: string;
@@ -49,6 +51,33 @@ export interface WorkItemManagedOrchestrationAdoptionResolution {
   readonly adoptedBy: string;
   readonly adoptedAt: string;
   readonly resourceUris: readonly string[];
+}
+
+export interface WorkItemManagedOrchestrationResultHandoff {
+  readonly orchestrationId: string;
+  readonly childId: string;
+  readonly workItemId: string;
+  readonly summary: string;
+  readonly completedAt: string;
+  readonly resourceUris: readonly string[];
+}
+
+export type WorkItemManagedOrchestrationResultHandoffStatus =
+  | "not_required"
+  | "pending"
+  | "recorded"
+  | "blocked";
+
+export interface WorkItemManagedOrchestrationResultHandoffProjection {
+  readonly required: boolean;
+  readonly status: WorkItemManagedOrchestrationResultHandoffStatus;
+  readonly orchestrationId?: string;
+  readonly childId?: string;
+  readonly workItemId?: string;
+  readonly summary?: string;
+  readonly completedAt?: string;
+  readonly resourceUris: readonly string[];
+  readonly blockingEvidence: readonly string[];
 }
 
 export type WorkItemManagedOrchestrationAdoptionGateStatus =
@@ -154,6 +183,7 @@ export interface WorkItemUpsertInput {
   readonly sourceWorkItemId?: string;
   readonly routingRecommendation?: WorkItemRoutingRecommendation;
   readonly managedOrchestration?: WorkItemManagedOrchestrationPolicy;
+  readonly managedOrchestrationResultHandoff?: WorkItemManagedOrchestrationResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
   readonly executionAttempts?: readonly WorkItemExecutionAttempt[];
 }
@@ -209,6 +239,7 @@ export interface WorkItemFinishExecutionAttemptInput {
   readonly verificationGateResults?: readonly VerificationGateResult[];
   readonly residualRisk?: string;
   readonly summary?: string;
+  readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
 }
 
@@ -262,7 +293,10 @@ export class WorkItemStore {
       routeId: input.routeId,
       phaseRoutes: normalizeTextRecord(input.phaseRoutes ?? existing?.phaseRoutes),
       authorityProfile: input.authorityProfile,
-      expectedEvidence: unique(input.expectedEvidence),
+      expectedEvidence: normalizeWorkItemExpectedEvidence({
+        expectedEvidence: input.expectedEvidence,
+        managedOrchestration: input.managedOrchestration ?? existing?.managedOrchestration,
+      }),
       providedEvidence: unique(input.providedEvidence ?? existing?.providedEvidence ?? []),
       verificationGates: unique(input.verificationGates),
       skippedVerificationGates: unique(input.skippedVerificationGates ?? existing?.skippedVerificationGates ?? []),
@@ -276,6 +310,11 @@ export class WorkItemStore {
       sourceWorkItemId: input.sourceWorkItemId ?? existing?.sourceWorkItemId,
       routingRecommendation: input.routingRecommendation ?? existing?.routingRecommendation,
       managedOrchestration: normalizeManagedOrchestrationPolicy(input.managedOrchestration ?? existing?.managedOrchestration),
+      managedOrchestrationResultHandoff: normalizeManagedOrchestrationResultHandoff(
+        input.managedOrchestrationResultHandoff ?? existing?.managedOrchestrationResultHandoff,
+        input.managedOrchestration ?? existing?.managedOrchestration,
+        id,
+      ),
       managedOrchestrationAdoption: normalizeManagedOrchestrationAdoption(input.managedOrchestrationAdoption ?? existing?.managedOrchestrationAdoption),
       executionAttempts: input.executionAttempts ?? existing?.executionAttempts ?? [],
       createdAt: existing?.createdAt ?? now,
@@ -430,8 +469,20 @@ export class WorkItemStore {
     const managedOrchestrationAdoption = normalizeManagedOrchestrationAdoption(
       input.managedOrchestrationAdoption ?? existing.managedOrchestrationAdoption,
     );
+    const synthesizedHandoff = synthesizeManagedOrchestrationResultHandoff({
+      item: existing,
+      attempt,
+      managedInvocationResultHandoff: input.managedInvocationResultHandoff,
+      completedAt: this.now(),
+    });
+    const managedOrchestrationResultHandoff = normalizeManagedOrchestrationResultHandoff(
+      synthesizedHandoff ?? existing.managedOrchestrationResultHandoff,
+      existing.managedOrchestration,
+      existing.id,
+    );
     const missingEvidence = missingExpectedEvidence({
       ...existing,
+      managedOrchestrationResultHandoff,
       managedOrchestrationAdoption,
     }, providedEvidence);
     const residualRisk = input.residualRisk ?? existing.residualRisk ?? attempt.residualRisk;
@@ -461,6 +512,7 @@ export class WorkItemStore {
       skippedVerificationGates: allSkippedVerificationGates,
       verificationGateResults,
       residualRisk,
+      managedOrchestrationResultHandoff,
       managedOrchestrationAdoption,
       executionAttempts: existing.executionAttempts.map((candidate) =>
         candidate.id === input.attemptId ? completedAttempt : candidate),
@@ -551,6 +603,46 @@ export function projectManagedOrchestrationAdoptionGate(
   };
 }
 
+export function projectManagedOrchestrationResultHandoff(
+  item: WorkItem,
+): WorkItemManagedOrchestrationResultHandoffProjection {
+  const policy = item.managedOrchestration;
+  const expected = policy?.expectedEvidence.some((evidence) =>
+    evidence.required === true && evidence.kind === "result-handoff"
+  ) === true || item.expectedEvidence.includes(MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE);
+  if (!policy || !expected) {
+    return {
+      required: false,
+      status: "not_required",
+      resourceUris: [],
+      blockingEvidence: [],
+    };
+  }
+  const handoff = item.managedOrchestrationResultHandoff;
+  const base = {
+    required: true,
+    orchestrationId: policy.orchestrationId,
+    childId: policy.childId,
+    workItemId: item.id,
+    resourceUris: handoff?.resourceUris ?? [],
+  } satisfies Omit<WorkItemManagedOrchestrationResultHandoffProjection, "status" | "summary" | "completedAt" | "blockingEvidence">;
+  if (isMatchingManagedOrchestrationResultHandoff(item, handoff)) {
+    return {
+      ...base,
+      status: "recorded",
+      summary: handoff.summary,
+      completedAt: handoff.completedAt,
+      blockingEvidence: [],
+    };
+  }
+  return {
+    ...base,
+    status: item.status === "blocked" ? "blocked" : "pending",
+    resourceUris: [],
+    blockingEvidence: [MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE],
+  };
+}
+
 export function reconstructWorkItemsFromSessionEvents(
   events: readonly CanonicalSessionEvent[],
 ): WorkItemSnapshot {
@@ -580,17 +672,7 @@ export function reconstructWorkItemsFromSessionEvents(
 }
 
 function normalizeReplayedWorkItem(item: WorkItem): WorkItem | undefined {
-  const normalized = tryNormalizeReplayedWorkItem(item);
-  if (normalized) {
-    return normalized;
-  }
-  if (item.managedOrchestrationAdoption !== undefined) {
-    return tryNormalizeReplayedWorkItem({
-      ...item,
-      managedOrchestrationAdoption: undefined,
-    });
-  }
-  return undefined;
+  return tryNormalizeReplayedWorkItem(item);
 }
 
 function tryNormalizeReplayedWorkItem(item: WorkItem): WorkItem | undefined {
@@ -666,6 +748,12 @@ function missingExpectedEvidence(
   providedEvidence: readonly string[],
 ): readonly string[] {
   return item.expectedEvidence.filter((evidence) => {
+    if (isSatisfiedManagedOrchestrationResultHandoff(item, evidence)) {
+      return false;
+    }
+    if (isPendingManagedOrchestrationResultHandoff(item, evidence)) {
+      return true;
+    }
     if (isSatisfiedManagedOrchestrationAdoptionGate(item, evidence)) {
       return false;
     }
@@ -674,6 +762,62 @@ function missingExpectedEvidence(
     }
     return !providedEvidence.includes(evidence);
   });
+}
+
+function isPendingManagedOrchestrationResultHandoff(item: WorkItem, evidence: string): boolean {
+  return evidence === MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE
+    && item.managedOrchestration !== undefined
+    && !isMatchingManagedOrchestrationResultHandoff(item, item.managedOrchestrationResultHandoff);
+}
+
+function isSatisfiedManagedOrchestrationResultHandoff(item: WorkItem, evidence: string): boolean {
+  return evidence === MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE
+    && item.managedOrchestration !== undefined
+    && isMatchingManagedOrchestrationResultHandoff(item, item.managedOrchestrationResultHandoff);
+}
+
+function isMatchingManagedOrchestrationResultHandoff(
+  item: WorkItem,
+  handoff: WorkItemManagedOrchestrationResultHandoff | undefined,
+): handoff is WorkItemManagedOrchestrationResultHandoff {
+  const policy = item.managedOrchestration;
+  return Boolean(
+    policy
+      && handoff
+      && handoff.orchestrationId === policy.orchestrationId
+      && handoff.childId === policy.childId
+      && handoff.workItemId === item.id
+      && handoff.summary.trim().length > 0
+      && !Number.isNaN(Date.parse(handoff.completedAt))
+      && handoff.resourceUris.length > 0,
+  );
+}
+
+function synthesizeManagedOrchestrationResultHandoff(input: {
+  readonly item: WorkItem;
+  readonly attempt: WorkItemExecutionAttempt;
+  readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
+  readonly completedAt: string;
+}): WorkItemManagedOrchestrationResultHandoff | undefined {
+  const handoff = input.managedInvocationResultHandoff;
+  if (!handoff) {
+    return undefined;
+  }
+  const policy = input.item.managedOrchestration;
+  if (!policy) {
+    throw new Error("Managed invocation result handoff requires managed orchestration policy.");
+  }
+  if (input.attempt.executionMode !== "managed_delegation" || !input.attempt.managedInvocationId) {
+    throw new Error("Managed invocation result handoff requires a managed-delegation execution attempt.");
+  }
+  return normalizeManagedOrchestrationResultHandoff({
+    orchestrationId: policy.orchestrationId,
+    childId: policy.childId,
+    workItemId: input.item.id,
+    summary: handoff.summary,
+    completedAt: input.completedAt,
+    resourceUris: handoff.resourceUris,
+  }, policy, input.item.id);
 }
 
 function isPendingManagedOrchestrationAdoptionGate(item: WorkItem, evidence: string): boolean {
@@ -772,6 +916,65 @@ function normalizeManagedOrchestrationPolicy(
       target: MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
       reason: policy.adoptionGate.reason.trim(),
     },
+  };
+}
+
+function normalizeWorkItemExpectedEvidence(input: {
+  readonly expectedEvidence: readonly string[];
+  readonly managedOrchestration?: WorkItemManagedOrchestrationPolicy;
+}): readonly string[] {
+  const expectedEvidence = [...input.expectedEvidence];
+  const requiresManagedOrchestrationHandoff = input.managedOrchestration?.expectedEvidence.some((evidence) =>
+    evidence.kind === "result-handoff" && evidence.required === true
+  ) === true;
+  if (requiresManagedOrchestrationHandoff) {
+    expectedEvidence.push(MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE);
+  }
+  return unique(expectedEvidence);
+}
+
+function normalizeManagedOrchestrationResultHandoff(
+  handoff: WorkItemManagedOrchestrationResultHandoff | undefined,
+  policy: WorkItemManagedOrchestrationPolicy | undefined,
+  workItemId: string,
+): WorkItemManagedOrchestrationResultHandoff | undefined {
+  if (!handoff) {
+    return undefined;
+  }
+  if (!policy) {
+    throw new Error("Managed orchestration result handoff requires managed orchestration policy.");
+  }
+  const orchestrationId = handoff.orchestrationId.trim();
+  if (orchestrationId !== policy.orchestrationId.trim()) {
+    throw new Error("Managed orchestration result handoff orchestration id must match the work item.");
+  }
+  const childId = handoff.childId.trim();
+  if (childId !== policy.childId.trim()) {
+    throw new Error("Managed orchestration result handoff child id must match the work item.");
+  }
+  const normalizedWorkItemId = handoff.workItemId.trim();
+  if (normalizedWorkItemId !== workItemId) {
+    throw new Error("Managed orchestration result handoff work item id must match the work item.");
+  }
+  const summary = handoff.summary.trim();
+  if (!summary) {
+    throw new Error("Managed orchestration result handoff summary is required.");
+  }
+  const completedAt = handoff.completedAt.trim();
+  if (Number.isNaN(Date.parse(completedAt))) {
+    throw new Error("Managed orchestration result handoff timestamp is required.");
+  }
+  const resourceUris = unique(handoff.resourceUris.map((uri) => uri.trim()).filter((uri) => uri.length > 0));
+  if (resourceUris.length === 0) {
+    throw new Error("Managed orchestration result handoff requires at least one resource uri.");
+  }
+  return {
+    orchestrationId,
+    childId,
+    workItemId: normalizedWorkItemId,
+    summary,
+    completedAt,
+    resourceUris,
   };
 }
 

@@ -1,5 +1,6 @@
 import type {
   DevTool,
+  ManagedAgentResultHandoff,
   ToolInput,
   ToolResult,
   WorkItem,
@@ -69,6 +70,7 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
   "visual-reference-research",
   "browser-qa",
   "managed-agent-review",
+  "managed-orchestration:result-handoff",
   "formal-proof",
   "residual-risk",
 ];
@@ -1178,6 +1180,24 @@ export class WorkItemExecutionFinishTool implements DevTool {
         description: "Verification gates intentionally skipped by the attempt. Requires residual-risk closeout.",
       },
       verificationGateResults: verificationGateResultsSchema(),
+      managedInvocationResultHandoff: {
+        type: "object",
+        properties: {
+          summary: { type: "string", minLength: 1 },
+          resourceUris: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            minItems: 1,
+          },
+          memoryWriteProposalUris: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+          },
+        },
+        required: ["summary", "resourceUris"],
+        additionalProperties: false,
+        description: "Raw managed invocation result handoff returned by managed_agent.invoke.",
+      },
       summary: { type: "string", description: "Attempt result summary." },
       closeoutSummary: { type: "string", description: "Goal closeout summary if this attempt completes the final work item." },
     },
@@ -1225,6 +1245,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
         verificationGateResults,
         residualRisk: readText(input.input.residualRisk),
         summary: readText(input.input.summary),
+        managedInvocationResultHandoff: requireManagedInvocationResultHandoff(input.input.managedInvocationResultHandoff),
         closeoutSummary: readText(input.input.closeoutSummary),
       });
       const missing = [
@@ -1416,6 +1437,7 @@ function buildManagedInvocationRequest(
     requestedAuthority: resolveManagedInvocationAuthority(profile, input, goal),
     task: formatManagedInvocationTask(goal, step, phase),
     summary: step.workItem.summary,
+    goalRunId: goal.id,
     workItemId: step.workItemId,
     ...(agentProfile ? { agentProfile } : {}),
     roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
@@ -1879,6 +1901,57 @@ function readVerificationGateResults(value: unknown): readonly VerificationGateR
 
 function readVerificationGateResultStatus(value: unknown): VerificationGateResult["status"] | undefined {
   return value === "passed" || value === "failed" || value === "skipped" ? value : undefined;
+}
+
+function requireManagedInvocationResultHandoff(
+  value: unknown,
+): ManagedAgentResultHandoff | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid input: managedInvocationResultHandoff must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  const summary = readText(record.summary);
+  const resourceUris = requireNonEmptyTextArray(
+    record.resourceUris,
+    "managedInvocationResultHandoff.resourceUris",
+  );
+  if (!summary) {
+    throw new Error("Invalid input: managedInvocationResultHandoff.summary must be a non-empty string.");
+  }
+  const memoryWriteProposalUris = record.memoryWriteProposalUris === undefined
+    ? []
+    : requireTextArray(record.memoryWriteProposalUris, "managedInvocationResultHandoff.memoryWriteProposalUris");
+  return {
+    summary,
+    resourceUris,
+    memoryWriteProposalUris,
+  };
+}
+
+function requireNonEmptyTextArray(value: unknown, field: string): readonly string[] {
+  const items = requireTextArray(value, field);
+  if (items.length === 0) {
+    throw new Error(`Invalid input: ${field} must include at least one non-empty string.`);
+  }
+  return items;
+}
+
+function requireTextArray(value: unknown, field: string): readonly string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid input: ${field} must be an array.`);
+  }
+  const items: string[] = [];
+  for (const item of value) {
+    const text = readText(item);
+    if (!text) {
+      throw new Error(`Invalid input: ${field} must contain only non-empty strings.`);
+    }
+    items.push(text);
+  }
+  return uniqueText(items);
 }
 
 function readTriggers(value: unknown): readonly KilnWorkGovernanceTrigger[] {

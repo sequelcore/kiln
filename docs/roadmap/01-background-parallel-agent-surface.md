@@ -106,8 +106,14 @@ Active. Started on 2026-05-21. Current implementation status:
   exposes a shared managed-orchestration adoption gate projection with
   `not_required`, `pending_review`, `adopted`, `rejected`, and `blocked`
   states derived from governed work/adoption evidence, and goal closeout
-  consumes that same projection instead of duplicating adoption checks. Slices
-  7-8 are not started.
+  consumes that same projection instead of duplicating adoption checks. Slice
+  6B is complete in code: core work-governance now requires structured
+  managed-orchestration result handoff evidence with matching work item,
+  orchestration id, child id, summary, timestamp, and resource pointers before
+  governed child work or goal closeout can satisfy
+  `managed-orchestration:result-handoff`; the CLI execution-finish tool passes
+  that structured handoff without accepting raw handoff strings as sufficient.
+  Slices 7-8 are not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -761,8 +767,8 @@ Deliverables:
 
 ### Slice 6 - Handoff, Review, And Adoption
 
-Status: started. Slice 6A is complete in code; remaining governed handoff and
-review cuts continue here.
+Status: started. Slice 6A and Slice 6B are complete in code; remaining
+governed review, conflict, and repair cuts continue here.
 
 Completed:
 
@@ -774,11 +780,17 @@ Completed:
   when deciding whether `managed-orchestration:adoption-gate` evidence is
   satisfied, so raw child-provided evidence still cannot self-satisfy parent
   adoption.
+- Core work-governance now exposes structured managed-orchestration result
+  handoff evidence. Adoption-governed child work can only satisfy
+  `managed-orchestration:result-handoff` when the handoff matches the owning
+  work item, orchestration id, and child id, includes a non-empty summary,
+  valid completion timestamp, and resource pointers, and is passed through the
+  canonical completion path. Raw handoff evidence strings remain recorded as
+  attempted evidence but do not satisfy governed child completion or goal
+  closeout.
 
 Deliverables:
 
-- Require substantive handoff evidence before a child can complete a governed
-  phase.
 - Route code-writing children through diff, verification, review, and adoption
   gates.
 - Record skipped, failed, unavailable, cancelled, and timed-out children as

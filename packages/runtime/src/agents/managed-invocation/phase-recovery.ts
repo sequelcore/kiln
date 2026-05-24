@@ -56,10 +56,16 @@ function buildManagedInvocationPhaseAction(
   },
 ): Record<string, unknown> | undefined {
   const phase = readRecord(request?.executionPhase);
-  if (!request || !phase || readText(phase.completionTool) !== "work_item.update") {
+  const completionTool = readText(phase?.completionTool);
+  if (
+    !request
+    || !phase
+    || (completionTool !== "work_item.update" && completionTool !== "work_item.execution.finish")
+  ) {
     return undefined;
   }
   const workItemId = readText(request.workItemId);
+  const goalRunId = readText(request.goalRunId);
   const evidenceToRecord = readTextArray(phase.expectedEvidence);
   if (!workItemId || evidenceToRecord.length === 0) {
     return undefined;
@@ -76,6 +82,41 @@ function buildManagedInvocationPhaseAction(
   const sourceResourceUris = options.includeResultResources
     ? options.resultHandoff?.resourceUris.filter((uri) => readText(uri) !== undefined) ?? []
     : [];
+  if (completionTool === "work_item.execution.finish") {
+    return {
+      status: options.status,
+      reason: options.reason,
+      nextTool: "work_item.execution.finish",
+      workItemId,
+      ...(goalRunId ? { goalRunId } : {}),
+      evidenceToRecord,
+      ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+      ...(sourceResourceUris.length > 0
+        ? {
+            sourceResourceUris,
+            inspectionTool: "resource_read",
+            inspection: "Use resource_read on sourceResourceUris when the managed handoff content is needed before recording evidence.",
+          }
+        : {}),
+      workItemExecutionFinishInputTemplate: {
+        ...(goalRunId ? { goalRunId } : {}),
+        workItemId,
+        providedEvidence: evidenceToRecord,
+        ...(options.resultHandoff
+          ? {
+              managedInvocationResultHandoff: {
+                summary: options.resultHandoff.summary,
+                resourceUris: options.resultHandoff.resourceUris,
+                ...(options.resultHandoff.memoryWriteProposalUris.length > 0
+                  ? { memoryWriteProposalUris: options.resultHandoff.memoryWriteProposalUris }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+      ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
+    };
+  }
   return {
     status: options.status,
     reason: options.reason,
@@ -110,7 +151,12 @@ function hasSubstantivePhaseHandoff(
   resultHandoff: ManagedInvocationPhaseResultHandoff | undefined,
 ): boolean {
   const phase = readRecord(request?.executionPhase);
-  if (!request || !phase || readText(phase.completionTool) !== "work_item.update") {
+  const completionTool = readText(phase?.completionTool);
+  if (
+    !request
+    || !phase
+    || (completionTool !== "work_item.update" && completionTool !== "work_item.execution.finish")
+  ) {
     return true;
   }
   const evidenceToRecord = readTextArray(phase.expectedEvidence);

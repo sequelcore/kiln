@@ -741,6 +741,7 @@ describe("goal execution loop", () => {
       goalRunId: goal.id,
       workItemId: item.id,
       executionMode: "managed_delegation",
+      managedInvocationId: "invocation-adoption-goal",
     });
 
     const completed = finishGoalExecutionAttempt({
@@ -750,6 +751,10 @@ describe("goal execution loop", () => {
       workItemId: item.id,
       attemptId: started.attempt.id,
       providedEvidence: ["managed-orchestration:result-handoff"],
+      managedInvocationResultHandoff: {
+        summary: "Completed managed child handoff with reviewable resources.",
+        resourceUris: ["kiln://artifacts/orch-adoption-goal/handoff"],
+      },
       managedOrchestrationAdoption: {
         target: "slice-6-handoff-review-adoption",
         adoptedBy: "reviewer",
@@ -774,7 +779,7 @@ describe("goal execution loop", () => {
       },
     });
     expect(completed.goal.closeoutSummary).toContain(
-      "Evidence: managed-orchestration:result-handoff, managed-orchestration:adoption-gate.",
+      "Evidence: managed-orchestration:adoption-gate, managed-orchestration:result-handoff.",
     );
   });
 
@@ -875,6 +880,193 @@ describe("goal execution loop", () => {
         currentPhase: "paused:goal-closeout",
       },
     });
+  });
+
+  it("ignores raw managed orchestration result handoff evidence at goal closeout without structured handoff", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-raw-handoff-goal",
+      summary: "Attempt raw managed handoff evidence.",
+      status: "completed",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      providedEvidence: ["managed-orchestration:result-handoff"],
+      verificationGates: ["managed orchestration child handoff"],
+      managedOrchestration: {
+        orchestrationId: "orch-raw-handoff-goal",
+        mode: "decomposition",
+        childId: "orch-raw-handoff-goal:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: false,
+        },
+        adoptionGate: {
+          required: false,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption not required.",
+        },
+      },
+    });
+    const goal = goalRunStore.create({
+      id: "goal-raw-handoff",
+      objective: "Do not close with raw handoff evidence.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [
+        {
+          id: "managed-orchestration:result-handoff",
+          description: "Managed child returned structured handoff.",
+          required: true,
+        },
+      ],
+    });
+    const second = workItemStore.upsert({
+      id: "work-trigger-handoff-closeout",
+      summary: "Trigger closeout.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+    });
+    const goalWithSecondItem = goalRunStore.update({
+      id: goal.id,
+      workItemIds: [item.id, second.id],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goalWithSecondItem.id,
+      workItemId: second.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goalWithSecondItem.id,
+      workItemId: second.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+    });
+
+    expect(blocked).toMatchObject({
+      missingGoalEvidence: ["managed-orchestration:result-handoff"],
+      goal: {
+        status: "active",
+        currentPhase: "paused:goal-closeout",
+      },
+    });
+  });
+
+  it("normalizes managed orchestration result handoff policy into required work item evidence", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-policy-handoff-goal",
+      summary: "Require handoff from managed policy only.",
+      status: "completed",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: [],
+      providedEvidence: [],
+      verificationGates: ["managed orchestration child handoff"],
+      managedOrchestration: {
+        orchestrationId: "orch-policy-handoff-goal",
+        mode: "decomposition",
+        childId: "orch-policy-handoff-goal:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: false,
+        },
+        adoptionGate: {
+          required: false,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption not required for this child.",
+        },
+      },
+    });
+    expect(item.expectedEvidence).toEqual(["managed-orchestration:result-handoff"]);
+    const second = workItemStore.upsert({
+      id: "work-policy-handoff-closeout",
+      summary: "Trigger goal closeout.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-policy-handoff",
+      objective: "Do not close without policy-required managed handoff.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id, second.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [{
+        id: "managed-orchestration:result-handoff",
+        description: "Structured child result handoff.",
+        required: true,
+      }],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: second.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: second.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+    });
+
+    expect(blocked.missingGoalEvidence).toEqual(["managed-orchestration:result-handoff"]);
   });
 
   it("blocks goal closeout when managed orchestration adoption review failed despite structured adoption", () => {
@@ -988,7 +1180,7 @@ describe("goal execution loop", () => {
     });
   });
 
-  it("strips malformed replayed managed orchestration adoption before goal closeout", () => {
+  it("drops replayed work items with malformed managed orchestration closeout evidence", () => {
     const replayStore = new WorkItemStore({ now: fixedNow });
     const valid = replayStore.upsert({
       id: "work-replayed-adoption",
@@ -1028,7 +1220,7 @@ describe("goal execution loop", () => {
         },
       },
     });
-    const replayed = reconstructWorkItemsFromSessionEvents([
+    const replayedMalformedAdoption = reconstructWorkItemsFromSessionEvents([
       createSessionEvent({
         kind: "work_item_updated",
         kilnSessionId: "session-1",
@@ -1043,59 +1235,28 @@ describe("goal execution loop", () => {
           },
         },
       }),
-    ]).items[0];
-    expect(replayed?.managedOrchestrationAdoption).toBeUndefined();
-
-    const goalRunStore = new GoalRunStore({ now: fixedNow });
-    const workItemStore = new WorkItemStore({ now: fixedNow });
-    if (!replayed) throw new Error("replayed work item missing");
-    workItemStore.upsert(replayed);
-    const second = workItemStore.upsert({
-      id: "work-replay-trigger-closeout",
-      summary: "Trigger closeout after replay.",
-      workflowProfile: "verification-heavy",
-      triggers: ["verification-heavy"],
-      expectedEvidence: ["tests"],
-      verificationGates: ["bun test"],
-    });
-    const goal = goalRunStore.create({
-      id: "goal-replayed-adoption",
-      objective: "Do not close with malformed replayed adoption.",
-      ownerSessionId: "session-1",
-      planId: "plan-1",
-      workItemIds: [replayed.id, second.id],
-      authorityEnvelope: {
-        maximumAuthority: "audited",
-        escalationPolicy: "approval_required",
-        reason: "Approved plan.",
-      },
-      routePolicy: { workflowProfile: "managed-agent-change" },
-      evidenceRequirements: [
-        {
-          id: "managed-orchestration:adoption-gate",
-          description: "Managed child output adopted.",
-          required: true,
+    ]);
+    const replayedMalformedHandoff = reconstructWorkItemsFromSessionEvents([
+      createSessionEvent({
+        kind: "work_item_updated",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        workItem: {
+          ...valid,
+          managedOrchestrationResultHandoff: {
+            orchestrationId: "orch-replayed-adoption",
+            childId: "orch-replayed-adoption:child:1",
+            workItemId: "other-work-item",
+            summary: "Completed child work with reviewable resources.",
+            completedAt: "2026-05-12T10:30:00.000Z",
+            resourceUris: ["kiln://artifacts/orch-replayed-adoption/handoff"],
+          },
         },
-      ],
-    });
-    const started = startGoalExecutionAttempt({
-      goalRunStore,
-      workItemStore,
-      goalRunId: goal.id,
-      workItemId: second.id,
-      executionMode: "direct",
-    });
+      }),
+    ]);
 
-    const blocked = finishGoalExecutionAttempt({
-      goalRunStore,
-      workItemStore,
-      goalRunId: goal.id,
-      workItemId: second.id,
-      attemptId: started.attempt.id,
-      providedEvidence: ["tests"],
-    });
-
-    expect(blocked.missingGoalEvidence).toEqual(["managed-orchestration:adoption-gate"]);
+    expect(replayedMalformedAdoption.items).toEqual([]);
+    expect(replayedMalformedHandoff.items).toEqual([]);
   });
 
   it("generates goal closeout summary from linked work item evidence", () => {

@@ -9,6 +9,7 @@ import {
   materializeApprovedPlanWorkItems,
   materializeManagedAgentOrchestrationWorkItems,
   projectManagedOrchestrationAdoptionGate,
+  projectManagedOrchestrationResultHandoff,
   reconstructWorkItemMaterializationsFromSessionEvents,
   WorkItemStore,
 } from "../../src/work-governance/index.js";
@@ -341,6 +342,15 @@ describe("materializeApprovedPlanWorkItems", () => {
       blockingEvidence: ["managed-orchestration:adoption-gate"],
       resourceUris: [],
     });
+    expect(projectManagedOrchestrationResultHandoff(result.workItems[0]!)).toMatchObject({
+      required: true,
+      status: "pending",
+      orchestrationId: "orch-decompose",
+      childId: "orch-decompose:child:1",
+      workItemId: "orch-decompose:child:1:work-item",
+      blockingEvidence: ["managed-orchestration:result-handoff"],
+      resourceUris: [],
+    });
 
     const blocked = workItemStore.complete({
       id: result.workItems[0]!.id,
@@ -351,7 +361,11 @@ describe("materializeApprovedPlanWorkItems", () => {
       ],
     });
     expect(blocked?.item.status).toBe("blocked");
-    expect(blocked?.missingEvidence).toEqual(["managed-orchestration:adoption-gate"]);
+    expect(blocked?.missingEvidence).toEqual([
+      "managed-orchestration:result-handoff",
+      "managed-orchestration:adoption-gate",
+    ]);
+    expect(projectManagedOrchestrationResultHandoff(blocked!.item).status).toBe("blocked");
     expect(projectManagedOrchestrationAdoptionGate(blocked!.item)).toMatchObject({
       required: true,
       status: "blocked",
@@ -365,8 +379,23 @@ describe("materializeApprovedPlanWorkItems", () => {
       ],
     });
     expect(spoofedAdoption?.item.status).toBe("blocked");
-    expect(spoofedAdoption?.missingEvidence).toEqual(["managed-orchestration:adoption-gate"]);
+    expect(spoofedAdoption?.missingEvidence).toEqual([
+      "managed-orchestration:result-handoff",
+      "managed-orchestration:adoption-gate",
+    ]);
     expect(projectManagedOrchestrationAdoptionGate(spoofedAdoption!.item).status).toBe("blocked");
+
+    expect(() => workItemStore.upsert({
+      ...result.workItems[0]!,
+      managedOrchestrationResultHandoff: {
+        orchestrationId: "orch-decompose",
+        childId: "orch-decompose:child:1",
+        workItemId: result.workItems[1]!.id,
+        summary: "Implemented runtime helper.",
+        completedAt: "2026-05-22T20:30:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-decompose/child-1-handoff"],
+      },
+    })).toThrow("Managed orchestration result handoff work item id must match the work item.");
 
     expect(() => workItemStore.complete({
       id: result.workItems[0]!.id,
@@ -388,8 +417,25 @@ describe("materializeApprovedPlanWorkItems", () => {
       },
     })).toThrow("Managed orchestration adoption requires at least one resource uri.");
 
-    const adopted = workItemStore.complete({
+    const childOneStarted = workItemStore.startExecutionAttempt({
       id: result.workItems[0]!.id,
+      goalRunId: "goal-orchestration",
+      executionMode: "managed_delegation",
+      managedInvocationId: "orch-decompose:child:1",
+    });
+    expect(childOneStarted).toBeDefined();
+
+    const adopted = workItemStore.finishExecutionAttempt({
+      id: result.workItems[0]!.id,
+      attemptId: childOneStarted!.attempt.id,
+      providedEvidence: [
+        "managed-orchestration:completion-signal",
+        "managed-orchestration:merge:collect-all",
+      ],
+      managedInvocationResultHandoff: {
+        summary: "Implemented runtime helper and captured reviewable handoff evidence.",
+        resourceUris: ["kiln://artifacts/orch-decompose/child-1-handoff"],
+      },
       managedOrchestrationAdoption: {
         target: "slice-6-handoff-review-adoption",
         adoptedBy: "reviewer",
@@ -413,11 +459,20 @@ describe("materializeApprovedPlanWorkItems", () => {
       blockingEvidence: [],
       resourceUris: ["kiln://artifacts/orch-decompose/adoption-review"],
     });
+    expect(projectManagedOrchestrationResultHandoff(adopted!.item)).toMatchObject({
+      required: true,
+      status: "recorded",
+      summary: "Implemented runtime helper and captured reviewable handoff evidence.",
+      completedAt: "2026-05-22T20:00:00.000Z",
+      resourceUris: ["kiln://artifacts/orch-decompose/child-1-handoff"],
+      blockingEvidence: [],
+    });
 
     const contradictory = workItemStore.upsert({
       ...adopted!.item,
       id: "orch-decompose:child:contradictory:work-item",
       status: "completed",
+      managedOrchestrationResultHandoff: undefined,
       verificationGateResults: [{
         gate: "managed orchestration adoption gate",
         status: "failed",
@@ -438,13 +493,25 @@ describe("materializeApprovedPlanWorkItems", () => {
       blockingEvidence: ["managed-orchestration:adoption-gate"],
     });
 
-    const rejected = workItemStore.complete({
+    const childTwoStarted = workItemStore.startExecutionAttempt({
       id: result.workItems[1]!.id,
+      goalRunId: "goal-orchestration",
+      executionMode: "managed_delegation",
+      managedInvocationId: "orch-decompose:child:2",
+    });
+    expect(childTwoStarted).toBeDefined();
+
+    const rejected = workItemStore.finishExecutionAttempt({
+      id: result.workItems[1]!.id,
+      attemptId: childTwoStarted!.attempt.id,
       providedEvidence: [
-        "managed-orchestration:result-handoff",
         "managed-orchestration:completion-signal",
         "managed-orchestration:merge:collect-all",
       ],
+      managedInvocationResultHandoff: {
+        summary: "Implemented CLI surface and captured reviewable handoff evidence.",
+        resourceUris: ["kiln://artifacts/orch-decompose/child-2-handoff"],
+      },
       verificationGateResults: [{
         gate: "managed orchestration adoption gate",
         status: "failed",

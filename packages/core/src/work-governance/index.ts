@@ -60,6 +60,9 @@ export type {
   WorkItemManagedOrchestrationIsolationPolicy,
   WorkItemManagedOrchestrationMergePolicy,
   WorkItemManagedOrchestrationPolicy,
+  WorkItemManagedOrchestrationResultHandoff,
+  WorkItemManagedOrchestrationResultHandoffProjection,
+  WorkItemManagedOrchestrationResultHandoffStatus,
   WorkItemPauseRequirement,
   WorkItemPauseRequirementKind,
   WorkItemPauseRequirementStatus,
@@ -81,7 +84,9 @@ export type {
 export {
   MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
+  MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE,
   projectManagedOrchestrationAdoptionGate,
+  projectManagedOrchestrationResultHandoff,
   reconstructWorkItemsFromSessionEvents,
 } from "./work-item.js";
 export { WorkItemStore } from "./work-item.js";

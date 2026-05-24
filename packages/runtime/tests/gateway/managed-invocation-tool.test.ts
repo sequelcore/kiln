@@ -2092,6 +2092,101 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
+  it("returns a final phase finish template with raw managed invocation handoff", async () => {
+    const phaseSummary = "Managed implementation completed with tests and reviewable handoff evidence.";
+    const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-final-phase-complete",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Execute the final managed child phase.",
+      summary: "Execute the final managed child phase.",
+      goalRunId: "goal-final",
+      workItemId: "work-final",
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      executionPhase: {
+        id: "managed-review-closeout",
+        expectedEvidence: ["managed-orchestration:result-handoff"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly managedInvocationPhaseCompletion?: Record<string, unknown>;
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly phaseCompletion?: {
+        readonly nextTool?: string;
+        readonly goalRunId?: string;
+        readonly workItemId?: string;
+        readonly evidenceToRecord?: readonly string[];
+        readonly workItemExecutionFinishInputTemplate?: {
+          readonly goalRunId?: string;
+          readonly workItemId?: string;
+          readonly providedEvidence?: readonly string[];
+          readonly managedInvocationResultHandoff?: {
+            readonly summary?: string;
+            readonly resourceUris?: readonly string[];
+            readonly orchestrationId?: string;
+            readonly childId?: string;
+            readonly completedAt?: string;
+          };
+        };
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(output.phaseCompletion).toMatchObject({
+        nextTool: "work_item.execution.finish",
+        goalRunId: "goal-final",
+        workItemId: "work-final",
+        evidenceToRecord: ["managed-orchestration:result-handoff"],
+        requiredToolNames: ["read"],
+        workItemExecutionFinishInputTemplate: {
+        goalRunId: "goal-final",
+        workItemId: "work-final",
+        providedEvidence: ["managed-orchestration:result-handoff"],
+        managedInvocationResultHandoff: {
+          summary: phaseSummary,
+          resourceUris: [expect.stringContaining("kiln://managed-invocations/")],
+        },
+      },
+    });
+    expect(
+      output.phaseCompletion?.workItemExecutionFinishInputTemplate?.managedInvocationResultHandoff?.orchestrationId,
+    ).toBeUndefined();
+    expect(
+      output.phaseCompletion?.workItemExecutionFinishInputTemplate?.managedInvocationResultHandoff?.childId,
+    ).toBeUndefined();
+    expect(
+      output.phaseCompletion?.workItemExecutionFinishInputTemplate?.managedInvocationResultHandoff?.completedAt,
+    ).toBeUndefined();
+    expect(result.metadata.managedInvocationPhaseCompletion).toMatchObject({
+      status: "phase_completed_by_child",
+      nextTool: "work_item.execution.finish",
+      workItemId: "work-final",
+    });
+  });
+
   it("accepts code-backed frontend implementation evidence when public screenshots are unavailable", async () => {
     const phaseSummary = [
       "No public screenshots were found.",

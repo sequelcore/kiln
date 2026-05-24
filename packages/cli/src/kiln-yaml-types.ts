@@ -146,6 +146,7 @@ export type KilnWorkGovernanceEvidence =
   | "visual-reference-research"
   | "browser-qa"
   | "managed-agent-review"
+  | "managed-orchestration:result-handoff"
   | "formal-proof"
   | "residual-risk";
 

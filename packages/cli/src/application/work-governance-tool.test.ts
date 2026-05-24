@@ -434,6 +434,226 @@ describe("work-governance-tool", () => {
     expect(goalRunStore.get(goal.id)?.status).toBe("completed");
   });
 
+  it("synthesizes structured managed orchestration result handoff from raw invocation handoff", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "orch-cli:child:1:work-item",
+      summary: "Execute managed child handoff.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      verificationGates: ["managed orchestration child handoff"],
+      goalRunId: "goal-managed-handoff",
+      routeId: "opencode-readonly",
+      assignedAgentProfile: "coder",
+      authorityProfile: "foundation-propose-writes",
+      managedOrchestration: {
+        orchestrationId: "orch-cli",
+        mode: "decomposition",
+        childId: "orch-cli:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [{
+          kind: "result-handoff",
+          label: "bounded child result handoff",
+          required: true,
+        }],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: false,
+        },
+        adoptionGate: {
+          required: false,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption not required for this child.",
+        },
+      },
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-handoff",
+      objective: "Close with structured managed handoff.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: {
+        workflowProfile: "managed-agent-change",
+        preferredRouteId: "opencode-readonly",
+        managedAgentProfile: "coder",
+      },
+      evidenceRequirements: [{
+        id: "managed-orchestration:result-handoff",
+        description: "Structured child result handoff.",
+        required: true,
+      }],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+    const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+    const started = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        managedInvocationId: "orch-cli:child:1",
+      },
+    });
+    expect(started?.isError).toBe(false);
+    expect(started?.metadata).toMatchObject({
+      attempt: {
+        executionMode: "managed_delegation",
+        managedInvocationId: "orch-cli:child:1",
+      },
+    });
+
+    const finished = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-managed-handoff:orch-cli:child:1:work-item:attempt:1",
+        providedEvidence: ["managed-orchestration:result-handoff"],
+        managedInvocationResultHandoff: {
+          summary: "Implemented the managed child scope and produced reviewable handoff evidence.",
+          resourceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+        },
+      },
+    });
+
+    expect(finished?.isError).toBe(false);
+    expect(finished?.metadata).toMatchObject({
+      operation: "execution_finished",
+      status: "completed",
+      item: {
+        managedOrchestrationResultHandoff: {
+          orchestrationId: "orch-cli",
+          childId: "orch-cli:child:1",
+          workItemId: item.id,
+          resourceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+        },
+      },
+      missingEvidence: [],
+      missingGoalEvidence: [],
+    });
+    expect(goalRunStore.get(goal.id)?.status).toBe("completed");
+  });
+
+  it("rejects malformed raw managed invocation handoff input before finishing execution", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "orch-cli-invalid:child:1:work-item",
+      summary: "Reject malformed managed child handoff.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      verificationGates: ["managed orchestration child handoff"],
+      goalRunId: "goal-invalid-handoff",
+      routeId: "opencode-readonly",
+      assignedAgentProfile: "coder",
+      authorityProfile: "foundation-propose-writes",
+      managedOrchestration: {
+        orchestrationId: "orch-cli-invalid",
+        mode: "decomposition",
+        childId: "orch-cli-invalid:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [{
+          kind: "result-handoff",
+          label: "bounded child result handoff",
+          required: true,
+        }],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: false,
+        },
+        adoptionGate: {
+          required: false,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption not required for this child.",
+        },
+      },
+    });
+    const goal = goalRunStore.create({
+      id: "goal-invalid-handoff",
+      objective: "Reject malformed handoff.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: {
+        workflowProfile: "managed-agent-change",
+        preferredRouteId: "opencode-readonly",
+        managedAgentProfile: "coder",
+      },
+      evidenceRequirements: [{
+        id: "managed-orchestration:result-handoff",
+        description: "Structured child result handoff.",
+        required: true,
+      }],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    await tools.find((candidate) => candidate.name === "work_item.execution.start")?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        managedInvocationId: "orch-cli-invalid:child:1",
+      },
+    });
+
+    const rejected = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-invalid-handoff:orch-cli-invalid:child:1:work-item:attempt:1",
+        managedInvocationResultHandoff: {
+          summary: "Implemented the managed child scope.",
+          resourceUris: [],
+        },
+      },
+    });
+
+    expect(rejected?.isError).toBe(true);
+    expect(rejected?.output).toContain("managedInvocationResultHandoff.resourceUris");
+    expect(workItemStore.get(item.id)?.status).toBe("in_progress");
+
+    const rejectedMixedUris = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-invalid-handoff:orch-cli-invalid:child:1:work-item:attempt:1",
+        managedInvocationResultHandoff: {
+          summary: "Implemented the managed child scope.",
+          resourceUris: ["", "kiln://artifacts/orch-cli-invalid/child-1-handoff"],
+        },
+      },
+    });
+
+    expect(rejectedMixedUris?.isError).toBe(true);
+    expect(rejectedMixedUris?.output).toContain("managedInvocationResultHandoff.resourceUris");
+    expect(workItemStore.get(item.id)?.status).toBe("in_progress");
+  });
+
   it("returns generated goal closeout summary when final execution omits manual summary", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
