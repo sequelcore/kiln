@@ -34,7 +34,8 @@ export type WorkItemToolName =
   | "work_item.list"
   | "work_item.complete"
   | "work_item.execution.start"
-  | "work_item.execution.finish";
+  | "work_item.execution.finish"
+  | "work_item.execution.fail";
 export type GoalToolName = "goal.create";
 export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_save";

@@ -60,7 +60,10 @@ import {
   MANAGED_AGENT_STATUS_TOOL,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
-import { buildManagedInvocationPhaseRecovery } from "../agents/managed-invocation/phase-recovery.js";
+import {
+  buildManagedInvocationPhaseRecovery,
+  managedInvocationFailureReasonFromStatus,
+} from "../agents/managed-invocation/phase-recovery.js";
 import { authorityFromCapability } from "./tool-authority.js";
 
 export interface AttachedRuntimeBuiltinToolSurface {
@@ -860,7 +863,7 @@ function managedDelegationPausedResult(
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
-  const recovery = buildManagedDelegationRecovery(initialOutput);
+  const recovery = buildManagedDelegationRecovery(managedResult, initialOutput);
   return {
     output: JSON.stringify({
       status: "paused",
@@ -883,10 +886,16 @@ function managedDelegationPausedResult(
 }
 
 function buildManagedDelegationRecovery(
+  managedResult: RuntimeToolResultEnvelope | undefined,
   initialOutput: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
   const request = readRecord(initialOutput?.managedInvocationRequest);
-  return buildManagedInvocationPhaseRecovery(request);
+  return buildManagedInvocationPhaseRecovery(
+    request,
+    managedInvocationFailureReasonFromStatus(
+      managedResult?.metadata?.lifecycleState ?? managedResult?.metadata?.status,
+    ),
+  );
 }
 
 interface RuntimeToolResultEnvelope {

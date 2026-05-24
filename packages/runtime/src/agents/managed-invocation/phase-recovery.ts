@@ -1,3 +1,5 @@
+import type { WorkItemExecutionFailureReason } from "@kilnai/core";
+
 export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
 
 interface ManagedInvocationPhaseResultHandoff {
@@ -8,12 +10,33 @@ interface ManagedInvocationPhaseResultHandoff {
 
 export function buildManagedInvocationPhaseRecovery(
   request: Record<string, unknown> | undefined,
+  failureReason: WorkItemExecutionFailureReason = "failed",
 ): Record<string, unknown> | undefined {
   return buildManagedInvocationPhaseAction(request, {
     status: "phase_evidence_required",
     reason: "Managed child failed before recording an intermediate execution phase. If the parent completes this evidence locally, it must record the phase before replying or starting the next phase.",
     includeResultResources: false,
+    failureReason,
   });
+}
+
+export function managedInvocationFailureReasonFromStatus(status: unknown): WorkItemExecutionFailureReason {
+  switch (status) {
+    case "denied":
+      return "denied";
+    case "unavailable":
+      return "unavailable";
+    case "timed_out":
+    case "timed-out":
+      return "timed_out";
+    case "cancelled":
+      return "cancelled";
+    case "skipped":
+      return "skipped";
+    case "failed":
+    default:
+      return "failed";
+  }
 }
 
 export function buildManagedInvocationPhaseCompletion(
@@ -53,6 +76,7 @@ function buildManagedInvocationPhaseAction(
     readonly reason: string;
     readonly includeResultResources: boolean;
     readonly resultHandoff?: ManagedInvocationPhaseResultHandoff;
+    readonly failureReason?: WorkItemExecutionFailureReason;
   },
 ): Record<string, unknown> | undefined {
   const phase = readRecord(request?.executionPhase);
@@ -66,6 +90,7 @@ function buildManagedInvocationPhaseAction(
   }
   const workItemId = readText(request.workItemId);
   const goalRunId = readText(request.goalRunId);
+  const attemptId = readText(request.attemptId);
   const evidenceToRecord = readTextArray(phase.expectedEvidence);
   if (!workItemId || evidenceToRecord.length === 0) {
     return undefined;
@@ -83,6 +108,33 @@ function buildManagedInvocationPhaseAction(
     ? options.resultHandoff?.resourceUris.filter((uri) => readText(uri) !== undefined) ?? []
     : [];
   if (completionTool === "work_item.execution.finish") {
+    if (options.status === "phase_evidence_required") {
+      const failureSummary = options.resultHandoff?.summary ?? options.reason;
+      return {
+        status: options.status,
+        reason: options.reason,
+        nextTool: "work_item.execution.fail",
+        workItemId,
+        ...(goalRunId ? { goalRunId } : {}),
+        evidenceToRecord,
+        ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+        ...(sourceResourceUris.length > 0
+          ? {
+              sourceResourceUris,
+              inspectionTool: "resource_read",
+              inspection: "Use resource_read on sourceResourceUris when the managed handoff content is needed before recording failure evidence.",
+            }
+          : {}),
+        workItemExecutionFailInputTemplate: {
+          ...(goalRunId ? { goalRunId } : {}),
+          workItemId,
+          ...(attemptId ? { attemptId } : {}),
+          failureReason: options.failureReason ?? "failed",
+          summary: failureSummary,
+        },
+        ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
+      };
+    }
     return {
       status: options.status,
       reason: options.reason,
@@ -101,6 +153,7 @@ function buildManagedInvocationPhaseAction(
       workItemExecutionFinishInputTemplate: {
         ...(goalRunId ? { goalRunId } : {}),
         workItemId,
+        ...(attemptId ? { attemptId } : {}),
         providedEvidence: evidenceToRecord,
         ...(options.resultHandoff
           ? {

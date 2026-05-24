@@ -1738,6 +1738,92 @@ describe("attached runtime builtin tool surface", () => {
     });
   });
 
+  it("returns unavailable failure closeout recovery when managed-delegation auto-start route is unavailable", async () => {
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      requestedAuthority: "read_only",
+      providerRoute: {
+        providerId: "openrouter",
+        model: "openrouter/free",
+      },
+      task: "Execute governed managed work.",
+      summary: "Execute governed managed work.",
+      goalRunId: "goal-managed",
+      workItemId: "work-managed",
+      attemptId: "goal-managed:work-managed:attempt:1",
+      expectedEvidence: ["managed-agent-review"],
+      executionPhase: {
+        id: "managed-review-closeout",
+        expectedEvidence: ["managed-agent-review"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    });
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool],
+      }),
+      managedInvocation: {
+        routes: [],
+        unavailableRoutes: [{
+          routeId: "openrouter-readonly",
+          providerId: "openrouter",
+          model: "openrouter/free",
+          profiles: ["foundation-readonly-plan"],
+          reason: "Direct provider route is unavailable.",
+        }],
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start-unavailable",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+    const output = JSON.parse(result.output) as {
+      readonly recovery?: {
+        readonly nextTool?: string;
+        readonly workItemExecutionFailInputTemplate?: Record<string, unknown>;
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(output.recovery).toMatchObject({
+      nextTool: "work_item.execution.fail",
+      workItemExecutionFailInputTemplate: {
+        goalRunId: "goal-managed",
+        workItemId: "work-managed",
+        attemptId: "goal-managed:work-managed:attempt:1",
+        failureReason: "unavailable",
+      },
+    });
+    expect(result.metadata).toMatchObject({
+      operation: "managed_invocation_failed",
+      managedInvocation: {
+        status: "unavailable",
+      },
+      managedInvocationRecovery: {
+        nextTool: "work_item.execution.fail",
+        workItemExecutionFailInputTemplate: {
+          failureReason: "unavailable",
+        },
+      },
+    });
+  });
+
   it("hydrates route-owned provider and authority when the paused request carries an incompatible profile hint", async () => {
     const startTool = makeManagedExecutionStartTool({
       profile: "foundation-readonly-plan",

@@ -434,6 +434,78 @@ describe("work-governance-tool", () => {
     expect(goalRunStore.get(goal.id)?.status).toBe("completed");
   });
 
+  it("records managed child execution failure through a canonical finished work item event shape", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-fail-tool",
+      summary: "Execute delegated managed work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review", "tests"],
+      verificationGates: ["managed child live or simulated evidence"],
+      goalRunId: "goal-managed-fail-tool",
+      routeId: "opencode-readonly",
+      assignedAgentProfile: "coder",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-fail-tool",
+      objective: "Record delegated child failure.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    await tools.find((candidate) => candidate.name === "work_item.execution.start")?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        managedInvocationId: "invocation-failed-tool",
+      },
+    });
+
+    const failed = await tools.find((candidate) => candidate.name === "work_item.execution.fail")?.execute({
+      name: "work_item.execution.fail",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-managed-fail-tool:work-managed-fail-tool:attempt:1",
+        failureReason: "timed_out",
+        summary: "Managed child timed out before returning evidence.",
+      },
+    });
+
+    expect(failed?.isError).toBe(true);
+    expect(failed?.metadata).toMatchObject({
+      kind: "work_item",
+      toolName: "work_item.execution.fail",
+      operation: "execution_finished",
+      id: item.id,
+      status: "blocked",
+      attempt: {
+        id: "goal-managed-fail-tool:work-managed-fail-tool:attempt:1",
+        status: "failed",
+        failureReason: "timed_out",
+        summary: "Managed child timed out before returning evidence.",
+        missingEvidence: ["managed-agent-review", "tests"],
+        managedInvocationId: "invocation-failed-tool",
+      },
+      missingEvidence: ["managed-agent-review", "tests"],
+      errorCode: "missing_evidence",
+    });
+    expect(goalRunStore.get(goal.id)).toMatchObject({
+      status: "active",
+      currentPhase: "paused:work-managed-fail-tool",
+    });
+  });
+
   it("synthesizes structured managed orchestration result handoff from raw invocation handoff", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
@@ -1775,6 +1847,7 @@ describe("work-governance-tool", () => {
         readonly task?: string;
         readonly summary?: string;
         readonly workItemId?: string;
+        readonly attemptId?: string;
         readonly agentProfile?: string;
         readonly roleIntent?: string;
         readonly expectedEvidence?: readonly string[];
@@ -1794,6 +1867,7 @@ describe("work-governance-tool", () => {
       requestedAuthority: "audited",
       summary: "Execute delegated work.",
       workItemId: "work-managed",
+      attemptId: "goal-managed:work-managed:attempt:1",
       agentProfile: "coder",
       roleIntent: "Execute governed work item work-managed for goal goal-managed.",
       executionPhase: {

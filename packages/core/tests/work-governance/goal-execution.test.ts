@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   GoalRunStore,
   reconstructWorkItemsFromSessionEvents,
@@ -70,6 +71,132 @@ describe("goal execution loop", () => {
       executionMode: "managed_delegation",
       reason: "work item is ready for managed delegation",
       requiredEvidence: ["tests", "typecheck", "managed-agent-review"],
+    });
+  });
+
+  it("records managed child failure as blocked missing evidence on the execution attempt", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-failure",
+      summary: "Execute managed child.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-agent-review", "tests"],
+      verificationGates: ["managed child live or simulated evidence"],
+      routeId: "opencode-readonly",
+      assignedAgentProfile: "coder",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-failure",
+      objective: "Record managed child failure.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+      managedInvocationId: "invocation-failed-1",
+    });
+
+    const failed = failGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      failureReason: "timed_out",
+      summary: "Managed child timed out before producing handoff evidence.",
+    });
+
+    expect(failed).toMatchObject({
+      missingEvidence: ["managed-agent-review", "tests"],
+      missingGoalEvidence: [],
+      goal: {
+        status: "active",
+        currentPhase: "paused:work-managed-failure",
+      },
+      item: {
+        status: "blocked",
+      },
+      attempt: {
+        status: "failed",
+        failureReason: "timed_out",
+        summary: "Managed child timed out before producing handoff evidence.",
+        missingEvidence: ["managed-agent-review", "tests"],
+        managedInvocationId: "invocation-failed-1",
+      },
+    });
+  });
+
+  it("records managed child cancellation as cancelled attempt and blocked work item", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-cancelled",
+      summary: "Execute managed child.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: ["managed child live or simulated evidence"],
+      routeId: "opencode-readonly",
+      assignedAgentProfile: "coder",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-cancelled",
+      objective: "Record managed child cancellation.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+      managedInvocationId: "invocation-cancelled-1",
+    });
+
+    const cancelled = failGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      terminalStatus: "cancelled",
+      failureReason: "cancelled",
+      summary: "Operator cancelled the managed child.",
+    });
+
+    expect(cancelled).toMatchObject({
+      missingEvidence: ["managed-agent-review"],
+      item: {
+        status: "blocked",
+      },
+      attempt: {
+        status: "cancelled",
+        failureReason: "cancelled",
+        summary: "Operator cancelled the managed child.",
+      },
     });
   });
 

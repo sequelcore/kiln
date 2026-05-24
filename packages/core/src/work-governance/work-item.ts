@@ -15,6 +15,13 @@ export interface WorkItemRoutingRecommendation {
 
 export type WorkItemExecutionMode = "direct" | "managed_delegation";
 export type WorkItemExecutionAttemptStatus = "started" | "completed" | "blocked" | "failed" | "cancelled";
+export type WorkItemExecutionFailureReason =
+  | "failed"
+  | "denied"
+  | "unavailable"
+  | "timed_out"
+  | "cancelled"
+  | "skipped";
 export type WorkItemPauseRequirementKind = "operator_input" | "credentials" | "approval" | "authority_elevation";
 export type WorkItemPauseRequirementStatus = "pending" | "resolved";
 export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
@@ -148,6 +155,7 @@ export interface WorkItemExecutionAttempt {
   readonly startedAt: string;
   readonly completedAt?: string;
   readonly summary?: string;
+  readonly failureReason?: WorkItemExecutionFailureReason;
   readonly managedInvocationId?: string;
   readonly providedEvidence: readonly string[];
   readonly missingEvidence: readonly string[];
@@ -244,6 +252,18 @@ export interface WorkItemFinishExecutionAttemptInput {
 }
 
 export interface WorkItemFinishExecutionAttemptResult extends WorkItemCompletionResult {
+  readonly attempt: WorkItemExecutionAttempt;
+}
+
+export interface WorkItemFailExecutionAttemptInput {
+  readonly id: string;
+  readonly attemptId: string;
+  readonly terminalStatus?: Extract<WorkItemExecutionAttemptStatus, "failed" | "cancelled">;
+  readonly failureReason: WorkItemExecutionFailureReason;
+  readonly summary: string;
+}
+
+export interface WorkItemFailExecutionAttemptResult extends WorkItemCompletionResult {
   readonly attempt: WorkItemExecutionAttempt;
 }
 
@@ -527,6 +547,73 @@ export class WorkItemStore {
     };
   }
 
+  failExecutionAttempt(input: WorkItemFailExecutionAttemptInput): WorkItemFailExecutionAttemptResult | undefined {
+    const existing = this.items.get(input.id);
+    if (!existing) {
+      return undefined;
+    }
+    const attempt = existing.executionAttempts.find((candidate) => candidate.id === input.attemptId);
+    if (!attempt) {
+      return undefined;
+    }
+    const terminalStatus = resolveFailedAttemptStatus(input);
+    const providedEvidence = unique([
+      ...existing.providedEvidence,
+      ...attempt.providedEvidence,
+    ]);
+    const skippedVerificationGates = unique([
+      ...existing.skippedVerificationGates,
+      ...attempt.skippedVerificationGates,
+    ]);
+    const verificationGateResults = mergeVerificationGateResults(
+      existing.verificationGateResults,
+      attempt.verificationGateResults,
+    );
+    const allSkippedVerificationGates = unique([
+      ...skippedVerificationGates,
+      ...verificationGateResults
+        .filter((result) => result.status === "skipped")
+        .map((result) => result.gate),
+    ]);
+    const failedVerificationGates = failedGates(verificationGateResults);
+    const missingVerificationGates = missingRequiredVerificationGates(existing, verificationGateResults, allSkippedVerificationGates);
+    const missingEvidence = missingExpectedEvidence(existing, providedEvidence);
+    const residualRisk = existing.residualRisk ?? attempt.residualRisk;
+    const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
+    const completedAt = this.now();
+    const failedAttempt: WorkItemExecutionAttempt = {
+      ...attempt,
+      status: terminalStatus,
+      completedAt,
+      summary: input.summary.trim(),
+      failureReason: input.failureReason,
+      providedEvidence,
+      missingEvidence,
+      missingResidualRisk,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
+      ...(residualRisk ? { residualRisk } : {}),
+    };
+    const item = this.upsert({
+      ...existing,
+      status: "blocked",
+      providedEvidence,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
+      residualRisk,
+      executionAttempts: existing.executionAttempts.map((candidate) =>
+        candidate.id === input.attemptId ? failedAttempt : candidate),
+    });
+    return {
+      item,
+      attempt: failedAttempt,
+      missingEvidence,
+      missingVerificationGates,
+      missingResidualRisk,
+      failedVerificationGates,
+    };
+  }
+
   private notifyChanged(id: string): void {
     this.resourceNotifications?.notifyResourceUpdated("kiln://session/work-items");
     this.resourceNotifications?.notifyResourceUpdated(`kiln://session/work-items/${encodeURIComponent(id)}`);
@@ -715,6 +802,19 @@ function failedGates(results: readonly VerificationGateResult[]): readonly strin
   return results
     .filter((result) => result.status === "failed")
     .map((result) => result.gate);
+}
+
+function resolveFailedAttemptStatus(
+  input: WorkItemFailExecutionAttemptInput,
+): Extract<WorkItemExecutionAttemptStatus, "failed" | "cancelled"> {
+  if (input.summary.trim().length === 0) {
+    throw new Error("Work item execution failure summary is required.");
+  }
+  const status = input.terminalStatus ?? (input.failureReason === "cancelled" ? "cancelled" : "failed");
+  if (status === "cancelled" && input.failureReason !== "cancelled") {
+    throw new Error("Cancelled execution attempts require cancelled failure reason.");
+  }
+  return status;
 }
 
 function missingRequiredVerificationGates(

@@ -4,6 +4,7 @@ import type {
   ToolInput,
   ToolResult,
   WorkItem,
+  WorkItemExecutionFailureReason,
   WorkItemPauseRequirement,
   WorkItemPauseRequirementKind,
   WorkItemPauseRequirementStatus,
@@ -11,6 +12,7 @@ import type {
   VerificationGateResult,
 } from "@kilnai/core";
 import {
+  failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   goalToolMetadata,
   GoalRunStore,
@@ -74,6 +76,14 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
   "formal-proof",
   "residual-risk",
 ];
+const WORK_ITEM_EXECUTION_FAILURE_REASONS: readonly WorkItemExecutionFailureReason[] = [
+  "failed",
+  "denied",
+  "unavailable",
+  "timed_out",
+  "cancelled",
+  "skipped",
+];
 
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
 const WORK_ITEM_UPDATE_STATUSES: readonly WorkItemStatus[] = ["pending", "blocked", "completed", "cancelled"];
@@ -134,6 +144,7 @@ export function createWorkGovernanceTools(
     new GoalCreateTool(goalRunStore, store, options.ownerSessionId),
     new WorkItemExecutionStartTool(goalRunStore, store),
     new WorkItemExecutionFinishTool(goalRunStore, store),
+    new WorkItemExecutionFailTool(goalRunStore, store),
   ];
 }
 
@@ -1285,6 +1296,107 @@ export class WorkItemExecutionFinishTool implements DevTool {
   }
 }
 
+export class WorkItemExecutionFailTool implements DevTool {
+  readonly name = "work_item.execution.fail";
+
+  readonly description = [
+    "Record a terminal managed child execution failure as missing work-item evidence.",
+    "Blocks the item and keeps the owning goal paused without treating child failure as evidence.",
+  ].join(" ");
+
+  readonly annotations = {
+    readOnly: false,
+    idempotent: false,
+  };
+
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      goalRunId: { type: "string", minLength: 1, description: "Goal run id." },
+      workItemId: { type: "string", minLength: 1, description: "Work item id." },
+      attemptId: { type: "string", minLength: 1, description: "Execution attempt id." },
+      terminalStatus: {
+        type: "string",
+        enum: ["failed", "cancelled"],
+        description: "Terminal attempt status. Defaults to failed, except cancelled failure reasons default to cancelled.",
+      },
+      failureReason: {
+        type: "string",
+        enum: WORK_ITEM_EXECUTION_FAILURE_REASONS,
+        description: "Canonical execution failure reason.",
+      },
+      summary: { type: "string", minLength: 1, description: "Bounded execution failure summary." },
+    },
+    required: ["goalRunId", "workItemId", "attemptId", "failureReason", "summary"],
+    additionalProperties: false,
+  };
+
+  constructor(
+    private readonly goalRunStore: GoalRunStore,
+    private readonly workItemStore: WorkItemStore,
+  ) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const goalRunId = readText(input.input.goalRunId);
+    const workItemId = readText(input.input.workItemId);
+    const attemptId = readText(input.input.attemptId);
+    const failureReason = readWorkItemExecutionFailureReason(input.input.failureReason);
+    const summary = readText(input.input.summary);
+    if (!goalRunId || !workItemId || !attemptId || !failureReason || !summary) {
+      return {
+        output: 'Invalid input: "goalRunId", "workItemId", "attemptId", "failureReason", and "summary" are required',
+        isError: true,
+      };
+    }
+
+    try {
+      const failed = failGoalExecutionAttempt({
+        goalRunStore: this.goalRunStore,
+        workItemStore: this.workItemStore,
+        goalRunId,
+        workItemId,
+        attemptId,
+        terminalStatus: readExecutionFailureTerminalStatus(input.input.terminalStatus),
+        failureReason,
+        summary,
+      });
+      const missing = [
+        ...failed.missingEvidence,
+        ...failed.missingGoalEvidence,
+        ...failed.missingVerificationGates.map((gate) => `missing gate: ${gate}`),
+        ...failed.failedVerificationGates.map((gate) => `failed gate: ${gate}`),
+        ...(failed.missingResidualRisk ? ["residual-risk closeout"] : []),
+      ];
+      return {
+        output: JSON.stringify({
+          status: "blocked",
+          missing,
+          goal: failed.goal,
+          item: failed.item,
+          attempt: failed.attempt,
+        }, null, 2),
+        metadata: workItemToolMetadata("work_item.execution.fail", {
+          operation: "execution_finished",
+          id: failed.item.id,
+          status: failed.item.status,
+          item: failed.item,
+          attempt: failed.attempt,
+          missingEvidence: failed.missingEvidence,
+          missingGoalEvidence: failed.missingGoalEvidence,
+          missingVerificationGates: failed.missingVerificationGates,
+          failedVerificationGates: failed.failedVerificationGates,
+          missingResidualRisk: failed.missingResidualRisk,
+          sequence: failed.item.sequence,
+          errorCode: "missing_evidence",
+        }),
+        isError: true,
+      };
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true };
+    }
+  }
+}
+
 function goalCreateContractError(input: {
   readonly code: "invalid_input";
   readonly message: string;
@@ -1417,6 +1529,7 @@ function buildManagedInvocationRequest(
     ?? step.workItem.routingRecommendation?.reasoningEffort;
   const expectedEvidence = phase.expectedEvidence;
   const residualRiskRequired = expectedEvidence.includes("residual-risk");
+  const attemptId = `${goal.id}:${step.workItemId}:attempt:${step.workItem.executionAttempts.length + 1}`;
   const profile = phaseRequiresReadOnlyVisualResearch
     ? "foundation-readonly-plan"
     : readManagedInvocationProfile(step.workItem.authorityProfile)
@@ -1439,6 +1552,7 @@ function buildManagedInvocationRequest(
     summary: step.workItem.summary,
     goalRunId: goal.id,
     workItemId: step.workItemId,
+    attemptId,
     ...(agentProfile ? { agentProfile } : {}),
     roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
     executionPhase: {
@@ -1794,6 +1908,16 @@ function isTrigger(value: unknown): value is KilnWorkGovernanceTrigger {
 
 function readStatus(value: unknown): WorkItemStatus | undefined {
   return WORK_ITEM_STATUSES.includes(value as WorkItemStatus) ? value as WorkItemStatus : undefined;
+}
+
+function readWorkItemExecutionFailureReason(value: unknown): WorkItemExecutionFailureReason | undefined {
+  return WORK_ITEM_EXECUTION_FAILURE_REASONS.includes(value as WorkItemExecutionFailureReason)
+    ? value as WorkItemExecutionFailureReason
+    : undefined;
+}
+
+function readExecutionFailureTerminalStatus(value: unknown): "failed" | "cancelled" | undefined {
+  return value === "failed" || value === "cancelled" ? value : undefined;
 }
 
 function readPauseRequirements(value: unknown):

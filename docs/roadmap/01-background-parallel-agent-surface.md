@@ -113,6 +113,9 @@ Active. Started on 2026-05-21. Current implementation status:
   governed child work or goal closeout can satisfy
   `managed-orchestration:result-handoff`; the CLI execution-finish tool passes
   that structured handoff without accepting raw handoff strings as sufficient.
+  Slice 6C is complete in code: managed child terminal failures now record a
+  canonical failed execution closeout with blocked missing evidence instead of
+  remaining runtime-only metadata or silent absence.
   Slices 7-8 are not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
@@ -767,8 +770,8 @@ Deliverables:
 
 ### Slice 6 - Handoff, Review, And Adoption
 
-Status: started. Slice 6A and Slice 6B are complete in code; remaining
-governed review, conflict, and repair cuts continue here.
+Status: started. Slice 6A, Slice 6B, and Slice 6C are complete in code;
+remaining governed review, conflict, and repair cuts continue here.
 
 Completed:
 
@@ -788,13 +791,17 @@ Completed:
   canonical completion path. Raw handoff evidence strings remain recorded as
   attempted evidence but do not satisfy governed child completion or goal
   closeout.
+- Managed child terminal failures are now recorded through
+  `work_item.execution.fail` as blocked missing evidence on the canonical
+  execution-finished path. Failed, denied, unavailable, timed-out, cancelled,
+  and skipped children keep the owning goal active and paused at the blocked
+  work item; runtime final-phase recovery now points to the failure closeout
+  template instead of suggesting evidence completion.
 
 Deliverables:
 
 - Route code-writing children through diff, verification, review, and adoption
   gates.
-- Record skipped, failed, unavailable, cancelled, and timed-out children as
-  missing evidence, not as silent absence.
 - Add governed conflict states for worktree-backed children.
 - Integrate with feedback/repair work items only after lifecycle and evidence
   are stable.

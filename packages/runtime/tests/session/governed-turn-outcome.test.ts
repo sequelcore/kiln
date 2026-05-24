@@ -74,6 +74,193 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
     ])).toBeUndefined();
   });
 
+  it("keeps final managed invocation failure blocked after work_item.execution.fail records missing evidence", () => {
+    const timedOutChild = record({
+      toolName: "managed_agent.invoke",
+      success: false,
+      metadata: {
+        kind: "managed-invocation",
+        status: "timed-out",
+        managedInvocationRecovery: {
+          nextTool: "work_item.execution.fail",
+          goalRunId: "goal-final",
+          workItemId: "work-final",
+          evidenceToRecord: ["managed-orchestration:result-handoff"],
+        },
+      },
+    });
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([timedOutChild])).toBe("failed");
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      timedOutChild,
+      record({
+        toolName: "work_item.execution.fail",
+        success: false,
+        metadata: {
+          id: "work-final",
+          item: {
+            id: "work-final",
+            status: "blocked",
+            expectedEvidence: ["managed-orchestration:result-handoff"],
+            providedEvidence: [],
+            missingEvidence: ["managed-orchestration:result-handoff"],
+            pauseRequirements: [],
+          },
+        },
+      }),
+    ])).toBe("failed");
+  });
+
+  it("does not clear managed failure recovery with a different execution attempt", () => {
+    const timedOutChild = record({
+      toolName: "managed_agent.invoke",
+      success: false,
+      metadata: {
+        kind: "managed-invocation",
+        status: "timed-out",
+        managedInvocationRecovery: {
+          nextTool: "work_item.execution.fail",
+          workItemId: "work-final",
+          workItemExecutionFailInputTemplate: {
+            workItemId: "work-final",
+            attemptId: "goal-final:work-final:attempt:2",
+          },
+        },
+      },
+    });
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      timedOutChild,
+      record({
+        toolName: "work_item.execution.fail",
+        success: false,
+        metadata: {
+          id: "work-final",
+          attempt: {
+            id: "goal-final:work-final:attempt:1",
+          },
+          item: {
+            id: "work-final",
+            status: "blocked",
+            providedEvidence: [],
+            pauseRequirements: [],
+          },
+        },
+      }),
+      record({
+        toolName: "work_item.complete",
+        success: true,
+        metadata: {
+          id: "work-final",
+          item: {
+            id: "work-final",
+            status: "completed",
+            providedEvidence: ["managed-orchestration:result-handoff"],
+            pauseRequirements: [],
+          },
+        },
+      }),
+    ])).toBe("failed");
+  });
+
+  it("treats unavailable managed invocations as terminal blocking failures", () => {
+    const unavailableChild = record({
+      toolName: "managed_agent.invoke",
+      success: false,
+      metadata: {
+        kind: "managed-invocation",
+        status: "unavailable",
+      },
+    });
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([unavailableChild])).toBe("failed");
+  });
+
+  it("does not close a started execution with a different attempt finish", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.execution.start",
+        success: true,
+        metadata: {
+          id: "work-final",
+          attempt: {
+            id: "goal-final:work-final:attempt:2",
+            workItemId: "work-final",
+          },
+        },
+      }),
+      record({
+        toolName: "work_item.execution.finish",
+        success: true,
+        metadata: {
+          attempt: {
+            id: "goal-final:work-final:attempt:1",
+          },
+          item: {
+            id: "work-final",
+            status: "completed",
+          },
+        },
+      }),
+    ])).toBe("failed");
+  });
+
+  it("allows work_item.complete to close an attempt-bearing started execution", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.execution.start",
+        success: true,
+        metadata: {
+          attempt: {
+            id: "goal-final:work-final:attempt:2",
+          },
+        },
+      }),
+      record({
+        toolName: "work_item.complete",
+        success: true,
+        metadata: {
+          id: "work-final",
+          item: {
+            id: "work-final",
+            status: "completed",
+          },
+        },
+      }),
+    ])).toBeUndefined();
+  });
+
+  it("does not close a started execution with another work item's completion", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.execution.start",
+        success: true,
+        metadata: {
+          id: "work-open",
+          item: {
+            id: "work-open",
+            status: "in_progress",
+          },
+          attempt: {
+            id: "goal:work-open:attempt:1",
+            workItemId: "work-open",
+          },
+        },
+      }),
+      record({
+        toolName: "work_item.complete",
+        success: true,
+        metadata: {
+          id: "work-other",
+          item: {
+            id: "work-other",
+            status: "completed",
+          },
+        },
+      }),
+    ])).toBe("failed");
+  });
+
   it("keeps successful managed phase completion blocked until work_item.update records phase evidence", () => {
     const completedChild = record({
       toolName: "managed_agent.invoke",

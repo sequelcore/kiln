@@ -2003,6 +2003,91 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
+  it("returns failure closeout recovery when an explicit final managed child times out", async () => {
+    const surface = makeSurface(makeTimedOutAdapter());
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-final-timeout",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Execute the final managed child phase.",
+      summary: "Execute the final managed child phase.",
+      goalRunId: "goal-final",
+      workItemId: "work-final",
+      attemptId: "goal-final:work-final:attempt:1",
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      executionPhase: {
+        id: "managed-review-closeout",
+        expectedEvidence: ["managed-orchestration:result-handoff"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly managedInvocationRecovery?: Record<string, unknown>;
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly recovery?: {
+        readonly nextTool?: string;
+        readonly goalRunId?: string;
+        readonly workItemId?: string;
+        readonly evidenceToRecord?: readonly string[];
+        readonly workItemExecutionFailInputTemplate?: Record<string, unknown>;
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata.status).toBe("timed_out");
+    expect(result.metadata.managedInvocationRecovery).toMatchObject({
+      nextTool: "work_item.execution.fail",
+      goalRunId: "goal-final",
+      workItemId: "work-final",
+      evidenceToRecord: ["managed-orchestration:result-handoff"],
+        workItemExecutionFailInputTemplate: {
+          goalRunId: "goal-final",
+          workItemId: "work-final",
+          attemptId: "goal-final:work-final:attempt:1",
+          failureReason: "timed_out",
+          summary: "Managed child failed before recording an intermediate execution phase. If the parent completes this evidence locally, it must record the phase before replying or starting the next phase.",
+        },
+    });
+    expect(output).toMatchObject({
+      status: "timed_out",
+      recovery: {
+        nextTool: "work_item.execution.fail",
+        goalRunId: "goal-final",
+        workItemId: "work-final",
+        evidenceToRecord: ["managed-orchestration:result-handoff"],
+        workItemExecutionFailInputTemplate: {
+          goalRunId: "goal-final",
+          workItemId: "work-final",
+          attemptId: "goal-final:work-final:attempt:1",
+          failureReason: "timed_out",
+        },
+      },
+    });
+    expect(output.recovery?.workItemExecutionFailInputTemplate).not.toHaveProperty("providedEvidence");
+  });
+
   it("returns a phase completion handoff when an explicit intermediate managed child succeeds", async () => {
     const phaseSummary = "Captured product UI screenshot from https://example.com/vllm-studio-demo with artifact kiln://artifacts/screenshots/vllm-studio-ui.";
     const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
@@ -2116,6 +2201,7 @@ describe("managed invocation runtime tool", () => {
       summary: "Execute the final managed child phase.",
       goalRunId: "goal-final",
       workItemId: "work-final",
+      attemptId: "goal-final:work-final:attempt:1",
       expectedEvidence: ["managed-orchestration:result-handoff"],
       executionPhase: {
         id: "managed-review-closeout",
@@ -2142,6 +2228,7 @@ describe("managed invocation runtime tool", () => {
         readonly workItemExecutionFinishInputTemplate?: {
           readonly goalRunId?: string;
           readonly workItemId?: string;
+          readonly attemptId?: string;
           readonly providedEvidence?: readonly string[];
           readonly managedInvocationResultHandoff?: {
             readonly summary?: string;
@@ -2164,6 +2251,7 @@ describe("managed invocation runtime tool", () => {
         workItemExecutionFinishInputTemplate: {
         goalRunId: "goal-final",
         workItemId: "work-final",
+        attemptId: "goal-final:work-final:attempt:1",
         providedEvidence: ["managed-orchestration:result-handoff"],
         managedInvocationResultHandoff: {
           summary: phaseSummary,
@@ -2969,6 +3057,47 @@ describe("managed invocation runtime tool", () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain("Managed invocation route 'openrouter-readonly' is unavailable");
     expect(result.output).toContain("requires a tool-call-capable model");
+  });
+
+  it("projects unavailable managed route status for failure-reason recovery mapping", async () => {
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [],
+        unavailableRoutes: [{
+          routeId: "openrouter-readonly",
+          providerId: "openrouter",
+          model: "openrouter/free",
+          profiles: ["foundation-readonly-plan"],
+          reason: "Direct provider route is not eligible.",
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-unavailable-status",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "openrouter",
+        model: "openrouter/free",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata.status).toBe("unavailable");
   });
 
   it("records the effective route model and persists readable handoff resources", async () => {

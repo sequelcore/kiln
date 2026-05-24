@@ -45,6 +45,7 @@ import {
   buildManagedInvocationPhaseCompletion,
   buildManagedInvocationPhaseHandoffRecovery,
   buildManagedInvocationPhaseRecovery,
+  managedInvocationFailureReasonFromStatus,
 } from "./phase-recovery.js";
 
 export const MANAGED_AGENT_INVOKE_TOOL_NAME = "managed_agent.invoke";
@@ -173,7 +174,9 @@ interface ManagedInvocationToolInput {
   readonly agentProfile?: string;
   readonly skills?: readonly string[];
   readonly contextMode: ManagedAgentInvocationContextMode;
+  readonly goalRunId?: string;
   readonly workItemId?: string;
+  readonly attemptId?: string;
   readonly roleIntent?: string;
   readonly expectedEvidence?: readonly string[];
   readonly requiredToolNames?: readonly string[];
@@ -261,6 +264,14 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       workItemId: {
         type: "string",
         description: "Optional governed work item id this child is executing or reviewing.",
+      },
+      goalRunId: {
+        type: "string",
+        description: "Optional governed goal run id this child is executing under.",
+      },
+      attemptId: {
+        type: "string",
+        description: "Optional governed work item execution attempt id for final-phase failure closeout.",
       },
       roleIntent: {
         type: "string",
@@ -719,6 +730,7 @@ async function prepareManagedInvocationRequest(
               providerId: unavailableRoute.providerId,
               ...(unavailableRoute.model ? { model: unavailableRoute.model } : {}),
             },
+            status: "unavailable",
             presentationIntent: buildManagedInvocationPresentationIntent({
               routeId: unavailableRoute.routeId,
               profile: parsed.input.profile,
@@ -1475,7 +1487,10 @@ function terminalManagedInvocationResult(input: {
   const summary = input.record.resultHandoff?.summary ?? `Managed invocation ${input.record.lifecycleState}.`;
   const terminalError = input.record.lifecycleState !== "completed";
   const recovery = terminalError
-    ? buildManagedInvocationPhaseRecovery(input.rawInput)
+    ? buildManagedInvocationPhaseRecovery(
+        input.rawInput,
+        managedInvocationFailureReasonFromStatus(input.record.lifecycleState),
+      )
     : undefined;
   const handoffRecovery = terminalError
     ? undefined
@@ -2091,7 +2106,9 @@ function parseInput(
       ...(readText(input.agentProfile) ? { agentProfile: readText(input.agentProfile) } : {}),
       ...(skills && skills.length > 0 ? { skills } : {}),
       contextMode,
+      ...(readText(input.goalRunId) ? { goalRunId: readText(input.goalRunId) } : {}),
       ...(readText(input.workItemId) ? { workItemId: readText(input.workItemId) } : {}),
+      ...(readText(input.attemptId) ? { attemptId: readText(input.attemptId) } : {}),
       ...(readText(input.roleIntent) ? { roleIntent: readText(input.roleIntent) } : {}),
       ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
       ...(requiredToolNames && requiredToolNames.length > 0 ? { requiredToolNames } : {}),

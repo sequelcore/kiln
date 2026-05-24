@@ -15,6 +15,7 @@ import type {
 import type {
   WorkItem,
   WorkItemExecutionAttempt,
+  WorkItemExecutionFailureReason,
   WorkItemExecutionMode,
   WorkItemPauseRequirement,
   WorkItemStore,
@@ -96,6 +97,17 @@ export interface FinishGoalExecutionAttemptInput {
   readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItem["managedOrchestrationAdoption"];
   readonly closeoutSummary?: string;
+}
+
+export interface FailGoalExecutionAttemptInput {
+  readonly goalRunStore: GoalRunStore;
+  readonly workItemStore: WorkItemStore;
+  readonly goalRunId: string;
+  readonly workItemId: string;
+  readonly attemptId: string;
+  readonly terminalStatus?: "failed" | "cancelled";
+  readonly failureReason: WorkItemExecutionFailureReason;
+  readonly summary: string;
 }
 
 export interface GoalExecutionAttemptFinish extends GoalExecutionAttemptTransition {
@@ -260,6 +272,35 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     missingResidualRisk: completed.missingResidualRisk,
     failedVerificationGates: completed.failedVerificationGates,
     missingGoalEvidence: goalCloseout.missingGoalEvidence,
+  };
+}
+
+export function failGoalExecutionAttempt(input: FailGoalExecutionAttemptInput): GoalExecutionAttemptFinish {
+  const goal = requireActiveGoal(input.goalRunStore, input.goalRunId);
+  assertGoalContainsWorkItem(goal, input.workItemId);
+  const failed = input.workItemStore.failExecutionAttempt({
+    id: input.workItemId,
+    attemptId: input.attemptId,
+    terminalStatus: input.terminalStatus,
+    failureReason: input.failureReason,
+    summary: input.summary,
+  });
+  if (!failed) {
+    throw new Error(`Work item ${input.workItemId} attempt ${input.attemptId} was not found.`);
+  }
+  const updatedGoal = input.goalRunStore.update({
+    id: goal.id,
+    currentPhase: `paused:${input.workItemId}`,
+  });
+  return {
+    goal: updatedGoal,
+    item: failed.item,
+    attempt: failed.attempt,
+    missingEvidence: failed.missingEvidence,
+    missingVerificationGates: failed.missingVerificationGates,
+    missingResidualRisk: failed.missingResidualRisk,
+    failedVerificationGates: failed.failedVerificationGates,
+    missingGoalEvidence: [],
   };
 }
 

@@ -108,7 +108,27 @@ function isManagedInvocationFailureRecovered(
   laterExecutions: readonly GovernedTurnOutcomeToolRecord[],
 ): boolean {
   const recovery = readRecord(execution.metadata?.managedInvocationRecovery);
-  if (!recovery || recovery.nextTool !== "work_item.update") {
+  if (!recovery) {
+    return false;
+  }
+  if (recovery.nextTool === "work_item.execution.fail") {
+    const workItemId = readText(recovery.workItemId);
+    const attemptId = readRecoveryAttemptId(recovery);
+    if (!workItemId) {
+      return false;
+    }
+    return laterExecutions.some((candidate) => {
+      if (candidate.toolName !== "work_item.execution.fail") {
+        return false;
+      }
+      const snapshot = readWorkItemSnapshot(candidate);
+      if (snapshot?.id !== workItemId) {
+        return false;
+      }
+      return !attemptId || readExecutionAttemptId(candidate) === attemptId;
+    });
+  }
+  if (recovery.nextTool !== "work_item.update") {
     return false;
   }
   const workItemId = readText(recovery.workItemId);
@@ -295,9 +315,29 @@ function hasStartedExecutionWithoutTerminalCloseout(
   if (startIndex < 0) {
     return false;
   }
+  const startedExecution = executions[startIndex]!;
   return !executions
     .slice(startIndex + 1)
-    .some(isSuccessfulTerminalWorkItemCloseout);
+    .some((execution) => isSuccessfulTerminalWorkItemCloseoutForStart(startedExecution, execution));
+}
+
+function isSuccessfulTerminalWorkItemCloseoutForStart(
+  startedExecution: GovernedTurnOutcomeToolRecord,
+  execution: GovernedTurnOutcomeToolRecord,
+): boolean {
+  if (!isSuccessfulTerminalWorkItemCloseout(execution)) {
+    return false;
+  }
+  const startedSnapshot = readWorkItemSnapshot(startedExecution);
+  const closeoutSnapshot = readWorkItemSnapshot(execution);
+  if (startedSnapshot && closeoutSnapshot && startedSnapshot.id !== closeoutSnapshot.id) {
+    return false;
+  }
+  const startedAttemptId = readExecutionAttemptId(startedExecution);
+  if (!startedAttemptId || execution.toolName === "work_item.complete") {
+    return true;
+  }
+  return readExecutionAttemptId(execution) === startedAttemptId;
 }
 
 function isSuccessfulTerminalWorkItemCloseout(execution: GovernedTurnOutcomeToolRecord): boolean {
@@ -349,6 +389,17 @@ function readWorkItemSnapshotFromOutput(output: string | undefined): Record<stri
   return typeof parsed.id === "string" && typeof parsed.status === "string"
     ? parsed
     : undefined;
+}
+
+function readExecutionAttemptId(execution: GovernedTurnOutcomeToolRecord): string | undefined {
+  const attempt = readRecord(execution.metadata?.attempt) ?? readRecord(parseJsonRecord(execution.output)?.attempt);
+  return readText(attempt?.id);
+}
+
+function readRecoveryAttemptId(recovery: Record<string, unknown>): string | undefined {
+  return readText(recovery.attemptId)
+    ?? readText(readRecord(recovery.workItemExecutionFailInputTemplate)?.attemptId)
+    ?? readText(readRecord(recovery.workItemExecutionFinishInputTemplate)?.attemptId);
 }
 
 function parseJsonRecord(value: string | undefined): Record<string, unknown> | undefined {
@@ -410,8 +461,11 @@ function isManagedInvocationBlockingExecutionFailure(execution: GovernedTurnOutc
 function isManagedInvocationTerminalFailureStatus(status: unknown): boolean {
   return status === "failed"
     || status === "denied"
+    || status === "unavailable"
+    || status === "timed_out"
     || status === "timed-out"
-    || status === "cancelled";
+    || status === "cancelled"
+    || status === "skipped";
 }
 
 function isWorkGovernanceToolName(toolName: string): boolean {
@@ -420,12 +474,14 @@ function isWorkGovernanceToolName(toolName: string): boolean {
     || toolName === "work_item.update"
     || toolName === "work_item.complete"
     || toolName === "work_item.execution.start"
-    || toolName === "work_item.execution.finish";
+    || toolName === "work_item.execution.finish"
+    || toolName === "work_item.execution.fail";
 }
 
 function isWorkItemToolName(toolName: string): boolean {
   return toolName === "work_item.update"
     || toolName === "work_item.complete"
     || toolName === "work_item.execution.start"
-    || toolName === "work_item.execution.finish";
+    || toolName === "work_item.execution.finish"
+    || toolName === "work_item.execution.fail";
 }

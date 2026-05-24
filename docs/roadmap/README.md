@@ -143,13 +143,15 @@ Use these documents as the stable source of truth before starting roadmap work:
    managed invocation resources include de-duplicated governed review pointers.
    Slice 5 is closed in code after Slice 5P; paginated transcript/artifact
    content reads are deferred until storage exposes stable content boundaries
-   and a shared resource-read contract exists. Slice 6A-B are complete in
+   and a shared resource-read contract exists. Slice 6A-C are complete in
    code: core work-governance now projects adoption-gate state from structured
    adoption evidence, goal closeout consumes that projection, and governed
    managed child result handoff evidence must be structured with matching work
    item, orchestration, child, summary, timestamp, and resource pointers before
    `managed-orchestration:result-handoff` can satisfy child completion or goal
-   closeout.
+   closeout. Managed child terminal failures now record blocked missing
+   evidence through the canonical work item execution closeout path instead of
+   remaining silent runtime absence.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

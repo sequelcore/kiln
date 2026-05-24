@@ -19,6 +19,7 @@ export {
   reconstructGoalRunsFromSessionEvents,
 } from "./goal-run.js";
 export type {
+  FailGoalExecutionAttemptInput,
   FinishGoalExecutionAttemptInput,
   GoalExecutionAttemptFinish,
   GoalExecutionAttemptTransition,
@@ -28,6 +29,7 @@ export type {
   StartGoalExecutionAttemptInput,
 } from "./goal-execution.js";
 export {
+  failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
@@ -49,8 +51,11 @@ export type {
   WorkItem,
   WorkItemCompletionInput,
   WorkItemExecutionAttempt,
+  WorkItemExecutionFailureReason,
   WorkItemExecutionAttemptStatus,
   WorkItemExecutionMode,
+  WorkItemFailExecutionAttemptInput,
+  WorkItemFailExecutionAttemptResult,
   WorkItemManagedOrchestrationAdoptionGate,
   WorkItemManagedOrchestrationAdoptionGateProjection,
   WorkItemManagedOrchestrationAdoptionGateRejection,
