@@ -256,6 +256,54 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
+  it("prints timeout and cancellation rows from shared managed-child view-state", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedTerminalViewStateEvents(transcriptStore, "session-1");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "list",
+      ["--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-24T12:01:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "status",
+      ["child-timeout", "--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-24T12:01:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "resources",
+      ["child-cancelled", "--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-24T12:01:00.000Z" },
+    );
+
+    expect(log.mock.calls[0]?.[0]).toBe([
+      "Managed children for session session-1:",
+      "attention: 2  active: 0",
+      "child-timeout             timed_out     failed      timed_out     codex-oauth/gpt-5.5  resources:2  cancel:unavailable",
+      "child-cancelled           cancelled     cancelled   cancelled     opencode/minimax-m2.5  resources:1  cancel:unavailable",
+    ].join("\n"));
+    expect(log.mock.calls[1]?.[0]).toBe([
+      "Managed child: child-timeout",
+      "Session: session-1",
+      "Attention: timed_out",
+      "Status: failed",
+      "Lifecycle: timed_out",
+      "Provider: codex-oauth/gpt-5.5",
+      "Events: 1",
+      "Resources: 2",
+      "Cancel: unavailable · Managed invocation is not active.",
+    ].join("\n"));
+    expect(log.mock.calls[2]?.[0]).toBe([
+      "Resources for managed child child-cancelled:",
+      "- kiln://managed-invocations/child-cancelled/cancel-cleanup",
+    ].join("\n"));
+  });
+
   it("prints adoption-gate metadata in resources text and JSON output", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
@@ -790,6 +838,74 @@ async function appendManagedConflictEvent(
       managedInvocationEvidence: {
         lifecycle: {
           resourceLease: lease,
+        },
+      },
+    },
+  });
+}
+
+async function appendManagedTerminalViewStateEvents(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+): Promise<void> {
+  await transcriptStore.append(sessionId, {
+    eventId: "event-timeout",
+    kilnSessionId: sessionId,
+    sequence: 1,
+    timestamp: "2026-05-24T12:00:01.000Z",
+    kind: "agent_invocation_failed",
+    source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
+    payload: {
+      instanceId: "local",
+      sessionId,
+      managedInvocationId: "child-timeout",
+      invocationId: "child-timeout",
+      agentId: "agent-reviewer",
+      lifecycleState: "timed_out",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.5",
+      },
+      managedInvocationEvidence: {
+        diagnostics: [{
+          uri: "kiln://managed-invocations/child-timeout/timeout",
+          kind: "timeout",
+        }],
+        resultHandoff: {
+          summary: "Managed child timed out after the configured limit.",
+          resourceUris: ["kiln://managed-invocations/child-timeout/handoff"],
+          memoryWriteProposalUris: [],
+        },
+      },
+    },
+  });
+  await transcriptStore.append(sessionId, {
+    eventId: "event-cancelled",
+    kilnSessionId: sessionId,
+    sequence: 2,
+    timestamp: "2026-05-24T12:00:02.000Z",
+    kind: "agent_invocation_cancelled",
+    source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
+    payload: {
+      instanceId: "local",
+      sessionId,
+      managedInvocationId: "child-cancelled",
+      invocationId: "child-cancelled",
+      agentId: "agent-reviewer",
+      lifecycleState: "cancelled",
+      reason: "Operator cancelled from CLI.",
+      providerRoute: {
+        providerId: "opencode",
+        model: "minimax-m2.5",
+      },
+      managedInvocationEvidence: {
+        resultHandoff: {
+          summary: "Operator cancelled from CLI.",
+          resourceUris: [
+            "kiln://managed-invocations/child-cancelled/cancel-cleanup",
+            "kiln://managed-invocations/child-cancelled/cancel-cleanup",
+          ],
+          memoryWriteProposalUris: [],
         },
       },
     },

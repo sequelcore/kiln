@@ -840,7 +840,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A and Slice 7B are complete in code.
+Status: started. Slice 7A, Slice 7B, and Slice 7C are complete in code.
 
 Completed:
 
@@ -858,6 +858,12 @@ Completed:
   retain the canonical lifecycle, failed terminal status, cancellation
   unavailability, and timeout evidence resources without surface-local timeout
   inference.
+- CLI managed-agent list, status, and resources output now derives
+  operator-facing rows from the shared cockpit managed-agent view-state instead
+  of reimplementing projection formatting. CLI output includes shared
+  attention and active counts, distinct `timed_out` and `cancelled` attention,
+  cancel-control status, and de-duplicated resource pointers while preserving
+  the existing JSON automation shape.
 
 Deliverables:
 

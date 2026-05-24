@@ -2,12 +2,15 @@ import type {
   GuiInboundFrame,
   GuiManagedAgentControlAction,
   GuiManagedAgentControlResultFrame,
+  OperatorCockpitManagedAgentViewItem,
+  OperatorCockpitManagedAgentViewState,
   OperatorCockpitInvocationProjection,
   OperatorCockpitReadOnlyProjection,
   OperatorSessionEvent,
   OperatorSessionEventKind,
 } from "@kilnai/gateway-contracts";
 import {
+  createOperatorCockpitReadOnlyViewState,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
 import type { KilnAppConfig } from "../config.js";
@@ -94,20 +97,25 @@ export async function managedAgentCommand(
 
   const projectedAt = options.projectedAt?.() ?? new Date().toISOString();
   const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, sessionId, { projectedAt });
+  const managedAgents = createOperatorCockpitReadOnlyViewState({
+    projection,
+    viewState: {},
+  }).managedAgents;
 
   switch (subcommand) {
     case "list": {
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, invocations: projection.invocations }, null, 2)
-        : formatManagedAgentList(sessionId, projection.invocations));
+        ? JSON.stringify({ sessionId, managedAgents, invocations: projection.invocations }, null, 2)
+        : formatManagedAgentList(sessionId, managedAgents));
       return;
     }
     case "status": {
       const invocationId = requirePositional(args, "managed invocation id");
       const invocation = findInvocation(projection, invocationId);
+      const item = findManagedAgentViewItem(managedAgents, invocationId);
       console.log(args.includes("--json")
         ? JSON.stringify({ sessionId, invocation }, null, 2)
-        : formatManagedAgentStatus(sessionId, invocation));
+        : formatManagedAgentStatus(sessionId, item, invocation));
       return;
     }
     case "transcript": {
@@ -121,12 +129,13 @@ export async function managedAgentCommand(
     case "resources": {
       const invocationId = requirePositional(args, "managed invocation id");
       const invocation = findInvocation(projection, invocationId);
+      const item = findManagedAgentViewItem(managedAgents, invocationId);
       console.log(args.includes("--json")
         ? JSON.stringify({
           sessionId,
           invocation,
         }, null, 2)
-        : formatManagedAgentResources(invocation));
+        : formatManagedAgentResources(item, invocation));
       return;
     }
     case "cancel": {
@@ -448,42 +457,61 @@ function findInvocation(
   return invocation;
 }
 
+function findManagedAgentViewItem(
+  viewState: OperatorCockpitManagedAgentViewState,
+  invocationId: string,
+): OperatorCockpitManagedAgentViewItem {
+  const item = viewState.items.find((candidate) => candidate.managedInvocationId === invocationId);
+  if (!item) {
+    throw new Error(`Managed invocation not found: ${invocationId}`);
+  }
+  return item;
+}
+
 function formatManagedAgentList(
   sessionId: string,
-  invocations: readonly OperatorCockpitInvocationProjection[],
+  viewState: OperatorCockpitManagedAgentViewState,
 ): string {
-  if (invocations.length === 0) {
+  if (viewState.items.length === 0) {
     return `No managed children found for session ${sessionId}.`;
   }
   return [
     `Managed children for session ${sessionId}:`,
-    ...invocations.map((invocation) => formatManagedAgentListRow(invocation)),
+    `attention: ${viewState.attentionCount}  active: ${viewState.activeCount}`,
+    ...viewState.items.map((item) => formatManagedAgentListRow(item)),
   ].join("\n");
 }
 
-function formatManagedAgentListRow(invocation: OperatorCockpitInvocationProjection): string {
+function formatManagedAgentListRow(item: OperatorCockpitManagedAgentViewItem): string {
   return [
-    invocation.managedInvocationId.padEnd(24),
-    invocation.status.padEnd(10),
-    (invocation.lifecycleState ?? "unknown").padEnd(12),
-    invocation.providerRoute ?? "unknown-provider",
-    invocation.resourceLease?.worktreeReview?.status === "required" ? "review:required" : undefined,
-    invocation.resourceLease?.worktreeConflict?.status ? `conflict:${invocation.resourceLease.worktreeConflict.status}` : undefined,
-    invocation.adoptionGate ? `adoption:${invocation.adoptionGate.status}` : undefined,
+    item.managedInvocationId.padEnd(24),
+    item.attentionState.padEnd(12),
+    item.status.padEnd(10),
+    (item.lifecycleState ?? "unknown").padEnd(12),
+    item.providerRoute ?? "unknown-provider",
+    item.dirtyWorkspaceReviewRequired ? "review:required" : undefined,
+    item.worktreeConflict?.status ? `conflict:${item.worktreeConflict.status}` : undefined,
+    item.adoptionGate ? `adoption:${item.adoptionGate.status}` : undefined,
+    item.resourceUris.length > 0 ? `resources:${item.resourceUris.length}` : undefined,
+    `cancel:${item.cancelControl.status}`,
   ].filter((part): part is string => part !== undefined).join("  ");
 }
 
 function formatManagedAgentStatus(
   sessionId: string,
+  item: OperatorCockpitManagedAgentViewItem,
   invocation: OperatorCockpitInvocationProjection,
 ): string {
   return [
     `Managed child: ${invocation.managedInvocationId}`,
     `Session: ${sessionId}`,
+    `Attention: ${item.attentionState}`,
     `Status: ${invocation.status}`,
     `Lifecycle: ${invocation.lifecycleState ?? "unknown"}`,
     `Provider: ${invocation.providerRoute ?? "unknown"}`,
     `Events: ${invocation.eventCount}`,
+    `Resources: ${item.resourceUris.length}`,
+    `Cancel: ${item.cancelControl.status} · ${item.cancelControl.reason}`,
     invocation.resourceLease ? `Lease: ${invocation.resourceLease.leaseId}` : undefined,
     invocation.resourceLease ? `Worktree: ${invocation.resourceLease.workingDirectoryPath}` : undefined,
     invocation.resourceLease ? `Lease health: ${invocation.resourceLease.healthStatus}` : undefined,
@@ -573,9 +601,12 @@ function formatManagedAgentTranscript(invocationId: string, transcript: unknown)
   ].filter((line): line is string => line !== undefined).join("\n");
 }
 
-function formatManagedAgentResources(invocation: OperatorCockpitInvocationProjection): string {
-  const { managedInvocationId, evidenceResourceUris } = invocation;
-  if (evidenceResourceUris.length === 0) {
+function formatManagedAgentResources(
+  item: OperatorCockpitManagedAgentViewItem,
+  invocation: OperatorCockpitInvocationProjection,
+): string {
+  const { managedInvocationId } = invocation;
+  if (item.resourceUris.length === 0) {
     return [
       `No resource pointers found for managed child ${managedInvocationId}.`,
       ...formatManagedAgentWorktreeReviewLines(invocation),
@@ -585,7 +616,7 @@ function formatManagedAgentResources(invocation: OperatorCockpitInvocationProjec
   }
   return [
     `Resources for managed child ${managedInvocationId}:`,
-    ...evidenceResourceUris.map((uri) => `- ${uri}`),
+    ...item.resourceUris.map((uri) => `- ${uri}`),
     ...formatManagedAgentWorktreeReviewLines(invocation),
     ...formatManagedAgentWorktreeConflictLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
