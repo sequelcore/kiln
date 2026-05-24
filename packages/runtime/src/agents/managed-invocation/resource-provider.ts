@@ -231,6 +231,8 @@ function resourceUrisForLease(lease: ManagedAgentResourceLeaseEvidence | undefin
     ...(lease?.diagnosticUris ?? []),
     ...(lease?.worktreeReview?.resourceUris ?? []),
     ...(lease?.worktreeReview?.diagnosticUris ?? []),
+    ...(lease?.worktreeConflict?.resourceUris ?? []),
+    ...(lease?.worktreeConflict?.diagnosticUris ?? []),
   ];
 }
 

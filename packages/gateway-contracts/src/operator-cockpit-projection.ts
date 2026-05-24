@@ -209,6 +209,7 @@ export interface OperatorCockpitInvocationResourceLeaseProjection {
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
   readonly worktreeReview?: OperatorManagedAgentResourceLeaseSnapshot["worktreeReview"];
+  readonly worktreeConflict?: OperatorManagedAgentResourceLeaseSnapshot["worktreeConflict"];
 }
 
 export type OperatorCockpitToolStatus =
@@ -823,6 +824,7 @@ function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInv
   const resourceUris = readRequiredStringList(lease.resourceUris);
   const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
   const worktreeReview = readWorktreeReview(lease.worktreeReview);
+  const worktreeConflict = readWorktreeConflict(lease.worktreeConflict);
   if (
     !leaseId
     || !createdAt
@@ -845,6 +847,7 @@ function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInv
     resourceUris,
     diagnosticUris,
     ...(worktreeReview !== undefined ? { worktreeReview } : {}),
+    ...(worktreeConflict !== undefined ? { worktreeConflict } : {}),
   };
 }
 
@@ -861,6 +864,8 @@ function applyManagedInvocationEvidence(
         ...lease.diagnosticUris,
         ...(lease.worktreeReview?.resourceUris ?? []),
         ...(lease.worktreeReview?.diagnosticUris ?? []),
+        ...(lease.worktreeConflict?.resourceUris ?? []),
+        ...(lease.worktreeConflict?.diagnosticUris ?? []),
       ]);
     }
     return;
@@ -893,6 +898,8 @@ function applyManagedInvocationEvidence(
       ...lease.diagnosticUris,
       ...(lease.worktreeReview?.resourceUris ?? []),
       ...(lease.worktreeReview?.diagnosticUris ?? []),
+      ...(lease.worktreeConflict?.resourceUris ?? []),
+      ...(lease.worktreeConflict?.diagnosticUris ?? []),
     ]);
   }
 }
@@ -1096,6 +1103,50 @@ function readWorktreeReview(value: unknown): OperatorManagedAgentResourceLeaseSn
   return {
     status,
     reason,
+    resourceUris,
+    diagnosticUris,
+  };
+}
+
+function readWorktreeConflict(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["worktreeConflict"] | undefined {
+  if (!isRecordValue(value)) {
+    return undefined;
+  }
+  const status = value.status === "blocked" ? value.status : null;
+  const reason = value.reason === "same-checkout-write-conflict" || value.reason === "isolated-worktree-path-conflict"
+    ? value.reason
+    : null;
+  const requestedInvocationId = readString(value.requestedInvocationId);
+  const conflictingInvocationId = readString(value.conflictingInvocationId);
+  const workingDirectoryPath = readString(value.workingDirectoryPath);
+  const workingDirectoryMode = readWorkingDirectoryMode(value.workingDirectoryMode);
+  const policyId = value.policyId === "managed-agent.worktree.single-active-writer" ? value.policyId : null;
+  const retryAfterInvocationIds = readRequiredStringList(value.retryAfterInvocationIds);
+  const resourceUris = readRequiredStringList(value.resourceUris);
+  const diagnosticUris = readRequiredStringList(value.diagnosticUris);
+  if (
+    !status
+    || !reason
+    || !requestedInvocationId
+    || !conflictingInvocationId
+    || !workingDirectoryPath
+    || !workingDirectoryMode
+    || !policyId
+    || !retryAfterInvocationIds
+    || !resourceUris
+    || !diagnosticUris
+  ) {
+    return undefined;
+  }
+  return {
+    status,
+    reason,
+    requestedInvocationId,
+    conflictingInvocationId,
+    workingDirectoryPath,
+    workingDirectoryMode,
+    policyId,
+    retryAfterInvocationIds,
     resourceUris,
     diagnosticUris,
   };

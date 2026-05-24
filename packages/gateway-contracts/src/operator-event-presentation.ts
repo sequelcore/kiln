@@ -1027,6 +1027,25 @@ function addManagedCapabilitySnapshotDetails(
   );
   addItem(details, "Worktree review resources", formatStringList(worktreeReview?.resourceUris));
   addItem(details, "Worktree review diagnostics", formatStringList(worktreeReview?.diagnosticUris));
+  const worktreeConflict = asRecord(resourceLease?.worktreeConflict);
+  const worktreeConflictStatus = readString(worktreeConflict?.status);
+  const worktreeConflictReason = readString(worktreeConflict?.reason);
+  addItem(
+    details,
+    "Worktree conflict",
+    worktreeConflictStatus && worktreeConflictReason
+      ? `${worktreeConflictStatus} · ${worktreeConflictReason}`
+      : worktreeConflictStatus ?? worktreeConflictReason,
+  );
+  addItem(details, "Requested invocation", worktreeConflict?.requestedInvocationId);
+  addItem(details, "Conflicting invocation", worktreeConflict?.conflictingInvocationId);
+  const conflictPath = readString(worktreeConflict?.workingDirectoryPath);
+  const conflictMode = readString(worktreeConflict?.workingDirectoryMode);
+  addItem(details, "Conflict worktree", conflictPath && conflictMode ? `${conflictMode} · ${conflictPath}` : conflictMode ?? conflictPath);
+  addItem(details, "Conflict policy", worktreeConflict?.policyId);
+  addItem(details, "Retry after", formatStringList(worktreeConflict?.retryAfterInvocationIds));
+  addItem(details, "Conflict resources", formatStringList(worktreeConflict?.resourceUris));
+  addItem(details, "Conflict diagnostics", formatStringList(worktreeConflict?.diagnosticUris));
   addItem(details, "Child identity", childIdentity?.displayName ?? childIdentity?.admittedAgentProfile ?? childIdentity?.requestedAgentProfile ?? childIdentity?.agentId);
 }
 

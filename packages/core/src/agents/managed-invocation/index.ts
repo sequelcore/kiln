@@ -306,9 +306,28 @@ export type ManagedAgentWorktreeReviewStatus = "required";
 
 export type ManagedAgentWorktreeReviewReason = "dirty-worktree-preserved";
 
+export type ManagedAgentWorktreeConflictStatus = "blocked";
+
+export type ManagedAgentWorktreeConflictReason =
+  | "same-checkout-write-conflict"
+  | "isolated-worktree-path-conflict";
+
 export interface ManagedAgentWorktreeReviewEvidence {
   readonly status: ManagedAgentWorktreeReviewStatus;
   readonly reason: ManagedAgentWorktreeReviewReason;
+  readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
+}
+
+export interface ManagedAgentWorktreeConflictEvidence {
+  readonly status: ManagedAgentWorktreeConflictStatus;
+  readonly reason: ManagedAgentWorktreeConflictReason;
+  readonly requestedInvocationId: string;
+  readonly conflictingInvocationId: string;
+  readonly workingDirectoryPath: string;
+  readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
+  readonly policyId: "managed-agent.worktree.single-active-writer";
+  readonly retryAfterInvocationIds: readonly string[];
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
 }
@@ -323,6 +342,7 @@ export interface ManagedAgentResourceLeaseEvidence {
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
   readonly worktreeReview?: ManagedAgentWorktreeReviewEvidence;
+  readonly worktreeConflict?: ManagedAgentWorktreeConflictEvidence;
 }
 
 export interface ManagedAgentLifecycleEvidence {
@@ -385,6 +405,7 @@ export type ManagedAgentAdmissionDecision =
     readonly profile?: ManagedAgentAdmissionProfile;
     readonly reason: string;
     readonly missingCapabilities: readonly string[];
+    readonly resourceLease?: ManagedAgentResourceLeaseEvidence;
   };
 
 export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocationRequest): ManagedAgentInvocationRequest {
@@ -942,6 +963,7 @@ function requireResourceLease(input: ManagedAgentResourceLeaseEvidence): Managed
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed capability snapshot lease resource uri is required")),
     diagnosticUris: input.diagnosticUris.map((uri) => requireText(uri, "Managed capability snapshot lease diagnostic uri is required")),
     ...(input.worktreeReview !== undefined ? { worktreeReview: requireWorktreeReview(input.worktreeReview) } : {}),
+    ...(input.worktreeConflict !== undefined ? { worktreeConflict: requireWorktreeConflict(input.worktreeConflict) } : {}),
   };
 }
 
@@ -954,6 +976,27 @@ function requireWorktreeReview(input: ManagedAgentWorktreeReviewEvidence): Manag
     ),
     diagnosticUris: input.diagnosticUris.map((uri) =>
       requireText(uri, "Managed capability snapshot worktree review diagnostic uri is required")
+    ),
+  };
+}
+
+function requireWorktreeConflict(input: ManagedAgentWorktreeConflictEvidence): ManagedAgentWorktreeConflictEvidence {
+  return {
+    status: requireWorktreeConflictStatus(input.status),
+    reason: requireWorktreeConflictReason(input.reason),
+    requestedInvocationId: requireText(input.requestedInvocationId, "Managed capability snapshot worktree conflict requested invocation is required"),
+    conflictingInvocationId: requireText(input.conflictingInvocationId, "Managed capability snapshot worktree conflict active invocation is required"),
+    workingDirectoryPath: requireText(input.workingDirectoryPath, "Managed capability snapshot worktree conflict working directory is required"),
+    workingDirectoryMode: requireWorkingDirectoryMode(input.workingDirectoryMode),
+    policyId: requireWorktreeConflictPolicyId(input.policyId),
+    retryAfterInvocationIds: input.retryAfterInvocationIds.map((invocationId) =>
+      requireText(invocationId, "Managed capability snapshot worktree conflict retry invocation is required")
+    ),
+    resourceUris: input.resourceUris.map((uri) =>
+      requireText(uri, "Managed capability snapshot worktree conflict resource uri is required")
+    ),
+    diagnosticUris: input.diagnosticUris.map((uri) =>
+      requireText(uri, "Managed capability snapshot worktree conflict diagnostic uri is required")
     ),
   };
 }
@@ -1022,6 +1065,30 @@ function requireWorktreeReviewReason(value: string): ManagedAgentWorktreeReviewR
     throw new Error("Managed capability snapshot worktree review reason is required");
   }
   throw new Error(`Unsupported managed capability snapshot worktree review reason: ${value as string}`);
+}
+
+function requireWorktreeConflictStatus(value: string): ManagedAgentWorktreeConflictStatus {
+  if (value === "blocked") {
+    return value;
+  }
+  throw new Error(`Unsupported managed capability snapshot worktree conflict status: ${value as string}`);
+}
+
+function requireWorktreeConflictReason(value: string): ManagedAgentWorktreeConflictReason {
+  if (value === "same-checkout-write-conflict" || value === "isolated-worktree-path-conflict") {
+    return value;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error("Managed capability snapshot worktree conflict reason is required");
+  }
+  throw new Error(`Unsupported managed capability snapshot worktree conflict reason: ${value as string}`);
+}
+
+function requireWorktreeConflictPolicyId(value: string): ManagedAgentWorktreeConflictEvidence["policyId"] {
+  if (value === "managed-agent.worktree.single-active-writer") {
+    return value;
+  }
+  throw new Error(`Unsupported managed capability snapshot worktree conflict policy: ${value as string}`);
 }
 
 function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy): ManagedAgentUnsupportedFieldPolicy {

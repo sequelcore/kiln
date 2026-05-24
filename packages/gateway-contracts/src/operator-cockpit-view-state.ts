@@ -92,6 +92,8 @@ export interface OperatorCockpitManagedAgentViewItem {
   readonly providerRoute?: string;
   readonly attentionState: OperatorCockpitManagedAgentAttentionState;
   readonly dirtyWorkspaceReviewRequired: boolean;
+  readonly worktreeConflictBlocked: boolean;
+  readonly worktreeConflict?: NonNullable<OperatorCockpitInvocationProjection["resourceLease"]>["worktreeConflict"];
   readonly adoptionGate?: OperatorCockpitInvocationProjection["adoptionGate"];
   readonly transcriptUri?: string;
   readonly resourceUris: readonly string[];
@@ -185,6 +187,10 @@ function projectManagedAgentItem(
     ...(invocation.providerRoute !== undefined ? { providerRoute: invocation.providerRoute } : {}),
     attentionState,
     dirtyWorkspaceReviewRequired: invocation.resourceLease?.worktreeReview?.status === "required",
+    worktreeConflictBlocked: invocation.resourceLease?.worktreeConflict?.status === "blocked",
+    ...(invocation.resourceLease?.worktreeConflict !== undefined
+      ? { worktreeConflict: invocation.resourceLease.worktreeConflict }
+      : {}),
     ...(invocation.adoptionGate !== undefined ? { adoptionGate: invocation.adoptionGate } : {}),
     ...(invocation.transcript?.uri ? { transcriptUri: invocation.transcript.uri } : {}),
     resourceUris,
@@ -203,6 +209,7 @@ function managedAgentAttentionState(
 ): OperatorCockpitManagedAgentAttentionState {
   if (
     invocation.resourceLease?.worktreeReview?.status === "required" ||
+    invocation.resourceLease?.worktreeConflict?.status === "blocked" ||
     invocation.resourceLease?.healthStatus === "leaked" ||
     invocation.resourceLease?.cleanupStatus === "failed" ||
     (invocation.adoptionGate?.required === true

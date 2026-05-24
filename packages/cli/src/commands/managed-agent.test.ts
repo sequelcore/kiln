@@ -169,6 +169,35 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
+  it("prints governed worktree conflict state from shared projection", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedConflictEvent(transcriptStore, "session-1");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "list",
+      ["--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "status",
+      ["child-conflict", "--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+
+    expect(log.mock.calls[0]?.[0]).toContain("conflict:blocked");
+    expect(log.mock.calls[1]?.[0]).toContain("Worktree conflict: blocked · same-checkout-write-conflict");
+    expect(log.mock.calls[1]?.[0]).toContain("Requested invocation: child-conflict");
+    expect(log.mock.calls[1]?.[0]).toContain("Conflicting invocation: child-active");
+    expect(log.mock.calls[1]?.[0]).toContain("Conflict worktree: workspace-write · C:/repo");
+    expect(log.mock.calls[1]?.[0]).toContain("Retry after: child-active");
+    expect(log.mock.calls[1]?.[0]).toContain("Conflict resources: kiln://artifacts/child-conflict/worktree-conflict-resource");
+    expect(log.mock.calls[1]?.[0]).toContain("Conflict diagnostics: kiln://artifacts/child-conflict/worktree-conflict");
+  });
+
   it("prints adoption-gate status and blocked detail from shared projection", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
@@ -699,6 +728,68 @@ async function appendManagedInvocationEvents(
           summary: "Child completed.",
           resourceUris: ["kiln://artifacts/child-1/handoff"],
           memoryWriteProposalUris: [],
+        },
+      },
+    },
+  });
+}
+
+async function appendManagedConflictEvent(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+): Promise<void> {
+  const lease = {
+    leaseId: "child-conflict:lease",
+    createdAt: "2026-05-22T00:00:00.000Z",
+    healthStatus: "stale",
+    cleanupStatus: "not-required",
+    workingDirectoryPath: "C:/repo",
+    workingDirectoryMode: "workspace-write",
+    resourceUris: ["kiln://artifacts/child-conflict/worktree-conflict-resource"],
+    diagnosticUris: ["kiln://artifacts/child-conflict/worktree-conflict"],
+    worktreeConflict: {
+      status: "blocked",
+      reason: "same-checkout-write-conflict",
+      requestedInvocationId: "child-conflict",
+      conflictingInvocationId: "child-active",
+      workingDirectoryPath: "C:/repo",
+      workingDirectoryMode: "workspace-write",
+      policyId: "managed-agent.worktree.single-active-writer",
+      retryAfterInvocationIds: ["child-active"],
+      resourceUris: ["kiln://artifacts/child-conflict/worktree-conflict-resource"],
+      diagnosticUris: ["kiln://artifacts/child-conflict/worktree-conflict"],
+    },
+  };
+
+  await transcriptStore.append(sessionId, {
+    eventId: "event-conflict",
+    kilnSessionId: sessionId,
+    sequence: 1,
+    timestamp: "2026-05-22T00:00:00.000Z",
+    kind: "agent_invocation_failed",
+    source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
+    payload: {
+      instanceId: "local",
+      sessionId,
+      managedInvocationId: "child-conflict",
+      invocationId: "child-conflict",
+      agentId: "agent-reviewer",
+      parentSessionId: sessionId,
+      parentTurnId: "turn-1",
+      profile: "foundation-apply-approved-writes",
+      providerRoute: {
+        providerId: "codex",
+        surface: "cli",
+        model: "gpt-5.5",
+      },
+      adapterKind: "harness",
+      executionMode: "cli-harness",
+      requestedAuthority: "audited",
+      authorityProfileId: "authority:test",
+      lifecycleState: "failed",
+      managedInvocationEvidence: {
+        lifecycle: {
+          resourceLease: lease,
         },
       },
     },

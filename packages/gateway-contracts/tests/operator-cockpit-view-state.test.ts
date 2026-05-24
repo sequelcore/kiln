@@ -332,6 +332,86 @@ describe("operator cockpit read-only view state", () => {
     ]);
   });
 
+  it("marks denied worktree conflicts as managed child review attention", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-23T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-conflict:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-conflict:event:failed",
+          kilnSessionId: "managed-conflict:session:1",
+          sequence: 1,
+          timestamp: "2026-05-23T12:00:00.000Z",
+          kind: "agent_invocation_failed",
+          payload: {
+            instanceId: "managed-conflict:instance:1",
+            sessionId: "managed-conflict:session:1",
+            managedInvocationId: "managed-conflict:child:blocked",
+            invocationId: "managed-conflict:child:blocked",
+            agentId: "agent-coder",
+            lifecycleState: "failed",
+            managedInvocationEvidence: {
+              lifecycle: {
+                resourceLease: {
+                  leaseId: "managed-conflict:child:blocked:lease",
+                  createdAt: "2026-05-23T12:00:00.000Z",
+                  healthStatus: "stale",
+                  cleanupStatus: "not-required",
+                  workingDirectoryPath: "C:/repo",
+                  workingDirectoryMode: "workspace-write",
+                  resourceUris: [],
+                  diagnosticUris: ["kiln://managed-invocations/managed-conflict-child-blocked/conflict"],
+                  worktreeConflict: {
+                    status: "blocked",
+                    reason: "same-checkout-write-conflict",
+                    requestedInvocationId: "managed-conflict:child:blocked",
+                    conflictingInvocationId: "managed-conflict:child:active",
+                    workingDirectoryPath: "C:/repo",
+                    workingDirectoryMode: "workspace-write",
+                    policyId: "managed-agent.worktree.single-active-writer",
+                    retryAfterInvocationIds: ["managed-conflict:child:active"],
+                    resourceUris: [],
+                    diagnosticUris: ["kiln://managed-invocations/managed-conflict-child-blocked/conflict"],
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.attentionCount).toBe(1);
+    expect(view.managedAgents.items[0]).toMatchObject({
+      managedInvocationId: "managed-conflict:child:blocked",
+      attentionState: "needs_review",
+      dirtyWorkspaceReviewRequired: false,
+      worktreeConflictBlocked: true,
+      worktreeConflict: {
+        status: "blocked",
+        reason: "same-checkout-write-conflict",
+        requestedInvocationId: "managed-conflict:child:blocked",
+        conflictingInvocationId: "managed-conflict:child:active",
+        workingDirectoryPath: "C:/repo",
+        workingDirectoryMode: "workspace-write",
+        policyId: "managed-agent.worktree.single-active-writer",
+        retryAfterInvocationIds: ["managed-conflict:child:active"],
+        resourceUris: [],
+        diagnosticUris: ["kiln://managed-invocations/managed-conflict-child-blocked/conflict"],
+      },
+      resourceUris: ["kiln://managed-invocations/managed-conflict-child-blocked/conflict"],
+    });
+  });
+
   it("resolves managed child drilldown and scoped replay from canonical cockpit projection", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-05-23T12:01:00.000Z",

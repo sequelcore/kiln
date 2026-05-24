@@ -9,6 +9,8 @@ import type {
   ManagedAgentCapabilitySnapshot,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAgentWriteAuthority,
+  ManagedAgentWriteEvidence,
   SessionAgentInvocationEvidence,
   SessionEventSource,
 } from "@kilnai/core";
@@ -489,12 +491,31 @@ function collectDeniedEvidence(
   decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>,
   timestamp: Date,
 ): SessionAgentInvocationEvidence | undefined {
-  if (!request.authority.writeAuthority) {
-    return undefined;
+  const evidence: {
+    lifecycle?: SessionAgentInvocationEvidence["lifecycle"];
+    writeAuthority?: ManagedAgentWriteAuthority;
+    writeEvidence?: readonly ManagedAgentWriteEvidence[];
+  } = {};
+  if (decision.resourceLease !== undefined) {
+    evidence.lifecycle = {
+      lifecycleState: "failed",
+      invocationId: request.invocationId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      routeId: `${request.providerRoute.providerId}:${request.profile}`,
+      providerId: request.providerRoute.providerId,
+      ...(request.providerRoute.model !== undefined ? { model: request.providerRoute.model } : {}),
+      profile: request.profile,
+      contextMode: request.input.context?.mode ?? "isolated",
+      authorityProfileId: request.authority.authorityProfileId,
+      resourceLease: decision.resourceLease,
+      diagnosticUris: decision.resourceLease.diagnosticUris,
+      handoffResourceUris: [],
+    };
   }
-  return {
-    writeAuthority: request.authority.writeAuthority,
-    writeEvidence: [
+  if (request.authority.writeAuthority) {
+    evidence.writeAuthority = request.authority.writeAuthority;
+    evidence.writeEvidence = [
       defineManagedAgentWriteEvidence({
         evidenceId: `${request.invocationId}:write-authority-denied`,
         invocationId: request.invocationId,
@@ -503,8 +524,9 @@ function collectDeniedEvidence(
         resourceUris: [],
         recordedAt: timestamp.toISOString(),
       }),
-    ],
-  };
+    ];
+  }
+  return Object.keys(evidence).length > 0 ? evidence : undefined;
 }
 
 function makeSource(): SessionEventSource {

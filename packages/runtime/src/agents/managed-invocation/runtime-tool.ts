@@ -1102,6 +1102,7 @@ async function executeManagedInvocationTool(
         context: prepared.request.input.context,
         ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
         missingCapabilities: result.decision.missingCapabilities,
+        ...(result.decision.resourceLease ? { resourceLease: result.decision.resourceLease } : {}),
         sessionEventIds: events.map((event) => event.eventId),
         presentationIntent: buildManagedInvocationPresentationIntent({
           routeId: prepared.route.routeId,
@@ -1172,6 +1173,7 @@ async function executeManagedInvocationStartTool(
         context: prepared.request.input.context,
         ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
         missingCapabilities: startResult.decision.missingCapabilities,
+        ...(startResult.decision.resourceLease ? { resourceLease: startResult.decision.resourceLease } : {}),
         sessionEventIds: events.map((event) => event.eventId),
       },
     };
@@ -1310,6 +1312,7 @@ async function executeManagedInvocationJoinTool(
         status: "denied",
         lifecycleState: "failed",
         missingCapabilities: invocationResult.decision.missingCapabilities,
+        ...(invocationResult.decision.resourceLease ? { resourceLease: invocationResult.decision.resourceLease } : {}),
       },
       MANAGED_AGENT_JOIN_TOOL_NAME,
     );

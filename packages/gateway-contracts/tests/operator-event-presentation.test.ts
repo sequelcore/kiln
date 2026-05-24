@@ -773,6 +773,55 @@ describe("operator event presentation", () => {
     expect(completed.details).toContainEqual({ label: "Worktree review diagnostics", value: "kiln://artifacts/inv-lease-only/worktree-review-required" });
   });
 
+  it("presents denied worktree conflict evidence in operator details", () => {
+    const failed = presentOperatorEventPayload("agent_invocation_failed", {
+      invocationId: "inv-conflict",
+      agentId: "agent-reviewer",
+      profile: "foundation-apply-approved-writes",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.5",
+        surface: "cli-harness",
+      },
+      managedInvocationEvidence: {
+        lifecycle: {
+          resourceLease: {
+            leaseId: "inv-conflict:resource-lease",
+            createdAt: "2026-05-07T08:00:00.000Z",
+            healthStatus: "stale",
+            cleanupStatus: "not-required",
+            workingDirectoryPath: "C:/workspace/kiln",
+            workingDirectoryMode: "workspace-write",
+            resourceUris: ["kiln://artifacts/inv-conflict/worktree-conflict-resource"],
+            diagnosticUris: ["kiln://artifacts/inv-conflict/worktree-conflict"],
+            worktreeConflict: {
+              status: "blocked",
+              reason: "same-checkout-write-conflict",
+              requestedInvocationId: "inv-conflict",
+              conflictingInvocationId: "inv-active",
+              workingDirectoryPath: "C:/workspace/kiln",
+              workingDirectoryMode: "workspace-write",
+              policyId: "managed-agent.worktree.single-active-writer",
+              retryAfterInvocationIds: ["inv-active"],
+              resourceUris: ["kiln://artifacts/inv-conflict/worktree-conflict-resource"],
+              diagnosticUris: ["kiln://artifacts/inv-conflict/worktree-conflict"],
+            },
+          },
+        },
+      },
+      errorMessage: "Managed invocation denied.",
+    });
+
+    expect(failed.details).toContainEqual({ label: "Worktree conflict", value: "blocked · same-checkout-write-conflict" });
+    expect(failed.details).toContainEqual({ label: "Requested invocation", value: "inv-conflict" });
+    expect(failed.details).toContainEqual({ label: "Conflicting invocation", value: "inv-active" });
+    expect(failed.details).toContainEqual({ label: "Conflict worktree", value: "workspace-write · C:/workspace/kiln" });
+    expect(failed.details).toContainEqual({ label: "Conflict policy", value: "managed-agent.worktree.single-active-writer" });
+    expect(failed.details).toContainEqual({ label: "Retry after", value: "inv-active" });
+    expect(failed.details).toContainEqual({ label: "Conflict resources", value: "kiln://artifacts/inv-conflict/worktree-conflict-resource" });
+    expect(failed.details).toContainEqual({ label: "Conflict diagnostics", value: "kiln://artifacts/inv-conflict/worktree-conflict" });
+  });
+
   it("does not merge incomplete lifecycle lease deltas into operator details", () => {
     const completed = presentOperatorEventPayload("agent_invocation_completed", {
       invocationId: "inv-partial-lease-delta",

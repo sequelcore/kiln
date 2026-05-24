@@ -143,7 +143,7 @@ Use these documents as the stable source of truth before starting roadmap work:
    managed invocation resources include de-duplicated governed review pointers.
    Slice 5 is closed in code after Slice 5P; paginated transcript/artifact
    content reads are deferred until storage exposes stable content boundaries
-   and a shared resource-read contract exists. Slice 6A-D are complete in
+   and a shared resource-read contract exists. Slice 6A-E are complete in
    code: core work-governance now projects adoption-gate state from structured
    adoption evidence, goal closeout consumes that projection, and governed
    managed child result handoff evidence must be structured with matching work
@@ -153,6 +153,10 @@ Use these documents as the stable source of truth before starting roadmap work:
    evidence through the canonical work item execution closeout path instead of
    remaining silent runtime absence, and code-writing child adoption now
    requires core-owned diff, verification, review, and adoption readiness.
+   Worktree-backed child conflicts now return governed denied admission
+   decisions with `resourceLease.worktreeConflict` evidence, shared operator
+   projection/view attention, CLI rendering, and model-facing managed resource
+   pointers instead of runtime-only overlap errors.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

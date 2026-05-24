@@ -468,6 +468,7 @@ function formatManagedAgentListRow(invocation: OperatorCockpitInvocationProjecti
     (invocation.lifecycleState ?? "unknown").padEnd(12),
     invocation.providerRoute ?? "unknown-provider",
     invocation.resourceLease?.worktreeReview?.status === "required" ? "review:required" : undefined,
+    invocation.resourceLease?.worktreeConflict?.status ? `conflict:${invocation.resourceLease.worktreeConflict.status}` : undefined,
     invocation.adoptionGate ? `adoption:${invocation.adoptionGate.status}` : undefined,
   ].filter((part): part is string => part !== undefined).join("  ");
 }
@@ -488,6 +489,7 @@ function formatManagedAgentStatus(
     invocation.resourceLease ? `Lease health: ${invocation.resourceLease.healthStatus}` : undefined,
     invocation.resourceLease ? `Lease cleanup: ${invocation.resourceLease.cleanupStatus}` : undefined,
     ...formatManagedAgentWorktreeReviewLines(invocation),
+    ...formatManagedAgentWorktreeConflictLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].filter((line): line is string => line !== undefined).join("\n");
 }
@@ -506,6 +508,31 @@ function formatManagedAgentWorktreeReviewLines(
       : undefined,
     worktreeReview.diagnosticUris.length > 0
       ? `Worktree review diagnostics: ${worktreeReview.diagnosticUris.join(", ")}`
+      : undefined,
+  ];
+}
+
+function formatManagedAgentWorktreeConflictLines(
+  invocation: OperatorCockpitInvocationProjection,
+): readonly (string | undefined)[] {
+  const worktreeConflict = invocation.resourceLease?.worktreeConflict;
+  if (!worktreeConflict) {
+    return [];
+  }
+  return [
+    `Worktree conflict: ${worktreeConflict.status} · ${worktreeConflict.reason}`,
+    `Requested invocation: ${worktreeConflict.requestedInvocationId}`,
+    `Conflicting invocation: ${worktreeConflict.conflictingInvocationId}`,
+    `Conflict worktree: ${worktreeConflict.workingDirectoryMode} · ${worktreeConflict.workingDirectoryPath}`,
+    `Conflict policy: ${worktreeConflict.policyId}`,
+    worktreeConflict.retryAfterInvocationIds.length > 0
+      ? `Retry after: ${worktreeConflict.retryAfterInvocationIds.join(", ")}`
+      : undefined,
+    worktreeConflict.resourceUris.length > 0
+      ? `Conflict resources: ${worktreeConflict.resourceUris.join(", ")}`
+      : undefined,
+    worktreeConflict.diagnosticUris.length > 0
+      ? `Conflict diagnostics: ${worktreeConflict.diagnosticUris.join(", ")}`
       : undefined,
   ];
 }
@@ -552,6 +579,7 @@ function formatManagedAgentResources(invocation: OperatorCockpitInvocationProjec
     return [
       `No resource pointers found for managed child ${managedInvocationId}.`,
       ...formatManagedAgentWorktreeReviewLines(invocation),
+      ...formatManagedAgentWorktreeConflictLines(invocation),
       ...formatManagedAgentAdoptionGateStatusLines(invocation),
     ].join("\n");
   }
@@ -559,6 +587,7 @@ function formatManagedAgentResources(invocation: OperatorCockpitInvocationProjec
     `Resources for managed child ${managedInvocationId}:`,
     ...evidenceResourceUris.map((uri) => `- ${uri}`),
     ...formatManagedAgentWorktreeReviewLines(invocation),
+    ...formatManagedAgentWorktreeConflictLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].join("\n");
 }

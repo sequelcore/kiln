@@ -582,23 +582,58 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
   it("rejects overlapping same-checkout parallel approved-write invocations before adapter execution", async () => {
     const terminal = deferred<ManagedAgentInvocationRecord>();
-    const invoke = vi.fn(async () => terminal.promise);
+    const invoke = vi.fn(async ({ request, admission }) => {
+      await terminal.promise;
+      return makeRecordForRequest(request, admission.capabilitySnapshot);
+    });
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeWriteDescriptor(),
       invoke,
     };
     const service = new RuntimeManagedAgentInvocationService();
-
-    const first = await service.start(makeApprovedWriteRequest("write-1", [
+    const firstRequest = makeApprovedWriteRequest("write-1", [
       "C:/workspace/kiln/packages/core",
-    ]), adapter);
+    ]);
+
+    const first = await service.start(firstRequest, adapter, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+    });
 
     expect(first.status).toBe("started");
-    await expect(service.start(makeApprovedWriteRequest("write-2", [
+    const denied = await service.start(makeApprovedWriteRequest("write-2", [
       "C:/workspace/kiln/packages/core/src/agents",
-    ]), adapter)).rejects.toThrow("same-checkout parallel write");
+    ]), adapter, {
+      capturedAt: "2026-05-07T08:00:01.000Z",
+    });
+
+    expect(denied.status).toBe("denied");
+    expect(denied.decision).toMatchObject({
+      status: "denied",
+      missingCapabilities: ["resourceLease.worktreeConflict"],
+      resourceLease: {
+        leaseId: "write-2:resource-lease",
+        createdAt: "2026-05-07T08:00:01.000Z",
+        healthStatus: "stale",
+        cleanupStatus: "not-required",
+        workingDirectoryPath: "C:/workspace/kiln",
+        workingDirectoryMode: "workspace-write",
+        worktreeConflict: {
+          status: "blocked",
+          reason: "same-checkout-write-conflict",
+          conflictingInvocationId: "write-1",
+          requestedInvocationId: "write-2",
+          retryAfterInvocationIds: ["write-1"],
+          policyId: "managed-agent.worktree.single-active-writer",
+        },
+      },
+    });
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(service.status("write-2")).toBeUndefined();
+
+    if (first.status === "started") {
+      terminal.resolve(makeRecordForRequest(firstRequest, first.decision.capabilitySnapshot));
+      await service.join("write-1");
+    }
   });
 
   it("allows same-checkout parallel approved-write invocations when workspace scopes are explicit and disjoint", async () => {
@@ -710,9 +745,26 @@ describe("RuntimeManagedAgentInvocationService", () => {
       capturedAt: "2026-05-07T08:00:00.000Z",
     });
 
-    await expect(service.start(secondSharedPathRequest, adapter, {
+    const denied = await service.start(secondSharedPathRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
-    })).rejects.toThrow("isolated worktree path");
+    });
+
+    expect(denied.status).toBe("denied");
+    expect(denied.decision).toMatchObject({
+      status: "denied",
+      missingCapabilities: ["resourceLease.worktreeConflict"],
+      resourceLease: {
+        workingDirectoryPath: sharedPath,
+        workingDirectoryMode: "isolated-worktree",
+        worktreeConflict: {
+          status: "blocked",
+          reason: "isolated-worktree-path-conflict",
+          conflictingInvocationId: "write-1",
+          requestedInvocationId: "write-2",
+          retryAfterInvocationIds: ["write-1"],
+        },
+      },
+    });
     expect(worktreeLeaseManager.acquire).toHaveBeenCalledTimes(1);
     expect(adapter.invoke).not.toHaveBeenCalled();
 
@@ -759,9 +811,23 @@ describe("RuntimeManagedAgentInvocationService", () => {
       capturedAt: "2026-05-07T08:00:00.000Z",
     });
 
-    await expect(service.start(secondAliasRequest, adapter, {
+    const denied = await service.start(secondAliasRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
-    })).rejects.toThrow("isolated worktree path");
+    });
+
+    expect(denied.status).toBe("denied");
+    expect(denied.decision).toMatchObject({
+      status: "denied",
+      resourceLease: {
+        worktreeConflict: {
+          status: "blocked",
+          reason: "isolated-worktree-path-conflict",
+          conflictingInvocationId: "write-1",
+          requestedInvocationId: "write-2",
+          workingDirectoryPath: aliasPath,
+        },
+      },
+    });
     expect(worktreeLeaseManager.acquire).toHaveBeenCalledTimes(1);
 
     acquireGate.resolve();
@@ -1203,9 +1269,24 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
     expect(first.status).toBe("started");
 
-    await expect(service.start(makeSandboxWriteRequest("write-2", ["C:/workspace/kiln/packages/core"]), adapter, {
+    const denied = await service.start(makeSandboxWriteRequest("write-2", ["C:/workspace/kiln/packages/core"]), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
-    })).rejects.toThrow("same-checkout parallel write conflict");
+    });
+
+    expect(denied.status).toBe("denied");
+    expect(denied.decision).toMatchObject({
+      status: "denied",
+      missingCapabilities: ["resourceLease.worktreeConflict"],
+      resourceLease: {
+        workingDirectoryMode: "sandbox",
+        worktreeConflict: {
+          status: "blocked",
+          reason: "same-checkout-write-conflict",
+          conflictingInvocationId: "write-1",
+          requestedInvocationId: "write-2",
+        },
+      },
+    });
 
     terminal.resolve(makeRecordForRequest(
       makeSandboxWriteRequest("write-1", ["C:/workspace/kiln/packages/core"]),

@@ -418,6 +418,86 @@ describe("operator cockpit read-only projection", () => {
     });
   });
 
+  it("projects denied worktree conflict evidence as resource lease state", () => {
+    const failed: OperatorSessionEvent = {
+      eventId: "lifecycle:event:worktree-conflict",
+      kilnSessionId: "lifecycle:session:worktree-conflict",
+      sequence: 1,
+      timestamp: "2026-05-21T12:00:00.000Z",
+      kind: "agent_invocation_failed",
+      payload: {
+        instanceId: "lifecycle:instance:1",
+        sessionId: "lifecycle:session:worktree-conflict",
+        managedInvocationId: "lifecycle:child:worktree-conflict",
+        invocationId: "lifecycle:child:worktree-conflict",
+        agentId: "agent-reviewer",
+        lifecycleState: "failed",
+        managedInvocationEvidence: {
+          lifecycle: {
+            resourceLease: {
+              leaseId: "lifecycle:child:worktree-conflict:resource-lease",
+              createdAt: "2026-05-21T12:00:00.000Z",
+              healthStatus: "stale",
+              cleanupStatus: "not-required",
+              workingDirectoryPath: "C:/workspace/kiln",
+              workingDirectoryMode: "workspace-write",
+              resourceUris: [],
+              diagnosticUris: ["kiln://artifacts/lifecycle-child-worktree-conflict/worktree-conflict"],
+              worktreeConflict: {
+                status: "blocked",
+                reason: "same-checkout-write-conflict",
+                requestedInvocationId: "lifecycle:child:worktree-conflict",
+                conflictingInvocationId: "lifecycle:child:active",
+                workingDirectoryPath: "C:/workspace/kiln",
+                workingDirectoryMode: "workspace-write",
+                policyId: "managed-agent.worktree.single-active-writer",
+                retryAfterInvocationIds: ["lifecycle:child:active"],
+                resourceUris: [],
+                diagnosticUris: ["kiln://artifacts/lifecycle-child-worktree-conflict/worktree-conflict"],
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-21T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "lifecycle:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [failed],
+    });
+
+    expect(projection.invocations[0]?.resourceLease).toEqual({
+      leaseId: "lifecycle:child:worktree-conflict:resource-lease",
+      createdAt: "2026-05-21T12:00:00.000Z",
+      healthStatus: "stale",
+      cleanupStatus: "not-required",
+      workingDirectoryPath: "C:/workspace/kiln",
+      workingDirectoryMode: "workspace-write",
+      resourceUris: [],
+      diagnosticUris: ["kiln://artifacts/lifecycle-child-worktree-conflict/worktree-conflict"],
+      worktreeConflict: {
+        status: "blocked",
+        reason: "same-checkout-write-conflict",
+        requestedInvocationId: "lifecycle:child:worktree-conflict",
+        conflictingInvocationId: "lifecycle:child:active",
+        workingDirectoryPath: "C:/workspace/kiln",
+        workingDirectoryMode: "workspace-write",
+        policyId: "managed-agent.worktree.single-active-writer",
+        retryAfterInvocationIds: ["lifecycle:child:active"],
+        resourceUris: [],
+        diagnosticUris: ["kiln://artifacts/lifecycle-child-worktree-conflict/worktree-conflict"],
+      },
+    });
+    expect(projection.invocations[0]?.evidenceResourceUris).toEqual([
+      "kiln://artifacts/lifecycle-child-worktree-conflict/worktree-conflict",
+    ]);
+  });
+
   it("projects managed child transcript, handoff, diagnostics, and review resources as invocation evidence targets", () => {
     const completed: OperatorSessionEvent = {
       eventId: "evidence:event:completed",

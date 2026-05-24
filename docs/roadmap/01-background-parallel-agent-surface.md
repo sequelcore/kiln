@@ -118,7 +118,10 @@ Active. Started on 2026-05-21. Current implementation status:
   remaining runtime-only metadata or silent absence. Slice 6D is complete in
   code: code-writing managed orchestration children now require core-owned
   diff, verification, review, and adoption readiness before structured
-  adoption can satisfy closeout.
+  adoption can satisfy closeout. Slice 6E is complete in code: worktree-backed
+  write conflicts now return governed denied admission decisions with
+  `resourceLease.worktreeConflict` evidence and shared operator projection
+  instead of throwing runtime-only overlap errors.
   Slices 7-8 are not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
@@ -773,8 +776,8 @@ Deliverables:
 
 ### Slice 6 - Handoff, Review, And Adoption
 
-Status: started. Slice 6A, Slice 6B, Slice 6C, and Slice 6D are complete in code;
-remaining governed review, conflict, and repair cuts continue here.
+Status: started. Slice 6A, Slice 6B, Slice 6C, Slice 6D, and Slice 6E are
+complete in code; remaining governed review and repair cuts continue here.
 
 Completed:
 
@@ -805,10 +808,18 @@ Completed:
   adoption. A structured adoption resolution alone no longer satisfies
   `managed-orchestration:adoption-gate`; readiness evidence must be present
   and readiness gates must pass, with skipped gates remaining blocked.
+- Worktree-backed managed child conflicts now fail closed as governed denied
+  admission decisions instead of runtime-only overlap exceptions. Same-checkout
+  writer collisions, sandbox writer collisions, and same-path isolated worktree
+  collisions emit `resourceLease.worktreeConflict` evidence with the requested
+  child, conflicting child, working directory mode/path, policy id, retry-after
+  ids, and conflict diagnostics. Runtime session events, shared gateway
+  cockpit projection/view state, operator event presentation, CLI status/list
+  output, and model-facing managed invocation resources all consume that same
+  lease evidence without surface-local conflict state.
 
 Deliverables:
 
-- Add governed conflict states for worktree-backed children.
 - Integrate with feedback/repair work items only after lifecycle and evidence
   are stable.
 

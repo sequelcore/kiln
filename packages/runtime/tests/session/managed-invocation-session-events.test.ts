@@ -646,4 +646,66 @@ describe("appendManagedInvocationSessionEvents", () => {
       }],
     });
   });
+
+  it("projects denied worktree conflict as lifecycle resource lease evidence", () => {
+    const session = makeSession();
+    const request = makeWriteRequest(session.id, `${session.id}:turn:1`);
+    const decision: ManagedAgentAdmissionDecision = {
+      status: "denied",
+      invocationId: request.invocationId,
+      profile: request.profile,
+      reason: "Managed agent same-checkout parallel write conflict: active-write already holds C:/workspace/kiln",
+      missingCapabilities: ["resourceLease.worktreeConflict"],
+      resourceLease: {
+        leaseId: `${request.invocationId}:resource-lease`,
+        createdAt: "2026-05-04T19:44:00.000Z",
+        healthStatus: "stale",
+        cleanupStatus: "not-required",
+        workingDirectoryPath: request.authority.workingDirectory.path,
+        workingDirectoryMode: request.authority.workingDirectory.mode,
+        resourceUris: [],
+        diagnosticUris: [`kiln://artifacts/${request.invocationId}/worktree-conflict`],
+        worktreeConflict: {
+          status: "blocked",
+          reason: "same-checkout-write-conflict",
+          requestedInvocationId: request.invocationId,
+          conflictingInvocationId: "active-write",
+          workingDirectoryPath: request.authority.workingDirectory.path,
+          workingDirectoryMode: request.authority.workingDirectory.mode,
+          policyId: "managed-agent.worktree.single-active-writer",
+          retryAfterInvocationIds: ["active-write"],
+          resourceUris: [],
+          diagnosticUris: [`kiln://artifacts/${request.invocationId}/worktree-conflict`],
+        },
+      },
+    };
+    const events = appendManagedInvocationSessionEvents({
+      session,
+      request,
+      decision,
+      timestamp: new Date("2026-05-04T19:44:00.000Z"),
+    });
+
+    expect(events.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_failed",
+    ]);
+    expect(events[1]).toMatchObject({
+      errorCode: "ADMISSION_DENIED",
+      errorMessage: expect.stringContaining("worktreeConflict"),
+      managedInvocationEvidence: {
+        lifecycle: {
+          lifecycleState: "failed",
+          invocationId: request.invocationId,
+          resourceLease: {
+            worktreeConflict: {
+              status: "blocked",
+              reason: "same-checkout-write-conflict",
+              conflictingInvocationId: "active-write",
+            },
+          },
+        },
+      },
+    });
+  });
 });

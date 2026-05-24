@@ -400,6 +400,19 @@ export interface OperatorManagedAgentWorktreeReviewSnapshot {
   readonly diagnosticUris: readonly string[];
 }
 
+export interface OperatorManagedAgentWorktreeConflictSnapshot {
+  readonly status: "blocked";
+  readonly reason: "same-checkout-write-conflict" | "isolated-worktree-path-conflict";
+  readonly requestedInvocationId: string;
+  readonly conflictingInvocationId: string;
+  readonly workingDirectoryPath: string;
+  readonly workingDirectoryMode: "read-only" | "workspace-write" | "isolated-worktree" | "sandbox";
+  readonly policyId: "managed-agent.worktree.single-active-writer";
+  readonly retryAfterInvocationIds: readonly string[];
+  readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
+}
+
 export interface OperatorManagedAgentResourceLeaseSnapshot {
   readonly leaseId: string;
   readonly createdAt: string;
@@ -410,6 +423,7 @@ export interface OperatorManagedAgentResourceLeaseSnapshot {
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
   readonly worktreeReview?: OperatorManagedAgentWorktreeReviewSnapshot;
+  readonly worktreeConflict?: OperatorManagedAgentWorktreeConflictSnapshot;
 }
 
 export interface OperatorManagedAgentChildIdentitySnapshot {

@@ -20,6 +20,7 @@ import type {
   ManagedAgentInvocationRequest,
   ManagedAgentLifecycleState,
   ManagedAgentResourceLeaseEvidence,
+  ManagedAgentWorktreeConflictEvidence,
   ManagedAgentWorktreeReviewEvidence,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
@@ -806,7 +807,13 @@ export class RuntimeManagedAgentInvocationService {
         decision: cloneJson(decision),
       };
     }
-    this.assertNoActiveWriteLeaseConflict(request);
+    const writeLeaseConflict = this.detectActiveWriteLeaseConflict(request, decision);
+    if (writeLeaseConflict) {
+      return {
+        status: "denied",
+        decision: cloneJson(writeLeaseConflict),
+      };
+    }
 
     const registeredRequest = cloneJson(request);
     const registeredDecision = cloneJson(decision);
@@ -1196,9 +1203,12 @@ export class RuntimeManagedAgentInvocationService {
     }
   }
 
-  private assertNoActiveWriteLeaseConflict(request: ManagedAgentInvocationRequest): void {
+  private detectActiveWriteLeaseConflict(
+    request: ManagedAgentInvocationRequest,
+    decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
+  ): Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }> | undefined {
     if (!isSameCheckoutWriteInvocation(request) && !isIsolatedWorktreeInvocation(request)) {
-      return;
+      return undefined;
     }
 
     for (const entry of this.invocations.values()) {
@@ -1207,9 +1217,12 @@ export class RuntimeManagedAgentInvocationService {
       }
       if (isIsolatedWorktreeInvocation(request) && isIsolatedWorktreeInvocation(entry.request)) {
         if (samePath(entry.request.authority.workingDirectory.path, request.authority.workingDirectory.path)) {
-          throw new ManagedAgentRuntimeAdmissionError(
-            `Managed agent isolated worktree path conflict: ${entry.request.invocationId} already holds ${request.authority.workingDirectory.path}`,
-          );
+          return deniedWriteLeaseConflictDecision({
+            request,
+            decision,
+            active: entry,
+            reason: "isolated-worktree-path-conflict",
+          });
         }
         continue;
       }
@@ -1222,10 +1235,14 @@ export class RuntimeManagedAgentInvocationService {
       if (hasDisjointApprovedWorkspaceScope(entry.request, request)) {
         continue;
       }
-      throw new ManagedAgentRuntimeAdmissionError(
-        `Managed agent same-checkout parallel write conflict: ${entry.request.invocationId} already holds ${request.authority.workingDirectory.path}`,
-      );
+      return deniedWriteLeaseConflictDecision({
+        request,
+        decision,
+        active: entry,
+        reason: "same-checkout-write-conflict",
+      });
     }
+    return undefined;
   }
 
   private assertRecordWithinAdmission(
@@ -1879,6 +1896,47 @@ function worktreeReviewEvidenceForCleanupFailure(
   };
 }
 
+function deniedWriteLeaseConflictDecision(input: {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly active: ManagedAgentRuntimeInvocationEntry;
+  readonly reason: ManagedAgentWorktreeConflictEvidence["reason"];
+}): Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }> {
+  const activeInvocationId = input.active.request.invocationId;
+  const lease = input.decision.capabilitySnapshot.resourceLease;
+  const diagnosticUri = `kiln://artifacts/${input.request.invocationId}/worktree-conflict`;
+  const conflict: ManagedAgentWorktreeConflictEvidence = {
+    status: "blocked",
+    reason: input.reason,
+    requestedInvocationId: input.request.invocationId,
+    conflictingInvocationId: activeInvocationId,
+    workingDirectoryPath: input.request.authority.workingDirectory.path,
+    workingDirectoryMode: input.request.authority.workingDirectory.mode,
+    policyId: "managed-agent.worktree.single-active-writer",
+    retryAfterInvocationIds: [activeInvocationId],
+    resourceUris: [],
+    diagnosticUris: [diagnosticUri],
+  };
+  const resourceLease: ManagedAgentResourceLeaseEvidence = defineManagedAgentCapabilitySnapshot({
+    ...input.decision.capabilitySnapshot,
+    resourceLease: {
+      ...lease,
+      healthStatus: "stale",
+      cleanupStatus: "not-required",
+      diagnosticUris: uniqueStrings([...lease.diagnosticUris, diagnosticUri]),
+      worktreeConflict: conflict,
+    },
+  }).resourceLease;
+  return {
+    status: "denied",
+    invocationId: input.request.invocationId,
+    profile: input.request.profile,
+    reason: `Managed agent ${input.reason}: ${activeInvocationId} already holds ${input.request.authority.workingDirectory.path}`,
+    missingCapabilities: ["resourceLease.worktreeConflict"],
+    resourceLease,
+  };
+}
+
 function isSameCheckoutWriteInvocation(request: ManagedAgentInvocationRequest): boolean {
   return request.authority.toolAuthority.writeAllowed === true &&
     (request.authority.workingDirectory.mode === "workspace-write" ||
@@ -1987,6 +2045,9 @@ function validateResourceLease(
 ): ManagedAgentResourceLeaseEvidence {
   if (lease.worktreeReview !== undefined) {
     throw new ManagedAgentRuntimeAdmissionError("Managed agent worktree review evidence is runtime-owned");
+  }
+  if (lease.worktreeConflict !== undefined) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent worktree conflict evidence is runtime-owned");
   }
   const admittedLease = decision.capabilitySnapshot.resourceLease;
   if (lease.leaseId !== admittedLease.leaseId) {
@@ -2335,6 +2396,9 @@ function mergeRuntimeLeaseRelease(
     diagnosticUris: uniqueStrings([...previousLease.diagnosticUris, ...releasedLease.diagnosticUris]),
     ...(releasedLease.worktreeReview !== undefined || previousLease.worktreeReview !== undefined
       ? { worktreeReview: releasedLease.worktreeReview ?? previousLease.worktreeReview }
+      : {}),
+    ...(releasedLease.worktreeConflict !== undefined || previousLease.worktreeConflict !== undefined
+      ? { worktreeConflict: releasedLease.worktreeConflict ?? previousLease.worktreeConflict }
       : {}),
   };
 }
