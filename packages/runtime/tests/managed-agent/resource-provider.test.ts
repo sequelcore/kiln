@@ -31,6 +31,13 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         lifecycleState: "completed",
         transcriptUri: "kiln://artifacts/child-1/transcript",
         handoffResourceUris: ["kiln://artifacts/child-1/handoff"],
+        resourceUris: expect.arrayContaining([
+          "kiln://artifacts/child-1/record-worktree-review",
+          "kiln://artifacts/child-1/record-worktree-review-required",
+          "kiln://artifacts/child-1/shared-worktree-review",
+          "kiln://artifacts/child-1/record-capability-worktree-review-required",
+          "kiln://artifacts/child-1/decision-worktree-review-required",
+        ]),
       }],
     });
 
@@ -53,8 +60,15 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         "kiln://artifacts/child-1/handoff",
         "kiln://artifacts/child-1/worktree",
         "kiln://artifacts/child-1/diagnostics",
+        "kiln://artifacts/child-1/record-worktree-review",
+        "kiln://artifacts/child-1/record-worktree-review-required",
+        "kiln://artifacts/child-1/shared-worktree-review",
+        "kiln://artifacts/child-1/record-capability-worktree-review-required",
+        "kiln://artifacts/child-1/decision-worktree-review-required",
       ],
     });
+    const resourceUris = JSON.parse(resources!.contents[0]!.text).resourceUris as readonly string[];
+    expect(resourceUris.filter((uri) => uri === "kiln://artifacts/child-1/shared-worktree-review")).toHaveLength(1);
 
     const invocation = await provider.read("kiln://managed-agents/invocations/child-1");
     const invocationPayload = JSON.parse(invocation!.contents[0]!.text);
@@ -71,6 +85,13 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         admission: {
           status: "admitted",
         },
+        resourceUris: expect.arrayContaining([
+          "kiln://artifacts/child-1/record-worktree-review",
+          "kiln://artifacts/child-1/record-worktree-review-required",
+          "kiln://artifacts/child-1/shared-worktree-review",
+          "kiln://artifacts/child-1/record-capability-worktree-review-required",
+          "kiln://artifacts/child-1/decision-worktree-review-required",
+        ]),
       },
     });
     expect(invocationPayload.invocation.record).toBeUndefined();
@@ -153,6 +174,12 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
           workingDirectoryMode: "isolated-worktree",
           resourceUris: ["kiln://artifacts/child-1/worktree"],
           diagnosticUris: [],
+          worktreeReview: {
+            status: "required",
+            reason: "dirty-worktree-preserved",
+            resourceUris: ["kiln://artifacts/child-1/shared-worktree-review"],
+            diagnosticUris: ["kiln://artifacts/child-1/decision-worktree-review-required"],
+          },
         },
       },
     } as ManagedAgentRuntimeInvocationSnapshot["decision"],
@@ -180,6 +207,12 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
           workingDirectoryMode: "isolated-worktree",
           resourceUris: ["kiln://artifacts/child-1/worktree"],
           diagnosticUris: ["kiln://artifacts/child-1/diagnostics"],
+          worktreeReview: {
+            status: "required",
+            reason: "dirty-worktree-preserved",
+            resourceUris: ["kiln://artifacts/child-1/shared-worktree-review"],
+            diagnosticUris: ["kiln://artifacts/child-1/record-capability-worktree-review-required"],
+          },
         },
       },
       transcript: {
@@ -202,6 +235,12 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
         workingDirectoryMode: "isolated-worktree",
         resourceUris: ["kiln://artifacts/child-1/worktree"],
         diagnosticUris: ["kiln://artifacts/child-1/diagnostics"],
+        worktreeReview: {
+          status: "required",
+          reason: "dirty-worktree-preserved",
+          resourceUris: ["kiln://artifacts/child-1/record-worktree-review"],
+          diagnosticUris: ["kiln://artifacts/child-1/record-worktree-review-required"],
+        },
       },
     } as ManagedAgentRuntimeInvocationSnapshot["record"],
   };

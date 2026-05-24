@@ -136,7 +136,14 @@ Use these documents as the stable source of truth before starting roadmap work:
    gateway-mediated managed-agent cancellation over its existing `/gui/ws`
    cockpit attach, emits the shared `managed_agent_control` cancel frame only
    while the live channel is open, and keeps lifecycle projection owned by
-   runtime-streamed session events.
+   runtime-streamed session events. Slice 5L-P are complete in code: shared
+   cockpit projections expose managed-agent drilldown and adoption-gate state,
+   TUI/native render the shared drilldown, CLI renders adoption and governed
+   worktree-review summaries from shared projection data, and model-facing
+   managed invocation resources include de-duplicated governed review pointers.
+   Slice 5 is closed in code after Slice 5P; paginated transcript/artifact
+   content reads are deferred until storage exposes stable content boundaries
+   and a shared resource-read contract exists.
    This track owns the runtime primitive behind future background agents and
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.

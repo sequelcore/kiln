@@ -1,4 +1,5 @@
 import type {
+  ManagedAgentResourceLeaseEvidence,
   ToolResourceDescriptor,
   ToolResourceProvider,
   ToolResourceReadResult,
@@ -218,13 +219,19 @@ function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapsh
     ...(snapshot.record?.transcript?.uri ? [snapshot.record.transcript.uri] : []),
     ...(snapshot.record?.resultHandoff?.resourceUris ?? []),
     ...(snapshot.record?.resultHandoff?.memoryWriteProposalUris ?? []),
-    ...(snapshot.record?.resourceLease?.resourceUris ?? []),
-    ...(snapshot.record?.resourceLease?.diagnosticUris ?? []),
-    ...(snapshot.record?.capabilitySnapshot.resourceLease.resourceUris ?? []),
-    ...(snapshot.record?.capabilitySnapshot.resourceLease.diagnosticUris ?? []),
-    ...((snapshot.decision.capabilitySnapshot.resourceLease.resourceUris) ?? []),
-    ...((snapshot.decision.capabilitySnapshot.resourceLease.diagnosticUris) ?? []),
+    ...resourceUrisForLease(snapshot.record?.resourceLease),
+    ...resourceUrisForLease(snapshot.record?.capabilitySnapshot.resourceLease),
+    ...resourceUrisForLease(snapshot.decision.capabilitySnapshot.resourceLease),
   ]);
+}
+
+function resourceUrisForLease(lease: ManagedAgentResourceLeaseEvidence | undefined): readonly string[] {
+  return [
+    ...(lease?.resourceUris ?? []),
+    ...(lease?.diagnosticUris ?? []),
+    ...(lease?.worktreeReview?.resourceUris ?? []),
+    ...(lease?.worktreeReview?.diagnosticUris ?? []),
+  ];
 }
 
 function invocationResourceUri(invocationId: string): string {

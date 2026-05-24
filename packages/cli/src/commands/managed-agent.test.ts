@@ -159,10 +159,14 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[0]?.[0]).toContain("Managed children for session session-1:");
     expect(log.mock.calls[0]?.[0]).toContain("child-1");
     expect(log.mock.calls[0]?.[0]).toContain("completed");
+    expect(log.mock.calls[0]?.[0]).toContain("review:required");
     expect(log.mock.calls[1]?.[0]).toContain("Managed child: child-1");
     expect(log.mock.calls[1]?.[0]).toContain("Lifecycle: completed");
     expect(log.mock.calls[1]?.[0]).toContain("Provider: codex/gpt-5.5");
     expect(log.mock.calls[1]?.[0]).toContain("Worktree: C:/repo/.kiln/worktrees/child-1");
+    expect(log.mock.calls[1]?.[0]).toContain("Worktree review: required · dirty-worktree-preserved");
+    expect(log.mock.calls[1]?.[0]).toContain("Worktree review resources: kiln://artifacts/child-1/worktree-review");
+    expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
   it("prints adoption-gate status and blocked detail from shared projection", async () => {
@@ -218,6 +222,9 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("kiln://artifacts/child-1/handoff");
     expect(log.mock.calls[1]?.[0]).toContain("kiln://artifacts/child-1/worktree");
     expect(log.mock.calls[1]?.[0]).toContain("kiln://artifacts/child-1/diagnostics");
+    expect(log.mock.calls[1]?.[0]).toContain("Worktree review: required · dirty-worktree-preserved");
+    expect(log.mock.calls[1]?.[0]).toContain("Worktree review resources: kiln://artifacts/child-1/worktree-review");
+    expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
   it("prints adoption-gate metadata in resources text and JSON output", async () => {
@@ -268,6 +275,14 @@ describe("managed-agent command", () => {
           blockingEvidence: ["managed-orchestration:adoption-gate"],
           rejection: {
             evidence: ["kiln://artifacts/child-1/adoption-review"],
+          },
+        },
+        resourceLease: {
+          worktreeReview: {
+            status: "required",
+            reason: "dirty-worktree-preserved",
+            resourceUris: ["kiln://artifacts/child-1/worktree-review"],
+            diagnosticUris: ["kiln://artifacts/child-1/worktree-review-required"],
           },
         },
       },
@@ -604,6 +619,12 @@ async function appendManagedInvocationEvents(
     workingDirectoryMode: "isolated-worktree",
     resourceUris: ["kiln://artifacts/child-1/worktree"],
     diagnosticUris: ["kiln://artifacts/child-1/diagnostics"],
+    worktreeReview: {
+      status: "required",
+      reason: "dirty-worktree-preserved",
+      resourceUris: ["kiln://artifacts/child-1/worktree-review"],
+      diagnosticUris: ["kiln://artifacts/child-1/worktree-review-required"],
+    },
   };
   const commonPayload = {
     instanceId: "local",

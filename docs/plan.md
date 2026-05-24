@@ -1,45 +1,49 @@
-# Slice 5N CLI Adoption-Gate Parity Plan
+# Slice 5 Closure Plan
 
 ## Objective
 
-Bring the CLI `managed-agent` cockpit into parity with the shared
-runtime/gateway/TUI/native adoption-gate projection. The CLI must pass through
-runtime-projected work-item adoption snapshots and render the resulting shared
-`invocation.adoptionGate` state without computing adoption locally.
+Close Slice 5 after the Slice 5P resource-plane parity cut. Managed child
+cockpit projection, controls, drilldown, adoption-gate, governed worktree
+review, and resource pointer parity are complete across CLI, TUI, GUI, native,
+gateway, runtime, and model-facing resource reads.
 
-## Scope
+## Decision
 
-- Retain `work_item_updated`, `work_item_execution_started`, and
-  `work_item_execution_finished` transcript events only when they carry an
-  existing `managedOrchestrationAdoptionGate` snapshot.
-- Keep `projectOperatorCockpitReadOnlyView` as the single projection path.
-- Show adoption-gate status in `list` and detailed adoption-gate fields in
-  `status`.
-- Keep `resources` backed by shared `evidenceResourceUris`; JSON output keeps
-  the shared invocation projection shape.
+Do not add paginated transcript or artifact content reads in Slice 5. The
+current resource contract supports paginated resource listing and exact
+read-only content reads by URI; it does not define content read offsets,
+limits, byte ranges, query parameters, or shared storage content boundaries.
+Adding those now would create a new cross-surface API instead of closing the
+existing Slice 5 cockpit/resource-plane work.
+
+## Closure Scope
+
+- Preserve pointer-only managed invocation resource-plane behavior.
+- Preserve existing `resource_read` input shape and artifact URI templates.
+- Defer transcript/artifact content pagination until storage exposes stable
+  content boundaries and a shared gateway/resource contract is designed.
+- Update roadmap wording so future cuts do not bolt pagination onto artifact
+  URIs as a local compatibility surface.
 
 ## File Plan
 
-- `packages/cli/src/commands/managed-agent.test.ts`
-  - Add failing tests for transcript work-item snapshot retention, list/status
-    rendering, JSON projection, and mismatched child fail-closed behavior.
-- `packages/cli/src/commands/managed-agent.ts`
-  - Pass through only snapshot-bearing work-item events.
-  - Render `invocation.adoptionGate` status, adopted-by/at, blocking evidence,
-    and rejection detail from shared projection data.
 - `docs/roadmap/01-background-parallel-agent-surface.md`
-  - Mark Slice 5N complete only after verification.
+  - Mark Slice 5 closed in code after Slice 5P.
+  - Replace the Slice 5 MCP/resource-plane deliverable with pointer/resource
+    parity and explicit content-pagination deferral.
+- `docs/roadmap/README.md`
+  - Update the active roadmap summary so Slice 5 is no longer presented as
+    open resource-plane work.
 
 ## Verification
 
-- `bun run --cwd packages/cli test -- src/commands/managed-agent.test.ts`
+- `bun run --cwd packages/runtime test -- tests/managed-agent/resource-provider.test.ts`
 - `bun run typecheck`
 - `bun run test`
+- `git diff --check`
 
-## Risks
+## Residual Risk
 
-- The CLI must not infer adoption status from raw `workItem` payloads.
-- Work-item snapshots without matching child ids must fail closed through the
-  shared projection.
-- CLI output must stay limited to adoption-gate state and avoid governed review
-  summary semantics until that contract exists.
+Transcript/artifact content pagination remains a future architecture slice.
+It needs a stable storage content-boundary contract before any gateway,
+resource tool, or artifact URI template changes are clean.

@@ -467,6 +467,7 @@ function formatManagedAgentListRow(invocation: OperatorCockpitInvocationProjecti
     invocation.status.padEnd(10),
     (invocation.lifecycleState ?? "unknown").padEnd(12),
     invocation.providerRoute ?? "unknown-provider",
+    invocation.resourceLease?.worktreeReview?.status === "required" ? "review:required" : undefined,
     invocation.adoptionGate ? `adoption:${invocation.adoptionGate.status}` : undefined,
   ].filter((part): part is string => part !== undefined).join("  ");
 }
@@ -486,8 +487,27 @@ function formatManagedAgentStatus(
     invocation.resourceLease ? `Worktree: ${invocation.resourceLease.workingDirectoryPath}` : undefined,
     invocation.resourceLease ? `Lease health: ${invocation.resourceLease.healthStatus}` : undefined,
     invocation.resourceLease ? `Lease cleanup: ${invocation.resourceLease.cleanupStatus}` : undefined,
+    ...formatManagedAgentWorktreeReviewLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatManagedAgentWorktreeReviewLines(
+  invocation: OperatorCockpitInvocationProjection,
+): readonly (string | undefined)[] {
+  const worktreeReview = invocation.resourceLease?.worktreeReview;
+  if (!worktreeReview) {
+    return [];
+  }
+  return [
+    `Worktree review: ${worktreeReview.status} · ${worktreeReview.reason}`,
+    worktreeReview.resourceUris.length > 0
+      ? `Worktree review resources: ${worktreeReview.resourceUris.join(", ")}`
+      : undefined,
+    worktreeReview.diagnosticUris.length > 0
+      ? `Worktree review diagnostics: ${worktreeReview.diagnosticUris.join(", ")}`
+      : undefined,
+  ];
 }
 
 function formatManagedAgentAdoptionGateStatusLines(
@@ -531,12 +551,14 @@ function formatManagedAgentResources(invocation: OperatorCockpitInvocationProjec
   if (evidenceResourceUris.length === 0) {
     return [
       `No resource pointers found for managed child ${managedInvocationId}.`,
+      ...formatManagedAgentWorktreeReviewLines(invocation),
       ...formatManagedAgentAdoptionGateStatusLines(invocation),
     ].join("\n");
   }
   return [
     `Resources for managed child ${managedInvocationId}:`,
     ...evidenceResourceUris.map((uri) => `- ${uri}`),
+    ...formatManagedAgentWorktreeReviewLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].join("\n");
 }

@@ -91,7 +91,17 @@ Active. Started on 2026-05-21. Current implementation status:
   cockpit now retains only valid snapshot-bearing work-item frames, projects
   adoption-gate state through the shared gateway cockpit projection, and
   renders adoption status/detail in list, status, resources text, and JSON
-  output without CLI-local adoption computation.
+  output without CLI-local adoption computation. Slice 5O is complete in code:
+  the CLI `managed-agent` cockpit now renders the shared governed worktree
+  review summary from `invocation.resourceLease.worktreeReview` in list,
+  status, resources text, and shared-projection JSON output without content
+  reads or CLI-local review state. Slice 5P is complete in code:
+  model-facing managed invocation resources now include governed worktree
+  review resource and diagnostic pointers from record, record capability, and
+  admission leases without content reads or URI-shape inference. Slice 5 is
+  closed in code after Slice 5P; paginated transcript/artifact content reads
+  are deferred until storage exposes stable content boundaries and a shared
+  resource-read contract exists.
 - Slice 6 is started. Slice 6A is complete in code: core work-governance now
   exposes a shared managed-orchestration adoption gate projection with
   `not_required`, `pending_review`, `adopted`, `rejected`, and `blocked`
@@ -608,10 +618,12 @@ Deliverables:
 
 ### Slice 5 - Cross-Surface Cockpit Projection
 
-Status: started. Slice 5A, Slice 5B, Slice 5C, Slice 5D, Slice 5E, Slice 5F,
-Slice 5G, Slice 5H, Slice 5I, Slice 5J, Slice 5K, Slice 5L, Slice 5M, and
-Slice 5N are complete in code; remaining cross-surface cockpit work continues
-in later Slice 5/Slice 6 cuts.
+Status: closed in code after Slice 5P. Slice 5A, Slice 5B, Slice 5C, Slice 5D,
+Slice 5E, Slice 5F, Slice 5G, Slice 5H, Slice 5I, Slice 5J, Slice 5K, Slice
+5L, Slice 5M, Slice 5N, Slice 5O, and Slice 5P are complete in code.
+Remaining handoff and adoption work continues in Slice 6. Paginated
+transcript/artifact content reads are deferred until storage exposes stable
+content boundaries and a shared resource-read contract exists.
 
 Completed:
 
@@ -713,14 +725,26 @@ Completed:
   adoption gate through `projectOperatorCockpitReadOnlyView`, and renders the
   shared adoption status/detail in list, status, resources text, and JSON
   output without a CLI-local adoption store or DTO.
+- CLI managed-agent cockpit now renders the shared governed worktree review
+  summary from `invocation.resourceLease.worktreeReview`. List output marks
+  review-required children, status/resources text prints the shared
+  `status · reason` summary plus resource and diagnostic pointers, and JSON
+  keeps the shared invocation projection shape without reading artifact content
+  or adding CLI-local review state.
+- Managed invocation resource-plane reads now include governed worktree review
+  pointers from `record.resourceLease`,
+  `record.capabilitySnapshot.resourceLease`, and
+  `decision.capabilitySnapshot.resourceLease`. Aggregate summaries,
+  invocation details, and per-child `/resources` bundles de-duplicate those
+  resource and diagnostic URIs while remaining pointer-only.
 
-Remaining:
+Deferred:
 
-- CLI review-summary follow-up once the stable evidence contract exists.
 - Gateway contract additions only where current read-only lifecycle and cockpit
-  projections are insufficient for shared surfaces.
-- Transcript/artifact resource read follow-ups once storage exposes stable
-  content boundaries.
+  projections are insufficient for a future shared surface.
+- Transcript/artifact content pagination after storage exposes stable content
+  boundaries and the resource tool/gateway contract defines read offsets,
+  limits, and result metadata.
 
 Deliverables:
 
@@ -730,8 +754,10 @@ Deliverables:
   workspace state.
 - Gateway contracts: stable read-only projections for child lifecycle and
   cockpit targets.
-- MCP/resource plane: child transcript and artifact resources exposed as
-  paginated read-only resources.
+- MCP/resource plane: child transcript, handoff, diagnostic, lease, adoption,
+  and governed worktree-review resource pointers exposed as de-duplicated
+  read-only managed invocation resources; content pagination remains deferred
+  until the storage/resource-read boundary is designed.
 
 ### Slice 6 - Handoff, Review, And Adoption
 
