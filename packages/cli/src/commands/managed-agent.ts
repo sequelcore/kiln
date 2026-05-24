@@ -20,6 +20,11 @@ const MANAGED_AGENT_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
   "agent_invocation_failed",
   "agent_invocation_cancelled",
 ];
+const MANAGED_AGENT_WORK_ITEM_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
+  "work_item_updated",
+  "work_item_execution_started",
+  "work_item_execution_finished",
+];
 
 export interface ManagedAgentCommandOptions {
   readonly projectPath?: string;
@@ -117,8 +122,11 @@ export async function managedAgentCommand(
       const invocationId = requirePositional(args, "managed invocation id");
       const invocation = findInvocation(projection, invocationId);
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, invocationId, resourceUris: invocation.evidenceResourceUris }, null, 2)
-        : formatManagedAgentResources(invocationId, invocation.evidenceResourceUris));
+        ? JSON.stringify({
+          sessionId,
+          invocation,
+        }, null, 2)
+        : formatManagedAgentResources(invocation));
       return;
     }
     case "cancel": {
@@ -342,19 +350,81 @@ export async function loadManagedAgentCockpitFromTranscript(
 }
 
 function toOperatorManagedAgentEvent(event: PersistedTranscriptEvent): readonly OperatorSessionEvent[] {
-  if (!isManagedAgentEventKind(event.kind)) {
+  if (!matchesTranscriptEnvelopeSession(event)) {
     return [];
   }
+  if (isManagedAgentWorkItemEventKind(event.kind)) {
+    if (!hasManagedOrchestrationAdoptionGate(event.payload)) {
+      return [];
+    }
+    return [toOperatorSessionEvent(event, {
+      ...event.payload,
+      instanceId: readString(event.payload.instanceId) ?? "local",
+      sessionId: event.kilnSessionId,
+    })];
+  }
+  if (!isManagedAgentEventKind(event.kind)) return [];
   const payload = {
     ...event.payload,
     instanceId: readString(event.payload.instanceId) ?? "local",
-    sessionId: readString(event.payload.sessionId) ?? event.kilnSessionId,
+    sessionId: event.kilnSessionId,
     managedInvocationId: readString(event.payload.managedInvocationId) ?? readString(event.payload.invocationId),
   };
   if (!payload.managedInvocationId) {
     return [];
   }
-  return [{
+  return [toOperatorSessionEvent(event, payload)];
+}
+
+function isManagedAgentEventKind(kind: string): kind is OperatorSessionEventKind {
+  return MANAGED_AGENT_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
+}
+
+function isManagedAgentWorkItemEventKind(kind: string): kind is OperatorSessionEventKind {
+  return MANAGED_AGENT_WORK_ITEM_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
+}
+
+function matchesTranscriptEnvelopeSession(event: PersistedTranscriptEvent): boolean {
+  const payloadSessionId = readString(event.payload.sessionId);
+  return payloadSessionId === undefined || payloadSessionId === event.kilnSessionId;
+}
+
+function hasManagedOrchestrationAdoptionGate(payload: Record<string, unknown>): boolean {
+  const gate = asRecord(payload.managedOrchestrationAdoptionGate);
+  return typeof gate.required === "boolean"
+    && isAdoptionGateStatus(gate.status)
+    && readString(gate.childId) !== undefined
+    && isStringArray(gate.resourceUris)
+    && isStringArray(gate.blockingEvidence)
+    && (gate.rejection === undefined || isAdoptionGateRejection(gate.rejection));
+}
+
+function isAdoptionGateStatus(value: unknown): boolean {
+  return value === "not_required"
+    || value === "pending_review"
+    || value === "adopted"
+    || value === "rejected"
+    || value === "blocked";
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.every((entry) => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function isAdoptionGateRejection(value: unknown): boolean {
+  const rejection = asRecord(value);
+  return readString(rejection.gate) !== undefined
+    && isStringArray(rejection.evidence)
+    && (rejection.summary === undefined || readString(rejection.summary) !== undefined)
+    && (rejection.completedAt === undefined || readString(rejection.completedAt) !== undefined);
+}
+
+function toOperatorSessionEvent(
+  event: PersistedTranscriptEvent,
+  payload: Record<string, unknown>,
+): OperatorSessionEvent {
+  return {
     eventId: event.eventId,
     kilnSessionId: event.kilnSessionId,
     sequence: event.sequence,
@@ -364,11 +434,7 @@ function toOperatorManagedAgentEvent(event: PersistedTranscriptEvent): readonly 
     ...(event.parentEventId ? { parentEventId: event.parentEventId } : {}),
     ...(event.source ? { source: event.source } : {}),
     payload,
-  }];
-}
-
-function isManagedAgentEventKind(kind: string): kind is OperatorSessionEventKind {
-  return MANAGED_AGENT_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
+  };
 }
 
 function findInvocation(
@@ -391,13 +457,18 @@ function formatManagedAgentList(
   }
   return [
     `Managed children for session ${sessionId}:`,
-    ...invocations.map((invocation) => [
-      invocation.managedInvocationId.padEnd(24),
-      invocation.status.padEnd(10),
-      (invocation.lifecycleState ?? "unknown").padEnd(12),
-      invocation.providerRoute ?? "unknown-provider",
-    ].join("  ")),
+    ...invocations.map((invocation) => formatManagedAgentListRow(invocation)),
   ].join("\n");
+}
+
+function formatManagedAgentListRow(invocation: OperatorCockpitInvocationProjection): string {
+  return [
+    invocation.managedInvocationId.padEnd(24),
+    invocation.status.padEnd(10),
+    (invocation.lifecycleState ?? "unknown").padEnd(12),
+    invocation.providerRoute ?? "unknown-provider",
+    invocation.adoptionGate ? `adoption:${invocation.adoptionGate.status}` : undefined,
+  ].filter((part): part is string => part !== undefined).join("  ");
 }
 
 function formatManagedAgentStatus(
@@ -415,7 +486,30 @@ function formatManagedAgentStatus(
     invocation.resourceLease ? `Worktree: ${invocation.resourceLease.workingDirectoryPath}` : undefined,
     invocation.resourceLease ? `Lease health: ${invocation.resourceLease.healthStatus}` : undefined,
     invocation.resourceLease ? `Lease cleanup: ${invocation.resourceLease.cleanupStatus}` : undefined,
+    ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatManagedAgentAdoptionGateStatusLines(
+  invocation: OperatorCockpitInvocationProjection,
+): readonly (string | undefined)[] {
+  const adoptionGate = invocation.adoptionGate;
+  if (!adoptionGate) {
+    return [];
+  }
+  return [
+    `Adoption: ${adoptionGate.status}`,
+    adoptionGate.adoptedBy ? `Adopted by: ${adoptionGate.adoptedBy}` : undefined,
+    adoptionGate.adoptedAt ? `Adopted at: ${adoptionGate.adoptedAt}` : undefined,
+    adoptionGate.blockingEvidence.length > 0
+      ? `Adoption blocking evidence: ${adoptionGate.blockingEvidence.join(", ")}`
+      : undefined,
+    adoptionGate.rejection ? `Adoption rejection gate: ${adoptionGate.rejection.gate}` : undefined,
+    adoptionGate.rejection?.summary ? `Adoption rejection summary: ${adoptionGate.rejection.summary}` : undefined,
+    adoptionGate.rejection?.evidence.length
+      ? `Adoption rejection evidence: ${adoptionGate.rejection.evidence.join(", ")}`
+      : undefined,
+  ];
 }
 
 function formatManagedAgentTranscript(invocationId: string, transcript: unknown): string {
@@ -432,13 +526,18 @@ function formatManagedAgentTranscript(invocationId: string, transcript: unknown)
   ].filter((line): line is string => line !== undefined).join("\n");
 }
 
-function formatManagedAgentResources(invocationId: string, resourceUris: readonly string[]): string {
-  if (resourceUris.length === 0) {
-    return `No resource pointers found for managed child ${invocationId}.`;
+function formatManagedAgentResources(invocation: OperatorCockpitInvocationProjection): string {
+  const { managedInvocationId, evidenceResourceUris } = invocation;
+  if (evidenceResourceUris.length === 0) {
+    return [
+      `No resource pointers found for managed child ${managedInvocationId}.`,
+      ...formatManagedAgentAdoptionGateStatusLines(invocation),
+    ].join("\n");
   }
   return [
-    `Resources for managed child ${invocationId}:`,
-    ...resourceUris.map((uri) => `- ${uri}`),
+    `Resources for managed child ${managedInvocationId}:`,
+    ...evidenceResourceUris.map((uri) => `- ${uri}`),
+    ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].join("\n");
 }
 

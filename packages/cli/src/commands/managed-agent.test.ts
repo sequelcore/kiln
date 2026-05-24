@@ -43,6 +43,100 @@ describe("managed-agent command", () => {
     });
   });
 
+  it("projects runtime adoption-gate snapshots from managed work-item transcript events", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(transcriptStore, "session-1");
+    await appendManagedAdoptionGateEvent(transcriptStore, "session-1", {
+      childId: "child-1",
+      status: "rejected",
+      blockingEvidence: ["managed-orchestration:adoption-gate"],
+      rejection: {
+        gate: "managed orchestration adoption gate",
+        summary: "Reviewer rejected the child handoff.",
+        evidence: ["kiln://artifacts/child-1/adoption-review"],
+        completedAt: "2026-05-22T00:00:07.000Z",
+      },
+    });
+    await appendManagedAdoptionGateEvent(transcriptStore, "session-1", {
+      eventId: "event-adoption-mismatch",
+      childId: "child-other",
+      status: "adopted",
+      resourceUris: ["kiln://artifacts/child-other/adoption"],
+      blockingEvidence: [],
+    });
+
+    const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, "session-1", {
+      projectedAt: "2026-05-23T00:00:00.000Z",
+    });
+
+    expect(projection.invocations).toHaveLength(1);
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "child-1",
+      adoptionGate: {
+        required: true,
+        status: "rejected",
+        childId: "child-1",
+        blockingEvidence: ["managed-orchestration:adoption-gate"],
+        rejection: {
+          gate: "managed orchestration adoption gate",
+          summary: "Reviewer rejected the child handoff.",
+          evidence: ["kiln://artifacts/child-1/adoption-review"],
+        },
+      },
+      evidenceResourceUris: expect.arrayContaining([
+        "kiln://artifacts/child-1/adoption-review",
+      ]),
+    });
+  });
+
+  it("ignores malformed adoption-gate work-item snapshots before projection", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(transcriptStore, "session-1");
+    await transcriptStore.append("session-1", {
+      eventId: "event-adoption-malformed",
+      kilnSessionId: "session-1",
+      sequence: 4,
+      timestamp: "2026-05-22T00:00:06.000Z",
+      kind: "work_item_updated",
+      source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
+      payload: {
+        instanceId: "local",
+        sessionId: "session-1",
+        managedOrchestrationAdoptionGate: {},
+      },
+    });
+
+    const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, "session-1", {
+      projectedAt: "2026-05-23T00:00:00.000Z",
+    });
+
+    expect(projection.timeline.map((event) => event.eventId)).not.toContain("event-adoption-malformed");
+    expect(projection.invocations[0]?.adoptionGate).toBeUndefined();
+  });
+
+  it("ignores adoption-gate snapshots with a payload session outside the transcript envelope", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(transcriptStore, "session-1");
+    await appendManagedAdoptionGateEvent(transcriptStore, "session-1", {
+      eventId: "event-adoption-session-mismatch",
+      childId: "child-1",
+      status: "adopted",
+      payloadSessionId: "session-other",
+      resourceUris: ["kiln://artifacts/child-1/adoption"],
+      blockingEvidence: [],
+    });
+
+    const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, "session-1", {
+      projectedAt: "2026-05-23T00:00:00.000Z",
+    });
+
+    expect(projection.timeline.map((event) => event.eventId)).not.toContain("event-adoption-session-mismatch");
+    expect(projection.invocations[0]?.adoptionGate).toBeUndefined();
+  });
+
   it("lists and inspects managed child invocations", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
@@ -71,6 +165,36 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree: C:/repo/.kiln/worktrees/child-1");
   });
 
+  it("prints adoption-gate status and blocked detail from shared projection", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(transcriptStore, "session-1");
+    await appendManagedAdoptionGateEvent(transcriptStore, "session-1", {
+      childId: "child-1",
+      status: "pending_review",
+      blockingEvidence: ["managed-orchestration:adoption-gate"],
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "list",
+      ["--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "status",
+      ["child-1", "--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+
+    expect(log.mock.calls[0]?.[0]).toContain("adoption:pending_review");
+    expect(log.mock.calls[1]?.[0]).toContain("Adoption: pending_review");
+    expect(log.mock.calls[1]?.[0]).toContain("Adoption blocking evidence: managed-orchestration:adoption-gate");
+    expect(log.mock.calls[1]?.[0]).not.toContain("merge");
+  });
+
   it("prints transcript and resource pointers without inventing live controls", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
@@ -96,6 +220,60 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("kiln://artifacts/child-1/diagnostics");
   });
 
+  it("prints adoption-gate metadata in resources text and JSON output", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(transcriptStore, "session-1");
+    await appendManagedAdoptionGateEvent(transcriptStore, "session-1", {
+      childId: "child-1",
+      status: "rejected",
+      resourceUris: ["kiln://artifacts/child-1/adoption-resource"],
+      blockingEvidence: ["managed-orchestration:adoption-gate"],
+      rejection: {
+        gate: "managed orchestration adoption gate",
+        summary: "Reviewer rejected the child handoff.",
+        evidence: ["kiln://artifacts/child-1/adoption-review"],
+      },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "resources",
+      ["child-1", "--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "resources",
+      ["child-1", "--session", "session-1", "--json"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+
+    expect(log.mock.calls[0]?.[0]).toContain("Adoption: rejected");
+    expect(log.mock.calls[0]?.[0]).toContain("Adoption blocking evidence: managed-orchestration:adoption-gate");
+    expect(log.mock.calls[0]?.[0]).toContain("Adoption rejection evidence: kiln://artifacts/child-1/adoption-review");
+    const jsonOutput = JSON.parse(String(log.mock.calls[1]?.[0])) as Record<string, unknown>;
+    expect(Object.keys(jsonOutput).sort()).toEqual(["invocation", "sessionId"]);
+    expect(jsonOutput).toMatchObject({
+      sessionId: "session-1",
+      invocation: {
+        managedInvocationId: "child-1",
+        evidenceResourceUris: expect.arrayContaining([
+          "kiln://artifacts/child-1/adoption-resource",
+          "kiln://artifacts/child-1/adoption-review",
+        ]),
+        adoptionGate: {
+          status: "rejected",
+          blockingEvidence: ["managed-orchestration:adoption-gate"],
+          rejection: {
+            evidence: ["kiln://artifacts/child-1/adoption-review"],
+          },
+        },
+      },
+    });
+  });
+
   it("prints JSON for automation", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
@@ -115,6 +293,41 @@ describe("managed-agent command", () => {
         managedInvocationId: "child-1",
         status: "completed",
       }],
+    });
+  });
+
+  it("prints adoption-gate JSON without a CLI-local DTO", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(transcriptStore, "session-1");
+    await appendManagedAdoptionGateEvent(transcriptStore, "session-1", {
+      childId: "child-1",
+      status: "adopted",
+      resourceUris: ["kiln://artifacts/child-1/adoption-review"],
+      blockingEvidence: [],
+      adoptedBy: "operator",
+      adoptedAt: "2026-05-22T00:00:07.000Z",
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "status",
+      ["child-1", "--session", "session-1", "--json"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+      sessionId: "session-1",
+      invocation: {
+        managedInvocationId: "child-1",
+        adoptionGate: {
+          status: "adopted",
+          adoptedBy: "operator",
+          adoptedAt: "2026-05-22T00:00:07.000Z",
+          resourceUris: ["kiln://artifacts/child-1/adoption-review"],
+        },
+      },
     });
   });
 
@@ -466,6 +679,63 @@ async function appendManagedInvocationEvents(
           resourceUris: ["kiln://artifacts/child-1/handoff"],
           memoryWriteProposalUris: [],
         },
+      },
+    },
+  });
+}
+
+async function appendManagedAdoptionGateEvent(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  input: {
+    readonly eventId?: string;
+    readonly childId: string;
+    readonly status: "not_required" | "pending_review" | "adopted" | "rejected" | "blocked";
+    readonly adoptedBy?: string;
+    readonly adoptedAt?: string;
+    readonly payloadSessionId?: string;
+    readonly resourceUris?: readonly string[];
+    readonly blockingEvidence: readonly string[];
+    readonly rejection?: {
+      readonly gate: string;
+      readonly summary?: string;
+      readonly evidence: readonly string[];
+      readonly completedAt?: string;
+    };
+  },
+): Promise<void> {
+  await transcriptStore.append(sessionId, {
+    eventId: input.eventId ?? "event-adoption",
+    kilnSessionId: sessionId,
+    sequence: input.eventId ? 5 : 4,
+    timestamp: "2026-05-22T00:00:06.000Z",
+    kind: "work_item_updated",
+    source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
+    payload: {
+      instanceId: "local",
+      sessionId: input.payloadSessionId ?? sessionId,
+      workItem: {
+        id: `work-${input.childId}`,
+        summary: "Review managed child output.",
+        status: input.status === "adopted" || input.status === "not_required" ? "completed" : "blocked",
+        workflowProfile: "sequel-standard",
+        expectedEvidence: ["managed-orchestration:adoption-gate"],
+        providedEvidence: ["managed-orchestration:result-handoff"],
+        updatedAt: "2026-05-22T00:00:06.000Z",
+      },
+      managedOrchestrationAdoptionGate: {
+        required: input.status !== "not_required",
+        target: "slice-6-handoff-review-adoption",
+        reason: "Managed child output must be adopted before closeout.",
+        orchestrationId: "orch-adoption",
+        childId: input.childId,
+        mergePolicyMode: "manual",
+        status: input.status,
+        ...(input.adoptedBy ? { adoptedBy: input.adoptedBy } : {}),
+        ...(input.adoptedAt ? { adoptedAt: input.adoptedAt } : {}),
+        resourceUris: input.resourceUris ?? [],
+        ...(input.rejection ? { rejection: input.rejection } : {}),
+        blockingEvidence: input.blockingEvidence,
       },
     },
   });

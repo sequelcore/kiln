@@ -77,8 +77,27 @@ Active. Started on 2026-05-21. Current implementation status:
   managed-agent cancellation, builds the shared `managed_agent_control` cancel
   frame, enables panel cancellation only while that live channel exists, and
   continues to keep lifecycle projection owned by streamed runtime session
-  events rather than native-local mutation state.
-- Slices 6-8 are not started.
+  events rather than native-local mutation state. Slice 5L is complete in code:
+  shared gateway cockpit view-state now exposes a read-only managed-agent
+  drilldown target with invocation-scoped replay navigation, TUI derives and
+  renders that drilldown from canonical managed-child events without local
+  lifecycle state, and native derives and renders the same drilldown from its
+  gateway event attach without adding mutation ownership. Slice 5M is complete
+  in code: runtime work-item frames now expose the core-owned
+  managed-orchestration adoption-gate snapshot, shared gateway cockpit
+  projection correlates it to matching managed children, and TUI/native
+  drilldowns render adoption status plus blocking/rejection detail from the
+  shared view-state. Slice 5N is complete in code: the CLI `managed-agent`
+  cockpit now retains only valid snapshot-bearing work-item frames, projects
+  adoption-gate state through the shared gateway cockpit projection, and
+  renders adoption status/detail in list, status, resources text, and JSON
+  output without CLI-local adoption computation.
+- Slice 6 is started. Slice 6A is complete in code: core work-governance now
+  exposes a shared managed-orchestration adoption gate projection with
+  `not_required`, `pending_review`, `adopted`, `rejected`, and `blocked`
+  states derived from governed work/adoption evidence, and goal closeout
+  consumes that same projection instead of duplicating adoption checks. Slices
+  7-8 are not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -176,11 +195,11 @@ ledger.
   - TUI/GUI/native cockpit lists, child details, cancel controls, transcript
     links, diff/review links, and attention markers
   - gateway event stream and read-only cockpit contracts
-- Handoff and merge workflow:
+- Handoff and governed review workflow:
   - substantive child handoff schema
   - phase completion evidence
-  - dirty worktree/diff summary
-  - conflict and merge-readiness state
+  - dirty worktree review summary
+  - conflict and adoption-readiness state
   - review gate before parent adoption
 - Live cross-surface hardening for timeout, cancel, unavailable route,
   failed child, stale heartbeat, partial success, dirty workspace, conflicting
@@ -590,9 +609,9 @@ Deliverables:
 ### Slice 5 - Cross-Surface Cockpit Projection
 
 Status: started. Slice 5A, Slice 5B, Slice 5C, Slice 5D, Slice 5E, Slice 5F,
-Slice 5G, Slice 5H, Slice 5I, Slice 5J, and Slice 5K are complete in code;
-remaining CLI diff, TUI drilldown, native drilldown, and transcript/resource
-paging work continues in later Slice 5 cuts.
+Slice 5G, Slice 5H, Slice 5I, Slice 5J, Slice 5K, Slice 5L, Slice 5M, and
+Slice 5N are complete in code; remaining cross-surface cockpit work continues
+in later Slice 5/Slice 6 cuts.
 
 Completed:
 
@@ -668,25 +687,44 @@ Completed:
   identity, enables panel cancellation only when that live channel is open, and
   keeps lifecycle state/evidence owned by runtime-streamed `session_event`
   frames instead of native-local mutation acknowledgements.
+- Shared gateway cockpit view-state now exposes a read-only managed-agent
+  drilldown target. The drilldown resolves a selected child from canonical
+  projection data, exposes the full invocation lifecycle timeline, transcript
+  and evidence resource URIs, and provides previous/next replay ids scoped to
+  that child; unknown invocation or replay targets fail closed.
+- TUI now derives the selected managed-agent drilldown target from canonical
+  managed-child events, projects it through shared cockpit view-state, renders
+  the drilldown timeline/resource/replay block in the sidebar, and preserves
+  unresolved target state even when no child list item exists.
+- Native now derives the selected managed-agent drilldown target from its
+  read-only gateway attach, passes it through the native wrapper over shared
+  cockpit view-state, and renders a separate detail pane with full lifecycle
+  timeline, transcript/resource URIs, and scoped replay navigation while
+  keeping cancellation gated by the existing live control channel.
+- Runtime work-item session-event frames now carry the core-owned
+  managed-orchestration adoption-gate snapshot. Gateway cockpit projection
+  parses that snapshot without importing core, correlates it to matching
+  managed children by child id, and TUI/native drilldowns render adoption
+  status plus blocking and rejection detail from shared view-state.
+- CLI managed-agent cockpit now retains only valid snapshot-bearing
+  `work_item_updated`, `work_item_execution_started`, and
+  `work_item_execution_finished` transcript frames, fails closed when embedded
+  payload session identity diverges from the transcript envelope, projects the
+  adoption gate through `projectOperatorCockpitReadOnlyView`, and renders the
+  shared adoption status/detail in list, status, resources text, and JSON
+  output without a CLI-local adoption store or DTO.
 
 Remaining:
 
-- CLI worktree/diff summary once Slice 6 adoption and merge-readiness evidence
-  defines the stable review/adoption contract.
-- Native drilldown for full lifecycle timeline navigation, paginated
-  transcript/resource reads, and handoff/adoption evidence once the shared
-  resource and Slice 6 contracts expose those stable operations.
-- Richer TUI drilldown for full lifecycle timeline navigation, paginated
-  transcript/resource reads, and handoff/adoption evidence once the shared
-  resource and Slice 6 contracts expose those stable operations.
+- CLI review-summary follow-up once the stable evidence contract exists.
 - Gateway contract additions only where current read-only lifecycle and cockpit
-  projections are insufficient for those shared surfaces.
-- Paginated transcript/artifact resource reads once transcript storage exposes
-  page boundaries.
+  projections are insufficient for shared surfaces.
+- Transcript/artifact resource read follow-ups once storage exposes stable
+  content boundaries.
 
 Deliverables:
 
-- CLI: list, status, join, cancel, transcript, and worktree/diff summary.
+- CLI: list, status, join, cancel, transcript, and governed review summary.
 - TUI/GUI/native: active child list, attention state, lifecycle timeline,
   cancel controls, transcript/resource links, handoff evidence, and dirty
   workspace state.
@@ -697,7 +735,19 @@ Deliverables:
 
 ### Slice 6 - Handoff, Review, And Adoption
 
-Status: pending.
+Status: started. Slice 6A is complete in code; remaining governed handoff and
+review cuts continue here.
+
+Completed:
+
+- Core work-governance now exposes a shared managed-orchestration adoption gate
+  projection over governed work item evidence. Adoption-required children
+  project `pending_review`, `blocked`, `rejected`, or `adopted` from structured
+  adoption evidence and adoption gate review results; adoption-not-required
+  modes project `not_required`. Goal closeout now consumes the same projection
+  when deciding whether `managed-orchestration:adoption-gate` evidence is
+  satisfied, so raw child-provided evidence still cannot self-satisfy parent
+  adoption.
 
 Deliverables:
 
@@ -707,7 +757,7 @@ Deliverables:
   gates.
 - Record skipped, failed, unavailable, cancelled, and timed-out children as
   missing evidence, not as silent absence.
-- Add merge-readiness and conflict states for worktree-backed children.
+- Add governed conflict states for worktree-backed children.
 - Integrate with feedback/repair work items only after lifecycle and evidence
   are stable.
 

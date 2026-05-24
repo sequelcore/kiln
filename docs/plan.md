@@ -1,47 +1,45 @@
-# Slice 5K Plan - Native Gateway-Mediated Managed-Agent Cancel
+# Slice 5N CLI Adoption-Gate Parity Plan
 
 ## Objective
 
-Add native managed-agent cancellation as a gateway-mediated control request
-over the existing native `/gui/ws` cockpit attach.
+Bring the CLI `managed-agent` cockpit into parity with the shared
+runtime/gateway/TUI/native adoption-gate projection. The CLI must pass through
+runtime-projected work-item adoption snapshots and render the resulting shared
+`invocation.adoptionGate` state without computing adoption locally.
 
-## Non-goals
+## Scope
 
-- No native-local lifecycle mutation or cancellation evidence synthesis.
-- No direct runtime-service construction from the native renderer.
-- No new native-only cancellation contract or endpoint.
-- No join, transcript paging, or adoption/diff workflow in this cut.
-- No worktree/diff/adoption behavior before Slice 6 defines that contract.
+- Retain `work_item_updated`, `work_item_execution_started`, and
+  `work_item_execution_finished` transcript events only when they carry an
+  existing `managedOrchestrationAdoptionGate` snapshot.
+- Keep `projectOperatorCockpitReadOnlyView` as the single projection path.
+- Show adoption-gate status in `list` and detailed adoption-gate fields in
+  `status`.
+- Keep `resources` backed by shared `evidenceResourceUris`; JSON output keeps
+  the shared invocation projection shape.
 
-## Surface Map
+## File Plan
 
-- Native gateway attach/control helper:
-  `packages/native/src/renderer/native-gateway-cockpit.ts`
-- Native renderer shell: `packages/native/src/renderer/native-surface-app.tsx`
-- Native managed-agent panel:
-  `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
-- Native boundary tests: `packages/native/tests/native-boundary.test.ts`
-- Native panel tests:
-  `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
-- Roadmap: `docs/roadmap/01-background-parallel-agent-surface.md`,
-  `docs/roadmap/README.md`
-
-## Implementation Steps
-
-1. Add failing native tests for typed cancel frame construction and panel
-   enablement when a live control callback exists.
-2. Add a native helper that creates the shared `managed_agent_control` cancel
-   frame and fails closed on missing `sessionId` or `invocationId`.
-3. Wire the native renderer to keep the existing cockpit WebSocket as the only
-   control channel and send the typed cancel frame only while it is open.
-4. Enable panel cancellation only when the live gateway control callback is
-   present; otherwise keep disabled/read-only UI.
-5. Keep native state updates sourced from gateway `session_event` frames and
-   ignore acknowledgement frames for lifecycle projection.
-6. Update roadmap Slice 5 status and remaining-work bullets.
+- `packages/cli/src/commands/managed-agent.test.ts`
+  - Add failing tests for transcript work-item snapshot retention, list/status
+    rendering, JSON projection, and mismatched child fail-closed behavior.
+- `packages/cli/src/commands/managed-agent.ts`
+  - Pass through only snapshot-bearing work-item events.
+  - Render `invocation.adoptionGate` status, adopted-by/at, blocking evidence,
+    and rejection detail from shared projection data.
+- `docs/roadmap/01-background-parallel-agent-surface.md`
+  - Mark Slice 5N complete only after verification.
 
 ## Verification
 
-- Focused native boundary and panel tests.
-- Native package typecheck/test/build.
-- Full workspace typecheck/test/build plus `git diff --check` before closeout.
+- `bun run --cwd packages/cli test -- src/commands/managed-agent.test.ts`
+- `bun run typecheck`
+- `bun run test`
+
+## Risks
+
+- The CLI must not infer adoption status from raw `workItem` payloads.
+- Work-item snapshots without matching child ids must fail closed through the
+  shared projection.
+- CLI output must stay limited to adoption-gate state and avoid governed review
+  summary semantics until that contract exists.
