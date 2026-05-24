@@ -148,7 +148,9 @@ function normalizeManagedAgentSessionEvent(event: OperatorSessionEvent): Operato
 }
 
 function formatManagedAgentItemLines(item: OperatorCockpitManagedAgentViewItem): readonly string[] {
-  const prefix = item.attentionState === "needs_review" || item.attentionState === "failed"
+  const prefix = item.attentionState === "needs_review"
+    || item.attentionState === "timed_out"
+    || item.attentionState === "failed"
     ? "!"
     : item.attentionState === "active"
       ? ">"

@@ -171,6 +171,58 @@ describe("TUI managed-agent cockpit projection", () => {
     ]));
   });
 
+  it("formats timed-out managed children from shared timeout attention", () => {
+    const failed = event("evt-timeout", 1, "agent_invocation_failed", {
+      invocationId: "child-timeout",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.5",
+      },
+      lifecycleState: "timed_out",
+      managedInvocationEvidence: {
+        diagnostics: [{
+          uri: "kiln://managed-agent/child-timeout/timeout",
+          kind: "timeout",
+        }],
+        resultHandoff: {
+          summary: "Managed child timed out after the configured limit.",
+          resourceUris: ["kiln://managed-agent/child-timeout/handoff"],
+          memoryWriteProposalUris: [],
+        },
+      },
+    });
+    const events = appendManagedAgentSessionEvent([], failed);
+
+    const viewState = projectTuiManagedAgentViewState(events, {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-timeout",
+      },
+    });
+
+    expect(viewState.items[0]).toMatchObject({
+      managedInvocationId: "child-timeout",
+      attentionState: "timed_out",
+      status: "failed",
+      lifecycleState: "timed_out",
+      resourceUris: [
+        "kiln://managed-agent/child-timeout/handoff",
+        "kiln://managed-agent/child-timeout/timeout",
+      ],
+    });
+    expect(formatManagedAgentCockpitLines(viewState)).toEqual(expect.arrayContaining([
+      "attention: 1  active: 0",
+      "! child-timeout timed_out failed codex-oauth/gpt-5.5 events:1 resources:2",
+      "  res kiln://managed-agent/child-timeout/handoff",
+      "  res kiln://managed-agent/child-timeout/timeout",
+      "drilldown child-timeout",
+      "  lifecycle timed_out",
+      "  timeline:",
+      "    1 agent_invocation_failed evt-timeout",
+    ]));
+  });
+
   it("retains runtime adoption-gate snapshots and formats managed child drilldown adoption state", () => {
     let events = appendManagedAgentSessionEvent([], event("evt-completed", 1, "agent_invocation_completed", {
       invocationId: "child-adopted",

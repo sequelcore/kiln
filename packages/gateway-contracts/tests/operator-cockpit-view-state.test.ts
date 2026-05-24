@@ -412,6 +412,72 @@ describe("operator cockpit read-only view state", () => {
     });
   });
 
+  it("preserves timed-out terminal managed children as timeout attention", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-timeout:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-timeout:event:failed",
+          kilnSessionId: "managed-timeout:session:1",
+          sequence: 1,
+          timestamp: "2026-05-24T12:00:00.000Z",
+          kind: "agent_invocation_failed",
+          payload: {
+            instanceId: "managed-timeout:instance:1",
+            sessionId: "managed-timeout:session:1",
+            managedInvocationId: "managed-timeout:child:1",
+            invocationId: "managed-timeout:child:1",
+            agentId: "agent-coder",
+            lifecycleState: "timed_out",
+            providerRoute: {
+              providerId: "codex-oauth",
+              model: "gpt-5.5",
+            },
+            managedInvocationEvidence: {
+              diagnostics: [{
+                uri: "kiln://managed-invocations/managed-timeout-child-1/timeout",
+                kind: "timeout",
+              }],
+              resultHandoff: {
+                summary: "Managed child timed out after the configured limit.",
+                resourceUris: ["kiln://managed-invocations/managed-timeout-child-1/handoff"],
+                memoryWriteProposalUris: [],
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.activeCount).toBe(0);
+    expect(view.managedAgents.attentionCount).toBe(1);
+    expect(view.managedAgents.items[0]).toMatchObject({
+      managedInvocationId: "managed-timeout:child:1",
+      attentionState: "timed_out",
+      status: "failed",
+      lifecycleState: "timed_out",
+      providerRoute: "codex-oauth/gpt-5.5",
+      resourceUris: [
+        "kiln://managed-invocations/managed-timeout-child-1/handoff",
+        "kiln://managed-invocations/managed-timeout-child-1/timeout",
+      ],
+      cancelControl: {
+        status: "unavailable",
+        reason: "Managed invocation is not active.",
+      },
+    });
+  });
+
   it("resolves managed child drilldown and scoped replay from canonical cockpit projection", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-05-23T12:01:00.000Z",

@@ -840,7 +840,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A is complete in code.
+Status: started. Slice 7A and Slice 7B are complete in code.
 
 Completed:
 
@@ -852,6 +852,12 @@ Completed:
   uses the CLI direct-provider managed adapter factory, the runtime managed
   invocation service, and Kiln builtin read-tool authority to read an isolated
   fixture workspace without adding a subscription-specific lifecycle path.
+- Timed-out managed children now project as first-class `timed_out` attention
+  in the shared cockpit view-state instead of generic `failed` attention.
+  TUI, GUI, and native managed-agent surfaces consume that shared state and
+  retain the canonical lifecycle, failed terminal status, cancellation
+  unavailability, and timeout evidence resources without surface-local timeout
+  inference.
 
 Deliverables:
 

@@ -149,6 +149,58 @@ describe("native managed-agent cockpit panel", () => {
     expect(markup).not.toContain("child-");
   });
 
+  it("renders timed-out managed child attention from shared view-state", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-timeout", 1, "agent_invocation_failed", {
+          managedInvocationId: "child-timeout",
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.5",
+          },
+          lifecycleState: "timed_out",
+          managedInvocationEvidence: {
+            diagnostics: [{
+              uri: "kiln://managed-agent/child-timeout/timeout",
+              kind: "timeout",
+            }],
+            resultHandoff: {
+              summary: "Managed child timed out after the configured limit.",
+              resourceUris: ["kiln://managed-agent/child-timeout/handoff"],
+              memoryWriteProposalUris: [],
+            },
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {},
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+
+    expect(markup).toContain("<dd>1</dd>");
+    expect(markup).toContain("child-timeout");
+    expect(markup).toContain("data-attention=\"timed_out\"");
+    expect(markup).toContain("timed_out");
+    expect(markup).toContain("failed");
+    expect(markup).toContain("unavailable");
+    expect(markup).toContain("kiln://managed-agent/child-timeout/handoff");
+    expect(markup).toContain("kiln://managed-agent/child-timeout/timeout");
+    expect(markup).toContain("agent_invocation_failed");
+  });
+
   it("enables native cancellation only when a live gateway control callback is present", () => {
     const projection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:local",

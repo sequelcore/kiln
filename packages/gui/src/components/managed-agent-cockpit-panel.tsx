@@ -18,6 +18,7 @@ interface ManagedAgentCockpitPanelProps {
 const ATTENTION_LABELS: Record<OperatorCockpitManagedAgentAttentionState, string> = {
   active: "Active",
   needs_review: "Review required",
+  timed_out: "Timed out",
   failed: "Failed",
   cancelled: "Cancelled",
   clear: "Clear",
@@ -25,7 +26,7 @@ const ATTENTION_LABELS: Record<OperatorCockpitManagedAgentAttentionState, string
 };
 
 function statusVariant(state: OperatorCockpitManagedAgentAttentionState): "default" | "destructive" | "outline" | "secondary" {
-  if (state === "failed" || state === "needs_review") return "destructive";
+  if (state === "failed" || state === "needs_review" || state === "timed_out") return "destructive";
   if (state === "active") return "secondary";
   return "outline";
 }
@@ -116,6 +117,7 @@ function ManagedAgentItem(props: {
 }) {
   const item = props.item;
   const needsReview = item.attentionState === "needs_review";
+  const terminalFailure = item.attentionState === "failed" || item.attentionState === "timed_out";
   const active = item.attentionState === "active";
   const canCancel = item.cancelControl.status === "requires-control-channel" && props.onCancel !== undefined;
   return (
@@ -125,11 +127,11 @@ function ManagedAgentItem(props: {
           className={cn(
             "mt-0.5 grid size-9 shrink-0 place-items-center rounded-md border",
             active ? "border-primary/45 bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground",
-            needsReview && "border-destructive/45 bg-destructive/10 text-destructive",
+            (needsReview || terminalFailure) && "border-destructive/45 bg-destructive/10 text-destructive",
           )}
           aria-hidden="true"
         >
-          {needsReview ? <ShieldAlert className="size-4" /> : <Bot className="size-4" />}
+          {needsReview || terminalFailure ? <ShieldAlert className="size-4" /> : <Bot className="size-4" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
