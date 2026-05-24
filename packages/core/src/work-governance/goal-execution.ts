@@ -3,6 +3,10 @@ import type {
   GoalRunStore,
 } from "./goal-run.js";
 import { isTerminalGoalStatus } from "./goal-run.js";
+import {
+  MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE,
+  projectManagedOrchestrationAdoptionGate,
+} from "./work-item.js";
 import type {
   WorkItem,
   WorkItemExecutionAttempt,
@@ -305,11 +309,8 @@ function missingRequiredGoalEvidence(goal: GoalRun, workItemStore: WorkItemStore
     if (item.residualRisk) {
       provided.add("residual-risk");
     }
-    if (
-      item.managedOrchestration?.adoptionGate.required === true
-      && item.managedOrchestrationAdoption?.target === item.managedOrchestration.adoptionGate.target
-    ) {
-      provided.add("managed-orchestration:adoption-gate");
+    if (projectManagedOrchestrationAdoptionGate(item).status === "adopted") {
+      provided.add(MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE);
     }
   }
   return goal.evidenceRequirements
@@ -409,14 +410,11 @@ function paused(
 }
 
 function goalProvidedEvidence(item: WorkItem): readonly string[] {
+  const adoptionGate = projectManagedOrchestrationAdoptionGate(item);
   return unique([
-    ...item.providedEvidence.filter((evidence) =>
-      evidence !== "managed-orchestration:adoption-gate"
-      || item.managedOrchestration?.adoptionGate.required !== true
-    ),
-    ...(item.managedOrchestration?.adoptionGate.required === true
-      && item.managedOrchestrationAdoption?.target === item.managedOrchestration.adoptionGate.target
-      ? ["managed-orchestration:adoption-gate"]
+    ...item.providedEvidence.filter((evidence) => evidence !== MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE),
+    ...(adoptionGate.status === "adopted"
+      ? [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE]
       : []),
   ]);
 }

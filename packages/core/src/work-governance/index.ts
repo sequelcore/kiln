@@ -52,6 +52,9 @@ export type {
   WorkItemExecutionAttemptStatus,
   WorkItemExecutionMode,
   WorkItemManagedOrchestrationAdoptionGate,
+  WorkItemManagedOrchestrationAdoptionGateProjection,
+  WorkItemManagedOrchestrationAdoptionGateRejection,
+  WorkItemManagedOrchestrationAdoptionGateStatus,
   WorkItemManagedOrchestrationAdoptionResolution,
   WorkItemManagedOrchestrationExpectedEvidence,
   WorkItemManagedOrchestrationIsolationPolicy,
@@ -75,5 +78,10 @@ export type {
   VerificationGateResult,
   VerificationGateResultStatus,
 } from "./work-item.js";
-export { reconstructWorkItemsFromSessionEvents } from "./work-item.js";
+export {
+  MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE,
+  MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
+  projectManagedOrchestrationAdoptionGate,
+  reconstructWorkItemsFromSessionEvents,
+} from "./work-item.js";
 export { WorkItemStore } from "./work-item.js";

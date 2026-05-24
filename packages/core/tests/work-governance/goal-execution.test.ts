@@ -877,6 +877,117 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("blocks goal closeout when managed orchestration adoption review failed despite structured adoption", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const adoptedButRejected = workItemStore.upsert({
+      id: "work-rejected-adoption-goal",
+      summary: "Reject managed orchestration adoption.",
+      status: "completed",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-orchestration:adoption-gate"],
+      providedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:adoption-gate",
+      ],
+      verificationGates: ["managed orchestration adoption gate"],
+      verificationGateResults: [{
+        gate: "managed orchestration adoption gate",
+        status: "failed",
+        summary: "Reviewer rejected the handoff.",
+        evidence: ["kiln://artifacts/orch-rejected-adoption/review"],
+        completedAt: "2026-05-12T10:45:00.000Z",
+      }],
+      managedOrchestration: {
+        orchestrationId: "orch-rejected-adoption",
+        mode: "decomposition",
+        childId: "orch-rejected-adoption:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required before closeout.",
+        },
+      },
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-12T10:30:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-rejected-adoption/adoption"],
+      },
+    });
+    const second = workItemStore.upsert({
+      id: "work-rejected-adoption-trigger",
+      summary: "Trigger closeout after rejected adoption.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-rejected-adoption",
+      objective: "Do not close with rejected adoption.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [adoptedButRejected.id, second.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [
+        {
+          id: "managed-orchestration:adoption-gate",
+          description: "Managed child output adopted.",
+          required: true,
+        },
+      ],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: second.id,
+      executionMode: "direct",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: second.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+    });
+
+    expect(blocked).toMatchObject({
+      missingGoalEvidence: ["managed-orchestration:adoption-gate"],
+      goal: {
+        status: "active",
+        currentPhase: "paused:goal-closeout",
+      },
+    });
+  });
+
   it("strips malformed replayed managed orchestration adoption before goal closeout", () => {
     const replayStore = new WorkItemStore({ now: fixedNow });
     const valid = replayStore.upsert({

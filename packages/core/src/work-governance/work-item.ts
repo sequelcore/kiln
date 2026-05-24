@@ -18,6 +18,9 @@ export type WorkItemPauseRequirementKind = "operator_input" | "credentials" | "a
 export type WorkItemPauseRequirementStatus = "pending" | "resolved";
 export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
 
+export const MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET = "slice-6-handoff-review-adoption";
+export const MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE = "managed-orchestration:adoption-gate";
+
 export interface WorkItemManagedOrchestrationExpectedEvidence {
   readonly kind: string;
   readonly label: string;
@@ -37,15 +40,44 @@ export interface WorkItemManagedOrchestrationMergePolicy {
 
 export interface WorkItemManagedOrchestrationAdoptionGate {
   readonly required: boolean;
-  readonly target: "slice-6-handoff-review-adoption";
+  readonly target: typeof MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET;
   readonly reason: string;
 }
 
 export interface WorkItemManagedOrchestrationAdoptionResolution {
-  readonly target: "slice-6-handoff-review-adoption";
+  readonly target: typeof MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET;
   readonly adoptedBy: string;
   readonly adoptedAt: string;
   readonly resourceUris: readonly string[];
+}
+
+export type WorkItemManagedOrchestrationAdoptionGateStatus =
+  | "not_required"
+  | "pending_review"
+  | "adopted"
+  | "rejected"
+  | "blocked";
+
+export interface WorkItemManagedOrchestrationAdoptionGateRejection {
+  readonly gate: string;
+  readonly summary?: string;
+  readonly evidence: readonly string[];
+  readonly completedAt?: string;
+}
+
+export interface WorkItemManagedOrchestrationAdoptionGateProjection {
+  readonly required: boolean;
+  readonly status: WorkItemManagedOrchestrationAdoptionGateStatus;
+  readonly target?: WorkItemManagedOrchestrationAdoptionGate["target"];
+  readonly reason?: string;
+  readonly orchestrationId?: string;
+  readonly childId?: string;
+  readonly mergePolicyMode?: string;
+  readonly adoptedBy?: string;
+  readonly adoptedAt?: string;
+  readonly resourceUris: readonly string[];
+  readonly rejection?: WorkItemManagedOrchestrationAdoptionGateRejection;
+  readonly blockingEvidence: readonly string[];
 }
 
 export interface WorkItemManagedOrchestrationPolicy {
@@ -449,6 +481,76 @@ export class WorkItemStore {
   }
 }
 
+export function projectManagedOrchestrationAdoptionGate(
+  item: WorkItem,
+): WorkItemManagedOrchestrationAdoptionGateProjection {
+  const policy = item.managedOrchestration;
+  if (!policy) {
+    return {
+      required: false,
+      status: "not_required",
+      resourceUris: [],
+      blockingEvidence: [],
+    };
+  }
+  if (policy.adoptionGate.required !== true) {
+    return {
+      required: false,
+      status: "not_required",
+      target: policy.adoptionGate.target,
+      reason: policy.adoptionGate.reason,
+      orchestrationId: policy.orchestrationId,
+      childId: policy.childId,
+      mergePolicyMode: policy.mergePolicy.mode,
+      resourceUris: [],
+      blockingEvidence: [],
+    };
+  }
+
+  const adoption = item.managedOrchestrationAdoption?.target === policy.adoptionGate.target
+    ? item.managedOrchestrationAdoption
+    : undefined;
+  const rejectedGate = item.verificationGateResults.find(isFailedManagedOrchestrationAdoptionGateResult);
+  const blockingEvidence = adoption && !rejectedGate ? [] : [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE];
+  const base = {
+    required: true,
+    target: policy.adoptionGate.target,
+    reason: policy.adoptionGate.reason,
+    orchestrationId: policy.orchestrationId,
+    childId: policy.childId,
+    mergePolicyMode: policy.mergePolicy.mode,
+    resourceUris: adoption?.resourceUris ?? [],
+    blockingEvidence,
+  } satisfies Omit<WorkItemManagedOrchestrationAdoptionGateProjection, "status" | "adoptedBy" | "adoptedAt" | "rejection">;
+
+  if (rejectedGate) {
+    return {
+      ...base,
+      status: "rejected",
+      rejection: {
+        gate: rejectedGate.gate,
+        ...(rejectedGate.summary ? { summary: rejectedGate.summary } : {}),
+        evidence: rejectedGate.evidence ?? [],
+        ...(rejectedGate.completedAt ? { completedAt: rejectedGate.completedAt } : {}),
+      },
+    };
+  }
+
+  if (adoption) {
+    return {
+      ...base,
+      status: "adopted",
+      adoptedBy: adoption.adoptedBy,
+      adoptedAt: adoption.adoptedAt,
+    };
+  }
+
+  return {
+    ...base,
+    status: item.status === "blocked" ? "blocked" : "pending_review",
+  };
+}
+
 export function reconstructWorkItemsFromSessionEvents(
   events: readonly CanonicalSessionEvent[],
 ): WorkItemSnapshot {
@@ -575,15 +677,19 @@ function missingExpectedEvidence(
 }
 
 function isPendingManagedOrchestrationAdoptionGate(item: WorkItem, evidence: string): boolean {
-  return evidence === "managed-orchestration:adoption-gate"
+  return evidence === MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE
     && item.managedOrchestration?.adoptionGate.required === true
     && item.managedOrchestrationAdoption?.target !== item.managedOrchestration.adoptionGate.target;
 }
 
 function isSatisfiedManagedOrchestrationAdoptionGate(item: WorkItem, evidence: string): boolean {
-  return evidence === "managed-orchestration:adoption-gate"
+  return evidence === MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE
     && item.managedOrchestration?.adoptionGate.required === true
     && item.managedOrchestrationAdoption?.target === item.managedOrchestration.adoptionGate.target;
+}
+
+function isFailedManagedOrchestrationAdoptionGateResult(result: VerificationGateResult): boolean {
+  return result.status === "failed" && result.gate.toLowerCase().includes("managed orchestration adoption");
 }
 
 function isReviewVerificationGate(gate: string): boolean {
@@ -663,7 +769,7 @@ function normalizeManagedOrchestrationPolicy(
     },
     adoptionGate: {
       required: policy.adoptionGate.required === true,
-      target: "slice-6-handoff-review-adoption",
+      target: MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
       reason: policy.adoptionGate.reason.trim(),
     },
   };
@@ -679,7 +785,7 @@ function normalizeManagedOrchestrationAdoption(
   if (Number.isNaN(Date.parse(adoptedAt))) {
     throw new Error("Managed orchestration adoption timestamp is required.");
   }
-  if (adoption.target !== "slice-6-handoff-review-adoption") {
+  if (adoption.target !== MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET) {
     throw new Error("Managed orchestration adoption target must be slice-6-handoff-review-adoption.");
   }
   const adoptedBy = adoption.adoptedBy.trim();
@@ -691,7 +797,7 @@ function normalizeManagedOrchestrationAdoption(
     throw new Error("Managed orchestration adoption requires at least one resource uri.");
   }
   return {
-    target: "slice-6-handoff-review-adoption",
+    target: MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
     adoptedBy,
     adoptedAt,
     resourceUris,

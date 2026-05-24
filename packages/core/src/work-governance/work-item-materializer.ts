@@ -7,12 +7,14 @@ import {
   type ManagedAgentOrchestrationRequest,
 } from "../agents/managed-invocation/orchestration.js";
 import type { GoalRun } from "./goal-run.js";
-import type {
-  WorkItem,
-  WorkItemRecommendedReasoningEffort,
-  WorkItemRoutingRecommendation,
-  WorkItemStore,
-  WorkItemUpsertInput,
+import {
+  MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE,
+  MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
+  type WorkItem,
+  type WorkItemRecommendedReasoningEffort,
+  type WorkItemRoutingRecommendation,
+  type WorkItemStore,
+  type WorkItemUpsertInput,
 } from "./work-item.js";
 
 export interface ManagedAgentOrchestrationWorkItemMaterializationInput {
@@ -243,7 +245,7 @@ function toManagedAgentOrchestrationWorkItemInput(input: {
 }): WorkItemUpsertInput {
   const mergeEvidence = `managed-orchestration:merge:${input.request.mergePolicy.mode}`;
   const adoptionEvidence = input.request.mergePolicy.adoptionRequired
-    ? ["managed-orchestration:adoption-gate"]
+    ? [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE]
     : [];
   return {
     id: `${input.child.childId}:work-item`,
@@ -285,7 +287,7 @@ function toManagedAgentOrchestrationWorkItemInput(input: {
       mergePolicy: input.request.mergePolicy,
       adoptionGate: {
         required: input.request.mergePolicy.adoptionRequired,
-        target: "slice-6-handoff-review-adoption",
+        target: MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
         reason: input.request.mergePolicy.adoptionRequired
           ? `Managed ${input.request.mode} orchestration requires Slice 6 adoption before closeout.`
           : `Managed ${input.request.mode} orchestration does not require automatic parent adoption.`,
