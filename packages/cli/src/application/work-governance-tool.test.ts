@@ -619,6 +619,176 @@ describe("work-governance-tool", () => {
     expect(goalRunStore.get(goal.id)?.status).toBe("completed");
   });
 
+  it("passes managed orchestration adoption readiness evidence through finish execution", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "orch-cli-readiness:child:1:work-item",
+      summary: "Execute managed child adoption readiness.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:completion-signal",
+        "managed-orchestration:merge:collect-all",
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+        "managed-orchestration:adoption-gate",
+      ],
+      verificationGates: [
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+      ],
+      goalRunId: "goal-managed-readiness",
+      routeId: "opencode-readonly",
+      assignedAgentProfile: "coder",
+      authorityProfile: "foundation-apply-approved-writes",
+      managedOrchestration: {
+        orchestrationId: "orch-cli-readiness",
+        mode: "decomposition",
+        childId: "orch-cli-readiness:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [{
+          kind: "result-handoff",
+          label: "bounded child result handoff",
+          required: true,
+        }],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required for code-writing child.",
+          readiness: {
+            required: true,
+            evidence: [
+              "managed-orchestration:diff",
+              "managed-orchestration:verification",
+              "managed-orchestration:review",
+            ],
+            verificationGates: [
+              "managed orchestration diff evidence",
+              "managed orchestration verification",
+              "managed orchestration review",
+              "managed orchestration adoption gate",
+            ],
+          },
+        },
+      },
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-readiness",
+      objective: "Close with adoption readiness.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: {
+        workflowProfile: "managed-agent-change",
+        preferredRouteId: "opencode-readonly",
+        managedAgentProfile: "coder",
+      },
+      evidenceRequirements: [{
+        id: "managed-orchestration:adoption-gate",
+        description: "Structured child adoption readiness.",
+        required: true,
+      }],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    await tools.find((candidate) => candidate.name === "work_item.execution.start")?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        managedInvocationId: "orch-cli-readiness:child:1",
+      },
+    });
+
+    const rejectedWrongTarget = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-managed-readiness:orch-cli-readiness:child:1:work-item:attempt:1",
+        managedOrchestrationAdoption: {
+          target: "wrong-adoption-target",
+          adoptedBy: "reviewer",
+          adoptedAt: "2026-05-12T10:30:00.000Z",
+          resourceUris: ["kiln://artifacts/orch-cli-readiness/wrong-adoption"],
+        },
+      },
+    });
+
+    expect(rejectedWrongTarget?.isError).toBe(true);
+    expect(rejectedWrongTarget?.output).toContain("managedOrchestrationAdoption.target");
+    expect(workItemStore.get(item.id)?.status).toBe("in_progress");
+
+    const finished = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-managed-readiness:orch-cli-readiness:child:1:work-item:attempt:1",
+        providedEvidence: [
+          "managed-orchestration:result-handoff",
+          "managed-orchestration:completion-signal",
+          "managed-orchestration:merge:collect-all",
+          "managed-orchestration:diff",
+          "managed-orchestration:verification",
+          "managed-orchestration:review",
+          "managed-orchestration:adoption-gate",
+        ],
+        verificationGateResults: [
+          { gate: "managed orchestration diff evidence", status: "passed" },
+          { gate: "managed orchestration verification", status: "passed" },
+          { gate: "managed orchestration review", status: "passed" },
+          { gate: "managed orchestration adoption gate", status: "passed" },
+        ],
+        managedInvocationResultHandoff: {
+          summary: "Implemented child scope with diff, verification, and review resources.",
+          resourceUris: ["kiln://artifacts/orch-cli-readiness/child-1-handoff"],
+        },
+        managedOrchestrationAdoption: {
+          target: "slice-6-handoff-review-adoption",
+          adoptedBy: "reviewer",
+          adoptedAt: "2026-05-12T10:30:00.000Z",
+          resourceUris: ["kiln://artifacts/orch-cli-readiness/adoption"],
+        },
+      },
+    });
+
+    expect(finished?.isError).toBe(false);
+    expect(finished?.metadata).toMatchObject({
+      operation: "execution_finished",
+      status: "completed",
+      item: {
+        status: "completed",
+        managedOrchestrationAdoption: {
+          target: "slice-6-handoff-review-adoption",
+          adoptedBy: "reviewer",
+        },
+      },
+      missingEvidence: [],
+      missingGoalEvidence: [],
+      missingVerificationGates: [],
+    });
+    expect(goalRunStore.get(goal.id)?.status).toBe("completed");
+  });
+
   it("rejects malformed raw managed invocation handoff input before finishing execution", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

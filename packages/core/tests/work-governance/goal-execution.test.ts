@@ -3,6 +3,7 @@ import {
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   GoalRunStore,
+  projectManagedOrchestrationAdoptionGate,
   reconstructWorkItemsFromSessionEvents,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
@@ -908,6 +909,345 @@ describe("goal execution loop", () => {
     expect(completed.goal.closeoutSummary).toContain(
       "Evidence: managed-orchestration:adoption-gate, managed-orchestration:result-handoff.",
     );
+  });
+
+  it("keeps managed orchestration adoption blocked until code-writing readiness gates pass", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-readiness-goal",
+      summary: "Adopt managed orchestration output after readiness.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+        "managed-orchestration:adoption-gate",
+      ],
+      verificationGates: [
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+      ],
+      managedOrchestration: {
+        orchestrationId: "orch-readiness-goal",
+        mode: "decomposition",
+        childId: "orch-readiness-goal:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required before closeout.",
+          readiness: {
+            required: true,
+            evidence: [
+              "managed-orchestration:diff",
+              "managed-orchestration:verification",
+              "managed-orchestration:review",
+            ],
+            verificationGates: [
+              "managed orchestration diff evidence",
+              "managed orchestration verification",
+              "managed orchestration review",
+              "managed orchestration adoption gate",
+            ],
+          },
+        },
+      },
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-readiness",
+      objective: "Close only after adoption readiness.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [
+        {
+          id: "managed-orchestration:adoption-gate",
+          description: "Managed child output adopted.",
+          required: true,
+        },
+      ],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+      managedInvocationId: "invocation-readiness-goal",
+    });
+
+    const blocked = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: [
+        "managed-orchestration:result-handoff",
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+      ],
+      verificationGateResults: [
+        {
+          gate: "managed orchestration diff evidence",
+          status: "passed",
+        },
+        {
+          gate: "managed orchestration verification",
+          status: "skipped",
+          summary: "Skipped verification is not adoption readiness.",
+        },
+        {
+          gate: "managed orchestration review",
+          status: "passed",
+        },
+        {
+          gate: "managed orchestration adoption gate",
+          status: "passed",
+        },
+      ],
+      managedInvocationResultHandoff: {
+        summary: "Completed managed child handoff with reviewable resources.",
+        resourceUris: ["kiln://artifacts/orch-readiness-goal/handoff"],
+      },
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-12T10:30:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-readiness-goal/adoption"],
+      },
+    });
+
+    expect(blocked).toMatchObject({
+      missingEvidence: ["managed-orchestration:adoption-gate"],
+      missingVerificationGates: ["managed orchestration verification"],
+      missingGoalEvidence: [],
+      goal: {
+        status: "active",
+        currentPhase: `paused:${item.id}`,
+      },
+      item: {
+        status: "blocked",
+      },
+    });
+    expect(projectManagedOrchestrationAdoptionGate(blocked.item)).toMatchObject({
+      required: true,
+      status: "blocked",
+      blockingEvidence: [
+        "managed orchestration verification",
+        "managed-orchestration:adoption-gate",
+      ],
+    });
+  });
+
+  it("derives managed orchestration readiness from merge policy in direct core state", () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-readiness-policy",
+      summary: "Adopt managed orchestration output from policy.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: ["managed-orchestration:adoption-gate"],
+      verificationGates: ["managed orchestration adoption gate"],
+      managedOrchestration: {
+        orchestrationId: "orch-readiness-policy",
+        mode: "decomposition",
+        childId: "orch-readiness-policy:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+          adoptionReadinessRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required before closeout.",
+        },
+      },
+    });
+
+    expect(item.managedOrchestration?.adoptionGate.readiness).toMatchObject({
+      required: true,
+      evidence: [
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+      ],
+      verificationGates: [
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+      ],
+    });
+    expect(projectManagedOrchestrationAdoptionGate(item)).toMatchObject({
+      required: true,
+      status: "pending_review",
+      blockingEvidence: [
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+        "managed-orchestration:adoption-gate",
+      ],
+    });
+    expect(() => workItemStore.upsert({
+      ...item,
+      id: "work-managed-readiness-disabled",
+      managedOrchestration: {
+        ...item.managedOrchestration!,
+        adoptionGate: {
+          ...item.managedOrchestration!.adoptionGate,
+          readiness: {
+            required: false,
+            evidence: [],
+            verificationGates: [],
+          },
+        },
+      },
+    })).toThrow("Managed orchestration adoption readiness cannot be disabled when merge policy requires it.");
+    expect(() => workItemStore.upsert({
+      ...item,
+      id: "work-managed-readiness-weakened",
+      managedOrchestration: {
+        ...item.managedOrchestration!,
+        adoptionGate: {
+          ...item.managedOrchestration!.adoptionGate,
+          readiness: {
+            required: true,
+            evidence: ["managed-orchestration:diff"],
+            verificationGates: ["managed orchestration diff evidence"],
+          },
+        },
+      },
+    })).toThrow("Managed orchestration adoption readiness must match the canonical readiness contract.");
+  });
+
+  it("keeps failed managed orchestration readiness gates visible in adoption blockers", () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-readiness-failed",
+      summary: "Reject managed orchestration output after failed readiness.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agent-change"],
+      expectedEvidence: [
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+        "managed-orchestration:adoption-gate",
+      ],
+      providedEvidence: [
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+      ],
+      verificationGates: [
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+      ],
+      verificationGateResults: [
+        { gate: "managed orchestration diff evidence", status: "passed" },
+        { gate: "managed orchestration verification", status: "failed", summary: "Verification failed." },
+        { gate: "managed orchestration review", status: "passed" },
+        { gate: "managed orchestration adoption gate", status: "passed" },
+      ],
+      managedOrchestration: {
+        orchestrationId: "orch-readiness-failed",
+        mode: "decomposition",
+        childId: "orch-readiness-failed:child:1",
+        ordinal: 1,
+        roleIntent: "implementation-child",
+        expectedEvidence: [
+          {
+            kind: "result-handoff",
+            label: "bounded child result handoff",
+            required: true,
+          },
+        ],
+        isolation: {
+          required: true,
+          reason: "isolated worktree required",
+          workingDirectoryMode: "isolated-worktree",
+        },
+        mergePolicy: {
+          mode: "collect-all",
+          adoptionRequired: true,
+          adoptionReadinessRequired: true,
+        },
+        adoptionGate: {
+          required: true,
+          target: "slice-6-handoff-review-adoption",
+          reason: "Adoption required before closeout.",
+        },
+      },
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-12T10:30:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-readiness-failed/adoption"],
+      },
+    });
+
+    expect(projectManagedOrchestrationAdoptionGate(item)).toMatchObject({
+      required: true,
+      status: "rejected",
+      rejection: {
+        gate: "managed orchestration verification",
+        summary: "Verification failed.",
+      },
+      blockingEvidence: [
+        "managed orchestration verification",
+        "managed-orchestration:adoption-gate",
+      ],
+    });
   });
 
   it("ignores raw managed orchestration adoption evidence at goal closeout without structured adoption", () => {

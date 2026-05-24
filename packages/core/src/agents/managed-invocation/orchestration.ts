@@ -71,6 +71,7 @@ export interface ManagedAgentOrchestrationIsolationPolicy {
 export interface ManagedAgentOrchestrationMergePolicy {
   readonly mode: ManagedAgentOrchestrationMergePolicyMode;
   readonly adoptionRequired: boolean;
+  readonly adoptionReadinessRequired: boolean;
 }
 
 export interface ManagedAgentOrchestrationRequest {
@@ -199,6 +200,7 @@ export function buildManagedAgentFanOutOrchestrationRequest(input: {
     mergePolicy: {
       mode: "compare-and-select",
       adoptionRequired: false,
+      adoptionReadinessRequired: false,
     },
   });
 }
@@ -215,6 +217,7 @@ export function buildManagedAgentDecompositionOrchestrationRequest(
     mergePolicy: {
       mode: "collect-all",
       adoptionRequired: true,
+      adoptionReadinessRequired: true,
     },
     isolationReason: "decomposition children require isolated workspaces so subtasks cannot mutate one checkout",
   });
@@ -232,6 +235,7 @@ export function buildManagedAgentReviewSwarmOrchestrationRequest(
     mergePolicy: {
       mode: "manual-review-required",
       adoptionRequired: false,
+      adoptionReadinessRequired: false,
     },
     isolationReason: "review swarm children require isolated workspaces so independent reviews cannot mutate one checkout",
   });
@@ -249,6 +253,7 @@ export function buildManagedAgentRouteComparisonOrchestrationRequest(
     mergePolicy: {
       mode: "compare-and-select",
       adoptionRequired: false,
+      adoptionReadinessRequired: false,
     },
     isolationReason: "route comparison children require isolated workspaces so candidate routes cannot mutate one checkout",
   });
@@ -274,6 +279,7 @@ export function buildManagedAgentBackgroundJobOrchestrationRequest(
     mergePolicy: {
       mode: "none",
       adoptionRequired: false,
+      adoptionReadinessRequired: false,
     },
     isolationReason: "background jobs require isolated workspaces so long-running children cannot mutate the parent checkout",
   });
@@ -335,6 +341,7 @@ export function defineManagedAgentOrchestrationRequest(
   const mergePolicy = {
     mode: requireMergePolicyMode(input.mergePolicy.mode),
     adoptionRequired: input.mergePolicy.adoptionRequired === true,
+    adoptionReadinessRequired: input.mergePolicy.adoptionReadinessRequired === true,
   };
   const request = {
     orchestrationId: requireText(input.orchestrationId, "Managed orchestration id is required"),
@@ -558,32 +565,32 @@ function requireModePolicy(request: ManagedAgentOrchestrationRequest): void {
   if (request.mode === "fan-out") {
     requireMinimumChildren(request, 2, "Managed fan-out orchestration requires at least two children");
     requireEvidenceKinds(request, ["result-handoff", "comparison-summary"]);
-    requireMergePolicy(request, "compare-and-select", false, "Managed fan-out orchestration requires compare-and-select merge policy");
+    requireMergePolicy(request, "compare-and-select", false, false, "Managed fan-out orchestration requires compare-and-select merge policy");
     return;
   }
   if (request.mode === "decomposition") {
     requireMinimumChildren(request, 2, "Managed decomposition orchestration requires at least two children");
     requireEvidenceKinds(request, ["result-handoff", "completion-signal"]);
-    requireMergePolicy(request, "collect-all", true, "Managed decomposition orchestration requires collect-all merge policy");
+    requireMergePolicy(request, "collect-all", true, true, "Managed decomposition orchestration requires collect-all merge policy");
     return;
   }
   if (request.mode === "review-swarm") {
     requireMinimumChildren(request, 2, "Managed review-swarm orchestration requires at least two children");
     requireEvidenceKinds(request, ["review-findings", "comparison-summary"]);
-    requireMergePolicy(request, "manual-review-required", false, "Managed review-swarm orchestration requires manual-review-required merge policy");
+    requireMergePolicy(request, "manual-review-required", false, false, "Managed review-swarm orchestration requires manual-review-required merge policy");
     return;
   }
   if (request.mode === "route-comparison") {
     requireMinimumChildren(request, 2, "Managed route-comparison orchestration requires at least two children");
     requireEvidenceKinds(request, ["route-outcome", "comparison-summary"]);
-    requireMergePolicy(request, "compare-and-select", false, "Managed route-comparison orchestration requires compare-and-select merge policy");
+    requireMergePolicy(request, "compare-and-select", false, false, "Managed route-comparison orchestration requires compare-and-select merge policy");
     return;
   }
   if (request.childRequests.length !== 1 || request.maxConcurrentChildren !== 1) {
     throw new Error("Managed background-job orchestration requires exactly one child");
   }
   requireEvidenceKinds(request, ["completion-signal", "result-handoff"]);
-  requireMergePolicy(request, "none", false, "Managed background-job orchestration requires no merge policy");
+  requireMergePolicy(request, "none", false, false, "Managed background-job orchestration requires no merge policy");
 }
 
 function requireIsolatedWorktreePolicy(request: ManagedAgentOrchestrationRequest): void {
@@ -625,6 +632,7 @@ function requireMergePolicy(
   request: ManagedAgentOrchestrationRequest,
   mode: ManagedAgentOrchestrationMergePolicyMode,
   adoptionRequired: boolean,
+  adoptionReadinessRequired: boolean,
   message: string,
 ): void {
   if (request.mergePolicy.mode !== mode) {
@@ -632,6 +640,9 @@ function requireMergePolicy(
   }
   if (request.mergePolicy.adoptionRequired !== adoptionRequired) {
     throw new Error(`Managed ${request.mode} orchestration requires adoptionRequired=${String(adoptionRequired)}`);
+  }
+  if (request.mergePolicy.adoptionReadinessRequired !== adoptionReadinessRequired) {
+    throw new Error(`Managed ${request.mode} orchestration requires adoptionReadinessRequired=${String(adoptionReadinessRequired)}`);
   }
 }
 

@@ -115,7 +115,10 @@ Active. Started on 2026-05-21. Current implementation status:
   that structured handoff without accepting raw handoff strings as sufficient.
   Slice 6C is complete in code: managed child terminal failures now record a
   canonical failed execution closeout with blocked missing evidence instead of
-  remaining runtime-only metadata or silent absence.
+  remaining runtime-only metadata or silent absence. Slice 6D is complete in
+  code: code-writing managed orchestration children now require core-owned
+  diff, verification, review, and adoption readiness before structured
+  adoption can satisfy closeout.
   Slices 7-8 are not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
@@ -770,7 +773,7 @@ Deliverables:
 
 ### Slice 6 - Handoff, Review, And Adoption
 
-Status: started. Slice 6A, Slice 6B, and Slice 6C are complete in code;
+Status: started. Slice 6A, Slice 6B, Slice 6C, and Slice 6D are complete in code;
 remaining governed review, conflict, and repair cuts continue here.
 
 Completed:
@@ -797,11 +800,14 @@ Completed:
   and skipped children keep the owning goal active and paused at the blocked
   work item; runtime final-phase recovery now points to the failure closeout
   template instead of suggesting evidence completion.
+- Code-writing managed orchestration children now carry core-owned adoption
+  readiness requirements for diff evidence, verification, review, and final
+  adoption. A structured adoption resolution alone no longer satisfies
+  `managed-orchestration:adoption-gate`; readiness evidence must be present
+  and readiness gates must pass, with skipped gates remaining blocked.
 
 Deliverables:
 
-- Route code-writing children through diff, verification, review, and adoption
-  gates.
 - Add governed conflict states for worktree-backed children.
 - Integrate with feedback/repair work items only after lifecycle and evidence
   are stable.

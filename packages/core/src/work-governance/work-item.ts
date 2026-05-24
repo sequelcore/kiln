@@ -29,6 +29,13 @@ export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
 export const MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET = "slice-6-handoff-review-adoption";
 export const MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE = "managed-orchestration:adoption-gate";
 export const MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE = "managed-orchestration:result-handoff";
+export const MANAGED_ORCHESTRATION_DIFF_EVIDENCE = "managed-orchestration:diff";
+export const MANAGED_ORCHESTRATION_VERIFICATION_EVIDENCE = "managed-orchestration:verification";
+export const MANAGED_ORCHESTRATION_REVIEW_EVIDENCE = "managed-orchestration:review";
+export const MANAGED_ORCHESTRATION_DIFF_GATE = "managed orchestration diff evidence";
+export const MANAGED_ORCHESTRATION_VERIFICATION_GATE = "managed orchestration verification";
+export const MANAGED_ORCHESTRATION_REVIEW_GATE = "managed orchestration review";
+export const MANAGED_ORCHESTRATION_ADOPTION_GATE = "managed orchestration adoption gate";
 
 export interface WorkItemManagedOrchestrationExpectedEvidence {
   readonly kind: string;
@@ -45,12 +52,20 @@ export interface WorkItemManagedOrchestrationIsolationPolicy {
 export interface WorkItemManagedOrchestrationMergePolicy {
   readonly mode: string;
   readonly adoptionRequired: boolean;
+  readonly adoptionReadinessRequired?: boolean;
 }
 
 export interface WorkItemManagedOrchestrationAdoptionGate {
   readonly required: boolean;
   readonly target: typeof MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET;
   readonly reason: string;
+  readonly readiness?: WorkItemManagedOrchestrationAdoptionReadiness;
+}
+
+export interface WorkItemManagedOrchestrationAdoptionReadiness {
+  readonly required: boolean;
+  readonly evidence: readonly string[];
+  readonly verificationGates: readonly string[];
 }
 
 export interface WorkItemManagedOrchestrationAdoptionResolution {
@@ -126,6 +141,23 @@ export interface WorkItemManagedOrchestrationPolicy {
   readonly isolation: WorkItemManagedOrchestrationIsolationPolicy;
   readonly mergePolicy: WorkItemManagedOrchestrationMergePolicy;
   readonly adoptionGate: WorkItemManagedOrchestrationAdoptionGate;
+}
+
+export function managedOrchestrationAdoptionReadinessContract(): WorkItemManagedOrchestrationAdoptionReadiness {
+  return {
+    required: true,
+    evidence: [
+      MANAGED_ORCHESTRATION_DIFF_EVIDENCE,
+      MANAGED_ORCHESTRATION_VERIFICATION_EVIDENCE,
+      MANAGED_ORCHESTRATION_REVIEW_EVIDENCE,
+    ],
+    verificationGates: [
+      MANAGED_ORCHESTRATION_DIFF_GATE,
+      MANAGED_ORCHESTRATION_VERIFICATION_GATE,
+      MANAGED_ORCHESTRATION_REVIEW_GATE,
+      MANAGED_ORCHESTRATION_ADOPTION_GATE,
+    ],
+  };
 }
 
 export interface VerificationGateResult {
@@ -395,6 +427,9 @@ export class WorkItemStore {
     );
     const missingEvidence = missingExpectedEvidence({
       ...existing,
+      providedEvidence,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
       managedOrchestrationAdoption,
     }, providedEvidence);
     const residualRisk = input.residualRisk ?? existing.residualRisk;
@@ -502,6 +537,9 @@ export class WorkItemStore {
     );
     const missingEvidence = missingExpectedEvidence({
       ...existing,
+      providedEvidence,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
       managedOrchestrationResultHandoff,
       managedOrchestrationAdoption,
     }, providedEvidence);
@@ -649,8 +687,12 @@ export function projectManagedOrchestrationAdoptionGate(
   const adoption = item.managedOrchestrationAdoption?.target === policy.adoptionGate.target
     ? item.managedOrchestrationAdoption
     : undefined;
-  const rejectedGate = item.verificationGateResults.find(isFailedManagedOrchestrationAdoptionGateResult);
-  const blockingEvidence = adoption && !rejectedGate ? [] : [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE];
+  const readiness = managedOrchestrationAdoptionReadiness(item);
+  const rejectedGate = item.verificationGateResults.find((result) =>
+    isFailedManagedOrchestrationAdoptionGateResult(result)
+    || isFailedManagedOrchestrationAdoptionReadinessGateResult(readiness, result)
+  );
+  const blockingEvidence = managedOrchestrationAdoptionBlockingEvidence(item, adoption, rejectedGate);
   const base = {
     required: true,
     target: policy.adoptionGate.target,
@@ -676,6 +718,12 @@ export function projectManagedOrchestrationAdoptionGate(
   }
 
   if (adoption) {
+    if (blockingEvidence.length > 0) {
+      return {
+        ...base,
+        status: item.status === "blocked" ? "blocked" : "pending_review",
+      };
+    }
     return {
       ...base,
       status: "adopted",
@@ -836,11 +884,28 @@ function missingRequiredVerificationGates(
     requiredGatePredicates.push(isBrowserQaVerificationGate);
   }
   if (requiredGatePredicates.length === 0) {
+    return missingManagedOrchestrationReadinessVerificationGates(item, results);
+  }
+  return unique([
+    ...item.verificationGates
+    .filter((gate) => requiredGatePredicates.some((predicate) => predicate(gate)))
+      .filter((gate) => !satisfied.has(gate)),
+    ...missingManagedOrchestrationReadinessVerificationGates(item, results),
+  ]);
+}
+
+function missingManagedOrchestrationReadinessVerificationGates(
+  item: WorkItem,
+  results: readonly VerificationGateResult[],
+): readonly string[] {
+  const readiness = managedOrchestrationAdoptionReadiness(item);
+  if (!readiness) {
     return [];
   }
-  return item.verificationGates
-    .filter((gate) => requiredGatePredicates.some((predicate) => predicate(gate)))
-    .filter((gate) => !satisfied.has(gate));
+  const passed = new Set(results
+    .filter((result) => result.status === "passed")
+    .map((result) => result.gate));
+  return readiness.verificationGates.filter((gate) => !passed.has(gate));
 }
 
 function missingExpectedEvidence(
@@ -923,17 +988,64 @@ function synthesizeManagedOrchestrationResultHandoff(input: {
 function isPendingManagedOrchestrationAdoptionGate(item: WorkItem, evidence: string): boolean {
   return evidence === MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE
     && item.managedOrchestration?.adoptionGate.required === true
-    && item.managedOrchestrationAdoption?.target !== item.managedOrchestration.adoptionGate.target;
+    && projectManagedOrchestrationAdoptionGate(item).status !== "adopted";
 }
 
 function isSatisfiedManagedOrchestrationAdoptionGate(item: WorkItem, evidence: string): boolean {
   return evidence === MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE
     && item.managedOrchestration?.adoptionGate.required === true
-    && item.managedOrchestrationAdoption?.target === item.managedOrchestration.adoptionGate.target;
+    && projectManagedOrchestrationAdoptionGate(item).status === "adopted";
+}
+
+function managedOrchestrationAdoptionReadiness(
+  item: WorkItem,
+): WorkItemManagedOrchestrationAdoptionReadiness | undefined {
+  const readiness = item.managedOrchestration?.adoptionGate.readiness;
+  if (readiness?.required === true) {
+    return readiness;
+  }
+  if (
+    item.managedOrchestration?.adoptionGate.required === true
+    && item.managedOrchestration.mergePolicy.adoptionRequired === true
+    && item.managedOrchestration.mergePolicy.adoptionReadinessRequired === true
+  ) {
+    return managedOrchestrationAdoptionReadinessContract();
+  }
+  return undefined;
+}
+
+function managedOrchestrationAdoptionBlockingEvidence(
+  item: WorkItem,
+  adoption: WorkItemManagedOrchestrationAdoptionResolution | undefined,
+  rejectedGate: VerificationGateResult | undefined,
+): readonly string[] {
+  if (rejectedGate) {
+    return unique([rejectedGate.gate, MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE]);
+  }
+  const readiness = managedOrchestrationAdoptionReadiness(item);
+  const missingReadinessEvidence = readiness
+    ? readiness.evidence.filter((evidence) => !item.providedEvidence.includes(evidence))
+    : [];
+  const missingReadinessGates = missingManagedOrchestrationReadinessVerificationGates(item, item.verificationGateResults);
+  return unique([
+    ...missingReadinessEvidence,
+    ...missingReadinessGates,
+    ...(adoption ? [] : [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE]),
+    ...(adoption && (missingReadinessEvidence.length > 0 || missingReadinessGates.length > 0)
+      ? [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE]
+      : []),
+  ]);
 }
 
 function isFailedManagedOrchestrationAdoptionGateResult(result: VerificationGateResult): boolean {
   return result.status === "failed" && result.gate.toLowerCase().includes("managed orchestration adoption");
+}
+
+function isFailedManagedOrchestrationAdoptionReadinessGateResult(
+  readiness: WorkItemManagedOrchestrationAdoptionReadiness | undefined,
+  result: VerificationGateResult,
+): boolean {
+  return result.status === "failed" && readiness?.verificationGates.includes(result.gate) === true;
 }
 
 function isReviewVerificationGate(gate: string): boolean {
@@ -1010,13 +1122,59 @@ function normalizeManagedOrchestrationPolicy(
     mergePolicy: {
       mode: policy.mergePolicy.mode.trim(),
       adoptionRequired: policy.mergePolicy.adoptionRequired === true,
+      ...(policy.mergePolicy.adoptionReadinessRequired !== undefined
+        ? { adoptionReadinessRequired: policy.mergePolicy.adoptionReadinessRequired === true }
+        : {}),
     },
     adoptionGate: {
       required: policy.adoptionGate.required === true,
       target: MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
       reason: policy.adoptionGate.reason.trim(),
+      ...(normalizeManagedOrchestrationAdoptionReadiness(policy) ? {
+        readiness: normalizeManagedOrchestrationAdoptionReadiness(policy),
+      } : {}),
     },
   };
+}
+
+function normalizeManagedOrchestrationAdoptionReadiness(
+  policy: WorkItemManagedOrchestrationPolicy,
+): WorkItemManagedOrchestrationAdoptionReadiness | undefined {
+  const readinessRequiredByMergePolicy = policy.adoptionGate.required === true
+    && policy.mergePolicy.adoptionRequired === true
+    && policy.mergePolicy.adoptionReadinessRequired === true;
+  if (policy.adoptionGate.readiness) {
+    if (readinessRequiredByMergePolicy && policy.adoptionGate.readiness.required !== true) {
+      throw new Error("Managed orchestration adoption readiness cannot be disabled when merge policy requires it.");
+    }
+    if (policy.adoptionGate.readiness.required !== true) {
+      return undefined;
+    }
+    const evidence = unique(policy.adoptionGate.readiness.evidence.map((item) => item.trim()).filter((item) => item.length > 0));
+    const verificationGates = unique(policy.adoptionGate.readiness.verificationGates.map((gate) => gate.trim()).filter((gate) => gate.length > 0));
+    if (evidence.length === 0 || verificationGates.length === 0) {
+      throw new Error("Managed orchestration adoption readiness requires evidence and verification gates.");
+    }
+    if (readinessRequiredByMergePolicy) {
+      const canonical = managedOrchestrationAdoptionReadinessContract();
+      if (!sameStrings(evidence, canonical.evidence) || !sameStrings(verificationGates, canonical.verificationGates)) {
+        throw new Error("Managed orchestration adoption readiness must match the canonical readiness contract.");
+      }
+    }
+    return {
+      required: true,
+      evidence,
+      verificationGates,
+    };
+  }
+  if (readinessRequiredByMergePolicy) {
+    return managedOrchestrationAdoptionReadinessContract();
+  }
+  return undefined;
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
 function normalizeWorkItemExpectedEvidence(input: {

@@ -47,6 +47,7 @@ describe("managed agent orchestration contracts", () => {
       mergePolicy: {
         mode: "compare-and-select",
         adoptionRequired: false,
+        adoptionReadinessRequired: false,
       },
     });
     expect(request.expectedEvidence).toEqual([
@@ -103,6 +104,7 @@ describe("managed agent orchestration contracts", () => {
       mergePolicy: {
         mode: "collect-all",
         adoptionRequired: true,
+        adoptionReadinessRequired: true,
       },
     });
     expect(decomposition.expectedEvidence.map((evidence) => evidence.kind)).toEqual([
@@ -124,6 +126,7 @@ describe("managed agent orchestration contracts", () => {
       mergePolicy: {
         mode: "manual-review-required",
         adoptionRequired: false,
+        adoptionReadinessRequired: false,
       },
     });
     expect(reviewSwarm.expectedEvidence.map((evidence) => evidence.kind)).toEqual([
@@ -145,6 +148,7 @@ describe("managed agent orchestration contracts", () => {
       mergePolicy: {
         mode: "compare-and-select",
         adoptionRequired: false,
+        adoptionReadinessRequired: false,
       },
     });
     expect(routeComparison.expectedEvidence.map((evidence) => evidence.kind)).toEqual([
@@ -164,6 +168,7 @@ describe("managed agent orchestration contracts", () => {
       mergePolicy: {
         mode: "none",
         adoptionRequired: false,
+        adoptionReadinessRequired: false,
       },
     });
     expect(backgroundJob.childRequests).toHaveLength(1);
@@ -268,13 +273,23 @@ describe("managed agent orchestration contracts", () => {
       mergePolicy: {
         mode: "collect-all",
         adoptionRequired: false,
+        adoptionReadinessRequired: true,
       },
     })).toThrow("Managed decomposition orchestration requires adoption");
+    expect(() => defineManagedAgentOrchestrationRequest({
+      ...decomposition,
+      mergePolicy: {
+        mode: "collect-all",
+        adoptionRequired: true,
+        adoptionReadinessRequired: false,
+      },
+    })).toThrow("Managed decomposition orchestration requires adoptionReadinessRequired=true");
     expect(() => defineManagedAgentOrchestrationRequest({
       ...reviewSwarm,
       mergePolicy: {
         mode: "collect-all",
         adoptionRequired: false,
+        adoptionReadinessRequired: false,
       },
     })).toThrow("Managed review-swarm orchestration requires manual-review-required merge policy");
     expect(() => defineManagedAgentOrchestrationRequest({

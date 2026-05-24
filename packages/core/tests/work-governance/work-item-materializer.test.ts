@@ -306,11 +306,17 @@ describe("materializeApprovedPlanWorkItems", () => {
         "managed-orchestration:result-handoff",
         "managed-orchestration:completion-signal",
         "managed-orchestration:merge:collect-all",
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
         "managed-orchestration:adoption-gate",
       ],
       verificationGates: [
         "managed orchestration child handoff",
         "managed orchestration merge policy: collect-all",
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
         "managed orchestration adoption gate",
       ],
       goalRunId: "goal-orchestration",
@@ -326,10 +332,25 @@ describe("materializeApprovedPlanWorkItems", () => {
         mergePolicy: {
           mode: "collect-all",
           adoptionRequired: true,
+          adoptionReadinessRequired: true,
         },
         adoptionGate: {
           required: true,
           target: "slice-6-handoff-review-adoption",
+          readiness: {
+            required: true,
+            evidence: [
+              "managed-orchestration:diff",
+              "managed-orchestration:verification",
+              "managed-orchestration:review",
+            ],
+            verificationGates: [
+              "managed orchestration diff evidence",
+              "managed orchestration verification",
+              "managed orchestration review",
+              "managed orchestration adoption gate",
+            ],
+          },
         },
       },
     });
@@ -339,7 +360,16 @@ describe("materializeApprovedPlanWorkItems", () => {
       target: "slice-6-handoff-review-adoption",
       orchestrationId: "orch-decompose",
       childId: "orch-decompose:child:1",
-      blockingEvidence: ["managed-orchestration:adoption-gate"],
+      blockingEvidence: [
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+        "managed-orchestration:adoption-gate",
+      ],
       resourceUris: [],
     });
     expect(projectManagedOrchestrationResultHandoff(result.workItems[0]!)).toMatchObject({
@@ -363,13 +393,25 @@ describe("materializeApprovedPlanWorkItems", () => {
     expect(blocked?.item.status).toBe("blocked");
     expect(blocked?.missingEvidence).toEqual([
       "managed-orchestration:result-handoff",
+      "managed-orchestration:diff",
+      "managed-orchestration:verification",
+      "managed-orchestration:review",
       "managed-orchestration:adoption-gate",
     ]);
     expect(projectManagedOrchestrationResultHandoff(blocked!.item).status).toBe("blocked");
     expect(projectManagedOrchestrationAdoptionGate(blocked!.item)).toMatchObject({
       required: true,
       status: "blocked",
-      blockingEvidence: ["managed-orchestration:adoption-gate"],
+      blockingEvidence: [
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+        "managed-orchestration:adoption-gate",
+      ],
     });
 
     const spoofedAdoption = workItemStore.complete({
@@ -381,6 +423,9 @@ describe("materializeApprovedPlanWorkItems", () => {
     expect(spoofedAdoption?.item.status).toBe("blocked");
     expect(spoofedAdoption?.missingEvidence).toEqual([
       "managed-orchestration:result-handoff",
+      "managed-orchestration:diff",
+      "managed-orchestration:verification",
+      "managed-orchestration:review",
       "managed-orchestration:adoption-gate",
     ]);
     expect(projectManagedOrchestrationAdoptionGate(spoofedAdoption!.item).status).toBe("blocked");
@@ -443,15 +488,80 @@ describe("materializeApprovedPlanWorkItems", () => {
         resourceUris: ["kiln://artifacts/orch-decompose/adoption-review"],
       },
     });
-    expect(adopted?.item.status).toBe("completed");
-    expect(adopted?.item.managedOrchestrationAdoption).toEqual({
+    expect(adopted?.item.status).toBe("blocked");
+    expect(adopted?.missingEvidence).toEqual([
+      "managed-orchestration:diff",
+      "managed-orchestration:verification",
+      "managed-orchestration:review",
+      "managed-orchestration:adoption-gate",
+    ]);
+    expect(projectManagedOrchestrationAdoptionGate(adopted!.item)).toMatchObject({
+      required: true,
+      status: "blocked",
+      blockingEvidence: [
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+        "managed orchestration diff evidence",
+        "managed orchestration verification",
+        "managed orchestration review",
+        "managed orchestration adoption gate",
+        "managed-orchestration:adoption-gate",
+      ],
+    });
+
+    const adoptedWithReadiness = workItemStore.finishExecutionAttempt({
+      id: result.workItems[0]!.id,
+      attemptId: childOneStarted!.attempt.id,
+      providedEvidence: [
+        "managed-orchestration:completion-signal",
+        "managed-orchestration:merge:collect-all",
+        "managed-orchestration:diff",
+        "managed-orchestration:verification",
+        "managed-orchestration:review",
+      ],
+      managedInvocationResultHandoff: {
+        summary: "Implemented runtime helper and captured reviewable handoff evidence.",
+        resourceUris: ["kiln://artifacts/orch-decompose/child-1-handoff"],
+      },
+      verificationGateResults: [
+        {
+          gate: "managed orchestration diff evidence",
+          status: "passed",
+          evidence: ["kiln://artifacts/orch-decompose/child-1-diff"],
+        },
+        {
+          gate: "managed orchestration verification",
+          status: "passed",
+          evidence: ["kiln://artifacts/orch-decompose/child-1-tests"],
+        },
+        {
+          gate: "managed orchestration review",
+          status: "passed",
+          evidence: ["kiln://artifacts/orch-decompose/child-1-review"],
+        },
+        {
+          gate: "managed orchestration adoption gate",
+          status: "passed",
+          evidence: ["kiln://artifacts/orch-decompose/adoption-review"],
+        },
+      ],
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-22T21:00:00.000Z",
+        resourceUris: ["kiln://artifacts/orch-decompose/adoption-review"],
+      },
+    });
+    expect(adoptedWithReadiness?.item.status).toBe("completed");
+    expect(adoptedWithReadiness?.item.managedOrchestrationAdoption).toEqual({
       target: "slice-6-handoff-review-adoption",
       adoptedBy: "reviewer",
       adoptedAt: "2026-05-22T21:00:00.000Z",
       resourceUris: ["kiln://artifacts/orch-decompose/adoption-review"],
     });
-    expect(adopted?.missingEvidence).toEqual([]);
-    expect(projectManagedOrchestrationAdoptionGate(adopted!.item)).toMatchObject({
+    expect(adoptedWithReadiness?.missingEvidence).toEqual([]);
+    expect(projectManagedOrchestrationAdoptionGate(adoptedWithReadiness!.item)).toMatchObject({
       required: true,
       status: "adopted",
       adoptedBy: "reviewer",
@@ -459,7 +569,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       blockingEvidence: [],
       resourceUris: ["kiln://artifacts/orch-decompose/adoption-review"],
     });
-    expect(projectManagedOrchestrationResultHandoff(adopted!.item)).toMatchObject({
+    expect(projectManagedOrchestrationResultHandoff(adoptedWithReadiness!.item)).toMatchObject({
       required: true,
       status: "recorded",
       summary: "Implemented runtime helper and captured reviewable handoff evidence.",
@@ -469,7 +579,7 @@ describe("materializeApprovedPlanWorkItems", () => {
     });
 
     const contradictory = workItemStore.upsert({
-      ...adopted!.item,
+      ...adoptedWithReadiness!.item,
       id: "orch-decompose:child:contradictory:work-item",
       status: "completed",
       managedOrchestrationResultHandoff: undefined,
@@ -490,7 +600,10 @@ describe("materializeApprovedPlanWorkItems", () => {
         evidence: ["kiln://artifacts/orch-decompose/contradictory-review"],
         completedAt: "2026-05-22T21:03:00.000Z",
       },
-      blockingEvidence: ["managed-orchestration:adoption-gate"],
+      blockingEvidence: [
+        "managed orchestration adoption gate",
+        "managed-orchestration:adoption-gate",
+      ],
     });
 
     const childTwoStarted = workItemStore.startExecutionAttempt({
@@ -530,7 +643,10 @@ describe("materializeApprovedPlanWorkItems", () => {
         evidence: ["kiln://artifacts/orch-decompose/child-2-review"],
         completedAt: "2026-05-22T21:05:00.000Z",
       },
-      blockingEvidence: ["managed-orchestration:adoption-gate"],
+      blockingEvidence: [
+        "managed orchestration adoption gate",
+        "managed-orchestration:adoption-gate",
+      ],
     });
   });
 

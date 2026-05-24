@@ -16,6 +16,7 @@ import {
   finishGoalExecutionAttempt,
   goalToolMetadata,
   GoalRunStore,
+  MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
   WorkItemStore,
@@ -73,6 +74,18 @@ const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
   "browser-qa",
   "managed-agent-review",
   "managed-orchestration:result-handoff",
+  "managed-orchestration:completion-signal",
+  "managed-orchestration:comparison-summary",
+  "managed-orchestration:route-outcome",
+  "managed-orchestration:adoption-gate",
+  "managed-orchestration:diff",
+  "managed-orchestration:verification",
+  "managed-orchestration:review",
+  "managed-orchestration:merge:compare-and-select",
+  "managed-orchestration:merge:collect-all",
+  "managed-orchestration:merge:first-success",
+  "managed-orchestration:merge:manual-review-required",
+  "managed-orchestration:merge:none",
   "formal-proof",
   "residual-risk",
 ];
@@ -1209,6 +1222,22 @@ export class WorkItemExecutionFinishTool implements DevTool {
         additionalProperties: false,
         description: "Raw managed invocation result handoff returned by managed_agent.invoke.",
       },
+      managedOrchestrationAdoption: {
+        type: "object",
+        properties: {
+          target: { type: "string", enum: [MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET] },
+          adoptedBy: { type: "string", minLength: 1 },
+          adoptedAt: { type: "string", minLength: 1 },
+          resourceUris: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            minItems: 1,
+          },
+        },
+        required: ["target", "adoptedBy", "adoptedAt", "resourceUris"],
+        additionalProperties: false,
+        description: "Structured managed orchestration adoption resolution for governed child output.",
+      },
       summary: { type: "string", description: "Attempt result summary." },
       closeoutSummary: { type: "string", description: "Goal closeout summary if this attempt completes the final work item." },
     },
@@ -1257,6 +1286,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
         residualRisk: readText(input.input.residualRisk),
         summary: readText(input.input.summary),
         managedInvocationResultHandoff: requireManagedInvocationResultHandoff(input.input.managedInvocationResultHandoff),
+        managedOrchestrationAdoption: readManagedOrchestrationAdoption(input.input.managedOrchestrationAdoption),
         closeoutSummary: readText(input.input.closeoutSummary),
       });
       const missing = [
@@ -2052,6 +2082,35 @@ function requireManagedInvocationResultHandoff(
     summary,
     resourceUris,
     memoryWriteProposalUris,
+  };
+}
+
+function readManagedOrchestrationAdoption(value: unknown): WorkItem["managedOrchestrationAdoption"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid input: managedOrchestrationAdoption must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  const target = readText(record.target);
+  const adoptedBy = readText(record.adoptedBy);
+  const adoptedAt = readText(record.adoptedAt);
+  const resourceUris = requireNonEmptyTextArray(
+    record.resourceUris,
+    "managedOrchestrationAdoption.resourceUris",
+  );
+  if (target !== MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET) {
+    throw new Error(`Invalid input: managedOrchestrationAdoption.target must be ${MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET}.`);
+  }
+  if (!adoptedBy || !adoptedAt) {
+    throw new Error("Invalid input: managedOrchestrationAdoption requires adoptedBy and adoptedAt.");
+  }
+  return {
+    target,
+    adoptedBy,
+    adoptedAt,
+    resourceUris,
   };
 }
 

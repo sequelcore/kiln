@@ -1,65 +1,60 @@
-# Slice 6C - Managed Child Failure Evidence
+# Slice 6D - Code-Writing Adoption Readiness
 
 ## Objective
 
-Continue `docs/roadmap/01-background-parallel-agent-surface.md` without
-reopening Slice 5. Slice 5 is closed after 5P; Slice 6A-B are complete. The
-next implementation cut is Slice 6C: managed child terminal failures must be
-recorded as governed missing evidence on the owning work item instead of
-remaining runtime-only metadata or absent child handoff.
+Continue the background-agent roadmap without reopening Slice 5. Slice 5 is
+closed after 5P; Slice 6A-C are complete. Slice 6D implements the next narrow
+Slice 6 cut: code-writing managed orchestration children must pass core-owned
+diff, verification, review, and adoption readiness before
+`managed-orchestration:adoption-gate` can close.
+
+## Decision
+
+5.5 xhigh selected a core-owned adoption-readiness contract. Core already owns
+managed orchestration adoption truth and goal closeout consumes that
+projection. Runtime and CLI may pass evidence through, but they must not create
+surface-local adoption truth.
 
 ## Non-Goals
 
 - Do not reopen Slice 5 cockpit projection work.
-- Do not implement full diff/review/adoption gates for code-writing children in
-  this cut.
-- Do not add a second lifecycle store or surface-local failure model.
-- Do not run live managed-agent provider tests as part of deterministic
-  verification.
+- Do not implement conflict states for worktree-backed children in this cut.
+- Do not implement feedback/repair work items in this cut.
+- Do not inline diffs into session events; adoption evidence remains
+  resource-pointer based.
 
 ## Surface Map
 
-- Core domain:
+- Core work-governance domain:
   - `packages/core/src/work-governance/work-item.ts`
-  - `packages/core/src/work-governance/goal-execution.ts`
+  - `packages/core/src/work-governance/work-item-materializer.ts`
   - `packages/core/src/work-governance/index.ts`
-- CLI tool adapter:
-  - `packages/cli/src/application/work-governance-tool.ts`
-  - `packages/cli/src/application/work-governance-tool.test.ts`
-- Runtime/session event projection:
-  - `packages/runtime/src/session/runtime-session-event-ledger.ts`
-  - focused tests if metadata operation shape changes
-- Existing evidence tests:
+- Core tests:
+  - `packages/core/tests/work-governance/work-item-materializer.test.ts`
   - `packages/core/tests/work-governance/goal-execution.test.ts`
-
-## Decision Point
-
-Open design question sent to 5.5 xhigh before production edits:
-
-- Prefer an explicit `work_item.execution.fail` path if the decision confirms
-  failure is a distinct domain transition.
-- Avoid overloading `work_item.execution.finish` unless the decision says the
-  existing closeout semantics should own failed/cancelled child outcomes.
+- CLI adapter pass-through tests if existing tool contracts need shape updates:
+  - `packages/cli/src/application/work-governance-tool.test.ts`
+- Roadmap status:
+  - `docs/roadmap/01-background-parallel-agent-surface.md`
+  - `docs/roadmap/README.md`
 
 ## Expected Behavior
 
-- A managed-delegation attempt linked to a child invocation can be recorded as
-  failed or cancelled with a bounded reason.
-- Failed, unavailable, denied, timed-out, and cancelled children keep the work
-  item blocked with the missing expected evidence visible on the attempt, item,
-  metadata, and canonical session event.
-- Goal state remains active and pauses at the blocked work item; child failure
-  does not satisfy `managed-orchestration:result-handoff`,
-  `managed-agent-review`, tests, typecheck, or residual-risk evidence.
-- Replay reconstructs the blocked work item from the existing
-  `work_item_execution_finished` event shape.
+- Adoption-required write-capable managed orchestration work items materialize
+  explicit readiness evidence and gates for diff, verification, review, and
+  final adoption.
+- A structured adoption resolution alone is not sufficient for code-writing
+  children. Diff evidence must be present and verification/review readiness
+  gates must pass.
+- Failed or skipped readiness gates do not satisfy adoption readiness.
+- Goal closeout counts `managed-orchestration:adoption-gate` only when the
+  core adoption projection is `adopted`.
 
 ## Verification
 
-- Focused core work-governance tests for failed/cancelled managed attempts.
-- Focused CLI work-governance tool tests for the tool contract chosen by the
-  5.5 decision.
-- Runtime ledger focused tests only if metadata operation handling changes.
+- Focused core tests for materialization and adoption closeout.
+- Focused CLI test only if the tool adapter needs contract changes.
+- `bun run --cwd packages/core test -- tests/work-governance/work-item-materializer.test.ts tests/work-governance/goal-execution.test.ts`
 - `bun run typecheck`
 - `bun run test`
 - DDD/Clean Architecture review.

@@ -8,9 +8,12 @@ import {
 } from "../agents/managed-invocation/orchestration.js";
 import type { GoalRun } from "./goal-run.js";
 import {
+  MANAGED_ORCHESTRATION_ADOPTION_GATE,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
+  managedOrchestrationAdoptionReadinessContract,
   type WorkItem,
+  type WorkItemManagedOrchestrationAdoptionReadiness,
   type WorkItemRecommendedReasoningEffort,
   type WorkItemRoutingRecommendation,
   type WorkItemStore,
@@ -247,6 +250,7 @@ function toManagedAgentOrchestrationWorkItemInput(input: {
   const adoptionEvidence = input.request.mergePolicy.adoptionRequired
     ? [MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE]
     : [];
+  const readiness = managedOrchestrationAdoptionReadiness(input);
   return {
     id: `${input.child.childId}:work-item`,
     summary: input.child.task,
@@ -267,12 +271,14 @@ function toManagedAgentOrchestrationWorkItemInput(input: {
         .filter((evidence) => evidence.required)
         .map(orchestrationEvidenceKey),
       mergeEvidence,
+      ...(readiness?.evidence ?? []),
       ...adoptionEvidence,
     ]),
     verificationGates: uniqueStrings([
       "managed orchestration child handoff",
       `managed orchestration merge policy: ${input.request.mergePolicy.mode}`,
-      ...(input.request.mergePolicy.adoptionRequired ? ["managed orchestration adoption gate"] : []),
+      ...(readiness?.verificationGates ?? []),
+      ...(input.request.mergePolicy.adoptionRequired && !readiness ? [MANAGED_ORCHESTRATION_ADOPTION_GATE] : []),
     ]),
     ...(input.goalRunId ? { goalRunId: input.goalRunId } : {}),
     sourceWorkItemId: input.child.childId,
@@ -291,9 +297,22 @@ function toManagedAgentOrchestrationWorkItemInput(input: {
         reason: input.request.mergePolicy.adoptionRequired
           ? `Managed ${input.request.mode} orchestration requires Slice 6 adoption before closeout.`
           : `Managed ${input.request.mode} orchestration does not require automatic parent adoption.`,
+        ...(readiness ? { readiness } : {}),
       },
     },
   };
+}
+
+function managedOrchestrationAdoptionReadiness(input: {
+  readonly request: ManagedAgentOrchestrationRequest;
+}): WorkItemManagedOrchestrationAdoptionReadiness | undefined {
+  if (
+    input.request.mergePolicy.adoptionRequired !== true
+    || input.request.mergePolicy.adoptionReadinessRequired !== true
+  ) {
+    return undefined;
+  }
+  return managedOrchestrationAdoptionReadinessContract();
 }
 
 function orchestrationEvidenceKey(evidence: ManagedAgentOrchestrationExpectedEvidence): string {

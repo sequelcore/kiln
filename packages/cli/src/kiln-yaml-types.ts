@@ -147,6 +147,18 @@ export type KilnWorkGovernanceEvidence =
   | "browser-qa"
   | "managed-agent-review"
   | "managed-orchestration:result-handoff"
+  | "managed-orchestration:completion-signal"
+  | "managed-orchestration:comparison-summary"
+  | "managed-orchestration:route-outcome"
+  | "managed-orchestration:adoption-gate"
+  | "managed-orchestration:diff"
+  | "managed-orchestration:verification"
+  | "managed-orchestration:review"
+  | "managed-orchestration:merge:compare-and-select"
+  | "managed-orchestration:merge:collect-all"
+  | "managed-orchestration:merge:first-success"
+  | "managed-orchestration:merge:manual-review-required"
+  | "managed-orchestration:merge:none"
   | "formal-proof"
   | "residual-risk";
 
