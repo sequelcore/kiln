@@ -1,53 +1,66 @@
-## Slice 7G - Partial Write Evidence Resource Parity
+## Slice 7H - Failed Child Attention Parity
 
 ## Objective
 
-Continue Slice 7 by making partial write evidence replayable across the
-managed-agent resource plane and shared operator cockpit projection.
+Continue Slice 7 by proving ordinary managed-child adapter failures remain a
+distinct operator attention state across shared cockpit view-state and the
+existing operator surfaces.
 
 ## Decision
 
-Treat `writeEvidence.resourceUris` as managed invocation evidence pointers.
-Runtime already emits these pointers from CLI/direct adapter write detection,
-including timed-out children with partial writes. Shared projections should
-aggregate the pointers alongside transcript, handoff, diagnostics, memory
-proposal, and lease evidence without reading diff contents or creating a
-surface-local partial-success lifecycle state.
+Treat a terminal `agent_invocation_failed` event with `lifecycleState:
+"failed"` as failed-child attention unless stronger review states apply. Do
+not collapse it into timeout, stale heartbeat, cancellation, worktree review,
+or worktree conflict. Evidence remains pointer-only and replayable through the
+shared managed-agent resource list.
 
 ## Non-Goals
 
-- Do not change managed child lifecycle states or attention states.
-- Do not expose raw diffs, filesystem contents, or full runtime records.
-- Do not add compatibility aliases for older evidence shapes.
-- Do not add a separate partial-success control plane.
+- Do not add a new lifecycle state or attention state.
+- Do not change timeout, stale, cancellation, worktree review, or conflict
+  precedence.
+- Do not expose raw adapter logs or filesystem content.
+- Do not add legacy aliases for older event shapes.
 
 ## Surface Map
 
-- Runtime resource provider:
-  - `packages/runtime/src/agents/managed-invocation/resource-provider.ts`
-  - `packages/runtime/tests/managed-agent/resource-provider.test.ts`
-- Shared operator cockpit projection:
-  - `packages/gateway-contracts/src/operator-cockpit-projection.ts`
-  - `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
+- Shared operator cockpit view-state:
+  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
+  - `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
+- CLI managed-agent command:
+  - `packages/cli/src/commands/managed-agent.ts`
+  - `packages/cli/src/commands/managed-agent.test.ts`
+- TUI managed-agent cockpit:
+  - `packages/tui/src/managed-agent-cockpit.ts`
+  - `packages/tui/tests/managed-agent-cockpit.test.ts`
+- Native managed-agent cockpit panel:
+  - `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
+  - `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
+- GUI managed-agent cockpit panel:
+  - `packages/gui/src/components/managed-agent-cockpit-panel.tsx`
+  - `packages/gui/tests/managed-agent-cockpit-panel.test.tsx`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
 
 ## Expected Behavior
 
-- Aggregate managed invocation resource reads include valid
-  `writeEvidence.resourceUris` in the de-duplicated `resourceUris` bundle.
-- Per-child managed invocation detail and `/resources` reads expose the same
-  pointer-only resource bundle.
-- Gateway cockpit invocation projections include `writeEvidence.resourceUris`
-  in `evidenceResourceUris`.
-- Duplicate write evidence pointers that also appear in handoff resources are
-  emitted once.
+- Shared view-state projects ordinary adapter failure as `attentionState:
+  "failed"`, `status: "failed"`, and `lifecycleState: "failed"`.
+- Failed-child diagnostics and handoff pointers are de-duplicated and replayable
+  in the shared resource list.
+- Failed children are counted in attention, never active, and cancellation is
+  unavailable.
+- CLI, TUI, native, and GUI surfaces render the shared failed state without
+  local fallback lifecycle logic.
 
 ## Verification
 
 - Add failing focused tests first.
-- Run `bun run --cwd packages/runtime test -- tests/managed-agent/resource-provider.test.ts`.
-- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-projection.test.ts`.
+- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-view-state.test.ts`.
+- Run `bun run --filter @kilnai/cli test -- src/commands/managed-agent.test.ts`.
+- Run `bun run --filter @kilnai/tui test -- tests/managed-agent-cockpit.test.ts`.
+- Run `bun run --filter @kilnai/native test -- tests/managed-agent-cockpit-panel.test.tsx`.
+- Run `bun run --filter @kilnai/gui test -- tests/managed-agent-cockpit-panel.test.tsx`.
 - Run `bun run typecheck`.
 - Run `bun run build`.
 - Run `bun run test`.

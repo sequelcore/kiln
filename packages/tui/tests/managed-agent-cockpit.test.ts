@@ -268,6 +268,65 @@ describe("TUI managed-agent cockpit projection", () => {
     ]));
   });
 
+  it("formats ordinary adapter failure from shared failed attention", () => {
+    const failed = event("evt-failed", 1, "agent_invocation_failed", {
+      invocationId: "child-failed",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.5",
+      },
+      lifecycleState: "failed",
+      errorCode: "ADAPTER_FAILURE",
+      errorMessage: "Managed child adapter failed before handoff.",
+      managedInvocationEvidence: {
+        diagnostics: [{
+          uri: "kiln://managed-agent/child-failed/failure",
+          kind: "failure",
+        }],
+        resultHandoff: {
+          summary: "Managed child adapter failed before handoff.",
+          resourceUris: [
+            "kiln://managed-agent/child-failed/handoff",
+            "kiln://managed-agent/child-failed/failure",
+          ],
+          memoryWriteProposalUris: [],
+        },
+      },
+    });
+    const events = appendManagedAgentSessionEvent([], failed);
+
+    const viewState = projectTuiManagedAgentViewState(events, {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-failed",
+      },
+    });
+
+    expect(viewState.items[0]).toMatchObject({
+      managedInvocationId: "child-failed",
+      attentionState: "failed",
+      status: "failed",
+      lifecycleState: "failed",
+      resourceUris: [
+        "kiln://managed-agent/child-failed/failure",
+        "kiln://managed-agent/child-failed/handoff",
+      ],
+    });
+    expect(formatManagedAgentCockpitLines(viewState)).toEqual(expect.arrayContaining([
+      "attention: 1  active: 0",
+      "! child-failed failed failed codex-oauth/gpt-5.5 events:1 resources:2",
+      "  res kiln://managed-agent/child-failed/failure",
+      "  res kiln://managed-agent/child-failed/handoff",
+      "drilldown child-failed",
+      "  lifecycle failed",
+      "  timeline:",
+      "    1 agent_invocation_failed evt-failed",
+      "    kiln://managed-agent/child-failed/failure",
+      "    kiln://managed-agent/child-failed/handoff",
+    ]));
+  });
+
   it("retains runtime adoption-gate snapshots and formats managed child drilldown adoption state", () => {
     let events = appendManagedAgentSessionEvent([], event("evt-completed", 1, "agent_invocation_completed", {
       invocationId: "child-adopted",

@@ -256,7 +256,7 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
-  it("prints timeout, stale, and cancellation rows from shared managed-child view-state", async () => {
+  it("prints terminal managed-child rows from shared managed-child view-state", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     await appendManagedTerminalViewStateEvents(transcriptStore, "session-1");
@@ -276,16 +276,23 @@ describe("managed-agent command", () => {
     );
     await managedAgentCommand(
       { createRegistry: (() => undefined) as never },
+      "status",
+      ["child-failed", "--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-24T12:01:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
       "resources",
-      ["child-cancelled", "--session", "session-1"],
+      ["child-failed", "--session", "session-1"],
       { projectPath: root, projectedAt: () => "2026-05-24T12:01:00.000Z" },
     );
 
     expect(log.mock.calls[0]?.[0]).toBe([
       "Managed children for session session-1:",
-      "attention: 3  active: 0",
+      "attention: 4  active: 0",
       "child-timeout             timed_out     failed      timed_out     codex-oauth/gpt-5.5  resources:2  cancel:unavailable",
       "child-stale               stale         failed      stale         opencode/minimax-m2.5  resources:2  cancel:unavailable",
+      "child-failed              failed        failed      failed        codex-oauth/gpt-5.5  resources:2  cancel:unavailable",
       "child-cancelled           cancelled     cancelled   cancelled     opencode/minimax-m2.5  resources:1  cancel:unavailable",
     ].join("\n"));
     expect(log.mock.calls[1]?.[0]).toBe([
@@ -300,8 +307,20 @@ describe("managed-agent command", () => {
       "Cancel: unavailable · Managed invocation is not active.",
     ].join("\n"));
     expect(log.mock.calls[2]?.[0]).toBe([
-      "Resources for managed child child-cancelled:",
-      "- kiln://managed-invocations/child-cancelled/cancel-cleanup",
+      "Managed child: child-failed",
+      "Session: session-1",
+      "Attention: failed",
+      "Status: failed",
+      "Lifecycle: failed",
+      "Provider: codex-oauth/gpt-5.5",
+      "Events: 1",
+      "Resources: 2",
+      "Cancel: unavailable · Managed invocation is not active.",
+    ].join("\n"));
+    expect(log.mock.calls[3]?.[0]).toBe([
+      "Resources for managed child child-failed:",
+      "- kiln://managed-invocations/child-failed/failure",
+      "- kiln://managed-invocations/child-failed/handoff",
     ].join("\n"));
   });
 
@@ -939,6 +958,42 @@ async function appendManagedTerminalViewStateEvents(
         resultHandoff: {
           summary: "Managed invocation heartbeat expired.",
           resourceUris: ["kiln://managed-invocations/child-stale/handoff"],
+          memoryWriteProposalUris: [],
+        },
+      },
+    },
+  });
+  await transcriptStore.append(sessionId, {
+    eventId: "event-failed",
+    kilnSessionId: sessionId,
+    sequence: 4,
+    timestamp: "2026-05-24T12:00:02.500Z",
+    kind: "agent_invocation_failed",
+    source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
+    payload: {
+      instanceId: "local",
+      sessionId,
+      managedInvocationId: "child-failed",
+      invocationId: "child-failed",
+      agentId: "agent-reviewer",
+      lifecycleState: "failed",
+      errorCode: "ADAPTER_FAILURE",
+      errorMessage: "Managed child adapter failed before handoff.",
+      providerRoute: {
+        providerId: "codex-oauth",
+        model: "gpt-5.5",
+      },
+      managedInvocationEvidence: {
+        diagnostics: [{
+          uri: "kiln://managed-invocations/child-failed/failure",
+          kind: "failure",
+        }],
+        resultHandoff: {
+          summary: "Managed child adapter failed before handoff.",
+          resourceUris: [
+            "kiln://managed-invocations/child-failed/handoff",
+            "kiln://managed-invocations/child-failed/failure",
+          ],
           memoryWriteProposalUris: [],
         },
       },

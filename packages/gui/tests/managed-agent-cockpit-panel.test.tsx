@@ -219,6 +219,71 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.getByText("heartbeat")).toBeVisible();
   });
 
+  it("renders ordinary adapter failure as failed managed-child attention", () => {
+    const onOpenResource = vi.fn();
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 0,
+      attentionCount: 1,
+      items: [
+        {
+          managedInvocationId: "child-failed",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "failed",
+          lifecycleState: "failed",
+          providerRoute: "codex-oauth/gpt-5.5",
+          attentionState: "failed",
+          dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: false,
+          resourceUris: [
+            "kiln://managed-agents/child-failed/failure",
+            "kiln://managed-agents/child-failed/handoff",
+          ],
+          latestEventId: "event-failed",
+          lifecycleTimeline: [
+            {
+              eventId: "event-failed",
+              instanceId: "local",
+              sessionId: "session-1",
+              sequence: 1,
+              timestamp: "2026-05-24T12:00:00.000Z",
+              kind: "agent_invocation_failed",
+              title: "Agent invocation failed",
+              compactText: "codex-oauth/gpt-5.5 · Managed child adapter failed before handoff.",
+              tone: "error",
+              target: {
+                instanceId: "local",
+                sessionId: "session-1",
+                eventId: "event-failed",
+                managedInvocationId: "child-failed",
+              },
+            },
+          ],
+          cancelControl: {
+            status: "unavailable",
+            reason: "Managed invocation is not active.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} onOpenResource={onOpenResource} />);
+
+    expect(screen.getByLabelText("Managed agents")).toHaveTextContent("1 attention");
+    expect(screen.getByText("child-failed")).toBeVisible();
+    expect(screen.getByText("Failed")).toBeVisible();
+    expect(screen.getByText("failed")).toBeVisible();
+    expect(screen.getByText("lifecycle failed")).toBeVisible();
+    expect(screen.getByText("Cancel unavailable")).toBeDisabled();
+    expect(screen.getByText("Agent invocation failed: codex-oauth/gpt-5.5 · Managed child adapter failed before handoff.")).toBeVisible();
+
+    fireEvent.click(screen.getByText("failure"));
+    fireEvent.click(screen.getByText("handoff"));
+
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-failed/failure");
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-failed/handoff");
+  });
+
   it("dispatches live cancel when a control channel callback is present", () => {
     const onCancel = vi.fn();
     const viewState: OperatorCockpitManagedAgentViewState = {

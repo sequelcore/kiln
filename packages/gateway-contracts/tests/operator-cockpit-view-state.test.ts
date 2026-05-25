@@ -546,6 +546,82 @@ describe("operator cockpit read-only view state", () => {
     });
   });
 
+  it("projects ordinary adapter failures as failed managed-child attention", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-failed:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-failed:event:failed",
+          kilnSessionId: "managed-failed:session:1",
+          sequence: 1,
+          timestamp: "2026-05-24T12:00:00.000Z",
+          kind: "agent_invocation_failed",
+          payload: {
+            instanceId: "managed-failed:instance:1",
+            sessionId: "managed-failed:session:1",
+            managedInvocationId: "managed-failed:child:1",
+            invocationId: "managed-failed:child:1",
+            agentId: "agent-coder",
+            lifecycleState: "failed",
+            providerRoute: {
+              providerId: "codex-oauth",
+              model: "gpt-5.5",
+            },
+            errorCode: "ADAPTER_FAILURE",
+            errorMessage: "Managed child adapter failed before handoff.",
+            managedInvocationEvidence: {
+              diagnostics: [{
+                uri: "kiln://managed-invocations/managed-failed-child-1/failure",
+                kind: "failure",
+              }],
+              resultHandoff: {
+                summary: "Managed child adapter failed before handoff.",
+                resourceUris: [
+                  "kiln://managed-invocations/managed-failed-child-1/handoff",
+                  "kiln://managed-invocations/managed-failed-child-1/failure",
+                ],
+                memoryWriteProposalUris: [],
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.activeCount).toBe(0);
+    expect(view.managedAgents.attentionCount).toBe(1);
+    expect(view.managedAgents.items[0]).toMatchObject({
+      managedInvocationId: "managed-failed:child:1",
+      attentionState: "failed",
+      status: "failed",
+      lifecycleState: "failed",
+      providerRoute: "codex-oauth/gpt-5.5",
+      resourceUris: [
+        "kiln://managed-invocations/managed-failed-child-1/failure",
+        "kiln://managed-invocations/managed-failed-child-1/handoff",
+      ],
+      cancelControl: {
+        status: "unavailable",
+        reason: "Managed invocation is not active.",
+      },
+    });
+    expect(view.managedAgents.items[0]?.lifecycleTimeline[0]).toMatchObject({
+      eventId: "managed-failed:event:failed",
+      compactText: "codex-oauth/gpt-5.5 · Managed child adapter failed before handoff.",
+      tone: "error",
+    });
+  });
+
   it("resolves managed child drilldown and scoped replay from canonical cockpit projection", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-05-23T12:01:00.000Z",

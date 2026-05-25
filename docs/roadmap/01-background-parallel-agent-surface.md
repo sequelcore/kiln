@@ -125,7 +125,7 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7G
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7H
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
@@ -840,7 +840,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, and Slice 7G are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, and Slice 7H are complete in code.
 
 Completed:
 
@@ -883,6 +883,11 @@ Completed:
   and shared cockpit evidence bundles. `writeEvidence.resourceUris` are
   de-duplicated with handoff, diagnostic, and lease resources without exposing
   raw diffs or adding a surface-local partial-success lifecycle state.
+- Ordinary adapter failures from managed children now remain distinct
+  `failed` attention in shared cockpit view-state and CLI, TUI, GUI, and native
+  surfaces. Failed-child diagnostics and handoff pointers are de-duplicated and
+  replayable without collapsing into timeout, stale heartbeat, cancellation, or
+  review-specific states.
 
 Deliverables:
 

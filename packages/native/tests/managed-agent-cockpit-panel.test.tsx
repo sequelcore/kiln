@@ -255,6 +255,64 @@ describe("native managed-agent cockpit panel", () => {
     expect(markup).toContain("agent_invocation_failed");
   });
 
+  it("renders ordinary adapter failure as failed managed child attention", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-failed", 1, "agent_invocation_failed", {
+          managedInvocationId: "child-failed",
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.5",
+          },
+          lifecycleState: "failed",
+          errorCode: "ADAPTER_FAILURE",
+          errorMessage: "Managed child adapter failed before handoff.",
+          managedInvocationEvidence: {
+            diagnostics: [{
+              uri: "kiln://managed-agent/child-failed/failure",
+              kind: "failure",
+            }],
+            resultHandoff: {
+              summary: "Managed child adapter failed before handoff.",
+              resourceUris: [
+                "kiln://managed-agent/child-failed/handoff",
+                "kiln://managed-agent/child-failed/failure",
+              ],
+              memoryWriteProposalUris: [],
+            },
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {},
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+
+    expect(markup).toContain("<dd>1</dd>");
+    expect(markup).toContain("child-failed");
+    expect(markup).toContain("data-attention=\"failed\"");
+    expect(markup).toContain("Failed");
+    expect(markup).toContain("<dd>failed</dd>");
+    expect(markup).toContain("Cancel disabled");
+    expect(markup).toContain("Managed child adapter failed before handoff.");
+    expect(markup).toContain("kiln://managed-agent/child-failed/failure");
+    expect(markup).toContain("kiln://managed-agent/child-failed/handoff");
+    expect(markup).toContain("agent_invocation_failed");
+  });
+
   it("enables native cancellation only when a live gateway control callback is present", () => {
     const projection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:local",
