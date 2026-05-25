@@ -125,7 +125,7 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7L
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7M
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
@@ -137,8 +137,11 @@ Active. Started on 2026-05-21. Current implementation status:
   cockpits without adding surface-local conflict state. Parent run interruption
   now aborts the active CLI session signal and propagates that parent abort into
   runtime-owned managed invocation cancellation, preserving canonical
-  `cancelled` evidence and suppressing late child success/failure. Slice 8 is
-  not started.
+  `cancelled` evidence and suppressing late child success/failure. The
+  direct-provider abort bridge now has focused proof that
+  `SessionRunOptions.abortSignal` reaches runtime per-call config and builtin
+  tool execution context without arity-based context drops. Slice 8 is not
+  started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -849,7 +852,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, and Slice 7L are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, and Slice 7M are complete in code.
 
 Completed:
 
@@ -923,6 +926,11 @@ Completed:
   bind the parent abort to `RuntimeManagedAgentInvocationService.cancel`.
   Managed children remain canonical `cancelled` records, and later adapter
   success/failure cannot replace the cancelled lifecycle.
+- Direct-provider parent interruption now has explicit bridge regression
+  coverage from `ProviderSession.run(...)` to runtime per-call config and from
+  per-call config to `RuntimeBuiltinToolExecutionContext`. Runtime builtin
+  tools receive the typed execution context consistently instead of depending
+  on function arity.
 
 Deliverables:
 

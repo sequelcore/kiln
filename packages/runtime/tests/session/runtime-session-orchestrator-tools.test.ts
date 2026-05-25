@@ -721,7 +721,12 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("status"));
 
       expect(detector.evaluate).toHaveBeenCalledWith({ command: "git status --short", shell: "bash" });
-      expect(toolFn).toHaveBeenCalledWith({ command: "git status --short" });
+      expect(toolFn).toHaveBeenCalledWith(
+        { command: "git status --short" },
+        expect.objectContaining({
+          toolCall: expect.objectContaining({ name: "bash" }),
+        }),
+      );
     });
 
     it("dangerous blocked path appends audit with authority metadata when authorization exists", async () => {
@@ -1402,10 +1407,15 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       await orchestrator.processMessage(makeSession(), textParts("write file"));
 
-      expect(toolFn).toHaveBeenCalledWith({
-        filePath: "src/demo.txt",
-        content: "updated",
-      });
+      expect(toolFn).toHaveBeenCalledWith(
+        {
+          filePath: "src/demo.txt",
+          content: "updated",
+        },
+        expect.objectContaining({
+          toolCall: expect.objectContaining({ name: "write" }),
+        }),
+      );
     });
 
     it("turns malformed tool arguments into a tool error instead of crashing execution", async () => {
@@ -1669,6 +1679,36 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("fetch data"));
 
       expect(toolFn).toHaveBeenCalled();
+    });
+
+    it("passes per-call abortSignal into builtin tool execution context", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue("result");
+      const abortController = new AbortController();
+      const session = makeSession();
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+      });
+
+      await orchestrator.processMessage(session, textParts("fetch data"), undefined, undefined, {
+        abortSignal: abortController.signal,
+      });
+
+      const context = toolFn.mock.calls[0]?.[1] as {
+        readonly session?: RuntimeSession;
+        readonly abortSignal?: AbortSignal;
+        readonly toolCall?: { readonly id?: string; readonly name?: string };
+      } | undefined;
+
+      expect(context?.session).toBe(session);
+      expect(context?.abortSignal).toBe(abortController.signal);
+      expect(context?.toolCall).toMatchObject({
+        id: "tc-1",
+        name: "get_data",
+      });
     });
 
     it("blocks tool when rate limited", async () => {

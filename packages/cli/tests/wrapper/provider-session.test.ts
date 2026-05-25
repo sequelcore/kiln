@@ -707,6 +707,37 @@ describe("ProviderSession.run()", () => {
     ]);
   });
 
+  it("passes the run abort signal into executable runtime per-call config", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "abort bridge checked" }],
+      toolExecutions: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const abortController = new AbortController();
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+
+    await collectEvents(session.run({
+      prompt: "execute with parent abort bridge",
+      abortSignal: abortController.signal,
+    }));
+
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      abortSignal?: AbortSignal;
+    } | undefined;
+
+    expect(perCallConfig?.abortSignal).toBe(abortController.signal);
+  });
+
   it("streams runtime tool events before the final executable assistant text", async () => {
     runtimeMocks.processMessage.mockImplementationOnce(async () => {
       const deps = runtimeMocks.orchestratorConstructor.mock.calls.at(-1)?.[0] as {

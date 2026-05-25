@@ -961,16 +961,12 @@ export class RuntimeSessionToolExecutor {
       : undefined;
     const callBuiltin = this.callBuiltinTools?.get(toolCall.name);
     if (callBuiltin) {
-      return callBuiltin.length >= 2
-        ? callBuiltin(toolCall.input, context)
-        : callBuiltin(toolCall.input);
+      return callBuiltin(toolCall.input, context);
     }
 
     const depBuiltin = this.deps.builtinTools?.get(toolCall.name);
     if (depBuiltin) {
-      return depBuiltin.length >= 2
-        ? depBuiltin(toolCall.input, context)
-        : depBuiltin(toolCall.input);
+      return depBuiltin(toolCall.input, context);
     }
 
     if (this.deps.mcpClients) {

@@ -1,62 +1,52 @@
-# Slice 7L Plan - Parent Interruption Cancels Managed Children
+# Slice 7M Plan - Direct-Provider Abort Bridge Proof
 
 ## Objective
 
-Route parent turn interruption through the existing runtime cancellation plane so
-active managed child invocations terminate as canonical `cancelled` records and
-late child output cannot become parent-visible transcript or view-state content.
+Lock the direct-provider parent-abort bridge with focused regression coverage:
+`SessionRunOptions.abortSignal` must become runtime per-call tool config, and
+runtime per-call tool config must become `RuntimeBuiltinToolExecutionContext`
+for builtin tools such as `managed_agent.invoke/start`.
 
 ## Non-Goals
 
 - Do not add a public `interrupted` managed-agent lifecycle state.
 - Do not add surface-local managed-agent stores, filters, or replay heuristics.
-- Do not preserve legacy `kiln run --workers` behavior as a second control
-  plane.
-- Do not broaden dirty-worktree or conflict semantics beyond the cancellation
-  boundary needed for parent interruption.
+- Do not change managed invocation cancellation semantics from Slice 7L.
+- Do not add a parallel direct-provider lifecycle or test-only bridge.
+- Do not broaden live provider credentials or route discovery behavior.
 
 ## Scout Map
 
-- CLI signal ownership: `packages/cli/src/commands/run.ts` installs SIGINT and
-  SIGTERM handlers for normal runs but currently only performs cleanup/exit.
-- CLI session execution: `packages/cli/src/application/run-session.ts` calls
-  `session.run(...)` without a parent abort signal even though provider sessions
-  already accept `SessionRunOptions.abortSignal`.
-- Direct-provider runtime surface:
-  `packages/cli/src/wrapper/provider-session.ts` creates per-call runtime tool
-  config but does not carry the parent abort signal into the orchestrator.
-- Runtime tool context:
-  `packages/runtime/src/session/runtime-session-orchestrator-tool-executor.ts`
-  builds builtin tool execution context without the per-turn abort signal.
-- Managed invocation service:
-  `packages/runtime/src/agents/managed-invocation/index.ts` already owns
-  cancellation, abort propagation to adapters, terminal record merging, and late
-  adapter-result suppression after cancellation.
-- Managed invocation tools:
-  `packages/runtime/src/agents/managed-invocation/runtime-tool.ts` start/invoke
-  children through the shared service and should pass parent abort ownership
-  rather than implementing local cleanup.
+- `packages/cli/src/wrapper/provider-session.ts` already builds
+  `PerCallToolConfig` for kiln-executable direct-provider turns.
+- `packages/cli/tests/wrapper/provider-session.test.ts` mocks the runtime
+  orchestrator and can verify `ProviderSession.run(...)` passes the same parent
+  abort signal into per-call config.
+- `packages/runtime/src/session/runtime-session-orchestrator.ts` forwards
+  per-call config into `RuntimeSessionToolExecutor`.
+- `packages/runtime/src/session/runtime-session-orchestrator-tool-executor.ts`
+  creates `RuntimeBuiltinToolExecutionContext` for builtin tools.
+- `packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts`
+  already owns per-call tool-config behavior and can prove the abort signal is
+  visible to builtin tools without introducing managed-agent-specific test
+  doubles.
 
 ## Implementation Steps
 
-1. Add red runtime coverage proving an external parent abort signal cancels a
-   running managed invocation and suppresses a later adapter success.
-2. Add red CLI coverage proving SIGINT aborts the session signal before cleanup
-   and that duplicate signals do not create duplicate aborts.
-3. Thread `AbortSignal` through `RunSessionOptions`, `session.run(...)`,
-   direct-provider per-call config, and runtime builtin tool context.
-4. Extend `RuntimeManagedAgentInvocationService.start/invoke` with optional
-   parent abort signal binding that calls the existing `cancel(...)` path once
-   and detaches at terminal completion.
-5. Pass `context.abortSignal` from `managed_agent.invoke` and
-   `managed_agent.start` into the service.
+1. Add focused provider-session coverage proving the exact `AbortSignal`
+   supplied to `ProviderSession.run(...)` is passed to
+   `RuntimeSessionOrchestrator.processMessage(...)` as per-call config.
+2. Add focused runtime tool-executor coverage proving per-call `abortSignal`
+   reaches builtin tool execution context.
+3. Keep production code unchanged unless the new regression tests expose a real
+   bridge gap.
+4. Update the roadmap with Slice 7M after verification.
 
 ## Verification
 
 ```bash
-bunx vitest run packages/runtime/tests/managed-agent/invocation-service.test.ts --maxWorkers=1
-bunx vitest run packages/runtime/tests/gateway/managed-invocation-tool.test.ts --maxWorkers=1
-bunx vitest run packages/cli/tests/commands/run-builtin-tools.test.ts --maxWorkers=1
+bunx vitest run packages/cli/tests/wrapper/provider-session.test.ts --maxWorkers=1
+bunx vitest run packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts --maxWorkers=1
 bun run typecheck
 bun run --filter @kilnai/runtime test
 bun run --filter @kilnai/cli test
@@ -64,6 +54,6 @@ bun run --filter @kilnai/cli test
 
 ## Residual Risk
 
-This slice proves parent interruption for runtime-owned CLI/direct-provider
-managed child paths. Harness-specific provider process cancellation remains
-covered by the adapter abort contract and existing cancellation tests.
+This slice is regression-proofing for the direct-provider bridge. It does not
+exercise live external providers; live route proof remains gated by the existing
+explicit live-test environment flags.
