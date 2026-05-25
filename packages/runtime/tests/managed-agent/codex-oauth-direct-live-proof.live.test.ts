@@ -141,7 +141,7 @@ describeManagedAgentProviderLive(
           profiles: ["foundation-apply-approved-writes"],
           workingDirectory: "project",
           tools: {
-            allowed: ["write"],
+            allowed: ["read", "edit"],
             writes: true,
             network: false,
           },
@@ -173,7 +173,7 @@ describeManagedAgentProviderLive(
             authorityProfileId: "authority:codex-oauth-direct-live-approved-write",
             permissionProfile: "apply-approved-writes",
             toolAuthority: {
-              allowedToolNames: ["write"],
+              allowedToolNames: ["read", "edit"],
               writeAllowed: true,
               networkAllowed: false,
             },
@@ -209,7 +209,7 @@ describeManagedAgentProviderLive(
                   retention: "session",
                 },
                 tools: {
-                  allowedToolNames: ["write"],
+                  allowedToolNames: ["read", "edit"],
                   deniedToolNames: ["git-commit"],
                 },
               }),
@@ -224,9 +224,10 @@ describeManagedAgentProviderLive(
           input: {
             summary: "Apply the Codex OAuth direct-provider approved write fixture.",
             prompt: [
-              "Call the write tool exactly once with filePath \"proof.txt\" and content \"after\\n\".",
+              "Call the read tool once with filePath \"proof.txt\" and confirm it contains exactly \"before\\n\".",
+              "Then call the edit tool exactly once with filePath \"proof.txt\", oldString \"before\\n\", and newString \"after\\n\".",
               "Do not modify any other file.",
-              "After the write succeeds, reply exactly:",
+              "After the edit succeeds, reply exactly:",
               "DIRECT_CODEX_OAUTH_WRITE_LIVE_PROOF:written",
             ].join("\n"),
           },

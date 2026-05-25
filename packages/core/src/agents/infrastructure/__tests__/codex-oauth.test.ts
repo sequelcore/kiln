@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KilnError } from "../../../engine/errors.js";
 import type {
   AgentResponse,
   AgentStreamEvent,
@@ -54,6 +53,75 @@ function sseResponse(
   });
 }
 
+function rawSseResponse(chunks: readonly string[], status = 200): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(body, {
+    status,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
+function stalledSseResponse(
+  events: ReadonlyArray<{ event: string; data: unknown }>,
+  status = 200,
+): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const entry of events) {
+        controller.enqueue(
+          encoder.encode(`event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\n\n`),
+        );
+      }
+    },
+  });
+
+  return new Response(body, {
+    status,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
+function delayedSseResponse(
+  immediateEvents: ReadonlyArray<{ event: string; data: unknown }>,
+  delayedEvents: ReadonlyArray<{ event: string; data: unknown }>,
+  delayMs: number,
+  status = 200,
+): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const entry of immediateEvents) {
+        controller.enqueue(
+          encoder.encode(`event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\n\n`),
+        );
+      }
+      setTimeout(() => {
+        for (const entry of delayedEvents) {
+          controller.enqueue(
+            encoder.encode(`event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\n\n`),
+          );
+        }
+        controller.close();
+      }, delayMs);
+    },
+  });
+
+  return new Response(body, {
+    status,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
 function sseResponseWithCrLf(
   events: ReadonlyArray<{ event: string; data: unknown }>,
   status = 200,
@@ -94,6 +162,53 @@ async function collectEvents(stream: AsyncGenerator<AgentStreamEvent>): Promise<
     events.push(event);
   }
   return events;
+}
+
+function readToolDefinition(): NonNullable<CreateMessageOptions["tools"]>[number] {
+  return {
+    name: "read",
+    description: "Read a file.",
+    inputSchema: {
+      type: "object",
+      properties: { filePath: { type: "string" } },
+      required: ["filePath"],
+      additionalProperties: false,
+    },
+    tags: new Set(["read"]),
+  };
+}
+
+async function expectProviderUnavailableAfterIncompleteIdle(
+  action: () => Promise<unknown>,
+): Promise<void> {
+  vi.useFakeTimers();
+  try {
+    const promise = action();
+    promise.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(30001);
+    await expect(promise).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      message: "Codex OAuth stream completed without response.completed event",
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+async function resolveAfterIncompleteIdle<T>(
+  action: () => Promise<T>,
+): Promise<T> {
+  vi.useFakeTimers();
+  try {
+    const promise = action();
+    promise.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(30001);
+    return await promise;
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 async function createAdapter(defaultModel = "gpt-5.4") {
@@ -839,7 +954,42 @@ describe("CodexOAuthAdapter", () => {
       expect(response.outputTokens).toBe(2);
     });
 
-    it("preserves function calls from response.output_item.added when response.completed omits them", async () => {
+    it("returns streamed text when a stream stalls after output_text.done", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        { event: "response.output_text.delta", data: { delta: "DIRECT_CODEX_" } },
+        { event: "response.output_text.delta", data: { delta: "OAUTH_LIVE_PROOF:alpha" } },
+        {
+          event: "response.output_text.done",
+          data: { text: "DIRECT_CODEX_OAUTH_LIVE_PROOF:alpha" },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.parts).toEqual([
+        { type: "text", text: "DIRECT_CODEX_OAUTH_LIVE_PROOF:alpha" },
+      ]);
+      expect(response.stopReason).toBe("text_streamed");
+    });
+
+    it("does not arm idle fallback before first streamed content", async () => {
+      mockFetch.mockImplementationOnce(async () => delayedSseResponse([], [
+        { event: "response.output_text.delta", data: { delta: "Delayed answer" } },
+        {
+          event: "response.output_text.done",
+          data: { text: "Delayed answer" },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+      const response = await resolveAfterIncompleteIdle(() => adapter.createMessage(createOptions()));
+
+      expect(response.parts).toEqual([{ type: "text", text: "Delayed answer" }]);
+      expect(response.stopReason).toBe("text_streamed");
+    });
+
+    it("preserves completed streamed function calls when response.completed omits them", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
           event: "response.output_item.added",
@@ -850,6 +1000,14 @@ describe("CodexOAuthAdapter", () => {
               name: "read",
               arguments: "{\"filePath\":\"docs/changelog.md\"}",
             },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "call_added_1",
+            name: "read",
+            arguments: "{\"filePath\":\"docs/changelog.md\"}",
           },
         },
         {
@@ -878,7 +1036,7 @@ describe("CodexOAuthAdapter", () => {
       expect(response.parts).toEqual([]);
     });
 
-    it("restores call_id from streamed function-call items when response.completed only returns the item id", async () => {
+    it("restores call_id from streamed function-call items when response.completed returns item id and final args", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
           event: "response.output_item.added",
@@ -902,6 +1060,7 @@ describe("CodexOAuthAdapter", () => {
                 {
                   type: "function_call",
                   id: "fc_added_1",
+                  arguments: "{\"filePath\":\"docs/changelog.md\"}",
                 },
               ],
               usage: { input_tokens: 13, output_tokens: 4 },
@@ -972,6 +1131,53 @@ describe("CodexOAuthAdapter", () => {
       ]);
     });
 
+    it("preserves added call_id when final function-call arguments omit it", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_args_done_call_id_omitted_1",
+              call_id: "call_args_done_call_id_omitted_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_args_done_call_id_omitted_1",
+            name: "read",
+            arguments: "{\"filePath\":\"docs/changelog.md\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_args_done_call_id_omitted_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 14, output_tokens: 5 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_args_done_call_id_omitted_1",
+          name: "read",
+          input: { filePath: "docs/changelog.md" },
+        },
+      ]);
+    });
+
     it("recovers completed function-call arguments from response.output_item.done", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
@@ -1025,6 +1231,901 @@ describe("CodexOAuthAdapter", () => {
           },
         },
       ]);
+    });
+
+    it("preserves added call_id when output_item.done omits it", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_output_done_call_id_omitted_1",
+              call_id: "call_output_done_call_id_omitted_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_output_done_call_id_omitted_1",
+              name: "read",
+              arguments: "{\"filePath\":\"docs/changelog.md\",\"offset\":0,\"limit\":200}",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_output_done_call_id_omitted_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 10, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_output_done_call_id_omitted_1",
+          name: "read",
+          input: { filePath: "docs/changelog.md", offset: 0, limit: 200 },
+        },
+      ]);
+    });
+
+    it("returns executable tool calls when a stream stalls after response.output_item.done", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_done_stalled_1",
+              call_id: "call_done_stalled_1",
+              name: "read",
+              arguments: "{\"filePath\":\"docs/changelog.md\"}",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await resolveAfterIncompleteIdle(() => adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      })));
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_done_stalled_1",
+          name: "read",
+          input: { filePath: "docs/changelog.md" },
+        },
+      ]);
+      expect(response.stopReason).toBe("tool_calls_streamed");
+    });
+
+    it("returns executable tool calls when a stream stalls after a complete function-call item", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_write_evt_1",
+              call_id: "call_write_evt_1",
+              name: "write",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_write_evt_1",
+            call_id: "call_write_evt_1",
+            name: "write",
+            arguments: "{\"filePath\":\"proof.txt\",\"content\":\"after\\n\"}",
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await resolveAfterIncompleteIdle(() => adapter.createMessage(createOptions({
+        tools: [
+          {
+            name: "write",
+            description: "Write full content to a file.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                filePath: { type: "string" },
+                content: { type: "string" },
+              },
+              required: ["filePath", "content"],
+              additionalProperties: false,
+            },
+            tags: new Set(["write"]),
+          },
+        ],
+      })));
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_write_evt_1",
+          name: "write",
+          input: {
+            filePath: "proof.txt",
+            content: "after\n",
+          },
+        },
+      ]);
+      expect(response.stopReason).toBe("tool_calls_streamed");
+    });
+
+    it("waits longer than the completed-content idle window for delayed function-call arguments", async () => {
+      mockFetch.mockResolvedValueOnce(delayedSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_delayed_args_1",
+              call_id: "call_delayed_args_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+      ], [
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_delayed_args_1",
+            call_id: "call_delayed_args_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_delayed_args_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_delayed_args_1",
+                  call_id: "call_delayed_args_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 3 },
+            },
+          },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }));
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_delayed_args_1",
+          name: "read",
+          input: { filePath: "proof.txt" },
+        },
+      ]);
+      expect(response.stopReason).toBe("completed");
+    });
+
+    it("waits longer than the completed-content idle window for delayed tool items after text", async () => {
+      mockFetch.mockResolvedValueOnce(delayedSseResponse([
+        { event: "response.output_text.delta", data: { delta: "Preparing " } },
+        { event: "response.output_text.done", data: { text: "Preparing tool call" } },
+      ], [
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_delayed_after_text_1",
+              call_id: "call_delayed_after_text_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_delayed_after_text_1",
+            call_id: "call_delayed_after_text_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_delayed_after_text_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_delayed_after_text_1",
+                  call_id: "call_delayed_after_text_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 3 },
+            },
+          },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }));
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_delayed_after_text_1",
+          name: "read",
+          input: { filePath: "proof.txt" },
+        },
+      ]);
+      expect(response.stopReason).toBe("completed");
+    });
+
+    it("keeps response.completed authoritative when it arrives after a complete function-call item", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_read_evt_1",
+              call_id: "call_read_evt_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_read_evt_1",
+            call_id: "call_read_evt_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_completed_after_tool_call_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_read_evt_1",
+                  call_id: "call_read_evt_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 12, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.stopReason).toBe("completed");
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_read_evt_1",
+          name: "read",
+          input: { filePath: "proof.txt" },
+        },
+      ]);
+    });
+
+    it("waits for a delayed response.completed before using streamed tool-call fallback", async () => {
+      mockFetch.mockResolvedValueOnce(delayedSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_delayed_evt_1",
+              call_id: "call_delayed_evt_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_delayed_evt_1",
+            call_id: "call_delayed_evt_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+      ], [
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_delayed_after_tool_call_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_delayed_evt_1",
+                  call_id: "call_delayed_evt_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 12, output_tokens: 3 },
+            },
+          },
+        },
+      ], 100));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.stopReason).toBe("completed");
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_delayed_evt_1",
+          name: "read",
+          input: { filePath: "proof.txt" },
+        },
+      ]);
+    });
+
+    it("does not fall back to a complete tool-call prefix before delayed additional tool items", async () => {
+      mockFetch.mockResolvedValueOnce(delayedSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_complete_prefix_1",
+              call_id: "call_complete_prefix_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_complete_prefix_1",
+            call_id: "call_complete_prefix_1",
+            name: "read",
+            arguments: "{\"filePath\":\"first.txt\"}",
+          },
+        },
+      ], [
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_delayed_incomplete_1",
+              call_id: "call_delayed_incomplete_1",
+              name: "read",
+              arguments: "{\"filePath\":\"second.txt\"",
+            },
+          },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth stream completed without response.completed event",
+      });
+    });
+
+    it("uses completed function-call arguments instead of partial streamed arguments", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_1",
+              call_id: "call_partial_1",
+              name: "write",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_partial_1",
+            call_id: "call_partial_1",
+            name: "write",
+            arguments: "{\"filePath\":\"proof.txt\",\"content\":\"after\\n\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_completed_partial_args_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_partial_1",
+                  call_id: "call_partial_1",
+                  name: "write",
+                  arguments: "{\"filePath\":\"proof.txt\"",
+                },
+              ],
+              usage: { input_tokens: 12, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toEqual([
+        {
+          id: "call_partial_1",
+          name: "write",
+          input: {
+            filePath: "proof.txt",
+            content: "after\n",
+          },
+        },
+      ]);
+    });
+
+    it("fails closed when the stream ends without completed function-call arguments", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_1",
+              call_id: "call_incomplete_1",
+              name: "write",
+              arguments: "",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth stream completed without response.completed event",
+      });
+    });
+
+    it("fails closed when response.completed omits an incomplete streamed function call", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_completed_omitted_1",
+              call_id: "call_incomplete_completed_omitted_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_incomplete_completed_omitted_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed omitted incomplete streamed function-call arguments",
+      });
+    });
+
+    it("fails closed when final function-call arguments are empty after partial streamed args", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_empty_done_1",
+              call_id: "call_partial_empty_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_partial_empty_done_1",
+            call_id: "call_partial_empty_done_1",
+            name: "read",
+            arguments: "",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_partial_empty_done_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed omitted incomplete streamed function-call arguments",
+      });
+    });
+
+    it("does not promote parseable stale streamed args when empty final args are echoed by response.completed", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_parseable_partial_empty_done_1",
+              call_id: "call_parseable_partial_empty_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"}",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_parseable_partial_empty_done_1",
+            call_id: "call_parseable_partial_empty_done_1",
+            name: "read",
+            arguments: "",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_parseable_partial_empty_done_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_parseable_partial_empty_done_1",
+                  call_id: "call_parseable_partial_empty_done_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed included incomplete streamed function-call arguments",
+      });
+    });
+
+    it("does not promote parseable stale streamed args when output_item.done omits args echoed by response.completed", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_parseable_partial_omitted_done_1",
+              call_id: "call_parseable_partial_omitted_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"}",
+            },
+          },
+        },
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_parseable_partial_omitted_done_1",
+              call_id: "call_parseable_partial_omitted_done_1",
+              name: "read",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_parseable_partial_omitted_done_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_parseable_partial_omitted_done_1",
+                  call_id: "call_parseable_partial_omitted_done_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed included incomplete streamed function-call arguments",
+      });
+    });
+
+    it("fails closed when output_item.done omits arguments after partial streamed args", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_omitted_done_1",
+              call_id: "call_partial_omitted_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_omitted_done_1",
+              call_id: "call_partial_omitted_done_1",
+              name: "read",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_partial_omitted_done_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed omitted incomplete streamed function-call arguments",
+      });
+    });
+
+    it("fails closed when response.completed includes the same incomplete streamed function call", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_completed_echo_1",
+              call_id: "call_partial_completed_echo_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_partial_completed_echo_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_partial_completed_echo_1",
+                  call_id: "call_partial_completed_echo_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed included incomplete streamed function-call arguments",
+      });
+    });
+
+    it("fails closed when a stream stalls after an incomplete function-call item", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_stalled_1",
+              call_id: "call_incomplete_stalled_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expectProviderUnavailableAfterIncompleteIdle(() => adapter.createMessage(createOptions({
+        tools: [
+          {
+            name: "read",
+            description: "Read a file.",
+            inputSchema: {
+              type: "object",
+              properties: { filePath: { type: "string" } },
+              required: ["filePath"],
+              additionalProperties: false,
+            },
+            tags: new Set(["read"]),
+          },
+        ],
+      })));
+    });
+
+    it("fails closed when a stream stalls after non-empty partial function-call arguments", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_stalled_1",
+              call_id: "call_partial_stalled_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expectProviderUnavailableAfterIncompleteIdle(() => adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      })));
+    });
+
+    it("fails closed when a stream stalls after mixed complete and incomplete function calls", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_complete_mixed_1",
+              call_id: "call_complete_mixed_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_complete_mixed_1",
+            call_id: "call_complete_mixed_1",
+            name: "read",
+            arguments: "{\"filePath\":\"first.txt\"}",
+          },
+        },
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_mixed_1",
+              call_id: "call_incomplete_mixed_1",
+              name: "read",
+              arguments: "{\"filePath\":\"second.txt\"",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expectProviderUnavailableAfterIncompleteIdle(() => adapter.createMessage(createOptions({
+        tools: [readToolDefinition()],
+      })));
     });
 
     it("parses SSE streams that use CRLF separators", async () => {
@@ -1134,15 +2235,34 @@ describe("CodexOAuthAdapter", () => {
 
       const { adapter } = await createAdapter();
 
-      await expect(adapter.createMessage(createOptions())).rejects.toBeInstanceOf(KilnError);
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "PROVIDER_AUTH_FAILED",
+      });
     });
 
-    it("throws KilnError on non-200 non-401 responses", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(500, { error: "server_error" }));
+    it.each([
+      [403, "PROVIDER_AUTH_FAILED"],
+      [429, "PROVIDER_RATE_LIMITED"],
+      [402, "PROVIDER_QUOTA_EXCEEDED"],
+      [500, "PROVIDER_UNAVAILABLE"],
+    ])("throws %s provider errors with code %s", async (status, code) => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(status, { error: "provider_error" }));
 
       const { adapter } = await createAdapter();
 
-      await expect(adapter.createMessage(createOptions())).rejects.toBeInstanceOf(KilnError);
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({ code });
+    });
+
+    it("classifies malformed SSE JSON as provider unavailable", async () => {
+      mockFetch.mockResolvedValueOnce(rawSseResponse([
+        "event: response.completed\ndata: {not-json}\n\n",
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+      });
     });
   });
 
@@ -1206,7 +2326,7 @@ describe("CodexOAuthAdapter", () => {
       ]);
     });
 
-    it("yields tool call events from response.output_item.added SSE", async () => {
+    it("yields tool call events from completed response function calls", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
           event: "response.output_item.added",
@@ -1250,6 +2370,35 @@ describe("CodexOAuthAdapter", () => {
         name: "lookup_weather",
         input: { city: "Tijuana" },
       });
+    });
+
+    it("does not yield executable tool calls from incomplete output_item.added events", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_stream_event_1",
+              call_id: "call_partial_stream_event_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expectProviderUnavailableAfterIncompleteIdle(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      });
+
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
     });
 
     it("buffers tool-enabled stream text so leaked function-call arguments never render as deltas", async () => {
@@ -1397,6 +2546,1090 @@ describe("CodexOAuthAdapter", () => {
           outputPer1M: 0,
         },
       });
+    });
+
+    it("treats response.completed as terminal after output_text.done", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        { event: "response.output_text.delta", data: { delta: "Final " } },
+        { event: "response.output_text.done", data: { text: "Final answer" } },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_terminal_text_1",
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [{ type: "output_text", text: "Final answer" }],
+                },
+              ],
+              usage: { input_tokens: 9, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions()));
+
+      expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({
+        type: "done",
+        inputTokens: 9,
+        outputTokens: 3,
+        response: {
+          parts: [{ type: "text", text: "Final answer" }],
+          stopReason: "completed",
+        },
+      });
+    });
+
+    it("treats response.completed as terminal after complete streamed function-call args", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_terminal_1",
+              call_id: "call_stream_terminal_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_stream_terminal_1",
+            call_id: "call_stream_terminal_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_terminal_tool_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_stream_terminal_1",
+                  call_id: "call_stream_terminal_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 11, output_tokens: 4 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions({
+        tools: [
+          {
+            name: "read",
+            description: "Read a file.",
+            inputSchema: {
+              type: "object",
+              properties: { filePath: { type: "string" } },
+              required: ["filePath"],
+              additionalProperties: false,
+            },
+            tags: new Set(["read"]),
+          },
+        ],
+      })));
+
+      expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({
+        type: "done",
+        inputTokens: 11,
+        outputTokens: 4,
+        response: {
+          toolCalls: [
+            {
+              id: "call_stream_terminal_1",
+              name: "read",
+              input: { filePath: "proof.txt" },
+            },
+          ],
+          stopReason: "completed",
+        },
+      });
+    });
+
+    it("preserves added call_id in stream mode when final function-call arguments omit it", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_args_done_call_id_omitted_1",
+              call_id: "call_stream_args_done_call_id_omitted_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_stream_args_done_call_id_omitted_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_args_done_call_id_omitted_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 11, output_tokens: 4 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions({
+        tools: [readToolDefinition()],
+      })));
+
+      expect(events.filter((event) => event.type === "tool_use").map((event) => JSON.parse(event.content))).toEqual([
+        {
+          id: "call_stream_args_done_call_id_omitted_1",
+          name: "read",
+          input: { filePath: "proof.txt" },
+        },
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        type: "done",
+        response: {
+          toolCalls: [
+            {
+              id: "call_stream_args_done_call_id_omitted_1",
+              name: "read",
+              input: { filePath: "proof.txt" },
+            },
+          ],
+          stopReason: "completed",
+        },
+      });
+    });
+
+    it("yields a done event when a stream stalls after a complete function-call item", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "call_stream_stalled_1",
+              call_id: "call_stream_stalled_1",
+              name: "write",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "call_stream_stalled_1",
+            call_id: "call_stream_stalled_1",
+            name: "write",
+            arguments: "{\"filePath\":\"proof.txt\",\"content\":\"after\\n\"}",
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await resolveAfterIncompleteIdle(() => collectEvents(adapter.streamMessage(createOptions({
+        tools: [
+          {
+            name: "write",
+            description: "Write full content to a file.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                filePath: { type: "string" },
+                content: { type: "string" },
+              },
+              required: ["filePath", "content"],
+              additionalProperties: false,
+            },
+            tags: new Set(["write"]),
+          },
+        ],
+      }))));
+      const doneEvent = events.at(-1) as AgentStreamEvent & {
+        response?: AgentResponse;
+      };
+
+      expect(doneEvent.type).toBe("done");
+      expect(doneEvent.response?.stopReason).toBe("tool_calls_streamed");
+      expect(doneEvent.response?.toolCalls).toEqual([
+        {
+          id: "call_stream_stalled_1",
+          name: "write",
+          input: {
+            filePath: "proof.txt",
+            content: "after\n",
+          },
+        },
+      ]);
+    });
+
+    it("yields a done event when a stream stalls after response.output_item.done", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_done_stream_stalled_1",
+              call_id: "call_done_stream_stalled_1",
+              name: "read",
+              arguments: "{\"filePath\":\"docs/changelog.md\"}",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await resolveAfterIncompleteIdle(() => collectEvents(adapter.streamMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))));
+      const doneEvent = events.at(-1) as AgentStreamEvent & {
+        response?: AgentResponse;
+      };
+
+      expect(doneEvent.type).toBe("done");
+      expect(doneEvent.response?.stopReason).toBe("tool_calls_streamed");
+      expect(doneEvent.response?.toolCalls).toEqual([
+        {
+          id: "call_done_stream_stalled_1",
+          name: "read",
+          input: { filePath: "docs/changelog.md" },
+        },
+      ]);
+    });
+
+    it("preserves added call_id in stream mode when output_item.done omits it", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_output_done_call_id_omitted_1",
+              call_id: "call_stream_output_done_call_id_omitted_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_output_done_call_id_omitted_1",
+              name: "read",
+              arguments: "{\"filePath\":\"docs/changelog.md\"}",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_output_done_call_id_omitted_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 10, output_tokens: 3 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions({
+        tools: [readToolDefinition()],
+      })));
+
+      expect(events.filter((event) => event.type === "tool_use").map((event) => JSON.parse(event.content))).toEqual([
+        {
+          id: "call_stream_output_done_call_id_omitted_1",
+          name: "read",
+          input: { filePath: "docs/changelog.md" },
+        },
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        type: "done",
+        response: {
+          toolCalls: [
+            {
+              id: "call_stream_output_done_call_id_omitted_1",
+              name: "read",
+              input: { filePath: "docs/changelog.md" },
+            },
+          ],
+          stopReason: "completed",
+        },
+      });
+    });
+
+    it("waits longer than the completed-content idle window for delayed stream function-call arguments", async () => {
+      mockFetch.mockResolvedValueOnce(delayedSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_delayed_args_1",
+              call_id: "call_stream_delayed_args_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+      ], [
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_stream_delayed_args_1",
+            call_id: "call_stream_delayed_args_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_delayed_args_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_stream_delayed_args_1",
+                  call_id: "call_stream_delayed_args_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 3 },
+            },
+          },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions({
+        tools: [readToolDefinition()],
+      })));
+
+      expect(events.at(-1)).toMatchObject({
+        type: "done",
+        response: {
+          toolCalls: [
+            {
+              id: "call_stream_delayed_args_1",
+              name: "read",
+              input: { filePath: "proof.txt" },
+            },
+          ],
+          stopReason: "completed",
+        },
+      });
+    });
+
+    it("waits longer than the completed-content idle window for delayed stream tool items after text", async () => {
+      mockFetch.mockResolvedValueOnce(delayedSseResponse([
+        { event: "response.output_text.delta", data: { delta: "Preparing " } },
+        { event: "response.output_text.done", data: { text: "Preparing tool call" } },
+      ], [
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_delayed_after_text_1",
+              call_id: "call_stream_delayed_after_text_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_stream_delayed_after_text_1",
+            call_id: "call_stream_delayed_after_text_1",
+            name: "read",
+            arguments: "{\"filePath\":\"proof.txt\"}",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_delayed_after_text_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_stream_delayed_after_text_1",
+                  call_id: "call_stream_delayed_after_text_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 3 },
+            },
+          },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions({
+        tools: [readToolDefinition()],
+      })));
+
+      expect(events.filter((event) => event.type === "tool_use").map((event) => JSON.parse(event.content))).toEqual([
+        {
+          id: "call_stream_delayed_after_text_1",
+          name: "read",
+          input: { filePath: "proof.txt" },
+        },
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        type: "done",
+        response: {
+          stopReason: "completed",
+        },
+      });
+    });
+
+    it("does not yield a complete tool-call prefix before delayed additional tool items", async () => {
+      mockFetch.mockResolvedValueOnce(delayedSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_complete_prefix_1",
+              call_id: "call_stream_complete_prefix_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_stream_complete_prefix_1",
+            call_id: "call_stream_complete_prefix_1",
+            name: "read",
+            arguments: "{\"filePath\":\"first.txt\"}",
+          },
+        },
+      ], [
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_stream_delayed_incomplete_1",
+              call_id: "call_stream_delayed_incomplete_1",
+              name: "read",
+              arguments: "{\"filePath\":\"second.txt\"",
+            },
+          },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expect(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      }).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth stream completed without response.completed event",
+      });
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
+    });
+
+    it("yields a done event when a stream stalls after output_text.done", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        { event: "response.output_text.delta", data: { delta: "Final " } },
+        { event: "response.output_text.delta", data: { delta: "answer" } },
+        {
+          event: "response.output_text.done",
+          data: { text: "Final answer" },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions()));
+      const doneEvent = events.at(-1) as AgentStreamEvent & {
+        response?: AgentResponse;
+      };
+
+      expect(events.filter((event) => event.type === "text")).toEqual([
+        { type: "text", content: "Final " },
+        { type: "text", content: "answer" },
+      ]);
+      expect(doneEvent.type).toBe("done");
+      expect(doneEvent.response?.parts).toEqual([
+        { type: "text", text: "Final answer" },
+      ]);
+      expect(doneEvent.response?.stopReason).toBe("text_streamed");
+    });
+
+    it("does not arm stream idle fallback before first streamed content", async () => {
+      mockFetch.mockImplementationOnce(async () => delayedSseResponse([], [
+        { event: "response.output_text.delta", data: { delta: "Delayed stream answer" } },
+        {
+          event: "response.output_text.done",
+          data: { text: "Delayed stream answer" },
+        },
+      ], 2500));
+
+      const { adapter } = await createAdapter();
+      const events = await resolveAfterIncompleteIdle(() => collectEvents(adapter.streamMessage(createOptions())));
+      const doneEvent = events.at(-1) as AgentStreamEvent & {
+        response?: AgentResponse;
+      };
+
+      expect(events.filter((event) => event.type === "text")).toEqual([
+        { type: "text", content: "Delayed stream answer" },
+      ]);
+      expect(doneEvent.type).toBe("done");
+      expect(doneEvent.response?.parts).toEqual([
+        { type: "text", text: "Delayed stream answer" },
+      ]);
+      expect(doneEvent.response?.stopReason).toBe("text_streamed");
+    });
+
+    it("flushes buffered tool-enabled text when a stream stalls after output_text.done", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        { event: "response.output_text.delta", data: { delta: "Final " } },
+        { event: "response.output_text.delta", data: { delta: "answer" } },
+        {
+          event: "response.output_text.done",
+          data: { text: "Final answer" },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events = await resolveAfterIncompleteIdle(() => collectEvents(adapter.streamMessage(createOptions({
+        tools: [
+          {
+            name: "read",
+            description: "Read a file.",
+            inputSchema: {
+              type: "object",
+              properties: { filePath: { type: "string" } },
+              required: ["filePath"],
+              additionalProperties: false,
+            },
+            tags: new Set(["read"]),
+          },
+        ],
+      }))));
+      const doneEvent = events.at(-1) as AgentStreamEvent & {
+        response?: AgentResponse;
+      };
+
+      expect(events.filter((event) => event.type === "text")).toEqual([
+        { type: "text", content: "Final answer" },
+      ]);
+      expect(doneEvent.type).toBe("done");
+      expect(doneEvent.response?.parts).toEqual([
+        { type: "text", text: "Final answer" },
+      ]);
+      expect(doneEvent.response?.stopReason).toBe("text_streamed");
+    });
+
+    it("fails closed when a stream ends without completed function-call args", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_stream_1",
+              call_id: "call_incomplete_stream_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      await expectProviderUnavailableAfterIncompleteIdle(() => collectEvents(adapter.streamMessage(createOptions({
+        tools: [
+          {
+            name: "read",
+            description: "Read a file.",
+            inputSchema: {
+              type: "object",
+              properties: { filePath: { type: "string" } },
+              required: ["filePath"],
+              additionalProperties: false,
+            },
+            tags: new Set(["read"]),
+          },
+        ],
+      }))));
+    });
+
+    it("fails closed when a stream stalls after an incomplete function-call item", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_stream_stalled_1",
+              call_id: "call_incomplete_stream_stalled_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      await expectProviderUnavailableAfterIncompleteIdle(() => collectEvents(adapter.streamMessage(createOptions({
+        tools: [
+          {
+            name: "read",
+            description: "Read a file.",
+            inputSchema: {
+              type: "object",
+              properties: { filePath: { type: "string" } },
+              required: ["filePath"],
+              additionalProperties: false,
+            },
+            tags: new Set(["read"]),
+          },
+        ],
+      }))));
+    });
+
+    it("fails closed when a stream stalls after non-empty partial function-call arguments", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_stream_stalled_1",
+              call_id: "call_partial_stream_stalled_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      vi.useFakeTimers();
+      try {
+        const promise = (async () => {
+          for await (const event of adapter.streamMessage(createOptions({
+            tools: [readToolDefinition()],
+          }))) {
+            events.push(event);
+          }
+        })();
+        promise.catch(() => undefined);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(30001);
+        await expect(promise).rejects.toMatchObject({
+          code: "PROVIDER_UNAVAILABLE",
+          message: "Codex OAuth stream completed without response.completed event",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
+    });
+
+    it("fails closed when a stream stalls after mixed complete and incomplete function calls", async () => {
+      mockFetch.mockResolvedValueOnce(stalledSseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_complete_stream_mixed_1",
+              call_id: "call_complete_stream_mixed_1",
+              name: "read",
+              arguments: "",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_complete_stream_mixed_1",
+            call_id: "call_complete_stream_mixed_1",
+            name: "read",
+            arguments: "{\"filePath\":\"first.txt\"}",
+          },
+        },
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_stream_mixed_1",
+              call_id: "call_incomplete_stream_mixed_1",
+              name: "read",
+              arguments: "{\"filePath\":\"second.txt\"",
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      await expectProviderUnavailableAfterIncompleteIdle(() => collectEvents(adapter.streamMessage(createOptions({
+        tools: [readToolDefinition()],
+      }))));
+    });
+
+    it("fails closed without tool_use when response.completed omits an incomplete streamed function call", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_incomplete_stream_completed_omitted_1",
+              call_id: "call_incomplete_stream_completed_omitted_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_stream_incomplete_completed_omitted_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expect(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      }).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed omitted incomplete streamed function-call arguments",
+      });
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
+    });
+
+    it("fails closed without tool_use when final function-call arguments are empty after partial streamed args", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_empty_stream_done_1",
+              call_id: "call_partial_empty_stream_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_partial_empty_stream_done_1",
+            call_id: "call_partial_empty_stream_done_1",
+            name: "read",
+            arguments: "",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_partial_empty_stream_done_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expect(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      }).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed omitted incomplete streamed function-call arguments",
+      });
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
+    });
+
+    it("does not yield tool_use from parseable stale streamed args when empty final args are echoed by response.completed", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_parseable_partial_empty_stream_done_1",
+              call_id: "call_parseable_partial_empty_stream_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"}",
+            },
+          },
+        },
+        {
+          event: "response.function_call_arguments.done",
+          data: {
+            item_id: "fc_parseable_partial_empty_stream_done_1",
+            call_id: "call_parseable_partial_empty_stream_done_1",
+            name: "read",
+            arguments: "",
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_parseable_partial_empty_stream_done_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_parseable_partial_empty_stream_done_1",
+                  call_id: "call_parseable_partial_empty_stream_done_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expect(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      }).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed included incomplete streamed function-call arguments",
+      });
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
+    });
+
+    it("does not yield tool_use from parseable stale streamed args when output_item.done omits args echoed by response.completed", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_parseable_partial_omitted_stream_done_1",
+              call_id: "call_parseable_partial_omitted_stream_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"}",
+            },
+          },
+        },
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_parseable_partial_omitted_stream_done_1",
+              call_id: "call_parseable_partial_omitted_stream_done_1",
+              name: "read",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_parseable_partial_omitted_stream_done_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_parseable_partial_omitted_stream_done_1",
+                  call_id: "call_parseable_partial_omitted_stream_done_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expect(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      }).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed included incomplete streamed function-call arguments",
+      });
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
+    });
+
+    it("fails closed without tool_use when output_item.done omits arguments after partial streamed args", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_omitted_stream_done_1",
+              call_id: "call_partial_omitted_stream_done_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.output_item.done",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_omitted_stream_done_1",
+              call_id: "call_partial_omitted_stream_done_1",
+              name: "read",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_partial_omitted_stream_done_1",
+              status: "completed",
+              output: [],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expect(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      }).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed omitted incomplete streamed function-call arguments",
+      });
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
+    });
+
+    it("fails closed without tool_use when response.completed includes the same incomplete streamed function call", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.output_item.added",
+          data: {
+            item: {
+              type: "function_call",
+              id: "fc_partial_stream_completed_echo_1",
+              call_id: "call_partial_stream_completed_echo_1",
+              name: "read",
+              arguments: "{\"filePath\":\"proof.txt\"",
+            },
+          },
+        },
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_partial_stream_completed_echo_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  id: "fc_partial_stream_completed_echo_1",
+                  call_id: "call_partial_stream_completed_echo_1",
+                  name: "read",
+                  arguments: "{\"filePath\":\"proof.txt\"",
+                },
+              ],
+              usage: { input_tokens: 8, output_tokens: 2 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const events: AgentStreamEvent[] = [];
+      await expect(async () => {
+        for await (const event of adapter.streamMessage(createOptions({
+          tools: [readToolDefinition()],
+        }))) {
+          events.push(event);
+        }
+      }).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Codex OAuth response.completed included incomplete streamed function-call arguments",
+      });
+      expect(events.filter((event) => event.type === "tool_use")).toHaveLength(0);
     });
 
     it("calls getValidAccessToken() before streaming", async () => {

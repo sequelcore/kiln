@@ -3,8 +3,9 @@
 ## Objective
 
 Prove the subscription-backed `codex-oauth` direct-provider managed route can
-perform one bounded approved workspace write through Kiln builtin tool
-authority and emit canonical managed invocation write evidence.
+read a governed fixture, perform one bounded approved workspace mutation
+through Kiln builtin tool authority, and emit canonical managed invocation
+write evidence.
 
 ## Non-Goals
 
@@ -37,22 +38,27 @@ authority and emit canonical managed invocation write evidence.
 ## Implementation Steps
 
 1. Add a separately gated `codex-oauth` direct-provider live test that
-   configures `foundation-apply-approved-writes`, writes a single fixture file
-   through the builtin `write` tool, and asserts canonical write evidence plus
-   runtime credential-route lease evidence.
+   configures `foundation-apply-approved-writes`, updates a single fixture file
+   through the builtin `read` and `edit` tools, and asserts canonical write
+   evidence plus runtime credential-route lease evidence.
 2. Reuse `createManagedDirectProviderAdapterFactory`,
    `createSessionBuiltinToolOptions`, `RuntimeManagedAgentInvocationService`,
    and the shared live fixture harness; do not add a test-only adapter path.
-3. Keep production code unchanged unless the live proof exposes a real
-   subscription-backed direct write gap.
+3. Keep managed invocation lifecycle code unchanged. If provider stream
+   behavior exposes a real adapter translation gap, fix it in the provider
+   adapter without adding a subscription-specific lifecycle path; stalled
+   completed streamed function-call/text turns must normalize at the provider
+   boundary.
 4. Update the roadmap with Slice 7N after verification.
 
 ## Verification
 
 ```bash
 bunx vitest run packages/runtime/tests/managed-agent/direct-runtime-adapter.test.ts --maxWorkers=1
+bunx vitest run packages/core/src/agents/infrastructure/__tests__/codex-oauth.test.ts --maxWorkers=1
 bunx vitest run packages/runtime/tests/managed-agent/codex-oauth-direct-live-proof.live.test.ts --maxWorkers=1
 bun run typecheck
+bun run --filter @kilnai/core test
 bun run --filter @kilnai/runtime test
 ```
 

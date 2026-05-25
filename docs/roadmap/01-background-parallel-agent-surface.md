@@ -142,7 +142,7 @@ Active. Started on 2026-05-21. Current implementation status:
   `SessionRunOptions.abortSignal` reaches runtime per-call config and builtin
   tool execution context without arity-based context drops. The gated Codex
   OAuth subscription-backed direct-provider live proof now covers separately
-  gated bounded approved writes through runtime credential-route leasing and
+  gated bounded approved edits through runtime credential-route leasing and
   canonical write evidence. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
@@ -936,9 +936,12 @@ Completed:
 - Codex OAuth subscription-backed direct-provider live proof now includes a
   separately gated approved-write case. The proof uses
   `createManagedDirectProviderAdapterFactory`, runtime credential-route lease
-  admission, the shared builtin `write` tool, and canonical managed invocation
-  write evidence without adding a subscription-specific lifecycle or write
-  evidence path.
+  admission, the shared builtin `read` and `edit` tools, and canonical managed
+  invocation write evidence without adding a subscription-specific lifecycle or
+  write evidence path. The Codex OAuth adapter also normalizes stalled
+  complete streamed function-call and text turns into the provider-neutral
+  `AgentResponse.toolCalls` / response text shape instead of adding runtime
+  lifecycle special-cases.
 
 Deliverables:
 

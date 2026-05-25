@@ -13,6 +13,8 @@ import { CodexOAuthAuth } from "./codex-oauth-auth.js";
 import { normalizeToolInput } from "../tool-call-input.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
+const STREAMED_CONTENT_IDLE_MS = 2000;
+const STREAMED_INCOMPLETE_TOOL_CALL_IDLE_MS = 30000;
 const CODEX_OAUTH_TOOL_DEBUG =
   /^(1|true|yes)$/i.test(process.env.KILN_OPERATOR_TOOL_DEBUG?.trim() ?? "");
 
@@ -136,7 +138,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     const request = this.buildRequest(options);
     const { body } = request;
     const response = await this.postWith401Retry(body, options.signal);
-    const completed = await this.consumeStreamingResponse(response);
+    const completed = await this.consumeStreamingResponse(response, (options.tools?.length ?? 0) > 0);
     return this.mapResponse(completed, request.toolNames);
   }
 
@@ -149,6 +151,24 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     const collectedFunctionCallsByItemId = new Map<string, ResponsesOutputItem>();
     const collectedFunctionCallsByCallId = new Map<string, ResponsesOutputItem>();
     const collectedFunctionCallArguments = new Map<string, string>();
+    const completedFunctionCallArgumentIds = new Set<string>();
+    const invalidFunctionCallArgumentIds = new Set<string>();
+    const emittedFunctionCallIds = new Set<string>();
+    let collectedTextComplete = false;
+    const buildMappedToolCallEvent = (toolCall: AgentResponse["toolCalls"][number]): AgentStreamEvent | null => {
+      if (emittedFunctionCallIds.has(toolCall.id)) {
+        return null;
+      }
+      emittedFunctionCallIds.add(toolCall.id);
+      return {
+        type: "tool_use",
+        content: JSON.stringify({
+          id: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.input,
+        }),
+      };
+    };
 
     if (!response.body) {
       throw this.providerError("Codex OAuth streaming response body was empty", {
@@ -156,16 +176,53 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       });
     }
 
-    for await (const event of this.parseSse(response.body)) {
+    for await (const event of this.parseSse(response.body, {
+      shouldStopOnIdle: () =>
+        hasStreamedFallbackResponse({
+          collectedText,
+          collectedTextComplete,
+          collectedFunctionCalls: [
+            ...collectedFunctionCallsByItemId.values(),
+            ...collectedFunctionCallsByCallId.values(),
+          ],
+          completedFunctionCallArgumentIds,
+        })
+        || hasIncompleteStreamedFunctionCall({
+          collectedFunctionCalls: [
+            ...collectedFunctionCallsByItemId.values(),
+            ...collectedFunctionCallsByCallId.values(),
+          ],
+          collectedFunctionCallArgumentIds: [...collectedFunctionCallArguments.keys()],
+          completedFunctionCallArgumentIds,
+        }),
+      idleMs: () =>
+        shouldBufferText
+          ? STREAMED_INCOMPLETE_TOOL_CALL_IDLE_MS
+          : [
+            ...collectedFunctionCallsByItemId.values(),
+            ...collectedFunctionCallsByCallId.values(),
+          ].some((item) => item.type === "function_call")
+            ? STREAMED_INCOMPLETE_TOOL_CALL_IDLE_MS
+            : STREAMED_CONTENT_IDLE_MS,
+    })) {
       if (event.event === "response.output_text.delta") {
         const delta = this.parseJsonString<{ delta?: string }>(event.data);
         if (delta.delta) {
+          collectedText += delta.delta;
           if (shouldBufferText) {
-            collectedText += delta.delta;
             continue;
           }
           yield { type: "text", content: delta.delta };
         }
+        continue;
+      }
+
+      if (event.event === "response.output_text.done") {
+        const done = this.parseJsonString<{ text?: string }>(event.data);
+        if (typeof done.text === "string" && done.text.length > 0) {
+          collectedText = done.text;
+        }
+        collectedTextComplete = true;
         continue;
       }
 
@@ -178,17 +235,6 @@ export class CodexOAuthAdapter implements ProviderAdapter {
           if (added.item.call_id) {
             collectedFunctionCallsByCallId.set(added.item.call_id, added.item);
           }
-          yield {
-            type: "tool_use",
-            content: JSON.stringify({
-              id: added.item.call_id ?? added.item.id ?? "",
-              name: request.toolNames.toCanonicalName(added.item.name ?? ""),
-              input: normalizeToolInput(
-                request.toolNames.toCanonicalName(added.item.name ?? ""),
-                added.item.arguments,
-              ),
-            }),
-          };
         }
         continue;
       }
@@ -197,17 +243,42 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         const done = this.parseJsonString<OutputItemDoneEnvelope>(event.data);
         const item = done.item;
         if (item?.type === "function_call") {
-          if (item.id) {
-            collectedFunctionCallsByItemId.set(item.id, item);
+          const existing = item.id ? collectedFunctionCallsByItemId.get(item.id) : undefined;
+          const hadPriorArguments = hasKnownFunctionCallArguments({
+            item,
+            existing,
+            collectedFunctionCallArguments,
+          });
+          const mergedItem: ResponsesOutputItem = {
+            ...(existing ?? {}),
+            ...item,
+            call_id: item.call_id ?? existing?.call_id,
+            name: item.name ?? existing?.name,
+            arguments: preferCompletedFunctionCallArguments(existing?.arguments, item.arguments),
+          };
+          const hasFinalArguments = typeof item.arguments === "string" && item.arguments.length > 0;
+          if (!hasFinalArguments && hadPriorArguments) {
+            addFunctionCallIds(invalidFunctionCallArgumentIds, item.id, item.call_id, mergedItem.id, mergedItem.call_id);
           }
-          if (item.call_id) {
-            collectedFunctionCallsByCallId.set(item.call_id, item);
+          if (mergedItem.id) {
+            collectedFunctionCallsByItemId.set(mergedItem.id, mergedItem);
+            if (hasFinalArguments) {
+              completedFunctionCallArgumentIds.add(mergedItem.id);
+              invalidFunctionCallArgumentIds.delete(mergedItem.id);
+            }
           }
-          if (item.id && typeof item.arguments === "string") {
-            collectedFunctionCallArguments.set(item.id, item.arguments);
+          if (mergedItem.call_id) {
+            collectedFunctionCallsByCallId.set(mergedItem.call_id, mergedItem);
+            if (hasFinalArguments) {
+              completedFunctionCallArgumentIds.add(mergedItem.call_id);
+              invalidFunctionCallArgumentIds.delete(mergedItem.call_id);
+            }
           }
-          if (item.call_id && typeof item.arguments === "string") {
-            collectedFunctionCallArguments.set(item.call_id, item.arguments);
+          if (mergedItem.id && typeof mergedItem.arguments === "string") {
+            collectedFunctionCallArguments.set(mergedItem.id, mergedItem.arguments);
+          }
+          if (mergedItem.call_id && typeof mergedItem.arguments === "string") {
+            collectedFunctionCallArguments.set(mergedItem.call_id, mergedItem.arguments);
           }
         }
         continue;
@@ -224,10 +295,21 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
       if (event.event === "response.function_call_arguments.done") {
         const done = this.parseJsonString<FunctionCallArgumentsDoneEnvelope>(event.data);
+        if (done.item_id && (typeof done.arguments !== "string" || done.arguments.length === 0)) {
+          addFunctionCallIds(invalidFunctionCallArgumentIds, done.item_id, done.call_id);
+        }
         if (done.item_id && typeof done.arguments === "string") {
           collectedFunctionCallArguments.set(done.item_id, done.arguments);
+          if (done.arguments.length > 0) {
+            completedFunctionCallArgumentIds.add(done.item_id);
+            invalidFunctionCallArgumentIds.delete(done.item_id);
+          }
           if (done.call_id) {
             collectedFunctionCallArguments.set(done.call_id, done.arguments);
+            if (done.arguments.length > 0) {
+              completedFunctionCallArgumentIds.add(done.call_id);
+              invalidFunctionCallArgumentIds.delete(done.call_id);
+            }
           }
         }
         if (done.item_id) {
@@ -238,11 +320,23 @@ export class CodexOAuthAdapter implements ProviderAdapter {
             id: existing?.id ?? done.item_id,
             call_id: existing?.call_id ?? done.call_id,
             name: existing?.name ?? done.name,
-            arguments: existing?.arguments ?? done.arguments,
+            arguments: preferCompletedFunctionCallArguments(existing?.arguments, done.arguments),
           };
           collectedFunctionCallsByItemId.set(done.item_id, mergedItem);
-          if (done.call_id) {
-            collectedFunctionCallsByCallId.set(done.call_id, mergedItem);
+          if (mergedItem.call_id) {
+            collectedFunctionCallsByCallId.set(mergedItem.call_id, mergedItem);
+            if (typeof done.arguments !== "string" || done.arguments.length === 0) {
+              invalidFunctionCallArgumentIds.add(mergedItem.call_id);
+            }
+            if (typeof done.arguments === "string") {
+              collectedFunctionCallArguments.set(mergedItem.call_id, done.arguments);
+              if (done.arguments.length > 0) {
+                completedFunctionCallArgumentIds.add(mergedItem.call_id);
+                invalidFunctionCallArgumentIds.delete(mergedItem.call_id);
+              } else {
+                invalidFunctionCallArgumentIds.add(mergedItem.call_id);
+              }
+            }
           }
         }
         continue;
@@ -250,27 +344,33 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
       if (event.event === "response.completed") {
         const completed = this.parseJsonString<CompletedSseEnvelope>(event.data);
-        const completedResponse = shouldBufferText
-          ? this.applyStreamingFallbacks(
-            completed.response ?? {},
-            collectedText,
-            [...new Map(
-              [
-                ...collectedFunctionCallsByItemId.values(),
-                ...collectedFunctionCallsByCallId.values(),
-              ].map((item) => [(item.call_id ?? item.id ?? ""), item]),
-            ).values()],
-            collectedFunctionCallsByItemId,
-            collectedFunctionCallsByCallId,
-            collectedFunctionCallArguments,
-          )
-          : completed.response ?? {};
+        const completedResponse = this.applyStreamingFallbacks(
+          completed.response ?? {},
+          collectedText,
+          [...new Map(
+            [
+              ...collectedFunctionCallsByItemId.values(),
+              ...collectedFunctionCallsByCallId.values(),
+            ].map((item) => [(item.call_id ?? item.id ?? ""), item]),
+          ).values()],
+          collectedFunctionCallsByItemId,
+          collectedFunctionCallsByCallId,
+          collectedFunctionCallArguments,
+          completedFunctionCallArgumentIds,
+          invalidFunctionCallArgumentIds,
+        );
         const mapped = this.mapResponse(completedResponse, request.toolNames);
         if (shouldBufferText) {
           for (const part of mapped.parts) {
             if (part.type === "text" && part.text.length > 0) {
               yield { type: "text", content: part.text };
             }
+          }
+        }
+        for (const toolCall of mapped.toolCalls) {
+          const toolUseEvent = buildMappedToolCallEvent(toolCall);
+          if (toolUseEvent) {
+            yield toolUseEvent;
           }
         }
         yield {
@@ -284,8 +384,52 @@ export class CodexOAuthAdapter implements ProviderAdapter {
           readonly inputTokens: number;
           readonly outputTokens: number;
         };
+        return;
       }
     }
+
+    const fallbackResponse = buildStreamedFallbackResponse({
+      collectedText,
+      collectedTextComplete,
+      collectedFunctionCalls: [
+        ...collectedFunctionCallsByItemId.values(),
+        ...collectedFunctionCallsByCallId.values(),
+      ],
+      completedFunctionCallArgumentIds,
+    });
+    if (fallbackResponse) {
+      const mapped = this.mapResponse(fallbackResponse, request.toolNames);
+      if (shouldBufferText) {
+        for (const part of mapped.parts) {
+          if (part.type === "text" && part.text.length > 0) {
+            yield { type: "text", content: part.text };
+          }
+        }
+      }
+      for (const toolCall of mapped.toolCalls) {
+        const toolUseEvent = buildMappedToolCallEvent(toolCall);
+        if (toolUseEvent) {
+          yield toolUseEvent;
+        }
+      }
+      yield {
+        type: "done",
+        content: "",
+        response: mapped,
+        inputTokens: mapped.inputTokens,
+        outputTokens: mapped.outputTokens,
+      } as AgentStreamEvent & {
+        readonly response: AgentResponse;
+        readonly inputTokens: number;
+        readonly outputTokens: number;
+      };
+      return;
+    }
+
+    throw this.providerError("Codex OAuth stream completed without response.completed event", {
+      status: response.status,
+      collectedText,
+    });
   }
 
   private buildRequest(
@@ -376,7 +520,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     const retryResponse = await this.post(body, signal);
     if (retryResponse.status === 401) {
-      throw this.providerError("Codex OAuth request unauthorized after token refresh", {
+      throw this.providerAuthError("Codex OAuth request unauthorized after token refresh", {
         status: retryResponse.status,
       });
     }
@@ -410,7 +554,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       responseBody = "";
     }
 
-    throw this.providerError("Codex OAuth request failed", {
+    throw this.providerHttpError("Codex OAuth request failed", {
       status: response.status,
       responseBody,
       toolReplaySummary: requestBody ? this.summarizeToolReplay(requestBody) : undefined,
@@ -466,7 +610,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     };
   }
 
-  private async consumeStreamingResponse(response: Response): Promise<ResponsesResponse> {
+  private async consumeStreamingResponse(response: Response, hasTools: boolean): Promise<ResponsesResponse> {
     if (!response.body) {
       throw this.providerError("Codex OAuth streaming response body was empty", {
         status: response.status,
@@ -478,13 +622,53 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     const collectedFunctionCallsByItemId = new Map<string, ResponsesOutputItem>();
     const collectedFunctionCallsByCallId = new Map<string, ResponsesOutputItem>();
     const collectedFunctionCallArguments = new Map<string, string>();
+    const completedFunctionCallArgumentIds = new Set<string>();
+    const invalidFunctionCallArgumentIds = new Set<string>();
+    let collectedTextComplete = false;
 
-    for await (const event of this.parseSse(response.body)) {
+    for await (const event of this.parseSse(response.body, {
+      shouldStopOnIdle: () =>
+        hasStreamedFallbackResponse({
+          collectedText,
+          collectedTextComplete,
+          collectedFunctionCalls: [
+            ...collectedFunctionCallsByItemId.values(),
+            ...collectedFunctionCallsByCallId.values(),
+          ],
+          completedFunctionCallArgumentIds,
+        })
+        || hasIncompleteStreamedFunctionCall({
+          collectedFunctionCalls: [
+            ...collectedFunctionCallsByItemId.values(),
+            ...collectedFunctionCallsByCallId.values(),
+          ],
+          collectedFunctionCallArgumentIds: [...collectedFunctionCallArguments.keys()],
+          completedFunctionCallArgumentIds,
+        }),
+      idleMs: () =>
+        hasTools
+          ? STREAMED_INCOMPLETE_TOOL_CALL_IDLE_MS
+          : [
+            ...collectedFunctionCallsByItemId.values(),
+            ...collectedFunctionCallsByCallId.values(),
+          ].some((item) => item.type === "function_call")
+            ? STREAMED_INCOMPLETE_TOOL_CALL_IDLE_MS
+            : STREAMED_CONTENT_IDLE_MS,
+    })) {
       if (event.event === "response.output_text.delta") {
         const delta = this.parseJsonString<{ delta?: string }>(event.data);
         if (typeof delta.delta === "string") {
           collectedText += delta.delta;
         }
+        continue;
+      }
+
+      if (event.event === "response.output_text.done") {
+        const done = this.parseJsonString<{ text?: string }>(event.data);
+        if (typeof done.text === "string" && done.text.length > 0) {
+          collectedText = done.text;
+        }
+        collectedTextComplete = true;
         continue;
       }
 
@@ -506,17 +690,42 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         const done = this.parseJsonString<OutputItemDoneEnvelope>(event.data);
         const item = done.item;
         if (item?.type === "function_call") {
-          if (item.id) {
-            collectedFunctionCallsByItemId.set(item.id, item);
+          const existing = item.id ? collectedFunctionCallsByItemId.get(item.id) : undefined;
+          const hadPriorArguments = hasKnownFunctionCallArguments({
+            item,
+            existing,
+            collectedFunctionCallArguments,
+          });
+          const mergedItem: ResponsesOutputItem = {
+            ...(existing ?? {}),
+            ...item,
+            call_id: item.call_id ?? existing?.call_id,
+            name: item.name ?? existing?.name,
+            arguments: preferCompletedFunctionCallArguments(existing?.arguments, item.arguments),
+          };
+          const hasFinalArguments = typeof item.arguments === "string" && item.arguments.length > 0;
+          if (!hasFinalArguments && hadPriorArguments) {
+            addFunctionCallIds(invalidFunctionCallArgumentIds, item.id, item.call_id, mergedItem.id, mergedItem.call_id);
           }
-          if (item.call_id) {
-            collectedFunctionCallsByCallId.set(item.call_id, item);
+          if (mergedItem.id) {
+            collectedFunctionCallsByItemId.set(mergedItem.id, mergedItem);
+            if (hasFinalArguments) {
+              completedFunctionCallArgumentIds.add(mergedItem.id);
+              invalidFunctionCallArgumentIds.delete(mergedItem.id);
+            }
           }
-          if (item.id && typeof item.arguments === "string") {
-            collectedFunctionCallArguments.set(item.id, item.arguments);
+          if (mergedItem.call_id) {
+            collectedFunctionCallsByCallId.set(mergedItem.call_id, mergedItem);
+            if (hasFinalArguments) {
+              completedFunctionCallArgumentIds.add(mergedItem.call_id);
+              invalidFunctionCallArgumentIds.delete(mergedItem.call_id);
+            }
           }
-          if (item.call_id && typeof item.arguments === "string") {
-            collectedFunctionCallArguments.set(item.call_id, item.arguments);
+          if (mergedItem.id && typeof mergedItem.arguments === "string") {
+            collectedFunctionCallArguments.set(mergedItem.id, mergedItem.arguments);
+          }
+          if (mergedItem.call_id && typeof mergedItem.arguments === "string") {
+            collectedFunctionCallArguments.set(mergedItem.call_id, mergedItem.arguments);
           }
         }
         continue;
@@ -533,10 +742,21 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
       if (event.event === "response.function_call_arguments.done") {
         const done = this.parseJsonString<FunctionCallArgumentsDoneEnvelope>(event.data);
+        if (done.item_id && (typeof done.arguments !== "string" || done.arguments.length === 0)) {
+          addFunctionCallIds(invalidFunctionCallArgumentIds, done.item_id, done.call_id);
+        }
         if (done.item_id && typeof done.arguments === "string") {
           collectedFunctionCallArguments.set(done.item_id, done.arguments);
+          if (done.arguments.length > 0) {
+            completedFunctionCallArgumentIds.add(done.item_id);
+            invalidFunctionCallArgumentIds.delete(done.item_id);
+          }
           if (done.call_id) {
             collectedFunctionCallArguments.set(done.call_id, done.arguments);
+            if (done.arguments.length > 0) {
+              completedFunctionCallArgumentIds.add(done.call_id);
+              invalidFunctionCallArgumentIds.delete(done.call_id);
+            }
           }
         }
         if (done.item_id) {
@@ -547,11 +767,23 @@ export class CodexOAuthAdapter implements ProviderAdapter {
             id: existing?.id ?? done.item_id,
             call_id: existing?.call_id ?? done.call_id,
             name: existing?.name ?? done.name,
-            arguments: existing?.arguments ?? done.arguments,
+            arguments: preferCompletedFunctionCallArguments(existing?.arguments, done.arguments),
           };
           collectedFunctionCallsByItemId.set(done.item_id, mergedItem);
-          if (done.call_id) {
-            collectedFunctionCallsByCallId.set(done.call_id, mergedItem);
+          if (mergedItem.call_id) {
+            collectedFunctionCallsByCallId.set(mergedItem.call_id, mergedItem);
+            if (typeof done.arguments !== "string" || done.arguments.length === 0) {
+              invalidFunctionCallArgumentIds.add(mergedItem.call_id);
+            }
+            if (typeof done.arguments === "string") {
+              collectedFunctionCallArguments.set(mergedItem.call_id, done.arguments);
+              if (done.arguments.length > 0) {
+                completedFunctionCallArgumentIds.add(mergedItem.call_id);
+                invalidFunctionCallArgumentIds.delete(mergedItem.call_id);
+              } else {
+                invalidFunctionCallArgumentIds.add(mergedItem.call_id);
+              }
+            }
           }
         }
         continue;
@@ -572,6 +804,8 @@ export class CodexOAuthAdapter implements ProviderAdapter {
             collectedFunctionCallsByItemId,
             collectedFunctionCallsByCallId,
             collectedFunctionCallArguments,
+            completedFunctionCallArgumentIds,
+            invalidFunctionCallArgumentIds,
           );
         }
       }
@@ -590,7 +824,22 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         collectedFunctionCallsByItemId,
         collectedFunctionCallsByCallId,
         collectedFunctionCallArguments,
+        completedFunctionCallArgumentIds,
+        invalidFunctionCallArgumentIds,
       );
+    }
+
+    const fallbackResponse = buildStreamedFallbackResponse({
+      collectedText,
+      collectedTextComplete,
+      collectedFunctionCalls: [
+        ...collectedFunctionCallsByItemId.values(),
+        ...collectedFunctionCallsByCallId.values(),
+      ],
+      completedFunctionCallArgumentIds,
+    });
+    if (fallbackResponse) {
+      return fallbackResponse;
     }
 
     throw this.providerError("Codex OAuth stream completed without response.completed event", {
@@ -609,13 +858,22 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
   private async *parseSse(
     stream: ReadableStream<Uint8Array>,
+    options: {
+      readonly shouldStopOnIdle?: () => boolean;
+      readonly idleMs?: number | (() => number);
+    } = {},
   ): AsyncGenerator<{ readonly event: string; readonly data: string }> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
 
     while (true) {
-      const { value, done } = await reader.read();
+      const readResult = await readNextSseChunk(reader, options);
+      if (readResult === "idle") {
+        reader.cancel("complete stream content received without terminal response event").catch(() => undefined);
+        break;
+      }
+      const { value, done } = readResult;
       if (done) {
         break;
       }
@@ -676,6 +934,8 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     collectedFunctionCallsByItemId: ReadonlyMap<string, ResponsesOutputItem>,
     collectedFunctionCallsByCallId: ReadonlyMap<string, ResponsesOutputItem>,
     collectedFunctionCallArguments: ReadonlyMap<string, string>,
+    completedFunctionCallArgumentIds: ReadonlySet<string>,
+    invalidFunctionCallArgumentIds: ReadonlySet<string>,
   ): ResponsesResponse {
     let nextOutput = [...(response.output ?? [])];
 
@@ -706,6 +966,16 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       const functionCallId = item.call_id ?? item.id;
       return functionCallId && !seenFunctionCallIds.has(functionCallId);
     });
+    const incompleteMissingFunctionCalls = missingFunctionCalls.filter((item) =>
+      !isCompleteFunctionCallItem(item, completedFunctionCallArgumentIds),
+    );
+    if (incompleteMissingFunctionCalls.length > 0) {
+      throw this.providerError("Codex OAuth response.completed omitted incomplete streamed function-call arguments", {
+        missingFunctionCallIds: incompleteMissingFunctionCalls
+          .map((item) => item.call_id ?? item.id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      });
+    }
     if (missingFunctionCalls.length > 0) {
       nextOutput = [...nextOutput, ...missingFunctionCalls];
     }
@@ -720,19 +990,39 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       if (!functionCallId && !collectedCall) {
         return item;
       }
-      const argumentsText = functionCallId
-        ? collectedFunctionCallArguments.get(functionCallId)
-        : undefined;
+      const argumentsText = findCompletedFunctionCallArguments({
+        item,
+        collectedCall,
+        collectedFunctionCallArguments,
+        completedFunctionCallArgumentIds,
+      });
       return {
         ...item,
         ...(!item.call_id && collectedCall?.call_id ? { call_id: collectedCall.call_id } : {}),
         ...(!item.name && collectedCall?.name ? { name: collectedCall.name } : {}),
-        ...(!item.arguments && argumentsText ? { arguments: argumentsText } : {}),
-        ...(!item.arguments && !argumentsText && collectedCall?.arguments
-          ? { arguments: collectedCall.arguments }
-          : {}),
+        ...(argumentsText ? { arguments: argumentsText } : {}),
       };
     });
+
+    const incompleteOutputFunctionCalls = nextOutput.filter((item) => {
+      if (item.type !== "function_call") {
+        return false;
+      }
+      const collectedCall = (item.id ? collectedFunctionCallsByItemId.get(item.id) : undefined)
+        ?? (item.call_id ? collectedFunctionCallsByCallId.get(item.call_id) : undefined);
+      const hasInvalidatedArguments = functionCallIdentityIds(item, collectedCall)
+        .some((id) => invalidFunctionCallArgumentIds.has(id));
+      return collectedCall !== undefined
+        && !isCompleteFunctionCallItem(item, completedFunctionCallArgumentIds)
+        && (hasInvalidatedArguments || !hasParseableFunctionCallArguments(item.arguments));
+    });
+    if (incompleteOutputFunctionCalls.length > 0) {
+      throw this.providerError("Codex OAuth response.completed included incomplete streamed function-call arguments", {
+        functionCallIds: incompleteOutputFunctionCalls
+          .map((item) => item.call_id ?? item.id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      });
+    }
 
     return {
       ...response,
@@ -757,7 +1047,33 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   }
 
   private providerError(message: string, context: Record<string, unknown>, cause?: unknown): KilnError {
+    return new KilnError("PROVIDER_UNAVAILABLE", message, { context, cause, retryable: true });
+  }
+
+  private providerAuthError(message: string, context: Record<string, unknown>, cause?: unknown): KilnError {
     return new KilnError("PROVIDER_AUTH_FAILED", message, { context, cause });
+  }
+
+  private providerHttpError(message: string, context: Record<string, unknown>, cause?: unknown): KilnError {
+    const status = typeof context.status === "number" ? context.status : undefined;
+    if (status === 401 || status === 403) {
+      return this.providerAuthError(message, context, cause);
+    }
+    if (status === 429) {
+      return new KilnError("PROVIDER_RATE_LIMITED", message, {
+        context,
+        cause,
+        retryable: true,
+      });
+    }
+    if (status === 402) {
+      return new KilnError("PROVIDER_QUOTA_EXCEEDED", message, {
+        context,
+        cause,
+        retryable: false,
+      });
+    }
+    return this.providerError(message, context, cause);
   }
 
   private summarizeToolReplay(requestBody: ResponsesRequestBody): string | undefined {
@@ -802,6 +1118,211 @@ function stripLeakedFunctionCallText(
   }
 
   return stripped ? remaining.trimStart() : text;
+}
+
+type SseReadResult =
+  | { readonly done: false; readonly value: Uint8Array }
+  | { readonly done: true; readonly value?: Uint8Array };
+
+async function readNextSseChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  options: {
+    readonly shouldStopOnIdle?: () => boolean;
+    readonly idleMs?: number | (() => number);
+  },
+): Promise<SseReadResult | "idle"> {
+  if (options.shouldStopOnIdle?.() !== true) {
+    return await reader.read();
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<"idle">((resolve) => {
+        const idleMs = typeof options.idleMs === "function" ? options.idleMs() : options.idleMs;
+        timer = setTimeout(() => resolve("idle"), idleMs ?? STREAMED_CONTENT_IDLE_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function buildStreamedFunctionCallResponse(input: {
+  readonly collectedFunctionCalls: readonly ResponsesOutputItem[];
+  readonly completedFunctionCallArgumentIds: ReadonlySet<string>;
+}): ResponsesResponse | null {
+  const functionCalls = [...new Map(
+    input.collectedFunctionCalls
+      .filter((item) => item.type === "function_call")
+      .map((item) => [item.call_id ?? item.id ?? "", item]),
+  ).values()];
+  if (functionCalls.length === 0) {
+    return null;
+  }
+  if (functionCalls.some((item) => !isCompleteFunctionCallItem(item, input.completedFunctionCallArgumentIds))) {
+    return null;
+  }
+
+  return {
+    status: "tool_calls_streamed",
+    output: functionCalls,
+  };
+}
+
+function buildStreamedTextResponse(input: {
+  readonly collectedText: string;
+  readonly collectedTextComplete: boolean;
+}): ResponsesResponse | null {
+  if (!input.collectedTextComplete || input.collectedText.length === 0) {
+    return null;
+  }
+
+  return {
+    status: "text_streamed",
+    output: [
+      {
+        type: "message",
+        content: [{ type: "output_text", text: input.collectedText }],
+      },
+    ],
+  };
+}
+
+function buildStreamedFallbackResponse(input: {
+  readonly collectedText: string;
+  readonly collectedTextComplete: boolean;
+  readonly collectedFunctionCalls: readonly ResponsesOutputItem[];
+  readonly completedFunctionCallArgumentIds: ReadonlySet<string>;
+}): ResponsesResponse | null {
+  const functionCallResponse = buildStreamedFunctionCallResponse({
+    collectedFunctionCalls: input.collectedFunctionCalls,
+    completedFunctionCallArgumentIds: input.completedFunctionCallArgumentIds,
+  });
+  if (functionCallResponse) {
+    return functionCallResponse;
+  }
+  if (input.collectedFunctionCalls.some((item) => item.type === "function_call")) {
+    return null;
+  }
+  return buildStreamedTextResponse({
+    collectedText: input.collectedText,
+    collectedTextComplete: input.collectedTextComplete,
+  });
+}
+
+function hasStreamedFallbackResponse(input: {
+  readonly collectedText: string;
+  readonly collectedTextComplete: boolean;
+  readonly collectedFunctionCalls: readonly ResponsesOutputItem[];
+  readonly completedFunctionCallArgumentIds: ReadonlySet<string>;
+}): boolean {
+  return buildStreamedFallbackResponse(input) !== null;
+}
+
+function hasIncompleteStreamedFunctionCall(input: {
+  readonly collectedFunctionCalls: readonly ResponsesOutputItem[];
+  readonly collectedFunctionCallArgumentIds: readonly string[];
+  readonly completedFunctionCallArgumentIds: ReadonlySet<string>;
+}): boolean {
+  return input.collectedFunctionCallArgumentIds.some((id) => !input.completedFunctionCallArgumentIds.has(id))
+    || input.collectedFunctionCalls.some((item) =>
+      item.type === "function_call" && !isCompleteFunctionCallItem(item, input.completedFunctionCallArgumentIds),
+    );
+}
+
+function addFunctionCallIds(target: Set<string>, ...ids: ReadonlyArray<string | undefined>): void {
+  for (const id of ids) {
+    if (typeof id === "string" && id.length > 0) {
+      target.add(id);
+    }
+  }
+}
+
+function functionCallIdentityIds(
+  item: ResponsesOutputItem,
+  collectedCall: ResponsesOutputItem | undefined,
+): readonly string[] {
+  return [
+    item.call_id,
+    item.id,
+    collectedCall?.call_id,
+    collectedCall?.id,
+  ].filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+function hasKnownFunctionCallArguments(input: {
+  readonly item: ResponsesOutputItem;
+  readonly existing: ResponsesOutputItem | undefined;
+  readonly collectedFunctionCallArguments: ReadonlyMap<string, string>;
+}): boolean {
+  return [
+    input.item.id,
+    input.item.call_id,
+    input.existing?.id,
+    input.existing?.call_id,
+  ].some((id) => typeof id === "string" && input.collectedFunctionCallArguments.has(id))
+    || (typeof input.existing?.arguments === "string" && input.existing.arguments.length > 0);
+}
+
+function preferCompletedFunctionCallArguments(
+  current: string | undefined,
+  completed: string | undefined,
+): string | undefined {
+  return completed && completed.length > 0 ? completed : current;
+}
+
+function findCompletedFunctionCallArguments(input: {
+  readonly item: ResponsesOutputItem;
+  readonly collectedCall: ResponsesOutputItem | undefined;
+  readonly collectedFunctionCallArguments: ReadonlyMap<string, string>;
+  readonly completedFunctionCallArgumentIds: ReadonlySet<string>;
+}): string | undefined {
+  const ids = [
+    input.item.call_id,
+    input.item.id,
+    input.collectedCall?.call_id,
+    input.collectedCall?.id,
+  ];
+  for (const id of ids) {
+    if (id && input.completedFunctionCallArgumentIds.has(id)) {
+      const argumentsText = input.collectedFunctionCallArguments.get(id);
+      if (typeof argumentsText === "string" && argumentsText.length > 0) {
+        return argumentsText;
+      }
+    }
+  }
+  return undefined;
+}
+
+function isCompleteFunctionCallItem(
+  item: ResponsesOutputItem,
+  completedFunctionCallArgumentIds: ReadonlySet<string>,
+): boolean {
+  return item.type === "function_call"
+    && typeof item.name === "string"
+    && item.name.length > 0
+    && typeof item.arguments === "string"
+    && item.arguments.length > 0
+    && (
+      typeof item.call_id === "string" && completedFunctionCallArgumentIds.has(item.call_id)
+      || typeof item.id === "string" && completedFunctionCallArgumentIds.has(item.id)
+    );
+}
+
+function hasParseableFunctionCallArguments(argumentsText: string | undefined): boolean {
+  if (typeof argumentsText !== "string" || argumentsText.length === 0) {
+    return false;
+  }
+  try {
+    JSON.parse(argumentsText);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function stripOneLeakedFunctionCallPrefix(
