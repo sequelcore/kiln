@@ -125,7 +125,7 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7N
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7O
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
@@ -143,7 +143,11 @@ Active. Started on 2026-05-21. Current implementation status:
   tool execution context without arity-based context drops. The gated Codex
   OAuth subscription-backed direct-provider live proof now covers separately
   gated bounded approved edits through runtime credential-route leasing and
-  canonical write evidence. Slice 8 is not started.
+  canonical write evidence. Gateway `session_event` frame translation now
+  preserves canonical managed invocation ids and terminal failure evidence for
+  timed-out, stale, and failed children, and GUI websocket terminal frames are
+  proven to project through the shared cockpit view-state as the same attention
+  states. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -854,7 +858,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, Slice 7M, and Slice 7N are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, Slice 7M, Slice 7N, and Slice 7O are complete in code.
 
 Completed:
 
@@ -942,6 +946,14 @@ Completed:
   complete streamed function-call and text turns into the provider-neutral
   `AgentResponse.toolCalls` / response text shape instead of adding runtime
   lifecycle special-cases.
+- Gateway stream terminal failure parity now has deterministic proof at the
+  shared operator frame boundary and GUI websocket integration layer.
+  `toOperatorSessionEventFrame` preserves canonical terminal managed-child
+  evidence and projects `managedInvocationId` from canonical invocation ids for
+  managed invocation lifecycle frames, while GUI `managed_agent_control` join
+  streams for timed-out, stale, and failed children project through the shared
+  cockpit view-state as `timed_out`, `stale`, and `failed` attention without
+  GUI-local lifecycle remapping.
 
 Deliverables:
 

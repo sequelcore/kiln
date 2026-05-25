@@ -14,7 +14,11 @@ import {
   type OpenCodeAuthFile,
   type OpenCodeTier,
 } from "@kilnai/core";
-import type { GuiProviderDescriptor } from "@kilnai/gateway-contracts";
+import {
+  createOperatorCockpitReadOnlyViewState,
+  projectOperatorCockpitReadOnlyView,
+  type GuiProviderDescriptor,
+} from "@kilnai/gateway-contracts";
 import { Hono } from "hono";
 import type { UpgradeWebSocket } from "hono/ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -2540,6 +2544,296 @@ describe("startGuiGateway static mount", () => {
         requestId: "managed-agent-join-replay",
       });
       expect(completedEventFrames).toHaveLength(2);
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      lifecycleState: "timed_out" as const,
+      expectedKind: "agent_invocation_failed",
+      errorCode: "ENGINE_TIMEOUT",
+      diagnosticKind: "timeout",
+      attentionState: "timed_out",
+    },
+    {
+      lifecycleState: "stale" as const,
+      expectedKind: "agent_invocation_failed",
+      errorCode: "ENGINE_STALE",
+      diagnosticKind: "heartbeat",
+      attentionState: "stale",
+    },
+    {
+      lifecycleState: "failed" as const,
+      expectedKind: "agent_invocation_failed",
+      errorCode: "ENGINE_FAILURE",
+      diagnosticKind: "failure",
+      attentionState: "failed",
+    },
+  ])("streams terminal managed-agent $lifecycleState evidence through shared cockpit projection", async (terminalCase) => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const invocationService = new RuntimeManagedAgentInvocationService();
+    const baseManagedInvocation = makeManagedInvocationOptions();
+    const baseRoute = baseManagedInvocation.routes[0]!;
+    const controlRoute = {
+      ...baseRoute,
+      profiles: {
+        ...baseRoute.profiles,
+        "foundation-readonly-plan": {
+          ...baseRoute.profiles["foundation-readonly-plan"]!,
+          credentialRoute: { mode: "credentialless" as const },
+        },
+      },
+    };
+    const parentSessionId = `session-${terminalCase.lifecycleState}-control`;
+    let startedInvocationId = "";
+    let completeChild!: () => void;
+    const terminalAdapter: ManagedAgentRuntimeAdapter = {
+      descriptor: baseRoute.adapter.descriptor,
+      invoke: async ({ request: adapterRequest, admission }) => {
+        await new Promise<void>((resolve) => {
+          completeChild = resolve;
+        });
+        return defineManagedAgentInvocationRecord({
+          invocationId: adapterRequest.invocationId,
+          agentId: adapterRequest.agentId,
+          parentSessionId: adapterRequest.parentSessionId,
+          parentTurnId: adapterRequest.parentTurnId,
+          profile: adapterRequest.profile,
+          lifecycleState: terminalCase.lifecycleState,
+          providerRoute: adapterRequest.providerRoute,
+          adapterKind: adapterRequest.adapterKind,
+          executionMode: adapterRequest.executionMode,
+          authority: adapterRequest.authority,
+          capabilitySnapshot: admission.capabilitySnapshot,
+          childSessionId: `${adapterRequest.parentSessionId}:managed:${adapterRequest.invocationId}`,
+          childTurnId: `${adapterRequest.parentSessionId}:managed:${adapterRequest.invocationId}:turn:1`,
+          transcript: {
+            uri: `kiln://managed-invocations/${adapterRequest.invocationId}/transcript`,
+            redacted: "unknown",
+            truncated: false,
+            persisted: true,
+            retention: "session",
+          },
+          diagnostics: [{
+            uri: `kiln://managed-invocations/${adapterRequest.invocationId}/${terminalCase.diagnosticKind}`,
+            kind: terminalCase.diagnosticKind,
+          }],
+          resultHandoff: {
+            summary: `Gateway ${terminalCase.lifecycleState} child terminal evidence.`,
+            resourceUris: [
+              `kiln://managed-invocations/${adapterRequest.invocationId}/handoff`,
+              `kiln://managed-invocations/${adapterRequest.invocationId}/${terminalCase.diagnosticKind}`,
+            ],
+            memoryWriteProposalUris: [],
+          },
+        });
+      },
+    };
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const session = await input.sessionRegistry.getOrCreate({
+        sessionId: parentSessionId,
+        appName: "kiln-gui",
+        tenantId: "_gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
+      if (!startManagedAgent) {
+        throw new Error("managed_agent.start was not attached to the GUI turn surface");
+      }
+      const toolResult = await startManagedAgent({
+        profile: "foundation-readonly-plan",
+        routeId: baseRoute.routeId,
+        providerRoute: {
+          providerId: baseRoute.providerId,
+          model: baseRoute.model,
+        },
+        task: `Inspect a ${terminalCase.lifecycleState} GUI child.`,
+      }, {
+        session,
+        toolCall: {
+          id: `tool-call-managed-start-${terminalCase.lifecycleState}`,
+          name: "managed_agent.start",
+          input: {},
+        },
+      });
+      if (toolResult.isError) {
+        throw new Error(toolResult.output);
+      }
+      startedInvocationId = (toolResult.metadata as { invocationId: string }).invocationId;
+      await input.sessionRegistry.save(session);
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Child is running." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: `trace-managed-${terminalCase.lifecycleState}-control`,
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation: {
+          ...baseManagedInvocation,
+          invocationService,
+          routes: [{
+            ...controlRoute,
+            adapter: terminalAdapter,
+          }],
+        },
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
+        "Expected GUI provider discovery to finish before starting managed-agent terminal fixture.",
+      );
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start child" }),
+        }),
+        wsCtx,
+      );
+      expect(startedInvocationId).not.toBe("");
+
+      const joinPromise = handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "join",
+            sessionId: parentSessionId,
+            invocationId: startedInvocationId,
+            requestId: `managed-agent-${terminalCase.lifecycleState}-join`,
+          }),
+        }),
+        wsCtx,
+      );
+      await flushAsyncWork();
+      completeChild();
+      await joinPromise;
+
+      const outboundFrames = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          action?: string;
+          status?: string;
+          requestId?: string;
+          event?: {
+            eventId: string;
+            kilnSessionId: string;
+            sequence: number;
+            timestamp: string;
+            kind: string;
+            payload: Record<string, unknown>;
+          };
+        });
+      const terminalFrames = outboundFrames.filter((frame) =>
+        frame.type === "session_event"
+        && frame.event?.kind === terminalCase.expectedKind
+        && frame.event.payload.invocationId === startedInvocationId
+      );
+      expect(terminalFrames).toHaveLength(1);
+      const terminalFrame = terminalFrames[0];
+      const controlResultFrame = outboundFrames.find((frame) =>
+        frame.type === "managed_agent_control_result"
+        && frame.requestId === `managed-agent-${terminalCase.lifecycleState}-join`
+      );
+
+      expect(controlResultFrame).toMatchObject({
+        type: "managed_agent_control_result",
+        action: "join",
+        sessionId: parentSessionId,
+        invocationId: startedInvocationId,
+        status: "accepted",
+      });
+      expect(terminalFrame?.event?.payload).toMatchObject({
+        invocationId: startedInvocationId,
+        managedInvocationId: startedInvocationId,
+        lifecycleState: terminalCase.lifecycleState,
+        errorCode: terminalCase.errorCode,
+        managedInvocationEvidence: {
+          diagnostics: [{
+            uri: `kiln://managed-invocations/${startedInvocationId}/${terminalCase.diagnosticKind}`,
+            kind: terminalCase.diagnosticKind,
+          }],
+          resultHandoff: {
+            resourceUris: [
+              `kiln://managed-invocations/${startedInvocationId}/handoff`,
+              `kiln://managed-invocations/${startedInvocationId}/${terminalCase.diagnosticKind}`,
+            ],
+          },
+        },
+      });
+
+      const event = terminalFrame?.event;
+      if (!event) {
+        throw new Error(`Expected terminal ${terminalCase.lifecycleState} session event frame`);
+      }
+      const instanceId = String(event.payload.instanceId);
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-05-24T12:01:00.000Z",
+        attachTargets: [{
+          instanceId,
+          label: "GUI / kiln",
+          kind: "local",
+        }],
+        events: [event],
+      });
+      const view = createOperatorCockpitReadOnlyViewState({
+        projection,
+        viewState: {},
+      });
+
+      expect(view.managedAgents.items[0]).toMatchObject({
+        managedInvocationId: startedInvocationId,
+        attentionState: terminalCase.attentionState,
+        status: "failed",
+        lifecycleState: terminalCase.lifecycleState,
+      });
+      expect(view.managedAgents.items[0]?.resourceUris).toEqual(expect.arrayContaining([
+        `kiln://managed-invocations/${startedInvocationId}/${terminalCase.diagnosticKind}`,
+        `kiln://managed-invocations/${startedInvocationId}/handoff`,
+        `kiln://managed-invocations/${startedInvocationId}/transcript`,
+      ]));
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();

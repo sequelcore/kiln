@@ -70,6 +70,78 @@ function workItemEvent(workItem: WorkItem): CanonicalSessionEvent {
 }
 
 describe("operator session event frame", () => {
+  it("preserves terminal managed-child failure evidence on gateway frames", () => {
+    const terminalEvents: readonly CanonicalSessionEvent[] = [
+      terminalManagedInvocationEvent({
+        eventId: "evt-timeout",
+        kind: "agent_invocation_failed",
+        lifecycleState: "timed_out",
+        errorCode: "ENGINE_TIMEOUT",
+        errorMessage: "Managed invocation timed out.",
+        diagnosticKind: "timeout",
+        diagnosticUri: "kiln://managed-invocations/child-timed_out/timeout",
+      }),
+      terminalManagedInvocationEvent({
+        eventId: "evt-stale",
+        kind: "agent_invocation_failed",
+        lifecycleState: "stale",
+        errorCode: "ENGINE_STALE",
+        errorMessage: "Managed invocation heartbeat expired.",
+        diagnosticKind: "heartbeat",
+        diagnosticUri: "kiln://managed-invocations/child-stale/heartbeat",
+      }),
+      terminalManagedInvocationEvent({
+        eventId: "evt-failed",
+        kind: "agent_invocation_failed",
+        lifecycleState: "failed",
+        errorCode: "ENGINE_FAILURE",
+        errorMessage: "Managed invocation failed.",
+        diagnosticKind: "failure",
+        diagnosticUri: "kiln://managed-invocations/child-failed/failure",
+      }),
+    ];
+
+    for (const [index, event] of terminalEvents.entries()) {
+      const lifecycleState = (event as { readonly lifecycleState: "timed_out" | "stale" | "failed" }).lifecycleState;
+      const errorCode = (event as { readonly errorCode: string }).errorCode;
+      const errorMessage = (event as { readonly errorMessage: string }).errorMessage;
+      const frame = toOperatorSessionEventFrame(event, {
+        eventId: `frame-terminal-${index + 1}`,
+        sequence: index + 10,
+        instanceId: "local-gui",
+      });
+
+      expect(frame.event.payload).toMatchObject({
+        instanceId: "local-gui",
+        sessionId: "session-1",
+        invocationId: `child-${lifecycleState}`,
+        managedInvocationId: `child-${lifecycleState}`,
+        lifecycleState,
+        errorCode,
+        errorMessage,
+        managedInvocationEvidence: {
+          diagnostics: [{
+            uri: expect.stringContaining(`child-${lifecycleState}`),
+          }],
+          resultHandoff: {
+            resourceUris: [
+              `kiln://managed-invocations/child-${lifecycleState}/handoff`,
+            ],
+          },
+          lifecycle: {
+            resourceLease: {
+              leaseId: `child-${lifecycleState}:resource-lease`,
+              cleanupStatus: "failed",
+              diagnosticUris: [
+                `kiln://artifacts/child-${lifecycleState}/lease-diagnostic`,
+              ],
+            },
+          },
+        },
+      });
+    }
+  });
+
   it("exposes core-projected managed orchestration adoption gates on work-item frames", () => {
     const frame = toOperatorSessionEventFrame(workItemEvent(managedWorkItem({
       managedOrchestrationAdoption: {
@@ -121,3 +193,66 @@ describe("operator session event frame", () => {
     expect(frame.event.payload.managedOrchestrationAdoptionGate).toBeUndefined();
   });
 });
+
+function terminalManagedInvocationEvent(input: {
+  readonly eventId: string;
+  readonly kind: "agent_invocation_failed";
+  readonly lifecycleState: "timed_out" | "stale" | "failed";
+  readonly errorCode: string;
+  readonly errorMessage: string;
+  readonly diagnosticKind: string;
+  readonly diagnosticUri: string;
+}): CanonicalSessionEvent {
+  return {
+    eventId: input.eventId,
+    kilnSessionId: "session-1",
+    sequence: 1,
+    timestamp: new Date("2026-05-24T12:00:00.000Z"),
+    kind: input.kind,
+    source: "runtime",
+    invocationId: `child-${input.lifecycleState}`,
+    agentId: "agent-coder",
+    parentSessionId: "session-1",
+    lifecycleState: input.lifecycleState,
+    providerRoute: {
+      providerId: "opencode",
+      model: "minimax-m2.5",
+    },
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage,
+    managedInvocationEvidence: {
+      diagnostics: [{
+        uri: input.diagnosticUri,
+        kind: input.diagnosticKind,
+      }],
+      resultHandoff: {
+        summary: input.errorMessage,
+        resourceUris: [`kiln://managed-invocations/child-${input.lifecycleState}/handoff`],
+        memoryWriteProposalUris: [],
+      },
+      lifecycle: {
+        lifecycleState: input.lifecycleState,
+        invocationId: `child-${input.lifecycleState}`,
+        parentSessionId: "session-1",
+        parentTurnId: "session-1:turn:1",
+        routeId: "opencode-readonly",
+        providerId: "opencode",
+        model: "minimax-m2.5",
+        profile: "foundation-readonly-plan",
+        contextMode: "isolated",
+        authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
+        resourceLease: {
+          leaseId: `child-${input.lifecycleState}:resource-lease`,
+          healthStatus: "leaked",
+          cleanupStatus: "failed",
+          workingDirectoryPath: "C:/workspace/kiln",
+          workingDirectoryMode: "isolated-worktree",
+          resourceUris: [`kiln://artifacts/child-${input.lifecycleState}/lease`],
+          diagnosticUris: [`kiln://artifacts/child-${input.lifecycleState}/lease-diagnostic`],
+        },
+        diagnosticUris: [input.diagnosticUri],
+        handoffResourceUris: [`kiln://managed-invocations/child-${input.lifecycleState}/handoff`],
+      },
+    },
+  } as CanonicalSessionEvent;
+}

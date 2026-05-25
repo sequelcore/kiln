@@ -54,10 +54,29 @@ function canonicalSessionEventPayload(
   if (typeof payload.sessionId !== "string") {
     payload.sessionId = event.kilnSessionId;
   }
+  if (
+    isManagedInvocationEvent(event)
+    && typeof payload.managedInvocationId !== "string"
+    && typeof payload.invocationId === "string"
+  ) {
+    payload.managedInvocationId = payload.invocationId;
+  }
   if (isWorkItemEvent(event)) {
     payload.managedOrchestrationAdoptionGate = projectManagedOrchestrationAdoptionGate(event.workItem);
   }
   return payload;
+}
+
+function isManagedInvocationEvent(
+  event: CanonicalSessionEvent,
+): event is Extract<CanonicalSessionEvent, {
+  readonly kind: "agent_invocation_requested" | "agent_invocation_started" | "agent_invocation_completed" | "agent_invocation_failed" | "agent_invocation_cancelled";
+}> {
+  return event.kind === "agent_invocation_requested"
+    || event.kind === "agent_invocation_started"
+    || event.kind === "agent_invocation_completed"
+    || event.kind === "agent_invocation_failed"
+    || event.kind === "agent_invocation_cancelled";
 }
 
 function isWorkItemEvent(
