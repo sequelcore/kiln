@@ -35,6 +35,7 @@ export interface RunSessionOptions {
   readonly approvalMemoryStore?: ApprovalMemoryLookup;
   readonly env: Record<string, string>;
   readonly sessionHooks: SessionHooks;
+  readonly abortSignal?: AbortSignal;
 }
 
 export interface RunSessionRouteCandidate {
@@ -131,6 +132,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         system: options.context.systemPrompt,
         cwd: options.context.workingDirectory,
         env: options.env,
+        abortSignal: options.abortSignal,
         reasoningEffort: candidateReasoningEffort,
         requestedAuthority: options.sessionConfig.requestedAuthority,
       })) {

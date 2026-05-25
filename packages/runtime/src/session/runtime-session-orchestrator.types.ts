@@ -41,6 +41,7 @@ import type { RuntimeSession } from "./runtime-session.js";
 export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
   readonly toolCall: ToolCall;
+  readonly abortSignal?: AbortSignal;
   readonly sandbox?: unknown;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly requestApproval?: (

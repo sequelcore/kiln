@@ -1069,6 +1069,9 @@ async function executeManagedInvocationTool(
     prepared.request,
     prepared.route.adapter,
     prepared.capabilitySnapshotInput,
+    {
+      ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
+    },
   );
   const durationMs = Date.now() - startedAt;
   const result = invocationResult.status === "completed"
@@ -1149,6 +1152,9 @@ async function executeManagedInvocationStartTool(
     prepared.request,
     prepared.route.adapter,
     prepared.capabilitySnapshotInput,
+    {
+      ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
+    },
   );
   const events = appendManagedInvocationStartSessionEvents({
     session: prepared.context.session,

@@ -777,12 +777,6 @@ export async function runCommand(
       }
       return workerFinalization;
     };
-    const unregisterWorkerSignalHandlers = (): void => {
-      if (!workerSignalHandlersRegistered) return;
-      process.off("SIGINT", workerShutdown);
-      process.off("SIGTERM", workerShutdown);
-      workerSignalHandlersRegistered = false;
-    };
     const workerShutdown = (signal: NodeJS.Signals): void => {
       if (workerShutdownStarted) return;
       workerShutdownStarted = true;
@@ -795,8 +789,16 @@ export async function runCommand(
           process.exit(130);
         });
     };
-    process.on("SIGINT", workerShutdown);
-    process.on("SIGTERM", workerShutdown);
+    const workerSigintShutdown = (): void => workerShutdown("SIGINT");
+    const workerSigtermShutdown = (): void => workerShutdown("SIGTERM");
+    const unregisterWorkerSignalHandlers = (): void => {
+      if (!workerSignalHandlersRegistered) return;
+      process.off("SIGINT", workerSigintShutdown);
+      process.off("SIGTERM", workerSigtermShutdown);
+      workerSignalHandlersRegistered = false;
+    };
+    process.on("SIGINT", workerSigintShutdown);
+    process.on("SIGTERM", workerSigtermShutdown);
     workerSignalHandlersRegistered = true;
     try {
       workerTranscriptInit = transcriptStore.init(sessionId, {
@@ -890,18 +892,14 @@ export async function runCommand(
     workingDirectory: context.workingDirectory,
   });
   const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(cwd);
+  const runAbortController = new AbortController();
 
   let signalHandlersRegistered = false;
   let shutdownStarted = false;
-  const unregisterSignalHandlers = (): void => {
-    if (!signalHandlersRegistered) return;
-    process.off("SIGINT", shutdown);
-    process.off("SIGTERM", shutdown);
-    signalHandlersRegistered = false;
-  };
-  const shutdown = (): void => {
+  const shutdown = (signal: NodeJS.Signals): void => {
     if (shutdownStarted) return;
     shutdownStarted = true;
+    runAbortController.abort(`Parent run interrupted by ${signal}.`);
     unregisterSignalHandlers();
     void cleanupRegistry.runAll()
       .then(cleanupWorktreeOnce)
@@ -909,8 +907,16 @@ export async function runCommand(
         process.exit(130);
       });
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  const sigintShutdown = (): void => shutdown("SIGINT");
+  const sigtermShutdown = (): void => shutdown("SIGTERM");
+  const unregisterSignalHandlers = (): void => {
+    if (!signalHandlersRegistered) return;
+    process.off("SIGINT", sigintShutdown);
+    process.off("SIGTERM", sigtermShutdown);
+    signalHandlersRegistered = false;
+  };
+  process.on("SIGINT", sigintShutdown);
+  process.on("SIGTERM", sigtermShutdown);
   signalHandlersRegistered = true;
 
   sessionHooks.sessionStart();
@@ -930,6 +936,7 @@ export async function runCommand(
       approvalMemoryStore,
       env,
       sessionHooks,
+      abortSignal: runAbortController.signal,
     });
   } catch (error) {
     await cleanupWorktreeOnce();

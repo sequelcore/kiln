@@ -1,74 +1,69 @@
-## Slice 7K - Worktree Conflict Presentation Parity
+# Slice 7L Plan - Parent Interruption Cancels Managed Children
 
 ## Objective
 
-Continue Slice 7 by projecting runtime-owned worktree conflict evidence through
-the non-CLI managed-agent operator surfaces without creating surface-local
-lifecycle or conflict state.
-
-## Decision
-
-Treat `resourceLease.worktreeConflict` as the single source of truth. Runtime
-already creates governed denied-admission conflict evidence, the shared cockpit
-view-state already exposes `worktreeConflictBlocked` and `worktreeConflict`,
-and CLI already renders conflict details. Slice 7K only closes the remaining
-TUI, GUI, and native presentation gap.
-
-Parent interruption remains out of scope because it needs a separate lifecycle
-decision. Dirty worktree review is already represented across runtime,
-resource replay, and the current surfaces. Late-output suppression remains
-owned by the runtime cancellation/stale paths unless transcript-boundary tests
-expose a separate contract gap.
+Route parent turn interruption through the existing runtime cancellation plane so
+active managed child invocations terminate as canonical `cancelled` records and
+late child output cannot become parent-visible transcript or view-state content.
 
 ## Non-Goals
 
-- Do not introduce a public `interrupted` lifecycle state.
-- Do not change runtime conflict admission semantics.
-- Do not add GUI, TUI, native, or CLI local conflict stores.
-- Do not infer conflicts from strings, statuses, or URI shape.
-- Do not add compatibility aliases for older conflict metadata.
+- Do not add a public `interrupted` managed-agent lifecycle state.
+- Do not add surface-local managed-agent stores, filters, or replay heuristics.
+- Do not preserve legacy `kiln run --workers` behavior as a second control
+  plane.
+- Do not broaden dirty-worktree or conflict semantics beyond the cancellation
+  boundary needed for parent interruption.
 
-## Surface Map
+## Scout Map
 
-- Shared cockpit projection contract:
-  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
-  - `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
-- TUI managed-agent cockpit:
-  - `packages/tui/src/managed-agent-cockpit.ts`
-  - `packages/tui/tests/managed-agent-cockpit.test.ts`
-- GUI managed-agent cockpit:
-  - `packages/gui/src/components/managed-agent-cockpit-panel.tsx`
-  - `packages/gui/tests/managed-agent-cockpit-panel.test.tsx`
-- Native managed-agent cockpit:
-  - `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
-  - `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
-- Roadmap:
-  - `docs/roadmap/01-background-parallel-agent-surface.md`
+- CLI signal ownership: `packages/cli/src/commands/run.ts` installs SIGINT and
+  SIGTERM handlers for normal runs but currently only performs cleanup/exit.
+- CLI session execution: `packages/cli/src/application/run-session.ts` calls
+  `session.run(...)` without a parent abort signal even though provider sessions
+  already accept `SessionRunOptions.abortSignal`.
+- Direct-provider runtime surface:
+  `packages/cli/src/wrapper/provider-session.ts` creates per-call runtime tool
+  config but does not carry the parent abort signal into the orchestrator.
+- Runtime tool context:
+  `packages/runtime/src/session/runtime-session-orchestrator-tool-executor.ts`
+  builds builtin tool execution context without the per-turn abort signal.
+- Managed invocation service:
+  `packages/runtime/src/agents/managed-invocation/index.ts` already owns
+  cancellation, abort propagation to adapters, terminal record merging, and late
+  adapter-result suppression after cancellation.
+- Managed invocation tools:
+  `packages/runtime/src/agents/managed-invocation/runtime-tool.ts` start/invoke
+  children through the shared service and should pass parent abort ownership
+  rather than implementing local cleanup.
 
-## Expected Behavior
+## Implementation Steps
 
-- Shared cockpit conflict projection remains `attentionState: "needs_review"`
-  with `dirtyWorkspaceReviewRequired: false`, `worktreeConflictBlocked: true`,
-  and concrete conflict evidence.
-- TUI managed-agent output renders conflict status, reason, conflicting
-  invocation id, retry-after ids, and conflict resources/diagnostics from the
-  shared view item.
-- GUI managed-agent cards render conflict status, reason, requested/conflicting
-  invocation ids, retry-after ids, and conflict resource links without showing
-  dirty-worktree copy unless dirty review is also true.
-- Native managed-agent cards render the same stable conflict details from the
-  shared native projection without adding native-local state.
+1. Add red runtime coverage proving an external parent abort signal cancels a
+   running managed invocation and suppresses a later adapter success.
+2. Add red CLI coverage proving SIGINT aborts the session signal before cleanup
+   and that duplicate signals do not create duplicate aborts.
+3. Thread `AbortSignal` through `RunSessionOptions`, `session.run(...)`,
+   direct-provider per-call config, and runtime builtin tool context.
+4. Extend `RuntimeManagedAgentInvocationService.start/invoke` with optional
+   parent abort signal binding that calls the existing `cancel(...)` path once
+   and detaches at terminal completion.
+5. Pass `context.abortSignal` from `managed_agent.invoke` and
+   `managed_agent.start` into the service.
 
 ## Verification
 
-- Add failing focused tests first.
-- Run `bun run --filter @kilnai/tui test -- tests/managed-agent-cockpit.test.ts`.
-- Run `bun run --filter @kilnai/gui test -- tests/managed-agent-cockpit-panel.test.tsx`.
-- Run `bun run --filter @kilnai/native test -- tests/managed-agent-cockpit-panel.test.tsx`.
-- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-view-state.test.ts`.
-- Run `bun run typecheck`.
-- Run `bun run build`.
-- Run `bun run test`.
-- Run `git diff --check`.
-- Run code review after implementation and before commit.
-- Update the roadmap after code verification.
+```bash
+bunx vitest run packages/runtime/tests/managed-agent/invocation-service.test.ts --maxWorkers=1
+bunx vitest run packages/runtime/tests/gateway/managed-invocation-tool.test.ts --maxWorkers=1
+bunx vitest run packages/cli/tests/commands/run-builtin-tools.test.ts --maxWorkers=1
+bun run typecheck
+bun run --filter @kilnai/runtime test
+bun run --filter @kilnai/cli test
+```
+
+## Residual Risk
+
+This slice proves parent interruption for runtime-owned CLI/direct-provider
+managed child paths. Harness-specific provider process cancellation remains
+covered by the adapter abort contract and existing cancellation tests.

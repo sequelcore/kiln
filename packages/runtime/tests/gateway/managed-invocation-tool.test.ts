@@ -189,6 +189,14 @@ async function flushMicrotasks(): Promise<void> {
   }
 }
 
+async function waitForCondition(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 function expectPublicResourceLeaseMetadata(lease: unknown): void {
   expect(lease).toEqual(expect.objectContaining({
     leaseId: expect.any(String),
@@ -748,6 +756,138 @@ describe("managed invocation runtime tool", () => {
     expect(result.metadata.resourceLease?.diagnosticUris).toContain(
       "kiln://artifacts/managed-session-parent-1-tool-call-sandbox/sandbox-policy-release",
     );
+  });
+
+  it("cancels managed_agent.invoke through the parent runtime abort signal", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    let adapterSignal: AbortSignal | undefined;
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission, abortSignal }) => {
+        adapterSignal = abortSignal;
+        await terminal.promise;
+        return defineManagedAgentInvocationRecord({
+          invocationId: request.invocationId,
+          agentId: request.agentId,
+          parentSessionId: request.parentSessionId,
+          parentTurnId: request.parentTurnId,
+          profile: request.profile,
+          lifecycleState: "completed",
+          providerRoute: request.providerRoute,
+          adapterKind: request.adapterKind,
+          executionMode: request.executionMode,
+          authority: request.authority,
+          capabilitySnapshot: admission.capabilitySnapshot,
+          resultHandoff: {
+            summary: "Late child success.",
+            resourceUris: ["kiln://artifacts/late-child/result"],
+            memoryWriteProposalUris: [],
+          },
+        });
+      }),
+    };
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const parentAbort = new AbortController();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      abortSignal: parentAbort.signal,
+      toolCall: {
+        id: "tool-call-parent-abort",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const resultPromise = surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+    }, context) as Promise<{
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status: string;
+        readonly lifecycleState: string;
+        readonly resultHandoff?: {
+          readonly summary?: string;
+        };
+      };
+    }>;
+
+    await waitForCondition(() => adapterSignal !== undefined);
+    parentAbort.abort("Parent runtime turn interrupted.");
+    const result = await resultPromise;
+
+    expect(adapterSignal?.aborted).toBe(true);
+    expect(result.isError).toBe(true);
+    expect(result.metadata.status).toBe("cancelled");
+    expect(result.metadata.lifecycleState).toBe("cancelled");
+    expect(result.metadata.resultHandoff?.summary).toBe("Parent runtime turn interrupted.");
+
+    terminal.resolve(result.metadata as never);
+    await flushMicrotasks();
+  });
+
+  it("cancels managed_agent.start through the parent runtime abort signal", async () => {
+    const { adapter, terminal, signal } = makeAbortableDeferredAdapter();
+    const invocationService = new RuntimeManagedAgentInvocationService({
+      credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+        allowedRouteIds: ["credential-route:opencode-readonly"],
+      }),
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        invocationService,
+        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+      },
+    });
+    const session = makeSession();
+    const parentAbort = new AbortController();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      abortSignal: parentAbort.signal,
+      toolCall: {
+        id: "tool-call-parent-abort-start",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+        readonly lifecycleState: string;
+      };
+    };
+
+    expect(started.isError).toBe(false);
+    expect(started.metadata.lifecycleState).toBe("running");
+    await waitForCondition(() => signal() !== undefined);
+    parentAbort.abort("Parent runtime turn interrupted.");
+    const joined = await invocationService.join(started.metadata.invocationId);
+
+    expect(signal()?.aborted).toBe(true);
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(joined.record.resultHandoff?.summary).toBe("Parent runtime turn interrupted.");
+
+    terminal.resolve(joined.record);
+    await flushMicrotasks();
+    const joinedAfterLateOutput = await invocationService.join(started.metadata.invocationId);
+    expect(joinedAfterLateOutput.record.lifecycleState).toBe("cancelled");
+    expect(joinedAfterLateOutput.record.resultHandoff?.summary).toBe("Parent runtime turn interrupted.");
   });
 
   it("shares fallback sandbox services across nonblocking lifecycle tools", async () => {

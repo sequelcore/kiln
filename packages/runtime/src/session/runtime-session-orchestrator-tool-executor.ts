@@ -287,7 +287,6 @@ export interface RuntimeSessionToolExecutionResult {
 
 export class RuntimeSessionToolExecutor {
   private currentSession: RuntimeSession | undefined;
-  private currentEffectiveTurnAuthority: PerCallToolConfig["effectiveTurnAuthority"] | undefined;
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -306,7 +305,6 @@ export class RuntimeSessionToolExecutor {
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
     this.currentSession = session;
-    this.currentEffectiveTurnAuthority = perCallConfig?.effectiveTurnAuthority;
     try {
     const resultParts: RuntimeSessionToolResultPart[] = [];
     const toolExecutions: ToolExecutionSummary[] = [];
@@ -438,7 +436,7 @@ export class RuntimeSessionToolExecutor {
       const startMs = Date.now();
 
       try {
-        const execution = await this.executeToolWithPolicy(normalizedToolCall, capability);
+        const execution = await this.executeToolWithPolicy(normalizedToolCall, capability, perCallConfig);
         const durationMs = Date.now() - startMs;
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
         const metadata = extractToolResultMetadata(execution.resultValueRaw);
@@ -532,7 +530,6 @@ export class RuntimeSessionToolExecutor {
     return { resultParts, toolExecutions };
     } finally {
       this.currentSession = undefined;
-      this.currentEffectiveTurnAuthority = undefined;
     }
   }
 
@@ -775,6 +772,7 @@ export class RuntimeSessionToolExecutor {
   private async executeToolWithPolicy(
     toolCall: ToolCall,
     capability: Capability | undefined,
+    perCallConfig: PerCallToolConfig | undefined,
   ): Promise<{
     readonly resultValueRaw: unknown;
     readonly resultValue: string;
@@ -785,9 +783,9 @@ export class RuntimeSessionToolExecutor {
 
     if (capability?.retry) {
       const executor = (name: string, input: Record<string, unknown>) =>
-        this.executeTool({ id: toolCall.id, name, input });
+        this.executeTool({ id: toolCall.id, name, input }, perCallConfig);
       const fallbackExecutor = capability.retry.fallback
-        ? (name: string, input: Record<string, unknown>) => this.executeTool({ id: toolCall.id, name, input })
+        ? (name: string, input: Record<string, unknown>) => this.executeTool({ id: toolCall.id, name, input }, perCallConfig)
         : undefined;
 
       const execResult: ToolExecutionResult = await executeWithRetry(
@@ -800,7 +798,7 @@ export class RuntimeSessionToolExecutor {
       resultValueRaw = execResult.result;
       retryAttempt = execResult.attempts > 1 ? execResult.attempts : undefined;
     } else {
-      resultValueRaw = await this.executeTool(toolCall);
+      resultValueRaw = await this.executeTool(toolCall, perCallConfig);
     }
 
     return {
@@ -948,15 +946,16 @@ export class RuntimeSessionToolExecutor {
     }];
   }
 
-  private async executeTool(toolCall: ToolCall): Promise<unknown> {
+  private async executeTool(toolCall: ToolCall, perCallConfig?: PerCallToolConfig): Promise<unknown> {
     const session = this.currentSession;
     const context = session
       ? {
           session,
           toolCall,
+          ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
           requestApproval: (description: string) => this.requestApproval(session.id, description),
-          ...(this.currentEffectiveTurnAuthority
-            ? { effectiveTurnAuthority: this.currentEffectiveTurnAuthority }
+          ...(perCallConfig?.effectiveTurnAuthority
+            ? { effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority }
             : {}),
         }
       : undefined;

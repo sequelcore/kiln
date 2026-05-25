@@ -578,6 +578,68 @@ describe("run command builtin tool wiring", () => {
     expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
   });
 
+  it("aborts the active run session before signal cleanup exits", async () => {
+    const beforeSigint = process.listenerCount("SIGINT");
+    const beforeSigterm = process.listenerCount("SIGTERM");
+    const exitCodes: Array<string | number | null | undefined> = [];
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      exitCodes.push(code);
+      return undefined as never;
+    }) as never);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    runWiringMocks.runSession.mockImplementationOnce(async () => {
+      const input = runWiringMocks.capturedRunSessionInputs[0] as {
+        readonly abortSignal?: AbortSignal;
+      };
+      await waitForCondition(() => input.abortSignal?.aborted === true);
+      return {
+        finalCostUsd: 0,
+        sessionSucceeded: false,
+        lastError: "Aborted during execution",
+        accumulatedText: "",
+        toolCallCount: 0,
+        turnDepth: 0,
+        successfulProviderId: undefined,
+        successfulModelId: undefined,
+        attempts: [{
+          providerId: "codex",
+          succeeded: false,
+          error: "Aborted during execution",
+        }],
+        transcript: [],
+        exactArtifacts: [],
+        submittedPlan: undefined,
+      };
+    });
+
+    const run = runCommand(APP_CONFIG, "interrupt active run", { provider: "codex" }, { exitOnFailure: false });
+    const runExpectation = expect(run).rejects.toThrow("Kiln run exited with code 1");
+
+    await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
+    await waitForCondition(() => runWiringMocks.capturedRunSessionInputs.length > 0);
+    const input = runWiringMocks.capturedRunSessionInputs[0] as {
+      readonly abortSignal?: AbortSignal;
+    };
+
+    expect(input.abortSignal).toBeInstanceOf(AbortSignal);
+    expect(input.abortSignal?.aborted).toBe(false);
+    process.emit("SIGINT");
+    await waitForCondition(() => input.abortSignal?.aborted === true);
+    expect(input.abortSignal?.reason).toBe("Parent run interrupted by SIGINT.");
+    process.emit("SIGTERM");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(input.abortSignal?.reason).toBe("Parent run interrupted by SIGINT.");
+
+    await runExpectation;
+
+    expect(exitCodes).toEqual([130]);
+    expect(runWiringMocks.cleanupRegistryRunAll).toHaveBeenCalledTimes(1);
+    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledTimes(1);
+    expect(process.listenerCount("SIGINT")).toBe(beforeSigint);
+    expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
+    exit.mockRestore();
+  });
+
   it("keeps parallel-worker signal cleanup active across transcript initialization", async () => {
     const beforeSigint = process.listenerCount("SIGINT");
     const beforeSigterm = process.listenerCount("SIGTERM");

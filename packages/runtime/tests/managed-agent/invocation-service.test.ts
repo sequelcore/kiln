@@ -4400,6 +4400,118 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(service.status("invocation-1")?.error).toBeUndefined();
   });
 
+  it("honors a pre-aborted parent signal without invoking the adapter", async () => {
+    const parentController = new AbortController();
+    parentController.abort("Parent runtime turn interrupted before child start.");
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter, undefined, {
+      abortSignal: parentController.signal,
+    });
+    const joined = await service.join("invocation-1");
+
+    expect(started.status).toBe("started");
+    expect(started.snapshot.lifecycleState).toBe("cancelled");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(joined.status).toBe("completed");
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(joined.record.resultHandoff?.summary).toBe("Parent runtime turn interrupted before child start.");
+  });
+
+  it("does not invoke the adapter when parent abort fires during lease acquisition", async () => {
+    const acquireEntered = deferred<void>();
+    const releaseAcquire = deferred<void>();
+    const parentController = new AbortController();
+    const sandboxLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => {
+        acquireEntered.resolve();
+        await releaseAcquire.promise;
+        return {
+          ...lease,
+          resourceUris: [
+            ...lease.resourceUris,
+            "kiln://artifacts/invocation-1/sandbox-policy",
+          ],
+        };
+      }),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+        diagnosticUris: [
+          ...lease.diagnosticUris,
+          "kiln://artifacts/invocation-1/sandbox-policy-release",
+        ],
+      })),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ sandboxLeaseManager });
+
+    const start = service.start(makeSandboxRequest(), adapter, undefined, {
+      abortSignal: parentController.signal,
+    });
+
+    await acquireEntered.promise;
+    parentController.abort("Parent runtime turn interrupted during lease acquisition.");
+    releaseAcquire.resolve();
+    const started = await start;
+    const joined = await service.join("invocation-1");
+
+    expect(started.status).toBe("started");
+    expect(started.snapshot.lifecycleState).toBe("cancelled");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(sandboxLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(joined.record.resultHandoff?.summary)
+      .toBe("Parent runtime turn interrupted during lease acquisition.");
+    expect(joined.record.resourceLease?.cleanupStatus).toBe("completed");
+  });
+
+  it("cancels a running invocation from a parent abort signal and suppresses late adapter success", async () => {
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const parentController = new AbortController();
+    let adapterSignal: AbortSignal | undefined;
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission, abortSignal }) => {
+        adapterSignal = abortSignal;
+        await terminal.promise;
+        return makeRecord(admission.capabilitySnapshot);
+      }),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter, undefined, {
+      abortSignal: parentController.signal,
+    });
+
+    expect(started.status).toBe("started");
+    expect(adapterSignal?.aborted).toBe(false);
+
+    parentController.abort("Parent runtime turn interrupted.");
+    await flushMicrotasks();
+    const joined = await service.join("invocation-1");
+
+    expect(adapterSignal?.aborted).toBe(true);
+    expect(joined.status).toBe("completed");
+    expect(joined.record.lifecycleState).toBe("cancelled");
+    expect(joined.record.resultHandoff?.summary).toBe("Parent runtime turn interrupted.");
+
+    terminal.resolve(makeRecord());
+    await flushMicrotasks();
+    const joinedAfterLateSuccess = await service.join("invocation-1");
+    expect(joinedAfterLateSuccess.record.lifecycleState).toBe("cancelled");
+    expect(joinedAfterLateSuccess.record.resultHandoff?.summary).toBe("Parent runtime turn interrupted.");
+    expect(service.status("invocation-1")?.error).toBeUndefined();
+  });
+
   it("resolves cancellation joins without waiting for late adapter output", async () => {
     let adapterSignal: AbortSignal | undefined;
     const adapter: ManagedAgentRuntimeAdapter = {

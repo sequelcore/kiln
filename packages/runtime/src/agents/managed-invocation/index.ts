@@ -155,6 +155,10 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly environment?: ManagedAgentEnvironmentVariables;
 }
 
+export interface ManagedAgentRuntimeInvocationLifecycleOptions {
+  readonly abortSignal?: AbortSignal;
+}
+
 export interface ManagedAgentRuntimeAdapter {
   readonly descriptor: ManagedAgentAdapterDescriptor;
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
@@ -762,6 +766,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   acquiredLeaseStages: ManagedAgentRuntimeLeaseStage[];
   releasedLeaseStages: ManagedAgentRuntimeLeaseStage[];
   adapterStarted: boolean;
+  parentAbortCleanup?: () => void;
   leaseFinalization?: Promise<ManagedAgentInvocationRecord>;
   finishedAt?: Date;
   record?: ManagedAgentInvocationRecord;
@@ -780,8 +785,9 @@ export class RuntimeManagedAgentInvocationService {
     request: ManagedAgentInvocationRequest,
     adapter: ManagedAgentRuntimeAdapter,
     capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput = {},
+    lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationResult> {
-    const started = await this.start(request, adapter, capabilitySnapshotInput);
+    const started = await this.start(request, adapter, capabilitySnapshotInput, lifecycleOptions);
     if (started.status === "denied") {
       return {
         status: "denied",
@@ -795,6 +801,7 @@ export class RuntimeManagedAgentInvocationService {
     request: ManagedAgentInvocationRequest,
     adapter: ManagedAgentRuntimeAdapter,
     capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput = {},
+    lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationStartResult> {
     if (this.invocations.has(request.invocationId)) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is already registered");
@@ -832,21 +839,22 @@ export class RuntimeManagedAgentInvocationService {
     };
     terminal.promise.catch(() => undefined);
     this.invocations.set(request.invocationId, entry);
+    entry.parentAbortCleanup = this.bindParentAbortSignal(entry, lifecycleOptions.abortSignal);
+    terminal.promise.finally(() => {
+      entry.parentAbortCleanup?.();
+      entry.parentAbortCleanup = undefined;
+    }).catch(() => undefined);
+    if (lifecycleOptions.abortSignal?.aborted) {
+      await this.cancel(request.invocationId, managedInvocationAbortReason(lifecycleOptions.abortSignal.reason));
+      if (entry.lifecycleState === "cancelled" && entry.record) {
+        return this.completePreAdapterTerminalStart(entry, registeredDecision);
+      }
+    }
     try {
       await this.acquireRuntimeResourceLeases(entry);
     } catch (error) {
       if ((entry.lifecycleState === "cancelled" || entry.lifecycleState === "stale") && entry.record) {
-        entry.record = await this.finalizeTerminalLeaseStages(entry, entry.record);
-        terminal.resolve({
-          status: "completed",
-          decision: registeredDecision,
-          record: entry.record,
-        });
-        return {
-          status: "started",
-          decision: cloneJson(registeredDecision),
-          snapshot: snapshotInvocation(entry),
-        };
+        return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
       const runtimeError = toError(error);
       if (!this.shouldCompensateAcquireFailure(error, entry)) {
@@ -867,30 +875,10 @@ export class RuntimeManagedAgentInvocationService {
       throw runtimeError;
     }
     if (entry.lifecycleState === "cancelled" && entry.record) {
-      entry.record = await this.finalizeTerminalLeaseStages(entry, entry.record);
-      terminal.resolve({
-        status: "completed",
-        decision: registeredDecision,
-        record: entry.record,
-      });
-      return {
-        status: "started",
-        decision: cloneJson(registeredDecision),
-        snapshot: snapshotInvocation(entry),
-      };
+      return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     if (entry.lifecycleState === "stale" && entry.record) {
-      entry.record = await this.finalizeTerminalLeaseStages(entry, entry.record);
-      terminal.resolve({
-        status: "completed",
-        decision: registeredDecision,
-        record: entry.record,
-      });
-      return {
-        status: "started",
-        decision: cloneJson(registeredDecision),
-        snapshot: snapshotInvocation(entry),
-      };
+      return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     entry.adapterStarted = true;
     const adapterTerminal: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>> = this.invokeAdmitted({
@@ -1139,6 +1127,41 @@ export class RuntimeManagedAgentInvocationService {
     });
     this.assertRecordWithinAdmission(record, input.request, admission);
     return record;
+  }
+
+  private bindParentAbortSignal(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    abortSignal: AbortSignal | undefined,
+  ): (() => void) | undefined {
+    if (!abortSignal) {
+      return undefined;
+    }
+    const onAbort = (): void => {
+      void this.cancel(entry.request.invocationId, managedInvocationAbortReason(abortSignal.reason))
+        .catch(() => undefined);
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    return () => abortSignal.removeEventListener("abort", onAbort);
+  }
+
+  private async completePreAdapterTerminalStart(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
+  ): Promise<ManagedAgentRuntimeInvocationStartResult> {
+    if (!entry.record) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no terminal record");
+    }
+    entry.record = await this.finalizeTerminalLeaseStages(entry, entry.record);
+    entry.terminal?.resolve({
+      status: "completed",
+      decision,
+      record: entry.record,
+    });
+    return {
+      status: "started",
+      decision: cloneJson(decision),
+      snapshot: snapshotInvocation(entry),
+    };
   }
 
   private requireRuntimeAdmission(input: {
@@ -2015,6 +2038,16 @@ function staleRecoveryReason(reason: string | undefined): string {
 function persistedRecoveryReason(reason: string | undefined): string {
   const trimmed = reason?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : "Managed invocation recovered after runtime restart.";
+}
+
+function managedInvocationAbortReason(reason: unknown): string {
+  if (typeof reason === "string" && reason.trim().length > 0) {
+    return reason;
+  }
+  if (reason instanceof Error && reason.message.trim().length > 0) {
+    return reason.message;
+  }
+  return "Parent runtime turn interrupted.";
 }
 
 function isSideEffectedLeaseAcquireError(error: unknown): boolean {
