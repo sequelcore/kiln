@@ -1,47 +1,52 @@
-# Slice 7D - Managed Invocation Diagnostic Resource Replay
+# Slice 7E - Stale Heartbeat Attention Parity
 
 ## Objective
 
-Continue Slice 7 by making managed invocation resource replay include terminal
-diagnostic pointers from the canonical invocation record, even when those
-diagnostics are not duplicated in handoff or lease resources.
+Continue Slice 7 by projecting heartbeat-recovered managed children as a
+distinct `stale` attention state instead of collapsing them into generic
+failure across operator surfaces.
 
 ## Decision
 
-Keep the resource provider as a read-only projection over
-`ManagedAgentRuntimeInvocationSnapshot`. Add diagnostic replay at the resource
-provider boundary so CLI, gateway tools, and model-facing resource reads all
-consume the same terminal evidence bundle.
+Keep lifecycle interpretation in `@kilnai/gateway-contracts` shared cockpit
+view-state. Runtime already emits `lifecycleState: "stale"` with terminal
+evidence; surfaces must consume that shared attention state and only adapt
+presentation labels or severity styling locally.
 
 ## Non-Goals
 
-- Do not change managed invocation lifecycle semantics.
-- Do not mutate adapter handoff payloads to duplicate diagnostic URIs.
-- Do not expose raw invocation records or admission decisions.
-- Do not add surface-local diagnostic projection logic.
+- Do not change runtime stale recovery, heartbeat thresholds, or lease cleanup.
+- Do not add surface-local stale inference.
+- Do not rename existing lifecycle states or compatibility-map old values.
+- Do not change cancellation or timeout semantics.
 
 ## Surface Map
 
-- Runtime resource provider:
-  - `packages/runtime/src/agents/managed-invocation/resource-provider.ts`
-  - `packages/runtime/tests/managed-agent/resource-provider.test.ts`
+- Shared contract:
+  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
+  - `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
+- Presentation consumers:
+  - `packages/tui/src/managed-agent-cockpit.ts`
+  - `packages/gui/src/components/managed-agent-cockpit-panel.tsx`
+  - `packages/gui/tests/managed-agent-cockpit-panel.test.tsx`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
 
 ## Expected Behavior
 
-- Aggregate managed invocation resources include terminal diagnostic URI lists.
-- Per-invocation detail includes sanitized diagnostic pointers from
-  `record.diagnostics`.
-- Per-invocation `/resources` bundles include diagnostic pointer URIs even when
-  they are not present in transcript, handoff, or lease resource lists.
-- Resource URI bundles remain de-duplicated and read-only.
+- Managed children with `status: "failed"` and `lifecycleState: "stale"`
+  project as `attentionState: "stale"`.
+- Stale children count as attention, not active work.
+- TUI renders stale children with the same alert prefix as other terminal
+  attention states while preserving the canonical `stale` label.
+- GUI renders a stable `Stale heartbeat` label and destructive severity for
+  stale children.
 
 ## Verification
 
-- Add failing resource-provider tests first.
-- Run `bun run --cwd packages/runtime test -- tests/managed-agent/resource-provider.test.ts`.
-- Run `bun run --cwd packages/runtime test -- tests/gateway/managed-invocation-tool.test.ts`.
+- Add failing shared view-state test first.
+- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-view-state.test.ts`.
+- Run `bun run --cwd packages/gui test -- tests/managed-agent-cockpit-panel.test.tsx`.
 - Run `bun run typecheck`.
 - Run `bun run build`.
 - Update the roadmap after code verification.

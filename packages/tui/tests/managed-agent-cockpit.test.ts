@@ -223,6 +223,51 @@ describe("TUI managed-agent cockpit projection", () => {
     ]));
   });
 
+  it("formats stale heartbeat recovery from shared stale attention", () => {
+    const failed = event("evt-stale", 1, "agent_invocation_failed", {
+      invocationId: "child-stale",
+      providerRoute: {
+        providerId: "opencode",
+        model: "minimax-m2.5",
+      },
+      lifecycleState: "stale",
+      managedInvocationEvidence: {
+        diagnostics: [{
+          uri: "kiln://managed-agent/child-stale/heartbeat",
+          kind: "heartbeat",
+        }],
+        resultHandoff: {
+          summary: "Managed invocation heartbeat expired.",
+          resourceUris: ["kiln://managed-agent/child-stale/handoff"],
+          memoryWriteProposalUris: [],
+        },
+      },
+    });
+    const events = appendManagedAgentSessionEvent([], failed);
+
+    const viewState = projectTuiManagedAgentViewState(events, {
+      drilldownTarget: {
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-stale",
+      },
+    });
+
+    expect(viewState.items[0]).toMatchObject({
+      managedInvocationId: "child-stale",
+      attentionState: "stale",
+      status: "failed",
+      lifecycleState: "stale",
+    });
+    expect(formatManagedAgentCockpitLines(viewState)).toEqual(expect.arrayContaining([
+      "attention: 1  active: 0",
+      "! child-stale stale failed opencode/minimax-m2.5 events:1 resources:2",
+      "drilldown child-stale",
+      "  lifecycle stale",
+      "    1 agent_invocation_failed evt-stale",
+    ]));
+  });
+
   it("retains runtime adoption-gate snapshots and formats managed child drilldown adoption state", () => {
     let events = appendManagedAgentSessionEvent([], event("evt-completed", 1, "agent_invocation_completed", {
       invocationId: "child-adopted",

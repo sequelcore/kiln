@@ -19,6 +19,7 @@ const ATTENTION_LABELS: Record<OperatorCockpitManagedAgentAttentionState, string
   active: "Active",
   needs_review: "Review required",
   timed_out: "Timed out",
+  stale: "Stale heartbeat",
   failed: "Failed",
   cancelled: "Cancelled",
   clear: "Clear",
@@ -26,7 +27,7 @@ const ATTENTION_LABELS: Record<OperatorCockpitManagedAgentAttentionState, string
 };
 
 function statusVariant(state: OperatorCockpitManagedAgentAttentionState): "default" | "destructive" | "outline" | "secondary" {
-  if (state === "failed" || state === "needs_review" || state === "timed_out") return "destructive";
+  if (state === "failed" || state === "needs_review" || state === "timed_out" || state === "stale") return "destructive";
   if (state === "active") return "secondary";
   return "outline";
 }
@@ -117,7 +118,7 @@ function ManagedAgentItem(props: {
 }) {
   const item = props.item;
   const needsReview = item.attentionState === "needs_review";
-  const terminalFailure = item.attentionState === "failed" || item.attentionState === "timed_out";
+  const terminalFailure = item.attentionState === "failed" || item.attentionState === "timed_out" || item.attentionState === "stale";
   const active = item.attentionState === "active";
   const canCancel = item.cancelControl.status === "requires-control-channel" && props.onCancel !== undefined;
   return (

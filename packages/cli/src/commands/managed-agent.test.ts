@@ -256,7 +256,7 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
-  it("prints timeout and cancellation rows from shared managed-child view-state", async () => {
+  it("prints timeout, stale, and cancellation rows from shared managed-child view-state", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     await appendManagedTerminalViewStateEvents(transcriptStore, "session-1");
@@ -283,8 +283,9 @@ describe("managed-agent command", () => {
 
     expect(log.mock.calls[0]?.[0]).toBe([
       "Managed children for session session-1:",
-      "attention: 2  active: 0",
+      "attention: 3  active: 0",
       "child-timeout             timed_out     failed      timed_out     codex-oauth/gpt-5.5  resources:2  cancel:unavailable",
+      "child-stale               stale         failed      stale         opencode/minimax-m2.5  resources:2  cancel:unavailable",
       "child-cancelled           cancelled     cancelled   cancelled     opencode/minimax-m2.5  resources:1  cancel:unavailable",
     ].join("\n"));
     expect(log.mock.calls[1]?.[0]).toBe([
@@ -882,7 +883,7 @@ async function appendManagedTerminalViewStateEvents(
   await transcriptStore.append(sessionId, {
     eventId: "event-cancelled",
     kilnSessionId: sessionId,
-    sequence: 2,
+    sequence: 3,
     timestamp: "2026-05-24T12:00:02.000Z",
     kind: "agent_invocation_cancelled",
     source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
@@ -905,6 +906,39 @@ async function appendManagedTerminalViewStateEvents(
             "kiln://managed-invocations/child-cancelled/cancel-cleanup",
             "kiln://managed-invocations/child-cancelled/cancel-cleanup",
           ],
+          memoryWriteProposalUris: [],
+        },
+      },
+    },
+  });
+  await transcriptStore.append(sessionId, {
+    eventId: "event-stale",
+    kilnSessionId: sessionId,
+    sequence: 2,
+    timestamp: "2026-05-24T12:00:01.500Z",
+    kind: "agent_invocation_failed",
+    source: { actor: "runtime", surface: "cli", component: "managed-agent-command-test" },
+    payload: {
+      instanceId: "local",
+      sessionId,
+      managedInvocationId: "child-stale",
+      invocationId: "child-stale",
+      agentId: "agent-reviewer",
+      lifecycleState: "stale",
+      errorCode: "ENGINE_STALE",
+      errorMessage: "Managed invocation heartbeat expired.",
+      providerRoute: {
+        providerId: "opencode",
+        model: "minimax-m2.5",
+      },
+      managedInvocationEvidence: {
+        diagnostics: [{
+          uri: "kiln://managed-invocations/child-stale/heartbeat",
+          kind: "heartbeat",
+        }],
+        resultHandoff: {
+          summary: "Managed invocation heartbeat expired.",
+          resourceUris: ["kiln://managed-invocations/child-stale/handoff"],
           memoryWriteProposalUris: [],
         },
       },

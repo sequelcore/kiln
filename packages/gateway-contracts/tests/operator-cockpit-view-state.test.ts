@@ -478,6 +478,74 @@ describe("operator cockpit read-only view state", () => {
     });
   });
 
+  it("projects stale heartbeat recovery as distinct managed-child attention", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-stale:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: [
+        {
+          eventId: "managed-stale:event:failed",
+          kilnSessionId: "managed-stale:session:1",
+          sequence: 1,
+          timestamp: "2026-05-24T12:00:00.000Z",
+          kind: "agent_invocation_failed",
+          payload: {
+            instanceId: "managed-stale:instance:1",
+            sessionId: "managed-stale:session:1",
+            managedInvocationId: "managed-stale:child:1",
+            invocationId: "managed-stale:child:1",
+            agentId: "agent-coder",
+            lifecycleState: "stale",
+            providerRoute: {
+              providerId: "opencode",
+              model: "minimax-m2.5",
+            },
+            errorCode: "ENGINE_STALE",
+            errorMessage: "Managed invocation heartbeat expired.",
+            managedInvocationEvidence: {
+              diagnostics: [{
+                uri: "kiln://managed-invocations/managed-stale-child-1/heartbeat",
+                kind: "heartbeat",
+              }],
+              resultHandoff: {
+                summary: "Managed invocation heartbeat expired.",
+                resourceUris: ["kiln://managed-invocations/managed-stale-child-1/handoff"],
+                memoryWriteProposalUris: [],
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.activeCount).toBe(0);
+    expect(view.managedAgents.attentionCount).toBe(1);
+    expect(view.managedAgents.items[0]).toMatchObject({
+      managedInvocationId: "managed-stale:child:1",
+      attentionState: "stale",
+      status: "failed",
+      lifecycleState: "stale",
+      providerRoute: "opencode/minimax-m2.5",
+      resourceUris: [
+        "kiln://managed-invocations/managed-stale-child-1/handoff",
+        "kiln://managed-invocations/managed-stale-child-1/heartbeat",
+      ],
+      cancelControl: {
+        status: "unavailable",
+        reason: "Managed invocation is not active.",
+      },
+    });
+  });
+
   it("resolves managed child drilldown and scoped replay from canonical cockpit projection", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-05-23T12:01:00.000Z",

@@ -840,7 +840,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, and Slice 7D are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, and Slice 7E are complete in code.
 
 Completed:
 
@@ -869,6 +869,11 @@ Completed:
   `/resources` bundles even when adapters do not duplicate those diagnostics in
   handoff or lease resources. The provider remains read-only, de-duplicates
   resource URIs, and avoids exposing raw runtime records or admission decisions.
+- Stale heartbeat recovery now projects as first-class `stale` managed-agent
+  attention in the shared cockpit view-state instead of collapsing into generic
+  `failed` attention. CLI, TUI, and GUI consume the shared state while
+  preserving canonical `lifecycleState: "stale"`, failed terminal status, and
+  heartbeat diagnostic/resource pointers.
 
 Deliverables:
 

@@ -166,6 +166,59 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.getByText("timeout")).toBeVisible();
   });
 
+  it("renders stale heartbeat managed children as distinct terminal attention", () => {
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 0,
+      attentionCount: 1,
+      items: [
+        {
+          managedInvocationId: "child-stale",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "failed",
+          lifecycleState: "stale",
+          providerRoute: "opencode/minimax-m2.5",
+          attentionState: "stale",
+          dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: false,
+          resourceUris: ["kiln://managed-agents/child-stale/heartbeat"],
+          latestEventId: "event-stale",
+          lifecycleTimeline: [
+            {
+              eventId: "event-stale",
+              instanceId: "local",
+              sessionId: "session-1",
+              sequence: 1,
+              timestamp: "2026-05-24T12:00:00.000Z",
+              kind: "agent_invocation_failed",
+              title: "Agent invocation failed",
+              summary: "Managed invocation heartbeat expired.",
+              tone: "danger",
+              target: {
+                instanceId: "local",
+                sessionId: "session-1",
+                eventId: "event-stale",
+                managedInvocationId: "child-stale",
+              },
+            },
+          ],
+          cancelControl: {
+            status: "unavailable",
+            reason: "Managed invocation is not active.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} />);
+
+    expect(screen.getByText("child-stale")).toBeVisible();
+    expect(screen.getByText("Stale heartbeat")).toBeVisible();
+    expect(screen.getByText("failed")).toBeVisible();
+    expect(screen.getByText("lifecycle stale")).toBeVisible();
+    expect(screen.getByText("heartbeat")).toBeVisible();
+  });
+
   it("dispatches live cancel when a control channel callback is present", () => {
     const onCancel = vi.fn();
     const viewState: OperatorCockpitManagedAgentViewState = {

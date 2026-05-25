@@ -74,6 +74,7 @@ export type OperatorCockpitManagedAgentAttentionState =
   | "active"
   | "needs_review"
   | "timed_out"
+  | "stale"
   | "failed"
   | "cancelled"
   | "clear"
@@ -226,6 +227,9 @@ function managedAgentAttentionState(
     if (isTimedOutLifecycleState(invocation.lifecycleState)) {
       return "timed_out";
     }
+    if (isStaleLifecycleState(invocation.lifecycleState)) {
+      return "stale";
+    }
     return "failed";
   }
   if (invocation.status === "cancelled") {
@@ -239,6 +243,10 @@ function managedAgentAttentionState(
 
 function isTimedOutLifecycleState(value: string | undefined): boolean {
   return value === "timed_out";
+}
+
+function isStaleLifecycleState(value: string | undefined): boolean {
+  return value === "stale";
 }
 
 function managedAgentCancelControl(
@@ -309,11 +317,12 @@ function attentionRank(state: OperatorCockpitManagedAgentAttentionState): number
   switch (state) {
     case "needs_review": return 0;
     case "timed_out": return 1;
-    case "failed": return 2;
-    case "active": return 3;
-    case "cancelled": return 4;
-    case "unknown": return 5;
-    case "clear": return 6;
+    case "stale": return 2;
+    case "failed": return 3;
+    case "active": return 4;
+    case "cancelled": return 5;
+    case "unknown": return 6;
+    case "clear": return 7;
   }
 }
 
