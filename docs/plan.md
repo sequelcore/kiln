@@ -1,53 +1,47 @@
-# Slice 7C - CLI Managed-Agent View-State Parity
+# Slice 7D - Managed Invocation Diagnostic Resource Replay
 
 ## Objective
 
-Continue Slice 7 by moving CLI managed-agent list, status, and resources output
-onto the same shared cockpit managed-agent view-state used by TUI, GUI, and
-native surfaces.
+Continue Slice 7 by making managed invocation resource replay include terminal
+diagnostic pointers from the canonical invocation record, even when those
+diagnostics are not duplicated in handoff or lease resources.
 
 ## Decision
 
-Keep projection construction in the CLI transcript adapter, then derive
-operator-facing managed-child rows from `createOperatorCockpitReadOnlyViewState`
-in `@kilnai/gateway-contracts`. The CLI must display shared attention state,
-active and attention counts, cancel availability, and de-duplicated evidence
-resources without reimplementing lifecycle rules locally.
+Keep the resource provider as a read-only projection over
+`ManagedAgentRuntimeInvocationSnapshot`. Add diagnostic replay at the resource
+provider boundary so CLI, gateway tools, and model-facing resource reads all
+consume the same terminal evidence bundle.
 
 ## Non-Goals
 
-- Do not change gateway cancellation or join control behavior.
-- Do not change transcript persistence or session event schema.
-- Do not add surface-local timeout, cancellation, or review inference.
-- Do not introduce compatibility output paths for older CLI formatting.
+- Do not change managed invocation lifecycle semantics.
+- Do not mutate adapter handoff payloads to duplicate diagnostic URIs.
+- Do not expose raw invocation records or admission decisions.
+- Do not add surface-local diagnostic projection logic.
 
 ## Surface Map
 
-- CLI managed-agent command:
-  - `packages/cli/src/commands/managed-agent.ts`
-  - `packages/cli/tests/commands/managed-agent.test.ts`
-- Shared view-state dependency:
-  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
+- Runtime resource provider:
+  - `packages/runtime/src/agents/managed-invocation/resource-provider.ts`
+  - `packages/runtime/tests/managed-agent/resource-provider.test.ts`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
 
 ## Expected Behavior
 
-- `kiln managed-agent list` prints shared attention and active counts.
-- CLI list rows include each child `attentionState`, terminal status,
-  lifecycle state, route, resource count, and cancel-control status.
-- `kiln managed-agent status <id>` prints the shared attention state and
-  cancel-control reason alongside existing lifecycle, lease, and adoption
-  details.
-- `kiln managed-agent resources <id>` prints the shared de-duplicated resource
-  list, not a surface-local resource projection.
-- Timed-out and cancelled children remain distinct in CLI output while keeping
-  their canonical lifecycle/status evidence.
+- Aggregate managed invocation resources include terminal diagnostic URI lists.
+- Per-invocation detail includes sanitized diagnostic pointers from
+  `record.diagnostics`.
+- Per-invocation `/resources` bundles include diagnostic pointer URIs even when
+  they are not present in transcript, handoff, or lease resource lists.
+- Resource URI bundles remain de-duplicated and read-only.
 
 ## Verification
 
-- Add failing CLI tests first from persisted transcript events.
-- Run `bun run --cwd packages/cli test -- tests/commands/managed-agent.test.ts`.
+- Add failing resource-provider tests first.
+- Run `bun run --cwd packages/runtime test -- tests/managed-agent/resource-provider.test.ts`.
+- Run `bun run --cwd packages/runtime test -- tests/gateway/managed-invocation-tool.test.ts`.
 - Run `bun run typecheck`.
 - Run `bun run build`.
 - Update the roadmap after code verification.

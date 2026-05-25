@@ -98,6 +98,47 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(invocationPayload.invocation.decision).toBeUndefined();
   });
 
+  it("replays terminal diagnostic pointers even when handoff and lease omit them", async () => {
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [managedInvocationWithTerminalDiagnostic()],
+      },
+    });
+
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+    expect(JSON.parse(aggregate!.contents[0]!.text)).toMatchObject({
+      total: 1,
+      invocations: [{
+        invocationId: "child-timeout",
+        lifecycleState: "timed_out",
+        diagnosticResourceUris: ["kiln://managed-invocations/child-timeout/timeout"],
+        resourceUris: expect.arrayContaining([
+          "kiln://managed-invocations/child-timeout/timeout",
+        ]),
+      }],
+    });
+
+    const invocation = await provider.read("kiln://managed-agents/invocations/child-timeout");
+    expect(JSON.parse(invocation!.contents[0]!.text)).toMatchObject({
+      invocation: {
+        invocationId: "child-timeout",
+        lifecycleState: "timed_out",
+        diagnostics: [{
+          uri: "kiln://managed-invocations/child-timeout/timeout",
+          kind: "timeout",
+        }],
+      },
+    });
+
+    const resources = await provider.read("kiln://managed-agents/invocations/child-timeout/resources");
+    expect(JSON.parse(resources!.contents[0]!.text)).toMatchObject({
+      invocationId: "child-timeout",
+      resourceUris: expect.arrayContaining([
+        "kiln://managed-invocations/child-timeout/timeout",
+      ]),
+    });
+  });
+
   it("returns undefined for unknown managed child resource URIs", async () => {
     const provider = createManagedAgentInvocationResourceProvider({
       service: {
@@ -243,5 +284,28 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
         },
       },
     } as ManagedAgentRuntimeInvocationSnapshot["record"],
+  };
+}
+
+function managedInvocationWithTerminalDiagnostic(): ManagedAgentRuntimeInvocationSnapshot {
+  const snapshot = managedInvocationSnapshot();
+  return {
+    ...snapshot,
+    invocationId: "child-timeout",
+    lifecycleState: "timed_out",
+    record: {
+      ...snapshot.record!,
+      invocationId: "child-timeout",
+      lifecycleState: "timed_out",
+      diagnostics: [{
+        uri: "kiln://managed-invocations/child-timeout/timeout",
+        kind: "timeout",
+      }],
+      resultHandoff: {
+        summary: "Managed child timed out before handoff.",
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+    },
   };
 }

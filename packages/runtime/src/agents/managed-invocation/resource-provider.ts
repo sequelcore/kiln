@@ -186,6 +186,7 @@ function projectInvocationSummary(snapshot: ManagedAgentRuntimeInvocationSnapsho
     ...(snapshot.record?.transcript?.uri ? { transcriptUri: snapshot.record.transcript.uri } : {}),
     ...(snapshot.record?.resultHandoff?.summary ? { resultSummary: snapshot.record.resultHandoff.summary } : {}),
     handoffResourceUris: snapshot.record?.resultHandoff?.resourceUris ?? [],
+    diagnosticResourceUris: diagnosticUrisForInvocation(snapshot),
     resourceUris: resourceUrisForInvocation(snapshot),
   };
 }
@@ -209,6 +210,7 @@ function projectInvocationDetail(snapshot: ManagedAgentRuntimeInvocationSnapshot
       resourceLease: snapshot.decision.capabilitySnapshot.resourceLease,
     },
     ...(snapshot.record?.transcript ? { transcript: snapshot.record.transcript } : {}),
+    ...(snapshot.record?.diagnostics ? { diagnostics: snapshot.record.diagnostics } : {}),
     ...(snapshot.record?.resultHandoff ? { resultHandoff: snapshot.record.resultHandoff } : {}),
     ...(snapshot.record?.resourceLease ? { resourceLease: snapshot.record.resourceLease } : {}),
   };
@@ -219,10 +221,15 @@ function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapsh
     ...(snapshot.record?.transcript?.uri ? [snapshot.record.transcript.uri] : []),
     ...(snapshot.record?.resultHandoff?.resourceUris ?? []),
     ...(snapshot.record?.resultHandoff?.memoryWriteProposalUris ?? []),
+    ...diagnosticUrisForInvocation(snapshot),
     ...resourceUrisForLease(snapshot.record?.resourceLease),
     ...resourceUrisForLease(snapshot.record?.capabilitySnapshot.resourceLease),
     ...resourceUrisForLease(snapshot.decision.capabilitySnapshot.resourceLease),
   ]);
+}
+
+function diagnosticUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly string[] {
+  return uniqueStrings((snapshot.record?.diagnostics ?? []).map((diagnostic) => diagnostic.uri));
 }
 
 function resourceUrisForLease(lease: ManagedAgentResourceLeaseEvidence | undefined): readonly string[] {

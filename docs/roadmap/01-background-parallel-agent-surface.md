@@ -840,7 +840,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, and Slice 7C are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, and Slice 7D are complete in code.
 
 Completed:
 
@@ -864,6 +864,11 @@ Completed:
   attention and active counts, distinct `timed_out` and `cancelled` attention,
   cancel-control status, and de-duplicated resource pointers while preserving
   the existing JSON automation shape.
+- Managed invocation resource replay now includes terminal diagnostic pointers
+  from `record.diagnostics` in aggregate summaries, per-child detail, and
+  `/resources` bundles even when adapters do not duplicate those diagnostics in
+  handoff or lease resources. The provider remains read-only, de-duplicates
+  resource URIs, and avoids exposing raw runtime records or admission decisions.
 
 Deliverables:
 
