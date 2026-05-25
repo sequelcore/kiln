@@ -3052,11 +3052,32 @@ describe("managed invocation runtime tool", () => {
     }, context) as {
       readonly output: string;
       readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly presentationIntent?: {
+          readonly source?: string;
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
     };
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain("Managed invocation route 'openrouter-readonly' is unavailable");
     expect(result.output).toContain("requires a tool-call-capable model");
+    expect(result.metadata.status).toBe("unavailable");
+    expect(result.metadata.presentationIntent).toMatchObject({
+      source: "managed_agent.invoke",
+      rows: [
+        expect.objectContaining({
+          routeId: "openrouter-readonly",
+          provider: "openrouter",
+          model: "openrouter/free",
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: "Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.",
+        }),
+      ],
+    });
   });
 
   it("projects unavailable managed route status for failure-reason recovery mapping", async () => {
@@ -3098,6 +3119,65 @@ describe("managed invocation runtime tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.metadata.status).toBe("unavailable");
+  });
+
+  it("keeps route-unavailable presentation intent source aligned with the managed tool", async () => {
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [],
+        unavailableRoutes: [{
+          routeId: "openrouter-readonly",
+          providerId: "openrouter",
+          model: "openrouter/free",
+          profiles: ["foundation-readonly-plan"],
+          reason: "Direct provider route is not eligible.",
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-unavailable-start",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "openrouter",
+        model: "openrouter/free",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly presentationIntent?: {
+          readonly source?: string;
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata.status).toBe("unavailable");
+    expect(result.metadata.presentationIntent).toMatchObject({
+      source: "managed_agent.start",
+      rows: [
+        expect.objectContaining({
+          routeId: "openrouter-readonly",
+          provider: "openrouter",
+          model: "openrouter/free",
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: "Direct provider route is not eligible.",
+        }),
+      ],
+    });
+    expect(session.sessionEvents).toEqual([]);
   });
 
   it("records the effective route model and persists readable handoff resources", async () => {

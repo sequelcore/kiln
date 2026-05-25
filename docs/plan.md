@@ -1,66 +1,56 @@
-## Slice 7H - Failed Child Attention Parity
+## Slice 7I - Route Unavailable Presentation Parity
 
 ## Objective
 
-Continue Slice 7 by proving ordinary managed-child adapter failures remain a
-distinct operator attention state across shared cockpit view-state and the
-existing operator surfaces.
+Continue Slice 7 by making managed route-unavailable outcomes project as
+structured, tool-accurate operator evidence before any child invocation starts.
 
 ## Decision
 
-Treat a terminal `agent_invocation_failed` event with `lifecycleState:
-"failed"` as failed-child attention unless stronger review states apply. Do
-not collapse it into timeout, stale heartbeat, cancellation, worktree review,
-or worktree conflict. Evidence remains pointer-only and replayable through the
-shared managed-agent resource list.
+Treat route unavailability as a pre-invocation managed tool outcome, not as a
+managed child lifecycle event. It must not create child session events,
+resource-plane records, or cockpit child rows. It should still produce a
+structured presentation intent that survives gateway/operator transcript
+rendering and accurately names the managed tool that failed closed.
 
 ## Non-Goals
 
-- Do not add a new lifecycle state or attention state.
-- Do not change timeout, stale, cancellation, worktree review, or conflict
-  precedence.
-- Do not expose raw adapter logs or filesystem content.
-- Do not add legacy aliases for older event shapes.
+- Do not implement parent interruption semantics in this slice.
+- Do not create a synthetic child invocation for unavailable routes.
+- Do not add compatibility aliases for older result metadata.
+- Do not expose raw route registry internals beyond the bounded failure reason.
 
 ## Surface Map
 
-- Shared operator cockpit view-state:
-  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
-  - `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
-- CLI managed-agent command:
-  - `packages/cli/src/commands/managed-agent.ts`
-  - `packages/cli/src/commands/managed-agent.test.ts`
-- TUI managed-agent cockpit:
-  - `packages/tui/src/managed-agent-cockpit.ts`
-  - `packages/tui/tests/managed-agent-cockpit.test.ts`
-- Native managed-agent cockpit panel:
-  - `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
-  - `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
-- GUI managed-agent cockpit panel:
-  - `packages/gui/src/components/managed-agent-cockpit-panel.tsx`
-  - `packages/gui/tests/managed-agent-cockpit-panel.test.tsx`
+- Runtime managed-agent tool contract:
+  - `packages/runtime/src/agents/managed-invocation/runtime-tool.ts`
+  - `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`
+- Operator event presentation:
+  - `packages/gateway-contracts/src/operator-event-presentation.ts`
+  - `packages/gateway-contracts/tests/operator-event-presentation.test.ts`
+- GUI transcript presentation:
+  - `packages/gui/src/components/transcript.tsx`
+  - `packages/gui/tests/transcript.test.tsx`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
 
 ## Expected Behavior
 
-- Shared view-state projects ordinary adapter failure as `attentionState:
-  "failed"`, `status: "failed"`, and `lifecycleState: "failed"`.
-- Failed-child diagnostics and handoff pointers are de-duplicated and replayable
-  in the shared resource list.
-- Failed children are counted in attention, never active, and cancellation is
-  unavailable.
-- CLI, TUI, native, and GUI surfaces render the shared failed state without
-  local fallback lifecycle logic.
+- `managed_agent.invoke` and `managed_agent.start` unavailable-route failures
+  return `metadata.status: "unavailable"` and a comparison-table
+  `presentationIntent`.
+- The presentation intent `source` matches the tool that failed closed.
+- No child invocation session events are emitted for route-unavailable
+  preflight failures.
+- Operator and GUI transcript presentations render the structured unavailable
+  row without leaking JSON envelopes or inventing lifecycle/resource state.
 
 ## Verification
 
 - Add failing focused tests first.
-- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-view-state.test.ts`.
-- Run `bun run --filter @kilnai/cli test -- src/commands/managed-agent.test.ts`.
-- Run `bun run --filter @kilnai/tui test -- tests/managed-agent-cockpit.test.ts`.
-- Run `bun run --filter @kilnai/native test -- tests/managed-agent-cockpit-panel.test.tsx`.
-- Run `bun run --filter @kilnai/gui test -- tests/managed-agent-cockpit-panel.test.tsx`.
+- Run `bun run --filter @kilnai/runtime test -- tests/gateway/managed-invocation-tool.test.ts`.
+- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-event-presentation.test.ts`.
+- Run `bun run --filter @kilnai/gui test -- tests/transcript.test.tsx`.
 - Run `bun run typecheck`.
 - Run `bun run build`.
 - Run `bun run test`.

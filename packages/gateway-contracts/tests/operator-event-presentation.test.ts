@@ -533,6 +533,81 @@ describe("operator event presentation", () => {
     });
   });
 
+  it("projects route-unavailable managed tool results as structured operator tables", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "managed_agent.start",
+      outputSummary: JSON.stringify({
+        output: "Managed invocation route 'openrouter-readonly' is unavailable for provider 'openrouter' and profile 'foundation-readonly-plan': Direct provider route is not eligible.",
+        isError: true,
+        metadata: {
+          toolName: "managed_agent.start",
+          kind: "managed-invocation",
+          routeId: "openrouter-readonly",
+          profile: "foundation-readonly-plan",
+          providerRoute: {
+            providerId: "openrouter",
+            model: "openrouter/free",
+          },
+          status: "unavailable",
+          presentationIntent: {
+            kind: "comparison_table",
+            title: "Managed child invocation",
+            summary: "openrouter-readonly unavailable",
+            source: "managed_agent.start",
+            confidence: "medium",
+            columns: [
+              { key: "routeId", label: "Route", valueKind: "text" },
+              { key: "provider", label: "Provider", valueKind: "text" },
+              { key: "model", label: "Model", valueKind: "text" },
+              { key: "profile", label: "Profile", valueKind: "text" },
+              { key: "status", label: "Status", valueKind: "status" },
+              { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+              { key: "failureReason", label: "Failure", valueKind: "text" },
+            ],
+            rows: [
+              {
+                routeId: "openrouter-readonly",
+                provider: "openrouter",
+                model: "openrouter/free",
+                profile: "foundation-readonly-plan",
+                status: "unavailable",
+                substantiveEvidence: false,
+                failureReason: "Direct provider route is not eligible.",
+              },
+            ],
+          },
+        },
+      }),
+      status: { state: "failed" },
+    });
+
+    expect(presentation.title).toBe("Failed managed_agent.start");
+    expect(presentation.tone).toBe("error");
+    expect(presentation.summary).toBe("openrouter-readonly unavailable");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "table",
+      title: "Managed child invocation",
+      summary: "openrouter-readonly unavailable",
+      presentationIntent: {
+        kind: "comparison_table",
+        source: "managed_agent.start",
+        rows: [
+          expect.objectContaining({
+            routeId: "openrouter-readonly",
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: "Direct provider route is not eligible.",
+          }),
+        ],
+      },
+      preview: {
+        text: expect.stringContaining("| Route"),
+      },
+    });
+    expect(presentation.toolPresentation?.preview?.text).not.toContain("\"metadata\"");
+  });
+
   it("ignores invalid presentation intents and keeps fallback rendering", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",

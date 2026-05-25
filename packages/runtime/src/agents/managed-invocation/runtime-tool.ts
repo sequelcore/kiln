@@ -732,6 +732,7 @@ async function prepareManagedInvocationRequest(
             },
             status: "unavailable",
             presentationIntent: buildManagedInvocationPresentationIntent({
+              sourceToolName: toolName,
               routeId: unavailableRoute.routeId,
               profile: parsed.input.profile,
               providerId: unavailableRoute.providerId,
@@ -776,6 +777,7 @@ async function prepareManagedInvocationRequest(
           requiredToolNames: parsed.input.requiredToolNames ?? [],
           allowedToolNames: profileDefaults.allowedToolNames,
           presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
             routeId: route.routeId,
             profile: parsed.input.profile,
             providerId: route.providerId,
@@ -806,6 +808,7 @@ async function prepareManagedInvocationRequest(
           missingRequiredCapabilities,
           requiredToolNames: parsed.input.requiredToolNames ?? [],
           presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
             routeId: route.routeId,
             profile: parsed.input.profile,
             providerId: route.providerId,
@@ -1105,6 +1108,7 @@ async function executeManagedInvocationTool(
         ...(result.decision.resourceLease ? { resourceLease: result.decision.resourceLease } : {}),
         sessionEventIds: events.map((event) => event.eventId),
         presentationIntent: buildManagedInvocationPresentationIntent({
+          sourceToolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
           routeId: prepared.route.routeId,
           profile: prepared.request.profile,
           providerId: prepared.request.providerRoute.providerId,
@@ -1544,6 +1548,7 @@ function terminalManagedInvocationResult(input: {
       ...(phaseCompletion ? { managedInvocationPhaseCompletion: phaseCompletion } : {}),
       sessionEventIds: input.sessionEventIds,
       presentationIntent: buildManagedInvocationPresentationIntent({
+        sourceToolName: input.toolName,
         routeId: input.routeId,
         profile: input.record.profile,
         providerId: input.record.providerRoute.providerId,
@@ -1558,6 +1563,7 @@ function terminalManagedInvocationResult(input: {
 }
 
 function buildManagedInvocationPresentationIntent(input: {
+  readonly sourceToolName: string;
   readonly routeId: string;
   readonly profile: ManagedAgentAdmissionProfile;
   readonly providerId: string;
@@ -1571,7 +1577,7 @@ function buildManagedInvocationPresentationIntent(input: {
     kind: "comparison_table",
     title: "Managed child invocation",
     summary: `${input.routeId} ${input.status}`,
-    source: MANAGED_AGENT_INVOKE_TOOL_NAME,
+    source: input.sourceToolName,
     confidence: input.substantiveEvidence ? "high" : "medium",
     columns: [
       { key: "routeId", label: "Route", valueKind: "text" },

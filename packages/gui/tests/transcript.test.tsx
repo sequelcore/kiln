@@ -322,6 +322,71 @@ describe("Transcript", () => {
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
   });
 
+  it("renders route-unavailable managed invocation intents without raw envelopes", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:managed-unavailable",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Failed managed_agent.start",
+            summary: "openrouter-readonly unavailable",
+            tone: "error",
+            toolPresentation: {
+              outputKind: "table",
+              title: "Managed child invocation",
+              summary: "openrouter-readonly unavailable",
+              fields: [{ label: "Intent", value: "comparison_table" }],
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child invocation",
+                summary: "openrouter-readonly unavailable",
+                source: "managed_agent.start",
+                confidence: "medium",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "provider", label: "Provider" },
+                  { key: "model", label: "Model" },
+                  { key: "status", label: "Status", valueKind: "status" },
+                  { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+                  { key: "failureReason", label: "Failure" },
+                ],
+                rows: [
+                  {
+                    routeId: "openrouter-readonly",
+                    provider: "openrouter",
+                    model: "openrouter/free",
+                    status: "unavailable",
+                    substantiveEvidence: false,
+                    failureReason: "Direct provider route is not eligible.",
+                  },
+                ],
+              },
+              preview: {
+                text: "| Route | Provider |",
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Failure" })).toBeInTheDocument();
+    expect(within(table).getByText("openrouter-readonly")).toBeInTheDocument();
+    expect(within(table).getByText("unavailable")).toBeInTheDocument();
+    expect(within(table).getByText("no")).toBeInTheDocument();
+    expect(within(table).getByText("Direct provider route is not eligible.")).toBeInTheDocument();
+    expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
+  });
+
   it("exposes local recorder timeline controls for zoom, cut, caption, and redaction edits", () => {
     render(
       <Transcript
