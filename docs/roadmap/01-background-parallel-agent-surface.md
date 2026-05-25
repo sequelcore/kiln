@@ -125,7 +125,7 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7M
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7N
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
@@ -140,8 +140,10 @@ Active. Started on 2026-05-21. Current implementation status:
   `cancelled` evidence and suppressing late child success/failure. The
   direct-provider abort bridge now has focused proof that
   `SessionRunOptions.abortSignal` reaches runtime per-call config and builtin
-  tool execution context without arity-based context drops. Slice 8 is not
-  started.
+  tool execution context without arity-based context drops. The gated Codex
+  OAuth subscription-backed direct-provider live proof now covers separately
+  gated bounded approved writes through runtime credential-route leasing and
+  canonical write evidence. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -852,7 +854,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, and Slice 7M are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, Slice 7M, and Slice 7N are complete in code.
 
 Completed:
 
@@ -931,6 +933,12 @@ Completed:
   per-call config to `RuntimeBuiltinToolExecutionContext`. Runtime builtin
   tools receive the typed execution context consistently instead of depending
   on function arity.
+- Codex OAuth subscription-backed direct-provider live proof now includes a
+  separately gated approved-write case. The proof uses
+  `createManagedDirectProviderAdapterFactory`, runtime credential-route lease
+  admission, the shared builtin `write` tool, and canonical managed invocation
+  write evidence without adding a subscription-specific lifecycle or write
+  evidence path.
 
 Deliverables:
 

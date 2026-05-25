@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
   KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
   expectManagedAgentLiveFilesystemAndEvidence,
@@ -33,6 +34,14 @@ describe("managed agent live test harness", () => {
     expect(isManagedAgentProviderLiveTestsEnabled(KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV, {
       [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
       [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]: "1",
+    })).toBe(true);
+    expect(isManagedAgentProviderLiveTestsEnabled(KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV, {
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]: "1",
+    })).toBe(false);
+    expect(isManagedAgentProviderLiveTestsEnabled(KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV, {
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV]: "1",
     })).toBe(true);
   });
 
