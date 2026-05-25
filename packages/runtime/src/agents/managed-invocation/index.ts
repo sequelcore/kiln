@@ -987,10 +987,11 @@ export class RuntimeManagedAgentInvocationService {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is not registered");
     }
     if (entry.record?.lifecycleState === "cancelled") {
+      const record = await this.currentTerminalRecord(entry);
       return {
         status: "cancelled",
         decision: cloneJson(entry.decision),
-        record: cloneJson(entry.record),
+        record: cloneJson(record),
       };
     }
     if (isTerminalLifecycleState(entry.lifecycleState)) {
@@ -1001,6 +1002,19 @@ export class RuntimeManagedAgentInvocationService {
     entry.finishedAt = new Date();
     entry.lifecycleState = "cancelled";
     entry.record = createCancelledRecord(entry.request, entry.decision, reason);
+    if (!entry.adapterStarted) {
+      return {
+        status: "cancelled",
+        decision: cloneJson(entry.decision),
+        record: cloneJson(entry.record),
+      };
+    }
+    entry.record = await this.finalizeTerminalLeaseStages(entry, entry.record);
+    entry.terminal?.resolve({
+      status: "completed",
+      decision: entry.decision,
+      record: entry.record,
+    });
     return {
       status: "cancelled",
       decision: cloneJson(entry.decision),

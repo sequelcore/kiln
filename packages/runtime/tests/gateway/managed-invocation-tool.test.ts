@@ -1499,7 +1499,78 @@ describe("managed invocation runtime tool", () => {
     ]);
   });
 
-  it("publishes adapter cancellation evidence from the cancel terminal event", async () => {
+  it("returns managed_agent.cancel terminal evidence when the aborted adapter stays pending", async () => {
+    const { adapter, signal } = makeAbortableDeferredAdapter();
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = makeSurface(adapter, sessionEventSink);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-cancel-pending-start",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect cancellation behavior.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+
+    expect(signal()?.aborted).toBe(false);
+
+    const cancelledPromise = surface.callBuiltinTools.get("managed_agent.cancel")?.({
+      invocationId: started.metadata.invocationId,
+      reason: "Operator cancelled pending adapter output.",
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-cancel-pending", name: "managed_agent.cancel", input: {} },
+    }) as Promise<{
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly lifecycleState?: string;
+        readonly sessionEventIds?: readonly string[];
+      };
+    }>;
+
+    await flushMicrotasks();
+    const cancelState = await Promise.race([
+      cancelledPromise.then((result) => result.metadata.lifecycleState),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 0)),
+    ]);
+
+    expect(signal()?.aborted).toBe(true);
+    expect(cancelState).toBe("cancelled");
+    const cancelled = await cancelledPromise;
+    expect(cancelled).toMatchObject({
+      output: expect.stringContaining("Operator cancelled pending adapter output."),
+      isError: true,
+      metadata: {
+        lifecycleState: "cancelled",
+      },
+    });
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_cancelled",
+    ]);
+    expect(cancelled.metadata.sessionEventIds).toEqual([
+      session.sessionEvents[2]?.eventId,
+    ]);
+  });
+
+  it("publishes runtime cancellation evidence before late adapter cleanup evidence", async () => {
     const { adapter, terminal, signal } = makeAbortableDeferredAdapter();
     const surface = makeSurface(adapter);
     const session = makeSession();
@@ -1576,12 +1647,9 @@ describe("managed invocation runtime tool", () => {
       kind: "agent_invocation_cancelled",
       reason: "Operator cancelled with cleanup evidence.",
       managedInvocationEvidence: {
-        transcript: {
-          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
-        },
         resultHandoff: {
           summary: "Operator cancelled with cleanup evidence.",
-          resourceUris: [`kiln://managed-invocations/${request.invocationId}/cancel-cleanup`],
+          resourceUris: [],
         },
       },
     });

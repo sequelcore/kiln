@@ -1404,13 +1404,20 @@ describe("RuntimeManagedAgentInvocationService", () => {
       capturedAt: "2026-05-07T08:00:00.000Z",
     });
     const cancelled = await service.cancel("invocation-1", "Operator cancelled before artifact-directory acquisition completed.");
+    const joinedBeforeAcquirePromise = service.join("invocation-1");
+    await flushMicrotasks();
+    const joinedBeforeAcquire = await Promise.race([
+      joinedBeforeAcquirePromise.then((result) => result.record.lifecycleState),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 0)),
+    ]);
 
     expect(cancelled.record.resourceLease).toBeUndefined();
+    expect(joinedBeforeAcquire).toBe("pending");
     expect(adapter.invoke).not.toHaveBeenCalled();
 
     acquireGate.resolve();
     const started = await startedPromise;
-    const joined = await service.join("invocation-1");
+    const joined = await joinedBeforeAcquirePromise;
 
     expect(started.status).toBe("started");
     expect(joined.status).toBe("completed");
@@ -2880,7 +2887,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
   });
 
-  it("waits for adapter terminal cancellation before releasing isolated worktree leases", async () => {
+  it("releases isolated worktree leases during runtime cancellation before adapter terminal output", async () => {
     const request = makeIsolatedWorktreeRequest();
     const terminal = deferred<ManagedAgentInvocationRecord>();
     const worktreeLeaseManager = {
@@ -2904,8 +2911,11 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(started.status).toBe("started");
     const cancelled = await service.cancel("write-1", "Operator cancelled isolated worktree run.");
 
-    expect(cancelled.record.resourceLease).toBeUndefined();
-    expect(worktreeLeaseManager.release).not.toHaveBeenCalled();
+    expect(cancelled.record.resourceLease).toMatchObject({
+      healthStatus: "released",
+      cleanupStatus: "completed",
+    });
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
 
     terminal.resolve(defineManagedAgentInvocationRecord({
       ...makeRecordForRequest(request, started.status === "started" ? started.decision.capabilitySnapshot : undefined),
@@ -4390,6 +4400,37 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(service.status("invocation-1")?.error).toBeUndefined();
   });
 
+  it("resolves cancellation joins without waiting for late adapter output", async () => {
+    let adapterSignal: AbortSignal | undefined;
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ abortSignal }) => {
+        adapterSignal = abortSignal;
+        await new Promise<never>(() => undefined);
+      }),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(makeRequest(), adapter);
+
+    expect(started.status).toBe("started");
+    expect(adapterSignal?.aborted).toBe(false);
+
+    const cancelled = await service.cancel("invocation-1", "Operator cancelled the child run.");
+    const joinPromise = service.join("invocation-1");
+    await flushMicrotasks();
+    const joinedState = await Promise.race([
+      joinPromise.then((result) => result.record.lifecycleState),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 0)),
+    ]);
+
+    expect(adapterSignal?.aborted).toBe(true);
+    expect(cancelled.record.lifecycleState).toBe("cancelled");
+    expect(joinedState).toBe("cancelled");
+    expect(service.status("invocation-1")?.record?.resultHandoff?.summary)
+      .toBe("Operator cancelled the child run.");
+  });
+
   it("enriches a cancelled invocation when the adapter later returns cancellation evidence", async () => {
     const terminal = deferred<ManagedAgentInvocationRecord>();
     const adapter: ManagedAgentRuntimeAdapter = {
@@ -4415,7 +4456,12 @@ describe("RuntimeManagedAgentInvocationService", () => {
         memoryWriteProposalUris: [],
       },
     }));
-    await flushMicrotasks();
+    for (let index = 0; index < 12; index += 1) {
+      await flushMicrotasks();
+      if (service.status("invocation-1")?.record?.transcript?.uri !== undefined) {
+        break;
+      }
+    }
     const joined = await service.join("invocation-1");
 
     expect(service.status("invocation-1")).toMatchObject({

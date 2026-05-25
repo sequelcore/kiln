@@ -2150,32 +2150,17 @@ describe("startGuiGateway static mount", () => {
     };
     const parentSessionId = "session-control";
     let startedInvocationId = "";
+    let abortObserved = false;
     const cancellableAdapter: ManagedAgentRuntimeAdapter = {
       descriptor: baseRoute.adapter.descriptor,
-      invoke: async ({ request: adapterRequest, admission, abortSignal }) => {
+      invoke: async ({ abortSignal }) => {
         if (!abortSignal.aborted) {
           await new Promise<void>((resolve) => {
             abortSignal.addEventListener("abort", () => resolve(), { once: true });
           });
         }
-        return defineManagedAgentInvocationRecord({
-          invocationId: adapterRequest.invocationId,
-          agentId: adapterRequest.agentId,
-          parentSessionId: adapterRequest.parentSessionId,
-          parentTurnId: adapterRequest.parentTurnId,
-          profile: adapterRequest.profile,
-          lifecycleState: "cancelled",
-          providerRoute: adapterRequest.providerRoute,
-          adapterKind: adapterRequest.adapterKind,
-          executionMode: adapterRequest.executionMode,
-          authority: adapterRequest.authority,
-          capabilitySnapshot: admission.capabilitySnapshot,
-          resultHandoff: {
-            summary: "GUI child cancelled.",
-            resourceUris: [],
-            memoryWriteProposalUris: [],
-          },
-        });
+        abortObserved = true;
+        await new Promise<never>(() => undefined);
       },
     };
     vi.mocked(processAdmittedTurn).mockReset();
@@ -2274,7 +2259,7 @@ describe("startGuiGateway static mount", () => {
         wsCtx,
       );
       expect(startedInvocationId).not.toBe("");
-      await handlers.onMessage!(
+      const cancelMessage = handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({
             type: "managed_agent_control",
@@ -2287,6 +2272,11 @@ describe("startGuiGateway static mount", () => {
         }),
         wsCtx,
       );
+      await flushAsyncWork();
+      const cancelState = await Promise.race([
+        cancelMessage.then(() => "resolved" as const),
+        new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 0)),
+      ]);
 
       const outboundFrames = mockWs.send.mock.calls
         .map(([payload]) => JSON.parse(payload as string) as {
@@ -2302,6 +2292,8 @@ describe("startGuiGateway static mount", () => {
         && frame.event?.kind === "agent_invocation_cancelled"
       );
 
+      expect(abortObserved).toBe(true);
+      expect(cancelState).toBe("resolved");
       expect(controlResultFrame).toMatchObject({
         type: "managed_agent_control_result",
         action: "cancel",

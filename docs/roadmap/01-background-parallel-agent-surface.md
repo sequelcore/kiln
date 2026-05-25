@@ -125,11 +125,14 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7I
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7J
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
-  across resource/cockpit projections are in place. Slice 8 is not started.
+  across resource/cockpit projections are in place. Runtime-owned cancellation
+  now resolves terminal evidence without waiting for late adapter output after
+  child execution starts, while in-flight lease acquisition still waits for
+  cleanup evidence before terminal publication. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -840,7 +843,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, and Slice 7I are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, and Slice 7J are complete in code.
 
 Completed:
 
@@ -894,6 +897,13 @@ Completed:
   preserve the correct presentation intent source, emit no child lifecycle
   events, and render unavailable route rows without raw JSON envelopes or
   synthetic child state.
+- Runtime-owned managed-agent cancellation now publishes terminal cancellation
+  evidence without waiting for late adapter output after adapter execution has
+  started. `managed_agent.cancel` and GUI managed-agent control acknowledge and
+  stream the runtime-owned cancelled record while suppressing later adapter
+  success/failure from replacing the cancelled lifecycle. Cancellation during
+  runtime lease acquisition still waits for acquire cleanup before `join`
+  resolves, preserving cleanup-before-terminal evidence.
 
 Deliverables:
 
