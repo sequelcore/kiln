@@ -9,6 +9,7 @@ import {
   OPENCODE_BASE_URL,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineManagedAgentWriteAuthority,
   textParts,
   type ManagedAgentInvocationRequest,
   type OpenCodeAuthFile,
@@ -36,8 +37,11 @@ import {
   type GuiCliProviderModelDiscovery,
 } from "../../src/gateway/gui-provider-models.js";
 import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
+import { createManagedInvocationLifecycleToolExecutors } from "../../src/agents/managed-invocation/runtime-tool.js";
 import {
+  ManagedAgentWorktreeReviewRequiredError,
   RuntimeManagedAgentInvocationService,
+  type ManagedAgentWorktreeLeaseManager,
   type ManagedAgentRuntimeAdapter,
 } from "../../src/agents/managed-invocation/index.js";
 import { CodexOAuthCredentialPoolService } from "../../src/agents/credential-pool/codex-oauth-credential-pool.js";
@@ -95,9 +99,13 @@ vi.mock("hono/bun", () => ({
   }),
 }));
 
-vi.mock("../../src/gateway/message-pipeline.js", () => ({
-  processAdmittedTurn: vi.fn(),
-}));
+vi.mock("../../src/gateway/message-pipeline.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/gateway/message-pipeline.js")>();
+  return {
+    ...actual,
+    processAdmittedTurn: vi.fn(),
+  };
+});
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -310,6 +318,363 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
     }],
     requestedBy: "assistant",
     requestSource: "gui",
+  };
+}
+
+function makeManagedWriteConflictFixture(): {
+  readonly invocationService: RuntimeManagedAgentInvocationService;
+  readonly managedInvocation: ManagedInvocationToolOptions;
+  readonly releaseActive: { resolve?: () => void };
+  readonly startInput: {
+    readonly profile: "foundation-apply-approved-writes";
+    readonly routeId: "opencode-approved-write";
+    readonly providerRoute: {
+      readonly providerId: "opencode";
+      readonly model: "opencode-default-model";
+    };
+    readonly requestedAuthority: "destructive";
+    readonly task: "Apply the approved runtime edit.";
+  };
+} {
+  const invocationService = new RuntimeManagedAgentInvocationService();
+  const releaseActive = { resolve: undefined as (() => void) | undefined };
+  const activeCompleted = new Promise<void>((resolve) => {
+    releaseActive.resolve = resolve;
+  });
+  const writeAdapter: ManagedAgentRuntimeAdapter = {
+    descriptor: defineManagedAgentAdapterDescriptor({
+      adapterDescriptorId: "adapter:opencode:approved-write",
+      providerId: "opencode",
+      adapterKind: "harness",
+      supportedProfiles: ["foundation-apply-approved-writes"],
+      supportedExecutionModes: ["cli-harness"],
+      lifecycle: {
+        exposesStart: true,
+        exposesTerminal: true,
+        exposesCleanup: true,
+      },
+      cancellation: { supported: true },
+      timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+      transcript: {
+        supported: true,
+        redactionKnown: true,
+        truncationKnown: true,
+        persistenceKnown: true,
+        retentionKnown: true,
+      },
+      usage: {
+        supported: true,
+        preservesProviderTokenClasses: true,
+        supportsExplicitUnknowns: true,
+      },
+      resultHandoff: {
+        boundedSummary: true,
+        resourcePointers: true,
+      },
+      credentialRoute: { supported: true },
+      memoryContext: { governedAdmission: true },
+      unsupportedFieldPolicy: "reject",
+      cleanup: { supported: true },
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: false,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    }),
+    invoke: async ({ request, admission }) => {
+      await activeCompleted;
+      return defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        resultHandoff: {
+          summary: "Approved write completed.",
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+          memoryWriteProposalUris: [],
+        },
+      });
+    },
+  };
+  const managedInvocation = {
+    invocationService,
+    routes: [{
+      routeId: "opencode-approved-write",
+      providerId: "opencode",
+      model: "opencode-default-model",
+      adapter: writeAdapter,
+      profiles: {
+        "foundation-apply-approved-writes": {
+          authorityProfileId: "authority:opencode:approved-write",
+          permissionProfile: "apply-approved-writes",
+          allowedToolNames: ["read", "grep", "apply-patch"],
+          writeAllowed: true,
+          networkAllowed: false,
+          workingDirectory: {
+            path: "C:/workspace/kiln",
+            mode: "workspace-write",
+          },
+          timeoutMs: 120000,
+          credentialRoute: {
+            mode: "credentialless",
+          },
+          memoryScope: {
+            scope: { kind: "project", id: "kiln" },
+            access: "read-only",
+          },
+          writeAuthority: defineManagedAgentWriteAuthority({
+            profile: "foundation-apply-approved-writes",
+            scope: {
+              workspace: {
+                mode: "apply-approved",
+                allowedPaths: ["C:/workspace/kiln/packages/runtime/src"],
+                deniedPaths: ["C:/workspace/kiln/.git"],
+              },
+              memory: {
+                mode: "none",
+                operations: [],
+              },
+              artifacts: {
+                mode: "none",
+                resourceUris: [],
+                retention: "none",
+              },
+              tools: {
+                allowedToolNames: ["apply-patch"],
+                deniedToolNames: ["git-commit"],
+              },
+            },
+            approval: {
+              mode: "required-before-apply",
+              evidenceRequired: true,
+            },
+          }),
+        },
+      },
+    }],
+    requestedBy: "assistant",
+    requestSource: "gui",
+  } satisfies ManagedInvocationToolOptions;
+  const startInput = {
+    profile: "foundation-apply-approved-writes",
+    routeId: "opencode-approved-write",
+    providerRoute: {
+      providerId: "opencode",
+      model: "opencode-default-model",
+    },
+    requestedAuthority: "destructive",
+    task: "Apply the approved runtime edit.",
+  } as const;
+
+  return {
+    invocationService,
+    managedInvocation,
+    releaseActive,
+    startInput,
+  };
+}
+
+function makeManagedDirtyWorktreeReviewFixture(): {
+  readonly invocationService: RuntimeManagedAgentInvocationService;
+  readonly managedInvocation: ManagedInvocationToolOptions;
+  readonly completeChild: { resolve?: () => void };
+  readonly startInput: {
+    readonly profile: "foundation-apply-approved-writes";
+    readonly routeId: "opencode-isolated-write";
+    readonly providerRoute: {
+      readonly providerId: "opencode";
+      readonly model: "opencode-default-model";
+    };
+    readonly requestedAuthority: "destructive";
+    readonly task: "Apply the approved runtime edit in an isolated worktree.";
+  };
+} {
+  const completeChild = { resolve: undefined as (() => void) | undefined };
+  const childCompleted = new Promise<void>((resolve) => {
+    completeChild.resolve = resolve;
+  });
+  const worktreeLeaseManager: ManagedAgentWorktreeLeaseManager = {
+    acquire: vi.fn(async ({ request, lease }) => ({
+      ...lease,
+      healthStatus: "healthy",
+      cleanupStatus: "pending",
+      resourceUris: [...lease.resourceUris, `kiln://artifacts/${request.invocationId}/worktree-lease`],
+    })),
+    release: vi.fn(async () => {
+      throw new ManagedAgentWorktreeReviewRequiredError(
+        "Managed git worktree lease is dirty; preserving worktree for review",
+      );
+    }),
+  };
+  const invocationService = new RuntimeManagedAgentInvocationService({
+    worktreeLeaseManager,
+  });
+  const adapter: ManagedAgentRuntimeAdapter = {
+    descriptor: defineManagedAgentAdapterDescriptor({
+      adapterDescriptorId: "adapter:opencode:isolated-write",
+      providerId: "opencode",
+      adapterKind: "harness",
+      supportedProfiles: ["foundation-apply-approved-writes"],
+      supportedExecutionModes: ["cli-harness"],
+      lifecycle: {
+        exposesStart: true,
+        exposesTerminal: true,
+        exposesCleanup: true,
+      },
+      cancellation: { supported: true },
+      timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+      transcript: {
+        supported: true,
+        redactionKnown: true,
+        truncationKnown: true,
+        persistenceKnown: true,
+        retentionKnown: true,
+      },
+      usage: {
+        supported: true,
+        preservesProviderTokenClasses: true,
+        supportsExplicitUnknowns: true,
+      },
+      resultHandoff: {
+        boundedSummary: true,
+        resourcePointers: true,
+      },
+      credentialRoute: { supported: true },
+      memoryContext: { governedAdmission: true },
+      unsupportedFieldPolicy: "reject",
+      cleanup: { supported: true },
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: false,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    }),
+    invoke: async ({ request, admission }) => {
+      await childCompleted;
+      return defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        resultHandoff: {
+          summary: "Gateway isolated worktree child completed.",
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+          memoryWriteProposalUris: [],
+        },
+      });
+    },
+  };
+  const managedInvocation = {
+    invocationService,
+    routes: [{
+      routeId: "opencode-isolated-write",
+      providerId: "opencode",
+      model: "opencode-default-model",
+      adapter,
+      profiles: {
+        "foundation-apply-approved-writes": {
+          authorityProfileId: "authority:opencode:isolated-write",
+          permissionProfile: "apply-approved-writes",
+          allowedToolNames: ["read", "grep", "apply-patch"],
+          writeAllowed: true,
+          networkAllowed: false,
+          workingDirectory: {
+            path: "C:/workspace/kiln/.kiln/managed-worktrees",
+            mode: "isolated-worktree",
+          },
+          workingDirectoryLease: {
+            mode: "git-worktree",
+            sourcePath: "C:/workspace/kiln",
+            rootPath: "C:/workspace/kiln/.kiln/managed-worktrees",
+          },
+          timeoutMs: 120000,
+          credentialRoute: {
+            mode: "credentialless",
+          },
+          memoryScope: {
+            scope: { kind: "project", id: "kiln" },
+            access: "read-only",
+          },
+          writeAuthority: defineManagedAgentWriteAuthority({
+            profile: "foundation-apply-approved-writes",
+            scope: {
+              workspace: {
+                mode: "apply-approved",
+                allowedPaths: ["C:/workspace/kiln/packages/runtime/src"],
+                deniedPaths: ["C:/workspace/kiln/.git"],
+              },
+              memory: {
+                mode: "none",
+                operations: [],
+              },
+              artifacts: {
+                mode: "none",
+                resourceUris: [],
+                retention: "none",
+              },
+              tools: {
+                allowedToolNames: ["apply-patch"],
+                deniedToolNames: ["git-commit"],
+              },
+            },
+            approval: {
+              mode: "required-before-apply",
+              evidenceRequired: true,
+            },
+          }),
+        },
+      },
+    }],
+    requestedBy: "assistant",
+    requestSource: "gui",
+  } satisfies ManagedInvocationToolOptions;
+  const startInput = {
+    profile: "foundation-apply-approved-writes",
+    routeId: "opencode-isolated-write",
+    providerRoute: {
+      providerId: "opencode",
+      model: "opencode-default-model",
+    },
+    requestedAuthority: "destructive",
+    task: "Apply the approved runtime edit in an isolated worktree.",
+  } as const;
+
+  return {
+    invocationService,
+    managedInvocation,
+    completeChild,
+    startInput,
   };
 }
 
@@ -1666,6 +2031,897 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("streams route-unavailable managed-agent start results without child lifecycle frames", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>(
+      "../../src/gateway/message-pipeline.js",
+    );
+    const unavailableReason = "Direct provider route 'openrouter-readonly' requires a tool-call-capable model.";
+    const toolInput = {
+      profile: "foundation-readonly-plan",
+      routeId: "openrouter-readonly",
+      providerRoute: {
+        providerId: "openrouter",
+        model: "openrouter/free",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+    };
+    const toolCallId = "tool-call-managed-start-unavailable";
+    const managedInvocation = {
+      ...makeManagedInvocationOptions(),
+      routes: [],
+      unavailableRoutes: [{
+        routeId: "openrouter-readonly",
+        providerId: "openrouter",
+        model: "openrouter/free",
+        profiles: ["foundation-readonly-plan" as const],
+        reason: unavailableReason,
+      }],
+    } satisfies ManagedInvocationToolOptions;
+    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(managedInvocation).get("managed_agent.start");
+    if (!startManagedAgent) {
+      throw new Error("managed_agent.start executor was not registered");
+    }
+    const toolResult = await startManagedAgent(toolInput, {
+      session: new RuntimeSession({
+        sessionId: "gui-route-unavailable-parent",
+        appName: "kiln-gui",
+        tenantId: "gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      }),
+      toolCall: {
+        id: toolCallId,
+        name: "managed_agent.start",
+        input: toolInput,
+      },
+    });
+    if (!toolResult || typeof toolResult !== "object" || Array.isArray(toolResult)) {
+      throw new Error("managed_agent.start returned a non-object result");
+    }
+    const managedToolResult = toolResult as {
+      output: string;
+      outputSummary?: string;
+      isError?: boolean;
+      metadata?: Record<string, unknown>;
+    };
+    const toolOutput = managedToolResult.output;
+    const expectedMetadata = managedToolResult.metadata;
+    const runtimePresentationIntent = expectedMetadata?.presentationIntent;
+    expect(managedToolResult.isError).toBe(true);
+    expect(expectedMetadata).toMatchObject({
+      toolName: "managed_agent.start",
+      kind: "managed-invocation",
+      routeId: "openrouter-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "openrouter",
+        model: "openrouter/free",
+      },
+      status: "unavailable",
+    });
+    expect(runtimePresentationIntent).toMatchObject({
+      source: "managed_agent.start",
+      rows: [
+        expect.objectContaining({
+          routeId: "openrouter-readonly",
+          provider: "openrouter",
+          model: "openrouter/free",
+          profile: "foundation-readonly-plan",
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: unavailableReason,
+        }),
+      ],
+    });
+    const factory = vi.fn(() => ({
+      run: async function* () {
+        yield {
+          type: "tool_use",
+          toolName: "managed_agent.start",
+          input: toolInput,
+          toolCallId,
+        };
+        yield {
+          type: "tool_result",
+          toolName: "managed_agent.start",
+          output: toolOutput,
+          outputSummary: toolOutput,
+          toolCallId,
+          isError: true,
+          metadata: expectedMetadata,
+        };
+        yield {
+          type: "text_delta",
+          content: "The managed child route is unavailable before invocation.",
+        };
+        yield {
+          type: "completed",
+          totalUsd: 0,
+          durationMs: 12,
+          isError: false,
+          isPreflightCrash: false,
+        };
+      },
+      dispose: vi.fn(async () => undefined),
+    }));
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(actualMessagePipeline.processAdmittedTurn);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation,
+        operatorTransport: {
+          sessionManager: {
+            factory: factory as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start unavailable child" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
+        type: string;
+        content?: string;
+        event?: { kind: string; payload: Record<string, unknown> };
+      });
+      const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
+      const toolEventFrames = sessionEventFrames.filter((frame) => frame.event?.kind.startsWith("tool_call_"));
+      const completedFrame = toolEventFrames.find((frame) => frame.event?.kind === "tool_call_completed");
+      const completedPayload = completedFrame?.event?.payload;
+      const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
+        frame.event?.kind.startsWith("agent_invocation_")
+      );
+      const admittedTurn = vi.mocked(processAdmittedTurn).mock.calls[0]?.[0];
+
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "The managed child route is unavailable before invocation.",
+      }));
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
+      expect(admittedTurn?.callBuiltinTools?.get("managed_agent.start")).toEqual(expect.any(Function));
+      expect(admittedTurn?.perCallConfig?.toolAllowlist?.has("managed_agent.start")).toBe(true);
+      expect(admittedTurn?.perCallConfig?.additionalTools?.some((tool) => tool.name === "managed_agent.start")).toBe(
+        true,
+      );
+      expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
+        "tool_call_started",
+        "tool_call_completed",
+      ]);
+      expect(completedPayload).toMatchObject({
+        toolCallId,
+        toolName: "managed_agent.start",
+        output: toolOutput,
+        outputSummary: toolOutput,
+        status: {
+          state: "failed",
+        },
+        metadata: {
+          toolName: "managed_agent.start",
+          kind: "managed-invocation",
+          routeId: "openrouter-readonly",
+          profile: "foundation-readonly-plan",
+          status: "unavailable",
+          providerRoute: {
+            providerId: "openrouter",
+            model: "openrouter/free",
+          },
+        },
+      });
+      expect(completedPayload?.metadata).toEqual(expectedMetadata);
+      expect(managedLifecycleFrames).toEqual([]);
+      expect(factory).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      label: "missing required tools",
+      createManagedInvocation: () => makeManagedInvocationOptions(),
+      toolInput: {
+        profile: "foundation-readonly-plan",
+        routeId: "opencode-readonly",
+        providerRoute: {
+          providerId: "opencode",
+          model: "openai/gpt-4o:free",
+        },
+        task: "Collect visual-reference-research.",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["web_search", "browser_observe"],
+        requestedAuthority: "read_only",
+      },
+      expectedMetadata: {
+        routeId: "opencode-readonly",
+        missingRequiredTools: ["web_search", "browser_observe"],
+        requiredToolNames: ["web_search", "browser_observe"],
+        allowedToolNames: ["read", "grep", "glob"],
+      },
+      expectedFailureReason: "Missing required route tools: web_search, browser_observe",
+    },
+    {
+      label: "missing required capabilities",
+      createManagedInvocation: () => {
+        const base = makeManagedInvocationOptions();
+        const route = base.routes[0]!;
+        const profile = route.profiles["foundation-readonly-plan"]!;
+        return {
+          ...base,
+          routes: [{
+            ...route,
+            routeId: "opencode-readonly-visual-without-network",
+            profiles: {
+              "foundation-readonly-plan": {
+                ...profile,
+                allowedToolNames: ["read", "grep", "glob", "web_search", "browser_observe"],
+                networkAllowed: false,
+              },
+            },
+          }],
+        } satisfies ManagedInvocationToolOptions;
+      },
+      toolInput: {
+        profile: "foundation-readonly-plan",
+        routeId: "opencode-readonly-visual-without-network",
+        providerRoute: {
+          providerId: "opencode",
+          model: "openai/gpt-4o:free",
+        },
+        task: "Collect visual-reference-research.",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["web_search", "browser_observe"],
+        requestedAuthority: "read_only",
+      },
+      expectedMetadata: {
+        routeId: "opencode-readonly-visual-without-network",
+        missingRequiredCapabilities: ["network"],
+        requiredToolNames: ["web_search", "browser_observe"],
+      },
+      expectedFailureReason: "Missing required route capabilities: network",
+    },
+  ])("streams $label managed-agent start results without child lifecycle frames", async ({
+    createManagedInvocation,
+    toolInput,
+    expectedMetadata,
+    expectedFailureReason,
+  }) => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>(
+      "../../src/gateway/message-pipeline.js",
+    );
+    const managedInvocation = createManagedInvocation();
+    const toolCallId = `tool-call-managed-start-${expectedMetadata.routeId}`;
+    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(managedInvocation).get("managed_agent.start");
+    if (!startManagedAgent) {
+      throw new Error("managed_agent.start executor was not registered");
+    }
+    const toolResult = await startManagedAgent(toolInput, {
+      session: new RuntimeSession({
+        sessionId: `gui-${expectedMetadata.routeId}-parent`,
+        appName: "kiln-gui",
+        tenantId: "gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      }),
+      toolCall: {
+        id: toolCallId,
+        name: "managed_agent.start",
+        input: toolInput,
+      },
+    });
+    if (!toolResult || typeof toolResult !== "object" || Array.isArray(toolResult)) {
+      throw new Error("managed_agent.start returned a non-object result");
+    }
+    const managedToolResult = toolResult as {
+      output: string;
+      outputSummary?: string;
+      isError?: boolean;
+      metadata?: Record<string, unknown>;
+    };
+    const toolOutput = managedToolResult.output;
+    const runtimeMetadata = managedToolResult.metadata;
+    const runtimePresentationIntent = runtimeMetadata?.presentationIntent;
+    expect(managedToolResult.isError).toBe(true);
+    expect(runtimeMetadata).toMatchObject({
+      toolName: "managed_agent.start",
+      kind: "managed-invocation",
+      profile: "foundation-readonly-plan",
+      status: "unavailable",
+      ...expectedMetadata,
+    });
+    expect(runtimePresentationIntent).toMatchObject({
+      source: "managed_agent.start",
+      rows: [
+        expect.objectContaining({
+          routeId: expectedMetadata.routeId,
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: expectedFailureReason,
+        }),
+      ],
+    });
+    const factory = vi.fn(() => ({
+      run: async function* () {
+        yield {
+          type: "tool_use",
+          toolName: "managed_agent.start",
+          input: toolInput,
+          toolCallId,
+        };
+        yield {
+          type: "tool_result",
+          toolName: "managed_agent.start",
+          output: toolOutput,
+          outputSummary: toolOutput,
+          toolCallId,
+          isError: true,
+          metadata: runtimeMetadata,
+        };
+        yield {
+          type: "text_delta",
+          content: "The managed child route requirements are unavailable before invocation.",
+        };
+        yield {
+          type: "completed",
+          totalUsd: 0,
+          durationMs: 12,
+          isError: false,
+          isPreflightCrash: false,
+        };
+      },
+      dispose: vi.fn(async () => undefined),
+    }));
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(actualMessagePipeline.processAdmittedTurn);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation,
+        operatorTransport: {
+          sessionManager: {
+            factory: factory as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start unavailable child requirements" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
+        type: string;
+        content?: string;
+        event?: { kind: string; payload: Record<string, unknown> };
+      });
+      const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
+      const toolEventFrames = sessionEventFrames.filter((frame) => frame.event?.kind.startsWith("tool_call_"));
+      const completedFrame = toolEventFrames.find((frame) => frame.event?.kind === "tool_call_completed");
+      const completedPayload = completedFrame?.event?.payload;
+      const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
+        frame.event?.kind.startsWith("agent_invocation_")
+      );
+      const admittedTurn = vi.mocked(processAdmittedTurn).mock.calls[0]?.[0];
+
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "The managed child route requirements are unavailable before invocation.",
+      }));
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
+      expect(admittedTurn?.callBuiltinTools?.get("managed_agent.start")).toEqual(expect.any(Function));
+      expect(admittedTurn?.perCallConfig?.toolAllowlist?.has("managed_agent.start")).toBe(true);
+      expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
+        "tool_call_started",
+        "tool_call_completed",
+      ]);
+      expect(completedPayload).toMatchObject({
+        toolCallId,
+        toolName: "managed_agent.start",
+        output: toolOutput,
+        outputSummary: toolOutput,
+        status: {
+          state: "failed",
+        },
+        metadata: {
+          toolName: "managed_agent.start",
+          kind: "managed-invocation",
+          profile: "foundation-readonly-plan",
+          status: "unavailable",
+          ...expectedMetadata,
+        },
+      });
+      expect(completedPayload?.metadata).toEqual(runtimeMetadata);
+      expect(managedLifecycleFrames).toEqual([]);
+      expect(factory).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("streams denied worktree-conflict managed-agent start evidence through shared cockpit projection", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const { invocationService, managedInvocation, releaseActive, startInput } = makeManagedWriteConflictFixture();
+    const parentSessionId = "session-denied-worktree-conflict";
+    let activeInvocationId = "";
+    let deniedInvocationId = "";
+    let deniedMetadata: Record<string, unknown> | undefined;
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const session = await input.sessionRegistry.getOrCreate({
+        sessionId: parentSessionId,
+        appName: "kiln-gui",
+        tenantId: "_gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      await input.turnCapture?.start?.(session.id, 10);
+      const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
+      if (!startManagedAgent) {
+        throw new Error("managed_agent.start was not attached to the GUI turn surface");
+      }
+      const requestApproval = vi.fn(async () => ({
+        approved: true,
+        reason: "operator approved bounded write",
+      }));
+      const active = await startManagedAgent(startInput, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-active-write",
+          name: "managed_agent.start",
+          input: startInput,
+        },
+        requestApproval,
+      });
+      if (active.isError) {
+        throw new Error(active.output);
+      }
+      activeInvocationId = (active.metadata as { invocationId: string }).invocationId;
+      const denied = await startManagedAgent(startInput, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-conflicting-write",
+          name: "managed_agent.start",
+          input: startInput,
+        },
+        requestApproval,
+      });
+      if (!denied.isError) {
+        throw new Error("Expected second same-checkout managed_agent.start to be denied");
+      }
+      deniedMetadata = denied.metadata as Record<string, unknown>;
+      deniedInvocationId = String(deniedMetadata.invocationId);
+      await input.sessionRegistry.save(session);
+      await input.turnCapture?.finish?.(session.id);
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Denied conflicting managed write." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: "trace-managed-denied-worktree-conflict",
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start conflicting write child" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          content?: string;
+          event?: {
+            eventId: string;
+            kilnSessionId: string;
+            sequence: number;
+            timestamp: string;
+            kind: string;
+            payload: Record<string, unknown>;
+          };
+        });
+      const deniedLifecycleFrames = outboundFrames.filter((frame) =>
+        frame.type === "session_event"
+        && frame.event?.kind.startsWith("agent_invocation_")
+        && frame.event.payload.invocationId === deniedInvocationId
+      );
+      const deniedFailedFrame = deniedLifecycleFrames.find((frame) =>
+        frame.event?.kind === "agent_invocation_failed"
+      );
+
+      expect(activeInvocationId).not.toBe("");
+      expect(deniedInvocationId).not.toBe("");
+      expect(deniedMetadata).toMatchObject({
+        status: "denied",
+        lifecycleState: "failed",
+        missingCapabilities: ["resourceLease.worktreeConflict"],
+        resourceLease: {
+          worktreeConflict: {
+            status: "blocked",
+            reason: "same-checkout-write-conflict",
+            requestedInvocationId: deniedInvocationId,
+            conflictingInvocationId: activeInvocationId,
+          },
+        },
+        presentationIntent: {
+          source: "managed_agent.start",
+          rows: [
+            expect.objectContaining({
+              routeId: "opencode-approved-write",
+              status: "denied",
+              substantiveEvidence: false,
+            }),
+          ],
+        },
+      });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "Denied conflicting managed write.",
+      }));
+      expect(deniedLifecycleFrames.map((frame) => frame.event?.kind)).toEqual([
+        "agent_invocation_requested",
+        "agent_invocation_failed",
+      ]);
+      expect(deniedLifecycleFrames.some((frame) => frame.event?.kind === "agent_invocation_started")).toBe(false);
+      expect(deniedFailedFrame?.event?.payload).toMatchObject({
+        invocationId: deniedInvocationId,
+        managedInvocationId: deniedInvocationId,
+        lifecycleState: "failed",
+        errorCode: "ADMISSION_DENIED",
+        managedInvocationEvidence: {
+          lifecycle: {
+            resourceLease: {
+              worktreeConflict: {
+                status: "blocked",
+                reason: "same-checkout-write-conflict",
+                requestedInvocationId: deniedInvocationId,
+                conflictingInvocationId: activeInvocationId,
+              },
+            },
+          },
+        },
+      });
+
+      const event = deniedFailedFrame?.event;
+      if (!event) {
+        throw new Error("Expected denied worktree-conflict failed session event frame");
+      }
+      const instanceId = String(event.payload.instanceId);
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-05-25T12:01:00.000Z",
+        attachTargets: [{
+          instanceId,
+          label: "GUI / kiln",
+          kind: "local",
+        }],
+        events: [event],
+      });
+      const view = createOperatorCockpitReadOnlyViewState({
+        projection,
+        viewState: {},
+      });
+
+      expect(view.managedAgents.items[0]).toMatchObject({
+        managedInvocationId: deniedInvocationId,
+        attentionState: "needs_review",
+        status: "failed",
+        lifecycleState: "failed",
+        worktreeConflictBlocked: true,
+        worktreeConflict: {
+          status: "blocked",
+          reason: "same-checkout-write-conflict",
+          requestedInvocationId: deniedInvocationId,
+          conflictingInvocationId: activeInvocationId,
+        },
+      });
+    } finally {
+      releaseActive.resolve?.();
+      if (activeInvocationId) {
+        await invocationService.join(activeInvocationId).catch(() => undefined);
+      }
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("streams denied worktree-conflict managed-agent start tool metadata without reshaping", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>(
+      "../../src/gateway/message-pipeline.js",
+    );
+    const { invocationService, managedInvocation, releaseActive, startInput } = makeManagedWriteConflictFixture();
+    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(managedInvocation).get("managed_agent.start");
+    if (!startManagedAgent) {
+      throw new Error("managed_agent.start executor was not registered");
+    }
+    const requestApproval = vi.fn(async () => ({
+      approved: true,
+      reason: "operator approved bounded write",
+    }));
+    const parentSession = new RuntimeSession({
+      sessionId: "gui-denied-worktree-conflict-tool-parent",
+      appName: "kiln-gui",
+      tenantId: "gui",
+      userId: "operator-1",
+      systemPrompt: "You are a helpful assistant.",
+    });
+    const active = await startManagedAgent(startInput, {
+      session: parentSession,
+      toolCall: {
+        id: "tool-call-managed-active-write",
+        name: "managed_agent.start",
+        input: startInput,
+      },
+      requestApproval,
+    });
+    if (active.isError) {
+      throw new Error(active.output);
+    }
+    const activeInvocationId = (active.metadata as { invocationId: string }).invocationId;
+    const toolCallId = "tool-call-managed-conflicting-write";
+    const denied = await startManagedAgent(startInput, {
+      session: parentSession,
+      toolCall: {
+        id: toolCallId,
+        name: "managed_agent.start",
+        input: startInput,
+      },
+      requestApproval,
+    });
+    if (!denied.isError) {
+      throw new Error("Expected second same-checkout managed_agent.start to be denied");
+    }
+    const toolOutput = denied.output;
+    const runtimeMetadata = denied.metadata as Record<string, unknown>;
+    const deniedInvocationId = String(runtimeMetadata.invocationId);
+    const factory = vi.fn(() => ({
+      run: async function* () {
+        yield {
+          type: "tool_use",
+          toolName: "managed_agent.start",
+          input: startInput,
+          toolCallId,
+        };
+        yield {
+          type: "tool_result",
+          toolName: "managed_agent.start",
+          output: toolOutput,
+          outputSummary: toolOutput,
+          toolCallId,
+          isError: true,
+          metadata: runtimeMetadata,
+        };
+        yield {
+          type: "text_delta",
+          content: "Denied conflicting managed write.",
+        };
+        yield {
+          type: "completed",
+          totalUsd: 0,
+          durationMs: 12,
+          isError: false,
+          isPreflightCrash: false,
+        };
+      },
+      dispose: vi.fn(async () => undefined),
+    }));
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(actualMessagePipeline.processAdmittedTurn);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation,
+        operatorTransport: {
+          sessionManager: {
+            factory: factory as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start conflicting write child" }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
+        type: string;
+        content?: string;
+        event?: { kind: string; payload: Record<string, unknown> };
+      });
+      const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
+      const toolEventFrames = sessionEventFrames.filter((frame) => frame.event?.kind.startsWith("tool_call_"));
+      const completedFrame = toolEventFrames.find((frame) => frame.event?.kind === "tool_call_completed");
+      const completedPayload = completedFrame?.event?.payload;
+      const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
+        frame.event?.kind.startsWith("agent_invocation_")
+      );
+      const admittedTurn = vi.mocked(processAdmittedTurn).mock.calls[0]?.[0];
+
+      expect(runtimeMetadata).toMatchObject({
+        invocationId: deniedInvocationId,
+        status: "denied",
+        lifecycleState: "failed",
+        missingCapabilities: ["resourceLease.worktreeConflict"],
+        resourceLease: {
+          worktreeConflict: {
+            status: "blocked",
+            reason: "same-checkout-write-conflict",
+            requestedInvocationId: deniedInvocationId,
+            conflictingInvocationId: activeInvocationId,
+          },
+        },
+        presentationIntent: {
+          source: "managed_agent.start",
+          rows: [
+            expect.objectContaining({
+              routeId: "opencode-approved-write",
+              status: "denied",
+              substantiveEvidence: false,
+              failureReason: expect.stringContaining("missingCapabilities=resourceLease.worktreeConflict"),
+            }),
+          ],
+        },
+      });
+      expect(outboundFrames).toContainEqual({ type: "thinking" });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "Denied conflicting managed write.",
+      }));
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
+      expect(admittedTurn?.callBuiltinTools?.get("managed_agent.start")).toEqual(expect.any(Function));
+      expect(admittedTurn?.perCallConfig?.toolAllowlist?.has("managed_agent.start")).toBe(true);
+      expect(toolEventFrames.map((frame) => frame.event?.kind)).toEqual([
+        "tool_call_started",
+        "tool_call_completed",
+      ]);
+      expect(completedPayload).toMatchObject({
+        toolCallId,
+        toolName: "managed_agent.start",
+        output: toolOutput,
+        outputSummary: toolOutput,
+        status: {
+          state: "failed",
+        },
+      });
+      expect(completedPayload?.metadata).toEqual(runtimeMetadata);
+      expect(managedLifecycleFrames).toEqual([]);
+      expect(factory).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseActive.resolve?.();
+      await invocationService.join(activeInvocationId).catch(() => undefined);
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("forwards browser session stream updates from the configured provider", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -2545,6 +3801,254 @@ describe("startGuiGateway static mount", () => {
       });
       expect(completedEventFrames).toHaveLength(2);
     } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("streams dirty-worktree review evidence through shared cockpit projection", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const { invocationService, managedInvocation, completeChild, startInput } = makeManagedDirtyWorktreeReviewFixture();
+    const parentSessionId = "session-dirty-worktree-review-control";
+    let startedInvocationId = "";
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const session = await input.sessionRegistry.getOrCreate({
+        sessionId: parentSessionId,
+        appName: "kiln-gui",
+        tenantId: "_gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      await input.turnCapture?.start?.(session.id, 10);
+      const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
+      if (!startManagedAgent) {
+        throw new Error("managed_agent.start was not attached to the GUI turn surface");
+      }
+      const toolResult = await startManagedAgent(startInput, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-dirty-worktree-start",
+          name: "managed_agent.start",
+          input: startInput,
+        },
+        requestApproval: vi.fn(async () => ({
+          approved: true,
+          reason: "operator approved isolated worktree write",
+        })),
+      });
+      if (toolResult.isError) {
+        throw new Error(toolResult.output);
+      }
+      startedInvocationId = (toolResult.metadata as { invocationId: string }).invocationId;
+      await input.sessionRegistry.save(session);
+      await input.turnCapture?.finish?.(session.id);
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Isolated worktree child is running." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: "trace-managed-dirty-worktree-review-control",
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
+        "Expected GUI provider discovery to finish before starting dirty-worktree fixture.",
+      );
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start isolated write child" }),
+        }),
+        wsCtx,
+      );
+      expect(startedInvocationId).not.toBe("");
+
+      const joinPromise = handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "join",
+            sessionId: parentSessionId,
+            invocationId: startedInvocationId,
+            requestId: "managed-agent-dirty-worktree-join",
+          }),
+        }),
+        wsCtx,
+      );
+      await flushAsyncWork();
+      completeChild.resolve?.();
+      await joinPromise;
+
+      const outboundFrames = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          action?: string;
+          status?: string;
+          requestId?: string;
+          event?: {
+            eventId: string;
+            kilnSessionId: string;
+            sequence: number;
+            timestamp: string;
+            kind: string;
+            payload: Record<string, unknown>;
+          };
+        });
+      const lifecycleFrames = outboundFrames.filter((frame) =>
+        frame.type === "session_event"
+        && frame.event?.kind.startsWith("agent_invocation_")
+        && frame.event.payload.invocationId === startedInvocationId
+      );
+      const completedFrame = lifecycleFrames.find((frame) =>
+        frame.event?.kind === "agent_invocation_completed"
+      );
+      const controlResultFrame = outboundFrames.find((frame) =>
+        frame.type === "managed_agent_control_result"
+        && frame.requestId === "managed-agent-dirty-worktree-join"
+      );
+      const worktreeLeaseUri = `kiln://artifacts/${startedInvocationId}/worktree-lease`;
+      const cleanupFailureUri = `kiln://artifacts/${startedInvocationId}/worktree-lease-cleanup-failed`;
+      const worktreeReviewUri = `kiln://artifacts/${startedInvocationId}/worktree-review`;
+      const worktreeReviewDiagnosticUri = `kiln://artifacts/${startedInvocationId}/worktree-review-required`;
+      const handoffUri = `kiln://managed-invocations/${startedInvocationId}/handoff`;
+      const transcriptUri = `kiln://managed-invocations/${startedInvocationId}/transcript`;
+
+      expect(controlResultFrame).toMatchObject({
+        type: "managed_agent_control_result",
+        action: "join",
+        sessionId: parentSessionId,
+        invocationId: startedInvocationId,
+        status: "accepted",
+        requestId: "managed-agent-dirty-worktree-join",
+      });
+      expect(lifecycleFrames.map((frame) => frame.event?.kind)).toEqual([
+        "agent_invocation_requested",
+        "agent_invocation_started",
+        "agent_invocation_completed",
+      ]);
+      expect(completedFrame?.event?.payload).toMatchObject({
+        invocationId: startedInvocationId,
+        managedInvocationId: startedInvocationId,
+        lifecycleState: "completed",
+        managedInvocationEvidence: {
+          lifecycle: {
+            lifecycleState: "completed",
+            resourceLease: {
+              healthStatus: "leaked",
+              cleanupStatus: "failed",
+              resourceUris: [worktreeLeaseUri],
+              diagnosticUris: [
+                cleanupFailureUri,
+                worktreeReviewDiagnosticUri,
+              ],
+              worktreeReview: {
+                status: "required",
+                reason: "dirty-worktree-preserved",
+                resourceUris: [worktreeReviewUri],
+                diagnosticUris: [worktreeReviewDiagnosticUri],
+              },
+            },
+          },
+          transcript: {
+            uri: transcriptUri,
+          },
+          resultHandoff: {
+            resourceUris: [handoffUri],
+          },
+          diagnostics: expect.arrayContaining([
+            {
+              uri: cleanupFailureUri,
+              kind: "cleanup",
+            },
+            {
+              uri: worktreeReviewDiagnosticUri,
+              kind: "cleanup",
+            },
+          ]),
+        },
+      });
+
+      const event = completedFrame?.event;
+      if (!event) {
+        throw new Error("Expected dirty-worktree completed session event frame");
+      }
+      const instanceId = String(event.payload.instanceId);
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-05-25T12:02:00.000Z",
+        attachTargets: [{
+          instanceId,
+          label: "GUI / kiln",
+          kind: "local",
+        }],
+        events: [event],
+      });
+      const view = createOperatorCockpitReadOnlyViewState({
+        projection,
+        viewState: {},
+      });
+
+      expect(view.managedAgents.items[0]).toMatchObject({
+        managedInvocationId: startedInvocationId,
+        attentionState: "needs_review",
+        status: "completed",
+        lifecycleState: "completed",
+        dirtyWorkspaceReviewRequired: true,
+      });
+      expect(view.managedAgents.items[0]?.resourceUris).toEqual(expect.arrayContaining([
+        worktreeLeaseUri,
+        cleanupFailureUri,
+        worktreeReviewUri,
+        worktreeReviewDiagnosticUri,
+        handoffUri,
+        transcriptUri,
+      ]));
+    } finally {
+      completeChild.resolve?.();
+      if (startedInvocationId) {
+        await invocationService.join(startedInvocationId).catch(() => undefined);
+      }
       vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();

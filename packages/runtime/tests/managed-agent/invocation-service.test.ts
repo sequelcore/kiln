@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type {
   ManagedAgentAdapterDescriptor,
   ManagedAgentInvocationRequest,
@@ -34,6 +36,8 @@ import type {
   ManagedAgentRuntimeRecoveryCheckpoint,
   ManagedAgentRuntimeRecoveryStore,
 } from "../../src/agents/managed-invocation/index.js";
+
+const execFileAsync = promisify(execFile);
 
 function makeRequest(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
@@ -220,6 +224,53 @@ function makeIsolatedWorktreeRequest(invocationId = "write-1"): ManagedAgentInvo
   });
 }
 
+function makeIsolatedWorktreeRequestForPath(
+  invocationId: string,
+  worktreePath: string,
+): ManagedAgentInvocationRequest {
+  const request = makeApprovedWriteRequest(invocationId, [
+    join(worktreePath, "packages", "core"),
+  ]);
+  return defineManagedAgentInvocationRequest({
+    ...request,
+    authority: {
+      ...request.authority,
+      workingDirectory: {
+        path: worktreePath,
+        mode: "isolated-worktree",
+      },
+      writeAuthority: defineManagedAgentWriteAuthority({
+        profile: "foundation-apply-approved-writes",
+        scope: {
+          workspace: {
+            mode: "apply-approved",
+            allowedPaths: [join(worktreePath, "packages", "core")],
+            deniedPaths: [join(worktreePath, ".git")],
+          },
+          memory: {
+            mode: "none",
+            operations: [],
+          },
+          artifacts: {
+            mode: "none",
+            resourceUris: [],
+            retention: "none",
+          },
+          tools: {
+            allowedToolNames: ["read", "rg", "apply-patch"],
+            deniedToolNames: ["git-commit"],
+          },
+        },
+        approval: {
+          mode: "required-before-apply",
+          evidenceRequired: true,
+          evidenceUris: [`kiln://approvals/${invocationId}`],
+        },
+      }),
+    },
+  });
+}
+
 function makeSandboxRequest(invocationId = "invocation-1"): ManagedAgentInvocationRequest {
   const request = makeRequest();
   return defineManagedAgentInvocationRequest({
@@ -383,6 +434,50 @@ function deferred<T>(): {
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function git(cwd: string, args: readonly string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", [...args], {
+    cwd,
+    windowsHide: true,
+  });
+  return stdout.toString();
+}
+
+async function expectPathEventuallyExists(
+  path: string,
+  label: string,
+  expectedType: "directory" | "file",
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      const firstStat = await stat(path);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const secondStat = await stat(path);
+      const matchesType = expectedType === "directory"
+        ? firstStat.isDirectory() && secondStat.isDirectory()
+        : firstStat.isFile() && secondStat.isFile();
+      if (!matchesType) {
+        throw new Error(`Expected ${label} at ${path} to be a ${expectedType}`);
+      }
+      return;
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        throw error;
+      }
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  throw new Error(`Expected ${label} to exist at ${path}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { readonly code?: unknown }).code === "ENOENT";
 }
 
 async function findAvailablePort(): Promise<number> {
@@ -3062,6 +3157,97 @@ describe("RuntimeManagedAgentInvocationService", () => {
       uri: "kiln://artifacts/write-1/worktree-review-required",
       kind: "cleanup",
     });
+  });
+
+  it("preserves a dirty real git worktree for review when cleanup detects local changes", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "kiln-real-worktree-"));
+    try {
+      const repositoryPath = join(tempRoot, "repo");
+      const worktreeRootPath = join(tempRoot, "worktrees");
+      const invocationId = "write-real-dirty";
+      const worktreePath = join(worktreeRootPath, invocationId);
+      await mkdir(join(repositoryPath, "packages", "core"), { recursive: true });
+      await mkdir(worktreeRootPath, { recursive: true });
+      await git(repositoryPath, ["init"]);
+      await git(repositoryPath, ["config", "user.email", "kiln-test@example.test"]);
+      await git(repositoryPath, ["config", "user.name", "Kiln Test"]);
+      await writeFile(join(repositoryPath, "packages", "core", "proof.txt"), "clean\n", "utf-8");
+      await git(repositoryPath, ["add", "packages/core/proof.txt"]);
+      await git(repositoryPath, ["commit", "-m", "initial"]);
+
+      const request = makeIsolatedWorktreeRequestForPath(invocationId, worktreePath);
+      const adapter: ManagedAgentRuntimeAdapter = {
+        descriptor: makeWriteDescriptor(),
+        invoke: vi.fn(async ({ request, admission }) => {
+          await writeFile(
+            join(request.authority.workingDirectory.path, "packages", "core", "proof.txt"),
+            "dirty\n",
+            "utf-8",
+          );
+          return makeRecordForRequest(request, admission.capabilitySnapshot);
+        }),
+      };
+      const service = new RuntimeManagedAgentInvocationService({
+        worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
+          repositoryPath,
+          worktreeRootPath,
+        }),
+      });
+
+      const started = await service.start(request, adapter, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+      });
+
+      expect(started.status).toBe("started");
+      await expectPathEventuallyExists(worktreePath, "managed git worktree", "directory");
+      const joined = await service.join(invocationId);
+
+      expect(joined.status).toBe("completed");
+      if (joined.status !== "completed") {
+        throw new Error("expected managed invocation to complete");
+      }
+      expect(joined.record.lifecycleState).toBe("completed");
+      expect(joined.record.resourceLease).toMatchObject({
+        leaseId: `${invocationId}:resource-lease`,
+        healthStatus: "leaked",
+        cleanupStatus: "failed",
+        workingDirectoryPath: worktreePath,
+        workingDirectoryMode: "isolated-worktree",
+        resourceUris: [`kiln://artifacts/${invocationId}/worktree-lease`],
+        worktreeReview: {
+          status: "required",
+          reason: "dirty-worktree-preserved",
+          resourceUris: [`kiln://artifacts/${invocationId}/worktree-review`],
+          diagnosticUris: [`kiln://artifacts/${invocationId}/worktree-review-required`],
+        },
+      });
+      expect(joined.record.resourceLease?.diagnosticUris).toEqual(expect.arrayContaining([
+        `kiln://artifacts/${invocationId}/worktree-lease-cleanup-failed`,
+        `kiln://artifacts/${invocationId}/worktree-review-required`,
+      ]));
+      expect(joined.record.diagnostics).toEqual(expect.arrayContaining([
+        {
+          uri: `kiln://artifacts/${invocationId}/worktree-lease-cleanup-failed`,
+          kind: "cleanup",
+        },
+        {
+          uri: `kiln://artifacts/${invocationId}/worktree-review-required`,
+          kind: "cleanup",
+        },
+      ]));
+      await expectPathEventuallyExists(
+        worktreePath,
+        "dirty managed git worktree preserved for review",
+        "directory",
+      );
+      await expectPathEventuallyExists(
+        join(worktreePath, "packages", "core", "proof.txt"),
+        "dirty managed git worktree proof file preserved for review",
+        "file",
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("releases isolated worktree leases when the adapter fails after acquire", async () => {

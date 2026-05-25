@@ -1,6 +1,7 @@
 import type {
   ArtifactResourceStore,
   Capability,
+  ManagedAgentAdmissionDecision,
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityApproval,
   ManagedAgentAuthorityProfile,
@@ -773,6 +774,7 @@ async function prepareManagedInvocationRequest(
         {
           routeId: route.routeId,
           profile: parsed.input.profile,
+          status: "unavailable",
           missingRequiredTools,
           requiredToolNames: parsed.input.requiredToolNames ?? [],
           allowedToolNames: profileDefaults.allowedToolNames,
@@ -805,6 +807,7 @@ async function prepareManagedInvocationRequest(
         {
           routeId: route.routeId,
           profile: parsed.input.profile,
+          status: "unavailable",
           missingRequiredCapabilities,
           requiredToolNames: parsed.input.requiredToolNames ?? [],
           presentationIntent: buildManagedInvocationPresentationIntent({
@@ -1185,6 +1188,17 @@ async function executeManagedInvocationStartTool(
         missingCapabilities: startResult.decision.missingCapabilities,
         ...(startResult.decision.resourceLease ? { resourceLease: startResult.decision.resourceLease } : {}),
         sessionEventIds: events.map((event) => event.eventId),
+        presentationIntent: buildManagedInvocationPresentationIntent({
+          sourceToolName: MANAGED_AGENT_START_TOOL_NAME,
+          routeId: prepared.route.routeId,
+          profile: prepared.request.profile,
+          providerId: prepared.request.providerRoute.providerId,
+          model: prepared.request.providerRoute.model,
+          contextMode: prepared.request.input.context?.mode,
+          status: "denied",
+          substantiveEvidence: false,
+          failureReason: formatManagedInvocationAdmissionDenied(startResult.decision),
+        }),
       },
     };
   }
@@ -1610,6 +1624,15 @@ function buildManagedInvocationPresentationIntent(input: {
 
 function boundedPresentationText(value: string): string {
   return value.length > 500 ? `${value.slice(0, 497)}...` : value;
+}
+
+function formatManagedInvocationAdmissionDenied(
+  decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>,
+): string {
+  const suffix = decision.missingCapabilities.length > 0
+    ? ` missingCapabilities=${decision.missingCapabilities.join(",")}`
+    : "";
+  return `${decision.reason}${suffix}`;
 }
 
 function hasSubstantiveManagedInvocationEvidence(record: ManagedAgentInvocationRecord): boolean {

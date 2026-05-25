@@ -125,7 +125,7 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7O
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7U
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
@@ -147,7 +147,23 @@ Active. Started on 2026-05-21. Current implementation status:
   preserves canonical managed invocation ids and terminal failure evidence for
   timed-out, stale, and failed children, and GUI websocket terminal frames are
   proven to project through the shared cockpit view-state as the same attention
-  states. Slice 8 is not started.
+  states. GUI websocket route-unavailable proof now shows pre-invocation
+  `managed_agent.start` failures stay as canonical tool-call frames, preserve
+  `metadata.status = "unavailable"` and structured `presentationIntent` route
+  rows, and emit no managed-child lifecycle frames. Missing-tool and
+  missing-capability route-requirement failures now share that same
+  pre-invocation unavailable contract across runtime metadata and GUI websocket
+  frames. Denied same-checkout worktree conflicts now preserve runtime-owned
+  denied metadata and canonical managed-child failure frames through the GUI
+  websocket path. Dirty isolated-worktree cleanup review evidence now survives
+  the GUI websocket join path with canonical cleanup/review resource and
+  diagnostic URIs, and projects through the shared cockpit view-state as review
+  attention. Real git worktree cleanup now has credential-free runtime proof
+  that dirty child checkout changes are preserved on disk and represented as
+  review-required evidence after `git worktree remove` is refused. That proof
+  now uses bounded path-state assertions so slower Windows filesystem
+  visibility does not create timing-only flakes while real git failures still
+  fail loudly. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -858,7 +874,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, Slice 7M, Slice 7N, and Slice 7O are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, Slice 7M, Slice 7N, Slice 7O, Slice 7P, Slice 7Q, Slice 7R, Slice 7S, Slice 7T, and Slice 7U are complete in code.
 
 Completed:
 
@@ -954,6 +970,51 @@ Completed:
   streams for timed-out, stale, and failed children project through the shared
   cockpit view-state as `timed_out`, `stale`, and `failed` attention without
   GUI-local lifecycle remapping.
+- GUI websocket route-unavailable parity now has deterministic proof for
+  pre-invocation `managed_agent.start`. The GUI websocket stream preserves the
+  failed `tool_call_completed` metadata, including `status: "unavailable"` and
+  the shared managed-invocation presentation intent row, while emitting no
+  `agent_invocation_*` session events for a route that never admitted a child
+  invocation.
+- GUI websocket missing-tool and missing-capability parity now has
+  deterministic proof for pre-invocation `managed_agent.start`. Missing route
+  requirements are normalized to the same unavailable runtime metadata contract
+  as unavailable routes, including `missingRequiredTools` or
+  `missingRequiredCapabilities` and the shared managed-invocation presentation
+  intent row. The GUI websocket stream preserves those failed
+  `tool_call_completed` payloads while emitting no `agent_invocation_*`
+  session events because no child invocation was admitted.
+- GUI websocket denied-admission worktree-conflict parity now has deterministic
+  proof for `managed_agent.start`. Denied same-checkout write conflicts preserve
+  runtime-owned `status: "denied"` metadata, worktree-conflict lease evidence,
+  session event ids, and the shared managed-invocation presentation intent row.
+  The GUI websocket stream emits canonical `agent_invocation_requested` and
+  `agent_invocation_failed` frames without `agent_invocation_started`, and the
+  failed frame projects through the shared cockpit view-state as
+  `needs_review` with `worktreeConflictBlocked = true`. Other denied-admission
+  variants remain separate hardening targets.
+- GUI websocket dirty-worktree review parity now has deterministic proof for
+  `managed_agent.start` plus `managed_agent_control` join. Dirty isolated
+  worktree cleanup failures keep terminal children `completed` while preserving
+  runtime-owned leaked/failed lease evidence, `worktreeReview.required`,
+  cleanup failure diagnostics, review diagnostics, review resources,
+  transcript, and handoff pointers. The websocket stream emits canonical
+  `agent_invocation_requested`, `agent_invocation_started`, and
+  `agent_invocation_completed` frames, and the completed frame projects through
+  the shared cockpit view-state as `needs_review` with
+  `dirtyWorkspaceReviewRequired = true`.
+- Real git worktree cleanup now has deterministic runtime proof using a
+  temporary repository and `ManagedGitWorktreeLeaseManager`. A child adapter
+  dirties the isolated checkout, `join` remains terminal `completed`, the
+  runtime records leaked/failed cleanup plus `worktreeReview.required`, and the
+  dirty worktree remains on disk for operator review. This closes the
+  fixture-only cleanup-manager part of the dirty-worktree residual risk without
+  introducing live-provider credentials.
+- Real git worktree cleanup proof now has a deterministic fixture guard for
+  Windows filesystem visibility. The test-local helper performs bounded
+  path-state checks for the created and preserved dirty worktree paths, reducing
+  timing-only flakes while preserving fail-fast behavior for actual git or
+  cleanup failures.
 
 Deliverables:
 

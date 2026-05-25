@@ -18,6 +18,7 @@ import {
 import { buildTuiTurnPerCallConfig } from "../../src/gateway/tui-gateway.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import {
+  ManagedAgentWorktreeReviewRequiredError,
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
@@ -1284,6 +1285,189 @@ describe("managed invocation runtime tool", () => {
         }),
       }),
     }));
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves dirty-worktree review evidence in managed-agent join metadata", async () => {
+    const worktreeLeaseManager: ManagedAgentWorktreeLeaseManager = {
+      acquire: vi.fn(async ({ request, lease }) => ({
+        ...lease,
+        healthStatus: "healthy",
+        cleanupStatus: "pending",
+        resourceUris: [...lease.resourceUris, `kiln://artifacts/${request.invocationId}/worktree-lease`],
+      })),
+      release: vi.fn(async () => {
+        throw new ManagedAgentWorktreeReviewRequiredError(
+          "Managed git worktree lease is dirty; preserving worktree for review",
+        );
+      }),
+    };
+    const adapter = makeAdapterWithHandoff("Approved write completed.", {
+      supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: false,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        invocationService: new RuntimeManagedAgentInvocationService({
+          worktreeLeaseManager,
+          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+            allowedRouteIds: ["credential-route:opencode:primary"],
+          }),
+        }),
+        routes: [{
+          routeId: "opencode-approved-write",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-apply-approved-writes": {
+              authorityProfileId: "authority:opencode:approved-write",
+              permissionProfile: "apply-approved-writes",
+              allowedToolNames: ["read", "grep", "apply-patch"],
+              writeAllowed: true,
+              networkAllowed: false,
+              workingDirectory: {
+                path: "C:/workspace/kiln/.kiln/managed-worktrees",
+                mode: "isolated-worktree",
+              },
+              workingDirectoryLease: {
+                mode: "git-worktree",
+                sourcePath: "C:/workspace/kiln",
+                rootPath: "C:/workspace/kiln/.kiln/managed-worktrees",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+              writeAuthority: defineManagedAgentWriteAuthority({
+                profile: "foundation-apply-approved-writes",
+                scope: {
+                  workspace: {
+                    mode: "apply-approved",
+                    allowedPaths: ["C:/workspace/kiln/packages/runtime/src"],
+                    deniedPaths: ["C:/workspace/kiln/.git"],
+                  },
+                  memory: {
+                    mode: "none",
+                    operations: [],
+                  },
+                  artifacts: {
+                    mode: "none",
+                    resourceUris: [],
+                    retention: "none",
+                  },
+                  tools: {
+                    allowedToolNames: ["apply-patch"],
+                    deniedToolNames: [],
+                  },
+                },
+                approval: {
+                  mode: "required-before-apply",
+                  evidenceRequired: true,
+                },
+              }),
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const startInput = {
+      profile: "foundation-apply-approved-writes",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "destructive",
+      task: "Apply the approved runtime edit.",
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.(startInput, {
+      session,
+      toolCall: {
+        id: "tool-call-dirty-worktree-start",
+        name: "managed_agent.start",
+        input: startInput,
+      },
+      requestApproval: vi.fn(async () => ({
+        approved: true,
+        reason: "operator approved managed write",
+      })),
+    }) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+    const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      session,
+      toolCall: {
+        id: "tool-call-dirty-worktree-join",
+        name: "managed_agent.join",
+        input: {},
+      },
+    }) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly lifecycleState?: string;
+        readonly resourceLease?: {
+          readonly healthStatus?: string;
+          readonly cleanupStatus?: string;
+          readonly resourceUris?: readonly string[];
+          readonly diagnosticUris?: readonly string[];
+          readonly worktreeReview?: {
+            readonly status?: string;
+            readonly reason?: string;
+            readonly resourceUris?: readonly string[];
+            readonly diagnosticUris?: readonly string[];
+          };
+        };
+        readonly sessionEventIds?: readonly string[];
+      };
+    };
+
+    expect(started.isError).toBe(false);
+    expect(joined.isError).toBe(false);
+    expect(joined.metadata.lifecycleState).toBe("completed");
+    expect(joined.metadata.resourceLease).toMatchObject({
+      healthStatus: "leaked",
+      cleanupStatus: "failed",
+      worktreeReview: {
+        status: "required",
+        reason: "dirty-worktree-preserved",
+        resourceUris: [`kiln://artifacts/${started.metadata.invocationId}/worktree-review`],
+        diagnosticUris: [`kiln://artifacts/${started.metadata.invocationId}/worktree-review-required`],
+      },
+    });
+    expect(joined.metadata.resourceLease?.resourceUris).toContain(
+      `kiln://artifacts/${started.metadata.invocationId}/worktree-lease`,
+    );
+    expect(joined.metadata.resourceLease?.diagnosticUris).toEqual(expect.arrayContaining([
+      `kiln://artifacts/${started.metadata.invocationId}/worktree-lease-cleanup-failed`,
+      `kiln://artifacts/${started.metadata.invocationId}/worktree-review-required`,
+    ]));
+    expect(joined.metadata.sessionEventIds).toEqual([
+      session.sessionEvents[2]?.eventId,
+    ]);
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_completed",
+    ]);
     expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
   });
 
@@ -2771,6 +2955,354 @@ describe("managed invocation runtime tool", () => {
       failureReason: "Missing required route capabilities: network",
     });
     expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("keeps managed-agent start missing-tool failures pre-invocation and structured", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start-missing-tools",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Collect visual-reference-research.",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["web_search", "browser_observe"],
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly missingRequiredTools?: readonly string[];
+        readonly presentationIntent?: {
+          readonly source?: string;
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("lacks required tools: web_search, browser_observe");
+    expect(result.metadata.status).toBe("unavailable");
+    expect(result.metadata.missingRequiredTools).toEqual(["web_search", "browser_observe"]);
+    expect(result.metadata.presentationIntent).toMatchObject({
+      source: "managed_agent.start",
+      rows: [
+        expect.objectContaining({
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: "Missing required route tools: web_search, browser_observe",
+        }),
+      ],
+    });
+    expect(session.sessionEvents).toEqual([]);
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("keeps managed-agent start missing-capability failures pre-invocation and structured", async () => {
+    const adapter = makeAdapter();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly-visual-without-network",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly-visual-without-network",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read", "web_search", "browser_observe"],
+              networkAllowed: false,
+              workingDirectory: {
+                path: "C:/workspace/kiln",
+                mode: "read-only",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start-missing-capabilities",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Collect visual-reference-research.",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["web_search", "browser_observe"],
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly missingRequiredCapabilities?: readonly string[];
+        readonly presentationIntent?: {
+          readonly source?: string;
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("lacks required capabilities: network");
+    expect(result.metadata.status).toBe("unavailable");
+    expect(result.metadata.missingRequiredCapabilities).toEqual(["network"]);
+    expect(result.metadata.presentationIntent).toMatchObject({
+      source: "managed_agent.start",
+      rows: [
+        expect.objectContaining({
+          status: "unavailable",
+          substantiveEvidence: false,
+          failureReason: "Missing required route capabilities: network",
+        }),
+      ],
+    });
+    expect(session.sessionEvents).toEqual([]);
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("keeps managed-agent start worktree-conflict denials structured and replayable", async () => {
+    const terminal = deferred<void>();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor({
+        supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
+        writeAuthority: {
+          proposalSupported: true,
+          approvedApplySupported: true,
+          memoryProposalSupported: false,
+          rollbackEvidence: true,
+          cleanupEvidence: true,
+          scopeReduction: true,
+        },
+      }),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return defineManagedAgentInvocationRecord({
+          invocationId: request.invocationId,
+          agentId: request.agentId,
+          parentSessionId: request.parentSessionId,
+          parentTurnId: request.parentTurnId,
+          profile: request.profile,
+          lifecycleState: "completed",
+          providerRoute: request.providerRoute,
+          adapterKind: request.adapterKind,
+          executionMode: request.executionMode,
+          authority: request.authority,
+          capabilitySnapshot: admission.capabilitySnapshot,
+          childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+          childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+          resultHandoff: {
+            summary: "Approved write completed.",
+            resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+            memoryWriteProposalUris: [],
+          },
+        });
+      }),
+    };
+    const invocationService = new RuntimeManagedAgentInvocationService();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        invocationService,
+        routes: [{
+          routeId: "opencode-approved-write",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-apply-approved-writes": {
+              authorityProfileId: "authority:opencode:approved-write",
+              permissionProfile: "apply-approved-writes",
+              allowedToolNames: ["read", "grep", "apply-patch"],
+              writeAllowed: true,
+              networkAllowed: false,
+              workingDirectory: {
+                path: "C:/workspace/kiln",
+                mode: "workspace-write",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "credentialless",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+              writeAuthority: defineManagedAgentWriteAuthority({
+                profile: "foundation-apply-approved-writes",
+                scope: {
+                  workspace: {
+                    mode: "apply-approved",
+                    allowedPaths: ["C:/workspace/kiln/packages/runtime/src"],
+                    deniedPaths: ["C:/workspace/kiln/.git"],
+                  },
+                  memory: {
+                    mode: "none",
+                    operations: [],
+                  },
+                  artifacts: {
+                    mode: "none",
+                    resourceUris: [],
+                    retention: "none",
+                  },
+                  tools: {
+                    allowedToolNames: ["apply-patch"],
+                    deniedToolNames: ["git-commit"],
+                  },
+                },
+                approval: {
+                  mode: "required-before-apply",
+                  evidenceRequired: true,
+                },
+              }),
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const requestApproval = vi.fn(async () => ({
+      approved: true,
+      reason: "operator approved bounded write",
+    }));
+    const startInput = {
+      profile: "foundation-apply-approved-writes",
+      routeId: "opencode-approved-write",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "destructive",
+      task: "Apply the approved runtime edit.",
+    };
+
+    const first = await surface.callBuiltinTools.get("managed_agent.start")?.(startInput, {
+      session,
+      toolCall: {
+        id: "tool-call-write-active",
+        name: "managed_agent.start",
+        input: startInput,
+      },
+      requestApproval,
+    }) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+    const denied = await surface.callBuiltinTools.get("managed_agent.start")?.(startInput, {
+      session,
+      toolCall: {
+        id: "tool-call-write-conflict",
+        name: "managed_agent.start",
+        input: startInput,
+      },
+      requestApproval,
+    }) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly lifecycleState?: string;
+        readonly missingCapabilities?: readonly string[];
+        readonly resourceLease?: {
+          readonly worktreeConflict?: {
+            readonly status?: string;
+            readonly reason?: string;
+            readonly requestedInvocationId?: string;
+            readonly conflictingInvocationId?: string;
+          };
+        };
+        readonly sessionEventIds?: readonly string[];
+        readonly presentationIntent?: {
+          readonly source?: string;
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(first.isError).toBe(false);
+    expect(denied.isError).toBe(true);
+    expect(denied.output).toContain("Managed invocation denied");
+    expect(denied.metadata.status).toBe("denied");
+    expect(denied.metadata.lifecycleState).toBe("failed");
+    expect(denied.metadata.missingCapabilities).toEqual(["resourceLease.worktreeConflict"]);
+    expectPublicResourceLeaseMetadata(denied.metadata.resourceLease);
+    expect(denied.metadata.resourceLease?.worktreeConflict).toMatchObject({
+      status: "blocked",
+      reason: "same-checkout-write-conflict",
+      conflictingInvocationId: first.metadata.invocationId,
+    });
+    expect(denied.metadata.sessionEventIds).toEqual(
+      session.sessionEvents.slice(-2).map((event) => event.eventId),
+    );
+    expect(denied.metadata.presentationIntent).toMatchObject({
+      source: "managed_agent.start",
+      rows: [
+        expect.objectContaining({
+          routeId: "opencode-approved-write",
+          status: "denied",
+          substantiveEvidence: false,
+          failureReason: expect.stringContaining(
+            "same-checkout-write-conflict",
+          ),
+        }),
+      ],
+    });
+    expect(denied.metadata.presentationIntent?.rows?.[0]).toMatchObject({
+      failureReason: expect.stringContaining("missingCapabilities=resourceLease.worktreeConflict"),
+    });
+    expect(session.sessionEvents.slice(-2).map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_failed",
+    ]);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+
+    terminal.resolve();
+    const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: first.metadata.invocationId,
+    }, {
+      session,
+      toolCall: {
+        id: "tool-call-write-active-join",
+        name: "managed_agent.join",
+        input: {},
+      },
+    }) as { readonly isError: boolean };
+    expect(joined.isError).toBe(false);
   });
 
   it("fails closed when a managed child requests destructive authority without an approval flow", async () => {
