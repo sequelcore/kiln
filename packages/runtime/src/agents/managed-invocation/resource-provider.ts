@@ -66,7 +66,7 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
       uriTemplate: `${MANAGED_AGENT_RESOURCE_PREFIX}/{invocationId}/resources`,
       name: "managed_agent_invocation_resources",
       title: "Managed Agent Invocation Resource Bundle",
-      description: "Read one managed child invocation transcript, handoff, lease, and diagnostic resource URI bundle.",
+      description: "Read one managed child invocation transcript, handoff, write evidence, lease, and diagnostic resource URI bundle.",
       mimeType: JSON_MIME_TYPE,
       annotations: { readOnlyHint: true },
     }];
@@ -160,7 +160,7 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
         uri: `${baseUri}/resources`,
         name: `managed_agent_invocation_${safeResourceName(snapshot.invocationId)}_resources`,
         title: `Managed Agent ${snapshot.invocationId} Resources`,
-        description: "Read-only managed child transcript, handoff, lease, and diagnostic resource URI bundle.",
+        description: "Read-only managed child transcript, handoff, write evidence, lease, and diagnostic resource URI bundle.",
         mimeType: JSON_MIME_TYPE,
         annotations: { readOnlyHint: true },
       },
@@ -186,6 +186,7 @@ function projectInvocationSummary(snapshot: ManagedAgentRuntimeInvocationSnapsho
     ...(snapshot.record?.transcript?.uri ? { transcriptUri: snapshot.record.transcript.uri } : {}),
     ...(snapshot.record?.resultHandoff?.summary ? { resultSummary: snapshot.record.resultHandoff.summary } : {}),
     handoffResourceUris: snapshot.record?.resultHandoff?.resourceUris ?? [],
+    writeEvidenceResourceUris: writeEvidenceUrisForInvocation(snapshot),
     diagnosticResourceUris: diagnosticUrisForInvocation(snapshot),
     resourceUris: resourceUrisForInvocation(snapshot),
   };
@@ -212,6 +213,7 @@ function projectInvocationDetail(snapshot: ManagedAgentRuntimeInvocationSnapshot
     ...(snapshot.record?.transcript ? { transcript: snapshot.record.transcript } : {}),
     ...(snapshot.record?.diagnostics ? { diagnostics: snapshot.record.diagnostics } : {}),
     ...(snapshot.record?.resultHandoff ? { resultHandoff: snapshot.record.resultHandoff } : {}),
+    writeEvidenceResourceUris: writeEvidenceUrisForInvocation(snapshot),
     ...(snapshot.record?.resourceLease ? { resourceLease: snapshot.record.resourceLease } : {}),
   };
 }
@@ -221,6 +223,7 @@ function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapsh
     ...(snapshot.record?.transcript?.uri ? [snapshot.record.transcript.uri] : []),
     ...(snapshot.record?.resultHandoff?.resourceUris ?? []),
     ...(snapshot.record?.resultHandoff?.memoryWriteProposalUris ?? []),
+    ...writeEvidenceUrisForInvocation(snapshot),
     ...diagnosticUrisForInvocation(snapshot),
     ...resourceUrisForLease(snapshot.record?.resourceLease),
     ...resourceUrisForLease(snapshot.record?.capabilitySnapshot.resourceLease),
@@ -230,6 +233,10 @@ function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapsh
 
 function diagnosticUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly string[] {
   return uniqueStrings((snapshot.record?.diagnostics ?? []).map((diagnostic) => diagnostic.uri));
+}
+
+function writeEvidenceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly string[] {
+  return uniqueStrings((snapshot.record?.writeEvidence ?? []).flatMap((evidence) => evidence.resourceUris));
 }
 
 function resourceUrisForLease(lease: ManagedAgentResourceLeaseEvidence | undefined): readonly string[] {

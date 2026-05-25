@@ -531,6 +531,18 @@ describe("operator cockpit read-only projection", () => {
             resourceUris: ["kiln://managed-invocations/evidence-child-1/handoff"],
             memoryWriteProposalUris: ["kiln://managed-invocations/evidence-child-1/memory-proposal"],
           },
+          writeEvidence: [{
+            evidenceId: "evidence:child:1:write-attempt-1",
+            invocationId: "evidence:child:1",
+            kind: "write-attempt-timed-out",
+            attemptId: "evidence:child:1:attempt-1",
+            summary: "Partial workspace write was detected before timeout.",
+            resourceUris: [
+              "kiln://managed-invocations/evidence-child-1/write-attempts/1",
+              "kiln://managed-invocations/evidence-child-1/handoff",
+            ],
+            recordedAt: "2026-05-23T12:00:05.000Z",
+          }],
           lifecycle: {
             resourceLease: {
               leaseId: "evidence:child:1:resource-lease",
@@ -590,6 +602,7 @@ describe("operator cockpit read-only projection", () => {
         "kiln://managed-invocations/evidence-child-1/worktree",
         "kiln://managed-invocations/evidence-child-1/worktree-review",
         "kiln://managed-invocations/evidence-child-1/worktree-review-diagnostic",
+        "kiln://managed-invocations/evidence-child-1/write-attempts/1",
       ],
     });
   });

@@ -125,11 +125,11 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7A is complete in code: managed-agent live
-  tests now share one global-plus-provider opt-in gate, and the live route
-  matrix includes a Codex OAuth subscription-backed direct-provider read-only
-  proof through the same managed direct adapter path as configured routes.
-  Slice 8 is not started.
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7G
+  are complete in code: live opt-in/direct route proof, timeout/cancel/stale
+  attention parity, CLI shared view-state alignment, terminal diagnostic
+  replay, native stale label parity, and partial write evidence URI replay
+  across resource/cockpit projections are in place. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -840,7 +840,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, and Slice 7F are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, and Slice 7G are complete in code.
 
 Completed:
 
@@ -878,6 +878,11 @@ Completed:
   attention state with a stable `Stale heartbeat` operator label while
   preserving `data-attention="stale"`, canonical failed terminal status,
   `lifecycleState: "stale"`, and heartbeat evidence resources.
+- Partial write evidence from managed children now remains replayable as
+  governed resource pointers across model-facing managed invocation resources
+  and shared cockpit evidence bundles. `writeEvidence.resourceUris` are
+  de-duplicated with handoff, diagnostic, and lease resources without exposing
+  raw diffs or adding a surface-local partial-success lifecycle state.
 
 Deliverables:
 

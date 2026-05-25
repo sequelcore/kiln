@@ -139,6 +139,57 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
   });
 
+  it("replays partial write evidence resource pointers without duplicating handoff resources", async () => {
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [managedInvocationWithPartialWriteEvidence()],
+      },
+    });
+
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+    expect(JSON.parse(aggregate!.contents[0]!.text)).toMatchObject({
+      total: 1,
+      invocations: [{
+        invocationId: "child-partial-write",
+        lifecycleState: "timed_out",
+        handoffResourceUris: ["kiln://managed-invocations/child-partial-write/diffs/1"],
+        writeEvidenceResourceUris: [
+          "kiln://managed-invocations/child-partial-write/write-attempts/1",
+          "kiln://managed-invocations/child-partial-write/diffs/1",
+        ],
+        resourceUris: expect.arrayContaining([
+          "kiln://managed-invocations/child-partial-write/write-attempts/1",
+          "kiln://managed-invocations/child-partial-write/diffs/1",
+        ]),
+      }],
+    });
+
+    const resources = await provider.read("kiln://managed-agents/invocations/child-partial-write/resources");
+    const resourceUris = JSON.parse(resources!.contents[0]!.text).resourceUris as readonly string[];
+    expect(resourceUris).toEqual(expect.arrayContaining([
+      "kiln://managed-invocations/child-partial-write/write-attempts/1",
+      "kiln://managed-invocations/child-partial-write/diffs/1",
+    ]));
+    expect(resourceUris.filter((uri) =>
+      uri === "kiln://managed-invocations/child-partial-write/diffs/1"
+    )).toHaveLength(1);
+
+    const invocation = await provider.read("kiln://managed-agents/invocations/child-partial-write");
+    expect(JSON.parse(invocation!.contents[0]!.text)).toMatchObject({
+      invocation: {
+        invocationId: "child-partial-write",
+        writeEvidenceResourceUris: [
+          "kiln://managed-invocations/child-partial-write/write-attempts/1",
+          "kiln://managed-invocations/child-partial-write/diffs/1",
+        ],
+        resourceUris: expect.arrayContaining([
+          "kiln://managed-invocations/child-partial-write/write-attempts/1",
+          "kiln://managed-invocations/child-partial-write/diffs/1",
+        ]),
+      },
+    });
+  });
+
   it("returns undefined for unknown managed child resource URIs", async () => {
     const provider = createManagedAgentInvocationResourceProvider({
       service: {
@@ -284,6 +335,37 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
         },
       },
     } as ManagedAgentRuntimeInvocationSnapshot["record"],
+  };
+}
+
+function managedInvocationWithPartialWriteEvidence(): ManagedAgentRuntimeInvocationSnapshot {
+  const snapshot = managedInvocationSnapshot();
+  return {
+    ...snapshot,
+    invocationId: "child-partial-write",
+    lifecycleState: "timed_out",
+    record: {
+      ...snapshot.record!,
+      invocationId: "child-partial-write",
+      lifecycleState: "timed_out",
+      resultHandoff: {
+        summary: "Managed child timed out after partial write evidence.",
+        resourceUris: ["kiln://managed-invocations/child-partial-write/diffs/1"],
+        memoryWriteProposalUris: [],
+      },
+      writeEvidence: [{
+        evidenceId: "child-partial-write:write-attempt-1",
+        invocationId: "child-partial-write",
+        kind: "write-attempt-timed-out",
+        attemptId: "child-partial-write:attempt-1",
+        summary: "Partial workspace write was detected before timeout.",
+        resourceUris: [
+          "kiln://managed-invocations/child-partial-write/write-attempts/1",
+          "kiln://managed-invocations/child-partial-write/diffs/1",
+        ],
+        recordedAt: "2026-05-22T00:00:04.000Z",
+      }],
+    },
   };
 }
 

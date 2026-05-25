@@ -891,6 +891,8 @@ function applyManagedInvocationEvidence(
     addEvidenceResourceUris(invocation, [diagnostic.uri]);
   }
 
+  addEvidenceResourceUris(invocation, readWriteEvidenceResourceUris(evidence.writeEvidence));
+
   const lease = invocation.resourceLease;
   if (lease) {
     addEvidenceResourceUris(invocation, [
@@ -944,6 +946,18 @@ function readInvocationResultHandoff(value: unknown): OperatorCockpitInvocationR
     resourceUris,
     memoryWriteProposalUris,
   };
+}
+
+function readWriteEvidenceResourceUris(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!isRecordValue(item)) {
+      return [];
+    }
+    return readOptionalStringList(item.resourceUris);
+  });
 }
 
 function readManagedOrchestrationAdoptionGate(

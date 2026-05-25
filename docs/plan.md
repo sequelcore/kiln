@@ -1,45 +1,55 @@
-# Slice 7F - Native Stale Heartbeat Presentation Parity
+## Slice 7G - Partial Write Evidence Resource Parity
 
 ## Objective
 
-Continue Slice 7 by bringing the native managed-agent cockpit presentation in
-line with the shared stale heartbeat attention state added in Slice 7E.
+Continue Slice 7 by making partial write evidence replayable across the
+managed-agent resource plane and shared operator cockpit projection.
 
 ## Decision
 
-Keep lifecycle interpretation in `@kilnai/gateway-contracts`. Native should
-consume `item.attentionState === "stale"` from the shared view-state and render
-a stable operator label while preserving the canonical raw state on
-`data-attention`.
+Treat `writeEvidence.resourceUris` as managed invocation evidence pointers.
+Runtime already emits these pointers from CLI/direct adapter write detection,
+including timed-out children with partial writes. Shared projections should
+aggregate the pointers alongside transcript, handoff, diagnostics, memory
+proposal, and lease evidence without reading diff contents or creating a
+surface-local partial-success lifecycle state.
 
 ## Non-Goals
 
-- Do not add native-local lifecycle inference.
-- Do not change gateway, runtime, CLI, TUI, or GUI behavior.
-- Do not change cancellation or heartbeat recovery semantics.
-- Do not introduce compatibility aliases for older attention states.
+- Do not change managed child lifecycle states or attention states.
+- Do not expose raw diffs, filesystem contents, or full runtime records.
+- Do not add compatibility aliases for older evidence shapes.
+- Do not add a separate partial-success control plane.
 
 ## Surface Map
 
-- Native renderer:
-  - `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
-  - `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
+- Runtime resource provider:
+  - `packages/runtime/src/agents/managed-invocation/resource-provider.ts`
+  - `packages/runtime/tests/managed-agent/resource-provider.test.ts`
+- Shared operator cockpit projection:
+  - `packages/gateway-contracts/src/operator-cockpit-projection.ts`
+  - `packages/gateway-contracts/tests/operator-cockpit-projection.test.ts`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
 
 ## Expected Behavior
 
-- Native renders stale heartbeat children with `data-attention="stale"`.
-- Native shows a human stable label, `Stale heartbeat`, instead of only the raw
-  state token.
-- Native preserves canonical `status: "failed"`, `lifecycleState: "stale"`,
-  and heartbeat evidence resources from shared projection.
+- Aggregate managed invocation resource reads include valid
+  `writeEvidence.resourceUris` in the de-duplicated `resourceUris` bundle.
+- Per-child managed invocation detail and `/resources` reads expose the same
+  pointer-only resource bundle.
+- Gateway cockpit invocation projections include `writeEvidence.resourceUris`
+  in `evidenceResourceUris`.
+- Duplicate write evidence pointers that also appear in handoff resources are
+  emitted once.
 
 ## Verification
 
-- Add failing native renderer test first.
-- Run `bun run --cwd packages/native test -- tests/managed-agent-cockpit-panel.test.tsx`.
+- Add failing focused tests first.
+- Run `bun run --cwd packages/runtime test -- tests/managed-agent/resource-provider.test.ts`.
+- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-projection.test.ts`.
 - Run `bun run typecheck`.
 - Run `bun run build`.
 - Run `bun run test`.
+- Run `git diff --check`.
 - Update the roadmap after code verification.
