@@ -158,16 +158,18 @@ function formatManagedAgentItemLines(item: OperatorCockpitManagedAgentViewItem):
       : "-";
   const route = item.providerRoute ? ` ${item.providerRoute}` : "";
   const dirty = item.dirtyWorkspaceReviewRequired ? " dirty" : "";
+  const conflict = item.worktreeConflictBlocked && item.worktreeConflict ? ` conflict:${item.worktreeConflict.status}` : "";
   const adoption = item.adoptionGate ? ` adoption:${item.adoptionGate.status}` : "";
   const resources = item.resourceUris.length > 0 ? ` resources:${item.resourceUris.length}` : "";
   const cancel = item.cancelControl.status === "requires-control-channel" ? " cancel:control" : "";
   const lines = [
-    `${prefix} ${item.managedInvocationId} ${item.attentionState} ${item.status}${route}${dirty} events:${item.lifecycleTimeline.length}${adoption}${resources}${cancel}`,
+    `${prefix} ${item.managedInvocationId} ${item.attentionState} ${item.status}${route}${dirty}${conflict} events:${item.lifecycleTimeline.length}${adoption}${resources}${cancel}`,
   ];
   if (item.transcriptUri) {
     lines.push(`  tx ${item.transcriptUri}`);
   }
-  for (const uri of item.resourceUris.slice(0, 2)) {
+  lines.push(...formatManagedAgentWorktreeConflictLines(item));
+  for (const uri of formatManagedAgentGenericResourceUris(item).slice(0, 2)) {
     lines.push(`  res ${uri}`);
   }
   return lines;
@@ -186,6 +188,7 @@ function formatManagedAgentDrilldownLines(
     `  latest ${item.latestEventId}`,
     `  replay ${drilldown.replay.entry.eventId}`,
     `  prev ${drilldown.replay.previousEventId ?? "--"} next ${drilldown.replay.nextEventId ?? "--"}`,
+    ...formatManagedAgentWorktreeConflictLines(item),
     ...formatManagedAgentAdoptionGateLines(item),
     "  timeline:",
     ...item.lifecycleTimeline.map((entry) => (
@@ -198,6 +201,33 @@ function formatManagedAgentDrilldownLines(
       ]
       : ["  resources: none"]),
   ];
+}
+
+function formatManagedAgentWorktreeConflictLines(item: OperatorCockpitManagedAgentViewItem): readonly string[] {
+  const conflict = item.worktreeConflict;
+  if (!conflict || !item.worktreeConflictBlocked) {
+    return [];
+  }
+  return [
+    `  conflict ${conflict.reason} requested:${conflict.requestedInvocationId} conflicting:${conflict.conflictingInvocationId}`,
+    ...(conflict.retryAfterInvocationIds.length > 0
+      ? [`  retry-after ${conflict.retryAfterInvocationIds.join(",")}`]
+      : []),
+    ...conflict.resourceUris.map((uri) => `  conflict-res ${uri}`),
+    ...conflict.diagnosticUris.map((uri) => `  conflict-diag ${uri}`),
+  ];
+}
+
+function formatManagedAgentGenericResourceUris(item: OperatorCockpitManagedAgentViewItem): readonly string[] {
+  const conflict = item.worktreeConflict;
+  if (!conflict || !item.worktreeConflictBlocked) {
+    return item.resourceUris;
+  }
+  const conflictUris = new Set([
+    ...conflict.resourceUris,
+    ...conflict.diagnosticUris,
+  ]);
+  return item.resourceUris.filter((uri) => !conflictUris.has(uri));
 }
 
 function formatManagedAgentAdoptionGateLines(item: OperatorCockpitManagedAgentViewItem): readonly string[] {

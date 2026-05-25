@@ -125,14 +125,16 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7J
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7K
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
   across resource/cockpit projections are in place. Runtime-owned cancellation
   now resolves terminal evidence without waiting for late adapter output after
   child execution starts, while in-flight lease acquisition still waits for
-  cleanup evidence before terminal publication. Slice 8 is not started.
+  cleanup evidence before terminal publication. Runtime-owned worktree conflict
+  evidence now renders consistently in TUI, GUI, and native managed-agent
+  cockpits without adding surface-local conflict state. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -843,7 +845,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, and Slice 7J are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, and Slice 7K are complete in code.
 
 Completed:
 
@@ -904,6 +906,12 @@ Completed:
   success/failure from replacing the cancelled lifecycle. Cancellation during
   runtime lease acquisition still waits for acquire cleanup before `join`
   resolves, preserving cleanup-before-terminal evidence.
+- Worktree conflict evidence now projects consistently across non-CLI
+  managed-agent cockpits. TUI, GUI, and native surfaces render the shared
+  `worktreeConflict` status, reason, requested/conflicting invocation ids,
+  retry-after ids, and conflict resource/diagnostic pointers without inferring
+  conflict state locally or showing dirty-worktree copy for conflict-only
+  children.
 
 Deliverables:
 

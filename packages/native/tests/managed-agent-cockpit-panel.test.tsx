@@ -149,6 +149,76 @@ describe("native managed-agent cockpit panel", () => {
     expect(markup).not.toContain("child-");
   });
 
+  it("renders worktree conflict evidence from shared native cockpit view-state", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-conflict", 1, "agent_invocation_failed", {
+          managedInvocationId: "child-blocked",
+          providerRoute: {
+            providerId: "opencode",
+            model: "minimax-m2.5",
+          },
+          lifecycleState: "failed",
+          managedInvocationEvidence: {
+            lifecycle: {
+              resourceLease: {
+                leaseId: "lease-conflict",
+                createdAt: "2026-05-24T12:00:00.000Z",
+                healthStatus: "stale",
+                cleanupStatus: "not-required",
+                workingDirectoryPath: "C:/work/kiln",
+                workingDirectoryMode: "workspace-write",
+                resourceUris: ["kiln://managed-agent/child-blocked/conflict-resource"],
+                diagnosticUris: ["kiln://managed-agent/child-blocked/conflict-diagnostic"],
+                worktreeConflict: {
+                  status: "blocked",
+                  reason: "same-checkout-write-conflict",
+                  requestedInvocationId: "child-blocked",
+                  conflictingInvocationId: "child-active",
+                  workingDirectoryPath: "C:/work/kiln",
+                  workingDirectoryMode: "workspace-write",
+                  policyId: "managed-agent.worktree.single-active-writer",
+                  retryAfterInvocationIds: ["child-active"],
+                  resourceUris: ["kiln://managed-agent/child-blocked/conflict-resource"],
+                  diagnosticUris: ["kiln://managed-agent/child-blocked/conflict-diagnostic"],
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {},
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+
+    expect(markup).toContain("child-blocked");
+    expect(markup).toContain("data-attention=\"needs_review\"");
+    expect(markup).toContain("<dd>failed</dd>");
+    expect(markup).toContain("Worktree conflict");
+    expect(markup).toContain("status blocked");
+    expect(markup).toContain("same-checkout-write-conflict");
+    expect(markup).toContain("requested child-blocked");
+    expect(markup).toContain("conflicting child-active");
+    expect(markup).toContain("retry after child-active");
+    expect(markup).toContain("kiln://managed-agent/child-blocked/conflict-resource");
+    expect(markup).toContain("kiln://managed-agent/child-blocked/conflict-diagnostic");
+    expect(markup).not.toContain("dirty worktree");
+  });
+
   it("renders timed-out managed child attention from shared view-state", () => {
     const projection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:local",

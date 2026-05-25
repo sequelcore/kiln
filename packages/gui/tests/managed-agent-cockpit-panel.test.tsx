@@ -111,6 +111,85 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.queryByRole("button", { name: /cancel/i })).not.toBeInTheDocument();
   });
 
+  it("renders worktree conflict evidence without dirty-worktree copy", () => {
+    const onOpenResource = vi.fn();
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 0,
+      attentionCount: 1,
+      items: [
+        {
+          managedInvocationId: "child-blocked",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "failed",
+          lifecycleState: "failed",
+          providerRoute: "opencode/minimax-m2.5",
+          attentionState: "needs_review",
+          dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: true,
+          worktreeConflict: {
+            status: "blocked",
+            reason: "same-checkout-write-conflict",
+            requestedInvocationId: "child-blocked",
+            conflictingInvocationId: "child-active",
+            workingDirectoryPath: "C:/work/kiln",
+            workingDirectoryMode: "workspace-write",
+            policyId: "managed-agent.worktree.single-active-writer",
+            retryAfterInvocationIds: ["child-active"],
+            resourceUris: ["kiln://managed-agents/child-blocked/conflict-resource"],
+            diagnosticUris: ["kiln://managed-agents/child-blocked/conflict-diagnostic"],
+          },
+          resourceUris: [
+            "kiln://managed-agents/child-blocked/conflict-resource",
+            "kiln://managed-agents/child-blocked/conflict-diagnostic",
+          ],
+          latestEventId: "event-conflict",
+          lifecycleTimeline: [
+            {
+              eventId: "event-conflict",
+              instanceId: "local",
+              sessionId: "session-1",
+              sequence: 1,
+              timestamp: "2026-05-24T12:00:00.000Z",
+              kind: "agent_invocation_failed",
+              title: "Agent invocation failed",
+              summary: "Managed child write conflict.",
+              tone: "danger",
+              target: {
+                instanceId: "local",
+                sessionId: "session-1",
+                eventId: "event-conflict",
+                managedInvocationId: "child-blocked",
+              },
+            },
+          ],
+          cancelControl: {
+            status: "unavailable",
+            reason: "Managed invocation is not active.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} onOpenResource={onOpenResource} />);
+
+    expect(screen.getByText("child-blocked")).toBeVisible();
+    expect(screen.getByText("Review required")).toBeVisible();
+    expect(screen.getByText("Worktree conflict")).toBeVisible();
+    expect(screen.getByText("status blocked")).toBeVisible();
+    expect(screen.getByText("same-checkout-write-conflict")).toBeVisible();
+    expect(screen.getByText("requested child-blocked")).toBeVisible();
+    expect(screen.getByText("conflicting child-active")).toBeVisible();
+    expect(screen.getByText("retry after child-active")).toBeVisible();
+    expect(screen.queryByText("Dirty worktree preserved")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("conflict resource"));
+    fireEvent.click(screen.getByText("conflict diagnostic"));
+
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-blocked/conflict-resource");
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-blocked/conflict-diagnostic");
+  });
+
   it("renders timed-out managed children as distinct attention", () => {
     const viewState: OperatorCockpitManagedAgentViewState = {
       activeCount: 0,

@@ -111,6 +111,42 @@ function ManagedAgentResources(props: {
   );
 }
 
+function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitManagedAgentViewItem }) {
+  const conflict = props.item.worktreeConflict;
+  if (!props.item.worktreeConflictBlocked || !conflict) {
+    return null;
+  }
+  return (
+    <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <p className="font-medium">Worktree conflict</p>
+      <dl className="mt-2 grid gap-1 font-mono text-[10.5px] text-destructive/80 sm:grid-cols-2">
+        <div className="min-w-0">
+          <dt className="sr-only">Status</dt>
+          <dd className="truncate">status {conflict.status}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="sr-only">Reason</dt>
+          <dd className="truncate">{conflict.reason}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="sr-only">Requested invocation</dt>
+          <dd className="truncate">requested {conflict.requestedInvocationId}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="sr-only">Conflicting invocation</dt>
+          <dd className="truncate">conflicting {conflict.conflictingInvocationId}</dd>
+        </div>
+        {conflict.retryAfterInvocationIds.length > 0 ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Retry after</dt>
+            <dd className="truncate">retry after {conflict.retryAfterInvocationIds.join(", ")}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
 function ManagedAgentItem(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
   readonly onOpenResource?: (uri: string) => void;
@@ -186,6 +222,7 @@ function ManagedAgentItem(props: {
           </p>
         </div>
       ) : null}
+      <ManagedAgentWorktreeConflict item={item} />
       <ManagedAgentResources item={item} onOpenResource={props.onOpenResource} />
       <ManagedAgentTimeline entries={item.lifecycleTimeline} />
     </article>

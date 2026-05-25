@@ -75,7 +75,7 @@ export function ManagedAgentCockpitPanel({
                 </div>
                 <div>
                   <dt>Review</dt>
-                  <dd>{item.dirtyWorkspaceReviewRequired ? "dirty worktree" : "clear"}</dd>
+                  <dd>{item.worktreeConflictBlocked ? "worktree conflict" : item.dirtyWorkspaceReviewRequired ? "dirty worktree" : "clear"}</dd>
                 </div>
                 <div>
                   <dt>Adoption</dt>
@@ -117,6 +117,35 @@ export function ManagedAgentCockpitPanel({
                   Cancel disabled
                 </button>
               )}
+              {item.worktreeConflictBlocked && item.worktreeConflict ? (
+                <section className="worktree-conflict" aria-label={`${item.managedInvocationId} worktree conflict`}>
+                  <h3>Worktree conflict</h3>
+                  <dl className="managed-agent-details">
+                    <div>
+                      <dt>Status</dt>
+                      <dd>status {item.worktreeConflict.status}</dd>
+                    </div>
+                    <div>
+                      <dt>Reason</dt>
+                      <dd>{item.worktreeConflict.reason}</dd>
+                    </div>
+                    <div>
+                      <dt>Requested</dt>
+                      <dd>requested {item.worktreeConflict.requestedInvocationId}</dd>
+                    </div>
+                    <div>
+                      <dt>Conflicting</dt>
+                      <dd>conflicting {item.worktreeConflict.conflictingInvocationId}</dd>
+                    </div>
+                    {item.worktreeConflict.retryAfterInvocationIds.length > 0 ? (
+                      <div>
+                        <dt>Retry After</dt>
+                        <dd>retry after {item.worktreeConflict.retryAfterInvocationIds.join(", ")}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </section>
+              ) : null}
               <ol className="timeline-list" aria-label={`${item.managedInvocationId} lifecycle timeline`}>
                 {item.lifecycleTimeline.slice(-4).map((entry) => (
                   <li key={entry.eventId}>

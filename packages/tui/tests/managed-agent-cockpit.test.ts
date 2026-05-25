@@ -171,6 +171,73 @@ describe("TUI managed-agent cockpit projection", () => {
     ]));
   });
 
+  it("formats worktree conflict evidence from shared managed-agent view state", () => {
+    const failed = event("evt-conflict", 1, "agent_invocation_failed", {
+      invocationId: "child-blocked",
+      lifecycleState: "failed",
+      providerRoute: {
+        providerId: "opencode",
+        model: "minimax-m2.5",
+      },
+      managedInvocationEvidence: {
+        lifecycle: {
+          resourceLease: {
+            leaseId: "lease-conflict",
+            createdAt: "2026-05-23T12:00:00.000Z",
+            healthStatus: "stale",
+            cleanupStatus: "not-required",
+            workingDirectoryPath: "C:/work/kiln",
+            workingDirectoryMode: "workspace-write",
+            resourceUris: ["kiln://managed-agent/child-blocked/conflict-resource"],
+            diagnosticUris: ["kiln://managed-agent/child-blocked/conflict-diagnostic"],
+            worktreeConflict: {
+              status: "blocked",
+              reason: "same-checkout-write-conflict",
+              requestedInvocationId: "child-blocked",
+              conflictingInvocationId: "child-active",
+              workingDirectoryPath: "C:/work/kiln",
+              workingDirectoryMode: "workspace-write",
+              policyId: "managed-agent.worktree.single-active-writer",
+              retryAfterInvocationIds: ["child-active"],
+              resourceUris: ["kiln://managed-agent/child-blocked/conflict-resource"],
+              diagnosticUris: ["kiln://managed-agent/child-blocked/conflict-diagnostic"],
+            },
+          },
+        },
+      },
+    });
+
+    const viewState = projectTuiManagedAgentViewState(appendManagedAgentSessionEvent([], failed));
+
+    expect(viewState.items[0]).toMatchObject({
+      managedInvocationId: "child-blocked",
+      attentionState: "needs_review",
+      dirtyWorkspaceReviewRequired: false,
+      worktreeConflictBlocked: true,
+      worktreeConflict: {
+        status: "blocked",
+        reason: "same-checkout-write-conflict",
+        conflictingInvocationId: "child-active",
+        retryAfterInvocationIds: ["child-active"],
+      },
+      resourceUris: expect.arrayContaining([
+        "kiln://managed-agent/child-blocked/conflict-resource",
+        "kiln://managed-agent/child-blocked/conflict-diagnostic",
+      ]),
+    });
+    expect(formatManagedAgentCockpitLines(viewState)).toEqual(expect.arrayContaining([
+      "! child-blocked needs_review failed opencode/minimax-m2.5 conflict:blocked events:1 resources:2",
+      "  conflict same-checkout-write-conflict requested:child-blocked conflicting:child-active",
+      "  retry-after child-active",
+      "  conflict-res kiln://managed-agent/child-blocked/conflict-resource",
+      "  conflict-diag kiln://managed-agent/child-blocked/conflict-diagnostic",
+    ]));
+    expect(formatManagedAgentCockpitLines(viewState)).not.toEqual(expect.arrayContaining([
+      "  res kiln://managed-agent/child-blocked/conflict-resource",
+      "  res kiln://managed-agent/child-blocked/conflict-diagnostic",
+    ]));
+  });
+
   it("formats timed-out managed children from shared timeout attention", () => {
     const failed = event("evt-timeout", 1, "agent_invocation_failed", {
       invocationId: "child-timeout",

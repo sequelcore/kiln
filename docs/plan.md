@@ -1,65 +1,71 @@
-## Slice 7J - Immediate Cancellation Terminal Evidence
+## Slice 7K - Worktree Conflict Presentation Parity
 
 ## Objective
 
-Continue Slice 7 by making managed-agent cancellation publish runtime-owned
-terminal evidence without waiting for a child adapter to settle after abort.
+Continue Slice 7 by projecting runtime-owned worktree conflict evidence through
+the non-CLI managed-agent operator surfaces without creating surface-local
+lifecycle or conflict state.
 
 ## Decision
 
-Treat operator cancellation as a runtime terminal decision. Once cancellation
-is accepted, the runtime must abort the adapter, release already-acquired
-runtime leases, resolve `join` with a cancelled record, and suppress later
-adapter success or failure from changing the terminal lifecycle. If the adapter
-later returns cancellation-specific cleanup evidence, the runtime may merge
-that evidence into the stored cancelled record, but operator control and
-session-event replay must not depend on the adapter returning.
+Treat `resourceLease.worktreeConflict` as the single source of truth. Runtime
+already creates governed denied-admission conflict evidence, the shared cockpit
+view-state already exposes `worktreeConflictBlocked` and `worktreeConflict`,
+and CLI already renders conflict details. Slice 7K only closes the remaining
+TUI, GUI, and native presentation gap.
 
-This follows the 5.5 xhigh debate: parent interruption remains larger than
-this slice. Slice 7J hardens the central late-output invariant first.
+Parent interruption remains out of scope because it needs a separate lifecycle
+decision. Dirty worktree review is already represented across runtime,
+resource replay, and the current surfaces. Late-output suppression remains
+owned by the runtime cancellation/stale paths unless transcript-boundary tests
+expose a separate contract gap.
 
 ## Non-Goals
 
 - Do not introduce a public `interrupted` lifecycle state.
-- Do not implement parent SIGINT/SIGTERM cascade semantics.
-- Do not add CLI, GUI, TUI, or native surface-local cancellation stores.
-- Do not add compatibility shims for older cancellation metadata.
-- Do not remove the existing adapter cleanup-evidence merge path.
+- Do not change runtime conflict admission semantics.
+- Do not add GUI, TUI, native, or CLI local conflict stores.
+- Do not infer conflicts from strings, statuses, or URI shape.
+- Do not add compatibility aliases for older conflict metadata.
 
 ## Surface Map
 
-- Runtime managed invocation service:
-  - `packages/runtime/src/agents/managed-invocation/index.ts`
-  - `packages/runtime/tests/managed-agent/invocation-service.test.ts`
-- Runtime managed-agent tool surface:
-  - `packages/runtime/src/agents/managed-invocation/runtime-tool.ts`
-  - `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`
-- GUI gateway managed-agent control:
-  - `packages/runtime/src/gateway/gui-gateway.ts`
-  - `packages/runtime/tests/gateway/gui-gateway.test.ts`
+- Shared cockpit projection contract:
+  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
+  - `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
+- TUI managed-agent cockpit:
+  - `packages/tui/src/managed-agent-cockpit.ts`
+  - `packages/tui/tests/managed-agent-cockpit.test.ts`
+- GUI managed-agent cockpit:
+  - `packages/gui/src/components/managed-agent-cockpit-panel.tsx`
+  - `packages/gui/tests/managed-agent-cockpit-panel.test.tsx`
+- Native managed-agent cockpit:
+  - `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
+  - `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
 
 ## Expected Behavior
 
-- `RuntimeManagedAgentInvocationService.cancel` resolves terminal cancellation
-  evidence without waiting for adapter terminal output.
-- `managed_agent.cancel` returns and appends one cancellation session event
-  even when the adapter never resolves after abort.
-- Gateway `managed_agent_control` cancel acknowledges and streams the
-  cancellation event without waiting for late child output.
-- Late adapter success or failure after cancellation cannot replace the
-  cancelled lifecycle, cannot append a completed/failed terminal event, and
-  cannot leak late output into operator presentation.
-- Runtime lease cleanup still happens at the runtime boundary before terminal
-  evidence is published.
+- Shared cockpit conflict projection remains `attentionState: "needs_review"`
+  with `dirtyWorkspaceReviewRequired: false`, `worktreeConflictBlocked: true`,
+  and concrete conflict evidence.
+- TUI managed-agent output renders conflict status, reason, conflicting
+  invocation id, retry-after ids, and conflict resources/diagnostics from the
+  shared view item.
+- GUI managed-agent cards render conflict status, reason, requested/conflicting
+  invocation ids, retry-after ids, and conflict resource links without showing
+  dirty-worktree copy unless dirty review is also true.
+- Native managed-agent cards render the same stable conflict details from the
+  shared native projection without adding native-local state.
 
 ## Verification
 
 - Add failing focused tests first.
-- Run `bun run --filter @kilnai/runtime test -- tests/managed-agent/invocation-service.test.ts`.
-- Run `bun run --filter @kilnai/runtime test -- tests/gateway/managed-invocation-tool.test.ts`.
-- Run `bun run --filter @kilnai/runtime test -- tests/gateway/gui-gateway.test.ts`.
+- Run `bun run --filter @kilnai/tui test -- tests/managed-agent-cockpit.test.ts`.
+- Run `bun run --filter @kilnai/gui test -- tests/managed-agent-cockpit-panel.test.tsx`.
+- Run `bun run --filter @kilnai/native test -- tests/managed-agent-cockpit-panel.test.tsx`.
+- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-view-state.test.ts`.
 - Run `bun run typecheck`.
 - Run `bun run build`.
 - Run `bun run test`.
