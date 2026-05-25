@@ -3,6 +3,7 @@ import type {
   NativeCockpitReadOnlyViewState,
 } from "../shared/native-cockpit-contract";
 import type {
+  OperatorCockpitManagedAgentAttentionState,
   OperatorCockpitManagedAgentDrilldownViewState,
   OperatorCockpitManagedAgentViewItem,
 } from "@kilnai/gateway-contracts";
@@ -12,6 +13,17 @@ export interface ManagedAgentCockpitPanelProps {
   readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
   readonly selectedManagedInvocationId?: string;
 }
+
+const ATTENTION_LABELS: Record<OperatorCockpitManagedAgentAttentionState, string> = {
+  active: "Active",
+  needs_review: "Review required",
+  timed_out: "Timed out",
+  stale: "Stale heartbeat",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  clear: "Clear",
+  unknown: "Unknown",
+};
 
 export function ManagedAgentCockpitPanel({
   cockpit,
@@ -50,7 +62,7 @@ export function ManagedAgentCockpitPanel({
                   <strong>{item.managedInvocationId}</strong>
                   <span>{item.providerRoute ?? "unrouted"}</span>
                 </div>
-                <mark data-attention={item.attentionState}>{item.attentionState}</mark>
+                <mark data-attention={item.attentionState}>{ATTENTION_LABELS[item.attentionState]}</mark>
               </header>
               <dl className="managed-agent-details">
                 <div>

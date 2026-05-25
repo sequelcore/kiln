@@ -840,7 +840,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, and Slice 7E are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, and Slice 7F are complete in code.
 
 Completed:
 
@@ -874,6 +874,10 @@ Completed:
   `failed` attention. CLI, TUI, and GUI consume the shared state while
   preserving canonical `lifecycleState: "stale"`, failed terminal status, and
   heartbeat diagnostic/resource pointers.
+- Native managed-agent cockpit presentation now consumes the shared `stale`
+  attention state with a stable `Stale heartbeat` operator label while
+  preserving `data-attention="stale"`, canonical failed terminal status,
+  `lifecycleState: "stale"`, and heartbeat evidence resources.
 
 Deliverables:
 

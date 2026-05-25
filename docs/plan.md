@@ -1,52 +1,45 @@
-# Slice 7E - Stale Heartbeat Attention Parity
+# Slice 7F - Native Stale Heartbeat Presentation Parity
 
 ## Objective
 
-Continue Slice 7 by projecting heartbeat-recovered managed children as a
-distinct `stale` attention state instead of collapsing them into generic
-failure across operator surfaces.
+Continue Slice 7 by bringing the native managed-agent cockpit presentation in
+line with the shared stale heartbeat attention state added in Slice 7E.
 
 ## Decision
 
-Keep lifecycle interpretation in `@kilnai/gateway-contracts` shared cockpit
-view-state. Runtime already emits `lifecycleState: "stale"` with terminal
-evidence; surfaces must consume that shared attention state and only adapt
-presentation labels or severity styling locally.
+Keep lifecycle interpretation in `@kilnai/gateway-contracts`. Native should
+consume `item.attentionState === "stale"` from the shared view-state and render
+a stable operator label while preserving the canonical raw state on
+`data-attention`.
 
 ## Non-Goals
 
-- Do not change runtime stale recovery, heartbeat thresholds, or lease cleanup.
-- Do not add surface-local stale inference.
-- Do not rename existing lifecycle states or compatibility-map old values.
-- Do not change cancellation or timeout semantics.
+- Do not add native-local lifecycle inference.
+- Do not change gateway, runtime, CLI, TUI, or GUI behavior.
+- Do not change cancellation or heartbeat recovery semantics.
+- Do not introduce compatibility aliases for older attention states.
 
 ## Surface Map
 
-- Shared contract:
-  - `packages/gateway-contracts/src/operator-cockpit-view-state.ts`
-  - `packages/gateway-contracts/tests/operator-cockpit-view-state.test.ts`
-- Presentation consumers:
-  - `packages/tui/src/managed-agent-cockpit.ts`
-  - `packages/gui/src/components/managed-agent-cockpit-panel.tsx`
-  - `packages/gui/tests/managed-agent-cockpit-panel.test.tsx`
+- Native renderer:
+  - `packages/native/src/renderer/managed-agent-cockpit-panel.tsx`
+  - `packages/native/tests/managed-agent-cockpit-panel.test.tsx`
 - Roadmap:
   - `docs/roadmap/01-background-parallel-agent-surface.md`
 
 ## Expected Behavior
 
-- Managed children with `status: "failed"` and `lifecycleState: "stale"`
-  project as `attentionState: "stale"`.
-- Stale children count as attention, not active work.
-- TUI renders stale children with the same alert prefix as other terminal
-  attention states while preserving the canonical `stale` label.
-- GUI renders a stable `Stale heartbeat` label and destructive severity for
-  stale children.
+- Native renders stale heartbeat children with `data-attention="stale"`.
+- Native shows a human stable label, `Stale heartbeat`, instead of only the raw
+  state token.
+- Native preserves canonical `status: "failed"`, `lifecycleState: "stale"`,
+  and heartbeat evidence resources from shared projection.
 
 ## Verification
 
-- Add failing shared view-state test first.
-- Run `bun run --filter @kilnai/gateway-contracts test -- tests/operator-cockpit-view-state.test.ts`.
-- Run `bun run --cwd packages/gui test -- tests/managed-agent-cockpit-panel.test.tsx`.
+- Add failing native renderer test first.
+- Run `bun run --cwd packages/native test -- tests/managed-agent-cockpit-panel.test.tsx`.
 - Run `bun run typecheck`.
 - Run `bun run build`.
+- Run `bun run test`.
 - Update the roadmap after code verification.

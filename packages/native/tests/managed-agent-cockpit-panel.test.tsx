@@ -201,6 +201,60 @@ describe("native managed-agent cockpit panel", () => {
     expect(markup).toContain("agent_invocation_failed");
   });
 
+  it("renders stale heartbeat managed child attention from shared view-state", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-stale", 1, "agent_invocation_failed", {
+          managedInvocationId: "child-stale",
+          providerRoute: {
+            providerId: "opencode",
+            model: "minimax-m2.5",
+          },
+          lifecycleState: "stale",
+          errorCode: "ENGINE_STALE",
+          errorMessage: "Managed invocation heartbeat expired.",
+          managedInvocationEvidence: {
+            diagnostics: [{
+              uri: "kiln://managed-agent/child-stale/heartbeat",
+              kind: "heartbeat",
+            }],
+            resultHandoff: {
+              summary: "Managed invocation heartbeat expired.",
+              resourceUris: ["kiln://managed-agent/child-stale/handoff"],
+              memoryWriteProposalUris: [],
+            },
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {},
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+
+    expect(markup).toContain("<dd>1</dd>");
+    expect(markup).toContain("child-stale");
+    expect(markup).toContain("data-attention=\"stale\"");
+    expect(markup).toContain("Stale heartbeat");
+    expect(markup).toContain("failed");
+    expect(markup).toContain("<dd>stale</dd>");
+    expect(markup).toContain("kiln://managed-agent/child-stale/handoff");
+    expect(markup).toContain("kiln://managed-agent/child-stale/heartbeat");
+    expect(markup).toContain("agent_invocation_failed");
+  });
+
   it("enables native cancellation only when a live gateway control callback is present", () => {
     const projection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:local",
