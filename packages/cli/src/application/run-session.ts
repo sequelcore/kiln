@@ -20,6 +20,7 @@ import type { SessionContext } from "../wrapper/index.js";
 import { normalizeMcpSelector } from "../wrapper/mcp-selector.js";
 import { SessionHooks } from "./session-hooks.js";
 import { governSessionContext } from "./context-governance.js";
+import type { RunOutputSink } from "./run-output.js";
 
 export interface RunSessionOptions {
   readonly registry: SessionRegistry;
@@ -36,6 +37,7 @@ export interface RunSessionOptions {
   readonly env: Record<string, string>;
   readonly sessionHooks: SessionHooks;
   readonly abortSignal?: AbortSignal;
+  readonly output?: RunOutputSink;
 }
 
 export interface RunSessionRouteCandidate {
@@ -122,6 +124,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
     let attemptError: string | null = null;
+    const accumulatedTextBeforeAttempt = accumulatedText.length;
 
     const session = options.registry.createSession(providerId, effectiveSessionConfig);
     options.cleanupRegistry.register(async () => session.dispose());
@@ -151,7 +154,11 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               isFirstDeltaOfTurn = false;
               options.sessionHooks.userPromptSubmit();
             }
-            process.stdout.write(event.content);
+            if (options.output) {
+              options.output.writeAssistantDelta(event.content);
+            } else {
+              process.stdout.write(event.content);
+            }
             accumulatedText += event.content;
             break;
           }
@@ -304,7 +311,11 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 submittedPlan = submitted;
               }
             }
-            console.log(`[tool] ${event.toolName}`);
+            if (options.output) {
+              options.output.writeToolUse(event.toolName);
+            } else {
+              console.log(`[tool] ${event.toolName}`);
+            }
             toolCallCount++;
             lastToolName = event.toolName;
             options.sessionHooks.preToolUse(event.toolName);
@@ -351,6 +362,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               break;
             }
             sessionSucceeded = true;
+            lastError = null;
             successfulProviderId = providerId;
             successfulModelId = effectiveSessionConfig.model;
             options.registry.reportSuccess(providerId);
@@ -388,7 +400,15 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
     const hasMoreCandidates = candidateIndex < candidates.length - 1;
     if (!isPreflightCrash && !sessionSucceeded && hasMoreCandidates) {
-      console.error(`[kiln] Provider ${providerId} failed, trying next...`);
+      accumulatedText = accumulatedText.slice(0, accumulatedTextBeforeAttempt);
+      if (options.output?.mode !== "human") {
+        options.output?.resetAssistantAnswer(accumulatedText);
+      }
+      if (options.output) {
+        options.output.writeProviderFallback(providerId);
+      } else {
+        console.error(`[kiln] Provider ${providerId} failed, trying next...`);
+      }
     }
   }
 

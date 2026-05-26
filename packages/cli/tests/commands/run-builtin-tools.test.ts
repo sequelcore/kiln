@@ -424,6 +424,607 @@ describe("run command builtin tool wiring", () => {
     });
   });
 
+  it("writes only the assistant answer to stdout in answer output mode", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0.01,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "Only four bullets.\n",
+      toolCallCount: 1,
+      turnDepth: 1,
+      successfulProviderId: "codex",
+      successfulModelId: "gpt-5.5",
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await runCommand(APP_CONFIG, "exact output", { provider: "codex", output: "answer" });
+
+    expect(stdout.text()).toBe("Only four bullets.\n");
+    expect(stdout.text()).not.toContain("Kiln session starting");
+    expect(stdout.text()).not.toContain("Session Complete");
+    expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
+      output: expect.objectContaining({ mode: "answer" }),
+    });
+  });
+
+  it("writes a structured envelope to stdout in json output mode", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0.02,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "One sentence.",
+      inputTokens: 12,
+      outputTokens: 3,
+      toolCallCount: 2,
+      turnDepth: 1,
+      successfulProviderId: "codex",
+      successfulModelId: "gpt-5.5",
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: ["File path touched: README.md"],
+      submittedPlan: undefined,
+    });
+
+    await runCommand(APP_CONFIG, "structured output", { provider: "codex", output: "json" });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      schemaVersion: "kiln.run.output.v1",
+      mode: "json",
+      answer: "One sentence.",
+      telemetry: {
+        task: "structured output",
+        domain: "Kiln",
+        sessionSucceeded: true,
+        provider: "codex",
+        model: "gpt-5.5",
+        costUsd: 0.02,
+        toolCallCount: 2,
+        turnDepth: 1,
+      },
+      diagnostics: {
+        lastError: null,
+        attempts: [{
+          providerId: "codex",
+          model: "gpt-5.5",
+          succeeded: true,
+          error: null,
+        }],
+      },
+      resources: {
+        exactArtifacts: ["File path touched: README.md"],
+      },
+    });
+    expect(stdout.text()).not.toContain("Kiln session starting");
+    expect(stdout.text()).not.toContain("Session Complete");
+  });
+
+  it("writes structured failure diagnostics before exiting in json output mode", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: false,
+      lastError: "Provider failed",
+      accumulatedText: "partial answer",
+      inputTokens: 4,
+      outputTokens: 2,
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: undefined,
+      successfulModelId: undefined,
+      attempts: [{
+        providerId: "codex",
+        succeeded: false,
+        error: "Provider failed",
+      }],
+      transcript: [],
+      exactArtifacts: ["Provider error: Provider failed"],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "structured failure",
+      { provider: "codex", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "partial answer",
+      telemetry: {
+        task: "structured failure",
+        sessionSucceeded: false,
+      },
+      diagnostics: {
+        lastError: "Provider failed",
+        attempts: [{
+          providerId: "codex",
+          succeeded: false,
+          error: "Provider failed",
+        }],
+      },
+    });
+  });
+
+  it("writes structured failure diagnostics for early route admission failure in json output mode", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.evaluateRouteHealth.mockResolvedValue({
+      healthy: false,
+      reason: "configured route is cooling down.",
+    });
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "early route failure",
+      { provider: "openrouter", model: "qwen/qwen3-coder:free", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      schemaVersion: "kiln.run.output.v1",
+      mode: "json",
+      answer: "",
+      telemetry: {
+        task: "early route failure",
+        domain: "Kiln",
+        sessionSucceeded: false,
+        provider: "openrouter",
+        model: "qwen/qwen3-coder:free",
+      },
+      diagnostics: {
+        lastError: "No configured provider routes are currently available.",
+        attempts: [],
+      },
+      resources: {
+        exactArtifacts: [],
+      },
+    });
+    expect(runWiringMocks.runSession).not.toHaveBeenCalled();
+  });
+
+  it("includes cleanup failure in early route admission json diagnostics", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.evaluateRouteHealth.mockResolvedValue({
+      healthy: false,
+      reason: "configured route is cooling down.",
+    });
+    runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "early route cleanup failure",
+      { provider: "openrouter", model: "qwen/qwen3-coder:free", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      telemetry: {
+        task: "early route cleanup failure",
+        sessionSucceeded: false,
+      },
+      diagnostics: {
+        lastError: "No configured provider routes are currently available.; Failed to cleanup worktree. cleanup failed",
+      },
+    });
+  });
+
+  it("writes structured failure diagnostics when runSession throws in json output mode", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runSession.mockRejectedValueOnce(new Error("session exploded"));
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "thrown session failure",
+      { provider: "codex", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "",
+      telemetry: {
+        task: "thrown session failure",
+        domain: "Kiln",
+        sessionSucceeded: false,
+        provider: "codex",
+      },
+      diagnostics: {
+        lastError: "session exploded",
+        attempts: [],
+      },
+    });
+    expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes cleanup failure when runSession throws in json diagnostics", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runSession.mockRejectedValueOnce(new Error("session exploded"));
+    runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "thrown cleanup failure",
+      { provider: "codex", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      telemetry: {
+        task: "thrown cleanup failure",
+        sessionSucceeded: false,
+      },
+      diagnostics: {
+        lastError: "session exploded; Failed to cleanup worktree. cleanup failed",
+      },
+    });
+  });
+
+  it("keeps json output deterministic when route health persistence fails", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.recordRouteOutcome.mockRejectedValueOnce(new Error("health store unavailable"));
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "route answer",
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: "openrouter",
+      successfulModelId: "qwen/qwen3-coder:free",
+      attempts: [{
+        providerId: "openrouter",
+        model: "qwen/qwen3-coder:free",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await runCommand(
+      APP_CONFIG,
+      "route health persistence",
+      { provider: "openrouter", model: "qwen/qwen3-coder:free", output: "json" },
+    );
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "route answer",
+      telemetry: {
+        task: "route health persistence",
+        sessionSucceeded: true,
+        provider: "openrouter",
+        model: "qwen/qwen3-coder:free",
+      },
+      diagnostics: {
+        lastError: null,
+      },
+    });
+  });
+
+  it("includes cleanup failure after provider failure in json diagnostics", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: false,
+      lastError: "Provider failed",
+      accumulatedText: "partial answer",
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: undefined,
+      successfulModelId: undefined,
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: false,
+        error: "Provider failed",
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "provider cleanup failure",
+      { provider: "codex", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "partial answer",
+      telemetry: {
+        task: "provider cleanup failure",
+        sessionSucceeded: false,
+      },
+      diagnostics: {
+        lastError: "Provider failed; Failed to cleanup worktree. cleanup failed",
+      },
+    });
+  });
+
+  it("writes structured failure diagnostics when final worktree cleanup fails in json output mode", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "cleanup answer",
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: "codex",
+      successfulModelId: "gpt-5.5",
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "cleanup failure",
+      { provider: "codex", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "cleanup answer",
+      telemetry: {
+        task: "cleanup failure",
+        sessionSucceeded: false,
+        provider: "codex",
+        model: "gpt-5.5",
+      },
+      diagnostics: {
+        lastError: "Failed to cleanup worktree. cleanup failed",
+      },
+    });
+  });
+
+  it("includes cleanup failure when verification runner throws in json diagnostics", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runVerification.mockRejectedValueOnce(new Error("verify crashed"));
+    runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "verification throw answer",
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: "codex",
+      successfulModelId: "gpt-5.5",
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand({
+      ...APP_CONFIG,
+      kilnYaml: {
+        ...APP_CONFIG.kilnYaml,
+        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+      },
+    }, "verification throw cleanup failure", { provider: "codex", output: "json" }, { exitOnFailure: false }))
+      .rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "verification throw answer",
+      telemetry: {
+        task: "verification throw cleanup failure",
+        sessionSucceeded: false,
+      },
+      diagnostics: {
+        lastError: "Failed to run verification gates. verify crashed; Failed to cleanup worktree. cleanup failed",
+      },
+    });
+  });
+
+  it("writes structured failure diagnostics when verification fails in json output mode", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runVerification.mockResolvedValueOnce({
+      passed: false,
+      checks: [{ name: "typecheck", passed: false, output: "type error", duration: 10 }],
+    });
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "verified answer",
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: "codex",
+      successfulModelId: "gpt-5.5",
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand({
+      ...APP_CONFIG,
+      kilnYaml: {
+        ...APP_CONFIG.kilnYaml,
+        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+      },
+    }, "verification failure", { provider: "codex", output: "json" }, { exitOnFailure: false }))
+      .rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "verified answer",
+      telemetry: {
+        task: "verification failure",
+        sessionSucceeded: false,
+        provider: "codex",
+        model: "gpt-5.5",
+        verificationPassed: false,
+      },
+      diagnostics: {
+        lastError: "Verification gates failed.",
+        verificationResult: {
+          passed: false,
+        },
+      },
+    });
+  });
+
+  it("includes cleanup failure when session report rendering throws in json diagnostics", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.printReport.mockImplementationOnce(() => {
+      throw new Error("report crashed");
+    });
+    runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "report answer",
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: "codex",
+      successfulModelId: "gpt-5.5",
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand(
+      APP_CONFIG,
+      "report cleanup failure",
+      { provider: "codex", output: "json" },
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "report answer",
+      telemetry: {
+        task: "report cleanup failure",
+        sessionSucceeded: false,
+      },
+      diagnostics: {
+        lastError: "Failed to build session report. report crashed; Failed to cleanup worktree. cleanup failed",
+      },
+    });
+  });
+
+  it("keeps json output single-envelope when verification and cleanup both fail", async () => {
+    const stdout = captureStdout();
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    runWiringMocks.runVerification.mockResolvedValueOnce({
+      passed: false,
+      checks: [{ name: "typecheck", passed: false, output: "type error", duration: 10 }],
+    });
+    runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
+    runWiringMocks.runSession.mockResolvedValueOnce({
+      finalCostUsd: 0,
+      sessionSucceeded: true,
+      lastError: null,
+      accumulatedText: "verified answer",
+      toolCallCount: 0,
+      turnDepth: 1,
+      successfulProviderId: "codex",
+      successfulModelId: "gpt-5.5",
+      attempts: [{
+        providerId: "codex",
+        model: "gpt-5.5",
+        succeeded: true,
+        error: null,
+      }],
+      transcript: [],
+      exactArtifacts: [],
+      submittedPlan: undefined,
+    });
+
+    await expect(runCommand({
+      ...APP_CONFIG,
+      kilnYaml: {
+        ...APP_CONFIG.kilnYaml,
+        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+      },
+    }, "verification cleanup failure", { provider: "codex", output: "json" }, { exitOnFailure: false }))
+      .rejects.toMatchObject({ code: 1 });
+
+    const parsed = JSON.parse(stdout.text()) as Record<string, any>;
+    expect(parsed).toMatchObject({
+      answer: "verified answer",
+      telemetry: {
+        task: "verification cleanup failure",
+        sessionSucceeded: false,
+        provider: "codex",
+        model: "gpt-5.5",
+        verificationPassed: false,
+      },
+      diagnostics: {
+        lastError: "Verification gates failed.; Failed to cleanup worktree. cleanup failed",
+        verificationResult: {
+          passed: false,
+        },
+      },
+    });
+  });
+
   it("requires MCP only when no provider is explicitly selected", () => {
     expect(buildRunSessionRequirements(undefined)).toEqual({
       preferredProvider: undefined,
@@ -798,6 +1399,20 @@ function deferred<T>() {
     reject = promiseReject;
   });
   return { promise, resolve, reject };
+}
+
+function captureStdout() {
+  const chunks: string[] = [];
+  vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as never);
+  vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
+    chunks.push(message === undefined ? "\n" : `${String(message)}\n`);
+  });
+  return {
+    text: () => chunks.join(""),
+  };
 }
 
 async function waitForCondition(predicate: () => boolean): Promise<void> {

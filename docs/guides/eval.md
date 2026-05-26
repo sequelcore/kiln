@@ -283,6 +283,41 @@ kiln benchmark project-tau --input ./tau.json --output ./.kiln/benchmarks/tau.js
 The baseline file may be an array of `BenchmarkBaselineResult` records or an
 object with a `baselines` array.
 
+## CLI Output For Exact-Format Evals
+
+Use `kiln run --output answer` when an eval harness grades raw stdout as the
+assistant answer:
+
+```bash
+kiln run "Return exactly one sentence." --provider codex --output answer
+```
+
+In `answer` mode, stdout contains only the final assistant content. Operator
+telemetry such as domain, mode, tool-use notices, provider fallback notices,
+session reports, and diagnostics is written to stderr or preserved in the
+session transcript/resource plane.
+
+Use `kiln run --output json` when the harness needs a deterministic envelope:
+
+```bash
+kiln run "Return JSON with status only." --provider codex --output json
+```
+
+The JSON envelope uses schema version `kiln.run.output.v1` and separates:
+
+- `answer`: assistant content only
+- `telemetry`: session id, task, domain, provider/model, cost, token counts,
+  tool count, turn depth, timestamps, verification status, and context
+  governance summary
+- `diagnostics`: last error, provider attempts, verification result, and eval
+  score when available
+- `resources`: exact artifact summaries recorded by the CLI session
+
+The default `human` mode is unchanged and remains the operator-facing mode.
+`answer` and `json` modes are intentionally rejected for interactive plan mode
+and parallel-worker mode because those flows produce operator orchestration
+output rather than a single assistant-answer contract.
+
 `kiln benchmark run-internal` executes the selected internal seed dataset
 through normal Kiln runtime sessions. It uses structural benchmark scorers that
 consume Kiln evidence such as tool calls, routing identity, handoff output,

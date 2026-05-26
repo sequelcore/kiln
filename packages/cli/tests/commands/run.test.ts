@@ -196,6 +196,73 @@ describe("run command", () => {
       );
     });
 
+    it("forwards --output answer to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--output",
+        "answer",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          output: "answer",
+        }),
+      );
+    });
+
+    it("forwards --output json to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--provider",
+        "codex",
+        "--output",
+        "json",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "ship it",
+        expect.objectContaining({
+          provider: "codex",
+          output: "json",
+        }),
+      );
+    });
+
+    it("rejects unsupported --output values", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "ship",
+        "it",
+        "--output",
+        "raw",
+      ];
+
+      await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow("Unknown run output mode");
+      expect(runCommandMock).not.toHaveBeenCalled();
+    });
+
     it("forwards --add-dir to runCommand flags", async () => {
       process.argv = [
         process.argv[0] ?? "bun",

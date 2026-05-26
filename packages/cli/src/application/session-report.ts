@@ -2,6 +2,7 @@ import type { SessionReport, ContextGovernanceSummary } from "../wrapper/index.j
 import type { ProjectedContext, ProjectedContextBlockKind } from "./context-types.js";
 
 type EvalScoreLabel = "excellent" | "good" | "fair" | "poor";
+type LineWriter = (line?: string) => void;
 
 function formatKindCounts(counts: Partial<Record<ProjectedContextBlockKind, number>>): string {
   return Object.entries(counts)
@@ -90,35 +91,42 @@ export function summarizeContextGovernance(projectedContext: ProjectedContext): 
   };
 }
 
-export function printContextGovernancePreview(summary: ContextGovernanceSummary): void {
+export function formatContextGovernancePreview(summary: ContextGovernanceSummary): string[] {
   const selectedKinds = formatKindCounts(summary.selectedKinds);
   const deferredKinds = formatKindCounts(summary.deferredKinds);
   const selectedSources = formatSourceCounts(summary.selectedSources);
   const deferredSources = formatSourceCounts(summary.deferredSources);
-
-  console.log("Context preview:");
-  console.log(
+  const lines = [
+    "Context preview:",
     `  ${summary.selectedTokens}/${summary.tokenBudget ?? "?"} tok`
     + `, selected ${summary.selectedCount}`
     + `, deferred ${summary.deferredCount}`
-    + (summary.overflow ? ", overflow" : "")
-  );
+    + (summary.overflow ? ", overflow" : ""),
+  ];
+
   if (selectedKinds) {
-    console.log(`  selected kinds: ${selectedKinds}`);
+    lines.push(`  selected kinds: ${selectedKinds}`);
   }
   if (deferredKinds) {
-    console.log(`  deferred kinds: ${deferredKinds}`);
+    lines.push(`  deferred kinds: ${deferredKinds}`);
   }
   if (selectedSources) {
-    console.log(`  selected src:   ${selectedSources}`);
+    lines.push(`  selected src:   ${selectedSources}`);
   }
   if (deferredSources) {
-    console.log(`  deferred src:   ${deferredSources}`);
+    lines.push(`  deferred src:   ${deferredSources}`);
   }
   if (summary.deferredReasons.length > 0) {
-    console.log(`  deferred why:   ${summary.deferredReasons.join(", ")}`);
+    lines.push(`  deferred why:   ${summary.deferredReasons.join(", ")}`);
   }
-  console.log("");
+  lines.push("");
+  return lines;
+}
+
+export function printContextGovernancePreview(summary: ContextGovernanceSummary, writeLine: LineWriter = console.log): void {
+  for (const line of formatContextGovernancePreview(summary)) {
+    writeLine(line);
+  }
 }
 
 export function computeEvalScore(opts: {
@@ -171,35 +179,37 @@ export function computeEvalScore(opts: {
   return { score: clamped, label, signals };
 }
 
-export function printReport(report: SessionReport, appName: string): void {
+export function formatReport(report: SessionReport, appName: string): string[] {
   const costParts = Object.entries(report.cost.byRoleModel)
     .map(([role, value]) => `${role}: $${value.toFixed(2)}`)
     .join(", ");
 
   const durationSec = (report.duration / 1000).toFixed(1);
   const appLabel = appName.charAt(0).toUpperCase() + appName.slice(1);
+  const lines = [
+    `\n--- ${appLabel} Session Complete ---`,
+    `Task:     ${report.task}`,
+    `Domain:   ${report.domain}`,
+    `Phase:    ${report.phaseReached}`,
+    `Cost:     $${report.cost.total.toFixed(2)}${costParts ? ` (${costParts})` : ""}`,
+    `Duration: ${durationSec}s`,
+  ];
 
-  console.log(`\n--- ${appLabel} Session Complete ---`);
-  console.log(`Task:     ${report.task}`);
-  console.log(`Domain:   ${report.domain}`);
-  console.log(`Phase:    ${report.phaseReached}`);
-  console.log(`Cost:     $${report.cost.total.toFixed(2)}${costParts ? ` (${costParts})` : ""}`);
-  console.log(`Duration: ${durationSec}s`);
   if ((report as { resumedFrom?: string }).resumedFrom) {
-    console.log(`Resumed:  from session ${(report as { resumedFrom: string }).resumedFrom}`);
+    lines.push(`Resumed:  from session ${(report as { resumedFrom: string }).resumedFrom}`);
   }
   if (report.resumeStrategy && report.resumeStrategy !== "none") {
-    console.log(`Resume:   ${report.resumeStrategy}`);
+    lines.push(`Resume:   ${report.resumeStrategy}`);
   }
   if (report.resumeFeedback && report.resumeStrategy && report.resumeStrategy !== "none") {
     const preferred = report.resumeFeedback.preferredStrategy
       ? `, prefer ${report.resumeFeedback.preferredStrategy}`
       : "";
     const source = report.resumeFeedback.influencedChoice ? "applied" : "observed";
-    console.log(`Resumeƒ:  ${source}${preferred}, ${report.resumeFeedback.sampleSize} samples`);
+    lines.push(`Resumeƒ:  ${source}${preferred}, ${report.resumeFeedback.sampleSize} samples`);
   }
   if (report.resumeOutcome && report.resumeStrategy && report.resumeStrategy !== "none") {
-    console.log(
+    lines.push(
       `Resume→   ${report.resumeOutcome.succeeded ? "success" : "failure"}`
       + `, $${report.resumeOutcome.costUsd.toFixed(2)}`
       + `, ${report.resumeOutcome.toolCallCount} tools`
@@ -211,41 +221,48 @@ export function printReport(report: SessionReport, appName: string): void {
     const deferredKinds = formatKindCounts(report.contextGovernance.deferredKinds);
     const selectedSources = formatSourceCounts(report.contextGovernance.selectedSources);
     const deferredSources = formatSourceCounts(report.contextGovernance.deferredSources);
-    console.log(
+    lines.push(
       `Context:  ${report.contextGovernance.selectedTokens}/${report.contextGovernance.tokenBudget ?? "?"} tok`
       + `, selected ${report.contextGovernance.selectedCount}`
       + `, deferred ${report.contextGovernance.deferredCount}`
       + (report.contextGovernance.overflow ? ", overflow" : "")
     );
     if (selectedKinds) {
-      console.log(`Context✓: ${selectedKinds}`);
+      lines.push(`Context✓: ${selectedKinds}`);
     }
     if (deferredKinds) {
-      console.log(`Context…: ${deferredKinds}`);
+      lines.push(`Context…: ${deferredKinds}`);
     }
     if (selectedSources) {
-      console.log(`Context+: ${selectedSources}`);
+      lines.push(`Context+: ${selectedSources}`);
     }
     if (deferredSources) {
-      console.log(`Context-: ${deferredSources}`);
+      lines.push(`Context-: ${deferredSources}`);
     }
     if (report.contextGovernance.deferredReasons.length > 0) {
-      console.log(`Context?: ${report.contextGovernance.deferredReasons.join(", ")}`);
+      lines.push(`Context?: ${report.contextGovernance.deferredReasons.join(", ")}`);
     }
   }
   if (report.verificationResult) {
     const v = report.verificationResult;
-    console.log(`Gates:    ${v.passed ? "all passed" : "FAILED"}`);
+    lines.push(`Gates:    ${v.passed ? "all passed" : "FAILED"}`);
     for (const check of v.checks) {
       const icon = check.passed ? "✓" : "✗";
-      console.log(`  ${icon} ${check.name} (${check.duration}ms)`);
+      lines.push(`  ${icon} ${check.name} (${check.duration}ms)`);
       if (!check.passed) {
-        console.log(`    ${check.output.slice(0, 300)}`);
+        lines.push(`    ${check.output.slice(0, 300)}`);
       }
     }
   }
   if (report.evalScore) {
-    console.log(`Score:    ${report.evalScore.label} (${(report.evalScore.score * 100).toFixed(0)}%)`);
+    lines.push(`Score:    ${report.evalScore.label} (${(report.evalScore.score * 100).toFixed(0)}%)`);
   }
-  console.log("");
+  lines.push("");
+  return lines;
+}
+
+export function printReport(report: SessionReport, appName: string, writeLine: LineWriter = console.log): void {
+  for (const line of formatReport(report, appName)) {
+    writeLine(line);
+  }
 }

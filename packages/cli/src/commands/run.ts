@@ -46,7 +46,13 @@ import { resolveResumeSessionId } from "../application/session-resume.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
-import type { RunSessionRouteCandidate } from "../application/run-session.js";
+import type { RunSessionAttemptResult, RunSessionRouteCandidate } from "../application/run-session.js";
+import {
+  buildRunJsonOutputEnvelope,
+  createRunOutputController,
+  type RunOutputController,
+  type RunOutputMode,
+} from "../application/run-output.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import { TranscriptStore, type PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
@@ -104,6 +110,7 @@ export interface RunFlags {
   readonly ephemeral?: boolean;
   readonly profile?: string;
   readonly skipGitRepoCheck?: boolean;
+  readonly output?: RunOutputMode;
   readonly outputSchema?: string;
   readonly addDir?: string;
   readonly localProvider?: string;
@@ -495,8 +502,56 @@ export async function runCommand(
   flags: RunFlags,
   executionOptions: RunCommandExecutionOptions = {},
 ): Promise<void> {
+  const runOutput = createRunOutputController(flags.output ?? "human");
+  const sessionId = randomUUID();
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
   if (!task.trim()) {
-    console.error(`Error: No task provided. Usage: kiln run "your task here"`);
+    const errorMessage = `No task provided. Usage: kiln run "your task here"`;
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: flags.provider,
+      model: flags.model,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
+    exitRunCommand(1, executionOptions);
+  }
+  if (flags.plan && runOutput.mode !== "human") {
+    const errorMessage = "--output answer/json is not supported with interactive plan mode.";
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: flags.provider,
+      model: flags.model,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
+    exitRunCommand(1, executionOptions);
+  }
+  if ((flags.workers ?? 1) > 1 && runOutput.mode !== "human") {
+    const errorMessage = "--output answer/json is not supported with parallel worker mode.";
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: flags.provider,
+      model: flags.model,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
     exitRunCommand(1, executionOptions);
   }
 
@@ -507,7 +562,19 @@ export async function runCommand(
     const definitions = await loadAgentDefinitions(cwd);
     resolvedAgent = findAgent(definitions, flags.agent);
     if (!resolvedAgent) {
-      console.error(`Error: Agent "${flags.agent}" not found in .kiln/agents/ or ~/.kiln/agents/`);
+      const errorMessage = `Agent "${flags.agent}" not found in .kiln/agents/ or ~/.kiln/agents/`;
+      runOutput.writeErrorLine(`Error: ${errorMessage}`);
+      emitRunFailureOutput(runOutput, {
+        answer: "",
+        sessionId,
+        task,
+        domain: "unknown",
+        provider: flags.provider,
+        model: flags.model,
+        startedAt,
+        startedAtMs,
+        lastError: errorMessage,
+      });
       exitRunCommand(1, executionOptions);
     }
   }
@@ -536,7 +603,19 @@ export async function runCommand(
     && flags.requestedAuthority !== "auto"
     && (!preferredProvider || !isDirectApiProvider(preferredProvider))
   ) {
-    console.error("--authority is only supported for direct API providers in CLI run. Use --plan for harness read-only planning.");
+    const errorMessage = "--authority is only supported for direct API providers in CLI run. Use --plan for harness read-only planning.";
+    runOutput.writeErrorLine(errorMessage);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: preferredProvider,
+      model: configuredRouteCandidates[0]?.model ?? flags.model,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
     exitRunCommand(1, executionOptions);
   }
   const effectiveModel = configuredRouteCandidates[0]?.model
@@ -567,11 +646,22 @@ export async function runCommand(
       }),
     );
   } catch (error) {
-    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    const errorMessage = errorToMessage(error);
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: preferredProvider,
+      model: effectiveModel,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
     exitRunCommand(1, executionOptions);
   }
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(identityAppConfig, resolvedAgent);
-  const sessionId = randomUUID();
   const { registry, worktreeManager } = createDefaultRegistry();
   const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
   const manager = new SessionManager(config, runtimeAppConfig, contextArtifactCache, worktreeManager);
@@ -601,7 +691,19 @@ export async function runCommand(
       resumeStrategyFeedback,
     );
   } catch (err) {
-    console.error("Error: Failed to prepare session.", err instanceof Error ? err.message : err);
+    const errorMessage = `Failed to prepare session. ${errorToMessage(err)}`;
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: preferredProvider,
+      model: effectiveModel,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
     exitRunCommand(1, executionOptions);
   }
   const approvalMemorySessionId = resumeSessionId ?? sessionId;
@@ -612,14 +714,24 @@ export async function runCommand(
     await manager.cleanupWorktree(context);
     worktreeCleaned = true;
   };
+  const cleanupWorktreeForExit = async (): Promise<string | undefined> => {
+    try {
+      await cleanupWorktreeOnce();
+      return undefined;
+    } catch (error) {
+      const errorMessage = `Failed to cleanup worktree. ${errorToMessage(error)}`;
+      runOutput.writeErrorLine(`Error: ${errorMessage}`);
+      return errorMessage;
+    }
+  };
   if (appConfig.kilnYaml?.contextGovernance?.previewBeforeApply) {
-    printContextGovernancePreview(previewContextGovernance);
+    printContextGovernancePreview(previewContextGovernance, runOutput.writeTelemetryLine);
   }
 
-  console.log(`Domain:  ${context.domain.displayName}`);
-  console.log(`Mode:    ${mode}`);
-  console.log("Kiln session starting...");
-  console.log("");
+  runOutput.writeTelemetryLine(`Domain:  ${context.domain.displayName}`);
+  runOutput.writeTelemetryLine(`Mode:    ${mode}`);
+  runOutput.writeTelemetryLine("Kiln session starting...");
+  runOutput.writeTelemetryLine("");
 
   const env: Record<string, string> = {};
   if (config.mode === "api-key" && config.apiKey) {
@@ -641,11 +753,27 @@ export async function runCommand(
       })
     : { candidates: [], rejectedReasons: [], routeCapabilities: new Map() };
   if (configuredRouteCandidates.length > 0 && admittedRoutes.candidates.length === 0) {
-    console.error("Error: No configured provider routes are currently available.");
+    const errorMessage = "No configured provider routes are currently available.";
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
     for (const reason of admittedRoutes.rejectedReasons) {
-      console.error(`- ${reason}`);
+      runOutput.writeErrorLine(`- ${reason}`);
     }
-    await cleanupWorktreeOnce();
+    const cleanupErrorMessage = await cleanupWorktreeForExit();
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: context.domain.displayName,
+      provider: preferredProvider,
+      model: effectiveModel,
+      startedAt,
+      startedAtMs,
+      contextGovernance: previewContextGovernance,
+      lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
+      exactArtifacts: context.projectedContext.blocks
+        .filter((block) => block.kind === "artifact")
+        .map((block) => block.content),
+    });
     exitRunCommand(1, executionOptions);
   }
   const admittedRouteCandidates = applyReasoningPolicyToRouteCandidates({
@@ -706,7 +834,6 @@ export async function runCommand(
     });
   }
 
-  const startedAt = new Date().toISOString();
   const initialMetadata = deriveSessionMetadata({
     task,
     provider: preferredProvider,
@@ -769,7 +896,7 @@ export async function runCommand(
             unregisterWorkerSignalHandlers();
           }
           if (cleanupErrors.length > 0) {
-            console.error(`Error: Parallel worker cleanup failed: ${cleanupErrors
+            runOutput.writeErrorLine(`Error: Parallel worker cleanup failed: ${cleanupErrors
               .map((error) => error instanceof Error ? error.message : String(error))
               .join("; ")}`);
           }
@@ -783,7 +910,7 @@ export async function runCommand(
       workerError = `Parallel worker run interrupted by ${signal}.`;
       void finalizeAndCleanupParallelWorkerRun()
         .catch((error) => {
-          console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+          runOutput.writeErrorLine(`Error: ${error instanceof Error ? error.message : String(error)}`);
         })
         .finally(() => {
           process.exit(130);
@@ -937,10 +1064,28 @@ export async function runCommand(
       env,
       sessionHooks,
       abortSignal: runAbortController.signal,
+      output: runOutput,
     });
   } catch (error) {
-    await cleanupWorktreeOnce();
-    throw error;
+    const errorMessage = errorToMessage(error);
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    const cleanupErrorMessage = await cleanupWorktreeForExit();
+    emitRunFailureOutput(runOutput, {
+      answer: runOutput.capturedAnswer,
+      sessionId,
+      task,
+      domain: context.domain.displayName,
+      provider: preferredProvider,
+      model: effectiveModel,
+      startedAt,
+      startedAtMs: manager.sessionStartTimeMs ?? startedAtMs,
+      contextGovernance: previewContextGovernance,
+      lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
+      exactArtifacts: context.projectedContext.blocks
+        .filter((block) => block.kind === "artifact")
+        .map((block) => block.content),
+    });
+    exitRunCommand(1, executionOptions);
   } finally {
     sessionHooks.sessionEnd();
     unregisterSignalHandlers();
@@ -951,6 +1096,8 @@ export async function runCommand(
     sessionSucceeded,
     lastError,
     accumulatedText,
+    inputTokens = 0,
+    outputTokens = 0,
     toolCallCount,
     turnDepth,
     successfulProviderId,
@@ -967,14 +1114,18 @@ export async function runCommand(
         continue;
       }
       const errorMessage = attempt.error ?? lastError ?? "Provider ended with unknown error";
-      await directRouteHealthStore.recordOutcome({
-        providerId: attempt.providerId,
-        modelId: attempt.model,
-        outcome: attempt.succeeded
-          ? { type: "ok" }
-          : mapProviderModelRouteErrorToOutcome(errorMessage),
-        ...(attempt.succeeded ? {} : { errorMessage }),
-      });
+      try {
+        await directRouteHealthStore.recordOutcome({
+          providerId: attempt.providerId,
+          modelId: attempt.model,
+          outcome: attempt.succeeded
+            ? { type: "ok" }
+            : mapProviderModelRouteErrorToOutcome(errorMessage),
+          ...(attempt.succeeded ? {} : { errorMessage }),
+        });
+      } catch (error) {
+        runOutput.writeErrorLine(`[kiln] Route health update failed: ${errorToMessage(error)}`);
+      }
     }
   }
 
@@ -1105,7 +1256,7 @@ export async function runCommand(
       && config.mode === "cli-wrapper"
       && !config.apiKey
     ) {
-      console.log('[kiln] Tip: run "kiln skill capture --last" after configuring ANTHROPIC_API_KEY to capture this session as a skill.');
+      runOutput.writeTelemetryLine('[kiln] Tip: run "kiln skill capture --last" after configuring ANTHROPIC_API_KEY to capture this session as a skill.');
     }
   }
   if (!sessionSucceeded) {
@@ -1134,8 +1285,30 @@ export async function runCommand(
   }
 
   if (!sessionSucceeded && lastError) {
-    console.error(`[kiln] All providers failed. Last error: ${lastError}`);
-    await cleanupWorktreeOnce();
+    const completedAt = new Date().toISOString();
+    runOutput.writeErrorLine(`[kiln] All providers failed. Last error: ${lastError}`);
+    const cleanupErrorMessage = await cleanupWorktreeForExit();
+    emitRunOutput(runOutput, {
+      answer: accumulatedText,
+      sessionId,
+      task,
+      domain: context.domain.displayName,
+      sessionSucceeded,
+      provider: successfulProviderId,
+      model: successfulModelId,
+      costUsd: finalCostUsd,
+      inputTokens,
+      outputTokens,
+      toolCallCount,
+      turnDepth,
+      startedAt,
+      completedAt,
+      durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
+      contextGovernance: previewContextGovernance,
+      lastError: appendCleanupFailure(lastError, cleanupErrorMessage),
+      attempts,
+      exactArtifacts,
+    });
     exitRunCommand(1, executionOptions);
   }
 
@@ -1148,7 +1321,33 @@ export async function runCommand(
       description: g.name,
       required: g.required ?? true,
     }));
-    verificationResult = await manager.runVerification(mappedGates, context.workingDirectory);
+    try {
+      verificationResult = await manager.runVerification(mappedGates, context.workingDirectory);
+    } catch (error) {
+      const errorMessage = `Failed to run verification gates. ${errorToMessage(error)}`;
+      runOutput.writeErrorLine(`Error: ${errorMessage}`);
+      const cleanupErrorMessage = await cleanupWorktreeForExit();
+      emitRunFailureOutput(runOutput, {
+        answer: accumulatedText,
+        sessionId,
+        task,
+        domain: context.domain.displayName,
+        provider: successfulProviderId,
+        model: successfulModelId,
+        costUsd: finalCostUsd,
+        inputTokens,
+        outputTokens,
+        toolCallCount,
+        turnDepth,
+        startedAt,
+        startedAtMs: manager.sessionStartTimeMs ?? startedAtMs,
+        contextGovernance: previewContextGovernance,
+        lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
+        attempts,
+        exactArtifacts,
+      });
+      exitRunCommand(1, executionOptions);
+    }
   }
 
   const evalScore = (() => {
@@ -1182,32 +1381,99 @@ export async function runCommand(
     // fail-open
   }
 
-  const report = manager.cleanup(sessionId, finalCostUsd, verificationResult, evalScore);
-  const reportWithResumeStrategy = {
-    ...report,
-    resumeStrategy: context.resumeStrategy,
-    resumeFeedback: context.resumeFeedback,
-    resumeOutcome,
-    contextGovernance: previewContextGovernance,
-  };
-  const finalReport = resumeSessionId
-    ? { ...reportWithResumeStrategy, resumedFrom: resumeSessionId }
-    : reportWithResumeStrategy;
-  printReport(finalReport, "kiln");
-
-  if (verificationResult && !verificationResult.passed) {
-    await cleanupWorktreeOnce();
+  try {
+    const report = manager.cleanup(sessionId, finalCostUsd, verificationResult, evalScore);
+    const reportWithResumeStrategy = {
+      ...report,
+      resumeStrategy: context.resumeStrategy,
+      resumeFeedback: context.resumeFeedback,
+      resumeOutcome,
+      contextGovernance: previewContextGovernance,
+    };
+    const finalReport = resumeSessionId
+      ? { ...reportWithResumeStrategy, resumedFrom: resumeSessionId }
+      : reportWithResumeStrategy;
+    printReport(finalReport, "kiln", runOutput.writeTelemetryLine);
+  } catch (error) {
+    const errorMessage = `Failed to build session report. ${errorToMessage(error)}`;
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    const cleanupErrorMessage = await cleanupWorktreeForExit();
+    emitRunFailureOutput(runOutput, {
+      answer: accumulatedText,
+      sessionId,
+      task,
+      domain: context.domain.displayName,
+      provider: successfulProviderId,
+      model: successfulModelId,
+      costUsd: finalCostUsd,
+      inputTokens,
+      outputTokens,
+      toolCallCount,
+      turnDepth,
+      startedAt,
+      startedAtMs: manager.sessionStartTimeMs ?? startedAtMs,
+      contextGovernance: previewContextGovernance,
+      lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
+      attempts,
+      verificationResult,
+      evalScore,
+      exactArtifacts,
+    });
     exitRunCommand(1, executionOptions);
   }
 
-  await cleanupWorktreeOnce();
+  const completedAt = new Date().toISOString();
+  const finalRunOutput = {
+    answer: accumulatedText,
+    sessionId,
+    task,
+    domain: context.domain.displayName,
+    sessionSucceeded,
+    provider: successfulProviderId,
+    model: successfulModelId,
+    costUsd: finalCostUsd,
+    inputTokens,
+    outputTokens,
+    toolCallCount,
+    turnDepth,
+    startedAt,
+    completedAt,
+    durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
+    verificationPassed: verificationResult?.passed,
+    contextGovernance: previewContextGovernance,
+    lastError,
+    attempts,
+    verificationResult,
+    evalScore,
+    exactArtifacts,
+  };
+
+  if (verificationResult && !verificationResult.passed) {
+    const cleanupErrorMessage = await cleanupWorktreeForExit();
+    emitRunFailureOutput(runOutput, {
+      ...finalRunOutput,
+      lastError: appendCleanupFailure("Verification gates failed.", cleanupErrorMessage),
+    });
+    exitRunCommand(1, executionOptions);
+  }
+
+  const cleanupErrorMessage = await cleanupWorktreeForExit();
+  if (cleanupErrorMessage) {
+    emitRunFailureOutput(runOutput, {
+      ...finalRunOutput,
+      lastError: cleanupErrorMessage,
+    });
+    exitRunCommand(1, executionOptions);
+  }
+
+  emitRunOutput(runOutput, finalRunOutput);
 
   if (flags.plan && submittedPlan !== undefined) {
-    console.log("═══════════════════════════════");
-    console.log(" PROPOSED PLAN");
-    console.log("═══════════════════════════════");
+    runOutput.writeTelemetryLine("═══════════════════════════════");
+    runOutput.writeTelemetryLine(" PROPOSED PLAN");
+    runOutput.writeTelemetryLine("═══════════════════════════════");
     process.stdout.write(submittedPlan.endsWith("\n") ? submittedPlan : `${submittedPlan}\n`);
-    console.log("═══════════════════════════════");
+    runOutput.writeTelemetryLine("═══════════════════════════════");
 
     const approved = await promptForPlanApproval();
     if (approved) {
@@ -1222,6 +1488,101 @@ interface WorkerResult {
   childId: string;
   success: boolean;
   error?: string;
+}
+
+interface RunOutputEmissionInput {
+  readonly answer: string;
+  readonly sessionId: string;
+  readonly task: string;
+  readonly domain: string;
+  readonly sessionSucceeded: boolean;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly costUsd: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly toolCallCount: number;
+  readonly turnDepth: number;
+  readonly startedAt: string;
+  readonly completedAt: string;
+  readonly durationMs: number;
+  readonly verificationPassed?: boolean;
+  readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
+  readonly lastError: string | null;
+  readonly attempts: readonly RunSessionAttemptResult[];
+  readonly verificationResult?: VerificationResult;
+  readonly evalScore?: ReturnType<typeof computeEvalScore>;
+  readonly exactArtifacts: readonly string[];
+}
+
+interface RunFailureOutputInput {
+  readonly answer: string;
+  readonly sessionId: string;
+  readonly task: string;
+  readonly domain: string;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly costUsd?: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly toolCallCount?: number;
+  readonly turnDepth?: number;
+  readonly startedAt: string;
+  readonly startedAtMs?: number;
+  readonly verificationPassed?: boolean;
+  readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
+  readonly lastError: string;
+  readonly attempts?: readonly RunSessionAttemptResult[];
+  readonly verificationResult?: VerificationResult;
+  readonly evalScore?: ReturnType<typeof computeEvalScore>;
+  readonly exactArtifacts?: readonly string[];
+}
+
+function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureOutputInput): void {
+  const completedAt = new Date().toISOString();
+  const startedAtMs = input.startedAtMs ?? Date.parse(input.startedAt);
+  emitRunOutput(runOutput, {
+    answer: input.answer,
+    sessionId: input.sessionId,
+    task: input.task,
+    domain: input.domain,
+    sessionSucceeded: false,
+    provider: input.provider,
+    model: input.model,
+    costUsd: input.costUsd ?? 0,
+    inputTokens: input.inputTokens ?? 0,
+    outputTokens: input.outputTokens ?? 0,
+    toolCallCount: input.toolCallCount ?? 0,
+    turnDepth: input.turnDepth ?? 0,
+    startedAt: input.startedAt,
+    completedAt,
+    durationMs: Date.now() - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now()),
+    verificationPassed: input.verificationPassed,
+    contextGovernance: input.contextGovernance,
+    lastError: input.lastError,
+    attempts: input.attempts ?? [],
+    verificationResult: input.verificationResult,
+    evalScore: input.evalScore,
+    exactArtifacts: input.exactArtifacts ?? [],
+  });
+}
+
+function emitRunOutput(runOutput: RunOutputController, input: RunOutputEmissionInput): void {
+  if (runOutput.mode === "answer") {
+    runOutput.emitAnswer(input.answer);
+    return;
+  }
+  if (runOutput.mode === "json") {
+    runOutput.emitJson(buildRunJsonOutputEnvelope(input));
+  }
+}
+
+function errorToMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function appendCleanupFailure(primaryError: string, cleanupError: string | undefined): string {
+  return cleanupError ? `${primaryError}; ${cleanupError}` : primaryError;
 }
 
 function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {

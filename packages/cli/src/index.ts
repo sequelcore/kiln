@@ -6,6 +6,7 @@ import { migrateConfigJson } from "./kiln-yaml.js";
 import type { KilnAppConfig } from "./config.js";
 import type { ReasoningEffort } from "@kilnai/core";
 import { findOperatorCommand, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import { parseRunOutputMode, type RunOutputMode } from "./application/run-output.js";
 
 type RunArgFlags = {
   apiKey?: string;
@@ -19,6 +20,7 @@ type RunArgFlags = {
   ephemeral?: boolean;
   profile?: string;
   skipGitRepoCheck?: boolean;
+  output?: RunOutputMode;
   outputSchema?: string;
   addDir?: string;
   localProvider?: string;
@@ -101,6 +103,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --plan      Plan mode: read-only exploration before execution");
     console.log("  --ephemeral Run Codex without persisting session files");
     console.log("  --profile    Codex profile name from ~/.codex/config.toml");
+    console.log("  --output     Run output mode (human, answer, json)");
     console.log("  --output-schema  Path to JSON schema file for Codex structured output");
     console.log("  --add-dir  Additional writable directory for Codex (single path)");
     console.log("  --skip-git-repo-check  Allow Codex runs outside a git repo");
@@ -434,6 +437,9 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
       i += 1;
     } else if (arg === "--output-schema" && i + 1 < rawArgs.length) {
       flags.outputSchema = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--output" && i + 1 < rawArgs.length) {
+      flags.output = parseRunOutputMode(rawArgs[i + 1]);
       i += 2;
     } else if (arg === "--add-dir" && i + 1 < rawArgs.length) {
       flags.addDir = rawArgs[i + 1];

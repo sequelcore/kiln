@@ -1,86 +1,75 @@
-# Slice 7W Plan - OpenCode Live Write Capability Gate
+# Slice 1 Plan - Answer-Only Eval Output
 
 ## Objective
 
-Close the residual Slice 7 OpenCode live proof gap without inventing runtime
-evidence. Default OpenCode live coverage must keep passing for the proven
-`opencode/minimax-m2.5-free` route, while write-denial and approved-write live
-proofs run only when the operator explicitly declares a write-capable OpenCode
-model for that proof.
+Implement the first `01.1-answer-only-eval-output` slice: `kiln run` must have
+a clean output-mode contract so benchmark/eval callers can receive deterministic
+assistant-only or structured output without parsing human operator telemetry.
 
 ## Non-Goals
 
-- Do not synthesize `write-authority-denied`, `write-proposal-approved`, or
-  `write-attempt-completed` from prompt intent.
-- Do not change runtime evidence contracts, the OpenCode wrapper event bridge,
-  or managed invocation lifecycle semantics unless a real emitted event is being
-  dropped.
-- Do not weaken deterministic write-boundary, live-write bridge, or CLI harness
-  adapter tests.
-- Do not claim default OpenCode write capability for a model that completes
-  without attempting or applying fixture writes.
+- Do not remove the existing human-readable default run output.
+- Do not add benchmark-specific prompts, provider routing, or authority paths.
+- Do not hide session telemetry; separate it from stdout in non-human modes.
+- Do not change runtime provider semantics, managed-agent lifecycle semantics,
+  or transcript persistence.
+- Do not support interactive plan approval in non-human output modes.
 
-## Affected Files
+## Surface Map
 
-- `packages/runtime/tests/managed-agent/managed-agent-live-test-harness.ts` -
-  add a provider-specific opt-in write-proof environment flag.
-- `packages/runtime/tests/managed-agent/opencode-live-proof.live.test.ts` -
-  move the write-denial and approved-write live cases behind the new gate while
-  leaving cancellation under the default OpenCode live gate.
-- `docs/architecture/managed-agents.md` - clarify the live OpenCode write proof
-  is separately gated by model capability.
-- `docs/roadmap/01-background-parallel-agent-surface.md` - update after
-  verification and review.
+- `packages/cli/src/index.ts` - parse and document `--output`.
+- `packages/cli/src/commands/run.ts` - apply output mode to startup telemetry,
+  final report, verification failures, plan-mode admission, and JSON envelope
+  emission.
+- `packages/cli/src/application/run-session.ts` - route assistant deltas,
+  tool-use notices, and fallback notices through an explicit output sink.
+- `packages/cli/src/application/session-report.ts` - expose report/context
+  formatting so output destinations are not tied to `console.log`.
+- `packages/cli/src/application/run-output.ts` - new CLI-owned output contract,
+  writer helpers, and structured envelope types.
+- `packages/cli/tests/commands/run.test.ts` - CLI flag parsing coverage.
+- `packages/cli/tests/application/run-session-output.test.ts` - focused
+  assistant/tool/fallback output sink coverage.
+- `packages/cli/tests/commands/run-builtin-tools.test.ts` - run-command output
+  mode integration coverage with mocked session execution.
+- `docs/guides/eval.md` - benchmark invocation guidance.
+- `docs/roadmap/01.1-answer-only-eval-output.md` - status and verification
+  evidence after tests pass.
 
-## Test-First Evidence
+## Risk Hypothesis
 
-The residual failing tests were reproduced before implementation:
-
-```bash
-KILN_LIVE_MANAGED_AGENT_TESTS=1 KILN_LIVE_OPENCODE_TESTS=1 bunx vitest run packages/runtime/tests/managed-agent/opencode-live-proof.live.test.ts --maxWorkers=1 -t "denies a real OpenCode write attempt"
-KILN_LIVE_MANAGED_AGENT_TESTS=1 KILN_LIVE_OPENCODE_TESTS=1 bunx vitest run packages/runtime/tests/managed-agent/opencode-live-proof.live.test.ts --maxWorkers=1 -t "records a real OpenCode approved fixture write"
-```
-
-Observed behavior: the default OpenCode model completed without emitting a
-write denial, a file diff, or a fixture file change. That is a provider/model
-capability gap, not a runtime evidence gap.
+- The highest risk is accidentally keeping human telemetry on stdout in
+  `answer` or `json` mode through scattered `console.log` calls.
+- JSON mode must not stream assistant deltas before the final JSON envelope.
+- Existing default operator output must remain stable.
+- Failure paths need deterministic diagnostics instead of exiting before an
+  output envelope can be written.
 
 ## Implementation Steps
 
-1. Add `KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS` to the live harness constants.
-2. Gate OpenCode write-denial and approved-write live cases under that explicit
-   write-proof flag.
-3. Fail fast when the write-proof flag is enabled without an explicit
-   `KILN_LIVE_OPENCODE_MODEL`, so the default model cannot be accidentally
-   treated as write-capable.
-4. Keep strict assertions inside the write-proof gate so a declared
-   write-capable model still fails loudly if it emits no denial/change evidence.
-5. Keep the cancellation proof under the default `KILN_LIVE_OPENCODE_TESTS`
-   gate.
-6. Replace the single cancellation settle sample with a bounded stability poll
-   over repeated `join` calls and fixture reads.
-7. Update architecture and roadmap docs with the separated gate semantics.
+1. Add failing tests for CLI parsing, run-session output sink routing, and
+   run-command answer/json behavior.
+2. Add the CLI output contract and use it at the run-session streaming boundary.
+3. Refactor report/context formatting into reusable line formatters while
+   keeping the existing `print*` helpers.
+4. Route run-command human telemetry through the output contract and emit a
+   structured JSON envelope after session finalization.
+5. Reject `--plan` combined with `--output answer|json` because plan mode is an
+   interactive planning/approval flow, not an assistant-answer contract.
+6. Update eval guidance and the roadmap with verified behavior.
 
 ## Verification
 
 ```bash
-KILN_LIVE_MANAGED_AGENT_TESTS=1 KILN_LIVE_OPENCODE_TESTS=1 bunx vitest run packages/runtime/tests/managed-agent/opencode-live-proof.live.test.ts --maxWorkers=1
-bunx vitest run packages/cli/tests/wrapper/opencode-session.test.ts packages/runtime/tests/managed-agent/opencode-cli-harness-adapter.test.ts packages/runtime/tests/managed-agent/live-write-event-bridge.test.ts packages/runtime/tests/managed-agent/write-boundary.test.ts packages/runtime/tests/managed-agent/direct-runtime-adapter.test.ts --maxWorkers=1
+bun run --cwd packages/cli test -- tests/commands/run.test.ts tests/application/run-session-output.test.ts tests/commands/run-builtin-tools.test.ts
+bun run --filter @kilnai/cli typecheck
 bun run typecheck
 git diff --check
 ```
 
-Optional write-capable live proof:
+## Residual Risk To Recheck
 
-```bash
-KILN_LIVE_MANAGED_AGENT_TESTS=1 KILN_LIVE_OPENCODE_TESTS=1 KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS=1 KILN_LIVE_OPENCODE_MODEL=<known-write-capable-model> bunx vitest run packages/runtime/tests/managed-agent/opencode-live-proof.live.test.ts --maxWorkers=1
-```
-
-## Residual Risk
-
-The write-proof gate depends on an operator-selected OpenCode model that
-actually attempts and applies native write tools. If the selected model does
-not, the gated proof should fail as provider/model capability evidence rather
-than silently passing. Cancellation late-output suppression is still bounded by
-the live proof's stability window rather than direct access to the provider
-process internals.
+- Some provider or wrapper implementations may still write directly to process
+  streams outside the CLI output contract. This slice covers the Kiln CLI
+  output boundary and should leave any provider-native stdout/stderr behavior as
+  a separately testable adapter concern if discovered.
