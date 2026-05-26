@@ -137,6 +137,39 @@ Automatic scoring overestimates real-world performance. The gap between benchmar
 | A2A (Agent-to-Agent) | Implemented | A2AClient for cross-app delegation |
 | UK AISI Evaluation Standard | Reference | Sandbox isolation, safety pipeline |
 
+## Exact-Format CLI Harnesses
+
+External harnesses that grade raw command stdout must invoke Kiln through the
+explicit run-output contract:
+
+```bash
+kiln run "Return exactly one sentence." --provider codex --output answer
+```
+
+This is the correct comparison surface for native CLI answer streams such as
+`codex exec`. The default `kiln run` mode is intentionally human-facing and
+prints operator telemetry, so it must not be used as the graded answer stream.
+
+Use structured output when the harness needs both answer and evidence:
+
+```bash
+kiln run "Return valid JSON with a status field." --provider codex --output json
+```
+
+In that mode, grade only the `answer` field and retain `telemetry`,
+`diagnostics`, and `resources` for audit evidence.
+
+Internal baseline validation uses a different command contract:
+
+```bash
+kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
+```
+
+`run-internal` keeps stdout as one benchmark JSON status document and writes the
+baseline artifact to the output path. Its per-item sessions run through the
+normal Kiln session path with non-human stream routing, so assistant deltas and
+tool notices do not contaminate stdout or exact-format scoring.
+
 ## Safety Adversarial Dataset
 
 Built-in dataset at `packages/core/evals/safety-adversarial.jsonl` (145 test cases):

@@ -136,8 +136,9 @@ is documented by concern, not as a single monolith.
   and Rust hot-path boundaries.
 
 - `benchmark-validation.md`
-  Canonical benchmark validation contract: benchmark-facing profiles, internal
-  baseline gates, external track gates, and reproducible reporting.
+  Canonical benchmark validation contract: benchmark-facing profiles, eval
+  output contracts, internal baseline gates, external track gates, and
+  reproducible reporting.
 
 - `adaptation.md`
   Operational modes, allostatic load, predictive regulation, adaptation, and

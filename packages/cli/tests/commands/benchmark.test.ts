@@ -156,6 +156,52 @@ describe("benchmarkCommand", () => {
     });
   });
 
+  it("keeps run-internal stdout as one benchmark JSON document for exact-format harnesses", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    const outputPath = join(root, "baseline.json");
+    writeFileSync(
+      datasetPath,
+      JSON.stringify({
+        id: "exact-format",
+        input: "Return exactly one sentence.",
+        expected: "Only one sentence.",
+        metadata: {
+          expectedAgentId: "kiln-tool-agent",
+          expectedToolCalls: [{ name: "status" }],
+        },
+      }) + "\n",
+      "utf-8",
+    );
+
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1", "--output", outputPath],
+      {
+        now: () => new Date("2026-05-08T12:00:00.000Z"),
+        executeItem: async (_input, context) => ({
+          output: "Only one sentence.",
+          durationMs: 10,
+          costUsd: 0.01,
+          inputTokens: 5,
+          outputTokens: 3,
+          metadata: {
+            activeAgentId: context.profile.id,
+            toolCalls: [{ name: "status" }],
+          },
+        }),
+      },
+    );
+
+    expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+    const printed = String(consoleLogSpy.mock.calls[0]?.[0]);
+    const parsed = JSON.parse(printed) as { readonly outputPath: string; readonly baseline: { readonly profileId: string } };
+    expect(parsed.outputPath).toBe(outputPath);
+    expect(parsed.baseline.profileId).toBe("kiln-tool-agent");
+    expect(printed).not.toContain("Only one sentence.");
+    expect(printed).not.toContain("Session Complete");
+  });
+
   it("projects BFCL input rows into Kiln JSONL datasets", async () => {
     const inputPath = join(root, "bfcl.json");
     const outputPath = join(root, "bfcl-kiln.jsonl");

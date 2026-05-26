@@ -27,8 +27,8 @@ Use these documents as the stable source of truth before starting roadmap work:
 - `docs/architecture/native-operator-surface.md` for native operator surface
   projection boundaries and promotion gates.
 - `docs/architecture/benchmark-validation.md` and `docs/guides/eval.md` for
-  benchmark-facing profiles, baseline readiness, benchmark adapters, and public
-  report evidence.
+  benchmark-facing profiles, exact-format eval output contracts, baseline
+  readiness, benchmark adapters, and public report evidence.
 - `docs/architecture/managed-agents.md` for managed invocation, child
   authority, write evidence, and replay invariants.
 - `docs/research/15-background-parallel-agent-surface.md` for the research
@@ -165,12 +165,6 @@ Use these documents as the stable source of truth before starting roadmap work:
    should absorb transitional `kiln run --workers` behavior into the shared
    lifecycle.
 
-1.1. [Answer-Only Eval Output](./01.1-answer-only-eval-output.md)
-   Added on 2026-05-21. Scope is the CLI/eval output boundary discovered during
-   local Codex CLI vs Kiln CLI testing: benchmark harnesses need deterministic
-   assistant-only or structured output so exact-format evals do not grade Kiln
-   operator telemetry as part of the answer.
-
 2. [Native Operator Surface](./02-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark
    path: contract-only runner admission, orchestration planning, workload
@@ -216,6 +210,8 @@ not in roadmap files. Current completed areas include:
 - Multimodal artifact transport and capability-aware route admission.
 - Agent QA showcase recorder.
 - External benchmark validation platform.
+- CLI answer/json output contracts for exact-format evals and benchmark
+  harnesses.
 - Native operator surface foundation and embedded browser operator capability.
 - Native operator surface projection foundation with defer/no-promotion status.
 

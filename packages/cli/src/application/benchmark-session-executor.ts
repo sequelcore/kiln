@@ -37,6 +37,7 @@ import { createManagedDirectProviderAdapterFactory } from "../config/managed-age
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { SessionHooks } from "./session-hooks.js";
 import { runSession } from "./run-session.js";
+import { createNonHumanRunOutputSink } from "./run-output.js";
 
 const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
 
@@ -154,6 +155,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       sessionId,
       workingDirectory: sessionContext.workingDirectory,
     });
+    const runOutput = createNonHumanRunOutputSink();
     const result = await runSession({
       registry,
       cleanupRegistry: benchmarkCleanupRegistry,
@@ -170,6 +172,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       approvalMemoryStore: new ApprovalMemoryStoreImpl(cwd),
       env,
       sessionHooks,
+      output: runOutput,
     }).finally(async () => {
       await benchmarkCleanupRegistry.runAll();
       await manager.cleanupWorktree(sessionContext);

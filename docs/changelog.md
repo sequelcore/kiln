@@ -11,6 +11,9 @@ baseline. Active and deferred execution tracks live in
 - Published `@kilnai/gui` as a public static asset package.
 - Made `@kilnai/cli` the public global install boundary for CLI, GUI, TUI,
   runtime, gateway contracts, and GUI assets.
+- Added deterministic `kiln run --output answer|json` contracts and kept
+  `kiln benchmark run-internal` stdout machine-readable for exact-format eval
+  and benchmark harnesses.
 - Moved runtime-owned GUI serving to the installed `@kilnai/gui` package and
   removed source-tree GUI discovery from production startup.
 - Made `kiln gui` production mode the default from any working directory;

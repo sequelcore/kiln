@@ -21,6 +21,38 @@ authority shortcuts. If an adapter cannot express a benchmark through Kiln's
 normal tool, route, context, memory, and managed invocation contracts, the
 benchmark is not admissible for public reporting yet.
 
+## Eval Output Contract
+
+Benchmark and eval harnesses must consume explicit machine-output contracts
+instead of parsing human operator output. Kiln separates the assistant answer,
+operator telemetry, diagnostics, and resource evidence at the CLI boundary.
+
+`kiln run` supports three output modes:
+
+| Mode | stdout contract | Use case |
+| --- | --- | --- |
+| `human` | Human-readable operator stream with answer, telemetry, and session summary. | Interactive operator use. |
+| `answer` | Final assistant content only. | Exact-format harnesses that grade raw stdout. |
+| `json` | One `kiln.run.output.v1` envelope with separate answer, telemetry, diagnostics, and resources fields. | Harnesses that need both a graded answer and audit evidence. |
+
+The default `human` mode is intentionally not an eval artifact. Harnesses must
+not strip or regex human output to create a graded answer stream. They must use
+`--output answer` for raw-answer grading or `--output json` and grade only the
+`answer` field.
+
+Non-human run-output modes are single-answer contracts. They are rejected for
+interactive plan mode and parallel-worker mode because those flows produce
+operator orchestration output, not one assistant answer.
+
+`kiln benchmark run-internal` is the canonical internal baseline command. It
+does not shell out to `kiln run`; it executes dataset items through the normal
+Kiln runtime session path and benchmark runner. The command writes one
+benchmark JSON status document to stdout and writes the full baseline artifact
+to `--output`. Per-item assistant deltas, tool notices, provider fallback
+notices, and diagnostics are routed away from command stdout so benchmark
+consumers can treat stdout as command status and the baseline artifact as the
+scored evidence record.
+
 ## Benchmark-Facing Profiles
 
 Kiln defines benchmark-facing profiles in `@kilnai/core`. They are frozen

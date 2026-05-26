@@ -76,6 +76,8 @@ Useful flags:
 
 - `--provider <name>` to select the provider for the run
 - `--model <name>` to select the model for providers that require model selection
+- `--output answer` to write only assistant content to stdout for exact-format evals
+- `--output json` to write a structured `kiln.run.output.v1` envelope
 - `--effort <minimal|low|medium|high|xhigh>` or
   `--reasoning-effort <minimal|low|medium|high|xhigh>` to set reasoning effort
   for providers/models that support it
@@ -175,7 +177,13 @@ Inspect benchmark contracts and write local evidence artifacts:
 ```bash
 kiln benchmark profiles
 kiln benchmark readiness --baseline ./.kiln/benchmarks/tool.json
+kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
 ```
+
+`run-internal` writes one benchmark JSON status document to stdout and stores
+the full baseline artifact at `--output`. Per-item session output is routed
+through the non-human run-output contract so assistant deltas, tool notices, and
+provider fallback notices do not pollute stdout.
 
 Rust optimization is tracked in `docs/roadmap/00.0.1-rust-module-optimization.md`.
 The CLI no longer exposes a Rust readiness proof command; future Rust module

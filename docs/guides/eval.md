@@ -285,6 +285,7 @@ object with a `baselines` array.
 
 ## CLI Output For Exact-Format Evals
 
+Kiln separates assistant content from operator telemetry at the CLI boundary.
 Use `kiln run --output answer` when an eval harness grades raw stdout as the
 assistant answer:
 
@@ -318,11 +319,29 @@ The default `human` mode is unchanged and remains the operator-facing mode.
 and parallel-worker mode because those flows produce operator orchestration
 output rather than a single assistant-answer contract.
 
+For Kiln-vs-native CLI comparisons, compare equivalent answer streams:
+
+```bash
+kiln run "Return exactly four bullets." --provider codex --output answer
+codex exec "Return exactly four bullets."
+```
+
+Do not grade the default `kiln run` human output for exact-format prompts. Human
+mode includes operator telemetry by design. If the comparison harness needs
+telemetry, use `kiln run --output json` and grade only the `answer` field while
+recording the `telemetry`, `diagnostics`, and `resources` fields as evidence.
+
 `kiln benchmark run-internal` executes the selected internal seed dataset
 through normal Kiln runtime sessions. It uses structural benchmark scorers that
 consume Kiln evidence such as tool calls, routing identity, handoff output,
 policy violations, latency, and cost. These internal scores are gates for
 adapter readiness; they are not public external benchmark submissions.
+
+`kiln benchmark run-internal` writes one benchmark JSON document to stdout and
+writes the full baseline artifact to `--output`. Per-item assistant deltas,
+tool notices, and provider fallback notices are not part of the command stdout;
+benchmark harnesses should read scored item output from the written baseline
+artifact and command status from stdout.
 
 `kiln benchmark report` writes a markdown report from stored baseline records.
 The report includes readiness status, profile/dataset/pass^k evidence, artifact

@@ -68,9 +68,6 @@ export function parseRunOutputMode(value: string | undefined): RunOutputMode {
 
 export function createRunOutputController(mode: RunOutputMode): RunOutputController {
   let capturedAnswer = "";
-  const writeNonHumanTelemetry = (line = ""): void => {
-    process.stderr.write(`${line}\n`);
-  };
   return {
     mode,
     get capturedAnswer() {
@@ -124,6 +121,20 @@ export function createRunOutputController(mode: RunOutputMode): RunOutputControl
       if (mode === "json") {
         process.stdout.write(`${JSON.stringify(envelope)}\n`);
       }
+    },
+  };
+}
+
+export function createNonHumanRunOutputSink(mode: Exclude<RunOutputMode, "human"> = "answer"): RunOutputSink {
+  return {
+    mode,
+    writeAssistantDelta(): void {},
+    resetAssistantAnswer(): void {},
+    writeToolUse(toolName: string): void {
+      writeNonHumanTelemetry(`[tool] ${toolName}`);
+    },
+    writeProviderFallback(providerId: string): void {
+      writeNonHumanTelemetry(`[kiln] Provider ${providerId} failed, trying next...`);
     },
   };
 }
@@ -188,4 +199,8 @@ export function buildRunJsonOutputEnvelope(input: {
 
 function isRunOutputMode(value: string): value is RunOutputMode {
   return RUN_OUTPUT_MODES.includes(value as RunOutputMode);
+}
+
+function writeNonHumanTelemetry(line = ""): void {
+  process.stderr.write(`${line}\n`);
 }
