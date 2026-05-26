@@ -445,7 +445,7 @@ Current status:
 
 | Provider family | Status | Contract treatment |
 | --- | --- | --- |
-| OpenCode harness | Live-proven for write-denial and approved bounded-write evidence; read-only analysis handoff is admitted only for `opencode/minimax-m2.5-free`. | OpenCode permission and session diff events reduce to `write_decision` and `file_changed`. Other OpenCode models stay unhealthy for `foundation-readonly-plan` until that model has substantive result-handoff proof. |
+| OpenCode harness | Live-proven for cancellation under `opencode/minimax-m2.5-free`; write-denial and approved bounded-write evidence require the separately gated write-capable model proof. Read-only analysis handoff is admitted only for `opencode/minimax-m2.5-free`. | OpenCode permission and session diff events reduce to `write_decision` and `file_changed`. Other OpenCode models stay unhealthy for `foundation-readonly-plan` until that model has substantive result-handoff proof. Write evidence is never synthesized from prompt intent when a model completes without attempting or applying a write. |
 | Codex harness | Live-proven for read-only no-accepted-write and approved bounded write. | Codex file-change and patch-approval output reduce to canonical write evidence. |
 | Claude Code family | Scouted, not live-proven in Kiln. | Permission modes and tool names are adapter research only. |
 | Hermes Agent | Scouted as ACP-style future adapter candidate. | `delegate_task`, ACP permission, and terminal concepts are adapter inputs only. |
@@ -457,7 +457,12 @@ Live tests are disabled by default. They require
 `KILN_LIVE_MANAGED_AGENT_TESTS=1` plus provider-specific flags such as
 `KILN_LIVE_OPENCODE_TESTS=1`, `KILN_LIVE_CODEX_TESTS=1`,
 `KILN_LIVE_OPENAI_DIRECT_TESTS=1`, or
-`KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS=1`. OpenAI direct live proof uses
+`KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS=1`. OpenCode write-denial and
+approved-write proofs additionally require
+`KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS=1` and an explicit
+`KILN_LIVE_OPENCODE_MODEL` with proven native write behavior; the write-proof
+tests fail fast when that model is omitted. OpenAI direct
+live proof uses
 `KILN_LIVE_OPENAI_DIRECT_MODEL` when set and otherwise defaults to
 `gpt-4o-mini`; Codex OAuth subscription direct live proof uses
 `KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL` when set and otherwise defaults to

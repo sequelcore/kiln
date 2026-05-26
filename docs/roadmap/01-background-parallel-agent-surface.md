@@ -125,7 +125,7 @@ Active. Started on 2026-05-21. Current implementation status:
   code: explicitly approved local feedback bundles now materialize governed
   `feedback-repair` work item inputs with redacted approval, risk, file-impact,
   verification, review, and residual-risk evidence through the existing
-  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7U
+  work-governance lifecycle. Slice 7 is started. Slice 7A through Slice 7W
   are complete in code: live opt-in/direct route proof, timeout/cancel/stale
   attention parity, CLI shared view-state alignment, terminal diagnostic
   replay, native stale label parity, and partial write evidence URI replay
@@ -163,7 +163,16 @@ Active. Started on 2026-05-21. Current implementation status:
   review-required evidence after `git worktree remove` is refused. That proof
   now uses bounded path-state assertions so slower Windows filesystem
   visibility does not create timing-only flakes while real git failures still
-  fail loudly. Slice 8 is not started.
+  fail loudly. OpenCode harness cancellation now has focused live proof that a
+  real in-flight child remains runtime-owned `cancelled`, suppresses late write
+  evidence, leaves the fixture unchanged, and cleans up the live harness
+  process without leaking a workspace lock. That proof now polls repeated joins
+  over a bounded stability window so slower late adapter output cannot silently
+  change the cancelled record after the first join. OpenCode write-denial and
+  approved-write live proofs now require an explicit write-capable model gate
+  and fail fast without `KILN_LIVE_OPENCODE_MODEL`, preserving strict evidence
+  assertions without claiming write capability for the default model when it
+  completes without a write attempt. Slice 8 is not started.
 
 Deferred dependency gaps discovered during slices 1-8 are tracked as roadmap
 follow-ups and are attacked after the planned slices finish. They do not reopen
@@ -874,7 +883,7 @@ Deliverables:
 
 ### Slice 7 - Live Cross-Surface Hardening
 
-Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, Slice 7M, Slice 7N, Slice 7O, Slice 7P, Slice 7Q, Slice 7R, Slice 7S, Slice 7T, and Slice 7U are complete in code.
+Status: started. Slice 7A, Slice 7B, Slice 7C, Slice 7D, Slice 7E, Slice 7F, Slice 7G, Slice 7H, Slice 7I, Slice 7J, Slice 7K, Slice 7L, Slice 7M, Slice 7N, Slice 7O, Slice 7P, Slice 7Q, Slice 7R, Slice 7S, Slice 7T, Slice 7U, Slice 7V, and Slice 7W are complete in code.
 
 Completed:
 
@@ -1015,6 +1024,22 @@ Completed:
   path-state checks for the created and preserved dirty worktree paths, reducing
   timing-only flakes while preserving fail-fast behavior for actual git or
   cleanup failures.
+- OpenCode harness cancellation now has focused live proof at the real harness
+  boundary. The test starts a live OpenCode child, waits until the harness run
+  is actually in flight, cancels through `RuntimeManagedAgentInvocationService`,
+  verifies the terminal record remains `cancelled`, proves no approved or
+  completed write evidence appears after cancellation, confirms the fixture file
+  remains unchanged across a bounded repeated-join stability window, and
+  preserves cleanup reliability for Windows workspace locks.
+- OpenCode harness write-denial and approved-write live proofs now use a
+  separate `KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS=1` gate layered on the normal
+  OpenCode live gate. The default `opencode/minimax-m2.5-free` live proof keeps
+  cancellation coverage, while write-proof assertions remain strict for
+  operator-selected models that are expected to emit native write denial or file
+  change evidence. The gated write proofs fail fast unless
+  `KILN_LIVE_OPENCODE_MODEL` is explicit. Kiln does not synthesize write
+  evidence from prompt intent when a model exits without attempting or applying
+  a write.
 
 Deliverables:
 

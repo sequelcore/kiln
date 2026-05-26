@@ -15,6 +15,7 @@ import type {
 export const KILN_LIVE_MANAGED_AGENT_TESTS_ENV = "KILN_LIVE_MANAGED_AGENT_TESTS";
 export const KILN_LIVE_CODEX_TESTS_ENV = "KILN_LIVE_CODEX_TESTS";
 export const KILN_LIVE_OPENCODE_TESTS_ENV = "KILN_LIVE_OPENCODE_TESTS";
+export const KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV = "KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS";
 export const KILN_LIVE_OPENAI_DIRECT_TESTS_ENV = "KILN_LIVE_OPENAI_DIRECT_TESTS";
 export const KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS";
 export const KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS";
@@ -279,14 +280,14 @@ function requireRelativeSafeSegment(value: string): string {
 }
 
 async function removeWorkspaceWithRetry(workspaceRoot: string): Promise<void> {
-  const attempts = 5;
+  const attempts = 10;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       await rm(workspaceRoot, { recursive: true, force: true });
       return;
     } catch (error) {
       if (attempt === attempts) throw error;
-      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+      await new Promise((resolve) => setTimeout(resolve, attempt * 250));
     }
   }
 }
