@@ -20,6 +20,9 @@ import {
 } from "../wrapper/direct-provider-adapter-factory.js";
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
+type BuiltinToolOptionsSource =
+  | DefaultBuiltinToolRegistryOptions
+  | (() => DefaultBuiltinToolRegistryOptions | undefined);
 const WRITE_PROFILES = new Set([
   "foundation-propose-writes",
   "foundation-apply-approved-writes",
@@ -35,7 +38,7 @@ const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY: ManagedAgentAdapterWriteAuthorityDescr
 };
 
 export interface ManagedDirectProviderAdapterFactoryOptions {
-  readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
+  readonly builtinToolOptions?: BuiltinToolOptionsSource;
   readonly configEnv?: EnvMap;
   readonly runtimeEnv?: EnvMap;
   readonly processEnv?: EnvMap;
@@ -45,8 +48,8 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
 export function createManagedDirectProviderAdapterFactory(
   options: ManagedDirectProviderAdapterFactoryOptions = {},
 ): (route: KilnManagedAgentRouteConfig) => Promise<ManagedAgentRuntimeAdapter | undefined> {
-  const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-    builtinToolOptions: options.builtinToolOptions,
+  const resolveBuiltinToolSurface = () => createAttachedRuntimeBuiltinToolSurface({
+    builtinToolOptions: resolveBuiltinToolOptions(options.builtinToolOptions),
   });
   const createProvider = options.createProviderAdapter ?? createDirectProviderAdapter;
 
@@ -72,6 +75,7 @@ export function createManagedDirectProviderAdapterFactory(
       runtimeEnv: options.runtimeEnv,
       processEnv: options.processEnv,
     });
+    const builtinToolSurface = resolveBuiltinToolSurface();
 
     return new ManagedDirectProviderRuntimeAdapter({
       providerId: provider,
@@ -79,11 +83,18 @@ export function createManagedDirectProviderAdapterFactory(
       provider: providerAdapter,
       tools: builtinToolSurface.toolDefinitions,
       builtinTools: builtinToolSurface.callBuiltinTools,
+      builtinToolsProvider: () => resolveBuiltinToolSurface().callBuiltinTools,
       capabilityMap: builtinToolSurface.capabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
       ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
+}
+
+function resolveBuiltinToolOptions(
+  source: BuiltinToolOptionsSource | undefined,
+): DefaultBuiltinToolRegistryOptions | undefined {
+  return typeof source === "function" ? source() : source;
 }
 
 function routeRequiresWriteAuthority(route: KilnManagedAgentRouteConfig): boolean {

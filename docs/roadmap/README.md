@@ -64,8 +64,23 @@ Completed background and parallel managed-agent work is canonicalized in
 `docs/architecture/work-governance.md`, `docs/guides/global-config.md`, and
 `docs/changelog.md`. The 2026-05-27 UTC GUI live-test follow-up is also closed
 there: resource pagination cursors are model-visible, and managed invocation
-status/list/join/cancel remain scoped to the stable outer Kiln session across
-recreated provider turns.
+start/status/list/join/cancel remain scoped to the stable outer Kiln session
+across recreated provider turns. Adapter-private managed invocation resource
+pointers are projected to public `kiln://managed-agents/invocations/...` or
+artifact resource URIs before crossing GUI, TUI, CLI, replay, or model-facing
+`resource_read` surfaces. Replay also reconstructs managed-child cockpit state
+from persisted GUI/TUI managed tool-completion evidence when canonical
+`agent_invocation_*` events are absent or only partially persisted through the
+shared gateway-contract normalizer, with duplicate running snapshots collapsed
+and stale nonterminal snapshots ignored after terminal evidence; terminal
+`managed_agent.list` evidence stays provisional until richer terminal tool
+evidence arrives, and later join evidence can complete a canonical-start-only
+stream.
+Direct-provider and CLI-harness children share resource-context construction for
+`contextMode: "resources"`; attached readers hydrate through shared
+`resource_read` content, both route families resolve the reader from the current
+session-scoped builtin tool surface at invocation time, and unattached surfaces
+receive only the admitted URI list.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark

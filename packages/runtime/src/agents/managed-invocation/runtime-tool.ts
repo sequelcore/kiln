@@ -48,6 +48,12 @@ import {
   buildManagedInvocationPhaseRecovery,
   managedInvocationFailureReasonFromStatus,
 } from "./phase-recovery.js";
+import {
+  projectManagedInvocationCapabilitySnapshotResources,
+  projectManagedInvocationPublicResourceUri,
+  projectManagedInvocationRecordResources,
+  projectManagedInvocationResourceLeaseResources,
+} from "./resource-projection.js";
 
 export const MANAGED_AGENT_INVOKE_TOOL_NAME = "managed_agent.invoke";
 export const MANAGED_AGENT_START_TOOL_NAME = "managed_agent.start";
@@ -1127,7 +1133,7 @@ async function executeManagedInvocationTool(
   const result = invocationResult.status === "completed"
     ? {
         ...invocationResult,
-        record: persistManagedInvocationResources(invocationResult.record, options.artifactStore),
+        record: projectManagedInvocationRecordResources(invocationResult.record, { artifactStore: options.artifactStore }),
       }
     : invocationResult;
   const events = appendManagedInvocationSessionEvents({
@@ -1158,7 +1164,14 @@ async function executeManagedInvocationTool(
         context: prepared.request.input.context,
         ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
         missingCapabilities: result.decision.missingCapabilities,
-        ...(result.decision.resourceLease ? { resourceLease: result.decision.resourceLease } : {}),
+        ...(result.decision.resourceLease
+          ? {
+              resourceLease: projectManagedInvocationResourceLeaseResources(
+                result.decision.resourceLease,
+                projectManagedInvocationPublicResourceUri,
+              ),
+            }
+          : {}),
         sessionEventIds: events.map((event) => event.eventId),
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -1233,7 +1246,14 @@ async function executeManagedInvocationStartTool(
         context: prepared.request.input.context,
         ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
         missingCapabilities: startResult.decision.missingCapabilities,
-        ...(startResult.decision.resourceLease ? { resourceLease: startResult.decision.resourceLease } : {}),
+        ...(startResult.decision.resourceLease
+          ? {
+              resourceLease: projectManagedInvocationResourceLeaseResources(
+                startResult.decision.resourceLease,
+                projectManagedInvocationPublicResourceUri,
+              ),
+            }
+          : {}),
         sessionEventIds: events.map((event) => event.eventId),
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: MANAGED_AGENT_START_TOOL_NAME,
@@ -1250,6 +1270,10 @@ async function executeManagedInvocationStartTool(
     };
   }
 
+  const capabilitySnapshot = projectManagedInvocationCapabilitySnapshotResources(
+    startResult.snapshot.decision.capabilitySnapshot,
+    projectManagedInvocationPublicResourceUri,
+  );
   return {
     output: JSON.stringify({
       status: "started",
@@ -1273,7 +1297,7 @@ async function executeManagedInvocationStartTool(
       executionMode: startResult.snapshot.executionMode,
       requestedAuthority: prepared.request.requestedAuthority,
       authorityProfileId: startResult.snapshot.authorityProfileId,
-      capabilitySnapshot: startResult.snapshot.decision.capabilitySnapshot,
+      capabilitySnapshot,
       context: prepared.request.input.context,
       ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
       sessionEventIds: events.map((event) => event.eventId),
@@ -1383,13 +1407,20 @@ async function executeManagedInvocationJoinTool(
         status: "denied",
         lifecycleState: "failed",
         missingCapabilities: invocationResult.decision.missingCapabilities,
-        ...(invocationResult.decision.resourceLease ? { resourceLease: invocationResult.decision.resourceLease } : {}),
+        ...(invocationResult.decision.resourceLease
+          ? {
+              resourceLease: projectManagedInvocationResourceLeaseResources(
+                invocationResult.decision.resourceLease,
+                projectManagedInvocationPublicResourceUri,
+              ),
+            }
+          : {}),
       },
       MANAGED_AGENT_JOIN_TOOL_NAME,
     );
   }
   const routeId = invocationResult.record.capabilitySnapshot.routeId;
-  const record = persistManagedInvocationResources(invocationResult.record, options.artifactStore);
+  const record = projectManagedInvocationRecordResources(invocationResult.record, { artifactStore: options.artifactStore });
   const terminalSnapshot = service.status(invocationId.value);
   const durationMs = terminalSnapshot?.durationMs ?? Date.now() - startedAt;
   const events = appendManagedInvocationTerminalSessionEvent({
@@ -1455,21 +1486,22 @@ async function executeManagedInvocationCancelTool(
       MANAGED_AGENT_CANCEL_TOOL_NAME,
     );
   }
+  const record = projectManagedInvocationRecordResources(terminalResult.record, { artifactStore: options.artifactStore });
   const events = appendManagedInvocationTerminalSessionEvent({
     session: session.context.session,
     request: visibility.snapshot.request,
-    record: terminalResult.record,
+    record,
     durationMs: service.status(invocationId.value)?.durationMs,
   });
   await options.sessionEventSink?.publish(events, session.context);
   return terminalManagedInvocationResult({
     toolName: MANAGED_AGENT_CANCEL_TOOL_NAME,
     rawInput,
-    routeId: terminalResult.record.capabilitySnapshot.routeId,
+    routeId: record.capabilitySnapshot.routeId,
     voiceProfile: visibility.snapshot.decision.capabilitySnapshot.childIdentity.voiceProfile,
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
-    record: terminalResult.record,
+    record,
     sessionEventIds: events.map((event) => event.eventId),
   });
 }
@@ -1992,142 +2024,6 @@ function resolveUnavailableRoute(
     && (!input.providerRoute.model || route.model === input.providerRoute.model)
     && route.profiles.includes(input.profile)
   );
-}
-
-function persistManagedInvocationResources(
-  record: ManagedAgentInvocationRecord,
-  artifactStore: ArtifactResourceStore | undefined,
-): ManagedAgentInvocationRecord {
-  if (!artifactStore) {
-    return record;
-  }
-  const remappedUris = new Map<string, string>();
-  const persistUri = (uri: string, title: string, content: string): string => {
-    const existing = remappedUris.get(uri);
-    if (existing) {
-      return existing;
-    }
-    const artifact = artifactStore.put({
-      namespace: "managed-invocations",
-      title,
-      mimeType: "text/markdown",
-      content: { type: "text", text: content },
-      producer: { kind: "managed-invocation", name: record.providerRoute.providerId },
-      retention: { scope: "session" },
-    });
-    const resourceUri = `kiln://artifacts/managed-invocations/${artifact.id}/content`;
-    remappedUris.set(uri, resourceUri);
-    return resourceUri;
-  };
-
-  const transcriptUri = record.transcript
-    ? persistUri(
-        record.transcript.uri,
-        `Managed invocation ${record.invocationId} transcript`,
-        formatManagedInvocationTranscript(record),
-      )
-    : undefined;
-  const diagnosticUris = new Map(
-    (record.diagnostics ?? []).map((diagnostic) => [
-      diagnostic.uri,
-      persistUri(
-        diagnostic.uri,
-        `Managed invocation ${record.invocationId} ${diagnostic.kind}`,
-        formatManagedInvocationDiagnostic(record, diagnostic.kind),
-      ),
-    ] as const),
-  );
-  const resourceUris = record.resultHandoff?.resourceUris.map((uri) => {
-    if (record.transcript?.uri === uri && transcriptUri) {
-      return transcriptUri;
-    }
-    return diagnosticUris.get(uri) ?? uri;
-  });
-
-  return {
-    ...record,
-    ...(record.transcript && transcriptUri
-      ? {
-          transcript: {
-            ...record.transcript,
-            uri: transcriptUri,
-            persisted: true,
-            retention: "session" as const,
-          },
-        }
-      : {}),
-    ...(record.diagnostics
-      ? {
-          diagnostics: record.diagnostics.map((diagnostic) => ({
-            ...diagnostic,
-            uri: diagnosticUris.get(diagnostic.uri) ?? diagnostic.uri,
-          })),
-        }
-      : {}),
-    ...(record.resultHandoff && resourceUris
-      ? {
-          resultHandoff: {
-            ...record.resultHandoff,
-            resourceUris,
-          },
-        }
-      : {}),
-  };
-}
-
-function formatManagedInvocationTranscript(record: ManagedAgentInvocationRecord): string {
-  return [
-    "# Managed Invocation Transcript",
-    "",
-    `Invocation ID: ${record.invocationId}`,
-    `Status: ${record.lifecycleState}`,
-    `Profile: ${record.profile}`,
-    `Provider: ${record.providerRoute.providerId}`,
-    record.providerRoute.model ? `Model: ${record.providerRoute.model}` : undefined,
-    `Surface: ${record.providerRoute.surface}`,
-    `Adapter: ${record.adapterKind}`,
-    `Execution: ${record.executionMode}`,
-    "",
-    "## Capability Snapshot",
-    "",
-    `Snapshot ID: ${record.capabilitySnapshot.snapshotId}`,
-    `Captured at: ${record.capabilitySnapshot.capturedAt}`,
-    `Route ID: ${record.capabilitySnapshot.routeId}`,
-    `Route health: ${record.capabilitySnapshot.routeHealth.status}`,
-    `Route health reason: ${record.capabilitySnapshot.routeHealth.reason}`,
-    `Provider proof: ${record.capabilitySnapshot.providerModelProof.status}`,
-    `Provider proof source: ${record.capabilitySnapshot.providerModelProof.source}`,
-    `Context mode: ${record.capabilitySnapshot.contextMode}`,
-    `Resource plane: ${record.capabilitySnapshot.resourcePlane.available ? "available" : "unavailable"}`,
-    `Child identity: ${formatChildIdentity(record.capabilitySnapshot.childIdentity)}`,
-    record.childSessionId ? `Child session: ${record.childSessionId}` : undefined,
-    record.childTurnId ? `Child turn: ${record.childTurnId}` : undefined,
-    "",
-    "## Result",
-    "",
-    record.resultHandoff?.summary ?? "No result summary was recorded.",
-  ].filter((line): line is string => line !== undefined).join("\n");
-}
-
-function formatManagedInvocationDiagnostic(record: ManagedAgentInvocationRecord, kind: string): string {
-  return [
-    "# Managed Invocation Diagnostic",
-    "",
-    `Invocation ID: ${record.invocationId}`,
-    `Diagnostic: ${kind}`,
-    `Status: ${record.lifecycleState}`,
-    `Provider: ${record.providerRoute.providerId}`,
-    record.providerRoute.model ? `Model: ${record.providerRoute.model}` : undefined,
-    `Capability snapshot: ${record.capabilitySnapshot.snapshotId}`,
-    `Route health: ${record.capabilitySnapshot.routeHealth.status}`,
-    `Provider proof: ${record.capabilitySnapshot.providerModelProof.status}`,
-    "",
-    record.resultHandoff?.summary ?? "No diagnostic summary was recorded.",
-  ].filter((line): line is string => line !== undefined).join("\n");
-}
-
-function formatChildIdentity(identity: ManagedAgentInvocationRecord["capabilitySnapshot"]["childIdentity"]): string {
-  return identity.displayName ?? identity.admittedAgentProfile ?? identity.requestedAgentProfile ?? identity.agentId;
 }
 
 function parseInput(

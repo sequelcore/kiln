@@ -3,9 +3,12 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  createSessionBuiltinToolOptions,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineManagedAgentInvocationRequest,
   type ManagedAgentInvocationRequest,
+  type ToolResourceProvider,
 } from "@kilnai/core";
 import type { KilnPermissionPolicy } from "../../src/wrapper/index.js";
 import type {
@@ -19,7 +22,7 @@ import {
   createManagedInvocationToolOptionsCatalog,
   resolveManagedInvocationToolOptions,
 } from "../../src/config/managed-agent-routes.js";
-import type { ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
+import { RuntimeManagedAgentInvocationService, type ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
 
 const READONLY_POLICY: KilnPermissionPolicy = {
   approval: "on-request",
@@ -84,6 +87,60 @@ function createRegistryForProviders(
     }),
   }));
   return new SessionRegistry(descriptors);
+}
+
+function createRegistryWithCapturedHarnessRun(
+  provider: ProviderId,
+  captureRun: (options: { readonly system?: string; readonly prompt: string }) => void,
+): SessionRegistry {
+  const descriptor: SessionProviderDescriptor = {
+    id: provider,
+    costTier: "low",
+    capabilities: {
+      mcp: false,
+      streaming: true,
+      resumable: false,
+      resume: false,
+      costTrackingMode: "computed",
+      supportedTools: [],
+      maxContextTokens: null,
+      priority: 1,
+      fallbackTo: null,
+      permissionPolicy: READONLY_POLICY,
+    },
+    isAvailable: () => true,
+    create: (_config: ProviderCreateConfig) => ({
+      sessionId: `${provider}-session`,
+      capabilities: {
+        mcp: false,
+        streaming: true,
+        resumable: false,
+        resume: false,
+        costTrackingMode: "computed",
+        supportedTools: [],
+        maxContextTokens: null,
+        priority: 1,
+        fallbackTo: null,
+        permissionPolicy: READONLY_POLICY,
+      },
+      async *run(options: { readonly system?: string; readonly prompt: string }) {
+        captureRun(options);
+        yield {
+          type: "text_delta" as const,
+          content: options.system?.includes("Harness resource body.") ? "Harness context read." : "Harness context missing.",
+        };
+        yield {
+          type: "completed" as const,
+          totalUsd: 0,
+          durationMs: 1,
+          isError: false,
+          isPreflightCrash: false,
+        };
+      },
+      async dispose() {},
+    }),
+  };
+  return new SessionRegistry([descriptor]);
 }
 
 function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}): KilnGlobalConfig {
@@ -636,6 +693,98 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.managedInvocation?.invocationService).toBeDefined();
     expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:codex:primary");
+  });
+
+  it("wires current resource_read hydration into resolved CLI harness routes", async () => {
+    let capturedRun: { readonly system?: string; readonly prompt: string } | undefined;
+    const readUris: string[] = [];
+    const resourceProvider: ToolResourceProvider = {
+      listResources: () => [],
+      listTemplates: () => [],
+      read: async (uri: string) => {
+        readUris.push(uri);
+        return {
+          contents: [{
+            uri,
+            mimeType: "text/markdown",
+            text: "# Harness Resource\n\nHarness resource body.",
+          }],
+        };
+      },
+    };
+    const builtinToolOptions = createSessionBuiltinToolOptions({
+      resourceProviders: [resourceProvider],
+    });
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "opencode-readonly",
+        kind: "harness",
+        provider: "opencode",
+        model: "opencode/minimax-m2.5-free",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistryWithCapturedHarnessRun("opencode", (options) => {
+        capturedRun = options;
+      }),
+      surface: "gui",
+      providerModels: {
+        opencode: ["opencode/minimax-m2.5-free"],
+      },
+      builtinToolOptions: () => builtinToolOptions,
+    });
+
+    const route = result.managedInvocation?.routes[0];
+    expect(route).toBeDefined();
+    const profile = route?.profiles["foundation-readonly-plan"];
+    expect(profile).toBeDefined();
+    const service = result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService();
+
+    const invokeResult = await service.invoke(defineManagedAgentInvocationRequest({
+      invocationId: "cli-harness-resource-1",
+      agentId: "opencode-readonly:foundation-readonly-plan",
+      parentSessionId: "cli-parent-session",
+      parentTurnId: "cli-parent-session:turn:1",
+      profile: "foundation-readonly-plan",
+      requestedBy: "assistant",
+      requestSource: "test",
+      providerRoute: {
+        providerId: "opencode",
+        surface: "cli-harness",
+        model: "opencode/minimax-m2.5-free",
+      },
+      adapterKind: "harness",
+      executionMode: "cli-harness",
+      authority: {
+        authorityProfileId: profile!.authorityProfileId,
+        permissionProfile: profile!.permissionProfile,
+        toolAuthority: {
+          allowedToolNames: profile!.allowedToolNames,
+          writeAllowed: profile!.writeAllowed === true,
+          networkAllowed: profile!.networkAllowed === true,
+        },
+        workingDirectory: profile!.workingDirectory,
+        timeoutMs: profile!.timeoutMs,
+        credentialRoute: profile!.credentialRoute,
+        memoryScope: profile!.memoryScope,
+        ...(profile!.writeAuthority ? { writeAuthority: profile!.writeAuthority } : {}),
+      },
+      input: {
+        summary: "Summarize current resource.",
+        prompt: "Summarize the supplied resource.",
+        resourceUris: ["kiln://test/current-harness-resource"],
+        context: {
+          mode: "resources",
+        },
+      },
+    }), route!.adapter);
+
+    expect(invokeResult.status).toBe("completed");
+    expect(readUris).toEqual(["kiln://test/current-harness-resource"]);
+    expect(capturedRun?.prompt).toBe("Summarize the supplied resource.");
+    expect(capturedRun?.system).toContain("kiln://test/current-harness-resource");
+    expect(capturedRun?.system).toContain("Harness resource body.");
   });
 
   it("normalizes explicit runtime-selected credential route ids for profiles and service keys", async () => {

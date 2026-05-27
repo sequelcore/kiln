@@ -16,6 +16,7 @@ import {
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   appendManagedInvocationSessionEvents,
+  appendManagedInvocationStartSessionEvents,
 } from "../../src/agents/managed-invocation/session-events.js";
 
 function makeSession(sessionId = "session-parent"): RuntimeSession {
@@ -72,7 +73,7 @@ function makeRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1
   });
 }
 
-function makeWriteScope() {
+function makeWriteScope(resourceUris: readonly string[] = ["kiln://artifacts/managed-agent-write/proposal-1"]) {
   return defineManagedAgentWriteScope({
     workspace: {
       mode: "propose",
@@ -86,7 +87,7 @@ function makeWriteScope() {
     },
     artifacts: {
       mode: "propose",
-      resourceUris: ["kiln://artifacts/managed-agent-write/proposal-1"],
+      resourceUris,
       retention: "session",
     },
     tools: {
@@ -140,7 +141,11 @@ function makeCapabilitySnapshot(request: ManagedAgentInvocationRequest) {
   });
 }
 
-function makeWriteRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1`): ManagedAgentInvocationRequest {
+function makeWriteRequest(
+  sessionId = "session-parent",
+  turnId = `${sessionId}:turn:1`,
+  writeResourceUris?: readonly string[],
+): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     invocationId: "invocation-write-1",
     agentId: "agent-implementer",
@@ -179,7 +184,7 @@ function makeWriteRequest(sessionId = "session-parent", turnId = `${sessionId}:t
       },
       writeAuthority: defineManagedAgentWriteAuthority({
         profile: "foundation-propose-writes",
-        scope: makeWriteScope(),
+        scope: makeWriteScope(writeResourceUris),
         approval: {
           mode: "required-before-apply",
           evidenceRequired: true,
@@ -203,12 +208,16 @@ function makeDecision(status: "admitted" | "denied"): ManagedAgentAdmissionDecis
       missingCapabilities: ["timeout.supported"],
     };
   }
+  return makeAdmittedDecision(request);
+}
+
+function makeAdmittedDecision(request: ManagedAgentInvocationRequest): ManagedAgentAdmissionDecision {
   return {
     status: "admitted",
-    invocationId: "invocation-1",
-    profile: "foundation-readonly-plan",
+    invocationId: request.invocationId,
+    profile: request.profile,
     adapterDescriptorId: "adapter:opencode:harness",
-    authorityProfileId: "foundation-readonly",
+    authorityProfileId: request.authority.authorityProfileId,
     credentialRouteId: "credential-route:opencode:primary",
     memoryScope: request.authority.memoryScope.scope,
     capabilitySnapshot: makeCapabilitySnapshot(request),
@@ -373,6 +382,35 @@ describe("appendManagedInvocationSessionEvents", () => {
     });
     expect(events[1]?.parentEventId).toBe(events[0]?.eventId);
     expect((events[1] as { errorMessage: string }).errorMessage).toContain("timeout.supported");
+  });
+
+  it("projects admitted start capability resources before replay events", () => {
+    const session = makeSession();
+    const rawResourceUri = "kiln://managed-invocations/sibling-start/context";
+    const canonicalResourceUri = "kiln://managed-agents/invocations/sibling-start/resources/context";
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(session.id, `${session.id}:turn:1`),
+      input: {
+        summary: "Inspect invocation contract",
+        resourceUris: [rawResourceUri],
+        context: { mode: "resources" },
+      },
+    });
+
+    const events = appendManagedInvocationStartSessionEvents({
+      session,
+      request,
+      decision: makeAdmittedDecision(request),
+      timestamp: new Date("2026-05-03T10:00:00.000Z"),
+    });
+    const serializedEvents = JSON.stringify(events);
+
+    expect(events.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+    ]);
+    expect(serializedEvents).toContain(canonicalResourceUri);
+    expect(serializedEvents).not.toContain("kiln://managed-invocations/");
   });
 
   it("maps requested/started/completed with transcript, usage unknowns, handoff evidence and child lineage", () => {
@@ -621,7 +659,10 @@ describe("appendManagedInvocationSessionEvents", () => {
 
   it("projects denied write authority as replayable failure evidence", () => {
     const session = makeSession();
-    const request = makeWriteRequest(session.id, `${session.id}:turn:1`);
+    const request = makeWriteRequest(session.id, `${session.id}:turn:1`, [
+      "kiln://managed-invocations/invocation-write-1/write",
+      "kiln://managed-invocations/sibling-write-1/write",
+    ]);
     const events = appendManagedInvocationSessionEvents({
       session,
       request,
@@ -638,6 +679,14 @@ describe("appendManagedInvocationSessionEvents", () => {
     expect(evidence).toMatchObject({
       writeAuthority: {
         profile: "foundation-propose-writes",
+        scope: {
+          artifacts: {
+            resourceUris: [
+              "kiln://managed-agents/invocations/invocation-write-1/resources/write",
+              "kiln://managed-agents/invocations/sibling-write-1/resources/write",
+            ],
+          },
+        },
       },
       writeEvidence: [{
         kind: "write-authority-denied",
@@ -645,6 +694,7 @@ describe("appendManagedInvocationSessionEvents", () => {
         summary: expect.stringContaining("writeAuthority.proposalSupported"),
       }],
     });
+    expect(JSON.stringify(evidence)).not.toContain("kiln://managed-invocations/");
   });
 
   it("projects denied worktree conflict as lifecycle resource lease evidence", () => {

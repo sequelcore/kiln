@@ -77,8 +77,8 @@ import {
   type SessionEventSource,
 } from "@kilnai/core";
 import {
-  createManagedAgentInvocationResourceProvider,
   getProjectContextArtifactCache,
+  withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
 import {
@@ -459,21 +459,13 @@ export async function makeMultiProviderSessionFactory(
   const providerModelState = new Map<ProviderId, string>(
     providers.map((provider) => [provider, ""]),
   );
-  let sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
-  if (managedInvocationWithService) {
-    sessionBuiltinToolOptions = createSessionBuiltinToolOptions({
-      ...sessionBuiltinToolOptions,
-      resourceProviders: [
-        ...(sessionBuiltinToolOptions.resourceProviders ?? []),
-        createManagedAgentInvocationResourceProvider({
-          service: managedInvocationWithService.invocationService,
-        }),
-      ],
-    });
-  }
+  const sessionBuiltinToolOptions = withManagedAgentInvocationResourceProvider(
+    builtinToolOptions,
+    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+  );
 
   let currentProvider: ProviderId | null = initialProvider;
 
@@ -1210,7 +1202,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
         caller: { kind: "operator_surface", id: "tui" },
       },
     });
-  const builtinToolOptions = createSessionBuiltinToolOptions({
+  let builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -1227,7 +1219,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       registry,
       surface: "tui",
       isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions }),
+      builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
       reloadConfig: () => readGlobalConfig() ?? globalConfig,
@@ -1236,6 +1229,13 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       },
     });
   const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
+  const managedInvocationWithService = managedInvocation
+    ? withManagedInvocationService(managedInvocation)
+    : undefined;
+  builtinToolOptions = withManagedAgentInvocationResourceProvider(
+    builtinToolOptions,
+    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+  );
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
@@ -1278,7 +1278,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     contextArtifactCache,
     builtinToolOptions,
     "tui",
-    managedInvocation,
+    managedInvocationWithService,
     runtimeBudgetAdmission,
   );
   if (startupModel) {
@@ -1293,7 +1293,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     contextArtifactCache,
     systemPrompt,
     builtinToolOptions,
-    managedInvocation,
+    managedInvocation: managedInvocationWithService,
     budgetAdmission: runtimeBudgetAdmission,
     resumeSessionHydrator,
     operatorVoice,

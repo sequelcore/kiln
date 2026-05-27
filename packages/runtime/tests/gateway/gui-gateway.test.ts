@@ -3952,8 +3952,8 @@ describe("startGuiGateway static mount", () => {
       const cleanupFailureUri = `kiln://artifacts/${startedInvocationId}/worktree-lease-cleanup-failed`;
       const worktreeReviewUri = `kiln://artifacts/${startedInvocationId}/worktree-review`;
       const worktreeReviewDiagnosticUri = `kiln://artifacts/${startedInvocationId}/worktree-review-required`;
-      const handoffUri = `kiln://managed-invocations/${startedInvocationId}/handoff`;
-      const transcriptUri = `kiln://managed-invocations/${startedInvocationId}/transcript`;
+      const handoffUri = `kiln://managed-agents/invocations/${startedInvocationId}/handoff`;
+      const transcriptUri = `kiln://managed-agents/invocations/${startedInvocationId}/transcript`;
 
       expect(controlResultFrame).toMatchObject({
         type: "managed_agent_control_result",
@@ -4296,13 +4296,13 @@ describe("startGuiGateway static mount", () => {
         errorCode: terminalCase.errorCode,
         managedInvocationEvidence: {
           diagnostics: [{
-            uri: `kiln://managed-invocations/${startedInvocationId}/${terminalCase.diagnosticKind}`,
+            uri: `kiln://managed-agents/invocations/${startedInvocationId}/resources/${terminalCase.diagnosticKind}`,
             kind: terminalCase.diagnosticKind,
           }],
           resultHandoff: {
             resourceUris: [
-              `kiln://managed-invocations/${startedInvocationId}/handoff`,
-              `kiln://managed-invocations/${startedInvocationId}/${terminalCase.diagnosticKind}`,
+              `kiln://managed-agents/invocations/${startedInvocationId}/handoff`,
+              `kiln://managed-agents/invocations/${startedInvocationId}/resources/${terminalCase.diagnosticKind}`,
             ],
           },
         },
@@ -4334,9 +4334,9 @@ describe("startGuiGateway static mount", () => {
         lifecycleState: terminalCase.lifecycleState,
       });
       expect(view.managedAgents.items[0]?.resourceUris).toEqual(expect.arrayContaining([
-        `kiln://managed-invocations/${startedInvocationId}/${terminalCase.diagnosticKind}`,
-        `kiln://managed-invocations/${startedInvocationId}/handoff`,
-        `kiln://managed-invocations/${startedInvocationId}/transcript`,
+        `kiln://managed-agents/invocations/${startedInvocationId}/resources/${terminalCase.diagnosticKind}`,
+        `kiln://managed-agents/invocations/${startedInvocationId}/handoff`,
+        `kiln://managed-agents/invocations/${startedInvocationId}/transcript`,
       ]));
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();

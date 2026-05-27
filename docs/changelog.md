@@ -11,6 +11,22 @@ baseline. Active and deferred execution tracks live in
 - Made paginated `resource_read` continuations model-visible with a trailing
   JSON control block, and kept GUI/TUI managed invocation lifecycle tools bound
   to the stable outer Kiln session across recreated provider turns.
+- Made `kiln managed-agent` replay recover GUI/TUI managed-child cockpit state
+  from persisted managed tool-completion evidence and list snapshots when
+  canonical `agent_invocation_*` events were absent or only partially persisted
+  through the shared gateway-contract normalizer, returned managed transcript
+  resources as bounded `text/markdown` bodies, and shared managed child
+  `contextMode: "resources"` context construction across direct-provider and
+  CLI-harness adapters, with terminal list snapshots kept provisional until
+  richer terminal tool evidence arrives and join evidence allowed to complete
+  canonical-start-only streams.
+- Projected adapter-private managed invocation evidence pointers into public
+  managed-agent or artifact resource URIs before they cross GUI, TUI, CLI,
+  replay, or model-facing `resource_read` surfaces, including nonterminal
+  start metadata and TUI per-turn resource reads. Direct-provider and
+  CLI-harness managed children now hydrate admitted resource context from the
+  current session-scoped builtin tool surface instead of the
+  route-construction-time surface.
 - Promoted the background and parallel managed-agent track into stable
   architecture docs, including runtime-owned child lifecycle, parallel
   orchestration admission, resource leases, cross-surface cockpit projection,

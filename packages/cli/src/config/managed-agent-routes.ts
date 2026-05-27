@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { basename, posix, resolve, win32 } from "node:path";
 import type {
   ArtifactResourceStore,
+  DefaultBuiltinToolRegistryOptions,
   ManagedAgentAdmissionProfile,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
@@ -15,6 +16,7 @@ import {
   isDirectProviderId,
 } from "@kilnai/core";
 import {
+  createAttachedRuntimeBuiltinToolSurface,
   ManagedCliHarnessAdapter,
   ManagedGitWorktreeLeaseManager,
   ManagedRemoteHarnessAdapter,
@@ -75,11 +77,14 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly providerModels?: Readonly<Record<string, readonly string[] | undefined>>;
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
+  readonly builtinToolOptions?: BuiltinToolOptionsSource;
   readonly artifactStore?: ArtifactResourceStore;
   readonly invocationService?: RuntimeManagedAgentInvocationService;
   readonly invocationServiceKey?: string;
   readonly userHome?: string;
 }
+
+type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
 
 export interface ManagedAgentRouteConfigSource {
   readonly managedAgents?: KilnManagedAgentsConfig;
@@ -645,11 +650,13 @@ async function resolveRouteConfig(
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
+  const builtinToolsProvider = createManagedRouteBuiltinToolsProvider(context);
   const adapter = new ManagedCliHarnessAdapter({
     providerId: routeConfig.provider,
     model,
     factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context),
     ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
+    ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
   });
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const route: ManagedInvocationToolRoute = {
@@ -958,6 +965,27 @@ function buildWriteAuthority(
       },
     }),
   };
+}
+
+function createManagedRouteBuiltinToolsProvider(
+  context: ResolveManagedInvocationToolOptionsContext,
+): (() => ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>["callBuiltinTools"]) | undefined {
+  const source = context.builtinToolOptions;
+  if (!source) {
+    return undefined;
+  }
+  return () => {
+    const builtinToolOptions = resolveBuiltinToolOptions(source);
+    return createAttachedRuntimeBuiltinToolSurface(
+      builtinToolOptions ? { builtinToolOptions } : {},
+    ).callBuiltinTools;
+  };
+}
+
+function resolveBuiltinToolOptions(
+  source: BuiltinToolOptionsSource,
+): DefaultBuiltinToolRegistryOptions | undefined {
+  return typeof source === "function" ? source() : source;
 }
 
 async function resolveDirectRouteConfig(

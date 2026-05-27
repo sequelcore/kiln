@@ -34,6 +34,7 @@ import type {
   ManagedAgentRuntimeRecoveryStore,
   ManagedFilesystemRuntimeRecoveryStoreConfig,
 } from "./recovery-store.js";
+import { projectManagedInvocationRecordResources } from "./resource-projection.js";
 export {
   admitManagedChildContextAndCredentials,
 } from "./context-credential-admission.js";
@@ -64,10 +65,23 @@ export type {
 } from "./fan-out.js";
 export {
   createManagedAgentInvocationResourceProvider,
+  isManagedAgentInvocationResourceProvider,
+  MANAGED_AGENT_INVOCATION_RESOURCE_PROVIDER_KIND,
+  withManagedAgentInvocationResourceProvider,
 } from "./resource-provider.js";
 export type {
   ManagedAgentInvocationResourceProviderInput,
 } from "./resource-provider.js";
+export {
+  MANAGED_AGENT_RESOURCE_PREFIX,
+  invocationResourceUri,
+  managedInvocationPublicResourceUri,
+  managedInvocationResourcePath,
+  projectManagedInvocationRecordResources,
+} from "./resource-projection.js";
+export type {
+  ManagedInvocationResourceProjectionOptions,
+} from "./resource-projection.js";
 export {
   collectManagedAgentLiveWriteDecisionEvidence,
   collectManagedAgentLiveWriteEvidence,
@@ -1597,7 +1611,7 @@ export class RuntimeManagedAgentInvocationService {
       .reverse()
       .filter((stage) => !entry.releasedLeaseStages.includes(stage));
     if (!resourceLeaseForRelease || entry.acquiredLeaseStages.length === 0) {
-      const finalizedRecord = defineManagedAgentInvocationRecord(record);
+      const finalizedRecord = projectManagedInvocationRecordResources(defineManagedAgentInvocationRecord(record));
       await this.saveOrDeleteRuntimeRecoveryCheckpoint(entry, finalizedRecord);
       return finalizedRecord;
     }
@@ -1651,20 +1665,22 @@ export class RuntimeManagedAgentInvocationService {
     }
     const terminalResourceLease = sanitizeEnvironmentLeaseEvidence(resourceLease, entry.environmentValueLeakingUris);
     const terminalDiagnostics = sanitizeEnvironmentDiagnostics(diagnostics, entry.environmentValueLeakingUris);
-    const finalizedRecord = defineManagedAgentInvocationRecord({
-      ...record,
-      resourceLease: {
-        ...terminalResourceLease,
-        ...(cleanupFailureUris.length > 0
-          ? {
-              healthStatus: "leaked" as const,
-              cleanupStatus: "failed" as const,
-              diagnosticUris: uniqueStrings([...terminalResourceLease.diagnosticUris, ...cleanupFailureUris]),
-            }
-          : {}),
-      },
-      ...(terminalDiagnostics.length > 0 ? { diagnostics: terminalDiagnostics } : {}),
-    });
+    const finalizedRecord = projectManagedInvocationRecordResources(
+      defineManagedAgentInvocationRecord({
+        ...record,
+        resourceLease: {
+          ...terminalResourceLease,
+          ...(cleanupFailureUris.length > 0
+            ? {
+                healthStatus: "leaked" as const,
+                cleanupStatus: "failed" as const,
+                diagnosticUris: uniqueStrings([...terminalResourceLease.diagnosticUris, ...cleanupFailureUris]),
+              }
+            : {}),
+        },
+        ...(terminalDiagnostics.length > 0 ? { diagnostics: terminalDiagnostics } : {}),
+      }),
+    );
     await this.saveOrDeleteRuntimeRecoveryCheckpoint(entry, finalizedRecord);
     return finalizedRecord;
   }

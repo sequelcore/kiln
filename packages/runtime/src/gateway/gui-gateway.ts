@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import type { WSContext } from "hono/ws";
 import {
-  createSessionBuiltinToolOptions,
   EventBus,
   extractText,
   type ApprovalReceivedEvent,
@@ -56,6 +55,7 @@ import {
   withManagedInvocationService,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
+import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
@@ -391,10 +391,13 @@ export function deriveGuiDoneAuthorityStatus(
 
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
-  const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
   const managedInvocation = options.managedInvocation
     ? withManagedInvocationService(options.managedInvocation)
     : undefined;
+  const builtinToolOptions = withManagedAgentInvocationResourceProvider(
+    options.builtinToolOptions,
+    managedInvocation ? { service: managedInvocation.invocationService } : undefined,
+  );
   const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
   const guiDistPath = resolveGuiDistPath(options.guiDistPath);

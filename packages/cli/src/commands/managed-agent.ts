@@ -7,27 +7,14 @@ import type {
   OperatorCockpitInvocationProjection,
   OperatorCockpitReadOnlyProjection,
   OperatorSessionEvent,
-  OperatorSessionEventKind,
 } from "@kilnai/gateway-contracts";
 import {
   createOperatorCockpitReadOnlyViewState,
+  normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
 import type { KilnAppConfig } from "../config.js";
-import { SessionStore, TranscriptStore, type PersistedTranscriptEvent } from "../wrapper/session-store.js";
-
-const MANAGED_AGENT_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
-  "agent_invocation_requested",
-  "agent_invocation_started",
-  "agent_invocation_completed",
-  "agent_invocation_failed",
-  "agent_invocation_cancelled",
-];
-const MANAGED_AGENT_WORK_ITEM_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
-  "work_item_updated",
-  "work_item_execution_started",
-  "work_item_execution_finished",
-];
+import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 
 export interface ManagedAgentCommandOptions {
   readonly projectPath?: string;
@@ -344,8 +331,8 @@ export async function loadManagedAgentCockpitFromTranscript(
   sessionId: string,
   input: { readonly projectedAt: string },
 ): Promise<OperatorCockpitReadOnlyProjection> {
-  const events = (await transcriptStore.readTranscript(sessionId))
-    .flatMap((event) => toOperatorManagedAgentEvent(event));
+  const transcriptEvents = await transcriptStore.readTranscript(sessionId);
+  const events = normalizeManagedAgentOperatorReplayEvents(transcriptEvents, { defaultInstanceId: "local" });
   return projectOperatorCockpitReadOnlyView({
     projectedAt: input.projectedAt,
     attachTargets: [{
@@ -356,94 +343,6 @@ export async function loadManagedAgentCockpitFromTranscript(
     }],
     events,
   });
-}
-
-function toOperatorManagedAgentEvent(event: PersistedTranscriptEvent): readonly OperatorSessionEvent[] {
-  if (!matchesTranscriptEnvelopeSession(event)) {
-    return [];
-  }
-  if (isManagedAgentWorkItemEventKind(event.kind)) {
-    if (!hasManagedOrchestrationAdoptionGate(event.payload)) {
-      return [];
-    }
-    return [toOperatorSessionEvent(event, {
-      ...event.payload,
-      instanceId: readString(event.payload.instanceId) ?? "local",
-      sessionId: event.kilnSessionId,
-    })];
-  }
-  if (!isManagedAgentEventKind(event.kind)) return [];
-  const payload = {
-    ...event.payload,
-    instanceId: readString(event.payload.instanceId) ?? "local",
-    sessionId: event.kilnSessionId,
-    managedInvocationId: readString(event.payload.managedInvocationId) ?? readString(event.payload.invocationId),
-  };
-  if (!payload.managedInvocationId) {
-    return [];
-  }
-  return [toOperatorSessionEvent(event, payload)];
-}
-
-function isManagedAgentEventKind(kind: string): kind is OperatorSessionEventKind {
-  return MANAGED_AGENT_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
-}
-
-function isManagedAgentWorkItemEventKind(kind: string): kind is OperatorSessionEventKind {
-  return MANAGED_AGENT_WORK_ITEM_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
-}
-
-function matchesTranscriptEnvelopeSession(event: PersistedTranscriptEvent): boolean {
-  const payloadSessionId = readString(event.payload.sessionId);
-  return payloadSessionId === undefined || payloadSessionId === event.kilnSessionId;
-}
-
-function hasManagedOrchestrationAdoptionGate(payload: Record<string, unknown>): boolean {
-  const gate = asRecord(payload.managedOrchestrationAdoptionGate);
-  return typeof gate.required === "boolean"
-    && isAdoptionGateStatus(gate.status)
-    && readString(gate.childId) !== undefined
-    && isStringArray(gate.resourceUris)
-    && isStringArray(gate.blockingEvidence)
-    && (gate.rejection === undefined || isAdoptionGateRejection(gate.rejection));
-}
-
-function isAdoptionGateStatus(value: unknown): boolean {
-  return value === "not_required"
-    || value === "pending_review"
-    || value === "adopted"
-    || value === "rejected"
-    || value === "blocked";
-}
-
-function isStringArray(value: unknown): boolean {
-  return Array.isArray(value)
-    && value.every((entry) => typeof entry === "string" && entry.trim().length > 0);
-}
-
-function isAdoptionGateRejection(value: unknown): boolean {
-  const rejection = asRecord(value);
-  return readString(rejection.gate) !== undefined
-    && isStringArray(rejection.evidence)
-    && (rejection.summary === undefined || readString(rejection.summary) !== undefined)
-    && (rejection.completedAt === undefined || readString(rejection.completedAt) !== undefined);
-}
-
-function toOperatorSessionEvent(
-  event: PersistedTranscriptEvent,
-  payload: Record<string, unknown>,
-): OperatorSessionEvent {
-  return {
-    eventId: event.eventId,
-    kilnSessionId: event.kilnSessionId,
-    sequence: event.sequence,
-    timestamp: event.timestamp,
-    kind: event.kind,
-    ...(event.turnId ? { turnId: event.turnId } : {}),
-    ...(event.parentEventId ? { parentEventId: event.parentEventId } : {}),
-    ...(event.source ? { source: event.source } : {}),
-    payload,
-  };
 }
 
 function findInvocation(

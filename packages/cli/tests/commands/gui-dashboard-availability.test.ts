@@ -126,6 +126,34 @@ vi.mock("@kilnai/runtime", () => ({
     kind: "managed-invocation-resource-provider",
     input,
   })),
+  withManagedAgentInvocationResourceProvider: (options: Record<string, unknown> | undefined, input: Record<string, unknown> | undefined) => {
+    const artifactStore = (options?.artifactResources as { store?: unknown } | undefined)?.store ?? {};
+    const sessionOptions = { ...(options ?? {}), artifactResources: { store: artifactStore } };
+    if (!input) {
+      return sessionOptions;
+    }
+    const providers = (sessionOptions.resourceProviders as readonly unknown[] | undefined) ?? [];
+    if (providers.some((provider) => (
+      typeof provider === "object"
+      && provider !== null
+      && (provider as { kind?: unknown }).kind === "managed-invocation-resource-provider"
+    ))) {
+      return sessionOptions;
+    }
+    return {
+      ...sessionOptions,
+      resourceProviders: [
+        ...providers,
+        {
+          kind: "managed-invocation-resource-provider",
+          input: {
+            ...input,
+            artifactStore,
+          },
+        },
+      ],
+    };
+  },
   withManagedInvocationService: (options: Record<string, unknown>) => ({
     ...options,
     invocationService: options.invocationService ?? {},

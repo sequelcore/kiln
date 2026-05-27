@@ -39,6 +39,8 @@ vi.mock("@kilnai/runtime", () => ({
   ProviderModelRouteHealthStore: class ProviderModelRouteHealthStore {
     recordOutcome = benchmarkExecutorMocks.recordRouteHealth;
   },
+  withManagedAgentInvocationResourceProvider: vi.fn((options) => options),
+  withManagedInvocationService: vi.fn((options) => options),
 }));
 
 vi.mock("../../src/config/operator-identity-context.js", () => ({

@@ -110,6 +110,22 @@ vi.mock("@kilnai/runtime", () => ({
   ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
   RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
   createManagedAgentInvocationResourceProvider: runWiringMocks.createManagedAgentInvocationResourceProvider,
+  withManagedAgentInvocationResourceProvider: (options: Record<string, unknown> | undefined, input: Record<string, unknown> | undefined) => {
+    if (!input) {
+      return options;
+    }
+    const provider = runWiringMocks.createManagedAgentInvocationResourceProvider({
+      ...input,
+      artifactStore: (options?.artifactResources as { store?: unknown } | undefined)?.store,
+    });
+    return runWiringMocks.createSessionBuiltinToolOptions({
+      ...options,
+      resourceProviders: [
+        ...((options?.resourceProviders as readonly unknown[] | undefined) ?? []),
+        provider,
+      ],
+    });
+  },
   withManagedInvocationService: (options: Record<string, unknown>) => ({
     ...options,
     invocationService: options.invocationService ?? {},
@@ -435,9 +451,10 @@ describe("run command builtin tool wiring", () => {
       managedInvocation,
     }, "ship it", { provider: "codex" });
 
-    expect(runWiringMocks.createManagedAgentInvocationResourceProvider).toHaveBeenCalledWith({
+    expect(runWiringMocks.createManagedAgentInvocationResourceProvider).toHaveBeenCalledWith(expect.objectContaining({
       service: managedInvocation.invocationService,
-    });
+    }));
+    expect(runWiringMocks.createManagedAgentInvocationResourceProvider.mock.calls[0]?.[0]).toHaveProperty("artifactStore");
     expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
       resourceProviders: expect.arrayContaining([{ id: "managed-agent-resource-provider" }]),
     }));

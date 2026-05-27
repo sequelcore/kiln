@@ -6,6 +6,7 @@ import {
   createOperatorCockpitReadOnlyViewState,
   isOperatorThemeName,
   listOperatorCommands,
+  normalizeManagedAgentOperatorEvents,
   projectOperatorCockpitReadOnlyView,
   type GuiAppDescriptor,
   type GuiAuthorityStatus,
@@ -19,8 +20,6 @@ import {
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
   type OperatorCommandDefinition,
-  type OperatorSessionEvent,
-  type OperatorSessionEventKind,
 } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
@@ -191,45 +190,6 @@ const inspectorModeIcons: Record<InspectorMode, LucideIcon> = {
 };
 
 const GUI_COCKPIT_INSTANCE_ID = "local-gui";
-const MANAGED_AGENT_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
-  "agent_invocation_requested",
-  "agent_invocation_started",
-  "agent_invocation_completed",
-  "agent_invocation_failed",
-  "agent_invocation_cancelled",
-];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readEventString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function normalizeManagedAgentCockpitEvents(
-  events: readonly OperatorSessionEvent[],
-): readonly OperatorSessionEvent[] {
-  return events.flatMap((event) => {
-    if (!MANAGED_AGENT_EVENT_KINDS.includes(event.kind)) {
-      return [];
-    }
-    const payload = isRecord(event.payload) ? event.payload : {};
-    const managedInvocationId = readEventString(payload.managedInvocationId) ?? readEventString(payload.invocationId);
-    if (!managedInvocationId) {
-      return [];
-    }
-    return [{
-      ...event,
-      payload: {
-        ...payload,
-        instanceId: readEventString(payload.instanceId) ?? GUI_COCKPIT_INSTANCE_ID,
-        sessionId: readEventString(payload.sessionId) ?? event.kilnSessionId,
-        managedInvocationId,
-      },
-    }];
-  });
-}
 
 function NavButton<TMode extends string>(props: {
   readonly mode: TMode;
@@ -766,7 +726,9 @@ export function AppShell() {
         kind: "local",
         gatewayUrl: resolveGatewayHttpBaseUrl(),
       }],
-      events: normalizeManagedAgentCockpitEvents(sessionEvents),
+      events: normalizeManagedAgentOperatorEvents(sessionEvents, {
+        defaultInstanceId: GUI_COCKPIT_INSTANCE_ID,
+      }),
     });
     return createOperatorCockpitReadOnlyViewState({
       projection,

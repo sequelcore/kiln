@@ -7,7 +7,12 @@ import {
   createSessionBuiltinToolOptions,
   mapProviderModelRouteErrorToOutcome,
 } from "@kilnai/core";
-import { getProjectContextArtifactCache, ProviderModelRouteHealthStore } from "@kilnai/runtime";
+import {
+  getProjectContextArtifactCache,
+  ProviderModelRouteHealthStore,
+  withManagedAgentInvocationResourceProvider,
+  withManagedInvocationService,
+} from "@kilnai/runtime";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
@@ -115,7 +120,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
-    const builtinToolOptions = createSessionBuiltinToolOptions({
+    let builtinToolOptions = createSessionBuiltinToolOptions({
       ...configuredBuiltinToolOptions,
       workItemStore,
       goalRunStore,
@@ -133,9 +138,18 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       surface: "run",
       isProviderAvailable: (providerId) => engineAvailability.get(providerId),
       providerModels: managedAgentProviderModels,
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions, runtimeEnv: env }),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions, runtimeEnv: env }),
+      builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     });
+    const managedInvocation = options.appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+    const managedInvocationWithService = managedInvocation
+      ? withManagedInvocationService(managedInvocation)
+      : undefined;
+    builtinToolOptions = withManagedAgentInvocationResourceProvider(
+      builtinToolOptions,
+      managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+    );
     const sessionId = randomUUID();
     const sessionConfig = {
       task: input,
@@ -148,7 +162,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ephemeral: true,
       skipGitRepoCheck: options.flags?.skipGitRepoCheck,
       builtinToolOptions,
-      managedInvocation: options.appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation,
+      managedInvocation: managedInvocationWithService,
       model: effectiveModel,
     };
     const sessionHooks = new SessionHooks(options.appConfig.kilnYaml?.hooks, {

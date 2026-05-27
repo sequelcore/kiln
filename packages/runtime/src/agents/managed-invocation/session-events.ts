@@ -16,6 +16,12 @@ import type {
 } from "@kilnai/core";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
 import type { RuntimeSession } from "../../session/runtime-session.js";
+import {
+  projectManagedInvocationAuthorityResources,
+  projectManagedInvocationCapabilitySnapshotResources,
+  projectManagedInvocationPublicResourceUri,
+  projectManagedInvocationResourceLeaseResources,
+} from "./resource-projection.js";
 
 export interface AppendManagedInvocationSessionEventsInput {
   readonly session: RuntimeSession;
@@ -132,7 +138,7 @@ export function appendManagedInvocationRuntimeFailureSessionEvent(
     invocationId: input.request.invocationId,
     agentId: input.request.agentId,
     parentSessionId: input.request.parentSessionId,
-    ...managedInvocationIdentity(input.request, undefined, input.decision.capabilitySnapshot),
+    ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
     lifecycleState: "failed",
     errorCode: "ENGINE_FAILURE",
     errorMessage: input.errorMessage,
@@ -443,7 +449,12 @@ function managedInvocationIdentity(
 function admittedCapabilitySnapshot(
   decision: ManagedAgentAdmissionDecision,
 ): ManagedAgentCapabilitySnapshot | undefined {
-  return decision.status === "admitted" ? decision.capabilitySnapshot : undefined;
+  return decision.status === "admitted"
+    ? projectManagedInvocationCapabilitySnapshotResources(
+        decision.capabilitySnapshot,
+        projectManagedInvocationPublicResourceUri,
+      )
+    : undefined;
 }
 
 function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvocationEvidence | undefined {
@@ -497,6 +508,10 @@ function collectDeniedEvidence(
     writeEvidence?: readonly ManagedAgentWriteEvidence[];
   } = {};
   if (decision.resourceLease !== undefined) {
+    const resourceLease = projectManagedInvocationResourceLeaseResources(
+      decision.resourceLease,
+      projectManagedInvocationPublicResourceUri,
+    );
     evidence.lifecycle = {
       lifecycleState: "failed",
       invocationId: request.invocationId,
@@ -508,13 +523,19 @@ function collectDeniedEvidence(
       profile: request.profile,
       contextMode: request.input.context?.mode ?? "isolated",
       authorityProfileId: request.authority.authorityProfileId,
-      resourceLease: decision.resourceLease,
-      diagnosticUris: decision.resourceLease.diagnosticUris,
+      resourceLease,
+      diagnosticUris: resourceLease.diagnosticUris,
       handoffResourceUris: [],
     };
   }
   if (request.authority.writeAuthority) {
-    evidence.writeAuthority = request.authority.writeAuthority;
+    const writeAuthority = projectManagedInvocationAuthorityResources(
+      request.authority,
+      projectManagedInvocationPublicResourceUri,
+    ).writeAuthority;
+    if (writeAuthority) {
+      evidence.writeAuthority = writeAuthority;
+    }
     evidence.writeEvidence = [
       defineManagedAgentWriteEvidence({
         evidenceId: `${request.invocationId}:write-authority-denied`,

@@ -1,10 +1,100 @@
 import { describe, expect, it } from "vitest";
+import { MemoryArtifactResourceStore } from "@kilnai/core";
 import {
   createManagedAgentInvocationResourceProvider,
   type ManagedAgentRuntimeInvocationSnapshot,
 } from "../../src/agents/managed-invocation/index.js";
 
 describe("createManagedAgentInvocationResourceProvider", () => {
+  it("projects adapter transcript pointers as readable managed-agent resource URIs", async () => {
+    const snapshot = managedInvocationSnapshot();
+    const rawTranscriptUri = "kiln://managed-invocations/child-1/transcript";
+    const rawContextUri = "kiln://managed-invocations/child-1/context/input";
+    const rawAdmissionLeaseUri = "kiln://managed-invocations/child-1/admission/lease";
+    const rawSiblingHandoffUri = "kiln://managed-invocations/sibling-1/handoff";
+    const canonicalTranscriptUri = "kiln://managed-agents/invocations/child-1/transcript";
+    const canonicalContextUri = "kiln://managed-agents/invocations/child-1/resources/context/input";
+    const canonicalAdmissionLeaseUri = "kiln://managed-agents/invocations/child-1/resources/admission/lease";
+    const canonicalSiblingHandoffUri = "kiln://managed-agents/invocations/sibling-1/handoff";
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [{
+          ...snapshot,
+          request: {
+            ...snapshot.request,
+            input: {
+              ...snapshot.request.input,
+              resourceUris: [rawContextUri, rawSiblingHandoffUri],
+            },
+          },
+          decision: {
+            ...snapshot.decision,
+            capabilitySnapshot: {
+              ...snapshot.decision.capabilitySnapshot,
+              resourceLease: {
+                ...snapshot.decision.capabilitySnapshot.resourceLease,
+                resourceUris: [rawAdmissionLeaseUri],
+              },
+            },
+          },
+          record: {
+            ...snapshot.record!,
+            transcript: {
+              ...snapshot.record!.transcript!,
+              uri: rawTranscriptUri,
+            },
+            resultHandoff: {
+              ...snapshot.record!.resultHandoff!,
+              resourceUris: [rawTranscriptUri, rawSiblingHandoffUri],
+            },
+          },
+        }],
+      },
+    });
+
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+    const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
+    expect(aggregatePayload.invocations[0]).toMatchObject({
+      transcriptUri: canonicalTranscriptUri,
+      handoffResourceUris: [canonicalTranscriptUri, canonicalSiblingHandoffUri],
+      resourceUris: expect.arrayContaining([
+        canonicalTranscriptUri,
+        canonicalSiblingHandoffUri,
+        canonicalAdmissionLeaseUri,
+      ]),
+    });
+    expect(JSON.stringify(aggregatePayload)).not.toContain("kiln://managed-invocations/");
+
+    const detail = await provider.read("kiln://managed-agents/invocations/child-1");
+    const detailPayload = JSON.parse(detail!.contents[0]!.text);
+    expect(detailPayload.invocation).toMatchObject({
+      request: {
+        resourceUris: [canonicalContextUri, canonicalSiblingHandoffUri],
+      },
+      admission: {
+        resourceLease: {
+          resourceUris: [canonicalAdmissionLeaseUri],
+        },
+      },
+      resourceUris: expect.arrayContaining([canonicalAdmissionLeaseUri]),
+    });
+    expect(JSON.stringify(detailPayload)).not.toContain("kiln://managed-invocations/");
+
+    const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
+    const resourcePayload = JSON.parse(resources!.contents[0]!.text);
+    expect(resourcePayload.resourceUris).toContain(canonicalTranscriptUri);
+    expect(JSON.stringify(resourcePayload)).not.toContain("kiln://managed-invocations/");
+
+    const transcript = await provider.read(canonicalTranscriptUri);
+    expect(transcript!.contents[0]).toMatchObject({
+      uri: canonicalTranscriptUri,
+      mimeType: "text/markdown",
+    });
+    expect(transcript!.contents[0]!.text).toContain("# Managed Invocation Transcript");
+    expect(transcript!.contents[0]!.text).toContain("Invocation ID: child-1");
+    expect(transcript!.contents[0]!.text).not.toContain("kiln://managed-invocations/");
+  });
+
   it("lists managed child invocation transcript and handoff resources", async () => {
     const provider = createManagedAgentInvocationResourceProvider({
       service: {
@@ -22,6 +112,12 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(provider.listTemplates().map((template) => template.uriTemplate)).toContain(
       "kiln://managed-agents/invocations/{invocationId}/transcript",
     );
+    expect(provider.listTemplates().find((template) =>
+      template.uriTemplate === "kiln://managed-agents/invocations/{invocationId}/transcript"
+    )).toMatchObject({
+      description: "Read one managed child invocation transcript body.",
+      mimeType: "text/markdown",
+    });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
     expect(JSON.parse(aggregate!.contents[0]!.text)).toMatchObject({
@@ -42,15 +138,13 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const transcript = await provider.read("kiln://managed-agents/invocations/child-1/transcript");
-    expect(JSON.parse(transcript!.contents[0]!.text)).toEqual({
-      invocationId: "child-1",
-      transcript: {
-        uri: "kiln://artifacts/child-1/transcript",
-        format: "jsonl",
-        redaction: "redacted",
-        truncated: false,
-      },
+    expect(transcript!.contents[0]).toMatchObject({
+      uri: "kiln://managed-agents/invocations/child-1/transcript",
+      mimeType: "text/markdown",
     });
+    expect(transcript!.contents[0]!.text).toContain("# Managed Invocation Transcript");
+    expect(transcript!.contents[0]!.text).toContain("Invocation ID: child-1");
+    expect(transcript!.contents[0]!.text).toContain("Child completed.");
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
     expect(JSON.parse(resources!.contents[0]!.text)).toEqual({
@@ -99,6 +193,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
   });
 
   it("replays terminal diagnostic pointers even when handoff and lease omit them", async () => {
+    const timeoutUri = "kiln://managed-agents/invocations/child-timeout/resources/timeout";
     const provider = createManagedAgentInvocationResourceProvider({
       service: {
         list: () => [managedInvocationWithTerminalDiagnostic()],
@@ -111,9 +206,9 @@ describe("createManagedAgentInvocationResourceProvider", () => {
       invocations: [{
         invocationId: "child-timeout",
         lifecycleState: "timed_out",
-        diagnosticResourceUris: ["kiln://managed-invocations/child-timeout/timeout"],
+        diagnosticResourceUris: [timeoutUri],
         resourceUris: expect.arrayContaining([
-          "kiln://managed-invocations/child-timeout/timeout",
+          timeoutUri,
         ]),
       }],
     });
@@ -124,7 +219,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         invocationId: "child-timeout",
         lifecycleState: "timed_out",
         diagnostics: [{
-          uri: "kiln://managed-invocations/child-timeout/timeout",
+          uri: timeoutUri,
           kind: "timeout",
         }],
       },
@@ -134,12 +229,32 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(JSON.parse(resources!.contents[0]!.text)).toMatchObject({
       invocationId: "child-timeout",
       resourceUris: expect.arrayContaining([
-        "kiln://managed-invocations/child-timeout/timeout",
+        timeoutUri,
       ]),
     });
+
+    const diagnostic = await provider.read(timeoutUri);
+    const diagnosticPayload = JSON.parse(diagnostic!.contents[0]!.text);
+    expect(diagnosticPayload).toMatchObject({
+      invocationId: "child-timeout",
+      resource: {
+        invocationId: "child-timeout",
+        resourceUri: timeoutUri,
+        resourcePath: "timeout",
+        lifecycleState: "timed_out",
+        resultSummary: "Managed child timed out before handoff.",
+        diagnostics: [{
+          uri: timeoutUri,
+          kind: "timeout",
+        }],
+      },
+    });
+    expect(JSON.stringify(diagnosticPayload)).not.toContain("kiln://managed-invocations/");
   });
 
   it("replays partial write evidence resource pointers without duplicating handoff resources", async () => {
+    const diffUri = "kiln://managed-agents/invocations/child-partial-write/resources/diffs/1";
+    const attemptUri = "kiln://managed-agents/invocations/child-partial-write/resources/write-attempts/1";
     const provider = createManagedAgentInvocationResourceProvider({
       service: {
         list: () => [managedInvocationWithPartialWriteEvidence()],
@@ -152,14 +267,14 @@ describe("createManagedAgentInvocationResourceProvider", () => {
       invocations: [{
         invocationId: "child-partial-write",
         lifecycleState: "timed_out",
-        handoffResourceUris: ["kiln://managed-invocations/child-partial-write/diffs/1"],
+        handoffResourceUris: [diffUri],
         writeEvidenceResourceUris: [
-          "kiln://managed-invocations/child-partial-write/write-attempts/1",
-          "kiln://managed-invocations/child-partial-write/diffs/1",
+          attemptUri,
+          diffUri,
         ],
         resourceUris: expect.arrayContaining([
-          "kiln://managed-invocations/child-partial-write/write-attempts/1",
-          "kiln://managed-invocations/child-partial-write/diffs/1",
+          attemptUri,
+          diffUri,
         ]),
       }],
     });
@@ -167,27 +282,81 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     const resources = await provider.read("kiln://managed-agents/invocations/child-partial-write/resources");
     const resourceUris = JSON.parse(resources!.contents[0]!.text).resourceUris as readonly string[];
     expect(resourceUris).toEqual(expect.arrayContaining([
-      "kiln://managed-invocations/child-partial-write/write-attempts/1",
-      "kiln://managed-invocations/child-partial-write/diffs/1",
+      attemptUri,
+      diffUri,
     ]));
-    expect(resourceUris.filter((uri) =>
-      uri === "kiln://managed-invocations/child-partial-write/diffs/1"
-    )).toHaveLength(1);
+    expect(resourceUris.filter((uri) => uri === diffUri)).toHaveLength(1);
+
+    const nestedResource = await provider.read(diffUri);
+    expect(JSON.parse(nestedResource!.contents[0]!.text)).toMatchObject({
+      invocationId: "child-partial-write",
+      resource: {
+        invocationId: "child-partial-write",
+        resourceUri: diffUri,
+        resourcePath: "diffs/1",
+        lifecycleState: "timed_out",
+        resultSummary: "Managed child timed out after partial write evidence.",
+        resultHandoff: {
+          resourceUris: [diffUri],
+        },
+        writeEvidence: [{
+          resourceUris: [attemptUri, diffUri],
+        }],
+      },
+    });
 
     const invocation = await provider.read("kiln://managed-agents/invocations/child-partial-write");
     expect(JSON.parse(invocation!.contents[0]!.text)).toMatchObject({
       invocation: {
         invocationId: "child-partial-write",
         writeEvidenceResourceUris: [
-          "kiln://managed-invocations/child-partial-write/write-attempts/1",
-          "kiln://managed-invocations/child-partial-write/diffs/1",
+          attemptUri,
+          diffUri,
         ],
         resourceUris: expect.arrayContaining([
-          "kiln://managed-invocations/child-partial-write/write-attempts/1",
-          "kiln://managed-invocations/child-partial-write/diffs/1",
+          attemptUri,
+          diffUri,
         ]),
       },
     });
+  });
+
+  it("keeps canonical nested resource reads informative when artifact persistence is attached", async () => {
+    const artifactStore = new MemoryArtifactResourceStore();
+    const diffUri = "kiln://managed-agents/invocations/child-partial-write/resources/diffs/1";
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [managedInvocationWithPartialWriteEvidence()],
+      },
+      artifactStore,
+    });
+
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+    const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
+    expect(JSON.stringify(aggregatePayload)).not.toContain("kiln://managed-invocations/");
+    expect(JSON.stringify(aggregatePayload)).toContain("kiln://artifacts/managed-invocations/");
+
+    const nestedResource = await provider.read(diffUri);
+    const nestedPayload = JSON.parse(nestedResource!.contents[0]!.text);
+    expect(nestedPayload).toMatchObject({
+      invocationId: "child-partial-write",
+      resource: {
+        invocationId: "child-partial-write",
+        resourceUri: diffUri,
+        resourcePath: "diffs/1",
+        lifecycleState: "timed_out",
+        resultSummary: "Managed child timed out after partial write evidence.",
+        resultHandoff: {
+          resourceUris: [expect.stringMatching(/^kiln:\/\/artifacts\/managed-invocations\/artifact_\d+\/content$/u)],
+        },
+        writeEvidence: [{
+          resourceUris: expect.arrayContaining([
+            expect.stringMatching(/^kiln:\/\/artifacts\/managed-invocations\/artifact_\d+\/content$/u),
+          ]),
+        }],
+      },
+    });
+    expect(JSON.stringify(nestedPayload)).not.toContain("kiln://managed-invocations/");
   });
 
   it("returns undefined for unknown managed child resource URIs", async () => {
@@ -257,6 +426,27 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
       status: "admitted",
       reason: "admitted",
       capabilitySnapshot: {
+        snapshotId: "child-1:snapshot",
+        capturedAt: "2026-05-22T00:00:00.000Z",
+        routeId: "route:codex:gpt-5.5",
+        routeHealth: {
+          status: "healthy",
+          reason: "test fixture route",
+        },
+        providerModelProof: {
+          status: "verified",
+          source: "test-fixture",
+        },
+        contextMode: "resources",
+        resourcePlane: {
+          available: true,
+          resourceUris: ["kiln://session/work-items/work-1"],
+        },
+        childIdentity: {
+          agentId: "agent-reviewer",
+          admittedAgentProfile: "foundation-apply-approved-writes",
+          displayName: "Agent Reviewer",
+        },
         resourceLease: {
           leaseId: "child-1:lease",
           createdAt: "2026-05-22T00:00:00.000Z",
@@ -290,6 +480,27 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
       executionMode: "cli-harness",
       authority: {} as ManagedAgentRuntimeInvocationSnapshot["record"]["authority"],
       capabilitySnapshot: {
+        snapshotId: "child-1:snapshot",
+        capturedAt: "2026-05-22T00:00:00.000Z",
+        routeId: "route:codex:gpt-5.5",
+        routeHealth: {
+          status: "healthy",
+          reason: "test fixture route",
+        },
+        providerModelProof: {
+          status: "verified",
+          source: "test-fixture",
+        },
+        contextMode: "resources",
+        resourcePlane: {
+          available: true,
+          resourceUris: ["kiln://session/work-items/work-1"],
+        },
+        childIdentity: {
+          agentId: "agent-reviewer",
+          admittedAgentProfile: "foundation-apply-approved-writes",
+          displayName: "Agent Reviewer",
+        },
         resourceLease: {
           leaseId: "child-1:lease",
           createdAt: "2026-05-22T00:00:00.000Z",

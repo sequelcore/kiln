@@ -95,10 +95,10 @@ import {
 } from "@kilnai/core";
 import {
   ProviderModelRouteHealthStore,
-  createManagedAgentInvocationResourceProvider,
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
   runManagedAgentFanOutLifecycle,
+  withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
@@ -859,24 +859,18 @@ export async function runCommand(
     surface: "run",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     providerModels: managedAgentProviderModels,
-    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions, runtimeEnv: env }),
+    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions, runtimeEnv: env }),
+    builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
-  if (managedInvocationWithService) {
-    builtinToolOptions = createSessionBuiltinToolOptions({
-      ...builtinToolOptions,
-      resourceProviders: [
-        ...(builtinToolOptions.resourceProviders ?? []),
-        createManagedAgentInvocationResourceProvider({
-          service: managedInvocationWithService.invocationService,
-        }),
-      ],
-    });
-  }
+  builtinToolOptions = withManagedAgentInvocationResourceProvider(
+    builtinToolOptions,
+    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+  );
 
   const initialMetadata = deriveSessionMetadata({
     task,

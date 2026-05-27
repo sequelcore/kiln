@@ -11,12 +11,10 @@ import type {
 } from "@kilnai/core";
 import {
   AllCredentialsExhaustedError,
-  DefaultContextGovernor,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
   extractText,
-  renderProjectedContext,
   SandboxPolicy,
   textParts,
 } from "@kilnai/core";
@@ -37,6 +35,10 @@ import {
   collectManagedAgentLiveWriteEvidence,
   normalizeManagedAgentLiveWriteChanges,
 } from "./live-write-event-bridge.js";
+import {
+  buildManagedInvocationResourceContext,
+  createManagedInvocationRuntimeResourceReader,
+} from "./resource-context.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -44,6 +46,7 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly provider: ProviderAdapter;
   readonly tools: readonly ToolDefinition[];
   readonly builtinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
+  readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
@@ -59,6 +62,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   private readonly provider: ProviderAdapter;
   private readonly tools: readonly ToolDefinition[];
   private readonly builtinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
+  private readonly builtinToolsProvider: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   private readonly capabilityMap?: ReadonlyMap<string, Capability>;
   private readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   private readonly maxToolRounds?: number;
@@ -69,6 +73,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.provider = config.provider;
     this.tools = config.tools;
     this.builtinTools = config.builtinTools;
+    this.builtinToolsProvider = config.builtinToolsProvider ?? (() => this.builtinTools);
     this.capabilityMap = config.capabilityMap;
     this.toolAuthority = config.toolAuthority;
     this.maxToolRounds = config.maxToolRounds;
@@ -190,8 +195,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const tools = this.tools.filter((tool) => allowedToolNames.has(tool.name));
       const capabilityMap = this.capabilityMap ? filterMap(this.capabilityMap, allowedToolNames) : undefined;
       const toolAuthority = this.toolAuthority ? filterMap(this.toolAuthority, allowedToolNames) : undefined;
+      const runtimeBuiltinTools = this.builtinToolsProvider();
       const builtinTools = withManagedToolSandbox(
-        this.builtinTools,
+        runtimeBuiltinTools,
         createManagedToolSandbox(request),
       );
       const deps: OrchestratorDeps = {
@@ -212,10 +218,19 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         ...(toolAuthority ? { toolAuthority } : {}),
         ...(request.providerRoute.reasoningEffort ? { reasoningEffort: request.providerRoute.reasoningEffort as PerCallToolConfig["reasoningEffort"] } : {}),
       };
+      const governedResourceContext = await buildManagedInvocationResourceContext({
+        resourceUris: request.input.resourceUris,
+        invocationId: request.invocationId,
+        abortSignal,
+        resourceReader: createManagedInvocationRuntimeResourceReader({
+          builtinTools: runtimeBuiltinTools,
+          session: childSession,
+        }),
+      });
       const result = await orchestrator.processMessage(
         childSession,
         textParts(request.input.prompt ?? request.input.summary),
-        buildManagedResourceContext(request.input.resourceUris),
+        governedResourceContext,
         builtinTools,
         perCallConfig,
       );
@@ -314,26 +329,6 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
     };
   }
-}
-
-function buildManagedResourceContext(resourceUris: readonly string[] | undefined) {
-  if (!resourceUris || resourceUris.length === 0) {
-    return undefined;
-  }
-  const projected = new DefaultContextGovernor<undefined, "artifact", "balanced">().project({
-    artifacts: [{
-      kind: "artifact",
-      source: "managed-invocation:resource-uris",
-      required: true,
-      score: 1,
-      content: `Admitted resources:\n${resourceUris.join("\n")}`,
-    }],
-  });
-  const audit = projected.auditTrail?.[projected.auditTrail.length - 1];
-  return {
-    content: renderProjectedContext(projected),
-    ...(audit ? { audit } : {}),
-  };
 }
 
 function filterMap<T>(source: ReadonlyMap<string, T>, allowedNames: ReadonlySet<string>): ReadonlyMap<string, T> {

@@ -291,6 +291,19 @@ while preserving `metadata.resourceLinks` and MCP-compatible resource-link
 content. GUI and TUI surfaces render those links; they do not keep private
 copies unless an explicit cache has invalidation semantics.
 
+Managed child invocations use the same resource plane for `contextMode:
+"resources"`. The runtime uses one resource-context builder for direct-provider
+and CLI-harness children. When a resource reader is attached, each admitted URI
+is read through `resource_read` and the bounded result page is placed into
+governed context before the child provider call. This does not grant the child
+broader tool authority; the child still only receives the tools admitted by its
+managed-agent authority profile. Direct-provider children resolve that reader
+from the current session-scoped builtin tool surface at invocation time, and
+CLI-harness children use the same live surface reader through route resolution,
+after managed invocation resource providers have been attached. When no
+resource reader is attached, the governed context contains only the admitted URI
+list and must not reach into private adapter paths.
+
 ## Session Lifetime
 
 GUI, TUI, and direct-provider sessions reuse one session-scoped builtin

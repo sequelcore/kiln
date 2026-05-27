@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentResponse, ProviderAdapter } from "@kilnai/core";
-import { createSessionBuiltinToolOptions, textParts } from "@kilnai/core";
-import { ManagedDirectProviderRuntimeAdapter } from "@kilnai/runtime";
+import type { AgentResponse, ProviderAdapter, ToolResourceProvider } from "@kilnai/core";
+import { createSessionBuiltinToolOptions, defineManagedAgentInvocationRequest, textParts } from "@kilnai/core";
+import { ManagedDirectProviderRuntimeAdapter, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 import type { DirectProviderAdapterOptions } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
@@ -99,6 +99,95 @@ describe("createManagedDirectProviderAdapterFactory", () => {
         scopeReduction: true,
       },
     });
+  });
+
+  it("hydrates direct-provider resource context from current builtin tool options", async () => {
+    let builtinToolOptions = createSessionBuiltinToolOptions();
+    const providerAdapter = provider();
+    const createProviderAdapter = vi.fn(async (_options: DirectProviderAdapterOptions) => providerAdapter);
+    const factory = createManagedDirectProviderAdapterFactory({
+      builtinToolOptions: () => builtinToolOptions,
+      createProviderAdapter,
+    });
+
+    const adapter = await factory({
+      id: "openai-readonly",
+      kind: "direct",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"],
+    });
+
+    const resourceProvider: ToolResourceProvider = {
+      listResources: () => [],
+      listTemplates: () => [],
+      read: vi.fn(async (uri: string) => ({
+        contents: [{
+          uri,
+          mimeType: "text/markdown",
+          text: "# Late CLI Resource\n\nHydrated through current direct route options.",
+        }],
+      })),
+    };
+    builtinToolOptions = createSessionBuiltinToolOptions({
+      ...builtinToolOptions,
+      resourceProviders: [resourceProvider],
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await service.invoke(defineManagedAgentInvocationRequest({
+      invocationId: "cli-direct-resource-1",
+      agentId: "openai-readonly:foundation-readonly-plan",
+      parentSessionId: "cli-parent-session",
+      parentTurnId: "cli-parent-session:turn:1",
+      profile: "foundation-readonly-plan",
+      requestedBy: "assistant",
+      requestSource: "test",
+      providerRoute: {
+        providerId: "openai",
+        surface: "direct-provider",
+        model: "gpt-5.4-mini",
+      },
+      adapterKind: "direct",
+      executionMode: "direct-provider",
+      authority: {
+        authorityProfileId: "authority:openai-readonly:foundation-readonly-plan",
+        permissionProfile: "read-only",
+        toolAuthority: {
+          allowedToolNames: ["read"],
+          writeAllowed: false,
+          networkAllowed: false,
+        },
+        workingDirectory: {
+          path: "C:/repo",
+          mode: "read-only",
+        },
+        timeoutMs: 5000,
+        credentialRoute: {
+          mode: "credentialless",
+        },
+        memoryScope: {
+          scope: { kind: "project", id: "repo" },
+          access: "read-only",
+        },
+      },
+      input: {
+        summary: "Summarize current resource.",
+        prompt: "Summarize the supplied resource.",
+        resourceUris: ["kiln://test/current-direct-resource"],
+        context: {
+          mode: "resources",
+        },
+      },
+    }), adapter!);
+
+    expect(result.status).toBe("completed");
+    expect(resourceProvider.read).toHaveBeenCalledWith("kiln://test/current-direct-resource", {});
+    const firstProviderCall = (providerAdapter.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      system: string;
+    };
+    expect(firstProviderCall.system).toContain("kiln://test/current-direct-resource");
+    expect(firstProviderCall.system).toContain("Hydrated through current direct route options.");
   });
 
   it("returns undefined for harness routes so harness projection remains owned by the route resolver", async () => {

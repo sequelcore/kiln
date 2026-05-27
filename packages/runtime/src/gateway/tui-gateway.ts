@@ -16,7 +16,6 @@ import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.
 import type { RuntimeBudgetAdmissionPort } from "../session/runtime-budget-admission.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import {
-  createSessionBuiltinToolOptions,
   textParts,
   extractText,
   EventBus,
@@ -51,6 +50,7 @@ import {
   withManagedInvocationService,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
+import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
@@ -373,10 +373,13 @@ export function buildTuiDoneFramePayload(input: {
  */
 export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGateway> {
   const port = options.port ?? 4801;
-  const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
   const managedInvocation = options.managedInvocation
     ? withManagedInvocationService(options.managedInvocation)
     : undefined;
+  const builtinToolOptions = withManagedAgentInvocationResourceProvider(
+    options.builtinToolOptions,
+    managedInvocation ? { service: managedInvocation.invocationService } : undefined,
+  );
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(

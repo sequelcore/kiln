@@ -84,6 +84,7 @@ export async function statusCommand(
     isProviderAvailable: (provider) => engineAvailability.get(provider),
     providerModels: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+    builtinToolOptions,
   });
   if (managedInvocationResolution.routeHealth.length > 0) {
     console.log(`\n  Managed agent routes:`);

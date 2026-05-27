@@ -528,9 +528,26 @@ plans, but may not spawn managed child work.
 Managed-agent operator surfaces are read/write clients of canonical runtime
 state, not lifecycle owners. GUI, TUI, CLI, native, SDK, replay, and future
 remote surfaces derive child state from `agent_invocation_*` session events,
-managed invocation records, and shared gateway cockpit projection. They do not
-infer lifecycle state from provider output text or hold surface-local child
-registries.
+managed invocation records, managed invocation tool-result metadata, and shared
+gateway cockpit projection. They do not infer lifecycle state from free-form
+provider prose or hold surface-local child registries. Transcript replay
+prefers canonical `agent_invocation_*` events when present. When a GUI or TUI
+transcript persisted only partial canonical lifecycle evidence or managed
+tool-completion evidence, replay projects the missing operator events from the
+managed invocation metadata and list snapshots so `kiln managed-agent
+list/status/resources` remains consistent with the live operator cockpit. The
+replay normalizer lives in `@kilnai/gateway-contracts`;
+GUI, TUI, and CLI consumers feed that shared projection instead of carrying
+surface-specific managed-agent parsers. Replay normalization is chronological
+and idempotent for managed tool snapshots: repeated nonterminal list/status
+evidence for the same child lifecycle state is collapsed, and stale nonterminal
+snapshots after terminal evidence do not reopen the child. Terminal state
+observed only through `managed_agent.list` is provisional replay evidence; a
+later `managed_agent.join` or direct terminal tool result may enrich the same
+terminal lifecycle with transcript, handoff, diagnostic, or resource evidence.
+If canonical start evidence exists but the canonical terminal event is missing,
+terminal managed-tool evidence still closes the invocation instead of being
+suppressed by the earlier canonical event.
 
 The shared cockpit projection carries active and terminal children, attention
 state, stale heartbeat state, lifecycle timeline, route identity, dirty-worktree
@@ -549,6 +566,24 @@ invocation options to one runtime-owned invocation service before attaching the
 managed invocation resource provider; surfaces do not maintain private resource
 registries for child lifecycle state.
 
+Adapter-native `kiln://managed-invocations/...` pointers are private adapter
+evidence, not public resource-plane contracts. Runtime finalization and the
+managed invocation resource provider project those pointers before records leave
+the managed invocation boundary. Transcript and handoff evidence become
+`kiln://managed-agents/invocations/{invocationId}/transcript` and
+`kiln://managed-agents/invocations/{invocationId}/handoff`; diagnostics, write
+evidence, approval evidence, and other adapter resources become
+`kiln://managed-agents/invocations/{invocationId}/resources/{resourcePath}`.
+The public transcript URI reads as a bounded `text/markdown` managed invocation
+transcript body built from the invocation record; it is not a JSON pointer
+shim. Raw transcript payloads and large evidence remain artifact-backed content
+owned by the resource plane.
+When an artifact resource store is attached, large transcript or evidence
+payloads are persisted as session-scoped artifacts and exposed as
+`kiln://artifacts/managed-invocations/{artifactId}/content`. GUI, TUI, CLI,
+SDK, replay, and model-facing `resource_read` output must not expose the private
+adapter scheme, and direct reads of that scheme are not supported.
+
 Artifact-backed transcript and result resources must be readable page by page
 through the shared resource plane. `resource_read` accepts `cursor` and `limit`,
 returns one bounded page, exposes `nextCursor` when more content exists, and
@@ -558,6 +593,20 @@ same range and optional `nextCursor` in its trailing control block, so parent
 agents can continue pages using the exact opaque cursor. Text and JSON content
 page by line; blob content pages by decoded byte. Invalid, stale,
 URI-mismatched, or out-of-range cursors fail closed.
+
+Managed children invoked with `contextMode: "resources"` use one runtime-owned
+resource-context builder across direct-provider and CLI-harness adapters. When
+a resource reader is attached, admitted URIs are hydrated through the shared
+`resource_read` plane before the child prompt is sent. This hydration is
+context construction, not ambient child authority: the child tool allowlist is
+still the selected authority profile, and `resource_read` is not exposed to the
+child unless that profile explicitly allows it. Direct-provider and CLI-harness
+routes resolve this reader from the current session-scoped builtin tool surface
+at invocation time, so GUI, TUI, CLI, and gateway-managed children see the same
+live resource plane after managed invocation resources are attached. If a
+surface lacks a resource reader, the governed context falls back to the admitted
+resource URI list rather than silently granting filesystem or private adapter
+access.
 
 ## Live Adapter Evidence
 

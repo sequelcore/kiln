@@ -1,6 +1,7 @@
 import type {
   OperatorManagedAgentResourceLeaseSnapshot,
   OperatorSessionEvent,
+  OperatorSessionEventKind,
 } from "./frames.js";
 import type {
   OperatorEventTone,
@@ -68,6 +69,22 @@ export interface OperatorCockpitReadOnlyProjectionInput {
   readonly projectedAt: string;
   readonly attachTargets: readonly OperatorCockpitAttachTarget[];
   readonly events: readonly OperatorSessionEvent[];
+}
+
+export interface NormalizeManagedAgentOperatorEventsOptions {
+  readonly defaultInstanceId: string;
+}
+
+export interface ManagedAgentOperatorReplayEnvelope {
+  readonly eventId: string;
+  readonly kilnSessionId: string;
+  readonly sequence: number;
+  readonly timestamp: string;
+  readonly kind: string;
+  readonly turnId?: string;
+  readonly parentEventId?: string;
+  readonly source?: OperatorSessionEvent["source"];
+  readonly payload: Record<string, unknown>;
 }
 
 export interface OperatorCockpitInstanceProjection {
@@ -302,6 +319,16 @@ interface ToolAccumulator {
   eventCount: number;
   latestEventId: string;
 }
+
+interface ManagedAgentToolReplayState extends NormalizeManagedAgentOperatorEventsOptions {
+  readonly terminalInvocationPriorities: Map<string, number>;
+  readonly replayedInvocationEventKeys: Set<string>;
+}
+
+const CANONICAL_MANAGED_AGENT_REPLAY_PRIORITY = Number.POSITIVE_INFINITY;
+const MANAGED_AGENT_LIST_REPLAY_PRIORITY = 10;
+const MANAGED_AGENT_TOOL_REPLAY_PRIORITY = 20;
+const MANAGED_AGENT_JOIN_REPLAY_PRIORITY = 30;
 
 export function createOperatorCockpitReadOnlyAttachPlan(
   input: OperatorCockpitReadOnlyAttachPlanInput,
@@ -1197,6 +1224,424 @@ function readAuthority(payload: Record<string, unknown>): string | null {
     ?? readString(payload.effectiveAuthority)
     ?? readString(payload.authorityProfileId)
     ?? readString(authorityStatus.effective);
+}
+
+export function normalizeManagedAgentOperatorReplayEvents(
+  events: readonly ManagedAgentOperatorReplayEnvelope[],
+  options: NormalizeManagedAgentOperatorEventsOptions,
+): readonly OperatorSessionEvent[] {
+  return normalizeManagedAgentOperatorEvents(
+    events.flatMap((event) => toManagedAgentOperatorReplayEvent(event)),
+    options,
+  );
+}
+
+export function normalizeManagedAgentOperatorEvents(
+  events: readonly OperatorSessionEvent[],
+  options: NormalizeManagedAgentOperatorEventsOptions,
+): readonly OperatorSessionEvent[] {
+  const orderedEvents = [...events].sort(compareEvents);
+  const canonicalEvents = orderedEvents.flatMap((event) => normalizeCanonicalManagedAgentEvent(event, options));
+  const canonicalInvocationEventKeys = canonicalEvents
+    .map((event) => {
+      const invocationId = readString(asRecord(event.payload).managedInvocationId);
+      return invocationId ? projectionKey(invocationId, event.kind) : null;
+    })
+    .filter((eventKey): eventKey is string => eventKey !== null);
+  const terminalInvocationPriorities = new Map(canonicalEvents
+    .filter((event) => isTerminalManagedAgentEventKind(event.kind))
+    .map((event) => readString(asRecord(event.payload).managedInvocationId))
+    .filter((invocationId): invocationId is string => invocationId !== null)
+    .map((invocationId) => [invocationId, CANONICAL_MANAGED_AGENT_REPLAY_PRIORITY] as const));
+  const replayState: ManagedAgentToolReplayState = {
+    ...options,
+    terminalInvocationPriorities,
+    replayedInvocationEventKeys: new Set(canonicalInvocationEventKeys),
+  };
+  const toolEvents = orderedEvents.flatMap((event) => normalizeManagedAgentToolEvidenceEvent(event, replayState));
+  return [...canonicalEvents, ...toolEvents].sort(compareEvents);
+}
+
+function toManagedAgentOperatorReplayEvent(
+  event: ManagedAgentOperatorReplayEnvelope,
+): readonly OperatorSessionEvent[] {
+  if (!matchesManagedAgentReplayEnvelopeSession(event) || !isManagedAgentReplayEventKind(event.kind)) {
+    return [];
+  }
+  return [{
+    eventId: event.eventId,
+    kilnSessionId: event.kilnSessionId,
+    sequence: event.sequence,
+    timestamp: event.timestamp,
+    kind: event.kind,
+    ...(event.turnId ? { turnId: event.turnId } : {}),
+    ...(event.parentEventId ? { parentEventId: event.parentEventId } : {}),
+    ...(event.source ? { source: event.source } : {}),
+    payload: event.payload,
+  }];
+}
+
+function normalizeCanonicalManagedAgentEvent(
+  event: OperatorSessionEvent,
+  options: NormalizeManagedAgentOperatorEventsOptions,
+): readonly OperatorSessionEvent[] {
+  const payload = asRecord(event.payload);
+  if (MANAGED_AGENT_EVENT_KINDS.includes(event.kind)) {
+    const managedInvocationId = readString(payload.managedInvocationId) ?? readString(payload.invocationId);
+    if (!managedInvocationId) {
+      return [];
+    }
+    return [{
+      ...event,
+      payload: {
+        ...payload,
+        instanceId: readString(payload.instanceId) ?? options.defaultInstanceId,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
+        managedInvocationId,
+      },
+    }];
+  }
+  if (MANAGED_AGENT_WORK_ITEM_EVENT_KINDS.includes(event.kind)) {
+    const gate = asRecord(payload.managedOrchestrationAdoptionGate);
+    if (!isManagedOrchestrationAdoptionGate(gate)) {
+      return [];
+    }
+    return [{
+      ...event,
+      payload: {
+        ...payload,
+        instanceId: readString(payload.instanceId) ?? options.defaultInstanceId,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
+      },
+    }];
+  }
+  return [];
+}
+
+function normalizeManagedAgentToolEvidenceEvent(
+  event: OperatorSessionEvent,
+  state: ManagedAgentToolReplayState,
+): readonly OperatorSessionEvent[] {
+  if (event.kind !== "tool_call_completed") {
+    return [];
+  }
+  const payload = asRecord(event.payload);
+  const toolName = readString(payload.toolName);
+  if (!toolName?.startsWith("managed_agent.")) {
+    return [];
+  }
+  if (toolName === "managed_agent.list") {
+    return normalizeManagedAgentListSnapshotEvents(event, payload, state);
+  }
+  if (
+    toolName !== "managed_agent.start" &&
+    toolName !== "managed_agent.invoke" &&
+    toolName !== "managed_agent.join" &&
+    toolName !== "managed_agent.cancel"
+  ) {
+    return [];
+  }
+  const metadata = asRecord(payload.metadata);
+  if (readString(metadata.kind) !== "managed-invocation") {
+    return [];
+  }
+  const invocationId = readString(metadata.managedInvocationId) ?? readString(metadata.invocationId);
+  if (!invocationId) {
+    return [];
+  }
+  const lifecycleState = readString(metadata.lifecycleState) ?? readString(metadata.status);
+  const kind = managedToolLifecycleEventKind(toolName, lifecycleState);
+  if (!kind) {
+    return [];
+  }
+  if (!claimSyntheticManagedAgentEvent(state, invocationId, kind, managedToolReplayPriority(toolName))) {
+    return [];
+  }
+  return [toSyntheticManagedAgentEvent(event, kind, managedToolMetadataPayload(event, metadata, invocationId, state), invocationId)];
+}
+
+function normalizeManagedAgentListSnapshotEvents(
+  event: OperatorSessionEvent,
+  payload: Record<string, unknown>,
+  state: ManagedAgentToolReplayState,
+): readonly OperatorSessionEvent[] {
+  const output = readString(payload.output);
+  if (!output) {
+    return [];
+  }
+  const parsed = parseJsonRecord(output);
+  const invocations = Array.isArray(parsed.invocations) ? parsed.invocations.map(asRecord) : [];
+  const events: OperatorSessionEvent[] = [];
+  for (const item of invocations) {
+    const invocationId = readString(item.managedInvocationId) ?? readString(item.invocationId);
+    if (!invocationId) {
+      continue;
+    }
+    const lifecycleState = readString(item.lifecycleState);
+    const kind = managedToolLifecycleEventKind("managed_agent.list", lifecycleState);
+    if (!kind) {
+      continue;
+    }
+    if (!claimSyntheticManagedAgentEvent(state, invocationId, kind, MANAGED_AGENT_LIST_REPLAY_PRIORITY)) {
+      continue;
+    }
+    events.push(toSyntheticManagedAgentEvent(event, kind, managedListItemPayload(event, item, invocationId, state), invocationId));
+  }
+  return events;
+}
+
+function claimSyntheticManagedAgentEvent(
+  state: ManagedAgentToolReplayState,
+  invocationId: string,
+  kind: OperatorSessionEventKind,
+  replayPriority: number,
+): boolean {
+  if (isTerminalManagedAgentEventKind(kind)) {
+    const terminalPriority = state.terminalInvocationPriorities.get(invocationId);
+    if (terminalPriority !== undefined && terminalPriority >= replayPriority) {
+      return false;
+    }
+    state.terminalInvocationPriorities.set(invocationId, replayPriority);
+    return true;
+  }
+  if (state.terminalInvocationPriorities.has(invocationId)) {
+    return false;
+  }
+
+  const replayKey = projectionKey(invocationId, kind);
+  if (state.replayedInvocationEventKeys.has(replayKey)) {
+    return false;
+  }
+  state.replayedInvocationEventKeys.add(replayKey);
+  return true;
+}
+
+function managedToolReplayPriority(toolName: string): number {
+  return toolName === "managed_agent.join"
+    ? MANAGED_AGENT_JOIN_REPLAY_PRIORITY
+    : MANAGED_AGENT_TOOL_REPLAY_PRIORITY;
+}
+
+function managedToolLifecycleEventKind(
+  toolName: string,
+  lifecycleState: string | null,
+): OperatorSessionEventKind | undefined {
+  if (toolName === "managed_agent.start") {
+    return "agent_invocation_started";
+  }
+  switch (lifecycleState) {
+    case "running":
+    case "pending":
+      return "agent_invocation_started";
+    case "completed":
+      return "agent_invocation_completed";
+    case "cancelled":
+      return "agent_invocation_cancelled";
+    case "failed":
+    case "timed_out":
+    case "stale":
+    case "recovered":
+      return "agent_invocation_failed";
+    default:
+      return undefined;
+  }
+}
+
+function managedToolMetadataPayload(
+  event: OperatorSessionEvent,
+  metadata: Record<string, unknown>,
+  invocationId: string,
+  options: NormalizeManagedAgentOperatorEventsOptions,
+): Record<string, unknown> {
+  const capabilitySnapshot = asRecord(metadata.capabilitySnapshot);
+  const resultHandoff = asRecord(metadata.resultHandoff);
+  const transcript = asRecord(metadata.transcript);
+  const resourceLease = asRecord(metadata.resourceLease);
+  const evidence = compactRecord({
+    lifecycle: compactRecord({
+      lifecycleState: readString(metadata.lifecycleState) ?? readString(metadata.status),
+      invocationId,
+      parentSessionId: readString(metadata.parentSessionId) ?? event.kilnSessionId,
+      parentTurnId: readString(metadata.parentTurnId) ?? event.turnId,
+      routeId: readString(metadata.routeId),
+      providerId: readString(asRecord(metadata.providerRoute).providerId),
+      model: readString(asRecord(metadata.providerRoute).model),
+      profile: readString(metadata.profile),
+      contextMode: readString(asRecord(metadata.context).mode) ?? readString(capabilitySnapshot.contextMode),
+      authorityProfileId: readString(metadata.authorityProfileId),
+      resourceLease: Object.keys(resourceLease).length > 0 ? resourceLease : undefined,
+      diagnosticUris: readStringArray(metadata.diagnosticUris),
+      handoffResourceUris: readStringArray(resultHandoff.resourceUris),
+    }),
+    childSessionId: readString(metadata.childSessionId),
+    childTurnId: readString(metadata.childTurnId),
+    transcript: Object.keys(transcript).length > 0 ? transcript : undefined,
+    diagnostics: readRecordArray(metadata.diagnostics),
+    usage: asOptionalRecord(metadata.usage),
+    resultHandoff: Object.keys(resultHandoff).length > 0 ? resultHandoff : undefined,
+    writeAuthority: asOptionalRecord(asRecord(metadata.authority).writeAuthority),
+    writeEvidence: readRecordArray(metadata.writeEvidence),
+  });
+  return compactRecord({
+    instanceId: readString(metadata.instanceId) ?? options.defaultInstanceId,
+    sessionId: readString(metadata.sessionId) ?? event.kilnSessionId,
+    managedInvocationId: invocationId,
+    invocationId,
+    agentId: readString(metadata.agentId) ?? managedToolAgentId(metadata),
+    parentSessionId: readString(metadata.parentSessionId) ?? event.kilnSessionId,
+    parentTurnId: readString(metadata.parentTurnId) ?? event.turnId,
+    profile: readString(metadata.profile),
+    providerRoute: asOptionalRecord(metadata.providerRoute),
+    adapterKind: readString(metadata.adapterKind),
+    executionMode: readString(metadata.executionMode),
+    requestedAuthority: readString(metadata.requestedAuthority),
+    authorityProfileId: readString(metadata.authorityProfileId),
+    capabilitySnapshot: Object.keys(capabilitySnapshot).length > 0 ? capabilitySnapshot : undefined,
+    invocationContext: asOptionalRecord(metadata.context),
+    handoffContract: asOptionalRecord(metadata.handoffContract),
+    lifecycleState: readString(metadata.lifecycleState) ?? readString(metadata.status),
+    resultSummary: readString(resultHandoff.summary),
+    managedInvocationEvidence: Object.keys(evidence).length > 0 ? evidence : undefined,
+  });
+}
+
+function managedListItemPayload(
+  event: OperatorSessionEvent,
+  item: Record<string, unknown>,
+  invocationId: string,
+  options: NormalizeManagedAgentOperatorEventsOptions,
+): Record<string, unknown> {
+  return compactRecord({
+    instanceId: readString(item.instanceId) ?? options.defaultInstanceId,
+    sessionId: readString(item.sessionId) ?? event.kilnSessionId,
+    managedInvocationId: invocationId,
+    invocationId,
+    agentId: readString(item.agentId),
+    parentSessionId: readString(item.parentSessionId) ?? event.kilnSessionId,
+    parentTurnId: readString(item.parentTurnId) ?? event.turnId,
+    profile: readString(item.profile),
+    providerRoute: asOptionalRecord(item.providerRoute),
+    adapterKind: readString(item.adapterKind),
+    executionMode: readString(item.executionMode),
+    requestedAuthority: readString(item.requestedAuthority),
+    authorityProfileId: readString(item.authorityProfileId),
+    lifecycleState: readString(item.lifecycleState),
+    resultSummary: readString(item.resultSummary),
+  });
+}
+
+function toSyntheticManagedAgentEvent(
+  event: OperatorSessionEvent,
+  kind: OperatorSessionEventKind,
+  payload: Record<string, unknown>,
+  invocationId: string,
+): OperatorSessionEvent {
+  return {
+    eventId: `${event.eventId}:managed:${invocationId}:${kind}`,
+    kilnSessionId: event.kilnSessionId,
+    sequence: event.sequence,
+    timestamp: event.timestamp,
+    kind,
+    ...(event.turnId ? { turnId: event.turnId } : {}),
+    ...(event.source ? { source: event.source } : {}),
+    payload,
+  };
+}
+
+const MANAGED_AGENT_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
+  "agent_invocation_requested",
+  "agent_invocation_started",
+  "agent_invocation_completed",
+  "agent_invocation_failed",
+  "agent_invocation_cancelled",
+];
+
+const MANAGED_AGENT_WORK_ITEM_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
+  "work_item_updated",
+  "work_item_execution_started",
+  "work_item_execution_finished",
+];
+
+function isManagedAgentReplayEventKind(kind: string): kind is OperatorSessionEventKind {
+  return kind === "tool_call_completed"
+    || MANAGED_AGENT_EVENT_KINDS.includes(kind as OperatorSessionEventKind)
+    || MANAGED_AGENT_WORK_ITEM_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
+}
+
+function matchesManagedAgentReplayEnvelopeSession(event: ManagedAgentOperatorReplayEnvelope): boolean {
+  const payloadSessionId = readString(event.payload.sessionId);
+  return payloadSessionId === null || payloadSessionId === event.kilnSessionId;
+}
+
+function isTerminalManagedAgentEventKind(kind: string): boolean {
+  return kind === "agent_invocation_completed"
+    || kind === "agent_invocation_failed"
+    || kind === "agent_invocation_cancelled";
+}
+
+function isManagedOrchestrationAdoptionGate(value: Record<string, unknown>): boolean {
+  return typeof value.required === "boolean"
+    && isAdoptionGateStatus(value.status)
+    && readString(value.childId) !== null
+    && isStringArray(value.resourceUris)
+    && isStringArray(value.blockingEvidence)
+    && (value.rejection === undefined || isAdoptionGateRejection(value.rejection));
+}
+
+function isAdoptionGateStatus(value: unknown): boolean {
+  return value === "not_required"
+    || value === "pending_review"
+    || value === "adopted"
+    || value === "rejected"
+    || value === "blocked";
+}
+
+function isAdoptionGateRejection(value: unknown): boolean {
+  const rejection = asRecord(value);
+  return readString(rejection.gate) !== null
+    && isStringArray(rejection.evidence)
+    && (rejection.summary === undefined || readString(rejection.summary) !== null)
+    && (rejection.completedAt === undefined || readString(rejection.completedAt) !== null);
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.every((entry) => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function readStringArray(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : undefined;
+}
+
+function readRecordArray(value: unknown): readonly Record<string, unknown>[] | undefined {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry))
+    ? value as readonly Record<string, unknown>[]
+    : undefined;
+}
+
+function asOptionalRecord(value: unknown): Record<string, unknown> | undefined {
+  const record = asRecord(value);
+  return Object.keys(record).length > 0 ? record : undefined;
+}
+
+function compactRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> {
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function managedToolAgentId(metadata: Record<string, unknown>): string | undefined {
+  const routeId = readString(metadata.routeId);
+  const profile = readString(metadata.profile);
+  return routeId && profile ? `${routeId}:${profile}` : undefined;
 }
 
 function readInvocationStatus(

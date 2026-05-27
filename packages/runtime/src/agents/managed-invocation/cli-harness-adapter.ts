@@ -27,10 +27,17 @@ import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
 } from "./index.js";
+import { RuntimeSession } from "../../session/runtime-session.js";
+import type { RuntimeBuiltinToolExecutor } from "../../session/runtime-session-orchestrator.types.js";
 import {
   collectManagedAgentLiveWriteDecisionEvidence,
   collectManagedAgentLiveWriteEvidence,
 } from "./live-write-event-bridge.js";
+import {
+  buildManagedInvocationResourceContext,
+  createManagedInvocationRuntimeResourceReader,
+  type ManagedInvocationResourceReader,
+} from "./resource-context.js";
 
 export interface ManagedCliHarnessAdapterConfig {
   readonly providerId: string;
@@ -38,6 +45,8 @@ export interface ManagedCliHarnessAdapterConfig {
   readonly factory: CliSessionFactory;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
+  readonly resourceReader?: ManagedInvocationResourceReader;
+  readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
 }
 
 export interface ManagedCliHarnessFilesystemBoundaryConfig {
@@ -79,12 +88,16 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   private readonly model: string;
   private readonly factory: CliSessionFactory;
   private readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
+  private readonly resourceReader?: ManagedInvocationResourceReader;
+  private readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
 
   constructor(config: ManagedCliHarnessAdapterConfig) {
     this.providerId = requireText(config.providerId, "Managed CLI harness provider id is required");
     this.model = requireText(config.model, "Managed CLI harness model is required");
     this.factory = config.factory;
     this.filesystemBoundary = config.filesystemBoundary;
+    this.resourceReader = config.resourceReader;
+    this.builtinToolsProvider = config.builtinToolsProvider;
     const writeAuthority = config.writeAuthority !== undefined
       ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
       : undefined;
@@ -134,7 +147,14 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     const request = input.request;
     const childSessionId = `${request.parentSessionId}:managed:${request.invocationId}`;
     const cwd = request.authority.workingDirectory.path;
-    const system = request.input.summary;
+    const resourceReader = this.resolveResourceReader(request, childSessionId);
+    const resourceContext = await buildManagedInvocationResourceContext({
+      resourceUris: request.input.resourceUris,
+      invocationId: request.invocationId,
+      abortSignal: input.abortSignal,
+      ...(resourceReader ? { resourceReader } : {}),
+    });
+    const system = withManagedInvocationResourceContext(request.input.summary, resourceContext?.content);
     const prompt = request.input.prompt ?? request.input.summary;
     const filesystemSnapshot = await snapshotFilesystemBoundary(this.filesystemBoundary);
     const session = this.factory(system, cwd, {
@@ -255,6 +275,28 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     });
   }
 
+  private resolveResourceReader(
+    request: ManagedAgentInvocationRequest,
+    childSessionId: string,
+  ): ManagedInvocationResourceReader | undefined {
+    if (this.resourceReader) {
+      return this.resourceReader;
+    }
+    if (!this.builtinToolsProvider) {
+      return undefined;
+    }
+    return createManagedInvocationRuntimeResourceReader({
+      builtinTools: this.builtinToolsProvider(),
+      session: new RuntimeSession({
+        sessionId: childSessionId,
+        appName: "managed-agent",
+        tenantId: request.authority.memoryScope.scope.id,
+        userId: request.requestedBy,
+        systemPrompt: request.input.summary,
+      }),
+    });
+  }
+
   private baseRecord(
     input: ManagedAgentRuntimeInvocationInput,
     childSessionId: string,
@@ -321,6 +363,18 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
 
     return collected;
   }
+}
+
+function withManagedInvocationResourceContext(system: string, resourceContext: string | undefined): string {
+  if (!resourceContext) {
+    return system;
+  }
+  return [
+    system,
+    "",
+    "## Managed Invocation Resource Context",
+    resourceContext,
+  ].join("\n");
 }
 
 function createEmptyCollectedEvidence(): CollectedCliHarnessEvidence {

@@ -41,6 +41,8 @@ import {
 import { makeMultiProviderSessionFactory } from "./tui.js";
 import {
   getProjectContextArtifactCache,
+  withManagedAgentInvocationResourceProvider,
+  withManagedInvocationService,
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
 } from "@kilnai/runtime";
@@ -114,7 +116,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
         caller: { kind: "operator_surface", id: "gui" },
       },
     });
-  const builtinToolOptions = createSessionBuiltinToolOptions({
+  let builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -131,7 +133,8 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       registry,
       surface: "gui",
       isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions }),
+      builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
       reloadConfig: () => readGlobalConfig() ?? globalConfig,
@@ -140,6 +143,13 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       },
     });
   const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
+  const managedInvocationWithService = managedInvocation
+    ? withManagedInvocationService(managedInvocation)
+    : undefined;
+  builtinToolOptions = withManagedAgentInvocationResourceProvider(
+    builtinToolOptions,
+    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+  );
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
@@ -154,7 +164,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     contextArtifactCache,
     builtinToolOptions,
     "gui",
-    managedInvocation,
+    managedInvocationWithService,
     runtimeBudgetAdmission,
   );
   if (startupModel) {
@@ -201,7 +211,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     initialOperatorDiscovery,
     onOperatorDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
     builtinToolOptions,
-    managedInvocation,
+    managedInvocation: managedInvocationWithService,
     memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
     operatorTransport: {
       sessionManager,
@@ -217,7 +227,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       sttAdapter: operatorVoice.sttAdapter,
       ttsAdapter: operatorVoice.ttsAdapter,
       executionMode: flags.plan ? "plan" : "execute",
-      managedInvocation,
+      managedInvocation: managedInvocationWithService,
       budgetAdmission: runtimeBudgetAdmission,
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,

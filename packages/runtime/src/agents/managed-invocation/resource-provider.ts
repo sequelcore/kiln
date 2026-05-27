@@ -1,4 +1,7 @@
 import {
+  createSessionBuiltinToolOptions,
+  type DefaultBuiltinToolRegistryOptions,
+  type ArtifactResourceStore,
   type ManagedAgentResourceLeaseEvidence,
   rejectResourceReadCursor,
   type ToolResourceDescriptor,
@@ -8,24 +11,68 @@ import {
   type ToolResourceTemplateDescriptor,
 } from "@kilnai/core";
 import type { ManagedAgentRuntimeInvocationSnapshot } from "./index.js";
+import {
+  MANAGED_AGENT_RESOURCE_PREFIX,
+  formatManagedInvocationTranscript,
+  invocationResourceUri,
+  managedInvocationPublicResourceUri,
+  managedInvocationResourceReference,
+  projectManagedInvocationCapabilitySnapshotResources,
+  projectManagedInvocationRecordResources,
+  projectManagedInvocationRequestResources,
+  projectManagedInvocationResourceUri,
+} from "./resource-projection.js";
 
 const JSON_MIME_TYPE = "application/json";
-const MANAGED_AGENT_RESOURCE_PREFIX = "kiln://managed-agents/invocations";
+const MARKDOWN_MIME_TYPE = "text/markdown";
+export const MANAGED_AGENT_INVOCATION_RESOURCE_PROVIDER_KIND = "managed-invocation-resource-provider";
 
 export interface ManagedAgentInvocationResourceProviderInput {
   readonly service: {
     list(): readonly ManagedAgentRuntimeInvocationSnapshot[];
   };
+  readonly artifactStore?: ArtifactResourceStore;
 }
 
 export function createManagedAgentInvocationResourceProvider(
   input: ManagedAgentInvocationResourceProviderInput,
 ): ToolResourceProvider {
-  return new ManagedAgentInvocationResourceProvider(input.service);
+  return new ManagedAgentInvocationResourceProvider(input.service, input.artifactStore);
+}
+
+export function withManagedAgentInvocationResourceProvider(
+  options: DefaultBuiltinToolRegistryOptions | undefined,
+  input: ManagedAgentInvocationResourceProviderInput | undefined,
+): DefaultBuiltinToolRegistryOptions {
+  const sessionOptions = createSessionBuiltinToolOptions(options);
+  if (!input || sessionOptions.resourceProviders?.some(isManagedAgentInvocationResourceProvider) === true) {
+    return sessionOptions;
+  }
+  return createSessionBuiltinToolOptions({
+    ...sessionOptions,
+    resourceProviders: [
+      ...(sessionOptions.resourceProviders ?? []),
+      createManagedAgentInvocationResourceProvider({
+        service: input.service,
+        artifactStore: input.artifactStore ?? sessionOptions.artifactResources?.store,
+      }),
+    ],
+  });
+}
+
+export function isManagedAgentInvocationResourceProvider(provider: unknown): boolean {
+  return typeof provider === "object"
+    && provider !== null
+    && (provider as { readonly kind?: unknown }).kind === MANAGED_AGENT_INVOCATION_RESOURCE_PROVIDER_KIND;
 }
 
 class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
-  constructor(private readonly service: ManagedAgentInvocationResourceProviderInput["service"]) {}
+  readonly kind = MANAGED_AGENT_INVOCATION_RESOURCE_PROVIDER_KIND;
+
+  constructor(
+    private readonly service: ManagedAgentInvocationResourceProviderInput["service"],
+    private readonly artifactStore: ArtifactResourceStore | undefined,
+  ) {}
 
   listResources(): readonly ToolResourceDescriptor[] {
     const invocations = this.sortedInvocations();
@@ -54,8 +101,8 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
       uriTemplate: `${MANAGED_AGENT_RESOURCE_PREFIX}/{invocationId}/transcript`,
       name: "managed_agent_invocation_transcript",
       title: "Managed Agent Invocation Transcript",
-      description: "Read one managed child invocation transcript pointer.",
-      mimeType: JSON_MIME_TYPE,
+      description: "Read one managed child invocation transcript body.",
+      mimeType: MARKDOWN_MIME_TYPE,
       annotations: { readOnlyHint: true },
     }, {
       uriTemplate: `${MANAGED_AGENT_RESOURCE_PREFIX}/{invocationId}/handoff`,
@@ -87,10 +134,11 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
       });
     }
 
-    const snapshot = this.sortedInvocations().find((candidate) => candidate.invocationId === parsed.invocationId);
-    if (!snapshot) {
+    const rawSnapshot = this.sortedRawInvocations().find((candidate) => candidate.invocationId === parsed.invocationId);
+    if (!rawSnapshot) {
       return undefined;
     }
+    const snapshot = this.projectSnapshot(rawSnapshot);
 
     if (!parsed.section) {
       return jsonResource(uri, {
@@ -98,14 +146,11 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
       });
     }
     if (parsed.section === "transcript") {
-      const transcript = snapshot.record?.transcript;
-      if (!transcript) {
+      const record = snapshot.record;
+      if (!record?.transcript) {
         return undefined;
       }
-      return jsonResource(uri, {
-        invocationId: snapshot.invocationId,
-        transcript,
-      });
+      return textResource(uri, MARKDOWN_MIME_TYPE, formatManagedInvocationTranscript(record));
     }
     if (parsed.section === "handoff") {
       const handoff = snapshot.record?.resultHandoff;
@@ -115,6 +160,13 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
       return jsonResource(uri, {
         invocationId: snapshot.invocationId,
         handoff,
+      });
+    }
+    if (parsed.section === "resources" && parsed.resourcePath) {
+      const projectedResourceUri = this.projectSnapshotUri(rawSnapshot, uri);
+      return jsonResource(uri, {
+        invocationId: snapshot.invocationId,
+        resource: projectInvocationResource(snapshot, uri, projectedResourceUri, parsed.resourcePath),
       });
     }
     if (parsed.section === "resources") {
@@ -127,9 +179,40 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
   }
 
   private sortedInvocations(): readonly ManagedAgentRuntimeInvocationSnapshot[] {
+    return this.sortedRawInvocations().map((snapshot) => this.projectSnapshot(snapshot));
+  }
+
+  private sortedRawInvocations(): readonly ManagedAgentRuntimeInvocationSnapshot[] {
     return [...this.service.list()].sort((a, b) =>
       a.startedAt.localeCompare(b.startedAt) || a.invocationId.localeCompare(b.invocationId)
     );
+  }
+
+  private projectSnapshot(snapshot: ManagedAgentRuntimeInvocationSnapshot): ManagedAgentRuntimeInvocationSnapshot {
+    const mapUri = (uri: string): string => this.projectSnapshotUri(snapshot, uri);
+    const record = snapshot.record
+      ? projectManagedInvocationRecordResources(snapshot.record, { artifactStore: this.artifactStore })
+      : undefined;
+    return {
+      ...snapshot,
+      request: projectManagedInvocationRequestResources(snapshot.request, mapUri),
+      decision: {
+        ...snapshot.decision,
+        capabilitySnapshot: projectManagedInvocationCapabilitySnapshotResources(
+          snapshot.decision.capabilitySnapshot,
+          mapUri,
+        ),
+      },
+      ...(record ? { record } : {}),
+    };
+  }
+
+  private projectSnapshotUri(snapshot: ManagedAgentRuntimeInvocationSnapshot, uri: string): string {
+    if (snapshot.record) {
+      return projectManagedInvocationResourceUri(snapshot.record, uri, { artifactStore: this.artifactStore });
+    }
+    const reference = managedInvocationResourceReference(uri);
+    return reference ? managedInvocationPublicResourceUri(reference.invocationId, reference.resourcePath) : uri;
   }
 
   private invocationResources(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly ToolResourceDescriptor[] {
@@ -147,8 +230,8 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
         uri: `${baseUri}/transcript`,
         name: `managed_agent_invocation_${safeResourceName(snapshot.invocationId)}_transcript`,
         title: `Managed Agent ${snapshot.invocationId} Transcript`,
-        description: "Read-only managed child transcript pointer.",
-        mimeType: JSON_MIME_TYPE,
+        description: "Read-only managed child transcript body.",
+        mimeType: MARKDOWN_MIME_TYPE,
         annotations: { readOnlyHint: true },
       }] : []),
       ...(snapshot.record?.resultHandoff ? [{
@@ -221,6 +304,40 @@ function projectInvocationDetail(snapshot: ManagedAgentRuntimeInvocationSnapshot
   };
 }
 
+function projectInvocationResource(
+  snapshot: ManagedAgentRuntimeInvocationSnapshot,
+  resourceUri: string,
+  projectedResourceUri: string,
+  resourcePath: string,
+): Record<string, unknown> {
+  const resultHandoff = snapshot.record?.resultHandoff;
+  const matchesResource = (uri: string): boolean => uri === resourceUri || uri === projectedResourceUri;
+  const diagnostics = (snapshot.record?.diagnostics ?? []).filter((diagnostic) => matchesResource(diagnostic.uri));
+  const writeEvidence = (snapshot.record?.writeEvidence ?? []).filter((evidence) =>
+    evidence.resourceUris.some(matchesResource)
+  );
+  return {
+    invocationId: snapshot.invocationId,
+    resourceUri,
+    resourcePath,
+    lifecycleState: snapshot.lifecycleState,
+    providerRoute: snapshot.providerRoute,
+    ...(resultHandoff?.resourceUris.some(matchesResource) ? { resultHandoff } : {}),
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
+    ...(writeEvidence.length > 0 ? { writeEvidence } : {}),
+    ...(resourceLeaseReferencesUri(snapshot.record?.resourceLease, matchesResource)
+      ? { resourceLease: snapshot.record?.resourceLease }
+      : {}),
+    ...(resourceLeaseReferencesUri(snapshot.record?.capabilitySnapshot.resourceLease, matchesResource)
+      ? { capabilityResourceLease: snapshot.record?.capabilitySnapshot.resourceLease }
+      : {}),
+    ...(resourceLeaseReferencesUri(snapshot.decision.capabilitySnapshot.resourceLease, matchesResource)
+      ? { admissionResourceLease: snapshot.decision.capabilitySnapshot.resourceLease }
+      : {}),
+    ...(snapshot.record?.resultHandoff?.summary ? { resultSummary: snapshot.record.resultHandoff.summary } : {}),
+  };
+}
+
 function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly string[] {
   return uniqueStrings([
     ...(snapshot.record?.transcript?.uri ? [snapshot.record.transcript.uri] : []),
@@ -253,13 +370,17 @@ function resourceUrisForLease(lease: ManagedAgentResourceLeaseEvidence | undefin
   ];
 }
 
-function invocationResourceUri(invocationId: string): string {
-  return `${MANAGED_AGENT_RESOURCE_PREFIX}/${encodeURIComponent(invocationId)}`;
+function resourceLeaseReferencesUri(
+  lease: ManagedAgentResourceLeaseEvidence | undefined,
+  matchesResource: (uri: string) => boolean,
+): boolean {
+  return resourceUrisForLease(lease).some(matchesResource);
 }
 
 function parseManagedAgentResourceUri(uri: string): {
   readonly invocationId?: string;
   readonly section?: string;
+  readonly resourcePath?: string;
 } | undefined {
   let parsed: URL;
   try {
@@ -291,6 +412,18 @@ function parseManagedAgentResourceUri(uri: string): {
       section: path[2],
     };
   }
+  if (path.length > 3 && path[2] === "resources") {
+    const invocationId = decodeResourcePathSegment(path[1]!);
+    const resourcePath = decodeResourcePath(path.slice(3));
+    if (invocationId === undefined || resourcePath === undefined) {
+      return undefined;
+    }
+    return {
+      invocationId,
+      section: "resources",
+      resourcePath,
+    };
+  }
   return undefined;
 }
 
@@ -302,12 +435,34 @@ function decodeResourcePathSegment(segment: string): string | undefined {
   }
 }
 
+function decodeResourcePath(segments: readonly string[]): string | undefined {
+  const decoded: string[] = [];
+  for (const segment of segments) {
+    const value = decodeResourcePathSegment(segment);
+    if (value === undefined) {
+      return undefined;
+    }
+    decoded.push(value);
+  }
+  return decoded.join("/");
+}
+
 function jsonResource(uri: string, value: unknown): ToolResourceReadResult {
   return {
     contents: [{
       uri,
       mimeType: JSON_MIME_TYPE,
       text: JSON.stringify(value, null, 2),
+    }],
+  };
+}
+
+function textResource(uri: string, mimeType: string, text: string): ToolResourceReadResult {
+  return {
+    contents: [{
+      uri,
+      mimeType,
+      text,
     }],
   };
 }

@@ -21,6 +21,7 @@ import {
   ManagedAgentWorktreeReviewRequiredError,
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
+  createManagedAgentInvocationResourceProvider,
 } from "../../src/agents/managed-invocation/index.js";
 import type { ManagedAgentWorktreeLeaseManager } from "../../src/agents/managed-invocation/index.js";
 import {
@@ -645,6 +646,126 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
       "agent_invocation_completed",
     ]);
+  });
+
+  it("projects start metadata and replay events before terminal records exist", async () => {
+    const { adapter } = makeDeferredAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const rawResourceUri = "kiln://managed-invocations/sibling-start/context";
+    const canonicalResourceUri = "kiln://managed-agents/invocations/sibling-start/resources/context";
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start-projection",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect start projection before terminal evidence exists.",
+      requestedAuthority: "read_only",
+      contextMode: "resources",
+      resourceUris: [rawResourceUri],
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly capabilitySnapshot?: unknown;
+      };
+    };
+    const serializedSurfaceEvidence = JSON.stringify({
+      metadata: started.metadata,
+      sessionEvents: session.sessionEvents,
+    });
+
+    expect(started.isError).toBe(false);
+    expect(serializedSurfaceEvidence).toContain(canonicalResourceUri);
+    expect(serializedSurfaceEvidence).not.toContain("kiln://managed-invocations/");
+  });
+
+  it("keeps artifact-backed managed resources stable across repeated joins", async () => {
+    const { adapter, terminal } = makeDeferredAdapter();
+    const artifactStore = new MemoryArtifactResourceStore();
+    const surface = makeSurface(adapter, undefined, artifactStore);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-artifact-start",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation resource artifact contract.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      invocationId: request.invocationId,
+      agentId: request.agentId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      profile: request.profile,
+      lifecycleState: "completed",
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authority: request.authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+        routeId: "opencode-readonly",
+      }),
+      transcript: {
+        uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+        redacted: "unknown",
+        truncated: false,
+        persisted: true,
+        retention: "session",
+      },
+      resultHandoff: {
+        summary: "Child artifact evidence completed.",
+        resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    await flushMicrotasks();
+
+    const join = async (toolCallId: string) => surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: toolCallId, name: "managed_agent.join", input: {} },
+    }) as Promise<{
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly transcript?: { readonly uri?: string };
+        readonly resultHandoff?: { readonly resourceUris?: readonly string[] };
+      };
+    }>;
+
+    const firstJoin = await join("tool-call-artifact-join-1");
+    const secondJoin = await join("tool-call-artifact-join-2");
+
+    expect(firstJoin.isError).toBe(false);
+    expect(firstJoin.metadata.transcript?.uri).toMatch(/^kiln:\/\/artifacts\/managed-invocations\//u);
+    expect(secondJoin.metadata.transcript?.uri).toBe(firstJoin.metadata.transcript?.uri);
+    expect(secondJoin.metadata.resultHandoff?.resourceUris).toEqual(firstJoin.metadata.resultHandoff?.resourceUris);
   });
 
   it("normalizes direct runtime tool credential route ids before admission", async () => {
@@ -2564,7 +2685,7 @@ describe("managed invocation runtime tool", () => {
         nextTool: "work_item.update",
         workItemId: "work-ui",
         evidenceToRecord: ["visual-reference-research"],
-        sourceResourceUris: [expect.stringContaining("kiln://managed-invocations/")],
+        sourceResourceUris: [expect.stringContaining("kiln://managed-agents/invocations/")],
         workItemUpdateInputTemplate: {
           id: "work-ui",
           summary: "Collect visual reference research before UI implementation.",
@@ -2578,11 +2699,11 @@ describe("managed invocation runtime tool", () => {
       nextTool: "work_item.update",
       workItemId: "work-ui",
       evidenceToRecord: ["visual-reference-research"],
-      sourceResourceUris: [expect.stringContaining("kiln://managed-invocations/")],
+      sourceResourceUris: [expect.stringContaining("kiln://managed-agents/invocations/")],
     });
   });
 
-  it("returns a final phase finish template with raw managed invocation handoff", async () => {
+  it("returns a final phase finish template with readable managed invocation handoff", async () => {
     const phaseSummary = "Managed implementation completed with tests and reviewable handoff evidence.";
     const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
     const session = makeSession();
@@ -2660,7 +2781,7 @@ describe("managed invocation runtime tool", () => {
         providedEvidence: ["managed-orchestration:result-handoff"],
         managedInvocationResultHandoff: {
           summary: phaseSummary,
-          resourceUris: [expect.stringContaining("kiln://managed-invocations/")],
+          resourceUris: [expect.stringContaining("kiln://managed-agents/invocations/")],
         },
       },
     });
@@ -3989,6 +4110,61 @@ describe("managed invocation runtime tool", () => {
       ],
     });
     expect(session.sessionEvents).toEqual([]);
+  });
+
+  it("returns provider-readable managed transcript URIs when artifact persistence is not configured", async () => {
+    const managedInvocation = withManagedInvocationService({
+      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", makeAdapter())],
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        resourceProviders: [
+          createManagedAgentInvocationResourceProvider({
+            service: managedInvocation.invocationService,
+          }),
+        ],
+      },
+      managedInvocation,
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-provider-readable",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+      task: "Inspect managed invocation resource readability.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+        readonly transcript?: { readonly uri?: string };
+        readonly resultHandoff?: { readonly resourceUris?: readonly string[] };
+      };
+    };
+
+    const canonicalTranscriptUri = `kiln://managed-agents/invocations/${result.metadata.invocationId}/transcript`;
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata.transcript?.uri).toBe(canonicalTranscriptUri);
+    expect(result.metadata.resultHandoff?.resourceUris).toContain(canonicalTranscriptUri);
+    expect(JSON.stringify(result.metadata)).not.toContain("kiln://managed-invocations/");
+    await expect(surface.callBuiltinTools.get("resource_read")?.({
+      uri: canonicalTranscriptUri,
+    })).resolves.toMatchObject({
+      isError: false,
+      metadata: expect.objectContaining({
+        toolName: "resource_read",
+        uri: canonicalTranscriptUri,
+      }),
+    });
   });
 
   it("records the effective route model and persists readable handoff resources", async () => {

@@ -197,6 +197,7 @@ export {
 } from "./operator-cockpit-benchmark.js";
 
 export type {
+  ManagedAgentOperatorReplayEnvelope,
   OperatorCockpitAttachTarget,
   OperatorCockpitAttachConnectionKind,
   OperatorCockpitAttachTargetKind,
@@ -212,6 +213,7 @@ export type {
   OperatorCockpitManagedOrchestrationAdoptionGateProjection,
   OperatorCockpitManagedOrchestrationAdoptionGateRejectionProjection,
   OperatorCockpitManagedOrchestrationAdoptionGateStatus,
+  NormalizeManagedAgentOperatorEventsOptions,
   OperatorCockpitReadOnlyAttachPlan,
   OperatorCockpitReadOnlyAttachPlanInput,
   OperatorCockpitReadOnlyAttachPlanTarget,
@@ -226,6 +228,8 @@ export type {
 export {
   OPERATOR_COCKPIT_ATTACH_TARGET_KINDS,
   createOperatorCockpitReadOnlyAttachPlan,
+  normalizeManagedAgentOperatorEvents,
+  normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "./operator-cockpit-projection.js";
 

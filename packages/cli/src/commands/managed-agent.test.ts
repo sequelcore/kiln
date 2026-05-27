@@ -43,6 +43,44 @@ describe("managed-agent command", () => {
     });
   });
 
+  it("projects GUI managed child invocations from persisted managed tool evidence", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendGuiManagedToolEvidenceEvents(transcriptStore, "session-1");
+
+    const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, "session-1", {
+      projectedAt: "2026-05-27T10:00:00.000Z",
+    });
+
+    expect(projection.invocations.map((item) => item.managedInvocationId)).toEqual([
+      "gui-child-1",
+      "gui-child-2",
+    ]);
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "gui-child-1",
+      sessionId: "session-1",
+      status: "failed",
+      lifecycleState: "timed_out",
+      providerRoute: "codex-oauth/gpt-5.5",
+      transcript: {
+        uri: "kiln://artifacts/managed-invocations/artifact_1/content",
+      },
+      resultHandoff: {
+        resourceUris: [
+          "kiln://artifacts/managed-invocations/artifact_1/content",
+          "kiln://artifacts/managed-invocations/artifact_2/content",
+        ],
+      },
+    });
+    expect(projection.invocations[1]).toMatchObject({
+      managedInvocationId: "gui-child-2",
+      sessionId: "session-1",
+      status: "failed",
+      lifecycleState: "timed_out",
+      providerRoute: "codex-oauth/gpt-5.5",
+    });
+  });
+
   it("projects runtime adoption-gate snapshots from managed work-item transcript events", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
@@ -319,8 +357,8 @@ describe("managed-agent command", () => {
     ].join("\n"));
     expect(log.mock.calls[3]?.[0]).toBe([
       "Resources for managed child child-failed:",
-      "- kiln://managed-invocations/child-failed/failure",
-      "- kiln://managed-invocations/child-failed/handoff",
+      "- kiln://managed-agents/invocations/child-failed/handoff",
+      "- kiln://managed-agents/invocations/child-failed/resources/failure",
     ].join("\n"));
   });
 
@@ -802,6 +840,179 @@ async function appendManagedInvocationEvents(
   });
 }
 
+async function appendGuiManagedToolEvidenceEvents(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+): Promise<void> {
+  const startedAt = "2026-05-27T08:57:54.774Z";
+  const finishedAt = "2026-05-27T08:59:54.780Z";
+  const baseMetadata = {
+    kind: "managed-invocation",
+    routeId: "codex-oauth-readonly",
+    profile: "foundation-readonly-plan",
+    providerRoute: {
+      providerId: "codex-oauth",
+      surface: "direct-provider",
+      model: "gpt-5.5",
+    },
+    adapterKind: "direct",
+    executionMode: "direct-provider",
+    requestedAuthority: "read_only",
+    authorityProfileId: "authority:codex-oauth-readonly:foundation-readonly-plan",
+  };
+  await transcriptStore.append(sessionId, {
+    eventId: "event-gui-start-1",
+    kilnSessionId: sessionId,
+    sequence: 1,
+    timestamp: startedAt,
+    kind: "tool_call_completed",
+    source: { actor: "tool", surface: "gui", component: "gui-command" },
+    turnId: `${sessionId}:turn:1`,
+    payload: {
+      toolCallId: `${sessionId}:turn:1:tool:1`,
+      toolName: "managed_agent.start",
+      output: JSON.stringify({
+        status: "started",
+        lifecycleState: "running",
+        invocationId: "gui-child-1",
+        routeId: "codex-oauth-readonly",
+        profile: "foundation-readonly-plan",
+      }),
+      metadata: {
+        ...baseMetadata,
+        toolName: "managed_agent.start",
+        invocationId: "gui-child-1",
+        status: "started",
+        lifecycleState: "running",
+      },
+      status: { state: "succeeded" },
+    },
+  });
+  await transcriptStore.append(sessionId, {
+    eventId: "event-gui-start-2",
+    kilnSessionId: sessionId,
+    sequence: 2,
+    timestamp: startedAt,
+    kind: "tool_call_completed",
+    source: { actor: "tool", surface: "gui", component: "gui-command" },
+    turnId: `${sessionId}:turn:1`,
+    payload: {
+      toolCallId: `${sessionId}:turn:1:tool:2`,
+      toolName: "managed_agent.start",
+      output: JSON.stringify({
+        status: "started",
+        lifecycleState: "running",
+        invocationId: "gui-child-2",
+        routeId: "codex-oauth-readonly",
+        profile: "foundation-readonly-plan",
+      }),
+      metadata: {
+        ...baseMetadata,
+        toolName: "managed_agent.start",
+        invocationId: "gui-child-2",
+        status: "started",
+        lifecycleState: "running",
+      },
+      status: { state: "succeeded" },
+    },
+  });
+  await transcriptStore.append(sessionId, {
+    eventId: "event-gui-join-1",
+    kilnSessionId: sessionId,
+    sequence: 3,
+    timestamp: "2026-05-27T09:00:35.895Z",
+    kind: "tool_call_completed",
+    source: { actor: "tool", surface: "gui", component: "gui-command" },
+    turnId: `${sessionId}:turn:2`,
+    payload: {
+      toolCallId: `${sessionId}:turn:2:tool:1`,
+      toolName: "managed_agent.join",
+      output: "Direct provider managed invocation timed out after 120000ms.",
+      metadata: {
+        ...baseMetadata,
+        toolName: "managed_agent.join",
+        invocationId: "gui-child-1",
+        status: "timed_out",
+        lifecycleState: "timed_out",
+        childSessionId: `${sessionId}:managed:gui-child-1`,
+        childTurnId: `${sessionId}:managed:gui-child-1:turn:1`,
+        resultHandoff: {
+          summary: "Direct provider managed invocation timed out after 120000ms.",
+          resourceUris: [
+            "kiln://artifacts/managed-invocations/artifact_1/content",
+            "kiln://artifacts/managed-invocations/artifact_2/content",
+          ],
+          memoryWriteProposalUris: [],
+        },
+        transcript: {
+          uri: "kiln://artifacts/managed-invocations/artifact_1/content",
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        diagnostics: [{
+          uri: "kiln://artifacts/managed-invocations/artifact_2/content",
+          kind: "timeout",
+        }],
+      },
+      status: { state: "failed" },
+    },
+  });
+  await transcriptStore.append(sessionId, {
+    eventId: "event-gui-list",
+    kilnSessionId: sessionId,
+    sequence: 4,
+    timestamp: "2026-05-27T09:02:48.036Z",
+    kind: "tool_call_completed",
+    source: { actor: "tool", surface: "gui", component: "gui-command" },
+    turnId: `${sessionId}:turn:3`,
+    payload: {
+      toolCallId: `${sessionId}:turn:3:tool:1`,
+      toolName: "managed_agent.list",
+      output: JSON.stringify({
+        status: "listed",
+        count: 2,
+        invocations: [
+          {
+            invocationId: "gui-child-1",
+            agentId: "codex-oauth-readonly:foundation-readonly-plan",
+            parentSessionId: sessionId,
+            parentTurnId: `${sessionId}:turn:1`,
+            profile: "foundation-readonly-plan",
+            providerRoute: baseMetadata.providerRoute,
+            adapterKind: "direct",
+            executionMode: "direct-provider",
+            authorityProfileId: baseMetadata.authorityProfileId,
+            lifecycleState: "timed_out",
+            startedAt,
+            finishedAt,
+            durationMs: 120006,
+            terminalEvidenceAvailable: true,
+          },
+          {
+            invocationId: "gui-child-2",
+            agentId: "codex-oauth-readonly:foundation-readonly-plan",
+            parentSessionId: sessionId,
+            parentTurnId: `${sessionId}:turn:1`,
+            profile: "foundation-readonly-plan",
+            providerRoute: baseMetadata.providerRoute,
+            adapterKind: "direct",
+            executionMode: "direct-provider",
+            authorityProfileId: baseMetadata.authorityProfileId,
+            lifecycleState: "timed_out",
+            startedAt,
+            finishedAt: "2026-05-27T08:59:54.810Z",
+            durationMs: 120008,
+            terminalEvidenceAvailable: true,
+          },
+        ],
+      }),
+      status: { state: "succeeded" },
+    },
+  });
+}
+
 async function appendManagedConflictEvent(
   transcriptStore: TranscriptStore,
   sessionId: string,
@@ -888,12 +1099,12 @@ async function appendManagedTerminalViewStateEvents(
       },
       managedInvocationEvidence: {
         diagnostics: [{
-          uri: "kiln://managed-invocations/child-timeout/timeout",
+          uri: "kiln://managed-agents/invocations/child-timeout/resources/timeout",
           kind: "timeout",
         }],
         resultHandoff: {
           summary: "Managed child timed out after the configured limit.",
-          resourceUris: ["kiln://managed-invocations/child-timeout/handoff"],
+          resourceUris: ["kiln://managed-agents/invocations/child-timeout/handoff"],
           memoryWriteProposalUris: [],
         },
       },
@@ -922,8 +1133,8 @@ async function appendManagedTerminalViewStateEvents(
         resultHandoff: {
           summary: "Operator cancelled from CLI.",
           resourceUris: [
-            "kiln://managed-invocations/child-cancelled/cancel-cleanup",
-            "kiln://managed-invocations/child-cancelled/cancel-cleanup",
+            "kiln://managed-agents/invocations/child-cancelled/resources/cancel-cleanup",
+            "kiln://managed-agents/invocations/child-cancelled/resources/cancel-cleanup",
           ],
           memoryWriteProposalUris: [],
         },
@@ -952,12 +1163,12 @@ async function appendManagedTerminalViewStateEvents(
       },
       managedInvocationEvidence: {
         diagnostics: [{
-          uri: "kiln://managed-invocations/child-stale/heartbeat",
+          uri: "kiln://managed-agents/invocations/child-stale/resources/heartbeat",
           kind: "heartbeat",
         }],
         resultHandoff: {
           summary: "Managed invocation heartbeat expired.",
-          resourceUris: ["kiln://managed-invocations/child-stale/handoff"],
+          resourceUris: ["kiln://managed-agents/invocations/child-stale/handoff"],
           memoryWriteProposalUris: [],
         },
       },
@@ -985,14 +1196,14 @@ async function appendManagedTerminalViewStateEvents(
       },
       managedInvocationEvidence: {
         diagnostics: [{
-          uri: "kiln://managed-invocations/child-failed/failure",
+          uri: "kiln://managed-agents/invocations/child-failed/resources/failure",
           kind: "failure",
         }],
         resultHandoff: {
           summary: "Managed child adapter failed before handoff.",
           resourceUris: [
-            "kiln://managed-invocations/child-failed/handoff",
-            "kiln://managed-invocations/child-failed/failure",
+            "kiln://managed-agents/invocations/child-failed/handoff",
+            "kiln://managed-agents/invocations/child-failed/resources/failure",
           ],
           memoryWriteProposalUris: [],
         },

@@ -894,6 +894,23 @@ describe("TUI gateway message fail-closed behavior", () => {
 
       expect(toolResult.isError).toBe(false);
       expect(toolResult.output).toContain("TUI child review completed.");
+      const transcriptUri = (toolResult.metadata as { readonly transcript?: { readonly uri?: string } }).transcript?.uri;
+      expect(transcriptUri).toContain("kiln://managed-agents/invocations/");
+      const resourceRead = input.callBuiltinTools?.get("resource_read");
+      expect(resourceRead).toBeDefined();
+      const resourceResult = await resourceRead!({
+        uri: transcriptUri,
+      }, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-resource-read",
+          name: "resource_read",
+          input: { uri: transcriptUri },
+        },
+      });
+      expect(resourceResult.isError).toBe(false);
+      const invocationId = (toolResult.metadata as { readonly invocationId?: string }).invocationId;
+      expect(resourceResult.output).toContain(invocationId ?? "");
       return {
         ok: true,
         result: {

@@ -150,6 +150,40 @@ vi.mock("@kilnai/runtime", () => ({
     kind: "managed-invocation-resource-provider",
     input,
   })),
+  withManagedAgentInvocationResourceProvider: (options: Record<string, unknown> | undefined, input: Record<string, unknown> | undefined) => {
+    const artifactStore = (options?.artifactResources as { store?: unknown } | undefined)?.store ?? {};
+    const sessionOptions = {
+      ...(options ?? {}),
+      resourceNotifications: options?.resourceNotifications ?? {},
+      monitorRegistry: options?.monitorRegistry ?? {},
+      taskStateStore: options?.taskStateStore ?? {},
+      artifactResources: { store: artifactStore },
+    };
+    if (!input) {
+      return sessionOptions;
+    }
+    const providers = (sessionOptions.resourceProviders as readonly unknown[] | undefined) ?? [];
+    if (providers.some((provider) => (
+      typeof provider === "object"
+      && provider !== null
+      && (provider as { kind?: unknown }).kind === "managed-invocation-resource-provider"
+    ))) {
+      return sessionOptions;
+    }
+    return {
+      ...sessionOptions,
+      resourceProviders: [
+        ...providers,
+        {
+          kind: "managed-invocation-resource-provider",
+          input: {
+            ...input,
+            artifactStore,
+          },
+        },
+      ],
+    };
+  },
   withManagedInvocationService: (options: Record<string, unknown>) => ({
     ...options,
     invocationService: options.invocationService ?? {},
@@ -458,7 +492,10 @@ describe("makeMultiProviderSessionFactory", () => {
     const options = vi.mocked(registry.createSession).mock.calls[0]?.[1]?.builtinToolOptions;
     expect(options?.resourceProviders).toContainEqual(expect.objectContaining({
       kind: "managed-invocation-resource-provider",
-      input: { service: invocationService },
+      input: expect.objectContaining({
+        artifactStore: expect.any(Object),
+        service: invocationService,
+      }),
     }));
   });
 

@@ -20,6 +20,7 @@ import {
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { RuntimeBuiltinToolExecutor } from "../../src/session/runtime-session-orchestrator.types.js";
 
 const READ_TOOL: ToolDefinition = {
   name: "read",
@@ -159,7 +160,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       childSessionId: "parent-session:managed:inv-direct-1",
       resultHandoff: {
         summary: "Direct child completed.",
-        resourceUris: ["kiln://managed-invocations/inv-direct-1/transcript"],
+        resourceUris: ["kiln://managed-agents/invocations/inv-direct-1/transcript"],
         memoryWriteProposalUris: [],
       },
       usage: {
@@ -172,6 +173,119 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         ],
       },
     });
+  });
+
+  it("hydrates admitted resource context through resource_read without broadening child tool authority", async () => {
+    const provider = providerWithResponses([
+      response("Resource context summarized."),
+    ]);
+    const resourceReadTool = vi.fn(async () => ({
+      output: "# Managed Invocation Transcript\n\nChild transcript body.",
+      isError: false,
+      metadata: {
+        toolName: "resource_read",
+        kind: "resource",
+        operation: "read",
+        uri: "kiln://managed-agents/invocations/child-1/transcript",
+      },
+    }));
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["resource_read", resourceReadTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await service.invoke(request({
+      input: {
+        summary: "Summarize a managed resource.",
+        prompt: "Summarize the supplied resource.",
+        resourceUris: ["kiln://managed-agents/invocations/child-1/transcript"],
+        context: {
+          mode: "resources",
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    expect(resourceReadTool).toHaveBeenCalledWith(
+      {
+        uri: "kiln://managed-agents/invocations/child-1/transcript",
+      },
+      expect.objectContaining({
+        session: expect.any(RuntimeSession),
+        toolCall: expect.objectContaining({
+          name: "resource_read",
+        }),
+      }),
+    );
+    const firstProviderCall = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      system: string;
+      tools?: readonly ToolDefinition[];
+    };
+    expect(firstProviderCall.system).toContain("kiln://managed-agents/invocations/child-1/transcript");
+    expect(firstProviderCall.system).toContain("Child transcript body.");
+    expect(firstProviderCall.tools?.map((tool) => tool.name)).not.toContain("resource_read");
+  });
+
+  it("hydrates admitted resource context from a late-bound builtin tool surface", async () => {
+    const provider = providerWithResponses([
+      response("Late resource context summarized."),
+    ]);
+    const resourceReadTool = vi.fn(async () => ({
+      output: "# Late Managed Invocation Transcript\n\nLate child transcript body.",
+      isError: false,
+      metadata: {
+        toolName: "resource_read",
+        kind: "resource",
+        operation: "read",
+        uri: "kiln://managed-agents/invocations/child-late/transcript",
+      },
+    }));
+    let runtimeBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor> = new Map();
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+      builtinToolsProvider: () => runtimeBuiltinTools,
+    });
+    runtimeBuiltinTools = new Map([["resource_read", resourceReadTool]]);
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await service.invoke(request({
+      input: {
+        summary: "Summarize a late managed resource.",
+        prompt: "Summarize the supplied late resource.",
+        resourceUris: ["kiln://managed-agents/invocations/child-late/transcript"],
+        context: {
+          mode: "resources",
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    expect(resourceReadTool).toHaveBeenCalledWith(
+      {
+        uri: "kiln://managed-agents/invocations/child-late/transcript",
+      },
+      expect.objectContaining({
+        session: expect.any(RuntimeSession),
+        toolCall: expect.objectContaining({
+          name: "resource_read",
+        }),
+      }),
+    );
+    const firstProviderCall = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      system: string;
+      tools?: readonly ToolDefinition[];
+    };
+    expect(firstProviderCall.system).toContain("kiln://managed-agents/invocations/child-late/transcript");
+    expect(firstProviderCall.system).toContain("Late child transcript body.");
+    expect(firstProviderCall.tools?.map((tool) => tool.name)).not.toContain("resource_read");
   });
 
   it("keeps read-only authority from executing unlisted write tools", async () => {
@@ -334,7 +448,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         "write-proposal-approved",
         "write-attempt-completed",
       ]);
-      expect(result.record.resultHandoff?.resourceUris).toContain("kiln://managed-invocations/inv-direct-1/write-attempts/1");
+      expect(result.record.resultHandoff?.resourceUris).toContain(
+        "kiln://managed-agents/invocations/inv-direct-1/resources/write-attempts/1",
+      );
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }
@@ -365,7 +481,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff?.summary).toContain("Direct provider managed invocation failed for provider openai, model gpt-test.");
     expect(result.record.diagnostics).toEqual([{
-      uri: "kiln://managed-invocations/inv-direct-1/failure",
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/failure",
       kind: "failure",
     }]);
   });
@@ -445,12 +561,12 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     }
     expect(result.record.lifecycleState).toBe("timed_out");
     expect(result.record.diagnostics).toEqual([{
-      uri: "kiln://managed-invocations/inv-direct-1/timeout",
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/timeout",
       kind: "timeout",
     }]);
     expect(result.record.resultHandoff?.resourceUris).toEqual([
-      "kiln://managed-invocations/inv-direct-1/transcript",
-      "kiln://managed-invocations/inv-direct-1/timeout",
+      "kiln://managed-agents/invocations/inv-direct-1/transcript",
+      "kiln://managed-agents/invocations/inv-direct-1/resources/timeout",
     ]);
     expect(result.record.resultHandoff?.summary).toContain("timed out after 1ms");
     expect(result.record.resultHandoff?.summary).toContain(result.record.childSessionId);
@@ -498,11 +614,11 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       record: {
         lifecycleState: "cancelled",
         transcript: {
-          uri: "kiln://managed-invocations/inv-direct-1/transcript",
+          uri: "kiln://managed-agents/invocations/inv-direct-1/transcript",
         },
         resultHandoff: {
           summary: "Operator stopped direct child.",
-          resourceUris: ["kiln://managed-invocations/inv-direct-1/transcript"],
+          resourceUris: ["kiln://managed-agents/invocations/inv-direct-1/transcript"],
         },
       },
     });

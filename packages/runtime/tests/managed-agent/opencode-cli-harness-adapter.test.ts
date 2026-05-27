@@ -203,7 +203,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       childSessionId: "session-parent:managed:invocation-opencode-1",
       lifecycleState: "completed",
       transcript: {
-        uri: "kiln://managed-invocations/invocation-opencode-1/transcript",
+        uri: "kiln://managed-agents/invocations/invocation-opencode-1/transcript",
         redacted: "unknown",
         truncated: false,
         persisted: true,
@@ -220,7 +220,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       },
       resultHandoff: {
         summary: "Review complete.",
-        resourceUris: ["kiln://managed-invocations/invocation-opencode-1/transcript"],
+        resourceUris: ["kiln://managed-agents/invocations/invocation-opencode-1/transcript"],
         memoryWriteProposalUris: [],
       },
     });
@@ -251,13 +251,60 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       managedInvocationEvidence: {
         childSessionId: "session-parent:managed:invocation-opencode-1",
         transcript: {
-          uri: "kiln://managed-invocations/invocation-opencode-1/transcript",
+          uri: "kiln://managed-agents/invocations/invocation-opencode-1/transcript",
         },
         usage: {
           cost: { currency: "USD", amount: 0.02 },
         },
       },
     });
+  });
+
+  it("hydrates admitted resource context into the CLI harness system prompt", async () => {
+    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+      { type: "text_delta", content: options.system?.includes("Child transcript body.") ? "Context read." : "Missing context." },
+      { type: "completed", totalUsd: 0.01, durationMs: 25, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const resourceReader = vi.fn(async () => ({
+      output: "# Managed Invocation Transcript\n\nChild transcript body.",
+      isError: false,
+    }));
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+      resourceReader,
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      input: {
+        ...baseRequest.input,
+        prompt: "Summarize the supplied managed resource.",
+        resourceUris: ["kiln://managed-agents/invocations/child-1/transcript"],
+        context: {
+          mode: "resources",
+        },
+      },
+    });
+
+    const result = await service.invoke(request, adapter);
+
+    expect(result.status).toBe("completed");
+    expect(resourceReader).toHaveBeenCalledWith(expect.objectContaining({
+      uri: "kiln://managed-agents/invocations/child-1/transcript",
+      toolCall: expect.objectContaining({
+        id: "invocation-opencode-1:resource-context:1",
+        name: "resource_read",
+      }),
+    }));
+    expect(run.mock.calls[0]?.[0]).toMatchObject({
+      prompt: "Summarize the supplied managed resource.",
+    });
+    expect(run.mock.calls[0]?.[0].system).toContain("kiln://managed-agents/invocations/child-1/transcript");
+    expect(run.mock.calls[0]?.[0].system).toContain("Child transcript body.");
   });
 
   it("fails a completed read-only harness run that returns no result handoff", async () => {
@@ -281,12 +328,12 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     }
     expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.diagnostics).toEqual([{
-      uri: "kiln://managed-invocations/invocation-opencode-1/diagnostics",
+      uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/diagnostics",
       kind: "failure",
     }]);
     expect(result.record.resultHandoff).toMatchObject({
       summary: "Managed CLI harness invocation failed: the child process completed without a result handoff.",
-      resourceUris: ["kiln://managed-invocations/invocation-opencode-1/transcript"],
+      resourceUris: ["kiln://managed-agents/invocations/invocation-opencode-1/transcript"],
       memoryWriteProposalUris: [],
     });
   });
@@ -347,16 +394,16 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       "write-attempt-completed",
     ]);
     expect(result.record.writeEvidence?.flatMap((evidence) => evidence.resourceUris)).toEqual([
-      "kiln://managed-invocations/invocation-opencode-write-1/write-proposals/1",
-      "kiln://managed-invocations/invocation-opencode-write-1/write-decisions/1",
-      "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
+      "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/write-proposals/1",
+      "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/write-decisions/1",
+      "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/write-attempts/1",
     ]);
     expect(JSON.stringify(result.record.writeEvidence)).not.toContain("diff --git");
     expect(result.record.resultHandoff).toMatchObject({
       summary: "Approved fixture update applied.",
       resourceUris: [
-        "kiln://managed-invocations/invocation-opencode-write-1/transcript",
-        "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
+        "kiln://managed-agents/invocations/invocation-opencode-write-1/transcript",
+        "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/write-attempts/1",
       ],
       memoryWriteProposalUris: [],
     });
@@ -384,7 +431,24 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     ]);
     expect(events[2]).toMatchObject({
       managedInvocationEvidence: {
-        writeAuthority: request.authority.writeAuthority,
+        writeAuthority: {
+          ...request.authority.writeAuthority,
+          scope: {
+            ...request.authority.writeAuthority?.scope,
+            artifacts: {
+              ...request.authority.writeAuthority?.scope.artifacts,
+              resourceUris: [
+                "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/write",
+              ],
+            },
+          },
+          approval: {
+            ...request.authority.writeAuthority?.approval,
+            evidenceUris: [
+              "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/approval",
+            ],
+          },
+        },
         writeEvidence: result.record.writeEvidence,
       },
     });
@@ -422,11 +486,11 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       invocationId: "invocation-opencode-1",
       kind: "write-authority-denied",
       summary: "Live write authority denied by opencode-policy: OpenCode denied edit permission for proof.txt.",
-      resourceUris: ["kiln://managed-invocations/invocation-opencode-1/write-denials/opencode-denial-1"],
+      resourceUris: ["kiln://managed-agents/invocations/invocation-opencode-1/resources/write-denials/opencode-denial-1"],
       recordedAt: expect.any(String),
     }]);
     expect(result.record.resultHandoff.resourceUris).toContain(
-      "kiln://managed-invocations/invocation-opencode-1/write-denials/opencode-denial-1",
+      "kiln://managed-agents/invocations/invocation-opencode-1/resources/write-denials/opencode-denial-1",
     );
   });
 
@@ -494,7 +558,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     }
     expect(result.record.lifecycleState).toBe("timed_out");
     expect(result.record.diagnostics).toEqual([{
-      uri: "kiln://managed-invocations/invocation-opencode-1/timeout",
+      uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/timeout",
       kind: "timeout",
     }]);
     expect(dispose).toHaveBeenCalledTimes(1);
@@ -545,12 +609,12 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       "write-attempt-completed",
     ]);
     expect(result.record.writeEvidence?.[2]?.resourceUris).toEqual([
-      "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
-      "kiln://managed-invocations/invocation-opencode-write-1/diffs/1",
+      "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/write-attempts/1",
+      "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/diffs/1",
     ]);
     expect(JSON.stringify(result.record.writeEvidence)).not.toContain("diff --git");
     expect(result.record.resultHandoff?.resourceUris).toContain(
-      "kiln://managed-invocations/invocation-opencode-write-1/diffs/1",
+      "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/diffs/1",
     );
   });
 
@@ -694,8 +758,8 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         }, {
           kind: "write-attempt-completed",
           resourceUris: [
-            "kiln://managed-invocations/invocation-opencode-write-1/write-attempts/1",
-            "kiln://managed-invocations/invocation-opencode-write-1/diffs/1",
+            "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/write-attempts/1",
+            "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/diffs/1",
           ],
         }],
       },
