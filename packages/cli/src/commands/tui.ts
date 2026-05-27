@@ -625,7 +625,7 @@ export async function makeMultiProviderSessionFactory(
           );
         }
         try {
-          for await (const event of resumedSession.run(options)) {
+          for await (const event of resumedSession.run({ ...options, turnId })) {
             if (!event || typeof event !== "object" || !("type" in event)) {
               yield event;
               continue;

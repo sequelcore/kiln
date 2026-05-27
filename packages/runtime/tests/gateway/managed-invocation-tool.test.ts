@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ManagedAgentAdapterDescriptor,
   ManagedAgentInvocationRequest,
+  ManagedAgentLifecycleState,
 } from "@kilnai/core";
 import {
   buildManagedAgentCapabilitySnapshot,
@@ -353,6 +354,7 @@ function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter(
           mode: "read-only" as const,
         },
         timeoutMs: 120000,
+        timeoutSource: "explicit-route" as const,
         credentialRoute: {
           mode: "runtime-selected" as const,
           routeId: `credential-route:${routeId}`,
@@ -623,6 +625,7 @@ describe("managed invocation runtime tool", () => {
         },
       },
     });
+    expect(joined.output).toContain(`kiln://managed-agents/invocations/${started.metadata.invocationId}/resources/result`);
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "agent_invocation_requested",
       "agent_invocation_started",
@@ -646,6 +649,40 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
       "agent_invocation_completed",
     ]);
+  });
+
+  it("uses the persisted parent turn id instead of hydrated runtime turn count", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    session.addUserMessage(textParts("Hydrated prior turn 2."));
+    session.addUserMessage(textParts("Hydrated prior turn 3."));
+    session.addUserMessage(textParts("Hydrated prior turn 4."));
+    session.addUserMessage(textParts("Hydrated prior turn 5."));
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      turnId: `${session.id}:turn:3`,
+      toolCall: {
+        id: "tool-call-start-lineage",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect lineage.",
+      requestedAuthority: "read_only",
+    }, context);
+
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    expect(session.userTurnCount).toBe(5);
+    expect(request.parentTurnId).toBe(`${session.id}:turn:3`);
+    expect(request.invocationId).toBe("managed-session-parent-3-tool-call-start-lineage");
   });
 
   it("projects start metadata and replay events before terminal records exist", async () => {
@@ -1943,12 +1980,16 @@ describe("managed invocation runtime tool", () => {
       toolCall: { id: "tool-call-cancel-join", name: "managed_agent.join", input: {} },
     }) as {
       readonly output: string;
+      readonly isError: boolean;
       readonly metadata: {
+        readonly status?: string;
         readonly lifecycleState?: string;
       };
     };
     expect(joined.output).toContain("Operator cancelled the managed child.");
     expect(joined.output).not.toContain("Late child output must be ignored.");
+    expect(joined.isError).toBe(false);
+    expect(joined.metadata.status).toBe("cancelled");
     expect(joined.metadata.lifecycleState).toBe("cancelled");
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "agent_invocation_requested",
@@ -1956,6 +1997,97 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_cancelled",
     ]);
   });
+
+  it.each(["timed_out", "failed", "stale"] as const)(
+    "joins a terminal %s managed child as successful lifecycle observation",
+    async (lifecycleState: ManagedAgentLifecycleState) => {
+      const { adapter, terminal } = makeDeferredAdapter();
+      const surface = makeSurface(adapter);
+      const session = makeSession();
+      const context: RuntimeBuiltinToolExecutionContext = {
+        session,
+        toolCall: {
+          id: `tool-call-${lifecycleState}-start`,
+          name: "managed_agent.start",
+          input: {},
+        },
+      };
+
+      const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "opencode",
+          model: "opencode-default-model",
+        },
+        task: `Inspect ${lifecycleState} terminal evidence.`,
+        requestedAuthority: "read_only",
+      }, context) as {
+        readonly metadata: {
+          readonly invocationId: string;
+        };
+      };
+      const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+      const diagnosticKind = lifecycleState === "timed_out" ? "timeout" : "failure";
+      const terminalRecord = defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState,
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+          routeId: "opencode-readonly",
+        }),
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        diagnostics: [{
+          uri: `kiln://managed-invocations/${request.invocationId}/${diagnosticKind}`,
+          kind: diagnosticKind,
+        }],
+      });
+      expect(terminalRecord.resourceLease).toBeUndefined();
+      terminal.resolve(terminalRecord);
+      await flushMicrotasks();
+
+      const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+        invocationId: started.metadata.invocationId,
+      }, {
+        ...context,
+        toolCall: { id: `tool-call-${lifecycleState}-join`, name: "managed_agent.join", input: {} },
+      }) as {
+        readonly output: string;
+        readonly isError: boolean;
+        readonly metadata: {
+          readonly status?: string;
+          readonly lifecycleState?: string;
+          readonly resourceLease?: {
+            readonly leaseId?: string;
+          };
+        };
+      };
+
+      expect(joined.isError).toBe(false);
+      expect(joined.metadata.status).toBe(lifecycleState);
+      expect(joined.metadata.lifecycleState).toBe(lifecycleState);
+      expect(joined.metadata.resourceLease?.leaseId).toBe(`${request.invocationId}:resource-lease`);
+      expect(joined.output).toContain(`"status": "${lifecycleState}"`);
+      expect(joined.output).toContain('"resourceLease"');
+      expect(joined.output).toContain(`${request.invocationId}:resource-lease`);
+      expect(joined.output).toContain(`kiln://managed-agents/invocations/${request.invocationId}/transcript`);
+      expect(joined.output).toContain(`kiln://managed-agents/invocations/${request.invocationId}/resources/${diagnosticKind}`);
+    },
+  );
 
   it("returns managed_agent.cancel terminal evidence when the aborted adapter stays pending", async () => {
     const { adapter, signal } = makeAbortableDeferredAdapter();
@@ -2206,6 +2338,7 @@ describe("managed invocation runtime tool", () => {
     expect(tool?.description).toContain("pass workItemId, expectedEvidence");
     expect(tool?.description).toContain("Do not use contextMode=resources without resourceUris");
     expect(tool?.description).toContain("timeoutMs=120000");
+    expect(tool?.description).toContain("source=explicit-route");
     expect(tool?.description).toContain("For broad repository review, long reasoning, or multi-file analysis, choose a route with a sufficient timeout budget or split the work into smaller children.");
     expect(tool?.description).toContain("Do not put resource_read in requiredToolNames just because contextMode=resources is used");
     expect(tool?.description).toContain("For comparison tasks");

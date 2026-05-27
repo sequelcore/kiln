@@ -156,6 +156,64 @@ describe("processAdmittedTurn", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("uses per-call persisted turn id for canonical runtime session events", async () => {
+    const session = new RuntimeSession({
+      sessionId: "session-parent",
+      appName: "test-app",
+      tenantId: "test-tenant",
+      userId: "user-1",
+      systemPrompt: "You are a test assistant.",
+    });
+    session.addUserMessage(textParts("Hydrated prior turn 2."));
+    session.addUserMessage(textParts("Hydrated prior turn 3."));
+    session.addUserMessage(textParts("Hydrated prior turn 4."));
+    session.addUserMessage(textParts("Hydrated prior turn 5."));
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async (
+        runtimeSession: RuntimeSession,
+        userParts: Parameters<RuntimeSession["addUserMessage"]>[0],
+      ) => {
+        runtimeSession.addUserMessage(userParts);
+        runtimeSession.addAssistantMessage(textParts("started child"));
+        return {
+          parts: textParts("started child"),
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "claude-sonnet-4-20250514",
+    } as unknown as RuntimeSessionOrchestrator;
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: { turnId: `${session.id}:turn:3` },
+      userParts: textParts("Start child."),
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.userTurnCount).toBe(5);
+    expect(session.sessionEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "turn_started",
+        turnId: `${session.id}:turn:3`,
+        turnOrdinal: 3,
+      }),
+      expect.objectContaining({
+        kind: "user_message",
+        turnId: `${session.id}:turn:3`,
+        messageId: `${session.id}:turn:3:user`,
+      }),
+      expect.objectContaining({
+        kind: "turn_completed",
+        turnId: `${session.id}:turn:3`,
+      }),
+    ]));
+  });
+
   it("projects visitor context as a separate governed candidate", () => {
     const projected = projectAdmittedTurnContext({
       userContext: undefined,

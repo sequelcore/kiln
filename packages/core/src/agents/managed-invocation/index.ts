@@ -104,12 +104,15 @@ export interface ManagedAgentMemoryScope {
   readonly access: "none" | "read-only" | "write-proposals";
 }
 
+export type ManagedAgentTimeoutSource = "default" | "explicit-route" | "request";
+
 export interface ManagedAgentAuthorityProfile {
   readonly authorityProfileId: string;
   readonly permissionProfile: string;
   readonly toolAuthority: ManagedAgentToolAuthority;
   readonly workingDirectory: ManagedAgentWorkingDirectory;
   readonly timeoutMs: number;
+  readonly timeoutSource?: ManagedAgentTimeoutSource;
   readonly credentialRoute: ManagedAgentCredentialRoute;
   readonly memoryScope: ManagedAgentMemoryScope;
   readonly writeAuthority?: ManagedAgentWriteAuthority;
@@ -871,6 +874,7 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
       mode: requireWorkingDirectoryMode(input.workingDirectory.mode),
     },
     timeoutMs: requirePositiveNumber(input.timeoutMs, "Managed invocation timeout must be greater than zero"),
+    ...(input.timeoutSource !== undefined ? { timeoutSource: requireTimeoutSource(input.timeoutSource) } : {}),
     credentialRoute,
     memoryScope: {
       scope: defineMemoryScope(input.memoryScope.scope),
@@ -878,6 +882,13 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
     },
     ...(input.writeAuthority !== undefined ? { writeAuthority: defineManagedAgentWriteAuthority(input.writeAuthority) } : {}),
   };
+}
+
+function requireTimeoutSource(source: ManagedAgentTimeoutSource): ManagedAgentTimeoutSource {
+  if (source === "default" || source === "explicit-route" || source === "request") {
+    return source;
+  }
+  throw new Error(`Unsupported managed invocation timeout source: ${String(source)}`);
 }
 
 function requireProviderRoute(input: ManagedAgentProviderRoute): ManagedAgentProviderRoute {

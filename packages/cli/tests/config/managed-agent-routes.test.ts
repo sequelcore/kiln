@@ -270,6 +270,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }]);
     expect(result.managedInvocation?.routes[0]?.routeId).toBe("codex-readonly");
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.timeoutMs).toBe(300000);
+    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.timeoutSource).toBe("default");
     expect(result.managedInvocation?.requestSource).toBe("gui");
   });
 
@@ -666,6 +667,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         mode: "read-only",
       },
       timeoutMs: 120000,
+      timeoutSource: "explicit-route",
       memoryScope: {
         scope: { kind: "project", id: "repo" },
         access: "read-only",

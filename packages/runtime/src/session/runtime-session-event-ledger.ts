@@ -48,6 +48,7 @@ export interface RuntimeTurnAuthorityMutationViolation {
 
 export interface AppendCanonicalTurnEventsInput {
   readonly session: RuntimeSession;
+  readonly turnId?: string;
   readonly channel: string;
   readonly userMessageContent: string;
   readonly assistantMessageContent?: string;
@@ -114,8 +115,9 @@ export interface AppendCanonicalTurnEventsInput {
 
 export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput): readonly CanonicalSessionEvent[] {
   const { session } = input;
-  const turnOrdinal = nextCanonicalTurnOrdinal(session);
-  const turnId = `${session.id}:turn:${turnOrdinal}`;
+  const turnIdentity = resolveCanonicalTurnIdentity(session, input.turnId);
+  const turnOrdinal = turnIdentity.turnOrdinal;
+  const turnId = turnIdentity.turnId;
   const userMessageContent = input.userMessageContent.trim();
   const assistantMessageContent = input.assistantMessageContent
     ? sanitizeAssistantEgressText(input.assistantMessageContent).trim()
@@ -486,6 +488,29 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
 
   session.appendSessionEvents(events);
   return events;
+}
+
+function resolveCanonicalTurnIdentity(
+  session: RuntimeSession,
+  turnId: string | undefined,
+): { readonly turnId: string; readonly turnOrdinal: number } {
+  if (turnId === undefined) {
+    const turnOrdinal = nextCanonicalTurnOrdinal(session);
+    return {
+      turnId: `${session.id}:turn:${turnOrdinal}`,
+      turnOrdinal,
+    };
+  }
+
+  const prefix = `${session.id}:turn:`;
+  if (!turnId.startsWith(prefix)) {
+    throw new Error("Canonical turn id must belong to the runtime session.");
+  }
+  const turnOrdinal = Number.parseInt(turnId.slice(prefix.length), 10);
+  if (!Number.isSafeInteger(turnOrdinal) || turnOrdinal < 1) {
+    throw new Error("Canonical turn id must end with a positive turn ordinal.");
+  }
+  return { turnId, turnOrdinal };
 }
 
 function nextCanonicalTurnOrdinal(session: RuntimeSession): number {

@@ -744,6 +744,36 @@ describe("ProviderSession.run()", () => {
     expect(perCallConfig?.abortSignal).toBe(abortController.signal);
   });
 
+  it("passes the persisted run turn id into executable runtime per-call config", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "turn id bridge checked" }],
+      toolExecutions: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+
+    await collectEvents(session.run({
+      prompt: "execute with persisted turn id",
+      turnId: "kiln-gui:session-1:turn:3",
+    }));
+
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      turnId?: string;
+    } | undefined;
+
+    expect(perCallConfig?.turnId).toBe("kiln-gui:session-1:turn:3");
+  });
+
   it("uses configured runtimeSessionId as the executable RuntimeSession id", async () => {
     runtimeMocks.processMessage.mockResolvedValueOnce({
       parts: [],

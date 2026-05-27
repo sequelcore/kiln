@@ -41,6 +41,7 @@ import type { RuntimeSession } from "./runtime-session.js";
 
 export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
+  readonly turnId?: string;
   readonly toolCall: ToolCall;
   readonly abortSignal?: AbortSignal;
   readonly sandbox?: unknown;
@@ -267,6 +268,7 @@ export interface ModelRoutingPolicyConfig {
 }
 
 export interface PerCallToolConfig {
+  readonly turnId?: string;
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
   readonly abortSignal?: AbortSignal;

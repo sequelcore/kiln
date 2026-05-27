@@ -125,6 +125,11 @@ independent worker implementation. It builds a typed fan-out request, admits it,
 starts children through `RuntimeManagedAgentInvocationService`, observes and
 joins terminal records, and reports normalized orchestration evidence. It must
 not recursively invoke the CLI or maintain a separate worker registry.
+Runtime lifecycle tools use the persisted operator turn id when constructing
+child lineage. Hydrated GUI/TUI sessions may have more messages in memory than
+the currently persisted turn ordinal; child `parentTurnId` and invocation id
+must follow the transcript turn being executed, not a reconstructed runtime
+message count.
 
 Admission for parallel children fails closed when any required plane is
 unavailable:
@@ -316,6 +321,11 @@ An explicit `managed_agent.cancel` call is different from a failed child
 handoff: when cancellation reaches the canonical `cancelled` lifecycle and
 terminal evidence is recorded, the cancel control result is accepted even
 though the child result remains unavailable for comparison or phase evidence.
+`managed_agent.join` follows the same observation rule for terminal children:
+joining a `cancelled`, `timed_out`, `failed`, or `stale` child is a successful
+lifecycle observation with explicit lifecycle/status metadata. Only `completed`
+children are evaluated for substantive handoff evidence; terminal non-completed
+children remain missing evidence for governed phases and comparisons.
 
 The direct-provider adapter creates a child `RuntimeSessionOrchestrator` instead
 of launching a CLI harness. It reuses the provider adapter contract, runtime
@@ -440,7 +450,11 @@ The model-facing route catalog includes each healthy route's timeout budget.
 Parent agents should route broad repository review, long reasoning, or
 multi-file analysis to a child route with enough admitted time, or split work
 into smaller children and join them separately. The timeout budget remains
-route authority; parent prompts do not silently extend it.
+route authority; parent prompts do not silently extend it. The authority
+profile records the effective timeout source as `default`, `explicit-route`, or
+`request` so GUI, TUI, CLI, replay, and model-facing diagnostics can distinguish
+a safe synthesized default from an intentionally configured short or long route
+budget.
 GUI and TUI startup use a CLI-owned staged managed invocation route catalog.
 The first catalog is built without blocking on child provider model discovery.
 Routes whose provider model evidence is not known yet are exposed only as

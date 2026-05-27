@@ -1966,6 +1966,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
     appendCanonicalTurnEvents({
       session,
+      turnId: perCallConfig?.turnId,
       channel: ctx.channel,
       userMessageContent: userText,
       queued: false,
@@ -2203,6 +2204,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   });
   appendCanonicalTurnEvents({
     session,
+    turnId: perCallConfig?.turnId,
     channel: ctx.channel,
     userMessageContent: userText,
     assistantMessageContent: extractText(resultParts),

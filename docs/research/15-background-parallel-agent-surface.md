@@ -118,6 +118,24 @@ terminal evidence, accepted cancellation controls, and model-visible route
 timeout budgets so broad review work is either routed to a sufficient budget or
 split into smaller child invocations.
 
+2026-05-27 distributed-systems timeout follow-up: the big-lab resilience
+literature points to the same design. Google's Tail at Scale frames
+large fan-out as tail-latency amplification, so a parent waiting on parallel
+children must expect at least one slow child and needs terminal child evidence
+instead of a hidden parent timeout. AWS Builders Library guidance treats
+timeouts as mandatory boundaries on remote/process calls, selected from
+downstream latency percentiles plus padding, with retries limited to a single
+owned layer and protected by backoff, jitter, and local budgets. Google SRE
+guidance warns that retries can destabilize overloaded systems and recommends
+randomized exponential backoff, retry budgets, and cancellation propagation up
+the call tree. Microsoft Azure guidance makes the same operational point:
+timeouts, retry counts, and retry delays must fit the end-to-end latency
+objective; endless or overly aggressive retries are an antipattern. Kiln's
+runtime consequence is explicit timeout source diagnostics, persisted parent
+turn lineage for child requests, terminal join evidence for cancelled/timed-out
+children, and no local shim that overrides an operator's configured route
+timeout.
+
 Sources:
 
 - OpenAI API background mode: <https://platform.openai.com/docs/guides/background>
@@ -132,3 +150,12 @@ Sources:
 - SWE-agent paper: <https://arxiv.org/abs/2405.15793>
 - SWE-Effi resource-constrained software-agent evaluation:
   <https://arxiv.org/abs/2509.09853>
+- Google Research, "The Tail at Scale":
+  <https://research.google/pubs/the-tail-at-scale/>
+- AWS Builders Library, "Timeouts, retries, and backoff with jitter":
+  <https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/>
+- Google SRE, "Addressing Cascading Failures":
+  <https://sre.google/sre-book/addressing-cascading-failures/>
+- Microsoft Azure Architecture Center, "Best practices for transient fault
+  handling":
+  <https://learn.microsoft.com/en-us/azure/architecture/best-practices/transient-faults>

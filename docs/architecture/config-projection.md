@@ -378,6 +378,8 @@ can prove write evidence but cannot yet prove substantive read-only result
 handoff remains unavailable for `foundation-readonly-plan`. Synthesized route
 profiles use a five-minute timeout budget; explicit route `timeoutMs` values
 remain authoritative for deliberate shorter probes or longer bounded children.
+Projection preserves this as timeout source diagnostics (`default` versus
+`explicit-route`) instead of rewriting operator config at runtime.
 
 Remote harness routes are explicit managed-agent route overrides. Projection
 requires HTTPS invoke and cancel endpoints, a portable auth-token environment

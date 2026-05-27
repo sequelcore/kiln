@@ -505,9 +505,11 @@ export class ProviderSession implements IKilnSession {
     reasoningEffort: ReasoningEffort | undefined,
     requestedAuthority: OperatorTurnRequestedAuthority | undefined,
     abortSignal: AbortSignal | undefined,
+    turnId: string | undefined,
   ): PerCallToolConfig {
     if (!requestedAuthority || requestedAuthority === "auto") {
       return {
+        ...(turnId ? { turnId } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(abortSignal ? { abortSignal } : {}),
         ...(requestedAuthority ? {
@@ -554,6 +556,7 @@ export class ProviderSession implements IKilnSession {
 
     const admittedAuthority = admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority;
     return {
+      ...(turnId ? { turnId } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(abortSignal ? { abortSignal } : {}),
       toolAllowlist: admittedToolNames,
@@ -587,6 +590,7 @@ export class ProviderSession implements IKilnSession {
       options.reasoningEffort ?? this.config.reasoningEffort,
       requestedAuthority,
       options.abortSignal,
+      options.turnId,
     );
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options, perCallConfig.effectiveTurnAuthority);
     const adapter = await createDirectProviderAdapter({

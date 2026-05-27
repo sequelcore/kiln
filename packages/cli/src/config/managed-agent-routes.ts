@@ -534,7 +534,6 @@ function synthesizeReadonlyRoute(input: {
     model: input.model ?? DEFAULT_MODELS[provider],
     profiles: [input.profile ?? READONLY_PROFILE],
     workingDirectory: "project",
-    timeoutMs: DEFAULT_TIMEOUT_MS,
     tools: {
       allowed: DEFAULT_ALLOWED_TOOLS,
       network: false,
@@ -800,11 +799,22 @@ function buildRouteProfiles(
   return { ok: true, profiles: resolved };
 }
 
+function resolveRouteTimeout(routeConfig: KilnManagedAgentRouteConfig): {
+  readonly timeoutMs: number;
+  readonly source: NonNullable<ManagedAgentAuthorityProfile["timeoutSource"]>;
+} {
+  return {
+    timeoutMs: routeConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    source: routeConfig.timeoutMs === undefined ? "default" : "explicit-route",
+  };
+}
+
 function buildReadonlyProfile(
   routeConfig: KilnManagedAgentRouteConfig,
   cwd: string,
   workingDirectoryLease: ManagedInvocationRouteProfile["workingDirectoryLease"] | undefined,
 ): ManagedInvocationRouteProfile {
+  const timeout = resolveRouteTimeout(routeConfig);
   return {
     authorityProfileId: `authority:${routeConfig.id}:${READONLY_PROFILE}`,
     permissionProfile: "read-only",
@@ -813,7 +823,8 @@ function buildReadonlyProfile(
     networkAllowed: routeConfig.tools?.network === true,
     workingDirectory: resolveWorkingDirectory(routeConfig, cwd, workingDirectoryLease),
     ...(workingDirectoryLease ? { workingDirectoryLease } : {}),
-    timeoutMs: routeConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    timeoutMs: timeout.timeoutMs,
+    timeoutSource: timeout.source,
     credentialRoute: resolveCredentialRoute(routeConfig),
     memoryScope: resolveMemoryScope(routeConfig, cwd),
   };
@@ -843,6 +854,7 @@ function buildWriteProfile(
     return writeAuthority;
   }
   const applyApproved = profile === "foundation-apply-approved-writes";
+  const timeout = resolveRouteTimeout(routeConfig);
   return {
     ok: true,
     profile: {
@@ -853,7 +865,8 @@ function buildWriteProfile(
       networkAllowed: routeConfig.tools?.network === true,
       workingDirectory: resolveWriteWorkingDirectory(routeConfig, cwd, applyApproved, workingDirectoryLease),
       ...(workingDirectoryLease ? { workingDirectoryLease } : {}),
-      timeoutMs: routeConfig.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      timeoutMs: timeout.timeoutMs,
+      timeoutSource: timeout.source,
       credentialRoute: resolveCredentialRoute(routeConfig),
       memoryScope: resolveMemoryScope(routeConfig, cwd, writeAuthority.authority.scope.memory.mode === "propose" ? "write-proposals" : undefined),
       writeAuthority: writeAuthority.authority,

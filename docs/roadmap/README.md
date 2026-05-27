@@ -86,7 +86,11 @@ synthesized managed-agent routes use a five-minute default timeout, the
 model-facing route catalog exposes timeout budgets and resource-mode guidance,
 CLI-harness timeout handoffs point to replayable timeout evidence, and an
 expected `managed_agent.cancel` result is accepted when terminal cancellation
-evidence is recorded.
+evidence is recorded. The live-session follow-up also keeps managed-child
+lineage tied to the persisted GUI/TUI turn id, projects terminal join evidence
+into model-visible output, accepts non-completed terminal joins as lifecycle
+observations, and exposes whether each route timeout came from the synthesized
+default or an explicit route config.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark

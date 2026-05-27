@@ -364,6 +364,38 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(sessions[0]?.resumeSessionId).toBeUndefined();
   });
 
+  it("passes the persisted transcript turn id into GUI provider session runs", async () => {
+    const { store } = makeStore(null);
+    const { registry, sessions } = makeRegistry("sess-persisted-turn");
+    const transcriptStore = makeTranscriptStore();
+    vi.mocked(transcriptStore.readTranscript).mockResolvedValue([
+      { kind: "turn_started" },
+      { kind: "turn_completed" },
+      { kind: "turn_started" },
+      { kind: "turn_completed" },
+    ] as any);
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/p",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+    const session = factory("sys", "/p");
+
+    for await (const _ of session.run({ prompt: "start child" } as any)) {}
+
+    expect(sessions[0]?.run).toHaveBeenCalledWith(expect.objectContaining({
+      turnId: "sess-persisted-turn:turn:3",
+    }));
+  });
+
   it("passes configured builtin tool options into provider sessions", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();

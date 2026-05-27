@@ -71,6 +71,7 @@ export interface ManagedInvocationRouteProfile {
   readonly workingDirectory: ManagedAgentWorkingDirectory;
   readonly workingDirectoryLease?: ManagedInvocationWorkingDirectoryLease;
   readonly timeoutMs: number;
+  readonly timeoutSource?: ManagedAgentAuthorityProfile["timeoutSource"];
   readonly credentialRoute: ManagedAgentCredentialRoute;
   readonly memoryScope: ManagedAgentMemoryScope;
   readonly writeAuthority?: ManagedAgentAuthorityProfile["writeAuthority"];
@@ -904,7 +905,12 @@ async function prepareManagedInvocationRequest(
     ? `${contextResolution.resolution.promptPrefix}\n\nTask:\n${parsed.input.task}`
     : parsed.input.task;
 
-  const invocationId = buildInvocationId(context.session.id, context.session.userTurnCount, context.toolCall.id);
+  const parentTurnId = resolveManagedInvocationParentTurnId(context);
+  const invocationId = buildInvocationId(
+    context.session.id,
+    resolveManagedInvocationParentTurnOrdinal(parentTurnId, context.session.userTurnCount),
+    context.toolCall.id,
+  );
   const resolvedAuthority = resolveManagedInvocationRouteAuthority(profileDefaults, invocationId);
   const handoffContract = buildHandoffContract(parsed.input);
   const authorityApproval = await requestManagedInvocationAuthorityApproval({
@@ -929,7 +935,7 @@ async function prepareManagedInvocationRequest(
     invocationId,
     agentId: `${route.routeId}:${parsed.input.profile}`,
     parentSessionId: context.session.id,
-    parentTurnId: `${context.session.id}:turn:${Math.max(context.session.userTurnCount, 1)}`,
+    parentTurnId,
     profile: parsed.input.profile,
     requestedBy: options.requestedBy ?? "assistant",
     requestSource: options.requestSource ?? "runtime-tool",
@@ -953,6 +959,7 @@ async function prepareManagedInvocationRequest(
       },
       workingDirectory: resolvedAuthority.workingDirectory,
       timeoutMs: profileDefaults.timeoutMs,
+      ...(profileDefaults.timeoutSource ? { timeoutSource: profileDefaults.timeoutSource } : {}),
       credentialRoute: normalizeManagedInvocationCredentialRoute(profileDefaults.credentialRoute),
       memoryScope: profileDefaults.memoryScope,
       ...(resolvedAuthority.writeAuthority ? { writeAuthority: resolvedAuthority.writeAuthority } : {}),
@@ -985,7 +992,7 @@ async function prepareManagedInvocationRequest(
         routeId: route.routeId,
         routeHealth: {
           status: "healthy",
-          reason: "Configured managed invocation route selected by runtime tool.",
+          reason: managedInvocationRouteHealthReason(profileDefaults),
         },
         providerModelProof: {
           ...(route.providerModelProof ?? {
@@ -1595,29 +1602,39 @@ function terminalManagedInvocationResult(input: {
   readonly sessionEventIds: readonly string[];
 }): ManagedInvocationToolResult {
   const summary = input.record.resultHandoff?.summary ?? `Managed invocation ${input.record.lifecycleState}.`;
-  const terminalError = input.record.lifecycleState !== "completed"
-    && input.record.lifecycleState !== input.expectedTerminalLifecycleState;
+  const acceptedTerminalLifecycleState = input.toolName === MANAGED_AGENT_JOIN_TOOL_NAME
+    || input.record.lifecycleState === "completed"
+    || input.record.lifecycleState === input.expectedTerminalLifecycleState;
+  const terminalError = !acceptedTerminalLifecycleState;
   const recovery = terminalError
     ? buildManagedInvocationPhaseRecovery(
         input.rawInput,
         managedInvocationFailureReasonFromStatus(input.record.lifecycleState),
       )
     : undefined;
-  const handoffRecovery = terminalError
+  const shouldValidateSubstantiveHandoff = !terminalError && input.record.lifecycleState === "completed";
+  const handoffRecovery = !shouldValidateSubstantiveHandoff
     ? undefined
     : buildManagedInvocationPhaseHandoffRecovery(input.rawInput, input.record.resultHandoff);
-  const phaseCompletion = terminalError
+  const phaseCompletion = !shouldValidateSubstantiveHandoff
     ? undefined
     : buildManagedInvocationPhaseCompletion(input.rawInput, input.record.resultHandoff);
   const handoffError = handoffRecovery !== undefined;
   const projectedStatus = handoffError ? "handoff_not_substantive" : input.record.lifecycleState;
+  const resourceLease = input.record.resourceLease ?? input.record.capabilitySnapshot.resourceLease;
+  const structuredEvidence = input.record.resultHandoff !== undefined
+    || input.record.transcript !== undefined
+    || resourceLease !== undefined
+    || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0);
   return {
-    output: recovery || handoffRecovery || phaseCompletion
+    output: recovery || handoffRecovery || phaseCompletion || structuredEvidence
       ? JSON.stringify({
           status: projectedStatus,
           summary,
           ...(input.record.resultHandoff ? { resultHandoff: input.record.resultHandoff } : {}),
           ...(input.record.transcript ? { transcript: input.record.transcript } : {}),
+          ...(resourceLease ? { resourceLease } : {}),
+          ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
           ...(recovery ? { recovery } : {}),
           ...(handoffRecovery ? { recovery: handoffRecovery } : {}),
           ...(phaseCompletion ? { phaseCompletion } : {}),
@@ -1645,7 +1662,7 @@ function terminalManagedInvocationResult(input: {
       childTurnId: input.record.childTurnId,
       resultHandoff: input.record.resultHandoff,
       transcript: input.record.transcript,
-      ...(input.record.resourceLease ? { resourceLease: input.record.resourceLease } : {}),
+      ...(resourceLease ? { resourceLease } : {}),
       ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
       ...(handoffRecovery ? { managedInvocationRecovery: handoffRecovery } : {}),
@@ -1881,17 +1898,40 @@ function formatRouteTimeoutSummary(
   profiles: ManagedInvocationToolRoute["profiles"],
 ): string | undefined {
   const entries = Object.entries(profiles)
-    .map(([profile, value]) => ({ profile, timeoutMs: value?.timeoutMs }))
-    .filter((entry): entry is { readonly profile: string; readonly timeoutMs: number } =>
+    .map(([profile, value]) => ({
+      profile,
+      timeoutMs: value?.timeoutMs,
+      ...(value?.timeoutSource ? { timeoutSource: value.timeoutSource } : {}),
+    }))
+    .filter((entry): entry is {
+      readonly profile: string;
+      readonly timeoutMs: number;
+      readonly timeoutSource?: ManagedAgentAuthorityProfile["timeoutSource"];
+    } =>
       typeof entry.timeoutMs === "number" && Number.isFinite(entry.timeoutMs)
     );
   if (entries.length === 0) {
     return undefined;
   }
   if (entries.length === 1) {
-    return `timeoutMs=${entries[0]!.timeoutMs}`;
+    return formatRouteTimeoutEntry(entries[0]!);
   }
-  return `timeouts=${entries.map((entry) => `${entry.profile}:${entry.timeoutMs}`).join("|")}`;
+  return `timeouts=${entries.map((entry) => `${entry.profile}:${formatRouteTimeoutEntry(entry)}`).join("|")}`;
+}
+
+function formatRouteTimeoutEntry(entry: {
+  readonly timeoutMs: number;
+  readonly timeoutSource?: ManagedAgentAuthorityProfile["timeoutSource"];
+}): string {
+  return entry.timeoutSource
+    ? `timeoutMs=${entry.timeoutMs} source=${entry.timeoutSource}`
+    : `timeoutMs=${entry.timeoutMs}`;
+}
+
+function managedInvocationRouteHealthReason(profile: ManagedInvocationRouteProfile): string {
+  return profile.timeoutSource
+    ? `Configured managed invocation route selected by runtime tool; effective timeoutMs=${profile.timeoutMs} source=${profile.timeoutSource}.`
+    : `Configured managed invocation route selected by runtime tool; effective timeoutMs=${profile.timeoutMs}.`;
 }
 
 function formatTaskSuitability(
@@ -2365,6 +2405,21 @@ function readTextArray(value: unknown): readonly string[] | undefined {
   }
   const values = unique(value.map(readText).filter((item): item is string => item !== undefined));
   return values.length > 0 ? values : undefined;
+}
+
+function resolveManagedInvocationParentTurnId(context: RuntimeBuiltinToolExecutionContext): string {
+  return context.turnId ?? `${context.session.id}:turn:${Math.max(context.session.userTurnCount, 1)}`;
+}
+
+function resolveManagedInvocationParentTurnOrdinal(parentTurnId: string, fallbackTurnCount: number): number {
+  const match = parentTurnId.match(/:turn:(\d+)$/u);
+  if (!match) {
+    return Math.max(fallbackTurnCount, 1);
+  }
+  const parsed = Number.parseInt(match[1] ?? "", 10);
+  return Number.isSafeInteger(parsed) && parsed > 0
+    ? parsed
+    : Math.max(fallbackTurnCount, 1);
 }
 
 function buildInvocationId(sessionId: string, turnCount: number, toolCallId: string): string {

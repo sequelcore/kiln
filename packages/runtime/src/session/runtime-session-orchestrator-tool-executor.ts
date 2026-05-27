@@ -948,9 +948,13 @@ export class RuntimeSessionToolExecutor {
 
   private async executeTool(toolCall: ToolCall, perCallConfig?: PerCallToolConfig): Promise<unknown> {
     const session = this.currentSession;
+    const turnId = session
+      ? perCallConfig?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`
+      : undefined;
     const context = session
       ? {
           session,
+          ...(turnId ? { turnId } : {}),
           toolCall,
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
           requestApproval: (description: string) => this.requestApproval(session.id, description),

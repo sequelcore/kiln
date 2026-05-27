@@ -8,6 +8,12 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Preserved persisted GUI/TUI turn identity through executable runtime
+  per-call config so managed children record the correct parent turn, made
+  `managed_agent.join` return successful terminal observations for cancelled
+  or other non-completed children, exposed terminal handoff/resource evidence
+  in model-visible join output, and added managed-route timeout source
+  diagnostics.
 - Raised synthesized managed-agent route timeouts to five minutes, projected
   route timeout budgets into the model-facing managed-agent catalog, made
   CLI-harness timeout handoffs name the admitted timeout and replay resources,

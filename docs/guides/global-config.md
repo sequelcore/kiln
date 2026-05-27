@@ -125,7 +125,8 @@ the route authority when a team deliberately wants a shorter probe or a longer
 bounded child run.
 At runtime, Kiln projects the resolved route registry into the
 `managed_agent.invoke` tool definition so parent agents can see configured
-route ids, timeout budgets, and unavailable-route diagnostics. If multiple
+route ids, timeout budgets, timeout source diagnostics, and unavailable-route
+diagnostics. If multiple
 managed routes share a provider/profile, parent agents must select by `routeId`
 or by an exact configured model unless a configured `agentProfile` contributes
 a route hint.

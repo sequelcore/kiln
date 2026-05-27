@@ -4,6 +4,52 @@ import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 
 describe("runtime work item session events", () => {
+  it("uses an explicit persisted turn id instead of the hydrated runtime turn count", () => {
+    const session = new RuntimeSession({
+      sessionId: "session-parent",
+      appName: "kiln",
+      tenantId: "test-tenant",
+      userId: "operator",
+      systemPrompt: "test",
+    });
+    session.addUserMessage(textParts("Hydrated prior turn 2."));
+    session.addUserMessage(textParts("Hydrated prior turn 3."));
+    session.addUserMessage(textParts("Hydrated prior turn 4."));
+    session.addUserMessage(textParts("Hydrated prior turn 5."));
+    const timestamp = new Date("2026-05-27T18:20:17.000Z");
+
+    const events = appendCanonicalTurnEvents({
+      session,
+      turnId: `${session.id}:turn:3`,
+      channel: "gui",
+      userMessageContent: "Start managed child",
+      assistantMessageContent: "Started.",
+      queued: false,
+      turnStartedAt: timestamp,
+      turnCompletedAt: timestamp,
+      continuity: { strategy: "new-session" },
+      runtimeEvents: [],
+    });
+
+    expect(session.userTurnCount).toBe(4);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "turn_started",
+        turnId: `${session.id}:turn:3`,
+        turnOrdinal: 3,
+      }),
+      expect.objectContaining({
+        kind: "user_message",
+        turnId: `${session.id}:turn:3`,
+        messageId: `${session.id}:turn:3:user`,
+      }),
+      expect.objectContaining({
+        kind: "turn_completed",
+        turnId: `${session.id}:turn:3`,
+      }),
+    ]));
+  });
+
   it("sanitizes canonical assistant messages before persistence", () => {
     const session = new RuntimeSession({
       appName: "kiln",
