@@ -1,10 +1,11 @@
-import type { ContentPart, EventBus, ToolDefinition } from "@kilnai/core";
+import type { BudgetAdmissionRouteCandidate, ContentPart, EventBus, ToolDefinition } from "@kilnai/core";
 import {
   extractText,
   getInvalidToolInputDetails,
   KilnError,
   normalizeToolCall,
   resolveExecutionIdentity,
+  textParts,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
@@ -162,11 +163,31 @@ export class RuntimeSessionOrchestrator {
       (sessionId, message) => this.telemetry.emitError(sessionId, message),
       callBuiltinTools,
     );
+    const budgetRouteModel = routing.routingDecision?.model ?? this.model;
 
     for (let round = 0; round < this.maxToolRounds; round++) {
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
-      if (round > 0 && !(await this.checkBudget(session.id))) {
-        break;
+      const budgetAdmission = await this.checkBudget(session.id, {
+        providerId: routing.routingDecision?.provider ?? routing.effectiveProvider.name,
+        ...(budgetRouteModel ? { model: budgetRouteModel } : {}),
+      });
+      if (!budgetAdmission.allowed) {
+        const parts = textParts(budgetAdmission.message ?? "Budget admission denied.");
+        return finalizeRuntimeSessionResponse({
+          deps: this.deps,
+          session,
+          parts,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          usageTotals: this.telemetry.snapshot(),
+          toolExecutions,
+          routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          preLlmEscalation: escalation,
+        });
       }
 
       const response = await routing.effectiveProvider.createMessage({
@@ -309,19 +330,29 @@ export class RuntimeSessionOrchestrator {
     return signal ?? undefined;
   }
 
-  private async checkBudget(sessionId: string): Promise<boolean> {
-    if (!this.deps.budgetChecker) {
-      return true;
+  private async checkBudget(
+    sessionId: string,
+    routeCandidate: BudgetAdmissionRouteCandidate,
+  ): Promise<{ readonly allowed: boolean; readonly message?: string }> {
+    if (!this.deps.budgetAdmission) {
+      return { allowed: true };
     }
     try {
-      const budget = await this.deps.budgetChecker();
-      if (!budget.allowed) {
-        this.telemetry.emitError(sessionId, budget.message ?? "Budget exhausted");
-        return false;
+      const decision = await this.deps.budgetAdmission.admit({
+        subject: "runtime-session-turn",
+        sessionId,
+        routeCandidates: [routeCandidate],
+      });
+      if (decision.status === "denied") {
+        const message = decision.message ?? decision.reason;
+        this.telemetry.emitError(sessionId, message);
+        return { allowed: false, message };
       }
-      return true;
-    } catch {
-      return true;
+      return { allowed: true };
+    } catch (error) {
+      const message = `Budget admission failed: ${errorToMessage(error)}`;
+      this.telemetry.emitError(sessionId, message);
+      return { allowed: false, message };
     }
   }
 
@@ -371,6 +402,10 @@ function throwIfRuntimeTurnAborted(signal: AbortSignal | undefined): void {
     return;
   }
   throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
+}
+
+function errorToMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function toPublicRoutingDecision(

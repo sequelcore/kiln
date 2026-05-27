@@ -34,6 +34,7 @@ import type { ToolCache } from "@kilnai/core";
 import type { ModelRouter } from "@kilnai/core";
 import type { ModelCapabilityRegistry } from "@kilnai/core";
 import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
+import type { RuntimeBudgetAdmissionPort } from "./runtime-budget-admission.js";
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
@@ -68,7 +69,7 @@ export interface OrchestratorDeps {
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthorizer?: ToolAuthorizer;
   readonly toolResultSanitizer?: ToolResultSanitizer;
-  readonly budgetChecker?: () => Promise<{ allowed: boolean; message?: string }>;
+  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly auditLog?: AuditLog;
   readonly toolRAG?: ToolRAG;
   readonly toolCache?: ToolCache;

@@ -75,6 +75,36 @@ describe("runManagedAgentFanOutLifecycle", () => {
     });
   });
 
+  it("fails closed before starting children when runtime budget admission denies fan-out", async () => {
+    const managedInvocation = createManagedInvocation();
+    const usageRequests: string[] = [];
+
+    await expect(runManagedAgentFanOutLifecycle({
+      orchestrationRequest: request(2),
+      managedInvocation,
+      budgetAdmission: {
+        policy: {
+          enabled: true,
+          routeBudgets: [{
+            providerId: "codex",
+            dailyTokenCeiling: 10,
+          }],
+        },
+        usageReader: async ({ providerId }) => {
+          usageRequests.push(providerId);
+          return {
+            providerId,
+            tokensUsed: 11,
+            source: "test-meter",
+          };
+        },
+      },
+    })).rejects.toThrow("Managed fan-out budget admission denied");
+
+    expect(usageRequests).toEqual(["codex"]);
+    expect(managedInvocation.invocationService?.list()).toEqual([]);
+  });
+
   it("cancels already-started children when a later child start fails", async () => {
     const managedInvocation = createManagedInvocation({
       failAcquireOrdinals: new Set([2]),

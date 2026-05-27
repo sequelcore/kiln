@@ -387,6 +387,91 @@ describe("Transcript", () => {
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
   });
 
+  it("renders denied-skills managed invocation intents as native tables without raw envelopes", () => {
+    const presentationIntent = {
+      kind: "comparison_table",
+      title: "Managed child invocation",
+      summary: "opencode-readonly denied",
+      source: "managed_agent.invoke",
+      columns: [
+        { key: "routeId", label: "Route" },
+        { key: "provider", label: "Provider" },
+        { key: "model", label: "Model" },
+        { key: "status", label: "Status", valueKind: "status" },
+        { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+        { key: "failureReason", label: "Failure" },
+      ],
+      rows: [
+        {
+          routeId: "opencode-readonly",
+          provider: "opencode",
+          model: "model-a",
+          status: "denied",
+          substantiveEvidence: false,
+          failureReason: "Managed invocation denied skill(s): workspace-write",
+        },
+      ],
+    } as const;
+
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:managed-denied-skills",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Failed managed_agent.invoke",
+            summary: "opencode-readonly denied",
+            tone: "error",
+            details: {
+              result: JSON.stringify({
+                output: "Managed invocation denied: Managed invocation denied skill(s): workspace-write",
+                isError: true,
+                metadata: {
+                  toolName: "managed_agent.invoke",
+                  kind: "managed-invocation",
+                  status: "denied",
+                  context: {
+                    mode: "isolated",
+                    agentProfile: "architecture-reviewer",
+                    skills: ["workspace-write"],
+                    deniedSkills: ["workspace-write"],
+                  },
+                  presentationIntent,
+                },
+              }),
+              status: "failed",
+            },
+            toolPresentation: {
+              outputKind: "table",
+              title: "Managed child invocation",
+              summary: "opencode-readonly denied",
+              fields: [{ label: "Denied skills", value: "workspace-write" }],
+              presentationIntent,
+              preview: {
+                text: "| Route | Provider |",
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Failure" })).toBeInTheDocument();
+    expect(within(table).getByText("opencode-readonly")).toBeInTheDocument();
+    expect(within(table).getByText("denied")).toBeInTheDocument();
+    expect(within(table).getByText("no")).toBeInTheDocument();
+    expect(within(table).getByText("Managed invocation denied skill(s): workspace-write")).toBeInTheDocument();
+    expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
+  });
+
   it("exposes local recorder timeline controls for zoom, cut, caption, and redaction edits", () => {
     render(
       <Transcript

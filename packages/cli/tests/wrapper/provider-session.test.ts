@@ -838,6 +838,69 @@ describe("ProviderSession.run()", () => {
     }));
   });
 
+  it("passes runtime budget admission into executable sessions", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+    const budgetAdmission = { admit: vi.fn() };
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      budgetAdmission,
+    }));
+
+    await collectEvents(session.run({ prompt: "execute within budget" }));
+
+    expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledWith(expect.objectContaining({
+      budgetAdmission,
+    }));
+  });
+
+  it("checks runtime budget admission before text-only provider calls", async () => {
+    const budgetAdmission = {
+      admit: vi.fn().mockResolvedValue({
+        status: "denied",
+        reason: "all-routes-over-budget",
+        missingCapabilities: ["budget.route.within_ceiling"],
+        usageSnapshots: [],
+        routeDecisions: [],
+        message: "Provider route is over budget.",
+      }),
+    };
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-4o",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+      budgetAdmission,
+    }));
+
+    const events = await collectEvents(session.run({ prompt: "text-only budget check" }));
+
+    expect(budgetAdmission.admit).toHaveBeenCalledWith(expect.objectContaining({
+      subject: "runtime-session-turn",
+      routeCandidates: [expect.objectContaining({ providerId: "openai", model: "gpt-4o" })],
+    }));
+    expect(adapterMocks.openai.ctor).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      code: "BUDGET_ADMISSION_DENIED",
+      message: "Provider route is over budget.",
+      isRetryable: false,
+    });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+  });
+
   it("normalizes direct-provider builtin tool executor results before runtime execution", async () => {
     coreSurfaceMocks.bridgeExecute.mockResolvedValueOnce({
       result: {

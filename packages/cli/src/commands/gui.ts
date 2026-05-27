@@ -9,6 +9,10 @@ import { resolveInstructionProfileContextCandidates } from "../application/instr
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { executeConfigSetupAction } from "../application/config-setup-actions.js";
+import {
+  createCliTranscriptBudgetUsageReader,
+  createRuntimeBudgetAdmissionFromGlobalConfig,
+} from "../application/runtime-budget-admission.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -95,6 +99,10 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
+  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
+    globalConfig,
+    createCliTranscriptBudgetUsageReader(transcriptStore),
+  );
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
@@ -147,6 +155,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     builtinToolOptions,
     "gui",
     managedInvocation,
+    runtimeBudgetAdmission,
   );
   if (startupModel) {
     sessionManager.setModel(startupModel);
@@ -209,6 +218,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       ttsAdapter: operatorVoice.ttsAdapter,
       executionMode: flags.plan ? "plan" : "execute",
       managedInvocation,
+      budgetAdmission: runtimeBudgetAdmission,
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,
     },

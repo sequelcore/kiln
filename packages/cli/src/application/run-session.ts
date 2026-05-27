@@ -13,6 +13,7 @@ import type {
   ProviderCreateConfig,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import type { PersistedProviderTokenUsage } from "../wrapper/session-store.js";
 import { isDirectApiProvider } from "../wrapper/session-registry.js";
 import type { CleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type { SessionManager } from "../wrapper/session-manager.js";
@@ -71,6 +72,7 @@ export interface RunSessionResult {
   readonly successfulModelId?: string;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly transcript: PersistedTranscriptEvent[];
+  readonly providerTokenUsage: readonly PersistedProviderTokenUsage[];
   readonly exactArtifacts: readonly string[];
   readonly submittedPlan?: string;
 }
@@ -101,6 +103,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let turnDepth = 0;
   let successfulProviderId: ProviderId | undefined;
   let successfulModelId: string | undefined;
+  const providerTokenUsage = new Map<string, PersistedProviderTokenUsage>();
   const attempts: RunSessionAttemptResult[] = [];
   const transcript: PersistedTranscriptEvent[] = [];
   const exactArtifacts = new Set<string>();
@@ -338,6 +341,14 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             finalCostUsd = event.usd;
             inputTokens = event.inputTokens ?? inputTokens;
             outputTokens = event.outputTokens ?? outputTokens;
+            recordProviderTokenUsage(providerTokenUsage, {
+              provider: event.provider ?? providerId,
+              ...(event.model ? { model: event.model } : {}),
+              inputTokens: event.inputTokens ?? 0,
+              outputTokens: event.outputTokens ?? 0,
+              cacheReadTokens: event.cacheReadTokens ?? 0,
+              cacheWriteTokens: 0,
+            });
             options.manager.trackCostUpdate(
               event.inputTokens ?? 0,
               event.outputTokens ?? 0,
@@ -425,9 +436,25 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     successfulModelId,
     attempts,
     transcript,
+    providerTokenUsage: [...providerTokenUsage.values()],
     exactArtifacts: [...exactArtifacts],
     submittedPlan,
   };
+}
+
+function recordProviderTokenUsage(
+  usageByProvider: Map<string, PersistedProviderTokenUsage>,
+  usage: PersistedProviderTokenUsage,
+): void {
+  const existing = usageByProvider.get(usage.provider);
+  usageByProvider.set(usage.provider, {
+    provider: usage.provider,
+    ...(usage.model ?? existing?.model ? { model: usage.model ?? existing?.model } : {}),
+    inputTokens: Math.max(usage.inputTokens ?? 0, existing?.inputTokens ?? 0),
+    outputTokens: Math.max(usage.outputTokens ?? 0, existing?.outputTokens ?? 0),
+    cacheReadTokens: Math.max(usage.cacheReadTokens ?? 0, existing?.cacheReadTokens ?? 0),
+    cacheWriteTokens: Math.max(usage.cacheWriteTokens ?? 0, existing?.cacheWriteTokens ?? 0),
+  });
 }
 
 function extractCommandFromToolInput(input: unknown): string | undefined {

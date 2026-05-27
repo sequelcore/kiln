@@ -995,6 +995,7 @@ function addManagedCapabilitySnapshotDetails(
   }
   const routeHealth = asRecord(snapshot?.routeHealth);
   const providerModelProof = asRecord(snapshot?.providerModelProof);
+  const adapterDescriptor = asRecord(snapshot?.adapterDescriptor);
   const resourcePlane = asRecord(snapshot?.resourcePlane);
   const childIdentity = asRecord(snapshot?.childIdentity);
   if (snapshot) {
@@ -1004,6 +1005,7 @@ function addManagedCapabilitySnapshotDetails(
     addItem(details, "Route health reason", routeHealth?.reason);
     addItem(details, "Provider proof", providerModelProof?.status);
     addItem(details, "Provider proof source", providerModelProof?.source);
+    addItem(details, "Route limitations", formatStringList(adapterDescriptor?.limitations));
     addItem(details, "Resource plane", resourcePlane?.available === true ? "available" : resourcePlane?.available === false ? "unavailable" : undefined);
   }
   const leasePath = readString(resourceLease?.workingDirectoryPath);

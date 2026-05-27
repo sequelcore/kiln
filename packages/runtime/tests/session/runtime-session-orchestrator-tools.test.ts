@@ -1031,7 +1031,36 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   });
 
   describe("budget checking", () => {
-    it("breaks loop when budget is exhausted on round > 0", async () => {
+    it("blocks before the first provider round when budget is exhausted", async () => {
+      const provider = makeProvider();
+      const budgetAdmission = {
+        admit: vi.fn().mockResolvedValue({
+          status: "denied",
+          reason: "all-routes-over-budget",
+          missingCapabilities: ["budget.route.within_ceiling"],
+          routeDecisions: [],
+          usageSnapshots: [],
+          message: "All route candidates are over their configured budget ceilings.",
+        }),
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        budgetAdmission,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("do work"));
+
+      expect(budgetAdmission.admit).toHaveBeenCalledWith(expect.objectContaining({
+        subject: "runtime-session-turn",
+        routeCandidates: [expect.objectContaining({ providerId: "mock" })],
+      }));
+      expect(provider.createMessage).not.toHaveBeenCalled();
+      expect(result.parts.map((part) => "text" in part ? part.text : "").join(""))
+        .toContain("All route candidates are over their configured budget ceilings.");
+    });
+
+    it("breaks the tool loop when budget is exhausted after an admitted first round", async () => {
       // Provider returns tool calls on every round
       let callCount = 0;
       const provider: ProviderAdapter = {
@@ -1063,24 +1092,37 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       };
 
       let budgetCheckCount = 0;
-      const budgetChecker = vi.fn().mockImplementation(() => {
-        budgetCheckCount++;
-        // Deny on second check (round 2)
-        return { allowed: budgetCheckCount < 2, message: "Budget exhausted" };
-      });
+      const budgetAdmission = {
+        admit: vi.fn().mockImplementation(() => {
+          budgetCheckCount++;
+          return {
+            status: budgetCheckCount < 2 ? "admitted" : "denied",
+            reason: budgetCheckCount < 2 ? "route-within-budget" : "all-routes-over-budget",
+            ...(budgetCheckCount < 2
+              ? { admittedRoutes: [{ providerId: "mock" }], usageSnapshots: [] }
+              : { missingCapabilities: ["budget.route.within_ceiling"], routeDecisions: [], usageSnapshots: [] }),
+          };
+        }),
+      };
+
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("ok")]]),
-        budgetChecker,
+        budgetAdmission,
+        eventBus,
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("do work"));
 
-      // Budget checker should NOT be called on round 0 (first round)
-      // It should be called starting from round 1
-      expect(budgetChecker).toHaveBeenCalled();
+      expect(budgetAdmission.admit).toHaveBeenCalledTimes(2);
+      expect(result.parts.map((part) => "text" in part ? part.text : "").join("")).toContain("all-routes-over-budget");
+      expect(emitSpy.mock.calls.some((call) =>
+        call[0].type === "error" && JSON.stringify(call[0]).includes("all-routes-over-budget")
+      )).toBe(true);
     });
   });
 

@@ -20,6 +20,7 @@ import {
   type HarnessPoolProviderId,
   type ManagedInvocationToolOptions,
   type OperatorSurfaceController,
+  type RuntimeBudgetAdmissionPort,
 } from "@kilnai/runtime";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
@@ -162,6 +163,7 @@ export interface ProviderCreateConfig {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
 }
 
 export interface ClaudeBackendConfig {
@@ -998,6 +1000,7 @@ function createDirectProviderSession(
     ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
+    ...(config.budgetAdmission ? { budgetAdmission: config.budgetAdmission } : {}),
   });
 }
 

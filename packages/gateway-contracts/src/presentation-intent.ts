@@ -339,6 +339,6 @@ function formatCell(value: ComparisonTablePresentationCell): string {
 }
 
 function compactCell(value: string): string {
-  const escaped = value.replace(/\|/g, "\\|");
-  return escaped.length > 42 ? `${escaped.slice(0, 41)}...` : escaped;
+  const compacted = value.length > 42 ? `${value.slice(0, 24)}...${value.slice(-15)}` : value;
+  return compacted.replace(/\|/g, "\\|");
 }

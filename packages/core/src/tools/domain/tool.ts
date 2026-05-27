@@ -1422,7 +1422,7 @@ export const TOOL_SCHEMAS: Record<
   },
   resource_read: {
     name: "resource_read",
-    description: "Read one exact kiln:// resource URI from the shared resource registry. Fails closed for missing, malformed, or unauthorized resources.",
+    description: "Read one bounded page from a kiln:// resource URI in the shared resource registry. Use nextCursor unchanged to continue pagination.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1430,6 +1430,14 @@ export const TOOL_SCHEMAS: Record<
           type: "string",
           minLength: 1,
           description: "Exact kiln:// resource URI to read.",
+        },
+        cursor: {
+          type: "string",
+          description: "Opaque cursor returned by a previous resource_read call.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum resource units to return. Text resources page by line; binary resources page by decoded byte.",
         },
       },
       required: ["uri"],

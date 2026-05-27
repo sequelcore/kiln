@@ -77,6 +77,7 @@ export interface ManagedInvocationToolRoute {
   readonly voiceProfile?: string;
   readonly adapter: ManagedAgentRuntimeAdapter;
   readonly surface?: string;
+  readonly providerModelProof?: ManagedAgentCapabilitySnapshotInput["providerModelProof"];
   readonly taskSuitability?: readonly ModelTaskSuitability[];
   readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
 }
@@ -845,7 +846,32 @@ async function prepareManagedInvocationRequest(
 
   const contextResolution = await resolveInvocationContext(parsed.input, options, route);
   if (!contextResolution.ok) {
-    return { ok: false, result: errorResult(contextResolution.error, {}, toolName) };
+    const contextMetadata = buildManagedInvocationContextMetadata(parsed.input, contextResolution.resolution);
+    return {
+      ok: false,
+      result: errorResult(contextResolution.error, {
+        routeId: route.routeId,
+        profile: parsed.input.profile,
+        providerRoute: {
+          providerId: route.providerId,
+          ...(route.model ? { model: route.model } : {}),
+          ...(route.surface ? { surface: route.surface } : {}),
+        },
+        status: contextResolution.status,
+        ...(contextMetadata ? { context: contextMetadata } : {}),
+        presentationIntent: buildManagedInvocationPresentationIntent({
+          sourceToolName: toolName,
+          routeId: route.routeId,
+          profile: parsed.input.profile,
+          providerId: route.providerId,
+          model: route.model,
+          contextMode: parsed.input.contextMode,
+          status: contextResolution.status,
+          substantiveEvidence: false,
+          failureReason: contextResolution.error,
+        }),
+      }, toolName),
+    };
   }
   const prompt = contextResolution.resolution.promptPrefix
     ? `${contextResolution.resolution.promptPrefix}\n\nTask:\n${parsed.input.task}`
@@ -935,9 +961,11 @@ async function prepareManagedInvocationRequest(
           reason: "Configured managed invocation route selected by runtime tool.",
         },
         providerModelProof: {
-          status: "live-proven",
-          source: "managed-invocation-route-health",
-          requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
+          ...(route.providerModelProof ?? {
+            status: "live-proven",
+            source: "managed-invocation-route-health",
+            requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
+          }),
         },
         resourcePlane: {
           available: true,
@@ -2164,7 +2192,12 @@ async function resolveInvocationContext(
   route: ManagedInvocationToolRoute | undefined,
 ): Promise<
   | { readonly ok: true; readonly resolution: ManagedInvocationContextResolution }
-  | { readonly ok: false; readonly error: string }
+  | {
+    readonly ok: false;
+    readonly error: string;
+    readonly status: "denied" | "failed";
+    readonly resolution?: ManagedInvocationContextResolution;
+  }
 > {
   const needsResolver = Boolean(options.contextResolver || input.agentProfile || input.skills?.length || input.contextMode === "fork");
   if (!needsResolver) {
@@ -2174,6 +2207,7 @@ async function resolveInvocationContext(
     return {
       ok: false,
       error: "Managed invocation context resolver is not configured for requested agentProfile, skills, or fork context.",
+      status: "failed",
     };
   }
   try {
@@ -2192,6 +2226,8 @@ async function resolveInvocationContext(
       return {
         ok: false,
         error: `Managed invocation denied skill(s): ${resolution.deniedSkills.join(", ")}`,
+        status: "denied",
+        resolution,
       };
     }
     return { ok: true, resolution };
@@ -2199,8 +2235,25 @@ async function resolveInvocationContext(
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
+      status: "failed",
     };
   }
+}
+
+function buildManagedInvocationContextMetadata(
+  input: ManagedInvocationToolInput,
+  resolution: ManagedInvocationContextResolution | undefined,
+): Record<string, unknown> | undefined {
+  const context = {
+    ...(input.contextMode ? { mode: input.contextMode } : {}),
+    ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
+    ...(input.skills && input.skills.length > 0 ? { skills: input.skills } : {}),
+    ...(resolution?.admittedAgentProfile ? { admittedAgentProfile: resolution.admittedAgentProfile } : {}),
+    ...(resolution?.admittedSkills ? { admittedSkills: resolution.admittedSkills } : {}),
+    ...(resolution?.admittedInstructionProfiles ? { admittedInstructionProfiles: resolution.admittedInstructionProfiles } : {}),
+    ...(resolution?.deniedSkills ? { deniedSkills: resolution.deniedSkills } : {}),
+  };
+  return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | undefined {

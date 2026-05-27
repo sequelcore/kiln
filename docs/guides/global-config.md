@@ -69,6 +69,13 @@ kiln config set --global skills.selection.mode auto
 | `skills.selection.mode` | `advisory \| auto` | Controls whether task/model recommended skills are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
+When `routing.budgetAware` is true, budget ceilings are projected into the
+runtime/session budget admission service. CLI commands may provide the config
+source, but they do not own budget decisions. If an enabled budget-aware route
+requires live usage and no meter is available, managed orchestration admission
+fails closed instead of estimating, falling back to a local token shim, or
+reusing gateway billing state.
+
 MCP server entries may include `requestTimeoutMs` to override the default
 Kiln-owned MCP client request timeout for that server. Use it for servers with
 long-running tools when the tool's own input does not expose a millisecond
@@ -685,6 +692,46 @@ implement under supervision. Prefer descriptive route IDs that encode the job:
   `opencode-zen-mechanical-approved-write` for repetitive low-risk edits.
 - `opencode-zen-free-approved-write` as the cost-conscious direct-provider
   fallback when the free route is sufficient.
+
+### Remote harness managed routes
+
+Remote managed routes use the managed invocation lifecycle with endpoint-backed
+harness execution. They are configured as harness routes with a `remoteHarness`
+endpoint block. The runtime projects these routes as `surface: remote-harness`
+and `executionMode: remote-harness`; those are runtime projection fields, not
+configuration fields. Invoke and cancel URLs must be HTTPS. Auth token
+environment names must be portable identifiers; token values are read at call
+time and are never persisted in records, transcripts, diagnostics, or handoff
+resources.
+
+```yaml
+managedAgents:
+  enabled: true
+  routes:
+    - id: codex-cloud-readonly
+      kind: harness
+      provider: codex-cloud
+      model: gpt-5.5
+      profiles:
+        - foundation-readonly-plan
+      remoteHarness:
+        invokeUrl: https://remote.example.test/managed-agent/invoke
+        cancelUrl: https://remote.example.test/managed-agent/cancel
+        authTokenEnv: KILN_CODEX_CLOUD_TOKEN
+      tools:
+        allowed:
+          - read
+          - grep
+        network: false
+        writes: false
+```
+
+Remote harness routes are currently read-only. They must expose provider
+limitations as capability evidence and use configured route proof instead of
+claiming live provider/tool proof from endpoint configuration alone. The runtime
+validates returned records against the admitted identity and capability
+snapshot; mismatched route, model, adapter, execution mode, authority, or
+capability evidence fails closed.
 
 ### Supported providers
 

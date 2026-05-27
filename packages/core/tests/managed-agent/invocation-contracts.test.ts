@@ -166,6 +166,41 @@ describe("managed agent invocation contracts", () => {
     expect(JSON.stringify(descriptor)).not.toMatch(/\bsubagent\b|\bteam\b|\bfork\b/);
   });
 
+  it("preserves remote-harness limitations as route capability evidence without changing adapter kind", () => {
+    const descriptor = defineManagedAgentAdapterDescriptor({
+      ...makeDescriptor(),
+      adapterDescriptorId: "adapter:codex-cloud:remote-harness",
+      providerId: "codex-cloud",
+      supportedExecutionModes: ["remote-harness"],
+      limitations: [
+        "Remote harness reports aggregate token classes only.",
+        "Remote harness cannot expose local live terminal streaming.",
+      ],
+    });
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      providerRoute: {
+        providerId: "codex-cloud",
+        surface: "remote-harness",
+        model: "gpt-5.5",
+      },
+      executionMode: "remote-harness",
+    });
+    const snapshot = buildManagedAgentCapabilitySnapshot(request, descriptor, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-cloud-remote-readonly",
+    });
+
+    expect(descriptor.adapterKind).toBe("harness");
+    expect(descriptor.supportedExecutionModes).toEqual(["remote-harness"]);
+    expect(descriptor.limitations).toEqual([
+      "Remote harness reports aggregate token classes only.",
+      "Remote harness cannot expose local live terminal streaming.",
+    ]);
+    expect(snapshot.adapterDescriptor.limitations).toEqual(descriptor.limitations);
+    expect(snapshot.providerRoute.surface).toBe("remote-harness");
+  });
+
   it("derives a replayable resource lease in the capability snapshot", () => {
     const baseRequest = makeRequest();
     const request = defineManagedAgentInvocationRequest({

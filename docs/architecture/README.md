@@ -54,7 +54,8 @@ is documented by concern, not as a single monolith.
 
 - `managed-agents.md`
   Provider-neutral managed child invocation, admission, authority profiles,
-  write evidence, live adapter proofs, terminal events, and replay invariants.
+  lifecycle tools, parallel orchestration, leases, resource projection, remote
+  harness routes, write evidence, terminal events, and replay invariants.
 
 - `session-feedback-pipeline.md`
   Local-first operator feedback, redaction, evidence selection, issue draft,

@@ -2,6 +2,8 @@ import { posix, resolve, win32 } from "node:path";
 import {
   buildManagedAgentOrchestrationResultEvidence,
   defineManagedAgentInvocationRequest,
+  type BudgetAdmissionPolicy,
+  type BudgetAdmissionRouteCandidate,
   type ManagedAgentAdmissionProfile,
   type ManagedAgentAuthorityProfile,
   type ManagedAgentInvocationRecord,
@@ -18,6 +20,10 @@ import type {
   ManagedInvocationToolOptions,
   ManagedInvocationToolRoute,
 } from "./runtime-tool.js";
+import {
+  RuntimeBudgetAdmissionService,
+  type RuntimeBudgetUsageReader,
+} from "../../session/runtime-budget-admission.js";
 
 const FAN_OUT_PROFILE: ManagedAgentAdmissionProfile = "foundation-apply-approved-writes";
 const FAN_OUT_CONTEXT_MODE = "isolated";
@@ -28,11 +34,17 @@ export interface ManagedAgentFanOutLifecycleRouteSelector {
   readonly routeId?: string;
 }
 
+export interface ManagedAgentFanOutBudgetAdmissionInput {
+  readonly policy: BudgetAdmissionPolicy;
+  readonly usageReader?: RuntimeBudgetUsageReader;
+}
+
 export interface ManagedAgentFanOutLifecycleInput {
   readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
   readonly managedInvocation: ManagedInvocationToolOptions;
   readonly routeSelector?: ManagedAgentFanOutLifecycleRouteSelector;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
+  readonly budgetAdmission?: ManagedAgentFanOutBudgetAdmissionInput;
 }
 
 export interface ManagedAgentFanOutLifecycleChildRecord {
@@ -61,6 +73,11 @@ export async function runManagedAgentFanOutLifecycle(
 
   const route = selectFanOutRoute(input.managedInvocation, input.routeSelector);
   const profile = requireFanOutProfile(route);
+  await assertFanOutBudgetAdmission({
+    orchestrationRequest: input.orchestrationRequest,
+    route,
+    ...(input.budgetAdmission ? { budgetAdmission: input.budgetAdmission } : {}),
+  });
   const requests = input.orchestrationRequest.childRequests.map((child) =>
     buildFanOutChildInvocationRequest({
       orchestrationRequest: input.orchestrationRequest,
@@ -178,6 +195,34 @@ export async function runManagedAgentFanOutLifecycle(
   return {
     orchestrationResult,
     childRecords,
+  };
+}
+
+async function assertFanOutBudgetAdmission(input: {
+  readonly budgetAdmission?: ManagedAgentFanOutBudgetAdmissionInput;
+  readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
+  readonly route: ManagedInvocationToolRoute;
+}): Promise<void> {
+  if (!input.budgetAdmission) {
+    return;
+  }
+  const budgetAdmission = new RuntimeBudgetAdmissionService(input.budgetAdmission);
+  const decision = await budgetAdmission.admit({
+    subject: "managed-orchestration",
+    sessionId: input.orchestrationRequest.parentSessionId,
+    turnId: input.orchestrationRequest.parentTurnId,
+    routeCandidates: [budgetRouteCandidate(input.route)],
+  });
+  if (decision.status === "denied") {
+    throw new Error(`Managed fan-out budget admission denied: ${decision.message ?? decision.reason}`);
+  }
+}
+
+function budgetRouteCandidate(route: ManagedInvocationToolRoute): BudgetAdmissionRouteCandidate {
+  return {
+    routeId: route.routeId,
+    providerId: route.providerId,
+    ...(route.model ? { model: route.model } : {}),
   };
 }
 

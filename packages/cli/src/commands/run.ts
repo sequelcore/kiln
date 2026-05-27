@@ -54,7 +54,10 @@ import {
   type RunOutputMode,
 } from "../application/run-output.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
-import { TranscriptStore, type PersistedSessionMeta } from "../wrapper/session-store.js";
+import {
+  TranscriptStore,
+} from "../wrapper/session-store.js";
+import type { PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel, type KilnGlobalConfig } from "../config/global-config.js";
@@ -67,7 +70,12 @@ import { createWorkGovernanceTools } from "../application/work-governance-tool.j
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
-import { getEngineBudgetStatus, resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
+import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
+import {
+  createCliTranscriptBudgetUsageReader,
+  createRuntimeBudgetAdmissionFromGlobalConfig,
+  projectGlobalRoutingBudgetPolicy,
+} from "../application/runtime-budget-admission.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
@@ -93,7 +101,11 @@ import {
   runManagedAgentFanOutLifecycle,
 } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
-import type { ManagedInvocationToolOptions } from "@kilnai/runtime";
+import type {
+  ManagedAgentFanOutBudgetAdmissionInput,
+  ManagedInvocationToolOptions,
+  RuntimeBudgetUsageReader,
+} from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export interface RunFlags {
@@ -444,7 +456,20 @@ export class RunCommandExitError extends Error {
 export interface RunCommandExecutionOptions {
   readonly exitOnFailure?: boolean;
   readonly globalConfig?: KilnGlobalConfig | null;
-  readonly getDailyTokensUsed?: (engineId: string) => number;
+  readonly budgetUsageReader?: RuntimeBudgetUsageReader;
+  readonly parallelWorkerLineage?: RunCommandParallelWorkerLineage;
+}
+
+export interface RunCommandParallelWorkerLineage {
+  readonly orchestrationId?: string;
+  readonly parentSessionId?: string;
+  readonly parentTurnId?: string;
+}
+
+interface ResolvedParallelWorkerLineage {
+  readonly orchestrationId: string;
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
 }
 
 function exitRunCommand(code: number, options: RunCommandExecutionOptions): never {
@@ -452,6 +477,19 @@ function exitRunCommand(code: number, options: RunCommandExecutionOptions): neve
     throw new RunCommandExitError(code);
   }
   process.exit(code);
+}
+
+function resolveParallelWorkerLineage(
+  lineage: RunCommandParallelWorkerLineage | undefined,
+): ResolvedParallelWorkerLineage {
+  const parentSessionId = lineage?.parentSessionId ?? randomUUID();
+  const parentTurnId = lineage?.parentTurnId ?? `${parentSessionId}:workers`;
+  const orchestrationId = lineage?.orchestrationId ?? `${parentSessionId}:workers`;
+  return {
+    orchestrationId,
+    parentSessionId,
+    parentTurnId,
+  };
 }
 
 async function readSubmittedPlanFromTranscript(projectPath: string, sessionId: string): Promise<string | undefined> {
@@ -674,6 +712,8 @@ export async function runCommand(
   const resumedMeta = resumeSessionId
     ? await transcriptStore.readMeta(resumeSessionId)
     : null;
+  const budgetUsageReader = executionOptions.budgetUsageReader ?? createCliTranscriptBudgetUsageReader(transcriptStore);
+  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(globalConfig, budgetUsageReader);
   const resumeStrategyFeedback = resumeSessionId
     ? await inferResumeStrategyFeedback(transcriptStore, preferredProvider)
     : undefined;
@@ -955,6 +995,13 @@ export async function runCommand(
         ...executionOptions,
         exitOnFailure: false,
         globalConfig,
+        budgetUsageReader,
+        parallelWorkerLineage: resolveParallelWorkerLineage({
+          parentSessionId: sessionId,
+          parentTurnId: `${sessionId}:workers`,
+          orchestrationId: `${sessionId}:workers`,
+          ...(executionOptions.parallelWorkerLineage ?? {}),
+        }),
       });
     } catch (error) {
       if (!(error instanceof RunCommandExitError)) {
@@ -1009,6 +1056,7 @@ export async function runCommand(
     localProvider: flags.localProvider,
     builtinToolOptions,
     managedInvocation,
+    ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
     requestedAuthority: flags.requestedAuthority,
@@ -1104,6 +1152,7 @@ export async function runCommand(
     successfulModelId,
     attempts,
     transcript,
+    providerTokenUsage = [],
     exactArtifacts,
     submittedPlan: submittedPlanFromSession,
   } = runResult;
@@ -1191,6 +1240,9 @@ export async function runCommand(
       completedAt,
       lastTurnOutcome: "completed",
       costUsd: finalCostUsd,
+      inputTokens,
+      outputTokens,
+      providerTokenUsage,
       toolCount: toolCallCount,
       turnDepth,
       resumeStrategy: context.resumeStrategy,
@@ -1267,6 +1319,9 @@ export async function runCommand(
       summary: initialMetadata.summary,
       tags: initialMetadata.tags,
       costUsd: finalCostUsd,
+      inputTokens,
+      outputTokens,
+      providerTokenUsage,
       toolCount: toolCallCount,
       turnDepth,
       resumeStrategy: context.resumeStrategy,
@@ -1595,6 +1650,8 @@ function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
       return "tool_call_started";
     case "tool_result":
       return "tool_call_completed";
+    case "cost_update":
+      return "cost_updated";
     case "error":
       return "error_recorded";
     default:
@@ -1611,6 +1668,8 @@ function mapTranscriptTypeToSource(type: string): SessionEventSource {
     case "tool_use":
     case "tool_result":
       return { actor: "tool", surface: "cli", component: "run-command" };
+    case "cost_update":
+      return { actor: "runtime", surface: "cli", component: "run-command" };
     case "error":
       return { actor: "runtime", surface: "cli", component: "run-command" };
     default:
@@ -1624,7 +1683,6 @@ function resolveParallelWorkerAdmissionLimits(
   flags: RunFlags,
   task: string,
   workerCount: number,
-  executionOptions: RunCommandExecutionOptions,
 ): ManagedAgentOrchestrationAdmissionLimits {
   const lifecycleRoutes = managedInvocation.routes.filter((route) => {
     if (flags.provider && route.providerId !== flags.provider) return false;
@@ -1641,7 +1699,7 @@ function resolveParallelWorkerAdmissionLimits(
   return {
     maxChildren: appConfig.kilnYaml?.parallelWorkers ?? workerCount,
     routeHealth: hasSingleLifecycleRoute ? "available" : "unavailable",
-    budget: resolveParallelWorkerBudgetAvailability(executionOptions.globalConfig, lifecycleRoutes, executionOptions),
+    budget: "available",
     workspace: hasSingleLifecycleRoute ? "available" : "unavailable",
     taskRisk: complexity === "complex" || complexity === "expert"
       ? "high"
@@ -1651,27 +1709,17 @@ function resolveParallelWorkerAdmissionLimits(
   };
 }
 
-function resolveParallelWorkerBudgetAvailability(
+function projectParallelWorkerBudgetAdmission(
   globalConfig: KilnGlobalConfig | null | undefined,
-  lifecycleRoutes: readonly ManagedInvocationToolOptions["routes"][number][],
   executionOptions: RunCommandExecutionOptions,
-): ManagedAgentOrchestrationAdmissionLimits["budget"] {
+): ManagedAgentFanOutBudgetAdmissionInput | undefined {
   if (globalConfig?.routing?.budgetAware !== true) {
-    return "available";
+    return undefined;
   }
-  if (!executionOptions.getDailyTokensUsed) {
-    return "unavailable";
-  }
-  if (lifecycleRoutes.length === 0) {
-    return "unavailable";
-  }
-  return lifecycleRoutes.some((route) =>
-    getEngineBudgetStatus(globalConfig, route.providerId, {
-      getDailyTokensUsed: executionOptions.getDailyTokensUsed,
-    }).withinBudget
-  )
-    ? "available"
-    : "unavailable";
+  return {
+    policy: projectGlobalRoutingBudgetPolicy(globalConfig),
+    ...(executionOptions.budgetUsageReader ? { usageReader: executionOptions.budgetUsageReader } : {}),
+  };
 }
 
 export async function runParallelWorkers(
@@ -1687,19 +1735,25 @@ export async function runParallelWorkers(
     exitRunCommand(1, executionOptions);
   }
 
+  const lineage = resolveParallelWorkerLineage(executionOptions.parallelWorkerLineage);
   const orchestrationRequest = buildManagedAgentFanOutOrchestrationRequest({
-    orchestrationId: "cli-run-workers",
-    parentSessionId: "cli-run",
-    parentTurnId: "cli-run-workers",
+    orchestrationId: lineage.orchestrationId,
+    parentSessionId: lineage.parentSessionId,
+    parentTurnId: lineage.parentTurnId,
     requestedBy: "operator",
     requestSource: "cli:run-workers",
     task,
     childCount: workerCount,
     maxConcurrentChildren: workerCount,
   });
-  const admission = admitManagedAgentOrchestrationRequest(orchestrationRequest, {
-    ...resolveParallelWorkerAdmissionLimits(appConfig, managedInvocation, flags, task, workerCount, executionOptions),
-  });
+  const admissionLimits = resolveParallelWorkerAdmissionLimits(
+    appConfig,
+    managedInvocation,
+    flags,
+    task,
+    workerCount,
+  );
+  const admission = admitManagedAgentOrchestrationRequest(orchestrationRequest, admissionLimits);
   if (admission.status === "denied") {
     console.error(`Error: ${admission.reason}.`);
     for (const missingCapability of admission.missingCapabilities) {
@@ -1710,6 +1764,7 @@ export async function runParallelWorkers(
 
   let lifecycleResult: Awaited<ReturnType<typeof runManagedAgentFanOutLifecycle>>;
   try {
+    const budgetAdmission = projectParallelWorkerBudgetAdmission(executionOptions.globalConfig, executionOptions);
     lifecycleResult = await runManagedAgentFanOutLifecycle({
       orchestrationRequest: admission.request,
       managedInvocation,
@@ -1718,6 +1773,7 @@ export async function runParallelWorkers(
         ...(flags.model ? { model: flags.model } : {}),
       },
       requestedAuthority: flags.requestedAuthority ?? "audited",
+      ...(budgetAdmission ? { budgetAdmission } : {}),
     });
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);

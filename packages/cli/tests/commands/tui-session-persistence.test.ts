@@ -360,6 +360,36 @@ describe("makeMultiProviderSessionFactory", () => {
     );
   });
 
+  it("passes runtime budget admission into provider sessions", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+    const budgetAdmission = { admit: vi.fn() };
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/p",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "tui",
+      undefined,
+      budgetAdmission,
+    );
+    const session = factory("sys", "/p");
+
+    for await (const _ of session.run({ prompt: "budgeted turn" } as any)) {}
+
+    expect(registry.createSession).toHaveBeenCalledWith(
+      "claude",
+      expect.objectContaining({ budgetAdmission }),
+    );
+  });
+
   it("shares builtin resource state across recreated provider sessions", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();
@@ -505,6 +535,66 @@ describe("makeMultiProviderSessionFactory", () => {
     });
     expect(appendedEvents.find((event) => event.kind === "assistant_message")?.payload).toMatchObject({
       content: "Done.",
+    });
+  });
+
+  it("persists provider-scoped cost updates for budget usage attribution", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-cost",
+        providerSessionId: "prov-cost",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield {
+            type: "cost_update",
+            usd: 0,
+            mode: "computed",
+            provider: "codex-oauth",
+            model: "gpt-5.4",
+            inputTokens: 30,
+            outputTokens: 12,
+            cacheReadTokens: 3,
+          };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "costed turn" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    expect(appendedEvents.find((event) => event.kind === "cost_updated")?.payload).toMatchObject({
+      provider: { provider: "codex-oauth", model: "gpt-5.4" },
+      usage: {
+        inputTokens: 30,
+        outputTokens: 12,
+        cacheReadTokens: 3,
+      },
+    });
+    expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
+      providerTokenUsage: [{
+        provider: "codex-oauth",
+        model: "gpt-5.4",
+        inputTokens: 30,
+        outputTokens: 12,
+        cacheReadTokens: 3,
+      }],
     });
   });
 

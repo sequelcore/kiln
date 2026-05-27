@@ -1,9 +1,11 @@
-import type {
-  ManagedAgentResourceLeaseEvidence,
-  ToolResourceDescriptor,
-  ToolResourceProvider,
-  ToolResourceReadResult,
-  ToolResourceTemplateDescriptor,
+import {
+  type ManagedAgentResourceLeaseEvidence,
+  rejectResourceReadCursor,
+  type ToolResourceDescriptor,
+  type ToolResourceProvider,
+  type ToolResourceReadOptions,
+  type ToolResourceReadResult,
+  type ToolResourceTemplateDescriptor,
 } from "@kilnai/core";
 import type { ManagedAgentRuntimeInvocationSnapshot } from "./index.js";
 
@@ -72,11 +74,12 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
     }];
   }
 
-  async read(uri: string): Promise<ToolResourceReadResult | undefined> {
+  async read(uri: string, options: ToolResourceReadOptions = {}): Promise<ToolResourceReadResult | undefined> {
     const parsed = parseManagedAgentResourceUri(uri);
     if (!parsed) {
       return undefined;
     }
+    rejectResourceReadCursor(uri, options);
     if (!parsed.invocationId) {
       return jsonResource(uri, {
         total: this.sortedInvocations().length,

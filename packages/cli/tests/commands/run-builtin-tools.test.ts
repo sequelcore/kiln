@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import type { ManagedAgentFanOutLifecycleInput } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
 import { buildRunSessionRequirements, resolveRunProviderModelAdmission, runCommand } from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
@@ -50,6 +51,35 @@ vi.mock("@kilnai/runtime", () => ({
     capabilities: new Map(),
     toolAuthority: new Map(),
   })),
+  RuntimeBudgetAdmissionService: class MockRuntimeBudgetAdmissionService {
+    constructor(private readonly options: {
+      readonly policy: { readonly enabled: boolean };
+      readonly usageReader?: (input: {
+        readonly providerId: string;
+        readonly subject: "runtime-session-turn" | "managed-orchestration";
+        readonly sessionId: string;
+      }) => Promise<unknown>;
+    }) {}
+
+    async admit(request: {
+      readonly subject: "runtime-session-turn" | "managed-orchestration";
+      readonly sessionId: string;
+      readonly routeCandidates: readonly { readonly providerId: string }[];
+    }) {
+      return {
+        status: this.options.policy.enabled ? "admitted" : "admitted",
+        reason: this.options.policy.enabled ? "route-within-budget" : "budget-disabled",
+        admittedRoutes: request.routeCandidates,
+        usageSnapshots: this.options.usageReader
+          ? [await this.options.usageReader({
+              providerId: request.routeCandidates[0]?.providerId ?? "unknown",
+              subject: request.subject,
+              sessionId: request.sessionId,
+            })]
+          : [],
+      };
+    }
+  },
   discoverGuiDirectProviderModelDiscovery: vi.fn().mockResolvedValue({
     openai: {
       models: ["gpt-4o"],
@@ -198,6 +228,12 @@ vi.mock("../../src/wrapper/session-store.js", () => ({
     async readMeta() {
       return null;
     }
+    async readTranscript() {
+      return [];
+    }
+    async listSessions() {
+      return [];
+    }
   },
 }));
 
@@ -307,40 +343,45 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
     runWiringMocks.cleanupRegistryRunAll.mockResolvedValue(undefined);
     runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({ id: "managed-agent-resource-provider" });
-    runWiringMocks.runManagedAgentFanOutLifecycle.mockResolvedValue({
-      orchestrationResult: {
-        orchestrationId: "cli-run-workers",
-        mode: "fan-out",
-        status: "completed",
-        childResults: [{
-          childId: "cli-run-workers:child:1",
-          ordinal: 1,
-          lifecycleState: "completed",
-          success: true,
-          resourceUris: [],
-          diagnosticUris: [],
-        }, {
-          childId: "cli-run-workers:child:2",
-          ordinal: 2,
-          lifecycleState: "completed",
-          success: true,
-          resourceUris: [],
-          diagnosticUris: [],
-        }],
-        completedAt: "2026-05-22T00:00:00.000Z",
+    runWiringMocks.runManagedAgentFanOutLifecycle.mockImplementation(
+      async (input: ManagedAgentFanOutLifecycleInput) => {
+        const orchestrationId = input.orchestrationRequest.orchestrationId;
+        return {
+          orchestrationResult: {
+            orchestrationId,
+            mode: "fan-out",
+            status: "completed",
+            childResults: [{
+              childId: `${orchestrationId}:child:1`,
+              ordinal: 1,
+              lifecycleState: "completed",
+              success: true,
+              resourceUris: [],
+              diagnosticUris: [],
+            }, {
+              childId: `${orchestrationId}:child:2`,
+              ordinal: 2,
+              lifecycleState: "completed",
+              success: true,
+              resourceUris: [],
+              diagnosticUris: [],
+            }],
+            completedAt: "2026-05-22T00:00:00.000Z",
+          },
+          childRecords: [{
+            childId: `${orchestrationId}:child:1`,
+            ordinal: 1,
+            invocationId: `${orchestrationId}:child:1`,
+            record: { lifecycleState: "completed" },
+          }, {
+            childId: `${orchestrationId}:child:2`,
+            ordinal: 2,
+            invocationId: `${orchestrationId}:child:2`,
+            record: { lifecycleState: "completed" },
+          }],
+        };
       },
-      childRecords: [{
-        childId: "cli-run-workers:child:1",
-        ordinal: 1,
-        invocationId: "cli-run-workers:child:1",
-        record: { lifecycleState: "completed" },
-      }, {
-        childId: "cli-run-workers:child:2",
-        ordinal: 2,
-        invocationId: "cli-run-workers:child:2",
-        record: { lifecycleState: "completed" },
-      }],
-    });
+    );
     runWiringMocks.runVerification.mockResolvedValue({ passed: true, checks: [] });
     runWiringMocks.transcriptInit.mockResolvedValue(undefined);
     runWiringMocks.transcriptFinalize.mockResolvedValue(undefined);
@@ -399,6 +440,91 @@ describe("run command builtin tool wiring", () => {
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
       managedInvocation,
+    });
+  });
+
+  it("projects runtime-owned budget admission and session lineage into parallel fan-out", async () => {
+    readGlobalConfigMock.mockReturnValue({
+      version: "1",
+      routing: {
+        budgetAware: true,
+        budget: {
+          codex: {
+            dailyTokenCeiling: 100,
+            onCeiling: "stop",
+          },
+        },
+      },
+    });
+
+    await runCommand({
+      ...APP_CONFIG,
+      managedInvocation: parallelManagedInvocation(),
+    }, "parallel budget", { provider: "codex", workers: 2 });
+
+    const input = runWiringMocks.runManagedAgentFanOutLifecycle.mock.calls[0]?.[0] as
+      | ManagedAgentFanOutLifecycleInput
+      | undefined;
+    if (!input) {
+      throw new Error("Expected parallel fan-out lifecycle input.");
+    }
+
+    expect(input.budgetAdmission?.policy).toMatchObject({
+      enabled: true,
+      routeBudgets: [{
+        providerId: "codex",
+        dailyTokenCeiling: 100,
+        onCeiling: "stop",
+      }],
+    });
+    expect(input.budgetAdmission?.usageReader).toEqual(expect.any(Function));
+    expect(input.orchestrationRequest.parentSessionId).not.toBe("cli-run");
+    expect(input.orchestrationRequest.orchestrationId).toContain(input.orchestrationRequest.parentSessionId);
+
+    const usage = await input.budgetAdmission?.usageReader?.({
+      providerId: "codex",
+      subject: "managed-orchestration",
+      sessionId: input.orchestrationRequest.parentSessionId,
+    });
+    expect(usage).toMatchObject({
+      providerId: "codex",
+      tokensUsed: 0,
+      source: "cli-transcript-session-usage",
+    });
+  });
+
+  it("projects runtime-owned budget admission into normal run sessions", async () => {
+    readGlobalConfigMock.mockReturnValue({
+      version: "1",
+      routing: {
+        budgetAware: true,
+        budget: {
+          codex: {
+            dailyTokenCeiling: 100,
+            onCeiling: "stop",
+          },
+        },
+      },
+    });
+
+    await runCommand(APP_CONFIG, "budgeted run", { provider: "codex" });
+
+    const sessionConfig = runWiringMocks.capturedSessionConfigs[0] as {
+      readonly budgetAdmission?: {
+        admit(input: {
+          subject: "runtime-session-turn";
+          sessionId: string;
+          routeCandidates: readonly { providerId: string }[];
+        }): Promise<{ readonly status: string }>;
+      };
+    };
+    expect(sessionConfig.budgetAdmission).toBeDefined();
+    await expect(sessionConfig.budgetAdmission?.admit({
+      subject: "runtime-session-turn",
+      sessionId: "next-session",
+      routeCandidates: [{ providerId: "codex" }],
+    })).resolves.toMatchObject({
+      status: "admitted",
     });
   });
 

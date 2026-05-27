@@ -613,6 +613,32 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
   }
   validateManagedAgentVoiceProfile(value.voiceProfile, `managedAgents.routes[${index}].voiceProfile`, operatorVoice);
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
+  validateManagedAgentRemoteHarness(value.remoteHarness, value.kind, `managedAgents.routes[${index}].remoteHarness`);
+}
+
+function validateManagedAgentRemoteHarness(value: unknown, routeKind: unknown, path: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (routeKind !== "harness") {
+    throw new KilnYamlError(`${path} requires kind "harness"`);
+  }
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!["invokeUrl", "cancelUrl", "authTokenEnv", "limitations"].includes(key)) {
+      throw new KilnYamlError(`Unknown ${path} field: ${key}`);
+    }
+  }
+  validateRequiredHttpsUrlString(value, "invokeUrl", `${path}.invokeUrl`);
+  validateRequiredHttpsUrlString(value, "cancelUrl", `${path}.cancelUrl`);
+  if (value.authTokenEnv !== undefined) {
+    if (typeof value.authTokenEnv !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(value.authTokenEnv)) {
+      throw new KilnYamlError(`${path}.authTokenEnv must be a portable environment variable name`);
+    }
+  }
+  validateOptionalStringArray(value.limitations, `${path}.limitations`);
 }
 
 function validateManagedAgentWorktreeLease(value: unknown): void {
@@ -797,6 +823,21 @@ function validateRecordField(config: Record<string, unknown>, field: string): vo
 function validateRequiredNonEmptyString(record: Record<string, unknown>, key: string, path: string): void {
   if (typeof record[key] !== "string" || record[key].trim().length === 0) {
     throw new KilnYamlError(`${path} must be a non-empty string`);
+  }
+}
+
+function validateRequiredHttpsUrlString(record: Record<string, unknown>, key: string, path: string): void {
+  const value = record[key];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new KilnYamlError(`${path} must be a non-empty HTTPS URL string`);
+  }
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") {
+      throw new KilnYamlError(`${path} must be a non-empty HTTPS URL string`);
+    }
+  } catch {
+    throw new KilnYamlError(`${path} must be a non-empty HTTPS URL string`);
   }
 }
 

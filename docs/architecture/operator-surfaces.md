@@ -286,16 +286,17 @@ a separate cloud runtime unless a future ADR explicitly accepts that tradeoff.
 ## Agent Invocation Boundary
 
 Agent profile selection, worker fan-out, and provider/model routing are not the
-same thing as a managed invokable-agent substrate.
+same thing as the managed invocation substrate. Managed child execution is
+runtime-owned and projects to surfaces through canonical session events,
+managed invocation records, gateway cockpit view state, and resource URIs.
 
-Future first-class agent invocation needs canonical definitions, lifecycle
-events, delegated-task records, child-session or child-turn relationships,
-queue/progress/error/cancel semantics, and explicit policy inheritance. Those
-facts must live in core/runtime and session events, then project to GUI, TUI,
-IDE, and remote surfaces.
-
-Agent invocation must not be implemented as GUI-only state, wrapper-specific
-behavior, or a provider-owned session namespace.
+GUI, TUI, CLI, native, IDE, and remote surfaces may render active children,
+attention state, status, cancellation, join/replay, transcript links, handoff
+links, adoption state, and diagnostics. They must not implement GUI-only child
+state, wrapper-specific lifecycle semantics, or provider-owned session
+namespaces. Mutating controls such as cancel and join go through the shared
+gateway/runtime control path and append canonical evidence before surfaces
+claim success.
 
 ## Invariants
 

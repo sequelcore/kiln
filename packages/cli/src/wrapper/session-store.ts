@@ -325,6 +325,11 @@ export interface PersistedSessionMeta {
   completedAt?: string;
   lastTurnOutcome?: SessionTurnOutcome;
   costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  providerTokenUsage?: readonly PersistedProviderTokenUsage[];
   toolCount?: number;
   turnDepth?: number;
   providerThread?: ProviderThreadMeta;
@@ -344,8 +349,43 @@ export interface PersistedSessionMeta {
   exactArtifacts?: string[];
 }
 
+export interface PersistedProviderTokenUsage {
+  readonly provider: string;
+  readonly model?: string;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+}
+
 function serializePersistedMeta(meta: PersistedSessionMeta): string {
   return JSON.stringify(meta, null, 2);
+}
+
+function mergePersistedProviderTokenUsage(
+  existing: readonly PersistedProviderTokenUsage[] | undefined,
+  updates: readonly PersistedProviderTokenUsage[],
+): readonly PersistedProviderTokenUsage[] {
+  const usageByProviderModel = new Map<string, PersistedProviderTokenUsage>();
+  for (const usage of [...(existing ?? []), ...updates]) {
+    const key = `${usage.provider}\0${usage.model ?? ""}`;
+    const current = usageByProviderModel.get(key);
+    usageByProviderModel.set(key, {
+      provider: usage.provider,
+      ...(usage.model ? { model: usage.model } : {}),
+      inputTokens: readTokenCount(current?.inputTokens) + readTokenCount(usage.inputTokens),
+      outputTokens: readTokenCount(current?.outputTokens) + readTokenCount(usage.outputTokens),
+      cacheReadTokens: readTokenCount(current?.cacheReadTokens) + readTokenCount(usage.cacheReadTokens),
+      cacheWriteTokens: readTokenCount(current?.cacheWriteTokens) + readTokenCount(usage.cacheWriteTokens),
+    });
+  }
+  return [...usageByProviderModel.values()];
+}
+
+function readTokenCount(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
 }
 
 function encodeSessionPathSegment(sessionId: string): string {
@@ -502,6 +542,9 @@ export class TranscriptStore {
         serializePersistedMeta({
           ...existing,
           ...updates,
+          ...(updates.providerTokenUsage !== undefined ? {
+            providerTokenUsage: mergePersistedProviderTokenUsage(existing.providerTokenUsage, updates.providerTokenUsage),
+          } : {}),
         }),
         'utf-8',
       );

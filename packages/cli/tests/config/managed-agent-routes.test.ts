@@ -771,6 +771,82 @@ describe("resolveManagedInvocationToolOptions", () => {
     }));
   });
 
+  it("resolves explicit remote harness sandbox routes with endpoint-backed limitations", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-cloud-remote-readonly",
+        kind: "harness",
+        provider: "codex-cloud",
+        model: "gpt-5.5",
+        profiles: ["foundation-readonly-plan"],
+        workingDirectory: "sandbox",
+        remoteHarness: {
+          invokeUrl: "https://remote.example.test/managed-agent/invoke",
+          cancelUrl: "https://remote.example.test/managed-agent/cancel",
+          authTokenEnv: "KILN_REMOTE_HARNESS_TOKEN",
+          limitations: [
+            "Remote harness reports aggregate token classes only.",
+            "Remote harness cannot expose local live terminal streaming.",
+          ],
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: new SessionRegistry([]),
+      surface: "gui",
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-cloud-remote-readonly",
+      kind: "harness",
+      provider: "codex-cloud",
+      model: "gpt-5.5",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }]);
+    expect(result.managedInvocation?.routes[0]).toMatchObject({
+      routeId: "codex-cloud-remote-readonly",
+      providerId: "codex-cloud",
+      model: "gpt-5.5",
+      surface: "remote-harness",
+      providerModelProof: {
+        status: "configured",
+        source: "remote-harness-config",
+        requiresToolCalls: false,
+      },
+    });
+    expect(result.managedInvocation?.routes[0]?.taskSuitability).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          evidence: expect.arrayContaining([
+            expect.objectContaining({
+              source: "configured-route",
+              status: "declared",
+            }),
+          ]),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result.managedInvocation?.routes[0]?.taskSuitability)).not.toContain("\"source\":\"live-proof\"");
+    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
+      adapterKind: "harness",
+      providerId: "codex-cloud",
+      supportedExecutionModes: ["remote-harness"],
+      limitations: [
+        "Remote harness reports aggregate token classes only.",
+        "Remote harness cannot expose local live terminal streaming.",
+      ],
+    });
+    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
+      workingDirectory: {
+        path: "C:/repo",
+        mode: "sandbox",
+      },
+    });
+    expect(result.managedInvocation?.invocationService).toBeDefined();
+    expect(result.managedInvocation?.invocationServiceKey).toContain("sandboxPolicy");
+  });
+
   it("exposes canonical agent profiles as managed invocation selection catalog", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-managed-agent-catalog-"));
     try {

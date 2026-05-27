@@ -275,6 +275,14 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.resource_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.resource_template_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.resource_read.inputSchema.required).toEqual(["uri"]);
+    expect(TOOL_SCHEMAS.resource_read.inputSchema.properties).toMatchObject({
+      cursor: {
+        type: "string",
+      },
+      limit: {
+        type: "number",
+      },
+    });
   });
 
   it("exposes the shared verbosity field only where it is supported", () => {

@@ -194,7 +194,7 @@ describe("ToolCatalogIndex", () => {
       sourcePackage: "@kilnai/core",
       authority: "read_only",
       tags: expect.arrayContaining(["resource", "context", "read-only", "idempotent"]),
-      inputFields: ["uri"],
+      inputFields: ["uri", "cursor", "limit"],
     });
   });
 });

@@ -3522,6 +3522,64 @@ describe("managed invocation runtime tool", () => {
     ]);
   });
 
+  it("fails closed with denied skills from the configured context resolver before child lifecycle starts", async () => {
+    const adapter = makeAdapter();
+    const contextResolver = vi.fn(async () => ({
+      admittedAgentProfile: "architecture-reviewer",
+      deniedSkills: ["workspace-write"],
+    }));
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        contextResolver,
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-denied-skill",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "opencode-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "model-a",
+      },
+      agentProfile: "architecture-reviewer",
+      skills: ["workspace-write"],
+      contextMode: "isolated",
+      task: "Prepare a managed write review.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly context?: {
+          readonly deniedSkills?: readonly string[];
+        };
+        readonly presentationIntent?: {
+          readonly rows?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata.status).toBe("denied");
+    expect(result.metadata.context?.deniedSkills).toEqual(["workspace-write"]);
+    expect(result.metadata.presentationIntent?.rows?.[0]).toMatchObject({
+      status: "denied",
+      substantiveEvidence: false,
+      failureReason: expect.stringContaining("workspace-write"),
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(session.sessionEvents).toEqual([]);
+  });
+
   it("fails closed when profile or skill context is requested without a resolver", async () => {
     const surface = makeSurface();
     const session = makeSession();
@@ -3955,16 +4013,127 @@ describe("managed invocation runtime tool", () => {
     expect(result.metadata.transcript?.uri).toMatch(/^kiln:\/\/artifacts\/managed-invocations\/artifact_\d+\/content$/u);
     expect(result.metadata.resultHandoff?.resourceUris?.[0]).toBe(result.metadata.transcript?.uri);
 
-    const transcript = await surface.readResource(result.metadata.transcript?.uri ?? "");
+    const transcriptUri = result.metadata.transcript?.uri ?? "";
+    const firstTranscriptPage = await surface.readResource(transcriptUri, { limit: 2 });
+    const nextTranscriptCursor = firstTranscriptPage.nextCursor;
+    expect(nextTranscriptCursor).toEqual(expect.any(String));
+    if (!nextTranscriptCursor) {
+      throw new Error("Expected paged transcript resource to return a next cursor.");
+    }
+    expect(firstTranscriptPage.contents[0]?._meta?.range).toMatchObject({
+      unit: "line",
+      offset: 0,
+      limit: 2,
+      truncated: true,
+    });
+    const transcript = await surface.readResource(transcriptUri, {
+      cursor: nextTranscriptCursor,
+      limit: 1_000,
+    });
     expect(transcript.contents[0]).toMatchObject({
       mimeType: "text/markdown",
     });
-    const transcriptText = String("text" in transcript.contents[0]! ? transcript.contents[0]!.text : "");
+    const firstTranscriptText = String("text" in firstTranscriptPage.contents[0]! ? firstTranscriptPage.contents[0]!.text : "");
+    const transcriptText = [
+      firstTranscriptText,
+      String("text" in transcript.contents[0]! ? transcript.contents[0]!.text : ""),
+    ].join("\n");
     expect(transcriptText).toContain("Model: opencode-default-model");
     expect(transcriptText).toContain("## Capability Snapshot");
     expect(transcriptText).toContain("Route ID: opencode-readonly");
     expect(transcriptText).toContain("Provider proof: live-proven");
     expect(transcriptText).toContain("Child review completed.");
+  });
+
+  it("preserves configured provider proof for remote harness routes", async () => {
+    const adapter = makeAdapter({
+      adapterDescriptorId: "adapter:codex-cloud:remote-harness",
+      providerId: "codex-cloud",
+      supportedExecutionModes: ["remote-harness"],
+    });
+    const route = {
+      ...makeManagedRoute("codex-cloud-remote-readonly", "gpt-5.5", adapter),
+      providerId: "codex-cloud",
+      surface: "remote-harness",
+      providerModelProof: {
+        status: "configured" as const,
+        source: "remote-harness-config",
+        requiresToolCalls: false,
+      },
+    };
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [route],
+      },
+    });
+    const artifactStore = new MemoryArtifactResourceStore();
+    const resourceSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { artifactResources: { store: artifactStore } },
+      managedInvocation: {
+        artifactStore,
+        routes: [route],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-remote-proof",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "codex-cloud-remote-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "codex-cloud",
+        model: "gpt-5.5",
+      },
+      task: "Inspect remote managed invocation proof metadata.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly capabilitySnapshot?: {
+          readonly providerModelProof?: {
+            readonly status?: string;
+            readonly source?: string;
+          };
+        };
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata.capabilitySnapshot?.providerModelProof).toMatchObject({
+      status: "configured",
+      source: "remote-harness-config",
+    });
+
+    const resourceResult = await resourceSurface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "codex-cloud-remote-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "codex-cloud",
+        model: "gpt-5.5",
+      },
+      task: "Inspect remote managed invocation proof metadata.",
+    }, {
+      ...context,
+      toolCall: {
+        id: "tool-call-remote-proof-resource",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    }) as {
+      readonly metadata: {
+        readonly transcript?: { readonly uri?: string };
+      };
+    };
+    const transcript = await resourceSurface.readResource(resourceResult.metadata.transcript?.uri ?? "");
+    const transcriptText = String("text" in transcript.contents[0]! ? transcript.contents[0]!.text : "");
+    expect(transcriptText).toContain("Provider proof: configured");
+    expect(transcriptText).toContain("Provider proof source: remote-harness-config");
   });
 
   it("fails closed when invoked outside a runtime session context", async () => {

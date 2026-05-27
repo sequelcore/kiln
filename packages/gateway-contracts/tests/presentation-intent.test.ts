@@ -31,6 +31,48 @@ describe("presentation intent contract", () => {
     expect(formatPresentationIntentAsText(parsed.intent)).toContain("| opencode-readonly    | opencode    | no       |");
   });
 
+  it("preserves evidence-bearing suffixes when compacting long comparison cells", () => {
+    const parsed = parsePresentationIntent({
+      kind: "comparison_table",
+      title: "Managed child invocation",
+      source: "managed_agent.invoke",
+      confidence: "medium",
+      columns: [
+        { key: "failureReason", label: "Failure" },
+      ],
+      rows: [
+        { failureReason: "Managed invocation denied skill(s): workspace-write" },
+      ],
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    expect(formatPresentationIntentAsText(parsed.intent)).toContain("workspace-write");
+  });
+
+  it("escapes pipe delimiters after compacting long comparison cells", () => {
+    const parsed = parsePresentationIntent({
+      kind: "comparison_table",
+      title: "Managed child invocation",
+      source: "managed_agent.invoke",
+      confidence: "medium",
+      columns: [
+        { key: "failureReason", label: "Failure" },
+      ],
+      rows: [
+        { failureReason: `${"a".repeat(28)}|${"b".repeat(14)}` },
+      ],
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const formatted = formatPresentationIntentAsText(parsed.intent);
+    expect(formatted).toContain("...\\|bbbb");
+    expect(formatted).not.toContain("...|bbbb");
+  });
+
   it("rejects executable or unknown presentation shapes", () => {
     expect(parsePresentationIntent({
       kind: "html",

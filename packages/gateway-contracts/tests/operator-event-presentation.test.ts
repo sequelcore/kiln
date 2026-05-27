@@ -388,6 +388,67 @@ describe("operator event presentation", () => {
     expect(presentation.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
   });
 
+  it("presents remote harness route limitations from capability snapshots", () => {
+    const presentation = presentOperatorEventPayload("agent_invocation_completed", {
+      invocationId: "inv-remote-1",
+      agentId: "codex-cloud:foundation-readonly-plan",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "codex-cloud",
+        model: "gpt-5.5",
+        surface: "remote-harness",
+      },
+      adapterKind: "harness",
+      executionMode: "remote-harness",
+      authorityProfileId: "authority:codex-cloud-remote:foundation-readonly-plan",
+      capabilitySnapshot: {
+        snapshotId: "inv-remote-1:capability-snapshot",
+        capturedAt: "2026-05-07T08:00:00.000Z",
+        routeHealth: {
+          status: "healthy",
+          reason: "Remote harness endpoint admitted by managed invocation policy.",
+        },
+        providerModelProof: {
+          status: "configured",
+          source: "remote-harness-config",
+        },
+        adapterDescriptor: {
+          limitations: [
+            "Remote harness reports aggregate token classes only.",
+            "Remote harness cannot expose local live terminal streaming.",
+          ],
+        },
+        resourcePlane: {
+          available: true,
+          resourceUris: [],
+        },
+        resourceLease: {
+          leaseId: "inv-remote-1:resource-lease",
+          createdAt: "2026-05-07T08:00:00.000Z",
+          healthStatus: "healthy",
+          cleanupStatus: "pending",
+          workingDirectoryPath: "C:/workspace/kiln",
+          workingDirectoryMode: "sandbox",
+          resourceUris: [],
+          diagnosticUris: [],
+        },
+        childIdentity: {
+          agentId: "codex-cloud:foundation-readonly-plan",
+        },
+      },
+      resultSummary: "Remote inspection completed.",
+    });
+
+    expect(presentation.summary).toBe(
+      "foundation-readonly-plan via codex-cloud/gpt-5.5 (remote-harness) · Remote inspection completed.",
+    );
+    expect(presentation.details).toContainEqual({
+      label: "Route limitations",
+      value: "Remote harness reports aggregate token classes only., Remote harness cannot expose local live terminal streaming.",
+    });
+    expect(presentation.details).toContainEqual({ label: "Execution", value: "remote-harness" });
+  });
+
   it("presents config mutation events as operator-visible audit evidence", () => {
     const proposed = presentOperatorEventPayload("config_change_proposed", {
       proposalId: "cfg_skill",
@@ -795,6 +856,54 @@ describe("operator event presentation", () => {
       { label: "Summary", value: "Inspect managed agents architecture doc" },
     ]);
     expect(completed.details).not.toContainEqual({ label: "Provider Route", value: "Structured value" });
+  });
+
+  it("presents denied skills from managed invocation context details", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "managed_agent.invoke",
+      input: {
+        profile: "foundation-readonly-plan",
+        providerRoute: {
+          providerId: "opencode",
+          model: "model-a",
+        },
+        agentProfile: "architecture-reviewer",
+        skills: ["workspace-write"],
+        contextMode: "isolated",
+        task: "Prepare a managed write review.",
+      },
+      outputSummary: JSON.stringify({
+        output: "Managed invocation denied: Managed invocation denied skill(s): workspace-write",
+        isError: true,
+        metadata: {
+          kind: "managed-invocation",
+          routeId: "opencode-readonly",
+          status: "denied",
+          profile: "foundation-readonly-plan",
+          providerRoute: {
+            providerId: "opencode",
+            model: "model-a",
+            surface: "cli-harness",
+          },
+          context: {
+            mode: "isolated",
+            agentProfile: "architecture-reviewer",
+            skills: ["workspace-write"],
+            admittedAgentProfile: "architecture-reviewer",
+            deniedSkills: ["workspace-write"],
+          },
+          adapterKind: "harness",
+          executionMode: "cli-harness",
+          authorityProfileId: "authority:opencode:readonly",
+        },
+      }),
+      status: { state: "failed" },
+    });
+
+    expect(presentation.title).toBe("Failed managed_agent.invoke");
+    expect(presentation.details).toContainEqual({ label: "Denied skills", value: "workspace-write" });
+    expect(JSON.stringify(presentation.details)).not.toContain("deniedSkills");
   });
 
   it("presents lifecycle-only managed resource lease evidence in operator details", () => {

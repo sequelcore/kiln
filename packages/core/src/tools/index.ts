@@ -154,11 +154,19 @@ export type {
   ToolResourceListOptions,
   ToolResourcePage,
   ToolResourceProvider,
+  ToolResourceReadOptions,
+  ToolResourceReadRange,
+  ToolResourceReadRangeUnit,
   ToolResourceReadResult,
   ToolResourceRegistryOptions,
   ToolResourceTemplateDescriptor,
 } from "./domain/tool-resource-registry.js";
-export { ToolResourceRegistry } from "./domain/tool-resource-registry.js";
+export {
+  ToolResourceRegistry,
+  createBlobResourceReadResult,
+  createTextResourceReadResult,
+  rejectResourceReadCursor,
+} from "./domain/tool-resource-registry.js";
 export type {
   ToolResourceLinker,
   ToolResourceLinkRequest,

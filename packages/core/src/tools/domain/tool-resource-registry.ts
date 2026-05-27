@@ -12,6 +12,10 @@ import { createHash } from "node:crypto";
 const JSON_MIME_TYPE = "application/json";
 const DEFAULT_RESOURCE_PAGE_LIMIT = 50;
 const MAX_RESOURCE_PAGE_LIMIT = 100;
+const DEFAULT_RESOURCE_READ_LINE_LIMIT = 100;
+const MAX_RESOURCE_READ_LINE_LIMIT = 1_000;
+const DEFAULT_RESOURCE_READ_BYTE_LIMIT = 64 * 1024;
+const MAX_RESOURCE_READ_BYTE_LIMIT = 256 * 1024;
 
 export interface ToolResourceDescriptor {
   readonly uri: string;
@@ -50,6 +54,24 @@ export type ToolResourceContent =
 
 export interface ToolResourceReadResult {
   readonly contents: readonly ToolResourceContent[];
+  readonly nextCursor?: string;
+}
+
+export interface ToolResourceReadOptions {
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
+export type ToolResourceReadRangeUnit = "line" | "byte";
+
+export interface ToolResourceReadRange {
+  readonly unit: ToolResourceReadRangeUnit;
+  readonly offset: number;
+  readonly limit: number;
+  readonly returned: number;
+  readonly total: number;
+  readonly truncated: boolean;
+  readonly nextCursor?: string;
 }
 
 export interface ToolResourceListOptions {
@@ -65,7 +87,7 @@ export interface ToolResourcePage<T> {
 export interface ToolResourceProvider {
   listResources(): readonly ToolResourceDescriptor[];
   listTemplates(): readonly ToolResourceTemplateDescriptor[];
-  read(uri: string): Promise<ToolResourceReadResult | undefined>;
+  read(uri: string, options?: ToolResourceReadOptions): Promise<ToolResourceReadResult | undefined>;
 }
 
 export interface ToolResourceRegistryOptions {
@@ -298,10 +320,13 @@ export class ToolResourceRegistry {
     return paginateResourceItems("resourceTemplates", this.listTemplates(), options);
   }
 
-  async read(uri: string): Promise<ToolResourceReadResult> {
+  async read(uri: string, options: ToolResourceReadOptions = {}): Promise<ToolResourceReadResult> {
     const parsed = parseKilnResourceUri(uri);
     if (!parsed) {
       throw resourceNotFound(uri);
+    }
+    if (parsed.host === "tools" || parsed.host === "session") {
+      rejectResourceReadCursor(uri, options);
     }
 
     if (parsed.host === "tools" && parsed.path.length === 1 && parsed.path[0] === "catalog") {
@@ -462,7 +487,7 @@ export class ToolResourceRegistry {
     }
 
     for (const provider of this.providers) {
-      const result = await provider.read(uri);
+      const result = await provider.read(uri, options);
       if (result) {
         return result;
       }
@@ -472,10 +497,85 @@ export class ToolResourceRegistry {
   }
 }
 
+export function createTextResourceReadResult(
+  uri: string,
+  text: string,
+  mimeType: string | undefined,
+  options: ToolResourceReadOptions | undefined,
+  meta: Record<string, unknown> = {},
+): ToolResourceReadResult {
+  const lines = text.length === 0 ? [] : text.split(/\r?\n/);
+  const limit = normalizeReadLimit(options?.limit, DEFAULT_RESOURCE_READ_LINE_LIMIT, MAX_RESOURCE_READ_LINE_LIMIT);
+  const fingerprint = fingerprintResourceContent(uri, "line", text);
+  const offset = options?.cursor
+    ? decodeResourceReadCursor(options.cursor, uri, "line", fingerprint, lines.length).offset
+    : 0;
+  const pageLines = lines.slice(offset, offset + limit);
+  const nextOffset = offset + pageLines.length;
+  const nextCursor = nextOffset < lines.length
+    ? encodeResourceReadCursor({ kind: "resourceRead", uri, unit: "line", offset: nextOffset, fingerprint })
+    : undefined;
+  const range = buildResourceReadRange("line", offset, limit, pageLines.length, lines.length, nextCursor);
+  return {
+    contents: [{
+      uri,
+      ...(mimeType ? { mimeType } : {}),
+      text: pageLines.join("\n"),
+      _meta: { ...meta, range },
+    }],
+    ...(nextCursor ? { nextCursor } : {}),
+  };
+}
+
+export function createBlobResourceReadResult(
+  uri: string,
+  blob: string,
+  mimeType: string | undefined,
+  options: ToolResourceReadOptions | undefined,
+  meta: Record<string, unknown> = {},
+): ToolResourceReadResult {
+  const bytes = Buffer.from(blob, "base64");
+  const limit = normalizeReadLimit(options?.limit, DEFAULT_RESOURCE_READ_BYTE_LIMIT, MAX_RESOURCE_READ_BYTE_LIMIT);
+  const fingerprint = fingerprintResourceContent(uri, "byte", bytes);
+  const offset = options?.cursor
+    ? decodeResourceReadCursor(options.cursor, uri, "byte", fingerprint, bytes.length).offset
+    : 0;
+  const pageBytes = bytes.subarray(offset, offset + limit);
+  const nextOffset = offset + pageBytes.length;
+  const nextCursor = nextOffset < bytes.length
+    ? encodeResourceReadCursor({ kind: "resourceRead", uri, unit: "byte", offset: nextOffset, fingerprint })
+    : undefined;
+  const range = buildResourceReadRange("byte", offset, limit, pageBytes.length, bytes.length, nextCursor);
+  return {
+    contents: [{
+      uri,
+      ...(mimeType ? { mimeType } : {}),
+      blob: pageBytes.toString("base64"),
+      _meta: { ...meta, range },
+    }],
+    ...(nextCursor ? { nextCursor } : {}),
+  };
+}
+
+export function rejectResourceReadCursor(uri: string, options: ToolResourceReadOptions | undefined): void {
+  if (!options?.cursor) {
+    return;
+  }
+  throw resourceReadCursorError("Stale resource read cursor", { uri, cursor: options.cursor });
+}
+
 type ResourceCursorKind = "resources" | "resourceTemplates";
 
 interface DecodedResourceCursor {
   readonly kind: ResourceCursorKind;
+  readonly offset: number;
+  readonly fingerprint: string;
+}
+
+interface DecodedResourceReadCursor {
+  readonly kind: "resourceRead";
+  readonly uri: string;
+  readonly unit: ToolResourceReadRangeUnit;
   readonly offset: number;
   readonly fingerprint: string;
 }
@@ -510,7 +610,25 @@ function normalizeLimit(limit: number | undefined): number {
   return Math.min(normalized, MAX_RESOURCE_PAGE_LIMIT);
 }
 
+function normalizeReadLimit(limit: number | undefined, defaultLimit: number, maxLimit: number): number {
+  if (limit === undefined) {
+    return defaultLimit;
+  }
+  const normalized = Math.trunc(limit);
+  if (!Number.isFinite(limit) || normalized <= 0) {
+    throw new KilnError("INTERNAL_ERROR", "Invalid resource read limit", {
+      context: { limit },
+      retryable: false,
+    });
+  }
+  return Math.min(normalized, maxLimit);
+}
+
 function encodeResourceCursor(cursor: DecodedResourceCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function encodeResourceReadCursor(cursor: DecodedResourceReadCursor): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
 
@@ -539,6 +657,36 @@ function decodeResourceCursor(
   return decoded;
 }
 
+function decodeResourceReadCursor(
+  cursor: string,
+  expectedUri: string,
+  expectedUnit: ToolResourceReadRangeUnit,
+  expectedFingerprint: string,
+  total: number,
+): DecodedResourceReadCursor {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw resourceReadCursorError("Invalid resource read cursor", { cursor });
+  }
+
+  if (!isDecodedResourceReadCursor(decoded)) {
+    throw resourceReadCursorError("Invalid resource read cursor", { cursor });
+  }
+  if (
+    decoded.uri !== expectedUri
+    || decoded.unit !== expectedUnit
+    || decoded.fingerprint !== expectedFingerprint
+  ) {
+    throw resourceReadCursorError("Stale resource read cursor", { cursor, expectedUri, expectedUnit });
+  }
+  if (decoded.offset >= total) {
+    throw resourceReadCursorError("Out-of-range resource read cursor", { cursor, total });
+  }
+  return decoded;
+}
+
 function isDecodedResourceCursor(value: unknown): value is DecodedResourceCursor {
   if (!value || typeof value !== "object") {
     return false;
@@ -552,6 +700,21 @@ function isDecodedResourceCursor(value: unknown): value is DecodedResourceCursor
   );
 }
 
+function isDecodedResourceReadCursor(value: unknown): value is DecodedResourceReadCursor {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate["kind"] === "resourceRead"
+    && typeof candidate["uri"] === "string"
+    && (candidate["unit"] === "line" || candidate["unit"] === "byte")
+    && Number.isInteger(candidate["offset"])
+    && typeof candidate["fingerprint"] === "string"
+    && (candidate["offset"] as number) >= 0
+  );
+}
+
 function fingerprintResourceItems(
   items: readonly (ToolResourceDescriptor | ToolResourceTemplateDescriptor)[],
 ): string {
@@ -559,7 +722,47 @@ function fingerprintResourceItems(
   return createHash("sha256").update(canonicalIds).digest("base64url");
 }
 
+function fingerprintResourceContent(
+  uri: string,
+  unit: ToolResourceReadRangeUnit,
+  content: string | Buffer,
+): string {
+  return createHash("sha256")
+    .update(uri)
+    .update("\0")
+    .update(unit)
+    .update("\0")
+    .update(content)
+    .digest("base64url");
+}
+
+function buildResourceReadRange(
+  unit: ToolResourceReadRangeUnit,
+  offset: number,
+  limit: number,
+  returned: number,
+  total: number,
+  nextCursor: string | undefined,
+): ToolResourceReadRange {
+  return {
+    unit,
+    offset,
+    limit,
+    returned,
+    total,
+    truncated: nextCursor !== undefined,
+    ...(nextCursor ? { nextCursor } : {}),
+  };
+}
+
 function resourceCursorError(message: string, context: Record<string, unknown>): KilnError {
+  return new KilnError("INTERNAL_ERROR", message, {
+    context,
+    retryable: false,
+  });
+}
+
+function resourceReadCursorError(message: string, context: Record<string, unknown>): KilnError {
   return new KilnError("INTERNAL_ERROR", message, {
     context,
     retryable: false,

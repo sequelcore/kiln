@@ -56,6 +56,7 @@ export {
   runManagedAgentFanOutLifecycle,
 } from "./fan-out.js";
 export type {
+  ManagedAgentFanOutBudgetAdmissionInput,
   ManagedAgentFanOutLifecycleChildRecord,
   ManagedAgentFanOutLifecycleInput,
   ManagedAgentFanOutLifecycleResult,
@@ -113,6 +114,15 @@ export type {
   ManagedCliHarnessFilesystemBoundaryConfig,
 } from "./cli-harness-adapter.js";
 export {
+  ManagedRemoteHarnessAdapter,
+} from "./remote-harness-adapter.js";
+export type {
+  ManagedRemoteHarnessAdapterConfig,
+  ManagedRemoteHarnessTransport,
+  ManagedRemoteHarnessTransportCancelInput,
+  ManagedRemoteHarnessTransportInvokeInput,
+} from "./remote-harness-adapter.js";
+export {
   attachManagedInvocationSessionEventSink,
   createManagedAgentStartToolDefinition,
   createManagedInvocationToolExecutor,
@@ -155,6 +165,13 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly environment?: ManagedAgentEnvironmentVariables;
 }
 
+export interface ManagedAgentRuntimeCancellationInput {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly reason: string;
+  readonly abortSignal: AbortSignal;
+}
+
 export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly abortSignal?: AbortSignal;
 }
@@ -162,6 +179,7 @@ export interface ManagedAgentRuntimeInvocationLifecycleOptions {
 export interface ManagedAgentRuntimeAdapter {
   readonly descriptor: ManagedAgentAdapterDescriptor;
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
+  cancel?(input: ManagedAgentRuntimeCancellationInput): Promise<void>;
 }
 
 export interface ManagedAgentWorktreeLeaseManagerInput {
@@ -756,6 +774,7 @@ interface ManagedAgentRuntimeInvocationTerminal {
 interface ManagedAgentRuntimeInvocationEntry {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly adapter?: ManagedAgentRuntimeAdapter;
   lifecycleState: ManagedAgentLifecycleState;
   readonly startedAt: Date;
   readonly abortController: AbortController;
@@ -829,6 +848,7 @@ export class RuntimeManagedAgentInvocationService {
     const entry: ManagedAgentRuntimeInvocationEntry = {
       request: registeredRequest,
       decision: registeredDecision,
+      adapter,
       lifecycleState: "running",
       startedAt: new Date(),
       abortController,
@@ -888,6 +908,14 @@ export class RuntimeManagedAgentInvocationService {
       abortSignal: abortController.signal,
       ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
     }).then(async (record) => {
+      if (entry.lifecycleState === "failed" && entry.record) {
+        const failedRecord = await this.currentTerminalRecord(entry);
+        return {
+          status: "completed",
+          decision: registeredDecision,
+          record: failedRecord,
+        } as const;
+      }
       if (entry.lifecycleState === "stale" && entry.record) {
         const staleRecord = await this.currentTerminalRecord(entry);
         return {
@@ -924,6 +952,14 @@ export class RuntimeManagedAgentInvocationService {
         record: entry.record,
       } as const;
     }, async (error: unknown) => {
+      if (entry.lifecycleState === "failed" && entry.record) {
+        const failedRecord = await this.currentTerminalRecord(entry);
+        return {
+          status: "completed",
+          decision: registeredDecision,
+          record: failedRecord,
+        } as const;
+      }
       if (entry.lifecycleState === "cancelled" && entry.record) {
         entry.record = await this.finalizeTerminalLeaseStages(entry, entry.record);
         return {
@@ -984,6 +1020,32 @@ export class RuntimeManagedAgentInvocationService {
     }
     if (isTerminalLifecycleState(entry.lifecycleState)) {
       throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime invocation is already terminal: ${entry.lifecycleState}`);
+    }
+
+    if (entry.adapterStarted && entry.adapter?.cancel !== undefined) {
+      try {
+        await entry.adapter.cancel({
+          request: cloneJson(entry.request),
+          admission: cloneJson(entry.decision),
+          reason,
+          abortSignal: new AbortController().signal,
+        });
+      } catch (error) {
+        const runtimeError = toError(error);
+        entry.finishedAt = new Date();
+        entry.lifecycleState = "failed";
+        entry.error = runtimeError;
+        entry.record = await this.finalizeTerminalLeaseStages(
+          entry,
+          createFailedRecord(entry.request, entry.decision, `Managed invocation cancellation failed: ${runtimeError.message}`),
+        );
+        entry.terminal?.resolve({
+          status: "completed",
+          decision: entry.decision,
+          record: entry.record,
+        });
+        throw runtimeError;
+      }
     }
 
     entry.abortController.abort(reason);
@@ -1293,8 +1355,20 @@ export class RuntimeManagedAgentInvocationService {
     if (record.parentSessionId !== request.parentSessionId || record.parentTurnId !== request.parentTurnId) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent record parent lineage does not match request");
     }
+    if (record.agentId !== request.agentId) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent record agent id does not match admitted request");
+    }
     if (record.profile !== request.profile || record.profile !== admission.profile) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent record profile does not match admitted request");
+    }
+    if (!sameJson(record.providerRoute, request.providerRoute)) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent record provider route does not match admitted request");
+    }
+    if (record.adapterKind !== request.adapterKind) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent record adapter kind does not match admitted request");
+    }
+    if (record.executionMode !== request.executionMode) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent record execution mode does not match admitted request");
     }
     if (record.authority.authorityProfileId !== admission.authorityProfileId) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent record authority profile does not match admission");

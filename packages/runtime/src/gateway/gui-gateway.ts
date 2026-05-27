@@ -774,6 +774,7 @@ function wireOperatorTransport(
     provider: executor,
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
+    ...(input.transport.budgetAdmission ? { budgetAdmission: input.transport.budgetAdmission } : {}),
   });
   const sessionRegistry = new SessionRegistry();
 

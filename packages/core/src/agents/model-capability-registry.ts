@@ -28,7 +28,12 @@ export type ModelTaskSuitabilityTask =
   | "test-writing";
 
 export type ModelTaskSuitabilityLevel = "preferred" | "capable" | "limited";
-export type ModelTaskSuitabilitySource = "static-profile" | "live-proof" | "operator-override" | "evaluation";
+export type ModelTaskSuitabilitySource =
+  | "static-profile"
+  | "live-proof"
+  | "configured-route"
+  | "operator-override"
+  | "evaluation";
 
 export interface ModelTaskSuitabilityEvidence {
   readonly source: ModelTaskSuitabilitySource;

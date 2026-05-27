@@ -8,6 +8,11 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Promoted the background and parallel managed-agent track into stable
+  architecture docs, including runtime-owned child lifecycle, parallel
+  orchestration admission, resource leases, cross-surface cockpit projection,
+  artifact-backed resource pagination, runtime budget admission, and remote
+  harness route constraints.
 - Published `@kilnai/gui` as a public static asset package.
 - Made `@kilnai/cli` the public global install boundary for CLI, GUI, TUI,
   runtime, gateway contracts, and GUI assets.

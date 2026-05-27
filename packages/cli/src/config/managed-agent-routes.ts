@@ -17,6 +17,7 @@ import {
 import {
   ManagedCliHarnessAdapter,
   ManagedGitWorktreeLeaseManager,
+  ManagedRemoteHarnessAdapter,
   ManagedRuntimeCredentialRouteLeaseManager,
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
@@ -597,6 +598,10 @@ async function resolveRouteConfig(
     return resolveDirectRouteConfig(routeConfig, context, config, baseHealth, writeRequired);
   }
 
+  if (routeConfig.remoteHarness !== undefined) {
+    return resolveRemoteHarnessRouteConfig(routeConfig, context, config, baseHealth, writeRequired);
+  }
+
   if (routeConfig.workingDirectory === "sandbox") {
     return unhealthy(baseHealth, "Harness sandbox working-directory routes require live-proven sandbox enforcement.");
   }
@@ -663,6 +668,70 @@ async function resolveRouteConfig(
     profiles: profileResolution.profiles,
   };
 
+  return {
+    health: {
+      ...baseHealth,
+      model,
+      available: true,
+    },
+    route,
+  };
+}
+
+async function resolveRemoteHarnessRouteConfig(
+  routeConfig: KilnManagedAgentRouteConfig,
+  context: ResolveManagedInvocationToolOptionsContext,
+  config: ManagedAgentRouteConfigSource,
+  baseHealth: Omit<ManagedAgentRouteHealth, "available" | "reason">,
+  writeRequired: boolean,
+): Promise<{
+  readonly health: ManagedAgentRouteHealth;
+  readonly route?: ManagedInvocationToolRoute;
+}> {
+  if (writeRequired) {
+    return unhealthy(baseHealth, "Remote harness managed invocation routes currently support foundation-readonly-plan only.");
+  }
+  const remoteHarness = routeConfig.remoteHarness;
+  if (remoteHarness === undefined) {
+    return unhealthy(baseHealth, "Remote harness route requires remoteHarness endpoint config.");
+  }
+  const model = routeConfig.model;
+  if (!model) {
+    return unhealthy(baseHealth, `Remote harness managed invocation route '${routeConfig.id}' requires a model.`);
+  }
+  const profileResolution = buildRouteProfiles(routeConfig, context.cwd, normalizeProfiles(routeConfig.profiles), config.managedAgents?.worktreeLease);
+  if (!profileResolution.ok) {
+    return unhealthy(baseHealth, profileResolution.reason);
+  }
+  const adapter = new ManagedRemoteHarnessAdapter({
+    providerId: routeConfig.provider,
+    model,
+    invokeUrl: remoteHarness.invokeUrl,
+    cancelUrl: remoteHarness.cancelUrl,
+    ...(remoteHarness.authTokenEnv ? { authTokenEnv: remoteHarness.authTokenEnv } : {}),
+    ...(remoteHarness.limitations ? { limitations: remoteHarness.limitations } : {}),
+  });
+  const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
+  const route: ManagedInvocationToolRoute = {
+    routeId: routeConfig.id,
+    providerId: routeConfig.provider,
+    model,
+    ...(voiceProfile ? { voiceProfile } : {}),
+    adapter,
+    surface: "remote-harness",
+    providerModelProof: {
+      status: "configured",
+      source: "remote-harness-config",
+      requiresToolCalls: false,
+    },
+    taskSuitability: resolveTaskSuitability(
+      routeConfig.provider,
+      model,
+      config.modelTaskSuitability,
+      remoteHarnessEvidence(routeConfig.provider, model, normalizeProfiles(routeConfig.profiles)),
+    ),
+    profiles: profileResolution.profiles,
+  };
   return {
     health: {
       ...baseHealth,
@@ -1009,6 +1078,18 @@ function liveProofEvidence(
   };
 }
 
+function remoteHarnessEvidence(
+  provider: string,
+  model: string,
+  profiles: readonly ManagedAgentAdmissionProfile[],
+): ModelTaskSuitabilityEvidence {
+  return {
+    source: "configured-route",
+    status: "declared",
+    summary: `Remote harness managed invocation route for ${provider}/${model} is endpoint-configured with admitted profiles: ${profiles.join(", ")}.`,
+  };
+}
+
 function normalizeProfiles(
   profiles: readonly ManagedAgentAdmissionProfile[] | undefined,
 ): readonly ManagedAgentAdmissionProfile[] {
@@ -1086,7 +1167,7 @@ function createManagedInvocationService(
   const leaseConfig = config.managedAgents?.worktreeLease;
   const routeConfigs = resolveRouteConfigs(config);
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
-  const needsSandboxLease = routeConfigs.some((route) => route.kind === "direct" && route.workingDirectory === "sandbox");
+  const needsSandboxLease = routeConfigs.some(routeUsesRuntimeSandboxLease);
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
 
   return new RuntimeManagedAgentInvocationService({
@@ -1116,7 +1197,7 @@ function managedInvocationServiceKey(
   const routeConfigs = resolveRouteConfigs(config);
   const leaseConfig = config.managedAgents?.worktreeLease;
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
-  const needsSandboxLease = routeConfigs.some((route) => route.kind === "direct" && route.workingDirectory === "sandbox");
+  const needsSandboxLease = routeConfigs.some(routeUsesRuntimeSandboxLease);
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
   if (!needsWorktreeLease && !needsSandboxLease && credentialRouteIds.length === 0) {
     return undefined;
@@ -1139,6 +1220,11 @@ function managedInvocationServiceKey(
     } : {}),
     ...(credentialRouteIds.length > 0 ? { credentialRouteIds } : {}),
   });
+}
+
+function routeUsesRuntimeSandboxLease(route: KilnManagedAgentRouteConfig): boolean {
+  return route.workingDirectory === "sandbox"
+    && (route.kind === "direct" || route.remoteHarness !== undefined);
 }
 
 function collectRuntimeCredentialRouteIds(

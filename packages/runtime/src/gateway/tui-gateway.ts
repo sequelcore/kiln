@@ -13,6 +13,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
+import type { RuntimeBudgetAdmissionPort } from "../session/runtime-budget-admission.js";
 import { SessionRegistry } from "../session/session-registry.js";
 import {
   createSessionBuiltinToolOptions,
@@ -116,6 +117,7 @@ export interface TuiGatewayOptions {
   readonly executionMode?: OperatorExecutionMode;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -427,6 +429,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     provider: executor,
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
+    ...(options.budgetAdmission ? { budgetAdmission: options.budgetAdmission } : {}),
   });
   const sessionRegistry = new SessionRegistry();
   const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();

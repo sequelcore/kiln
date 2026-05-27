@@ -51,7 +51,9 @@ describe("runParallelWorkers", () => {
     await runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("Orchestration: cli-run-workers (fan-out)");
+    expect(output).toContain("Orchestration:");
+    expect(output).toContain("(fan-out)");
+    expect(output).not.toContain("cli-run-workers");
     expect(output).toContain("Status: completed");
     expect(output).toContain("2/2 workers succeeded");
     expect(exitSpy).not.toHaveBeenCalled();
@@ -59,6 +61,38 @@ describe("runParallelWorkers", () => {
       "completed",
       "completed",
     ]);
+  });
+
+  it("uses distinct session-scoped lineage for standalone fan-out invocations", async () => {
+    const firstManagedInvocation = createManagedInvocation();
+    const secondManagedInvocation = createManagedInvocation();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runParallelWorkers(
+      MOCK_APP_CONFIG,
+      "first task",
+      {},
+      2,
+      firstManagedInvocation,
+      { exitOnFailure: false },
+    );
+    await runParallelWorkers(
+      MOCK_APP_CONFIG,
+      "second task",
+      {},
+      2,
+      secondManagedInvocation,
+      { exitOnFailure: false },
+    );
+
+    const firstParentSessionId = firstManagedInvocation.invocationService?.list()[0]?.parentSessionId;
+    const secondParentSessionId = secondManagedInvocation.invocationService?.list()[0]?.parentSessionId;
+
+    expect(firstParentSessionId).toBeDefined();
+    expect(secondParentSessionId).toBeDefined();
+    expect(firstParentSessionId).not.toBe("cli-run");
+    expect(secondParentSessionId).not.toBe("cli-run");
+    expect(firstParentSessionId).not.toBe(secondParentSessionId);
   });
 
   it("fails closed before launching children when no managed lifecycle route is configured", async () => {
@@ -116,7 +150,9 @@ describe("runParallelWorkers", () => {
     )).rejects.toThrow("process.exit called");
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
-    expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain("orchestration.budget.available");
+    expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
+      "Managed fan-out budget admission denied: Budget admission requires a live usage reader.",
+    );
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
@@ -136,13 +172,44 @@ describe("runParallelWorkers", () => {
       managedInvocation,
       {
         globalConfig: budgetAwareGlobalConfig(),
-        getDailyTokensUsed: () => 11,
+        budgetUsageReader: async ({ providerId }) => ({
+          providerId,
+          tokensUsed: 11,
+          source: "test-meter",
+        }),
       },
     )).rejects.toThrow("process.exit called");
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
-    expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain("orchestration.budget.available");
+    expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
+      "Managed fan-out budget admission denied: All route candidates are over their configured budget ceilings.",
+    );
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("admits worker fan-out through runtime budget admission when an eligible route is within budget", async () => {
+    const managedInvocation = createManagedInvocation();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runParallelWorkers(
+      MOCK_APP_CONFIG,
+      "test task",
+      {},
+      2,
+      managedInvocation,
+      {
+        globalConfig: budgetAwareGlobalConfig(),
+        exitOnFailure: false,
+        budgetUsageReader: async ({ providerId }) => ({
+          providerId,
+          tokensUsed: 1,
+          source: "test-meter",
+        }),
+      },
+    );
+
+    expect(managedInvocation.invocationService?.list()).toHaveLength(2);
   });
 
   it("denies worker fan-out before launching children when managed lifecycle route selection is ambiguous", async () => {

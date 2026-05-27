@@ -9,6 +9,7 @@ import type {
   ManagedAgentAdmissionProfile,
   ToolDefinition,
   ToolResourceDisplayDescriptor,
+  ToolResourceReadOptions,
   ToolResourceReadResult,
   ToolResourceTemplateDescriptor,
   SpecificationStateStore,
@@ -78,7 +79,7 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly specificationStateStore?: SpecificationStateStore;
   listResources(): readonly ToolResourceDisplayDescriptor[];
   listResourceTemplates(): readonly ToolResourceTemplateDescriptor[];
-  readResource(uri: string): Promise<ToolResourceReadResult>;
+  readResource(uri: string, options?: ToolResourceReadOptions): Promise<ToolResourceReadResult>;
 }
 
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {
@@ -952,7 +953,7 @@ function buildRuntimeSurface(
     specificationStateStore,
     listResources: () => coreSurface.resources.list().map(projectToolResourceDescriptor),
     listResourceTemplates: () => coreSurface.resources.listTemplates(),
-    readResource: (uri: string) => coreSurface.resources.read(uri),
+    readResource: (uri: string, options?: ToolResourceReadOptions) => coreSurface.resources.read(uri, options),
   };
 }
 

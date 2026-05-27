@@ -460,6 +460,15 @@ export interface ResourceToolResultMetadata<TToolName extends ResourceToolName =
   readonly uri?: string;
   readonly cursor?: string;
   readonly nextCursor?: string;
+  readonly range?: {
+    readonly unit: "line" | "byte";
+    readonly offset: number;
+    readonly limit: number;
+    readonly returned: number;
+    readonly total: number;
+    readonly truncated: boolean;
+    readonly nextCursor?: string;
+  };
   readonly resourceCount?: number;
   readonly templateCount?: number;
   readonly contentCount?: number;

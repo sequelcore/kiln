@@ -7,11 +7,15 @@ import type {
   MultimodalDimensions,
   MultimodalTransportModality,
 } from "../../engine/domain/multimodal-routing.js";
-import type {
-  ToolResourceDescriptor,
-  ToolResourceProvider,
-  ToolResourceReadResult,
-  ToolResourceTemplateDescriptor,
+import {
+  createBlobResourceReadResult,
+  createTextResourceReadResult,
+  rejectResourceReadCursor,
+  type ToolResourceDescriptor,
+  type ToolResourceProvider,
+  type ToolResourceReadOptions,
+  type ToolResourceReadResult,
+  type ToolResourceTemplateDescriptor,
 } from "../domain/tool-resource-registry.js";
 import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
 
@@ -271,12 +275,13 @@ export class ArtifactResourceProvider implements ToolResourceProvider {
     ];
   }
 
-  async read(uri: string): Promise<ToolResourceReadResult | undefined> {
+  async read(uri: string, options: ToolResourceReadOptions = {}): Promise<ToolResourceReadResult | undefined> {
     const parsed = parseArtifactUri(uri);
     if (!parsed) {
       return undefined;
     }
     if (parsed.path.length === 1) {
+      rejectResourceReadCursor(uri, options);
       const namespace = parsed.path[0]!;
       const artifacts = this.store.list(namespace);
       return jsonContent(uri, {
@@ -290,6 +295,7 @@ export class ArtifactResourceProvider implements ToolResourceProvider {
       });
     }
     if (parsed.path.length === 2) {
+      rejectResourceReadCursor(uri, options);
       const [namespace, id] = parsed.path;
       const artifact = this.store.get(namespace!, id!);
       if (!artifact) {
@@ -307,37 +313,28 @@ export class ArtifactResourceProvider implements ToolResourceProvider {
       if (!artifact) {
         throw artifactNotFound(uri);
       }
-      return contentResource(uri, artifact);
+      return contentResource(uri, artifact, options);
     }
     return undefined;
   }
 }
 
-function contentResource(uri: string, artifact: ArtifactResource): ToolResourceReadResult {
+function contentResource(
+  uri: string,
+  artifact: ArtifactResource,
+  options: ToolResourceReadOptions,
+): ToolResourceReadResult {
   const meta = {
     ...projectArtifactMetadata(artifact),
     relation: "content",
   };
   if (artifact.content.type === "blob") {
-    return {
-      contents: [{
-        uri,
-        mimeType: artifact.mimeType,
-        blob: artifact.content.blob,
-        _meta: meta,
-      }],
-    };
+    return createBlobResourceReadResult(uri, artifact.content.blob, artifact.mimeType, options, meta);
   }
-  return {
-    contents: [{
-      uri,
-      mimeType: artifact.mimeType,
-      text: artifact.content.type === "json"
-        ? JSON.stringify(artifact.content.value, null, 2)
-        : artifact.content.text,
-      _meta: meta,
-    }],
-  };
+  const text = artifact.content.type === "json"
+    ? JSON.stringify(artifact.content.value, null, 2)
+    : artifact.content.text;
+  return createTextResourceReadResult(uri, text, artifact.mimeType, options, meta);
 }
 
 function jsonContent(uri: string, value: unknown, meta: Record<string, unknown>): ToolResourceReadResult {

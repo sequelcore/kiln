@@ -207,6 +207,7 @@ export interface ManagedAgentAdapterDescriptor {
   readonly cleanup: {
     readonly supported: boolean;
   };
+  readonly limitations?: readonly string[];
 }
 
 export type ManagedAgentRouteHealthStatus = "healthy";
@@ -472,6 +473,9 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
     writeAuthority: defineManagedAgentAdapterWriteAuthorityDescriptor(input.writeAuthority),
     unsupportedFieldPolicy: requireUnsupportedFieldPolicy(input.unsupportedFieldPolicy),
     cleanup: { supported: input.cleanup.supported === true },
+    ...(input.limitations !== undefined
+      ? { limitations: input.limitations.map((limitation) => requireText(limitation, "Managed adapter limitation is required")) }
+      : {}),
   };
 }
 

@@ -364,12 +364,25 @@ When at least one healthy route exists, runtime tool projection exposes
 `managed_agent.invoke`. Missing or unhealthy routes fail closed with operator
 diagnostics. Surfaces do not decide their own child-agent provider list.
 
+Budget-aware routing config projects into the runtime/session budget admission
+service. CLI surfaces may supply `routing.budget` and a live usage reader, but
+they do not evaluate a parallel child admission policy locally. Enabled
+budget-aware orchestration fails closed when every eligible route is over its
+ceiling or when required live usage is unavailable.
+
 Synthesized child routes are read-only and use `foundation-readonly-plan`. Write
 capable routes require an explicit `managedAgents.routes[]` entry with
 `writeAuthority` scope and approval config plus live-proven write evidence
 support. `tools.writes: true` does not grant authority by itself. A harness that
 can prove write evidence but cannot yet prove substantive read-only result
 handoff remains unavailable for `foundation-readonly-plan`.
+
+Remote harness routes are explicit managed-agent route overrides. Projection
+requires HTTPS invoke and cancel endpoints, a portable auth-token environment
+name when authentication is configured, `surface: remote-harness`,
+`executionMode: remote-harness`, and read-only profile authority. Endpoint
+configuration proves that a remote route is configured; it does not prove live
+tool behavior or write authority.
 
 ## Invariants
 

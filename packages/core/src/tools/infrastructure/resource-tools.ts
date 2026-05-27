@@ -1,4 +1,8 @@
-import type { ToolResourceContent, ToolResourceRegistry } from "../domain/tool-resource-registry.js";
+import type {
+  ToolResourceContent,
+  ToolResourceReadRange,
+  ToolResourceRegistry,
+} from "../domain/tool-resource-registry.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { resourceToolMetadata } from "../domain/tool-result-metadata.js";
 import { optionalNumber, optionalString, requireString, toErrorResult, toSuccessResult } from "./tool-helpers.js";
@@ -94,10 +98,19 @@ export class ResourceReadTool implements DevTool {
     }
 
     try {
-      const result = await resources.read(uri.value);
+      const cursor = optionalString(input, "cursor");
+      const limit = optionalNumber(input, "limit");
+      const result = await resources.read(uri.value, {
+        ...(cursor ? { cursor } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      });
+      const range = extractResourceReadRange(result.contents[0]);
       return toSuccessResult(formatResourceReadOutput(result.contents), resourceToolMetadata("resource_read", {
         operation: "read",
         uri: uri.value,
+        ...(cursor ? { cursor } : {}),
+        ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+        ...(range ? { range } : {}),
         contentCount: result.contents.length,
         mimeType: result.contents[0]?.mimeType,
       }));
@@ -115,6 +128,25 @@ function formatResourceReadOutput(contents: readonly ToolResourceContent[]): str
     }
   }
   return JSON.stringify({ contents }, null, 2);
+}
+
+function extractResourceReadRange(content: ToolResourceContent | undefined): ToolResourceReadRange | undefined {
+  const range = content?._meta?.["range"];
+  return isResourceReadRange(range) ? range : undefined;
+}
+
+function isResourceReadRange(value: unknown): value is ToolResourceReadRange {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (candidate["unit"] === "line" || candidate["unit"] === "byte")
+    && Number.isInteger(candidate["offset"])
+    && Number.isInteger(candidate["limit"])
+    && Number.isInteger(candidate["returned"])
+    && Number.isInteger(candidate["total"])
+    && typeof candidate["truncated"] === "boolean"
+    && (candidate["nextCursor"] === undefined || typeof candidate["nextCursor"] === "string");
 }
 
 function registryUnavailable(

@@ -176,6 +176,25 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
     expect(deriveGovernedTurnOutcomeFromToolRecords([unavailableChild])).toBe("failed");
   });
 
+  it("treats denied managed invocation context admission as a terminal blocking failure", () => {
+    const deniedChild = record({
+      toolName: "managed_agent.invoke",
+      success: false,
+      metadata: {
+        kind: "managed-invocation",
+        status: "denied",
+        context: {
+          mode: "isolated",
+          agentProfile: "architecture-reviewer",
+          skills: ["workspace-write"],
+          deniedSkills: ["workspace-write"],
+        },
+      },
+    });
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([deniedChild])).toBe("failed");
+  });
+
   it("does not close a started execution with a different attempt finish", () => {
     expect(deriveGovernedTurnOutcomeFromToolRecords([
       record({

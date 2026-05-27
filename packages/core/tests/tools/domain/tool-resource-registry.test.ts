@@ -863,6 +863,116 @@ describe("ToolResourceRegistry", () => {
       text: "artifact content",
     });
   });
+
+  it("reads artifact text content through bounded range pages with opaque cursors", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({
+      now: () => "2026-04-29T18:00:00.000Z",
+    });
+    const artifact = artifactStore.put({
+      namespace: "transcripts",
+      title: "Managed Transcript",
+      mimeType: "text/plain",
+      content: { type: "text", text: ["alpha", "bravo", "charlie"].join("\n") },
+      producer: { kind: "managed-agent", name: "child-1" },
+      retention: { scope: "session" },
+    });
+    const surface = createDefaultBuiltinToolSurface({
+      artifactResources: { store: artifactStore },
+    });
+    const uri = `kiln://artifacts/transcripts/${artifact.id}/content`;
+
+    const first = await surface.resources.read(uri, { limit: 2 });
+    expect(first.contents[0]).toMatchObject({
+      uri,
+      text: "alpha\nbravo",
+      _meta: {
+        range: {
+          unit: "line",
+          offset: 0,
+          limit: 2,
+          returned: 2,
+          total: 3,
+          truncated: true,
+          nextCursor: expect.any(String),
+        },
+      },
+    });
+    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(first.nextCursor).not.toBe("2");
+
+    const second = await surface.resources.read(uri, { cursor: first.nextCursor, limit: 2 });
+    expect(second.contents[0]).toMatchObject({
+      uri,
+      text: "charlie",
+      _meta: {
+        range: {
+          unit: "line",
+          offset: 2,
+          limit: 2,
+          returned: 1,
+          total: 3,
+          truncated: false,
+        },
+      },
+    });
+    expect(second.nextCursor).toBeUndefined();
+  });
+
+  it("reads artifact blob content by decoded byte ranges", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({
+      now: () => "2026-04-29T18:00:00.000Z",
+    });
+    const artifact = artifactStore.put({
+      namespace: "binary",
+      title: "Binary Artifact",
+      mimeType: "application/octet-stream",
+      content: { type: "blob", blob: Buffer.from("abcdef", "utf8").toString("base64") },
+      producer: { kind: "tool", name: "binary" },
+      retention: { scope: "session" },
+    });
+    const surface = createDefaultBuiltinToolSurface({
+      artifactResources: { store: artifactStore },
+    });
+    const uri = `kiln://artifacts/binary/${artifact.id}/content`;
+
+    const first = await surface.resources.read(uri, { limit: 3 });
+    expect(Buffer.from(first.contents[0] && "blob" in first.contents[0] ? first.contents[0].blob : "", "base64").toString("utf8"))
+      .toBe("abc");
+    expect(first.contents[0]!._meta).toMatchObject({
+      range: {
+        unit: "byte",
+        offset: 0,
+        returned: 3,
+        total: 6,
+        truncated: true,
+      },
+    });
+
+    const second = await surface.resources.read(uri, { cursor: first.nextCursor, limit: 3 });
+    expect(Buffer.from(second.contents[0] && "blob" in second.contents[0] ? second.contents[0].blob : "", "base64").toString("utf8"))
+      .toBe("def");
+  });
+
+  it("rejects stale artifact read cursors", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({
+      now: () => "2026-04-29T18:00:00.000Z",
+    });
+    const artifact = artifactStore.put({
+      namespace: "transcripts",
+      title: "Managed Transcript",
+      mimeType: "text/plain",
+      content: { type: "text", text: ["alpha", "bravo"].join("\n") },
+      producer: { kind: "managed-agent", name: "child-1" },
+      retention: { scope: "session" },
+    });
+    const surface = createDefaultBuiltinToolSurface({
+      artifactResources: { store: artifactStore },
+    });
+    const first = await surface.resources.read(`kiln://artifacts/transcripts/${artifact.id}/content`, { limit: 1 });
+
+    await expect(surface.resources.read(`kiln://artifacts/transcripts/${artifact.id}`, { cursor: first.nextCursor }))
+      .rejects.toThrow("Stale resource read cursor");
+  });
 });
 
 function decodeTestCursor(cursor: string | undefined): Record<string, unknown> {

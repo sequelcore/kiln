@@ -725,6 +725,96 @@ describe("GatewaySession canonical session events", () => {
 
     await session.dispose();
   });
+
+  it("uses presentation intent text fallback for denied-skills terminal tool results", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "delegate write review" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-managed-denied-skills",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-05-07T20:00:00.000Z",
+        kind: "tool_call_completed",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-managed-denied",
+          toolName: "managed_agent.invoke",
+          outputSummary: JSON.stringify({
+            output: "Managed invocation denied: Managed invocation denied skill(s): workspace-write",
+            isError: true,
+            metadata: {
+              toolName: "managed_agent.invoke",
+              kind: "managed-invocation",
+              status: "denied",
+              context: {
+                mode: "isolated",
+                agentProfile: "architecture-reviewer",
+                skills: ["workspace-write"],
+                deniedSkills: ["workspace-write"],
+              },
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child invocation",
+                summary: "opencode-readonly denied",
+                source: "managed_agent.invoke",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "provider", label: "Provider" },
+                  { key: "status", label: "Status", valueKind: "status" },
+                  { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean" },
+                  { key: "failureReason", label: "Failure" },
+                ],
+                rows: [
+                  {
+                    routeId: "opencode-readonly",
+                    provider: "opencode",
+                    status: "denied",
+                    substantiveEvidence: false,
+                    failureReason: "Managed invocation denied skill(s): workspace-write",
+                  },
+                ],
+              },
+            },
+          }),
+          status: { state: "failed" },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+
+    await collect;
+
+    const toolResult = events.find((event): event is { readonly output: string; readonly toolName: string } => {
+      if (typeof event !== "object" || event === null) return false;
+      const record = event as { readonly activity?: unknown; readonly toolName?: unknown; readonly output?: unknown };
+      return record.activity === "tool_result"
+        && record.toolName === "managed_agent.invoke"
+        && typeof record.output === "string";
+    });
+    expect(toolResult?.output).toContain("| Route");
+    expect(toolResult?.output).toContain("workspace-write");
+    expect(toolResult?.output).not.toContain("\"metadata\"");
+    expect(toolResult?.output).not.toContain("\"presentationIntent\"");
+
+    await session.dispose();
+  });
 });
 
 describe("GatewaySession execution modes", () => {

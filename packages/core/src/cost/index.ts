@@ -56,3 +56,13 @@ export {
 } from "./cost-tracker.js";
 export { ModelDevClient, createModelDevClient } from "./models-dev-client.js";
 export type { ModelDevPricing } from "./models-dev-client.js";
+export type {
+  BudgetAdmissionDecision,
+  BudgetAdmissionPolicy,
+  BudgetAdmissionRequest,
+  BudgetAdmissionRouteCandidate,
+  BudgetAdmissionRouteDecision,
+  BudgetAdmissionSubject,
+  BudgetRouteBudget,
+  BudgetUsageSnapshot,
+} from "./budget-admission.js";

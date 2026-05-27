@@ -230,6 +230,49 @@ describe("TranscriptStore", () => {
     expect(dirs[0]).toBe(encodeURIComponent(sessionId));
   });
 
+  it("accumulates provider token usage across transcript finalization calls", async () => {
+    const sessionId = "kiln-gui:_gui:user-1:1776916220893";
+
+    await store.init(sessionId, {
+      kilnSessionId: sessionId,
+      provider: "codex-oauth",
+      task: "interactive",
+      startedAt: "2026-04-23T03:50:00.000Z",
+    });
+
+    await store.finalize(sessionId, {
+      providerTokenUsage: [
+        { provider: "codex-oauth", model: "gpt-5.4", inputTokens: 10, outputTokens: 5 },
+      ],
+    });
+    await store.finalize(sessionId, {
+      providerTokenUsage: [
+        { provider: "codex-oauth", model: "gpt-5.4", inputTokens: 7, cacheReadTokens: 3 },
+        { provider: "openai", model: "gpt-5.4", inputTokens: 2, outputTokens: 1 },
+      ],
+    });
+
+    const meta = await store.readMeta(sessionId);
+    expect(meta?.providerTokenUsage).toEqual([
+      {
+        provider: "codex-oauth",
+        model: "gpt-5.4",
+        inputTokens: 17,
+        outputTokens: 5,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 0,
+      },
+      {
+        provider: "openai",
+        model: "gpt-5.4",
+        inputTokens: 2,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+    ]);
+  });
+
   it("does not parse legacy wrapped transcript lines", async () => {
     const sessionId = "kiln-gui:_gui:user-1:1776916220893";
 

@@ -736,6 +736,83 @@ describe("global-config", () => {
     });
   });
 
+  it("readGlobalConfig() validates remote harness route endpoint shape", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  routes:",
+        "    - id: codex-cloud-remote-readonly",
+        "      kind: harness",
+        "      provider: codex-cloud",
+        "      model: gpt-5.5",
+        "      workingDirectory: sandbox",
+        "      remoteHarness:",
+        "        invokeUrl: https://remote.example.test/managed-agent/invoke",
+        "        cancelUrl: https://remote.example.test/managed-agent/cancel",
+        "        authTokenEnv: KILN_REMOTE_HARNESS_TOKEN",
+        "        limitations:",
+        "          - Remote harness reports aggregate token classes only.",
+      ].join("\n"),
+    );
+
+    expect(readGlobalConfig()?.managedAgents?.routes?.[0]?.remoteHarness).toEqual({
+      invokeUrl: "https://remote.example.test/managed-agent/invoke",
+      cancelUrl: "https://remote.example.test/managed-agent/cancel",
+      authTokenEnv: "KILN_REMOTE_HARNESS_TOKEN",
+      limitations: ["Remote harness reports aggregate token classes only."],
+    });
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  routes:",
+        "    - id: codex-cloud-remote-readonly",
+        "      kind: direct",
+        "      provider: codex-cloud",
+        "      remoteHarness:",
+        "        invokeUrl: https://remote.example.test/managed-agent/invoke",
+        "        cancelUrl: https://remote.example.test/managed-agent/cancel",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("managedAgents.routes[0].remoteHarness requires kind \"harness\"");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  routes:",
+        "    - id: codex-cloud-remote-readonly",
+        "      kind: harness",
+        "      provider: codex-cloud",
+        "      remoteHarness:",
+        "        invokeUrl: https://remote.example.test/managed-agent/invoke",
+        "        cancelUrl: ''",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("managedAgents.routes[0].remoteHarness.cancelUrl must be a non-empty HTTPS URL string");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "managedAgents:",
+        "  routes:",
+        "    - id: codex-cloud-remote-readonly",
+        "      kind: harness",
+        "      provider: codex-cloud",
+        "      remoteHarness:",
+        "        invokeUrl: http://remote.example.test/managed-agent/invoke",
+        "        cancelUrl: https://remote.example.test/managed-agent/cancel",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("managedAgents.routes[0].remoteHarness.invokeUrl must be a non-empty HTTPS URL string");
+  });
+
   it("readGlobalConfig() rejects malformed managed-agent worktree lease configuration", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(

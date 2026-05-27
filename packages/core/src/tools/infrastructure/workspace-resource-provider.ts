@@ -2,11 +2,13 @@ import { lstat, open, readdir } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { KilnError } from "../../engine/errors.js";
 import { isSubPath, type PathValidator } from "../../sandbox/path-validator.js";
-import type {
-  ToolResourceDescriptor,
-  ToolResourceProvider,
-  ToolResourceReadResult,
-  ToolResourceTemplateDescriptor,
+import {
+  rejectResourceReadCursor,
+  type ToolResourceDescriptor,
+  type ToolResourceProvider,
+  type ToolResourceReadOptions,
+  type ToolResourceReadResult,
+  type ToolResourceTemplateDescriptor,
 } from "../domain/tool-resource-registry.js";
 import { inferFileMimeType, looksBinaryFilePath } from "./file-content-helpers.js";
 import { normalizePath } from "./tool-helpers.js";
@@ -124,11 +126,12 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
     ];
   }
 
-  async read(uri: string): Promise<ToolResourceReadResult | undefined> {
+  async read(uri: string, options: ToolResourceReadOptions = {}): Promise<ToolResourceReadResult | undefined> {
     const parsed = parseWorkspaceUri(uri);
     if (!parsed) {
       return undefined;
     }
+    rejectResourceReadCursor(uri, options);
     if (!this.rootReadable) {
       return undefined;
     }

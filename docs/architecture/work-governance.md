@@ -367,6 +367,15 @@ themselves; authority still comes from the managed invocation profile and route.
 The parent remains accountable for integration and closeout. A child completion
 is not the same as task completion unless the required evidence gates are
 satisfied.
+
+Parallel governed work uses typed managed orchestration requests instead of
+surface-local worker loops. Fan-out, decomposition, review swarm, route
+comparison, and background job modes carry child requests, expected evidence,
+isolation policy, merge or adoption policy, and admission limits. Admission
+checks child count, route health, budget availability, workspace isolation, and
+task risk before any child starts. CLI fan-out commands are adapters over this
+contract; they do not own a separate worker lifecycle.
+
 For broad work items, `work_item.execution.start` scopes each generated
 managed invocation to the next missing evidence phase instead of asking one
 child to produce the entire work item in a single timeout window. Intermediate

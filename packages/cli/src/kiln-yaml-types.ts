@@ -417,6 +417,13 @@ export interface KilnManagedAgentWorktreeLeaseConfig {
   readonly gitBinary?: string;
 }
 
+export interface KilnManagedAgentRemoteHarnessConfig {
+  readonly invokeUrl: string;
+  readonly cancelUrl: string;
+  readonly authTokenEnv?: string;
+  readonly limitations?: readonly string[];
+}
+
 export interface KilnManagedAgentRouteConfig {
   readonly id: string;
   readonly kind: KilnManagedAgentRouteKind;
@@ -430,6 +437,7 @@ export interface KilnManagedAgentRouteConfig {
   readonly memory?: KilnManagedAgentMemoryConfig;
   readonly writeAuthority?: KilnManagedAgentWriteAuthorityConfig;
   readonly credentials?: KilnManagedAgentCredentialsConfig;
+  readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;
 }
 
 export interface KilnManagedAgentsConfig {

@@ -88,6 +88,36 @@ available for in-process callers that need the full bounded current set.
 MCP projects the same contract through `resources/list` and
 `resources/templates/list`.
 
+Resource reads support bounded pagination for resources backed by the core
+paged text or blob helpers:
+
+```ts
+ToolResourceRegistry.read(uri, { cursor?: string, limit?: number })
+```
+
+`resource_read` exposes the same options. A pagination-capable read returns one
+bounded page and may include `nextCursor`. Content metadata includes
+`_meta.range`:
+
+```ts
+{
+  unit: "line" | "byte"
+  offset: number
+  limit: number
+  returned: number
+  total: number
+  truncated: boolean
+  nextCursor?: string
+}
+```
+
+Paged text resources read by line. Paged blob resources read by decoded byte.
+Bounded JSON snapshot resources return one complete JSON document and reject
+read cursors unless the owning provider explicitly projects them through the
+paged text helper. Read cursors are opaque and bind to URI, unit, content
+fingerprint, and offset. Invalid, stale, URI-mismatched, unit-mismatched, and
+out-of-range cursors fail closed.
+
 ## Workspace Resources
 
 `WorkspaceResourceProvider` exposes read-only workspace context through stable
@@ -229,13 +259,16 @@ read-only builtin tools:
 ```ts
 resource_list({ cursor?, limit? })
 resource_template_list({ cursor?, limit? })
-resource_read({ uri })
+resource_read({ uri, cursor?, limit? })
 ```
 
 These tools are adapters over `ToolResourceRegistry`. They are not GUI, TUI, or
 CLI helper APIs. They remain available in deferred tool projection so models
 can follow `kiln://artifacts/...` links without needing raw tool-result JSON in
-assistant prose.
+assistant prose. `resource_read` returns the content page as text when the
+result is a single text content item; otherwise it returns structured JSON. The
+tool metadata carries `nextCursor`, `range`, content count, MIME type, and
+resource operation evidence.
 
 ## Consumer Projection
 
@@ -245,7 +278,7 @@ Consumers must use the shared projection:
 - `kiln tools --resource <uri>`
 - `AttachedRuntimeBuiltinToolSurface.listResources()`
 - `AttachedRuntimeBuiltinToolSurface.listResourceTemplates()`
-- `AttachedRuntimeBuiltinToolSurface.readResource(uri)`
+- `AttachedRuntimeBuiltinToolSurface.readResource(uri, options?)`
 - MCP `resources/*`
 - SDK exports from `@kilnai/core`
 

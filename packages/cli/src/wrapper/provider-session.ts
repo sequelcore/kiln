@@ -30,6 +30,7 @@ import {
   type OperatorSurfaceController,
   type OrchestrateResult,
   type PerCallToolConfig,
+  type RuntimeBudgetAdmissionPort,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type {
@@ -61,6 +62,7 @@ export interface ProviderSessionConfig {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -288,6 +290,23 @@ export class ProviderSession implements IKilnSession {
         yield* this.runKilnExecutable(options, startedAt);
         return;
       }
+      const budgetDenial = await this.checkProviderBudget();
+      if (budgetDenial) {
+        yield {
+          type: "error",
+          code: "BUDGET_ADMISSION_DENIED",
+          message: budgetDenial,
+          isRetryable: false,
+        };
+        yield {
+          type: "completed",
+          totalUsd: 0,
+          durationMs: Date.now() - startedAt,
+          isError: true,
+          isPreflightCrash: false,
+        };
+        return;
+      }
       yield* this.runTextOnly(options, startedAt);
     } catch (err) {
       const code = this.executionMode === "kiln-executable"
@@ -303,6 +322,31 @@ export class ProviderSession implements IKilnSession {
 
   async dispose(): Promise<void> {
     // Stateless direct-provider session; no process/socket lifecycle to tear down.
+  }
+
+  private async checkProviderBudget(): Promise<string | undefined> {
+    const budgetAdmission = this.config.budgetAdmission;
+    if (!budgetAdmission) {
+      return undefined;
+    }
+    try {
+      const admission = await budgetAdmission.admit({
+        subject: "runtime-session-turn",
+        sessionId: this.sessionId,
+        routeCandidates: [
+          {
+            providerId: this.config.provider,
+            ...(this.resolvedModel ? { model: this.resolvedModel } : {}),
+          },
+        ],
+      });
+      if (admission.status === "admitted") {
+        return undefined;
+      }
+      return admission.message ?? `Budget admission denied: ${admission.reason}.`;
+    } catch (error) {
+      return `Budget admission failed: ${readErrorMessage(error)}`;
+    }
   }
 
   private isStructuredPreamble(prompt: string): boolean {
@@ -569,6 +613,7 @@ export class ProviderSession implements IKilnSession {
       toolAuthorizer: authorizer,
       capabilityMap: this.capabilityMap,
       dangerousCommandDetector: undefined,
+      ...(this.config.budgetAdmission ? { budgetAdmission: this.config.budgetAdmission } : {}),
     });
 
     if (options.messages && options.messages.length > 0) {

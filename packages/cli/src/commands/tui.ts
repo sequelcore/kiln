@@ -28,6 +28,10 @@ import { resolveInstructionProfileContextCandidates } from "../application/instr
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
+import {
+  createCliTranscriptBudgetUsageReader,
+  createRuntimeBudgetAdmissionFromGlobalConfig,
+} from "../application/runtime-budget-admission.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
@@ -49,7 +53,7 @@ import {
   type ProviderId,
 } from "../wrapper/session-registry.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
-import type { PersistedTranscriptEvent } from "../wrapper/session-store.js";
+import type { PersistedProviderTokenUsage, PersistedTranscriptEvent } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
@@ -87,6 +91,7 @@ import type {
   CliSessionRunOptions,
   GovernedTurnOutcomeToolRecord,
   ManagedInvocationToolOptions,
+  RuntimeBudgetAdmissionPort,
   RuntimeSessionHydrator,
 } from "@kilnai/runtime";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
@@ -109,6 +114,7 @@ interface TuiBootstrapOptions {
   readonly systemPrompt: string;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -284,6 +290,8 @@ function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
       return "tool_call_started";
     case "tool_result":
       return "tool_call_completed";
+    case "cost_update":
+      return "cost_updated";
     case "error":
       return "error_recorded";
     default:
@@ -301,6 +309,8 @@ function mapTranscriptTypeToSource(type: string, surface: OperatorTranscriptSurf
     case "tool_use":
     case "tool_result":
       return { actor: "tool", surface, component };
+    case "cost_update":
+      return { actor: "runtime", surface, component };
     case "error":
       return { actor: "runtime", surface, component };
     default:
@@ -434,6 +444,7 @@ export async function makeMultiProviderSessionFactory(
   builtinToolOptions?: DefaultBuiltinToolRegistryOptions,
   transcriptSurface: OperatorTranscriptSurface = "tui",
   managedInvocation?: ManagedInvocationToolOptions,
+  budgetAdmission?: RuntimeBudgetAdmissionPort,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
 
@@ -516,6 +527,7 @@ export async function makeMultiProviderSessionFactory(
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
           ...(managedInvocation ? { managedInvocation } : {}),
+          ...(budgetAdmission ? { budgetAdmission } : {}),
         });
         activeSession = resumedSession;
         const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
@@ -563,6 +575,10 @@ export async function makeMultiProviderSessionFactory(
 
         let turnCostUsd = 0;
         let turnIsError = false;
+        let turnInputTokens = 0;
+        let turnOutputTokens = 0;
+        let turnCacheReadTokens = 0;
+        let turnProviderTokenUsage: PersistedProviderTokenUsage | undefined;
         let assistantContent = "";
         let assistantDeltaIndex = 0;
         const pendingToolCallIds = new Map<string, string[]>();
@@ -672,6 +688,41 @@ export async function makeMultiProviderSessionFactory(
                   retriable: event.isRetryable,
                 }, transcriptSurface, turnId),
               );
+            } else if (event.type === "cost_update") {
+              const usageProvider = event.provider ?? providerForTurn;
+              const usageModel = event.model ?? modelForTurn;
+              turnCostUsd = event.usd;
+              turnInputTokens = event.inputTokens ?? turnInputTokens;
+              turnOutputTokens = event.outputTokens ?? turnOutputTokens;
+              turnCacheReadTokens = event.cacheReadTokens ?? turnCacheReadTokens;
+              turnProviderTokenUsage = {
+                provider: usageProvider,
+                ...(usageModel ? { model: usageModel } : {}),
+                inputTokens: turnInputTokens,
+                outputTokens: turnOutputTokens,
+                cacheReadTokens: turnCacheReadTokens,
+                cacheWriteTokens: 0,
+              };
+              await transcriptStore.append(
+                capturedId,
+                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "cost_update", {
+                  provider: {
+                    provider: usageProvider,
+                    ...(usageModel ? { model: usageModel } : {}),
+                    ...(event.canonicalModel ? { canonicalModel: event.canonicalModel } : {}),
+                    ...(event.billingMode ? { billingMode: event.billingMode } : {}),
+                  },
+                  usage: {
+                    inputTokens: turnInputTokens,
+                    outputTokens: turnOutputTokens,
+                    cacheReadTokens: turnCacheReadTokens,
+                  },
+                  cost: {
+                    deltaUsd: event.usd,
+                    currency: "USD",
+                  },
+                }, transcriptSurface, turnId),
+              );
             }
             if (event.type === "completed") {
               turnCostUsd = event.totalUsd;
@@ -720,6 +771,11 @@ export async function makeMultiProviderSessionFactory(
               tags: metadata.tags,
             providersUsed: metadata.providersUsed,
             lastTurnOutcome,
+            costUsd: turnCostUsd,
+            inputTokens: turnInputTokens,
+            outputTokens: turnOutputTokens,
+            cacheReadTokens: turnCacheReadTokens,
+            ...(turnProviderTokenUsage ? { providerTokenUsage: [turnProviderTokenUsage] } : {}),
             providerThread: resumedSession.providerSessionId
               ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
                 : undefined,
@@ -832,6 +888,7 @@ async function bootstrapGatewaySession(
     executionMode: flags.plan ? "plan" : "execute",
     builtinToolOptions: options.builtinToolOptions,
     managedInvocation: options.managedInvocation,
+    budgetAdmission: options.budgetAdmission,
     resumeSessionHydrator: options.resumeSessionHydrator,
     initialProviderDiscovery: options.initialProviderDiscovery,
     onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
@@ -1176,6 +1233,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   // Inject CLI session factory into the gateway (dependency inversion)
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
+  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
+    globalConfig,
+    createCliTranscriptBudgetUsageReader(transcriptStore),
+  );
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
   const initialResumeInfo: Record<string, ResumeSidebarInfo> = await loadResumeSidebarInfo(
     sessionStore,
@@ -1193,6 +1254,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     builtinToolOptions,
     "tui",
     managedInvocation,
+    runtimeBudgetAdmission,
   );
   if (startupModel) {
     sessionManager.setModel(startupModel);
@@ -1207,6 +1269,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     systemPrompt,
     builtinToolOptions,
     managedInvocation,
+    budgetAdmission: runtimeBudgetAdmission,
     resumeSessionHydrator,
     operatorVoice,
     initialProviderDiscovery,

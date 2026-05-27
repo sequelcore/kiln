@@ -98,6 +98,73 @@ re-evaluates admission immediately before execution using the admitted
 capability snapshot, checks the adapter descriptor, and validates the returned
 record against the admitted request and snapshot.
 
+## Lifecycle And Parallel Execution
+
+Managed invocations have a runtime-owned lifecycle. A parent may request a
+nonblocking child, inspect status, join a terminal result, cancel an active
+child, and list current children through the managed-agent runtime tools. Those
+operations are projections over `RuntimeManagedAgentInvocationService`; they do
+not create a second lifecycle in CLI, GUI, TUI, native, or provider adapters.
+
+The canonical lifecycle states are requested, started, completed, failed,
+cancelled, recovered, denied, and unavailable. Terminal states carry evidence:
+capability snapshot, authority profile, route identity, child lineage,
+transcript pointer, diagnostics, usage when available, result handoff, write
+evidence, and resource leases. A child that cannot provide substantive handoff
+evidence fails closed even when the provider process exits successfully.
+
+Parallel execution is expressed as managed orchestration over the same child
+lifecycle. Core owns typed orchestration requests for fan-out, decomposition,
+review swarm, route comparison, and background job modes. Each request carries
+parent lineage, child requests, expected evidence, isolation policy, merge or
+adoption policy, and child-count limits. Runtime and CLI adapters may launch
+children only after the shared admission contract accepts the request.
+
+`kiln run --workers` is a compatibility command over this lifecycle, not an
+independent worker implementation. It builds a typed fan-out request, admits it,
+starts children through `RuntimeManagedAgentInvocationService`, observes and
+joins terminal records, and reports normalized orchestration evidence. It must
+not recursively invoke the CLI or maintain a separate worker registry.
+
+Admission for parallel children fails closed when any required plane is
+unavailable:
+
+- child count exceeds configured limits
+- no unique healthy lifecycle route is available
+- budget admission denies every eligible route or live usage is unavailable
+- workspace isolation cannot be acquired
+- task risk is too high for unmanaged parallel execution
+
+Runtime/session budget admission is the owning budget plane. CLI config may
+project `routing.budget` into a `BudgetAdmissionPolicy`, but the admission
+decision is evaluated by the runtime budget admission service. There is no
+CLI-local, managed-orchestration-local, or gateway-billing shim for child
+budget admission.
+
+## Isolation, Leases, And Cleanup
+
+Write-capable and long-running children require explicit resource leases. The
+runtime owns lease acquisition, health evidence, cleanup evidence, stale
+recovery, and dirty-worktree preservation. Leases include:
+
+- isolated git worktrees
+- policy-backed sandboxes
+- artifact directories
+- development-server ports
+- environment bindings
+- credential routes
+
+Same-checkout parallel writes are denied unless the admitted write scope proves
+there is no overlap. A write-capable child should normally run in an isolated
+worktree with an invocation-scoped lease. Runtime startup recovery reconstructs
+abandoned children, preserves leaked or dirty worktree evidence, and emits
+review-required diagnostics instead of mutating the parent checkout silently.
+
+Cleanup is evidence, not best effort background noise. Normal completion,
+failure, cancellation, parent interruption, timeout, and restart recovery all
+route through the same terminal finalization path so transcript records,
+resource leases, and operator projections remain consistent.
+
 ## Capability Snapshots
 
 Admission produces one immutable `ManagedAgentCapabilitySnapshot` for every
@@ -266,6 +333,23 @@ adapter descriptor advertises approved apply, rollback evidence, cleanup
 evidence, scope reduction, and replayable write evidence support. Harness write
 proof does not automatically transfer to direct providers.
 
+Remote harness routes are endpoint-backed managed invocation adapters. They use
+`kind: "harness"`, `surface: "remote-harness"`, and
+`executionMode: "remote-harness"` under the same runtime service. A remote route
+must declare explicit HTTPS invoke and cancel endpoints, portable auth-token
+environment names, supported profiles, adapter limitations, and provider/model
+proof source. Secrets are read at call time and never written to records,
+transcripts, diagnostics, or handoff resources.
+
+Remote harness execution is currently read-only. It admits
+`foundation-readonly-plan` only and fails closed for write-required requests
+until remote write, cleanup, and rollback evidence are canonical. Returned
+records are validated against the admitted identity and capability snapshot:
+agent id, route id, provider route, adapter kind, execution mode, authority,
+and admitted capability fields must match. Remote cancellation is explicit. A
+pre-start cancellation may complete locally, but in-flight cancellation becomes
+a terminal failed record if the remote cancel endpoint rejects the notification.
+
 Operator-surface authority (`auto`, `read_only`, `audited`, `destructive`) is a
 per-turn admission request, not a route grant. GUI and TUI surfaces must display
 the admitted authority returned by the runtime, including sandbox projection,
@@ -432,6 +516,37 @@ returns only the bounded child result handoff plus resource pointers.
 
 Plan mode excludes `managed_agent.invoke`; planning turns may inspect and submit
 plans, but may not spawn managed child work.
+
+## Surface Projection And Resources
+
+Managed-agent operator surfaces are read/write clients of canonical runtime
+state, not lifecycle owners. GUI, TUI, CLI, native, SDK, replay, and future
+remote surfaces derive child state from `agent_invocation_*` session events,
+managed invocation records, and shared gateway cockpit projection. They do not
+infer lifecycle state from provider output text or hold surface-local child
+registries.
+
+The shared cockpit projection carries active and terminal children, attention
+state, stale heartbeat state, lifecycle timeline, route identity, dirty-worktree
+review markers, cancellation availability, join replay state, adoption-gate
+state, worktree-conflict evidence, denied context evidence, transcript links,
+handoff links, diagnostics, and resource bundles. Surface-specific UI may choose
+layout and density, but it must render the same contract fields.
+
+Managed invocation resources are read-only pointers under
+`kiln://managed-agents/invocations`. They summarize lifecycle, transcript,
+handoff, diagnostic, lease, conflict, adoption, and governed worktree-review
+resources without becoming transcript storage. Transcript and large content
+payloads are owned by the artifact resource store and read through
+`resource_read`.
+
+Artifact-backed transcript and result resources must be readable page by page
+through the shared resource plane. `resource_read` accepts `cursor` and `limit`,
+returns one bounded page, exposes `nextCursor` when more content exists, and
+adds `_meta.range` with unit, offset, limit, returned count, total count, and
+truncation status. Text and JSON content page by line; blob content pages by
+decoded byte. Invalid, stale, URI-mismatched, or out-of-range cursors fail
+closed.
 
 ## Live Adapter Evidence
 
