@@ -4,6 +4,7 @@ import {
   type ManagedAgentCapabilitySnapshot,
   type ManagedAgentInvocationRecord,
   type ManagedAgentInvocationRequest,
+  type ManagedAgentReplayResource,
   type ManagedAgentResourceLeaseEvidence,
   type ManagedAgentWriteAuthority,
 } from "@kilnai/core";
@@ -68,6 +69,13 @@ export function projectManagedInvocationRecordResources(
             resourceUris: mapUris(record.resultHandoff.resourceUris, mapUri),
             memoryWriteProposalUris: mapUris(record.resultHandoff.memoryWriteProposalUris, mapUri),
           },
+        }
+      : {}),
+    ...(record.replayResources !== undefined
+      ? {
+          replayResources: record.replayResources.map((resource) =>
+            projectManagedInvocationReplayResource(record, resource, projectionOptions)
+          ),
         }
       : {}),
     ...(record.writeEvidence !== undefined
@@ -259,11 +267,12 @@ function persistManagedInvocationResource(
   if (existing) {
     return existing;
   }
+  const replayResource = replayResourceForUri(record, sourceUri);
   const artifact = artifactStore.put({
     namespace: "managed-invocations",
-    title: managedInvocationResourceTitle(record.invocationId, resourcePath),
-    mimeType: "text/markdown",
-    content: { type: "text", text: formatManagedInvocationResource(record, resourcePath) },
+    title: replayResource?.title ?? managedInvocationResourceTitle(record.invocationId, resourcePath),
+    mimeType: replayResource?.mimeType ?? "text/markdown",
+    content: { type: "text", text: replayResource?.text ?? formatManagedInvocationResource(record, resourcePath) },
     producer: { kind: "managed-invocation", name: record.providerRoute.providerId },
     retention: { scope: "session" },
   });
@@ -284,6 +293,32 @@ function defaultArtifactUriCache(artifactStore: ArtifactResourceStore | undefine
   const cache = new Map<string, string>();
   artifactUriCaches.set(artifactStore, cache);
   return cache;
+}
+
+function projectManagedInvocationReplayResource(
+  record: ManagedAgentInvocationRecord,
+  resource: ManagedAgentReplayResource,
+  options: ManagedInvocationResourceProjectionOptions,
+): ManagedAgentReplayResource {
+  return {
+    ...resource,
+    uri: projectManagedInvocationResourceUri(record, resource.uri, options),
+  };
+}
+
+function replayResourceForUri(
+  record: ManagedAgentInvocationRecord,
+  uri: string,
+): ManagedAgentReplayResource | undefined {
+  const reference = managedInvocationResourceReference(uri);
+  if (!reference) {
+    return undefined;
+  }
+  return record.replayResources?.find((resource) => {
+    const resourceReference = managedInvocationResourceReference(resource.uri);
+    return resourceReference?.invocationId === reference.invocationId
+      && resourceReference.resourcePath === reference.resourcePath;
+  });
 }
 
 function formatManagedInvocationResource(record: ManagedAgentInvocationRecord, resourcePath: string): string {

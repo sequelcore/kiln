@@ -586,6 +586,43 @@ used when the parent supplies explicit governed resource URIs. `contextMode:
 fork` is reserved for a future policy slice and currently fails closed in
 CLI-owned GUI, TUI, and CLI sessions.
 
+### Timeout proof routes
+
+Use explicit route configuration to prove timeout behavior. Do not add a
+request-local timeout override or adapter shim for live testing. A temporary
+read-only route can use a short `timeoutMs` value while keeping normal
+authority and route diagnostics intact:
+
+```yaml
+managedAgents:
+  enabled: true
+  routes:
+    - id: codex-oauth-readonly-timeout-proof
+      kind: direct
+      provider: codex-oauth
+      model: gpt-5.4-mini
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: read-only
+      timeoutMs: 1000
+      tools:
+        allowed:
+          - read
+          - rg
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+```
+
+The managed-agent route catalog must show `timeoutMs=1000
+source=explicit-route` for that route. A child that exceeds the budget should
+finish as `timed_out`, abort the child provider call when the adapter supports
+abort, and link transcript plus timeout diagnostic resources. Remove the route
+after proof if it is not part of normal team policy.
+
 ### Write-capable managed routes
 
 Kiln never synthesizes write-capable child routes from `routing.routes` or

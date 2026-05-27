@@ -134,7 +134,10 @@ objective; endless or overly aggressive retries are an antipattern. Kiln's
 runtime consequence is explicit timeout source diagnostics, persisted parent
 turn lineage for child requests, terminal join evidence for cancelled/timed-out
 children, and no local shim that overrides an operator's configured route
-timeout.
+timeout. Microsoft Research's 2024 retry-bug study adds the maintenance risk:
+large systems routinely misclassify retryable versus permanent errors as APIs
+evolve, so Kiln treats timeout, cancellation, and failure as typed terminal
+states with replay evidence instead of free-form retry prose.
 
 Sources:
 
@@ -159,3 +162,5 @@ Sources:
 - Microsoft Azure Architecture Center, "Best practices for transient fault
   handling":
   <https://learn.microsoft.com/en-us/azure/architecture/best-practices/transient-faults>
+- Microsoft Research, "If At First You Don't Succeed, Try, Try, Again...?":
+  <https://www.microsoft.com/en-us/research/uploads/prod/2024/08/SOSP_2024__Detecting_Retry_Bugs_in_Software_Systems-1.pdf>

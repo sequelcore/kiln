@@ -302,6 +302,13 @@ export interface ManagedAgentResultHandoff {
   readonly memoryWriteProposalUris: readonly string[];
 }
 
+export interface ManagedAgentReplayResource {
+  readonly uri: string;
+  readonly title?: string;
+  readonly mimeType: string;
+  readonly text: string;
+}
+
 export type ManagedAgentResourceLeaseHealthStatus = "healthy" | "stale" | "released" | "leaked";
 
 export type ManagedAgentResourceLeaseCleanupStatus = "not-required" | "pending" | "completed" | "failed" | "unknown";
@@ -388,6 +395,7 @@ export interface ManagedAgentInvocationRecord {
   readonly diagnostics?: readonly ManagedAgentDiagnosticPointer[];
   readonly usage?: ManagedAgentUsageReport;
   readonly resultHandoff?: ManagedAgentResultHandoff;
+  readonly replayResources?: readonly ManagedAgentReplayResource[];
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
 }
 
@@ -550,6 +558,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics.map(requireDiagnosticPointer) } : {}),
     ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage) } : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: requireResultHandoff(input.resultHandoff) } : {}),
+    ...(input.replayResources !== undefined ? { replayResources: input.replayResources.map(requireReplayResource) } : {}),
     ...(input.writeEvidence !== undefined ? { writeEvidence: input.writeEvidence.map(defineManagedAgentWriteEvidence) } : {}),
   };
 }
@@ -964,6 +973,15 @@ function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentRes
     summary: requireText(input.summary, "Managed invocation result handoff summary is required"),
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed invocation result resource uri is required")),
     memoryWriteProposalUris: input.memoryWriteProposalUris.map((uri) => requireText(uri, "Managed invocation memory proposal uri is required")),
+  };
+}
+
+function requireReplayResource(input: ManagedAgentReplayResource): ManagedAgentReplayResource {
+  return {
+    uri: requireText(input.uri, "Managed invocation replay resource uri is required"),
+    ...(input.title !== undefined ? { title: requireText(input.title, "Managed invocation replay resource title is required") } : {}),
+    mimeType: requireText(input.mimeType, "Managed invocation replay resource MIME type is required"),
+    text: requireText(input.text, "Managed invocation replay resource text is required"),
   };
 }
 

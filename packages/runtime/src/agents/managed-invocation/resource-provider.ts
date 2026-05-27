@@ -2,6 +2,7 @@ import {
   createSessionBuiltinToolOptions,
   type DefaultBuiltinToolRegistryOptions,
   type ArtifactResourceStore,
+  type ManagedAgentReplayResource,
   type ManagedAgentResourceLeaseEvidence,
   rejectResourceReadCursor,
   type ToolResourceDescriptor,
@@ -164,6 +165,10 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
     }
     if (parsed.section === "resources" && parsed.resourcePath) {
       const projectedResourceUri = this.projectSnapshotUri(rawSnapshot, uri);
+      const replayResource = replayResourceForUri(snapshot.record, uri, projectedResourceUri);
+      if (replayResource) {
+        return textResource(uri, replayResource.mimeType, replayResource.text);
+      }
       return jsonResource(uri, {
         invocationId: snapshot.invocationId,
         resource: projectInvocationResource(snapshot, uri, projectedResourceUri, parsed.resourcePath),
@@ -336,6 +341,16 @@ function projectInvocationResource(
       : {}),
     ...(snapshot.record?.resultHandoff?.summary ? { resultSummary: snapshot.record.resultHandoff.summary } : {}),
   };
+}
+
+function replayResourceForUri(
+  record: ManagedAgentRuntimeInvocationSnapshot["record"] | undefined,
+  resourceUri: string,
+  projectedResourceUri: string,
+): ManagedAgentReplayResource | undefined {
+  return record?.replayResources?.find((resource) =>
+    resource.uri === resourceUri || resource.uri === projectedResourceUri
+  );
 }
 
 function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly string[] {

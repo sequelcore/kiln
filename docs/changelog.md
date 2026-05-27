@@ -8,6 +8,9 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Kept direct-provider managed child result handoffs bounded while preserving
+  long final child output as governed replay resources, projected through
+  managed-agent or artifact resource URIs instead of inline session metadata.
 - Preserved persisted GUI/TUI turn identity through executable runtime
   per-call config so managed children record the correct parent turn, made
   `managed_agent.join` return successful terminal observations for cancelled

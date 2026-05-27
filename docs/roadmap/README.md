@@ -90,7 +90,11 @@ evidence is recorded. The live-session follow-up also keeps managed-child
 lineage tied to the persisted GUI/TUI turn id, projects terminal join evidence
 into model-visible output, accepts non-completed terminal joins as lifecycle
 observations, and exposes whether each route timeout came from the synthesized
-default or an explicit route config.
+default or an explicit route config. The final live-session evidence follow-up
+keeps direct-provider child handoffs bounded while preserving long child output
+as managed replay resources, so broad reviews with clipped summaries remain
+actionable through `resource_read` without leaking full child tails into
+session events or model-facing metadata.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark

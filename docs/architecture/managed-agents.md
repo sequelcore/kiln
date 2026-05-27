@@ -605,6 +605,13 @@ The public transcript URI reads as a bounded `text/markdown` managed invocation
 transcript body built from the invocation record; it is not a JSON pointer
 shim. Raw transcript payloads and large evidence remain artifact-backed content
 owned by the resource plane.
+Direct-provider result handoff follows the same split. `resultHandoff.summary`
+is intentionally bounded for model/tool/session flow. When the child's final
+text exceeds that bounded handoff, the invocation record stores the full final
+result as a replay resource such as
+`kiln://managed-agents/invocations/{invocationId}/resources/result/final`.
+The handoff links that resource, but terminal session events, managed tool
+metadata, and cockpit summaries keep only the bounded summary plus resource URI.
 When an artifact resource store is attached, large transcript or evidence
 payloads are persisted as session-scoped artifacts and exposed as
 `kiln://artifacts/managed-invocations/{artifactId}/content`. GUI, TUI, CLI,
@@ -810,6 +817,12 @@ The child returns a bounded summary and resource pointers. The parent receives
 stable handoff references, not raw child context, raw tool logs, or unbounded
 diffs. Child memory writes become proposals unless a profile explicitly admits
 memory proposal authority.
+Full child output that does not fit in the bounded handoff is replay evidence,
+not session-event state. It is stored on the invocation record as a replay
+resource and exposed through the same managed-agent or artifact resource plane
+as transcript, diagnostic, and write evidence. Parents that need the full tail
+must call `resource_read` on the linked resource instead of relying on clipped
+assistant prose.
 
 A terminal `completed` state requires a substantive result handoff. For
 read-only harness invocations, a provider process that exits successfully

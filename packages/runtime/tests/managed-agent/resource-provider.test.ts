@@ -95,6 +95,85 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(transcript!.contents[0]!.text).not.toContain("kiln://managed-invocations/");
   });
 
+  it("serves full child result resources through public managed-agent resource URIs", async () => {
+    const rawResultUri = "kiln://managed-invocations/child-1/result/final";
+    const canonicalResultUri = "kiln://managed-agents/invocations/child-1/resources/result/final";
+    const fullResult = "complete child review result\n\nfinding-tail: preserve actionable evidence.";
+    const snapshot = managedInvocationSnapshot();
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [{
+          ...snapshot,
+          record: {
+            ...snapshot.record!,
+            resultHandoff: {
+              ...snapshot.record!.resultHandoff!,
+              resourceUris: [rawResultUri],
+            },
+            replayResources: [{
+              uri: rawResultUri,
+              title: "Managed invocation final result",
+              mimeType: "text/markdown",
+              text: fullResult,
+            }],
+          },
+        }],
+      },
+    });
+
+    const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
+    expect(JSON.parse(resources!.contents[0]!.text).resourceUris).toContain(canonicalResultUri);
+
+    const resultResource = await provider.read(canonicalResultUri);
+    expect(resultResource!.contents[0]).toMatchObject({
+      uri: canonicalResultUri,
+      mimeType: "text/markdown",
+      text: fullResult,
+    });
+  });
+
+  it("persists full child result resources as session artifacts when an artifact store is attached", async () => {
+    const rawResultUri = "kiln://managed-invocations/child-1/result/final";
+    const fullResult = "complete child review result\n\nfinding-tail: artifact-backed evidence.";
+    const snapshot = managedInvocationSnapshot();
+    const artifactStore = new MemoryArtifactResourceStore();
+    const provider = createManagedAgentInvocationResourceProvider({
+      artifactStore,
+      service: {
+        list: () => [{
+          ...snapshot,
+          record: {
+            ...snapshot.record!,
+            resultHandoff: {
+              ...snapshot.record!.resultHandoff!,
+              resourceUris: [rawResultUri],
+            },
+            replayResources: [{
+              uri: rawResultUri,
+              title: "Managed invocation final result",
+              mimeType: "text/markdown",
+              text: fullResult,
+            }],
+          },
+        }],
+      },
+    });
+
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+    const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
+    const resultArtifactUri = aggregatePayload.invocations[0].handoffResourceUris.find((uri: string) =>
+      uri.startsWith("kiln://artifacts/managed-invocations/")
+    );
+    expect(resultArtifactUri).toBeDefined();
+    const artifactId = /^kiln:\/\/artifacts\/managed-invocations\/([^/]+)\/content$/u.exec(resultArtifactUri)?.[1];
+    expect(artifactId).toBeDefined();
+    const artifact = artifactStore.get("managed-invocations", artifactId!);
+    expect(artifact?.content).toEqual({
+      type: "text",
+      text: fullResult,
+    });
+  });
+
   it("lists managed child invocation transcript and handoff resources", async () => {
     const provider = createManagedAgentInvocationResourceProvider({
       service: {

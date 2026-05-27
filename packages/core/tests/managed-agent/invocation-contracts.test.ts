@@ -347,6 +347,36 @@ describe("managed agent invocation contracts", () => {
     expect(record.resultHandoff?.summary).toBe("No file writes were needed.");
   });
 
+  it("preserves full replay resources without adding unbounded content to lifecycle evidence", () => {
+    const record = defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      resultHandoff: {
+        summary: "Bounded review summary.",
+        resourceUris: ["kiln://managed-agents/invocations/invocation-1/resources/result/final"],
+        memoryWriteProposalUris: [],
+      },
+      replayResources: [{
+        uri: "kiln://managed-agents/invocations/invocation-1/resources/result/final",
+        title: "Managed invocation final result",
+        mimeType: "text/markdown",
+        text: "Full child result with actionable finding tail.",
+      }],
+    });
+    const lifecycleEvidence = buildManagedAgentLifecycleEvidence(record);
+
+    expect(record.replayResources).toEqual([{
+      uri: "kiln://managed-agents/invocations/invocation-1/resources/result/final",
+      title: "Managed invocation final result",
+      mimeType: "text/markdown",
+      text: "Full child result with actionable finding tail.",
+    }]);
+    expect(lifecycleEvidence).toMatchObject({
+      resultSummary: "Bounded review summary.",
+      handoffResourceUris: ["kiln://managed-agents/invocations/invocation-1/resources/result/final"],
+    });
+    expect(JSON.stringify(lifecycleEvidence)).not.toContain("Full child result with actionable finding tail.");
+  });
+
   it("derives replayable lifecycle evidence from the invocation record without a second lifecycle store", () => {
     const record = defineManagedAgentInvocationRecord(makeCompletedRecordInput());
     const lifecycleEvidence = buildManagedAgentLifecycleEvidence(record, { heartbeatAt: "2026-05-07T08:00:03.000Z" });

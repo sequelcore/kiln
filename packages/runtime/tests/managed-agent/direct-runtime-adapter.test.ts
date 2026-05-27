@@ -175,6 +175,42 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
   });
 
+  it("keeps long direct-provider child output bounded while exposing the full result as a managed resource", async () => {
+    const fullResultBody = Array.from({ length: 90 }, (_, index) =>
+      `finding-${String(index).padStart(2, "0")}: actionable managed-agent review detail with exact evidence and correction.`
+    ).join("\n");
+    const fullResult = `\n\n${fullResultBody}\n\n`;
+    const extractedResult = fullResult.trim();
+    const provider = providerWithResponses([response(fullResult)]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+    });
+
+    const result = await new RuntimeManagedAgentInvocationService().invoke(request(), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.resultHandoff?.summary.length).toBeLessThanOrEqual(2000);
+    expect(result.record.resultHandoff?.summary).toContain("Full child result is available through the managed invocation result resource.");
+    expect(result.record.resultHandoff?.summary).not.toContain("finding-89");
+    expect(result.record.resultHandoff?.resourceUris).toEqual([
+      "kiln://managed-agents/invocations/inv-direct-1/transcript",
+      "kiln://managed-agents/invocations/inv-direct-1/resources/result/final",
+    ]);
+    expect(result.record.replayResources).toEqual([{
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/result/final",
+      title: "Managed invocation final result",
+      mimeType: "text/markdown",
+      text: extractedResult,
+    }]);
+  });
+
   it("hydrates admitted resource context through resource_read without broadening child tool authority", async () => {
     const provider = providerWithResponses([
       response("Resource context summarized."),

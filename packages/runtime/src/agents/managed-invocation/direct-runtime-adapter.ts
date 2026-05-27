@@ -4,6 +4,7 @@ import type {
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAgentReplayResource,
   ManagedAgentWriteEvidence,
   ProviderAdapter,
   SandboxConfig,
@@ -54,6 +55,8 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
 }
 
 const TIMEOUT = { type: "managed-direct-runtime-timeout" } as const;
+const RESULT_SUMMARY_LIMIT = 2000;
+const RESULT_RESOURCE_NOTICE = "Full child result is available through the managed invocation result resource.";
 
 export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor;
@@ -234,8 +237,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         builtinTools,
         perCallConfig,
       );
-      const summary = clipSummary(extractText(result.parts));
+      const resultText = extractText(result.parts);
+      const replayResource = resultReplayResource(request.invocationId, resultText);
+      const summary = clipSummary(resultText, replayResource?.uri);
       const writeEvidence = collectDirectRuntimeWriteEvidence(request, result.toolExecutions ?? []);
+      const resultResourceUris = replayResource
+        ? [managedInvocationUri(request.invocationId, "transcript"), replayResource.uri, ...writeEvidence.resultResourceUris]
+        : [managedInvocationUri(request.invocationId, "transcript"), ...writeEvidence.resultResourceUris];
 
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
@@ -258,12 +266,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         },
         resultHandoff: {
           summary,
-          resourceUris: [
-            managedInvocationUri(request.invocationId, "transcript"),
-            ...writeEvidence.resultResourceUris,
-          ],
+          resourceUris: resultResourceUris,
           memoryWriteProposalUris: [],
         },
+        ...(replayResource ? { replayResources: [replayResource] } : {}),
         ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
     } catch (err) {
@@ -467,12 +473,29 @@ function unknownRuntimeUsage() {
   };
 }
 
-function clipSummary(summary: string): string {
+function clipSummary(summary: string, resultResourceUri?: string): string {
   const trimmed = summary.trim();
   if (trimmed.length === 0) {
     return "Direct provider managed invocation completed.";
   }
-  return trimmed.length > 2000 ? `${trimmed.slice(0, 1997)}...` : trimmed;
+  if (trimmed.length <= RESULT_SUMMARY_LIMIT) {
+    return trimmed;
+  }
+  const suffix = resultResourceUri ? `... ${RESULT_RESOURCE_NOTICE}` : "...";
+  const prefixLength = Math.max(0, RESULT_SUMMARY_LIMIT - suffix.length);
+  return `${trimmed.slice(0, prefixLength)}${suffix}`;
+}
+
+function resultReplayResource(invocationId: string, text: string): ManagedAgentReplayResource | undefined {
+  if (text.length <= RESULT_SUMMARY_LIMIT) {
+    return undefined;
+  }
+  return {
+    uri: managedInvocationUri(invocationId, "result/final"),
+    title: "Managed invocation final result",
+    mimeType: "text/markdown",
+    text,
+  };
 }
 
 function formatTimeoutSummary(input: {

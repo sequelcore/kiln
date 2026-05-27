@@ -416,7 +416,15 @@ describe("appendManagedInvocationSessionEvents", () => {
   it("maps requested/started/completed with transcript, usage unknowns, handoff evidence and child lineage", () => {
     const session = makeSession();
     const request = makeRequest(session.id, `${session.id}:turn:1`);
-    const record = makeRecord("completed");
+    const record = defineManagedAgentInvocationRecord({
+      ...makeRecord("completed"),
+      replayResources: [{
+        uri: "kiln://artifacts/invocation-1/result-full",
+        title: "Managed invocation final result",
+        mimeType: "text/markdown",
+        text: "FULL_REPLAY_TAIL_SHOULD_NOT_INLINE",
+      }],
+    });
     const events = appendManagedInvocationSessionEvents({
       session,
       request,
@@ -509,6 +517,7 @@ describe("appendManagedInvocationSessionEvents", () => {
     });
     expect((evidence?.lifecycle as { resourceLease?: unknown }).resourceLease)
       .toEqual(record.capabilitySnapshot.resourceLease);
+    expect(JSON.stringify(events)).not.toContain("FULL_REPLAY_TAIL_SHOULD_NOT_INLINE");
   });
 
   it("maps terminal resource lease evidence without rewriting the admitted snapshot", () => {
