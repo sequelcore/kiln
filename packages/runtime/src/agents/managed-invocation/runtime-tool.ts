@@ -541,7 +541,9 @@ export function createManagedAgentInvokeToolDefinition(
       "Only request skills that are listed on a configured agent profile or otherwise known from the Kiln skill catalog. Do not invent skill names; unknown skills fail closed.",
       "When the child is executing a governed work item, pass workItemId, expectedEvidence, requiredResultFields, doneCriteria, roleIntent, and residualRiskRequired so the handoff is auditable across surfaces.",
       "Use contextMode=isolated unless you are also passing governed resourceUris. Do not use contextMode=resources without resourceUris.",
+      "Do not put resource_read in requiredToolNames just because contextMode=resources is used; the parent runtime hydrates admitted resourceUris before the child starts, and resource_read is only a child tool when the selected authority profile explicitly allows it.",
       "Use routeId when the user asks for a specific route or when more than one route shares a provider and no selected agentProfile route hint applies. Omit providerRoute.model unless the user explicitly selected an exact configured model.",
+      "For broad repository review, long reasoning, or multi-file analysis, choose a route with a sufficient timeout budget or split the work into smaller children.",
     ].join("\n"),
     inputSchema: schema,
   };
@@ -1502,6 +1504,7 @@ async function executeManagedInvocationCancelTool(
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
     record,
+    expectedTerminalLifecycleState: "cancelled",
     sessionEventIds: events.map((event) => event.eventId),
   });
 }
@@ -1588,10 +1591,12 @@ function terminalManagedInvocationResult(input: {
   readonly contextMode?: ManagedAgentInvocationContextMode;
   readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
   readonly record: ManagedAgentInvocationRecord;
+  readonly expectedTerminalLifecycleState?: ManagedAgentInvocationRecord["lifecycleState"];
   readonly sessionEventIds: readonly string[];
 }): ManagedInvocationToolResult {
   const summary = input.record.resultHandoff?.summary ?? `Managed invocation ${input.record.lifecycleState}.`;
-  const terminalError = input.record.lifecycleState !== "completed";
+  const terminalError = input.record.lifecycleState !== "completed"
+    && input.record.lifecycleState !== input.expectedTerminalLifecycleState;
   const recovery = terminalError
     ? buildManagedInvocationPhaseRecovery(
         input.rawInput,
@@ -1854,7 +1859,8 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
     ? options.routes
         .map((route) => {
           const suitability = formatTaskSuitability(route.taskSuitability, managedInvocationSkillNames(options));
-          return `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${suitability ? `, taskSuitability=${suitability}` : ""}`;
+          const timeoutSummary = formatRouteTimeoutSummary(route.profiles);
+          return `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
         })
         .join("\n")
     : "- none";
@@ -1869,6 +1875,23 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
     "Configured unavailable managed invocation routes:",
     unavailable,
   ].join("\n");
+}
+
+function formatRouteTimeoutSummary(
+  profiles: ManagedInvocationToolRoute["profiles"],
+): string | undefined {
+  const entries = Object.entries(profiles)
+    .map(([profile, value]) => ({ profile, timeoutMs: value?.timeoutMs }))
+    .filter((entry): entry is { readonly profile: string; readonly timeoutMs: number } =>
+      typeof entry.timeoutMs === "number" && Number.isFinite(entry.timeoutMs)
+    );
+  if (entries.length === 0) {
+    return undefined;
+  }
+  if (entries.length === 1) {
+    return `timeoutMs=${entries[0]!.timeoutMs}`;
+  }
+  return `timeouts=${entries.map((entry) => `${entry.profile}:${entry.timeoutMs}`).join("|")}`;
 }
 
 function formatTaskSuitability(

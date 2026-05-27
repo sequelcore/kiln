@@ -119,12 +119,16 @@ remain unavailable until they pass the same managed handoff proof. Synthesized
 child routes use `models.<engine>` when present, then the adapter's safe default
 for that engine. They do not inherit
 `models.default`, because model IDs are provider-specific. Write-capable routes
-are never synthesized.
+are never synthesized. Synthesized managed-agent routes use a five-minute
+timeout budget by default. Explicit `managedAgents.routes[].timeoutMs` remains
+the route authority when a team deliberately wants a shorter probe or a longer
+bounded child run.
 At runtime, Kiln projects the resolved route registry into the
 `managed_agent.invoke` tool definition so parent agents can see configured
-route ids and unavailable-route diagnostics. If multiple managed routes share a
-provider/profile, parent agents must select by `routeId` or by an exact
-configured model unless a configured `agentProfile` contributes a route hint.
+route ids, timeout budgets, and unavailable-route diagnostics. If multiple
+managed routes share a provider/profile, parent agents must select by `routeId`
+or by an exact configured model unless a configured `agentProfile` contributes
+a route hint.
 When an agent-profile route hint exists, `managed_agent.invoke` uses it to
 disambiguate provider-only requests and rejects explicit route, provider, or
 model selections that contradict the hint. Provider-only selection without a

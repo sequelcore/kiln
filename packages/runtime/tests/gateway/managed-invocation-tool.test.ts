@@ -1251,7 +1251,7 @@ describe("managed invocation runtime tool", () => {
     const cancelled = await cancelPromise;
 
     expect(cancelled).toMatchObject({
-      isError: true,
+      isError: false,
       metadata: {
         lifecycleState: "cancelled",
       },
@@ -1917,7 +1917,7 @@ describe("managed invocation runtime tool", () => {
 
     expect(cancelled).toMatchObject({
       output: expect.stringContaining("Operator cancelled the managed child."),
-      isError: true,
+      isError: false,
       metadata: {
         status: "cancelled",
         lifecycleState: "cancelled",
@@ -2013,7 +2013,7 @@ describe("managed invocation runtime tool", () => {
     const cancelled = await cancelledPromise;
     expect(cancelled).toMatchObject({
       output: expect.stringContaining("Operator cancelled pending adapter output."),
-      isError: true,
+      isError: false,
       metadata: {
         lifecycleState: "cancelled",
       },
@@ -2205,6 +2205,9 @@ describe("managed invocation runtime tool", () => {
     expect(tool?.description).toContain("Do not invent skill names");
     expect(tool?.description).toContain("pass workItemId, expectedEvidence");
     expect(tool?.description).toContain("Do not use contextMode=resources without resourceUris");
+    expect(tool?.description).toContain("timeoutMs=120000");
+    expect(tool?.description).toContain("For broad repository review, long reasoning, or multi-file analysis, choose a route with a sufficient timeout budget or split the work into smaller children.");
+    expect(tool?.description).toContain("Do not put resource_read in requiredToolNames just because contextMode=resources is used");
     expect(tool?.description).toContain("For comparison tasks");
     expect(schema.properties?.routeId?.enum).toEqual([
       "opencode-readonly-a",

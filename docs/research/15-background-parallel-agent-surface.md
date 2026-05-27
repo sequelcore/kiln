@@ -100,3 +100,35 @@ the phase evidence contract. For visual-reference research, "completed" without
 running-product UI capture evidence or code-backed frontend implementation
 evidence is a no-handoff result and must project as recovery, not as
 `phase_completed_by_child`.
+
+2026-05-27 timeout research follow-up: long-running child-agent work should not
+be modeled as a synchronous request with a short hidden timeout. OpenAI's
+Responses background mode documents long-running reasoning as asynchronous work
+with polling, terminal status, cancellation, and resumable streaming cursors.
+OpenAI's Agents SDK documents explicit run limits and tool timeout errors.
+Anthropic's official SDKs use bounded timeouts and recommend or require
+streaming for long non-streaming requests that may exceed roughly ten minutes.
+LangGraph's durable execution and interrupt model requires checkpointed state
+before suspension/resume. SWE-agent and later software-agent efficiency work
+show that repository-level software agents consume meaningful time and tokens,
+and that failures can be expensive when the scaffold lacks resource budgeting.
+Kiln's implication is not "disable timeouts"; it is to keep managed children
+as asynchronous lifecycle records with explicit timeout budgets, replayable
+terminal evidence, accepted cancellation controls, and model-visible route
+timeout budgets so broad review work is either routed to a sufficient budget or
+split into smaller child invocations.
+
+Sources:
+
+- OpenAI API background mode: <https://platform.openai.com/docs/guides/background>
+- OpenAI Responses API cancel endpoint:
+  <https://platform.openai.com/docs/api-reference/responses/retrieve>
+- OpenAI Agents SDK running agents:
+  <https://openai.github.io/openai-agents-python/running_agents/>
+- Anthropic Java SDK long requests and timeouts:
+  <https://github.com/anthropics/anthropic-sdk-java#long-requests>
+- LangGraph interrupts and checkpointing:
+  <https://docs.langchain.com/oss/python/langgraph/interrupts>
+- SWE-agent paper: <https://arxiv.org/abs/2405.15793>
+- SWE-Effi resource-constrained software-agent evaluation:
+  <https://arxiv.org/abs/2509.09853>

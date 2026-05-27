@@ -225,7 +225,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         transcript: transcriptPointer(request.invocationId),
         usage: usageReport(collected.usage),
         resultHandoff: {
-          summary: "Managed CLI harness invocation timed out.",
+          summary: formatTimeoutSummary({
+            timeoutMs: request.authority.timeoutMs,
+            childSessionId,
+          }),
           resourceUris: [
             managedInvocationUri(request.invocationId, "timeout"),
             ...writeEvidence.resultResourceUris,
@@ -613,6 +616,18 @@ function hasSubstantiveResultHandoff(
 ): boolean {
   return collected.textParts.join("").trim().length > 0
     || writeEvidence.evidence.length > 0;
+}
+
+function formatTimeoutSummary(input: {
+  readonly timeoutMs: number;
+  readonly childSessionId: string;
+}): string {
+  return [
+    `Managed CLI harness invocation timed out after ${input.timeoutMs}ms.`,
+    `Child session: ${input.childSessionId}.`,
+    "No completed child handoff was produced before timeout.",
+    "Inspect the transcript and timeout diagnostic resources for replayable route, authority, context, and terminal-state evidence.",
+  ].join(" ");
 }
 
 function managedInvocationUri(invocationId: string, resource: string): string {

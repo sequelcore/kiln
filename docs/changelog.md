@@ -8,6 +8,12 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Raised synthesized managed-agent route timeouts to five minutes, projected
+  route timeout budgets into the model-facing managed-agent catalog, made
+  CLI-harness timeout handoffs name the admitted timeout and replay resources,
+  clarified `contextMode: "resources"` versus child `resource_read` authority,
+  and made successful `managed_agent.cancel` controls report accepted terminal
+  cancellation evidence instead of a failed tool result.
 - Made paginated `resource_read` continuations model-visible with a trailing
   JSON control block, and kept GUI/TUI managed invocation lifecycle tools bound
   to the stable outer Kiln session across recreated provider turns.

@@ -113,7 +113,7 @@ const WRITE_PROFILES = new Set<KilnManagedAgentProfile>([
 ]);
 const DEFAULT_ALLOWED_TOOLS = ["read", "tree", "grep", "glob"] as const;
 const DEFAULT_WRITE_ALLOWED_TOOLS = ["read", "tree", "grep", "glob", "write", "edit", "apply-patch"] as const;
-const DEFAULT_TIMEOUT_MS = 120000;
+const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_MODELS: Record<string, string> = {
   codex: "gpt-5.3-codex-spark",
   opencode: "opencode/minimax-m2.5-free",

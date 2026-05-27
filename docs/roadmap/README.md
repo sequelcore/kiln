@@ -81,6 +81,12 @@ Direct-provider and CLI-harness children share resource-context construction for
 `resource_read` content, both route families resolve the reader from the current
 session-scoped builtin tool surface at invocation time, and unattached surfaces
 receive only the admitted URI list.
+The 2026-05-27 timeout ergonomics follow-up is closed there as well:
+synthesized managed-agent routes use a five-minute default timeout, the
+model-facing route catalog exposes timeout budgets and resource-mode guidance,
+CLI-harness timeout handoffs point to replayable timeout evidence, and an
+expected `managed_agent.cancel` result is accepted when terminal cancellation
+evidence is recorded.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark

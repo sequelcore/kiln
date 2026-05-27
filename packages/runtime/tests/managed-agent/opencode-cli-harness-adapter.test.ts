@@ -561,6 +561,9 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/timeout",
       kind: "timeout",
     }]);
+    expect(result.record.resultHandoff?.summary).toContain("timed out after 1ms");
+    expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
+    expect(result.record.resultHandoff?.summary).toContain("Inspect the transcript and timeout diagnostic resources");
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 

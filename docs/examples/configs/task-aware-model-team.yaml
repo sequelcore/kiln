@@ -125,7 +125,7 @@ managedAgents:
       profiles:
         - foundation-readonly-plan
       workingDirectory: project
-      timeoutMs: 120000
+      timeoutMs: 300000
       tools:
         allowed:
           - read

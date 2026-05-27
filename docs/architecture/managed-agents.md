@@ -312,6 +312,10 @@ Parent turns that contain terminal managed-child failures are recorded as failed
 from either runtime ledger events or canonical tool-execution summaries, so GUI,
 TUI, CLI, and replay consumers cannot report a blocked delegation as a completed
 turn just because the failure was captured through a different surface.
+An explicit `managed_agent.cancel` call is different from a failed child
+handoff: when cancellation reaches the canonical `cancelled` lifecycle and
+terminal evidence is recorded, the cancel control result is accepted even
+though the child result remains unavailable for comparison or phase evidence.
 
 The direct-provider adapter creates a child `RuntimeSessionOrchestrator` instead
 of launching a CLI harness. It reuses the provider adapter contract, runtime
@@ -361,6 +365,10 @@ child session id, child turn id, transcript resource, and timeout diagnostic
 resource. It must not claim that all trace evidence is unavailable while also
 returning a transcript pointer; instead it distinguishes missing completed child
 handoff from replayable timeout evidence.
+CLI-harness timeout handoffs follow the same diagnostic rule. A timeout summary
+must name the admitted timeout budget and child session and must point operators
+to transcript and timeout resources, instead of returning a bare "timed out"
+string that hides where replay evidence lives.
 Direct-provider timeouts are cancellation boundaries, not just `Promise.race`
 wrappers. When the managed authority timeout expires, the runtime must abort the
 child provider request through the shared provider adapter contract, stop retry
@@ -428,6 +436,11 @@ does not receive `managed_agent.invoke` authority.
 Unhealthy configured routes are still carried as diagnostics so a failed tool
 call can explain why the route is unavailable rather than pretending it was
 never configured.
+The model-facing route catalog includes each healthy route's timeout budget.
+Parent agents should route broad repository review, long reasoning, or
+multi-file analysis to a child route with enough admitted time, or split work
+into smaller children and join them separately. The timeout budget remains
+route authority; parent prompts do not silently extend it.
 GUI and TUI startup use a CLI-owned staged managed invocation route catalog.
 The first catalog is built without blocking on child provider model discovery.
 Routes whose provider model evidence is not known yet are exposed only as
@@ -607,6 +620,10 @@ live resource plane after managed invocation resources are attached. If a
 surface lacks a resource reader, the governed context falls back to the admitted
 resource URI list rather than silently granting filesystem or private adapter
 access.
+Because `contextMode: "resources"` hydrates parent-admitted resources before
+child execution, parent agents must not add `resource_read` to
+`requiredToolNames` merely to read those resources. `requiredToolNames` names
+tools that the child route itself must be allowed to call after admission.
 
 ## Live Adapter Evidence
 

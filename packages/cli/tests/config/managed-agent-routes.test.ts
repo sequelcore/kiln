@@ -269,6 +269,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]?.routeId).toBe("codex-readonly");
+    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.timeoutMs).toBe(300000);
     expect(result.managedInvocation?.requestSource).toBe("gui");
   });
 

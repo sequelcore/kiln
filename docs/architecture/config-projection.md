@@ -375,7 +375,9 @@ capable routes require an explicit `managedAgents.routes[]` entry with
 `writeAuthority` scope and approval config plus live-proven write evidence
 support. `tools.writes: true` does not grant authority by itself. A harness that
 can prove write evidence but cannot yet prove substantive read-only result
-handoff remains unavailable for `foundation-readonly-plan`.
+handoff remains unavailable for `foundation-readonly-plan`. Synthesized route
+profiles use a five-minute timeout budget; explicit route `timeoutMs` values
+remain authoritative for deliberate shorter probes or longer bounded children.
 
 Remote harness routes are explicit managed-agent route overrides. Projection
 requires HTTPS invoke and cancel endpoints, a portable auth-token environment
