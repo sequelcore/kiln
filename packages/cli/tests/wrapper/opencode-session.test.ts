@@ -44,6 +44,11 @@ describe("OpenCodeSession implements IKilnSession", () => {
     expect(a.sessionId).not.toBe(b.sessionId);
   });
 
+  it("uses configured runtime session identity", () => {
+    const session = new OpenCodeSession(baseConfig({ runtimeSessionId: "kiln-tui:opencode:session-1" }));
+    expect(session.sessionId).toBe("kiln-tui:opencode:session-1");
+  });
+
   it("capabilities.mcp is true", () => {
     const session = new OpenCodeSession(baseConfig());
     expect(session.capabilities.mcp).toBe(true);

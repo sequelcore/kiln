@@ -96,8 +96,10 @@ ToolResourceRegistry.read(uri, { cursor?: string, limit?: number })
 ```
 
 `resource_read` exposes the same options. A pagination-capable read returns one
-bounded page and may include `nextCursor`. Content metadata includes
-`_meta.range`:
+bounded page and may include `nextCursor`. The tool mirrors continuation
+controls into the model-visible output after the content page so assistants can
+copy the opaque cursor without relying on surface-only metadata. Content
+metadata also includes `_meta.range`:
 
 ```ts
 {
@@ -266,9 +268,11 @@ These tools are adapters over `ToolResourceRegistry`. They are not GUI, TUI, or
 CLI helper APIs. They remain available in deferred tool projection so models
 can follow `kiln://artifacts/...` links without needing raw tool-result JSON in
 assistant prose. `resource_read` returns the content page as text when the
-result is a single text content item; otherwise it returns structured JSON. The
-tool metadata carries `nextCursor`, `range`, content count, MIME type, and
-resource operation evidence.
+result is a single text content item; otherwise it returns structured JSON.
+When pagination controls exist, the output ends with a `--- resource_read ---`
+JSON control block containing the URI, range, and optional `nextCursor`. The
+tool metadata carries the same `nextCursor`, `range`, content count, MIME type,
+and resource operation evidence for clients that consume structured events.
 
 ## Consumer Projection
 

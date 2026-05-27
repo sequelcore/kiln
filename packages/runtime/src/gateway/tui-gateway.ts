@@ -48,6 +48,7 @@ import {
 } from "./attached-runtime-tool-surface.js";
 import {
   attachManagedInvocationSessionEventSink,
+  withManagedInvocationService,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
@@ -373,6 +374,9 @@ export function buildTuiDoneFramePayload(input: {
 export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGateway> {
   const port = options.port ?? 4801;
   const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
+  const managedInvocation = options.managedInvocation
+    ? withManagedInvocationService(options.managedInvocation)
+    : undefined;
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
@@ -406,7 +410,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions,
     managedInvocation: attachManagedInvocationSessionEventSink(
-      options.managedInvocation,
+      managedInvocation,
       { publish: (events) => activityStreamer.forwardSessionEvents(events) },
     ),
   });
@@ -834,7 +838,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 builtinToolOptions,
                 executionMode,
                 managedInvocation: attachManagedInvocationSessionEventSink(
-                  options.managedInvocation,
+                  managedInvocation,
                   { publish: (events) => activityStreamer.forwardSessionEvents(events) },
                 ),
                 operatorSurface: {

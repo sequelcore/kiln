@@ -41,6 +41,11 @@ describe("ClaudeSession implements IKilnSession", () => {
     expect(id1).toBe(id2);
   });
 
+  it("uses configured runtime session identity", () => {
+    const session = new ClaudeSession(baseConfig({ runtimeSessionId: "kiln-tui:claude:session-1" }));
+    expect(session.sessionId).toBe("kiln-tui:claude:session-1");
+  });
+
   it("capabilities.mcp is true", () => {
     const session = new ClaudeSession(baseConfig());
     expect(session.capabilities.mcp).toBe(true);

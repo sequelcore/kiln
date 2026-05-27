@@ -105,7 +105,7 @@ export class ResourceReadTool implements DevTool {
         ...(limit !== undefined ? { limit } : {}),
       });
       const range = extractResourceReadRange(result.contents[0]);
-      return toSuccessResult(formatResourceReadOutput(result.contents), resourceToolMetadata("resource_read", {
+      const metadata = resourceToolMetadata("resource_read", {
         operation: "read",
         uri: uri.value,
         ...(cursor ? { cursor } : {}),
@@ -113,14 +113,30 @@ export class ResourceReadTool implements DevTool {
         ...(range ? { range } : {}),
         contentCount: result.contents.length,
         mimeType: result.contents[0]?.mimeType,
-      }));
+      });
+      return toSuccessResult(
+        formatResourceReadOutput(result.contents, {
+          uri: uri.value,
+          ...(range ? { range } : {}),
+          ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+        }),
+        metadata,
+      );
     } catch (error) {
       return resourceError("resource_read", "read", error, uri.value);
     }
   }
 }
 
-function formatResourceReadOutput(contents: readonly ToolResourceContent[]): string {
+function formatResourceReadOutput(
+  contents: readonly ToolResourceContent[],
+  controls?: ResourceReadVisibleControls,
+): string {
+  const output = formatResourceReadContentOutput(contents);
+  return appendResourceReadVisibleControls(output, controls);
+}
+
+function formatResourceReadContentOutput(contents: readonly ToolResourceContent[]): string {
   if (contents.length === 1) {
     const content = contents[0];
     if (content && "text" in content) {
@@ -128,6 +144,28 @@ function formatResourceReadOutput(contents: readonly ToolResourceContent[]): str
     }
   }
   return JSON.stringify({ contents }, null, 2);
+}
+
+interface ResourceReadVisibleControls {
+  readonly uri: string;
+  readonly range?: ToolResourceReadRange;
+  readonly nextCursor?: string;
+}
+
+function appendResourceReadVisibleControls(
+  output: string,
+  controls: ResourceReadVisibleControls | undefined,
+): string {
+  if (!controls?.range && !controls?.nextCursor) {
+    return output;
+  }
+  return `${output}\n\n--- resource_read ---\n${JSON.stringify({
+    resource_read: {
+      uri: controls.uri,
+      ...(controls.range ? { range: controls.range } : {}),
+      ...(controls.nextCursor ? { nextCursor: controls.nextCursor } : {}),
+    },
+  }, null, 2)}`;
 }
 
 function extractResourceReadRange(content: ToolResourceContent | undefined): ToolResourceReadRange | undefined {

@@ -4,6 +4,7 @@ import type { HarnessHomeAuth, HarnessPoolProviderId } from "@kilnai/runtime";
 import type { IKilnSession, SessionCapabilities, SessionEvent, SessionRunOptions } from "./session.js";
 
 export interface PooledHarnessSessionConfig {
+  readonly runtimeSessionId?: string;
   readonly provider: HarnessPoolProviderId;
   readonly pool: CredentialPool<HarnessHomeAuth> | Promise<CredentialPool<HarnessHomeAuth>>;
   readonly createSession: (auth: HarnessHomeAuth) => IKilnSession;
@@ -24,7 +25,7 @@ export class PooledHarnessSession implements IKilnSession {
     this.pool = config.pool;
     this.createSession = config.createSession;
     this.createDefaultSession = config.createDefaultSession;
-    this.sessionId = `pooled-${this.provider}-${randomUUID()}`;
+    this.sessionId = config.runtimeSessionId ?? `pooled-${this.provider}-${randomUUID()}`;
   }
 
   get capabilities(): SessionCapabilities {

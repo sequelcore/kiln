@@ -27,6 +27,7 @@ import {
   attachManagedInvocationSessionEventSink,
   type ManagedInvocationSessionEventSink,
   type ManagedInvocationToolOptions,
+  withManagedInvocationService,
 } from "../../src/agents/managed-invocation/runtime-tool.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
@@ -365,6 +366,18 @@ function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter(
 }
 
 describe("managed invocation runtime tool", () => {
+  it("normalizes managed invocation options to one shared runtime service", () => {
+    const options = {
+      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model")],
+    } satisfies ManagedInvocationToolOptions;
+
+    const normalized = withManagedInvocationService(options);
+    const normalizedAgain = withManagedInvocationService(normalized);
+
+    expect(normalized.invocationService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
+    expect(normalizedAgain).toBe(normalized);
+  });
+
   it("is not exposed unless managed invocation routes are configured", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface();
 

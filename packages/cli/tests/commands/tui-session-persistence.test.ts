@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { SessionRecord, TranscriptStore } from "../../src/wrapper/session-store.js";
+import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
 import { InMemoryContextArtifactCache, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
 
 const {
@@ -146,6 +146,14 @@ vi.mock("@kilnai/runtime", () => ({
     capabilities: new Map(),
     toolAuthority: new Map(),
   })),
+  createManagedAgentInvocationResourceProvider: vi.fn((input: unknown) => ({
+    kind: "managed-invocation-resource-provider",
+    input,
+  })),
+  withManagedInvocationService: (options: Record<string, unknown>) => ({
+    ...options,
+    invocationService: options.invocationService ?? {},
+  }),
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
   discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
     models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
@@ -185,6 +193,7 @@ vi.mock("../../src/config/global-config.js", () => ({
 //
 // The actual function is tested by importing it directly once exported.
 import { makeMultiProviderSessionFactory, tuiCommand } from "../../src/commands/tui.js";
+import { SessionRegistry } from "../../src/wrapper/session-registry.js";
 
 const APP_CONFIG = {
   createRegistry: () => {
@@ -388,6 +397,69 @@ describe("makeMultiProviderSessionFactory", () => {
       "claude",
       expect.objectContaining({ budgetAdmission }),
     );
+  });
+
+  it("passes the stable Kiln session id into recreated provider sessions", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/p",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+    );
+    const session = factory("sys", "/p");
+
+    for await (const _ of session.run({
+      kilnSessionId: "kiln-gui:session-1",
+      prompt: "stable session",
+    } as any)) {}
+
+    expect(registry.createSession).toHaveBeenCalledWith(
+      "claude",
+      expect.objectContaining({ runtimeSessionId: "kiln-gui:session-1" }),
+    );
+  });
+
+  it("attaches managed invocation resources to recreated provider sessions", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+    const invocationService = { list: vi.fn(() => []) };
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/p",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "tui",
+      {
+        routes: [],
+        requestedBy: "assistant",
+        requestSource: "tui",
+        invocationService,
+      } as any,
+    );
+    const session = factory("sys", "/p");
+
+    for await (const _ of session.run({ prompt: "managed resources" } as any)) {}
+
+    const options = vi.mocked(registry.createSession).mock.calls[0]?.[1]?.builtinToolOptions;
+    expect(options?.resourceProviders).toContainEqual(expect.objectContaining({
+      kind: "managed-invocation-resource-provider",
+      input: { service: invocationService },
+    }));
   });
 
   it("shares builtin resource state across recreated provider sessions", async () => {
@@ -1177,6 +1249,97 @@ describe("makeMultiProviderSessionFactory", () => {
       type: "error",
       message: "Provider 'ollama' is unavailable",
     }]);
+  });
+
+  it("direct bootstrap passes a stable generated Kiln session id into recreated provider sessions", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    process.env.KILN_TUI_TRANSPORT = "direct";
+
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-direct-stable-"));
+    const runtimeSessionIds: string[] = [];
+    const findSessionIds: string[] = [];
+    const initSessionIds: string[] = [];
+    const appendSessionIds: string[] = [];
+    const originalFind = SessionStore.prototype.find;
+    const originalInit = TranscriptStore.prototype.init;
+    const originalAppend = SessionStore.prototype.append;
+    const findSpy = vi.spyOn(SessionStore.prototype, "find").mockImplementation(
+      function find(this: SessionStore, sessionId: string) {
+        findSessionIds.push(sessionId);
+        return originalFind.call(this, sessionId);
+      },
+    );
+    const initSpy = vi.spyOn(TranscriptStore.prototype, "init").mockImplementation(
+      function init(this: TranscriptStore, sessionId: string, meta: Parameters<TranscriptStore["init"]>[1]) {
+        initSessionIds.push(sessionId);
+        return originalInit.call(this, sessionId, meta);
+      },
+    );
+    const appendSpy = vi.spyOn(SessionStore.prototype, "append").mockImplementation(
+      function append(this: SessionStore, record: SessionRecord) {
+        appendSessionIds.push(record.sessionId);
+        return originalAppend.call(this, record);
+      },
+    );
+    const createSessionSpy = vi.spyOn(SessionRegistry.prototype, "createSession").mockImplementation(
+      (_provider: string, opts: { runtimeSessionId?: string }) => {
+        runtimeSessionIds.push(opts.runtimeSessionId ?? "");
+        return {
+          sessionId: opts.runtimeSessionId ?? "missing-runtime-session-id",
+          providerSessionId: "prov-stable-direct",
+          dispose: vi.fn().mockResolvedValue(undefined),
+          capabilities: {
+            mcp: true,
+            streaming: true,
+            resumable: false,
+            resume: false,
+            costTrackingMode: "native",
+            supportedTools: [],
+            maxContextTokens: null,
+            priority: 1,
+            fallbackTo: null,
+            permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+          },
+          run: vi.fn().mockImplementation(async function* () {
+            yield { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
+          }),
+        };
+      },
+    );
+
+    mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
+      const session = await createSession() as {
+        run: (opts: { prompt: string }) => AsyncIterable<unknown>;
+      };
+      for await (const _ of session.run({ prompt: "first" })) {}
+      for await (const _ of session.run({ prompt: "second" })) {}
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      createSessionSpy.mockRestore();
+      findSpy.mockRestore();
+      initSpy.mockRestore();
+      appendSpy.mockRestore();
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(runtimeSessionIds).toHaveLength(2);
+    expect(runtimeSessionIds[0]).toMatch(/^kiln-tui:direct:/u);
+    expect(runtimeSessionIds[1]).toBe(runtimeSessionIds[0]);
+    expect(findSessionIds).toContain(runtimeSessionIds[0]);
+    expect(initSessionIds).toContain(runtimeSessionIds[0]);
+    expect(appendSessionIds).toContain(runtimeSessionIds[0]);
+    expect(findSessionIds.every((sessionId) => sessionId === runtimeSessionIds[0])).toBe(true);
+    expect(initSessionIds.every((sessionId) => sessionId === runtimeSessionIds[0])).toBe(true);
+    expect(appendSessionIds.every((sessionId) => sessionId === runtimeSessionIds[0])).toBe(true);
   });
 
   it("direct bootstrap switch path allows model-less registry harness providers and rejects direct API switches without discovered models", async () => {

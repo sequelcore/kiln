@@ -973,4 +973,129 @@ describe("TUI gateway message fail-closed behavior", () => {
       gateway.shutdown();
     }
   });
+
+  it("keeps managed invocation state visible across TUI gateway turns when options omit a service", async () => {
+    vi.resetModules();
+    stubBunServe();
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue([{
+        provider: "openai",
+        available: true,
+        models: ["gpt-5.4-mini"],
+        modelCapabilities: {
+          "gpt-5.4-mini": {
+            supportsFunctionTools: true,
+            supportsRuntimeTools: true,
+          },
+        },
+        status: "available",
+        reason: "OpenAI models discovered.",
+        authState: "authenticated",
+        lastCheckedAt: "2026-05-06T12:00:00.000Z",
+      }]);
+    let turn = 0;
+    let invocationId = "";
+    const processSpy = vi
+      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .mockImplementation(async (input) => {
+        turn += 1;
+        const session = new RuntimeSession({
+          sessionId: "tui-parent-session",
+          appName: "kiln-tui",
+          tenantId: "tui",
+          userId: "operator-1",
+          systemPrompt: "You are a helpful assistant.",
+        });
+        session.addUserMessage(textParts(`Managed invocation turn ${turn}.`));
+
+        if (turn === 1) {
+          const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
+          if (!startManagedAgent) {
+            throw new Error("managed_agent.start was not attached to the TUI turn surface");
+          }
+          const started = await startManagedAgent({
+            profile: "foundation-readonly-plan",
+            routeId: "opencode-readonly",
+            providerRoute: {
+              providerId: "opencode",
+              model: "openai/gpt-4o:free",
+            },
+            task: "Inspect the managed invocation docs and report risks.",
+          }, {
+            session,
+            toolCall: {
+              id: "tool-call-managed-start",
+              name: "managed_agent.start",
+              input: {},
+            },
+          });
+          invocationId = String((started.metadata as { invocationId?: string } | undefined)?.invocationId ?? "");
+          expect(invocationId).not.toBe("");
+        } else {
+          const statusManagedAgent = input.callBuiltinTools?.get("managed_agent.status");
+          if (!statusManagedAgent) {
+            throw new Error("managed_agent.status was not attached to the TUI turn surface");
+          }
+          const status = await statusManagedAgent({ invocationId }, {
+            session,
+            toolCall: {
+              id: "tool-call-managed-status",
+              name: "managed_agent.status",
+              input: { invocationId },
+            },
+          });
+          expect(status.isError).toBe(false);
+          expect(status.output).toContain(invocationId);
+        }
+
+        return {
+          ok: true,
+          result: {
+            parts: [{ type: "text", text: `Managed turn ${turn} completed.` }],
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            queued: false,
+            sessionId: session.id,
+            sessionMode: "mode-a",
+            traceId: `trace-managed-tui-${turn}`,
+          },
+        } as never;
+      });
+    const sessionManager = {
+      ...makeSessionManager(),
+      getProvider: vi.fn(() => "openai"),
+      getModel: vi.fn(() => "gpt-5.4-mini"),
+    };
+    const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
+
+    const gateway = await startTuiGateway({
+      sessionManager,
+      managedInvocation: makeManagedInvocationOptions(),
+    });
+    try {
+      const { handlers, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen?.(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start managed child" }),
+        }),
+        wsCtx,
+      );
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "check managed child" }),
+        }),
+        wsCtx,
+      );
+
+      expect(processSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      processSpy.mockRestore();
+      discoverySpy.mockRestore();
+      gateway.shutdown();
+    }
+  });
 });

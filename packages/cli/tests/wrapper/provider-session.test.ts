@@ -22,6 +22,7 @@ const adapterMocks = vi.hoisted(
 );
 
 const runtimeMocks = vi.hoisted(() => ({
+  runtimeSessionConstructor: vi.fn(),
   processMessage: vi.fn(),
   orchestratorConstructor: vi.fn(),
   addUserMessage: vi.fn(),
@@ -145,7 +146,12 @@ vi.mock("@kilnai/runtime", () => {
     addAssistantMessage = runtimeMocks.addAssistantMessage;
     conversationHistory: unknown[] = [];
     sessionMode = "ai_active" as const;
-    id = "cli-test-session";
+    id: string;
+
+    constructor(config?: { sessionId?: string }) {
+      runtimeMocks.runtimeSessionConstructor(config);
+      this.id = config?.sessionId ?? "cli-test-session";
+    }
   }
 
   return {
@@ -736,6 +742,34 @@ describe("ProviderSession.run()", () => {
     } | undefined;
 
     expect(perCallConfig?.abortSignal).toBe(abortController.signal);
+  });
+
+  it("uses configured runtimeSessionId as the executable RuntimeSession id", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      runtimeSessionId: "kiln-gui:session-1",
+    }));
+
+    expect(session.sessionId).toBe("kiln-gui:session-1");
+
+    await collectEvents(session.run({ prompt: "stable runtime session" }));
+
+    expect(runtimeMocks.runtimeSessionConstructor).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "kiln-gui:session-1",
+    }));
   });
 
   it("streams runtime tool events before the final executable assistant text", async () => {

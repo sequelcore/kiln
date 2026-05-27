@@ -63,6 +63,31 @@ describe("runParallelWorkers", () => {
     ]);
   });
 
+  it("normalizes raw managed invocation options before fan-out service execution", async () => {
+    const managedInvocation = createManagedInvocation();
+    const { invocationService: _omitted, ...rawManagedInvocation } = managedInvocation;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+
+    await expect(runParallelWorkers(
+      MOCK_APP_CONFIG,
+      "test task",
+      {},
+      2,
+      rawManagedInvocation,
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({
+      code: 1,
+    });
+
+    const errorOutput = errorSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(errorOutput).not.toContain("requires an invocation service");
+    expect(errorOutput).toContain("isolated worktree lease manager is required");
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
   it("uses distinct session-scoped lineage for standalone fan-out invocations", async () => {
     const firstManagedInvocation = createManagedInvocation();
     const secondManagedInvocation = createManagedInvocation();

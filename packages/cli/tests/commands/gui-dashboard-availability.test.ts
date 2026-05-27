@@ -122,6 +122,14 @@ vi.mock("@kilnai/runtime", () => ({
     capabilities: new Map(),
     toolAuthority: new Map(),
   })),
+  createManagedAgentInvocationResourceProvider: vi.fn((input: unknown) => ({
+    kind: "managed-invocation-resource-provider",
+    input,
+  })),
+  withManagedInvocationService: (options: Record<string, unknown>) => ({
+    ...options,
+    invocationService: options.invocationService ?? {},
+  }),
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
   ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
   ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},

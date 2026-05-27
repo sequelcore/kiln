@@ -99,6 +99,7 @@ import {
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
   runManagedAgentFanOutLifecycle,
+  withManagedInvocationService,
 } from "@kilnai/runtime";
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
@@ -862,13 +863,16 @@ export async function runCommand(
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
-  if (managedInvocation?.invocationService) {
+  const managedInvocationWithService = managedInvocation
+    ? withManagedInvocationService(managedInvocation)
+    : undefined;
+  if (managedInvocationWithService) {
     builtinToolOptions = createSessionBuiltinToolOptions({
       ...builtinToolOptions,
       resourceProviders: [
         ...(builtinToolOptions.resourceProviders ?? []),
         createManagedAgentInvocationResourceProvider({
-          service: managedInvocation.invocationService,
+          service: managedInvocationWithService.invocationService,
         }),
       ],
     });
@@ -991,7 +995,7 @@ export async function runCommand(
         workerTranscriptInitialized = true;
       });
       await workerTranscriptInit;
-      await runParallelWorkers(appConfig, task, flags, workerCount, managedInvocation, {
+      await runParallelWorkers(appConfig, task, flags, workerCount, managedInvocationWithService, {
         ...executionOptions,
         exitOnFailure: false,
         globalConfig,
@@ -1055,7 +1059,7 @@ export async function runCommand(
     addDir: flags.addDir,
     localProvider: flags.localProvider,
     builtinToolOptions,
-    managedInvocation,
+    managedInvocation: managedInvocationWithService,
     ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
@@ -1734,6 +1738,7 @@ export async function runParallelWorkers(
     console.error("Error: Managed lifecycle fan-out requires configured managed agent routes.");
     exitRunCommand(1, executionOptions);
   }
+  const managedInvocationWithService = withManagedInvocationService(managedInvocation);
 
   const lineage = resolveParallelWorkerLineage(executionOptions.parallelWorkerLineage);
   const orchestrationRequest = buildManagedAgentFanOutOrchestrationRequest({
@@ -1748,7 +1753,7 @@ export async function runParallelWorkers(
   });
   const admissionLimits = resolveParallelWorkerAdmissionLimits(
     appConfig,
-    managedInvocation,
+    managedInvocationWithService,
     flags,
     task,
     workerCount,
@@ -1767,7 +1772,7 @@ export async function runParallelWorkers(
     const budgetAdmission = projectParallelWorkerBudgetAdmission(executionOptions.globalConfig, executionOptions);
     lifecycleResult = await runManagedAgentFanOutLifecycle({
       orchestrationRequest: admission.request,
-      managedInvocation,
+      managedInvocation: managedInvocationWithService,
       routeSelector: {
         ...(flags.provider ? { providerId: flags.provider } : {}),
         ...(flags.model ? { model: flags.model } : {}),

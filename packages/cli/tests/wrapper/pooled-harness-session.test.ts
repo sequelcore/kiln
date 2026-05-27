@@ -38,6 +38,36 @@ class MockSession implements IKilnSession {
 }
 
 describe("PooledHarnessSession", () => {
+  it("uses configured runtime session identity before an inner harness session is active", () => {
+    const session = new PooledHarnessSession({
+      runtimeSessionId: "kiln-tui:session-1",
+      provider: "codex",
+      pool: new CredentialPool<{ homeDir: string }>("codex"),
+      createSession: () => new MockSession("inner-session", []),
+      createDefaultSession: () => new MockSession("default-session", []),
+    });
+
+    expect(session.sessionId).toBe("kiln-tui:session-1");
+  });
+
+  it("keeps configured runtime session identity when using the default harness session", async () => {
+    const pool = new CredentialPool<{ homeDir: string }>("opencode");
+    const session = new PooledHarnessSession({
+      runtimeSessionId: "kiln-tui:session-1",
+      provider: "opencode",
+      pool,
+      createSession: () => new MockSession("pooled-session", []),
+      createDefaultSession: () => new MockSession("kiln-tui:session-1", [
+        { type: "text_delta", content: "default output" },
+      ]),
+    });
+
+    await expect(collect(session.run({ prompt: "do work" }))).resolves.toEqual([
+      { type: "text_delta", content: "default output" },
+    ]);
+    expect(session.sessionId).toBe("kiln-tui:session-1");
+  });
+
   it("rotates to the next wrapper home after a 429 and discards failed-attempt events", async () => {
     const pool = new CredentialPool<{ homeDir: string }>("codex", {
       credentials: [

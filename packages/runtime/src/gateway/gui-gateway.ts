@@ -53,6 +53,7 @@ import {
 } from "./attached-runtime-tool-surface.js";
 import {
   attachManagedInvocationSessionEventSink,
+  withManagedInvocationService,
   type ManagedInvocationToolOptions,
 } from "../agents/managed-invocation/runtime-tool.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
@@ -391,6 +392,9 @@ export function deriveGuiDoneAuthorityStatus(
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
   const builtinToolOptions = createSessionBuiltinToolOptions(options.builtinToolOptions);
+  const managedInvocation = options.managedInvocation
+    ? withManagedInvocationService(options.managedInvocation)
+    : undefined;
   const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
   const guiDistPath = resolveGuiDistPath(options.guiDistPath);
@@ -592,7 +596,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       getDiscoverySnapshot: getOperatorDiscoverySnapshot,
       onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
       builtinToolOptions,
-      managedInvocation: options.managedInvocation,
+      managedInvocation,
       resolveProviderPreference: options.resolveProviderPreference,
       updateProviderPreference: options.updateProviderPreference,
       onReady: (url) => {

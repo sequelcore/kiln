@@ -3,7 +3,7 @@ import { createDefaultBuiltinToolSurface } from "../../../src/tools/default-tool
 import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
 
 describe("resource tools", () => {
-  it("passes resource_read range options through the shared registry and returns nextCursor metadata", async () => {
+  it("passes resource_read range options through the shared registry and returns model-visible nextCursor controls", async () => {
     const artifactStore = new MemoryArtifactResourceStore({
       now: () => "2026-05-26T12:00:00.000Z",
     });
@@ -24,7 +24,7 @@ describe("resource tools", () => {
     const first = await resourceReadTool?.execute({ input: { uri, limit: 2 } });
     expect(first).toMatchObject({
       isError: false,
-      output: "line 1\nline 2",
+      output: expect.stringContaining("line 1\nline 2"),
       metadata: {
         toolName: "resource_read",
         kind: "resource",
@@ -41,18 +41,22 @@ describe("resource tools", () => {
         nextCursor: expect.any(String),
       },
     });
+    const firstOutput = String(first?.output);
+    expect(firstOutput).toContain('"resource_read"');
+    expect(firstOutput).toContain('"nextCursor"');
+    expect(firstOutput).toContain(String(first?.metadata?.nextCursor));
 
     const second = await resourceReadTool?.execute({
       input: {
         uri,
-        cursor: first?.metadata?.nextCursor,
+        cursor: readModelVisibleNextCursor(firstOutput),
         limit: 2,
       },
     });
 
     expect(second).toMatchObject({
       isError: false,
-      output: "line 3",
+      output: expect.stringContaining("line 3"),
       metadata: {
         range: {
           unit: "line",
@@ -63,5 +67,84 @@ describe("resource tools", () => {
         },
       },
     });
+    const secondOutput = String(second?.output);
+    expect(secondOutput).toContain('"resource_read"');
+    expect(secondOutput).not.toContain('"nextCursor"');
+  });
+
+  it("adds model-visible continuation controls for paginated blob resources", async () => {
+    const artifactStore = new MemoryArtifactResourceStore({
+      now: () => "2026-05-26T12:00:00.000Z",
+    });
+    const artifact = artifactStore.put({
+      namespace: "managed-invocations",
+      title: "Binary transcript",
+      mimeType: "application/octet-stream",
+      content: { type: "blob", blob: Buffer.from("abcdef").toString("base64") },
+      producer: { kind: "test", name: "resource-tools" },
+      retention: { scope: "session" },
+    });
+    const surface = createDefaultBuiltinToolSurface({
+      artifactResources: { store: artifactStore },
+    });
+    const resourceReadTool = surface.tools.find((tool) => tool.name === "resource_read");
+    const uri = `kiln://artifacts/managed-invocations/${artifact.id}/content`;
+
+    const first = await resourceReadTool?.execute({ input: { uri, limit: 2 } });
+
+    expect(first).toMatchObject({
+      isError: false,
+      output: expect.stringContaining('"blob"'),
+      metadata: {
+        range: {
+          unit: "byte",
+          offset: 0,
+          limit: 2,
+          returned: 2,
+          total: 6,
+          truncated: true,
+        },
+        nextCursor: expect.any(String),
+      },
+    });
+    const firstOutput = String(first?.output);
+    expect(firstOutput).toContain('"resource_read"');
+    expect(firstOutput).toContain(String(first?.metadata?.nextCursor));
+
+    const second = await resourceReadTool?.execute({
+      input: {
+        uri,
+        cursor: readModelVisibleNextCursor(firstOutput),
+        limit: 4,
+      },
+    });
+
+    expect(second).toMatchObject({
+      isError: false,
+      metadata: {
+        range: {
+          unit: "byte",
+          offset: 2,
+          limit: 4,
+          returned: 4,
+          total: 6,
+          truncated: false,
+        },
+      },
+    });
+    expect(String(second?.output)).toContain('"resource_read"');
   });
 });
+
+function readModelVisibleNextCursor(output: string): string {
+  const marker = "\n\n--- resource_read ---\n";
+  const markerIndex = output.lastIndexOf(marker);
+  expect(markerIndex).toBeGreaterThan(-1);
+  const controls = JSON.parse(output.slice(markerIndex + marker.length)) as {
+    readonly resource_read?: {
+      readonly nextCursor?: unknown;
+    };
+  };
+  expect(typeof controls.resource_read?.nextCursor).toBe("string");
+  return controls.resource_read.nextCursor;
+}

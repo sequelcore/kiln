@@ -26,6 +26,7 @@ interface TranslationRuleMetadata {
 }
 
 export interface CodexSessionConfig {
+  readonly runtimeSessionId?: string;
   readonly task: string;
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
@@ -163,7 +164,7 @@ export class CodexSession implements IKilnSession {
   private readonly _constraintInstructions: readonly string[];
 
   constructor(private readonly config: CodexSessionConfig) {
-    this.sessionId = randomUUID();
+    this.sessionId = config.runtimeSessionId ?? randomUUID();
     this._constraintInstructions = resolveConstraintInstructions(config);
     this._capabilities = {
       mcp: false,

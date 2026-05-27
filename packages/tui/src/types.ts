@@ -76,6 +76,7 @@ export interface SessionLike {
   run(opts: {
     prompt: string;
     cwd?: string;
+    kilnSessionId?: string;
     executionMode?: OperatorExecutionMode;
     requestedAuthority?: OperatorTurnRequestedAuthority;
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";

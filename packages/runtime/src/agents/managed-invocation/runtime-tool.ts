@@ -104,6 +104,10 @@ export interface ManagedInvocationToolOptions {
   readonly contextResolver?: ManagedInvocationContextResolver;
 }
 
+export type ManagedInvocationToolOptionsWithService = ManagedInvocationToolOptions & {
+  readonly invocationService: RuntimeManagedAgentInvocationService;
+};
+
 export interface ManagedInvocationAgentCatalogEntry {
   readonly name: string;
   readonly displayName?: string;
@@ -554,14 +558,14 @@ export function createManagedAgentStartToolDefinition(
 
 export function createManagedInvocationToolExecutor(
   options: ManagedInvocationToolOptions,
-  service = options.invocationService ?? createManagedInvocationService(options),
+  service = resolveManagedInvocationService(options),
 ): RuntimeBuiltinToolExecutor {
   return async (input, context) => executeManagedInvocationTool(input, context, options, service);
 }
 
 export function createManagedInvocationLifecycleToolExecutors(
   options: ManagedInvocationToolOptions,
-  service = options.invocationService ?? createManagedInvocationService(options),
+  service = resolveManagedInvocationService(options),
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
   return new Map([
     [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(options, service)],
@@ -571,6 +575,21 @@ export function createManagedInvocationLifecycleToolExecutors(
     [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
     [MANAGED_AGENT_CANCEL_TOOL_NAME, async (input, context) => executeManagedInvocationCancelTool(input, context, options, service)],
   ]);
+}
+
+export function withManagedInvocationService(
+  options: ManagedInvocationToolOptions,
+): ManagedInvocationToolOptionsWithService {
+  const invocationService = resolveManagedInvocationService(options);
+  return options.invocationService === invocationService
+    ? options as ManagedInvocationToolOptionsWithService
+    : { ...options, invocationService };
+}
+
+export function resolveManagedInvocationService(
+  options: ManagedInvocationToolOptions,
+): RuntimeManagedAgentInvocationService {
+  return options.invocationService ?? createManagedInvocationService(options);
 }
 
 function createManagedInvocationService(

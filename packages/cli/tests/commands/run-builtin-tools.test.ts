@@ -110,6 +110,10 @@ vi.mock("@kilnai/runtime", () => ({
   ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
   RuntimeManagedAgentInvocationService: class MockRuntimeManagedAgentInvocationService {},
   createManagedAgentInvocationResourceProvider: runWiringMocks.createManagedAgentInvocationResourceProvider,
+  withManagedInvocationService: (options: Record<string, unknown>) => ({
+    ...options,
+    invocationService: options.invocationService ?? {},
+  }),
   runManagedAgentFanOutLifecycle: runWiringMocks.runManagedAgentFanOutLifecycle,
   ProviderModelRouteHealthStore: class {
     evaluateRouteHealth(providerId: string, modelId: string) {

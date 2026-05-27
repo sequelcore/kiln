@@ -36,6 +36,7 @@ interface ClaudeNativeRuleMetadata {
 }
 
 export interface ClaudeSessionConfig {
+  readonly runtimeSessionId?: string;
   readonly task: string;
   readonly systemPrompt: string;
   readonly mcpServers?: Options["mcpServers"];
@@ -106,7 +107,7 @@ export class ClaudeSession implements IKilnSession {
   private abortController: AbortController | null = null;
 
   constructor(private readonly config: ClaudeSessionConfig) {
-    this.sessionId = randomUUID();
+    this.sessionId = config.runtimeSessionId ?? randomUUID();
     this._capabilities = {
       mcp: true,
       streaming: true,

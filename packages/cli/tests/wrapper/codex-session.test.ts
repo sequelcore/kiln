@@ -148,6 +148,11 @@ describe("CodexSession implements IKilnSession", () => {
     expect(a.sessionId).not.toBe(b.sessionId);
   });
 
+  it("uses configured runtime session identity", () => {
+    const session = new CodexSession(baseConfig({ runtimeSessionId: "kiln-tui:codex:session-1" }));
+    expect(session.sessionId).toBe("kiln-tui:codex:session-1");
+  });
+
   it("capabilities.mcp is false", () => {
     const session = new CodexSession(baseConfig());
     expect(session.capabilities.mcp).toBe(false);

@@ -117,6 +117,7 @@ interface OpenCodeNativeRuleMetadata {
 }
 
 export interface OpenCodeSessionConfig {
+  readonly runtimeSessionId?: string;
   readonly task: string;
   readonly cwd: string;
   readonly env?: Record<string, string>;
@@ -427,7 +428,7 @@ export class OpenCodeSession implements IKilnSession {
   private _disposed = false;
 
   constructor(config: OpenCodeSessionConfig) {
-    this.sessionId = randomUUID();
+    this.sessionId = config.runtimeSessionId ?? randomUUID();
     this._config = config;
     this._capabilities = {
       mcp: true,

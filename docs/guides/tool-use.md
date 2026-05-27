@@ -440,7 +440,9 @@ They stay visible in deferred tool projection alongside `tool_catalog_search`,
 so a model can follow `metadata.resourceLinks` from high-volume results without
 requiring a GUI, TUI, CLI, or MCP-client-only helper. `resource_read` returns a
 single text payload directly when possible and otherwise returns the resource
-content array as JSON.
+content array as JSON. For paginated reads, copy the exact opaque `nextCursor`
+from the trailing `--- resource_read ---` JSON control block; do not infer a
+cursor from line numbers or offsets.
 
 The builtin surface also creates a `ToolResourceNotificationHub`. Consumers can
 subscribe by resource URI and receive MCP-compatible invalidation messages:

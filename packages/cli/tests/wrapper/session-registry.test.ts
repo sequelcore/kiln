@@ -323,6 +323,35 @@ describe("SessionRegistry", () => {
       expect(providers.map((p) => p.id)).toEqual(["openai", "ollama"]);
     });
 
+    it.each(["claude", "codex", "opencode"] as const)(
+      "preserves configured runtime session identity for %s harness sessions",
+      (provider) => {
+        const { registry } = createDefaultRegistry();
+        const runtimeSessionId = `kiln-tui:${provider}:session-1`;
+
+        const session = registry.createSession(provider, {
+          runtimeSessionId,
+          task: "test",
+          permissionPolicy: BASE_POLICY,
+        });
+
+        expect(session.sessionId).toBe(runtimeSessionId);
+      },
+    );
+
+    it("preserves configured runtime session identity for direct provider sessions", () => {
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("ollama", {
+        runtimeSessionId: "kiln-tui:ollama:session-1",
+        model: DIRECT_PROVIDER_MODELS.ollama,
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+
+      expect(session.sessionId).toBe("kiln-tui:ollama:session-1");
+      expect(session).toBeInstanceOf(ProviderSession);
+    });
+
     it("getProviderDisplayInfo derives display metadata without owning provider models", () => {
       const { registry } = createDefaultRegistry();
       const displayInfo = getProviderDisplayInfo(registry);

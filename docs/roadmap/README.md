@@ -62,7 +62,10 @@ Completed background and parallel managed-agent work is canonicalized in
 `docs/architecture/managed-agents.md`, `docs/architecture/context-resource-plane.md`,
 `docs/architecture/config-projection.md`, `docs/architecture/operator-surfaces.md`,
 `docs/architecture/work-governance.md`, `docs/guides/global-config.md`, and
-`docs/changelog.md`.
+`docs/changelog.md`. The 2026-05-27 UTC GUI live-test follow-up is also closed
+there: resource pagination cursors are model-visible, and managed invocation
+status/list/join/cancel remain scoped to the stable outer Kiln session across
+recreated provider turns.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark

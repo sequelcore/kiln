@@ -127,6 +127,8 @@ export {
   createManagedAgentStartToolDefinition,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
+  resolveManagedInvocationService,
+  withManagedInvocationService,
   MANAGED_AGENT_CANCEL_CAPABILITY,
   MANAGED_AGENT_CANCEL_TOOL,
   MANAGED_AGENT_CANCEL_TOOL_NAME,
@@ -154,6 +156,7 @@ export type {
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
   ManagedInvocationToolOptions,
+  ManagedInvocationToolOptionsWithService,
   ManagedInvocationToolRoute,
 } from "./runtime-tool.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";

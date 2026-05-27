@@ -144,6 +144,7 @@ export interface SessionProviderDescriptor {
 
 export interface ProviderCreateConfig {
   readonly task: string;
+  readonly runtimeSessionId?: string;
   readonly systemPrompt?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
@@ -945,8 +946,10 @@ function createPooledHarnessSession(
   provider: HarnessPoolProviderId,
   createSession: (auth: HarnessHomeAuth) => IKilnSession,
   createDefaultSession: () => IKilnSession,
+  runtimeSessionId?: string,
 ): IKilnSession {
   return new PooledHarnessSession({
+    ...(runtimeSessionId ? { runtimeSessionId } : {}),
     provider,
     pool: new HarnessCredentialPoolService().createPool(provider),
     createSession,
@@ -988,6 +991,7 @@ function createDirectProviderSession(
 
   return new ProviderSession({
     provider,
+    ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
     model: config.model,
     requestedAuthority: config.requestedAuthority,
     task: config.task,
@@ -1061,6 +1065,7 @@ export function createDefaultRegistry(): {
         const translated = translatePermission(config.permissionPolicy, "claude") as ClaudeTranslationEnvelope;
         const cfg = translated.config;
         const createSession = (env: Record<string, string> | undefined) => new ClaudeSession({
+          ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
           task: config.task,
           systemPrompt: config.systemPrompt ?? "",
           mcpServers: config.mcpServers,
@@ -1081,6 +1086,7 @@ export function createDefaultRegistry(): {
           "claude-code",
           (auth) => createSession(withHarnessHomeEnv("claude-code", config.env, auth)),
           () => createSession(config.env),
+          config.runtimeSessionId,
         );
       },
     },
@@ -1103,6 +1109,7 @@ export function createDefaultRegistry(): {
         const translated = translatePermission(config.permissionPolicy, "codex") as CodexTranslationEnvelope;
         const cfg = translated.config;
         const createSession = (env: Record<string, string> | undefined) => new CodexSession({
+          ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
           task: config.task,
           model: config.model,
           cwd: config.cwd,
@@ -1127,6 +1134,7 @@ export function createDefaultRegistry(): {
           "codex",
           (auth) => createSession(withHarnessHomeEnv("codex", config.env, auth)),
           () => createSession(config.env),
+          config.runtimeSessionId,
         );
       },
     },
@@ -1155,6 +1163,7 @@ export function createDefaultRegistry(): {
             }))
           : [];
         const createSession = (env: Record<string, string> | undefined) => new OpenCodeSession({
+          ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
           task: config.task,
           model: config.model,
           cwd: config.cwd ?? process.cwd(),
@@ -1174,6 +1183,7 @@ export function createDefaultRegistry(): {
           "opencode",
           (auth) => createSession(withHarnessHomeEnv("opencode", config.env, auth)),
           () => createSession(config.env),
+          config.runtimeSessionId,
         );
       },
     },

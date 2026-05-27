@@ -76,7 +76,11 @@ import {
   type DefaultBuiltinToolRegistryOptions,
   type SessionEventSource,
 } from "@kilnai/core";
-import { getProjectContextArtifactCache } from "@kilnai/runtime";
+import {
+  createManagedAgentInvocationResourceProvider,
+  getProjectContextArtifactCache,
+  withManagedInvocationService,
+} from "@kilnai/runtime";
 import {
   createProviderCatalogService,
   deriveGovernedTurnOutcomeFromToolRecords,
@@ -455,7 +459,21 @@ export async function makeMultiProviderSessionFactory(
   const providerModelState = new Map<ProviderId, string>(
     providers.map((provider) => [provider, ""]),
   );
-  const sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
+  let sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
+  const managedInvocationWithService = managedInvocation
+    ? withManagedInvocationService(managedInvocation)
+    : undefined;
+  if (managedInvocationWithService) {
+    sessionBuiltinToolOptions = createSessionBuiltinToolOptions({
+      ...sessionBuiltinToolOptions,
+      resourceProviders: [
+        ...(sessionBuiltinToolOptions.resourceProviders ?? []),
+        createManagedAgentInvocationResourceProvider({
+          service: managedInvocationWithService.invocationService,
+        }),
+      ],
+    });
+  }
 
   let currentProvider: ProviderId | null = initialProvider;
 
@@ -506,6 +524,7 @@ export async function makeMultiProviderSessionFactory(
         const feedback = resumedFrom
           ? await inferResumeStrategyFeedback(transcriptStore, providerForTurn)
           : undefined;
+        const stableRuntimeSessionId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom;
         const decision = decideResumeStrategy({
           resumeSessionId: resumedFrom,
           preferredProvider: providerForTurn,
@@ -520,17 +539,18 @@ export async function makeMultiProviderSessionFactory(
           systemPrompt,
           cwd: sessionCwd || cwd,
           permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+          ...(stableRuntimeSessionId ? { runtimeSessionId: stableRuntimeSessionId } : {}),
           resumeSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
           sessionLedgerOwner: "host",
           model: modelForTurn,
           reasoningEffort: options.reasoningEffort,
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
-          ...(managedInvocation ? { managedInvocation } : {}),
+          ...(managedInvocationWithService ? { managedInvocation: managedInvocationWithService } : {}),
           ...(budgetAdmission ? { budgetAdmission } : {}),
         });
         activeSession = resumedSession;
-        const capturedId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom ?? resumedSession.sessionId;
+        const capturedId = stableRuntimeSessionId ?? resumedSession.sessionId;
         const [existingRecord, existingMeta] = await Promise.all([
           sessionStore.find(capturedId),
           transcriptStore.readMeta(capturedId),
@@ -1056,6 +1076,7 @@ async function bootstrapDirectSession(
   });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
   providerCatalog.startBackgroundRefresh({ force: true });
+  const directRuntimeSessionId = `kiln-tui:direct:${randomUUID()}`;
 
   const createSession = async (): Promise<SessionLike> => {
     if (session) {
@@ -1065,10 +1086,11 @@ async function bootstrapDirectSession(
     const inner = sessionManager.factory(
       systemPrompt,
       sessionCwd,
+      { kilnSessionId: directRuntimeSessionId },
     );
 
     session = {
-      async *run(opts: { prompt: string; cwd?: string }) {
+      async *run(opts: { prompt: string; cwd?: string; kilnSessionId?: string }) {
         const providerForTurn = sessionManager.getProvider();
         let modelForTurn = sessionManager.getModel();
         const providerModels = await ensureProviderModels();
@@ -1100,7 +1122,10 @@ async function bootstrapDirectSession(
           };
           return;
         }
-        for await (const event of inner.run(opts)) {
+        for await (const event of inner.run({
+          ...opts,
+          kilnSessionId: opts.kilnSessionId ?? directRuntimeSessionId,
+        })) {
           yield mapSessionEventToTui(event, {
             provider: providerForTurn,
             model: modelForTurn,

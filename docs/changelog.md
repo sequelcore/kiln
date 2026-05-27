@@ -8,6 +8,9 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Made paginated `resource_read` continuations model-visible with a trailing
+  JSON control block, and kept GUI/TUI managed invocation lifecycle tools bound
+  to the stable outer Kiln session across recreated provider turns.
 - Promoted the background and parallel managed-agent track into stable
   architecture docs, including runtime-owned child lifecycle, parallel
   orchestration admission, resource leases, cross-surface cockpit projection,

@@ -48,6 +48,7 @@ import { createCliOperatorThemeController } from "../application/operator-theme-
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
+  readonly runtimeSessionId?: string;
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
@@ -231,7 +232,7 @@ export class ProviderSession implements IKilnSession {
   private readonly eventBus: EventBus;
 
   constructor(readonly config: ProviderSessionConfig) {
-    this.sessionId = randomUUID();
+    this.sessionId = config.runtimeSessionId ?? randomUUID();
     this.executionProfile = resolveProfile(config);
     this.executionMode = this.executionProfile?.executionMode ?? "text-only";
     this.resolvedModel = this.executionProfile?.model ?? config.model;
@@ -600,6 +601,7 @@ export class ProviderSession implements IKilnSession {
       appName: "kiln-cli",
       tenantId: "cli-session",
       userId: this.sessionId,
+      sessionId: this.sessionId,
       systemPrompt,
       idleTimeoutMs: 30 * 60 * 1000,
     });

@@ -441,6 +441,12 @@ The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so
 GUI, TUI, operator gateway, and CLI direct-provider executable sessions use the
 same tool definition, authority projection, executor, and route contract instead
 of surface-specific implementations.
+GUI and TUI recreate direct-provider executable sessions for each turn, but the
+runtime session id used by managed invocation tools is the stable outer Kiln
+session id. This keeps `managed_agent.status`, `managed_agent.list`,
+`managed_agent.join`, and `managed_agent.cancel` scoped to the same operator
+session across turns without adopting provider-native thread ids as lifecycle
+authority.
 The attached tool definition is generated from the resolved route registry. It
 lists healthy and unavailable route ids, constrains model-facing provider ids to
 configured routes, and instructs parent agents to treat failed or unavailable
@@ -538,15 +544,20 @@ Managed invocation resources are read-only pointers under
 handoff, diagnostic, lease, conflict, adoption, and governed worktree-review
 resources without becoming transcript storage. Transcript and large content
 payloads are owned by the artifact resource store and read through
-`resource_read`.
+`resource_read`. GUI, TUI, and CLI executable sessions normalize managed
+invocation options to one runtime-owned invocation service before attaching the
+managed invocation resource provider; surfaces do not maintain private resource
+registries for child lifecycle state.
 
 Artifact-backed transcript and result resources must be readable page by page
 through the shared resource plane. `resource_read` accepts `cursor` and `limit`,
 returns one bounded page, exposes `nextCursor` when more content exists, and
 adds `_meta.range` with unit, offset, limit, returned count, total count, and
-truncation status. Text and JSON content page by line; blob content pages by
-decoded byte. Invalid, stale, URI-mismatched, or out-of-range cursors fail
-closed.
+truncation status. The model-visible `resource_read` output also includes the
+same range and optional `nextCursor` in its trailing control block, so parent
+agents can continue pages using the exact opaque cursor. Text and JSON content
+page by line; blob content pages by decoded byte. Invalid, stale,
+URI-mismatched, or out-of-range cursors fail closed.
 
 ## Live Adapter Evidence
 
