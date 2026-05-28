@@ -11,6 +11,7 @@ import type {
   ManagedAgentInvocationContextMode,
   ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRecord,
+  ManagedAgentInvocationRequest,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
   ManagedAgentRouteSource,
@@ -36,6 +37,7 @@ import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationResult,
   ManagedAgentRuntimeInvocationSnapshot,
+  ManagedAgentRuntimeInvocationTerminalNotification,
 } from "./index.js";
 import {
   appendManagedInvocationSessionEvents,
@@ -615,6 +617,77 @@ function createManagedInvocationService(
   });
 }
 
+async function publishManagedInvocationSessionEvents(
+  options: ManagedInvocationToolOptions,
+  context: RuntimeBuiltinToolExecutionContext,
+  events: readonly CanonicalSessionEvent[],
+): Promise<void> {
+  if (events.length === 0) {
+    return;
+  }
+  await options.sessionEventSink?.publish(events, context);
+}
+
+async function appendAndPublishManagedInvocationStartSessionEvents(input: {
+  readonly options: ManagedInvocationToolOptions;
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: ManagedAgentAdmissionDecision;
+}): Promise<readonly CanonicalSessionEvent[]> {
+  const events = appendManagedInvocationStartSessionEvents({
+    session: input.context.session,
+    request: input.request,
+    decision: input.decision,
+  });
+  await publishManagedInvocationSessionEvents(input.options, input.context, events);
+  return events;
+}
+
+async function appendAndPublishManagedInvocationTerminalSessionEvent(input: {
+  readonly options: ManagedInvocationToolOptions;
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly record: ManagedAgentInvocationRecord;
+  readonly durationMs?: number;
+}): Promise<readonly CanonicalSessionEvent[]> {
+  const record = projectManagedInvocationRecordResources(input.record, { artifactStore: input.options.artifactStore });
+  const events = appendManagedInvocationTerminalSessionEvent({
+    session: input.context.session,
+    request: input.request,
+    record,
+    ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+  });
+  await publishManagedInvocationSessionEvents(input.options, input.context, events);
+  return events;
+}
+
+function managedInvocationTerminalSessionEventIds(
+  context: RuntimeBuiltinToolExecutionContext,
+  invocationId: string,
+): readonly string[] {
+  return context.session.sessionEvents
+    .filter((event) => isManagedInvocationTerminalSessionEvent(event, invocationId))
+    .map((event) => event.eventId);
+}
+
+function terminalSessionEventIdsForResult(input: {
+  readonly events: readonly CanonicalSessionEvent[];
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly invocationId: string;
+}): readonly string[] {
+  return input.events.length > 0
+    ? input.events.map((event) => event.eventId)
+    : managedInvocationTerminalSessionEventIds(input.context, input.invocationId);
+}
+
+function isManagedInvocationTerminalSessionEvent(event: CanonicalSessionEvent, invocationId: string): boolean {
+  return (event.kind === "agent_invocation_completed" ||
+    event.kind === "agent_invocation_failed" ||
+    event.kind === "agent_invocation_cancelled") &&
+    "invocationId" in event &&
+    event.invocationId === invocationId;
+}
+
 function managedInvocationCredentialRouteIds(
   routes: readonly ManagedInvocationToolRoute[],
 ): readonly string[] {
@@ -1166,7 +1239,7 @@ async function executeManagedInvocationTool(
     decision: result.decision,
     ...(result.status === "completed" ? { record: result.record, durationMs } : {}),
   });
-  await options.sessionEventSink?.publish(events, prepared.context);
+  await publishManagedInvocationSessionEvents(options, prepared.context, events);
 
   if (result.status === "denied") {
     return {
@@ -1239,20 +1312,95 @@ async function executeManagedInvocationStartTool(
     return preparedResult.result;
   }
   const { prepared } = preparedResult;
-  const startResult = await service.start(
-    prepared.request,
-    prepared.route.adapter,
-    prepared.capabilitySnapshotInput,
-    {
-      ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
-    },
-  );
-  const events = appendManagedInvocationStartSessionEvents({
-    session: prepared.context.session,
-    request: prepared.request,
-    decision: startResult.decision,
+  let terminalPublicationEnabled = true;
+  let markStartSessionEventsReady = (): void => {};
+  const startSessionEventsReady = new Promise<void>((resolve) => {
+    markStartSessionEventsReady = resolve;
   });
-  await options.sessionEventSink?.publish(events, prepared.context);
+  const publishBackgroundTerminal = (
+    notification: ManagedAgentRuntimeInvocationTerminalNotification,
+  ): void => {
+    void startSessionEventsReady
+      .then(async () => {
+        if (!terminalPublicationEnabled) {
+          return;
+        }
+        await appendAndPublishManagedInvocationTerminalSessionEvent({
+          options,
+          context: prepared.context,
+          request: notification.request,
+          record: notification.record,
+          ...(notification.durationMs !== undefined ? { durationMs: notification.durationMs } : {}),
+        });
+      })
+      .catch(() => undefined);
+  };
+  let startResult: Awaited<ReturnType<RuntimeManagedAgentInvocationService["start"]>>;
+  try {
+    startResult = await service.start(
+      prepared.request,
+      prepared.route.adapter,
+      prepared.capabilitySnapshotInput,
+      {
+        ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
+        terminalObserver: publishBackgroundTerminal,
+      },
+    );
+  } catch (error) {
+    const terminalizedSnapshot = service.status(prepared.request.invocationId);
+    if (terminalizedSnapshot?.record !== undefined) {
+      const record = projectManagedInvocationRecordResources(terminalizedSnapshot.record, {
+        artifactStore: options.artifactStore,
+      });
+      let events: readonly CanonicalSessionEvent[] = [];
+      try {
+        const startEvents = await appendAndPublishManagedInvocationStartSessionEvents({
+          options,
+          context: prepared.context,
+          request: terminalizedSnapshot.request,
+          decision: terminalizedSnapshot.decision,
+        });
+        const terminalEvents = await appendAndPublishManagedInvocationTerminalSessionEvent({
+          options,
+          context: prepared.context,
+          request: terminalizedSnapshot.request,
+          record: terminalizedSnapshot.record,
+          ...(terminalizedSnapshot.durationMs !== undefined ? { durationMs: terminalizedSnapshot.durationMs } : {}),
+        });
+        events = [...startEvents, ...terminalEvents];
+      } finally {
+        markStartSessionEventsReady();
+      }
+      return terminalManagedInvocationResult({
+        toolName: MANAGED_AGENT_START_TOOL_NAME,
+        rawInput,
+        routeId: terminalizedSnapshot.decision.capabilitySnapshot.routeId,
+        voiceProfile: terminalizedSnapshot.decision.capabilitySnapshot.childIdentity.voiceProfile,
+        contextMode: terminalizedSnapshot.decision.capabilitySnapshot.contextMode,
+        request: terminalizedSnapshot.request,
+        record,
+        sessionEventIds: terminalSessionEventIdsForResult({
+          events,
+          context: prepared.context,
+          invocationId: prepared.request.invocationId,
+        }),
+      });
+    }
+    terminalPublicationEnabled = false;
+    markStartSessionEventsReady();
+    throw error;
+  }
+  let events: readonly CanonicalSessionEvent[] = [];
+  try {
+    events = await appendAndPublishManagedInvocationStartSessionEvents({
+      options,
+      context: prepared.context,
+      request: prepared.request,
+      decision: startResult.decision,
+    });
+  } finally {
+    markStartSessionEventsReady();
+  }
 
   if (startResult.status === "denied") {
     return {
@@ -1429,7 +1577,7 @@ async function executeManagedInvocationJoinTool(
           errorMessage,
         })
       : [];
-    await options.sessionEventSink?.publish(events, session.context);
+    await publishManagedInvocationSessionEvents(options, session.context, events);
     return errorResult(
       `Managed invocation join failed: ${errorMessage}`,
       {
@@ -1440,7 +1588,9 @@ async function executeManagedInvocationJoinTool(
         ...(failedSnapshot ? { routeSource: failedSnapshot.decision.capabilitySnapshot.routeSource } : {}),
         ...(failedSnapshot ? { parentSessionId: failedSnapshot.parentSessionId, parentTurnId: failedSnapshot.parentTurnId } : {}),
         error: failedSnapshot?.error,
-        sessionEventIds: events.map((event) => event.eventId),
+        sessionEventIds: failedSnapshot
+          ? terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value })
+          : [],
       },
       MANAGED_AGENT_JOIN_TOOL_NAME,
     );
@@ -1477,7 +1627,7 @@ async function executeManagedInvocationJoinTool(
     record,
     durationMs,
   });
-  await options.sessionEventSink?.publish(events, session.context);
+  await publishManagedInvocationSessionEvents(options, session.context, events);
   return terminalManagedInvocationResult({
     toolName: MANAGED_AGENT_JOIN_TOOL_NAME,
     rawInput,
@@ -1486,7 +1636,7 @@ async function executeManagedInvocationJoinTool(
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
     record,
-    sessionEventIds: events.map((event) => event.eventId),
+    sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
   });
 }
 
@@ -1544,7 +1694,7 @@ async function executeManagedInvocationCancelTool(
     record,
     durationMs: service.status(invocationId.value)?.durationMs,
   });
-  await options.sessionEventSink?.publish(events, session.context);
+  await publishManagedInvocationSessionEvents(options, session.context, events);
   return terminalManagedInvocationResult({
     toolName: MANAGED_AGENT_CANCEL_TOOL_NAME,
     rawInput,
@@ -1554,7 +1704,7 @@ async function executeManagedInvocationCancelTool(
     request: visibility.snapshot.request,
     record,
     expectedTerminalLifecycleState: "cancelled",
-    sessionEventIds: events.map((event) => event.eventId),
+    sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
   });
 }
 

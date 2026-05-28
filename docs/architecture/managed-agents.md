@@ -565,7 +565,12 @@ approved, the tool calls `RuntimeManagedAgentInvocationService`, appends
 `agent_invocation_requested`, `agent_invocation_started`, and terminal
 `agent_invocation_*` events to the parent runtime session, streams those
 canonical events through any configured `ManagedInvocationSessionEventSink`, and
-returns only the bounded child result handoff plus resource pointers.
+returns only the bounded child result handoff plus resource pointers. A
+nonblocking `managed_agent.start` registers a runtime terminal observer before
+returning; if the background child finishes without a later join, cancel, or GUI
+control, the observer appends and publishes the same canonical terminal event.
+Later joins and cancels observe the existing terminal event instead of
+synthesizing duplicates.
 
 Plan mode excludes `managed_agent.invoke`; planning turns may inspect and submit
 plans, but may not spawn managed child work.
@@ -581,8 +586,10 @@ provider prose or hold surface-local child registries. GUI and TUI transcript
 writers persist canonical `agent_invocation_*` events through the managed
 invocation session-event sink and a store-owned transcript sequence allocator,
 so provider stream events and managed-child lifecycle events share one ordered
-session transcript. Out-of-band GUI join and cancel controls publish the same
-terminal events through that sink after recording them on the runtime session.
+session transcript. Background children publish terminal events through the
+start-registered runtime observer when they finish naturally. Out-of-band GUI
+join and cancel controls publish the same terminal events through that sink only
+when they are the first terminal observation.
 Transcript replay prefers canonical `agent_invocation_*` events when present.
 When a GUI or TUI transcript contains only partial canonical lifecycle evidence
 or managed tool-completion evidence, replay projects the missing operator events
@@ -737,6 +744,17 @@ transcript pointer, diagnostics, usage, result handoff, write authority, and
 write evidence. GUI, TUI, CLI, SDK, and future operator surfaces must derive
 managed invocation state from these canonical events rather than maintaining
 local managed-agent state.
+For nonblocking children, terminal session-event persistence is owned by the
+runtime service lifecycle through an explicit terminal observer. The observer is
+registered by `managed_agent.start`, fires once after terminal finalization, and
+does not depend on the parent later calling `managed_agent.join` or an operator
+control. `managed_agent.join` and `managed_agent.cancel` still return terminal
+metadata and session-event ids, but they reuse existing terminal events when the
+background observer already recorded them. If startup terminalizes after a
+runtime-owned side effect, such as a lease acquisition that must be cleaned up,
+`managed_agent.start` records the requested, started, and failed events with the
+same canonical path instead of leaving the failure as an unpersisted thrown
+startup error.
 
 When a managed invocation is used to satisfy a governed work item, the parent
 work item records the child handoff through `work_item.execution.start` by

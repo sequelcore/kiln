@@ -113,13 +113,16 @@ model-facing managed-agent start/status/list/join/cancel projections expose
 timeout budgets and terminal child lineage, GUI/TUI transcript persistence
 writes canonical `agent_invocation_*` lifecycle events through the managed
 invocation session-event sink and shared transcript sequence allocator,
-out-of-band GUI join/cancel controls publish the same terminal events for
-transcript replay, and cockpit projection carries child session ids, child turn
-ids, timeout budgets, and timeout provenance across normalized managed-tool
-evidence. GUI, TUI, and native managed-agent cockpit views render the same
-lineage and timeout fields from the shared view-state model. Timeout behavior
-remains route-owned; deterministic timeout tests use fake time instead of
-wall-clock races.
+`managed_agent.start` registers a runtime terminal observer so background child
+completion is persisted even without later join/cancel, startup failures that
+terminalize after side-effected runtime lease acquisition record requested,
+started, and failed events, out-of-band GUI join/cancel controls reuse the same
+terminal events for transcript replay, and cockpit projection carries child
+session ids, child turn ids, timeout budgets, and timeout provenance across
+normalized managed-tool evidence. GUI, TUI, and native managed-agent cockpit
+views render the same lineage and timeout fields from the shared view-state
+model. Timeout behavior remains route-owned; deterministic timeout tests use
+fake time instead of wall-clock races.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark
@@ -157,8 +160,8 @@ not in roadmap files. Current completed areas include:
 - TUI and GUI gateway-backed operation.
 - Managed agent invocation, background and parallel lifecycle, write authority,
   live adapter hardening, cockpit projection, route-source provenance,
-  parent-turn lineage, timeout diagnostics, and remote harness route
-  constraints.
+  parent-turn lineage, background terminal transcript persistence, timeout
+  diagnostics, and remote harness route constraints.
 - Work governance, plan mode, goal execution, and evidence-gated closeout.
 - Config projection, native harness projection, and governed config mutation.
 - Agent context, instruction profiles, skills, and repo shims.

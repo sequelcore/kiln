@@ -19,6 +19,7 @@ import {
 import { buildTuiTurnPerCallConfig } from "../../src/gateway/tui-gateway.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import {
+  ManagedAgentLeaseAcquireError,
   ManagedAgentWorktreeReviewRequiredError,
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
@@ -759,7 +760,7 @@ describe("managed invocation runtime tool", () => {
     expect(sessionEventSink.publish).toHaveBeenLastCalledWith([
       expect.objectContaining({ kind: "agent_invocation_completed" }),
     ], expect.objectContaining({
-      toolCall: expect.objectContaining({ name: "managed_agent.join" }),
+      toolCall: expect.objectContaining({ name: "managed_agent.start" }),
     }));
 
     await surface.callBuiltinTools.get("managed_agent.join")?.({
@@ -1591,6 +1592,157 @@ describe("managed invocation runtime tool", () => {
     expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
   });
 
+  it("persists terminal start failure when side-effected lease acquisition fails before adapter execution", async () => {
+    const worktreeLeaseManager: ManagedAgentWorktreeLeaseManager = {
+      acquire: vi.fn(async () => {
+        throw new ManagedAgentLeaseAcquireError("Managed git worktree acquire failed after checkout.", true);
+      }),
+      release: vi.fn(async ({ request, lease }) => ({
+        ...lease,
+        healthStatus: "released",
+        cleanupStatus: "completed",
+        diagnosticUris: [...lease.diagnosticUris, `kiln://artifacts/${request.invocationId}/worktree-release`],
+      })),
+    };
+    const adapter = makeAdapterWithHandoff("Approved write completed.", {
+      supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: false,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        sessionEventSink,
+        invocationService: new RuntimeManagedAgentInvocationService({
+          worktreeLeaseManager,
+        }),
+        routes: [{
+          routeId: "opencode-approved-write",
+          routeSource: "explicit-managed-route",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-apply-approved-writes": {
+              authorityProfileId: "authority:opencode:approved-write",
+              permissionProfile: "apply-approved-writes",
+              allowedToolNames: ["read", "grep", "apply-patch"],
+              writeAllowed: true,
+              networkAllowed: false,
+              workingDirectory: {
+                path: "C:/workspace/kiln/.kiln/managed-worktrees",
+                mode: "isolated-worktree",
+              },
+              workingDirectoryLease: {
+                mode: "git-worktree",
+                sourcePath: "C:/workspace/kiln",
+                rootPath: "C:/workspace/kiln/.kiln/managed-worktrees",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "credentialless",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+              writeAuthority: defineManagedAgentWriteAuthority({
+                profile: "foundation-apply-approved-writes",
+                scope: {
+                  workspace: {
+                    mode: "apply-approved",
+                    allowedPaths: ["C:/workspace/kiln/packages/runtime/src"],
+                    deniedPaths: ["C:/workspace/kiln/.git"],
+                  },
+                  memory: {
+                    mode: "none",
+                    operations: [],
+                  },
+                  artifacts: {
+                    mode: "none",
+                    resourceUris: [],
+                    retention: "none",
+                  },
+                  tools: {
+                    allowedToolNames: ["apply-patch"],
+                    deniedToolNames: [],
+                  },
+                },
+                approval: {
+                  mode: "required-before-apply",
+                  evidenceRequired: true,
+                },
+              }),
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start-acquire-failure",
+        name: "managed_agent.start",
+        input: {},
+      },
+      requestApproval: vi.fn(async () => ({
+        approved: true,
+        reason: "operator approved managed write",
+      })),
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-apply-approved-writes",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "destructive",
+      task: "Apply the approved runtime edit.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+        readonly lifecycleState?: string;
+        readonly sessionEventIds?: readonly string[];
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata.lifecycleState).toBe("failed");
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_failed",
+    ]);
+    expect(result.metadata.sessionEventIds).toEqual(session.sessionEvents.map((event) => event.eventId));
+    expect(session.sessionEvents[2]).toMatchObject({
+      kind: "agent_invocation_failed",
+      invocationId: result.metadata.invocationId,
+      managedInvocationEvidence: {
+        resultHandoff: {
+          summary: "Managed git worktree acquire failed after checkout.",
+        },
+      },
+    });
+    expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
+    expect(sessionEventSink.publish).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        kind: "agent_invocation_failed",
+        invocationId: result.metadata.invocationId,
+      }),
+    ], context);
+  });
+
   it("preserves dirty-worktree review evidence in managed-agent join metadata", async () => {
     const worktreeLeaseManager: ManagedAgentWorktreeLeaseManager = {
       acquire: vi.fn(async ({ request, lease }) => ({
@@ -1868,6 +2020,90 @@ describe("managed invocation runtime tool", () => {
     expect(otherSession.sessionEvents).toEqual([]);
   });
 
+  it("persists canonical terminal completion when a background managed child finishes without join or cancel", async () => {
+    const { adapter, terminal } = makeDeferredAdapter();
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = makeSurface(adapter, sessionEventSink);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-background-complete",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+    expect(started.isError).toBe(false);
+
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      invocationId: request.invocationId,
+      agentId: request.agentId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      profile: request.profile,
+      lifecycleState: "completed",
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authority: request.authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+        routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
+      }),
+      childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+      childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+      resultHandoff: {
+        summary: "Child review completed before parent joined.",
+        resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    await flushMicrotasks();
+
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "agent_invocation_completed",
+    ]);
+    expect(session.sessionEvents[2]).toMatchObject({
+      kind: "agent_invocation_completed",
+      invocationId: started.metadata.invocationId,
+      managedInvocationEvidence: {
+        childSessionId: `${session.id}:managed:${started.metadata.invocationId}`,
+        childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
+        resultHandoff: {
+          summary: "Child review completed before parent joined.",
+          resourceUris: [`kiln://managed-agents/invocations/${started.metadata.invocationId}/resources/result`],
+        },
+      },
+    });
+    expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
+    expect(sessionEventSink.publish).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        kind: "agent_invocation_completed",
+        invocationId: started.metadata.invocationId,
+      }),
+    ], expect.objectContaining({
+      toolCall: expect.objectContaining({ name: "managed_agent.start" }),
+    }));
+  });
+
   it("publishes terminal failure evidence when a background managed child rejects before join", async () => {
     const { adapter, terminal } = makeRejectingDeferredAdapter();
     const sessionEventSink = { publish: vi.fn() };
@@ -1937,7 +2173,7 @@ describe("managed invocation runtime tool", () => {
         errorMessage: "child runtime crashed",
       }),
     ], expect.objectContaining({
-      toolCall: expect.objectContaining({ name: "managed_agent.join" }),
+      toolCall: expect.objectContaining({ name: "managed_agent.start" }),
     }));
   });
 

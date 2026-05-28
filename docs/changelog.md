@@ -8,6 +8,12 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Persisted terminal `agent_invocation_*` events for background
+  `managed_agent.start` children as soon as runtime finalization completes, so
+  GUI/TUI transcripts and replay no longer depend on a later join or cancel
+  control to close naturally completed child work. Terminalized startup
+  failures after runtime-owned lease side effects now record the same canonical
+  requested, started, and failed events.
 - Kept direct-provider managed child result handoffs bounded while preserving
   long final child output as governed replay resources, projected through
   managed-agent or artifact resource URIs instead of inline session metadata.

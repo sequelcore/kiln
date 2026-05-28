@@ -62,6 +62,9 @@ invocation lifecycle:
 - `managed_agent.cancel` records operator or parent cancellation.
 - `managed_agent.join` blocks only when the parent explicitly needs the child
   result.
+- Runtime finalization records the terminal session event independently of
+  `join`, so a background child that finishes naturally remains replayable even
+  when the parent never observes it again in the same turn.
 - Write-capable children must run in an isolated workspace or approved write
   scope; parallel write children should prefer worktree isolation.
 
@@ -178,6 +181,19 @@ implementation consequence is durable managed invocation state with
 store-owned transcript sequencing, replayable child lineage, explicit route
 timeout evidence, and deterministic timeout tests. The runtime must not replace
 that with request-local timeout extensions or hidden caller-side replay shims.
+
+2026-05-28 background terminal persistence follow-up: asynchronous child work
+needs terminal persistence at the execution lifecycle boundary, not only at a
+parent wait point. `managed_agent.start` therefore registers a runtime terminal
+observer that appends the terminal `agent_invocation_*` event and publishes it
+through the managed invocation session-event sink as soon as finalization
+completes. `managed_agent.join` remains an observation tool and returns the
+existing terminal event id when the observer already persisted the terminal
+state. Startup failures that terminalize after runtime-owned side effects, such
+as lease acquisition, follow the same recorded lifecycle so cleanup evidence is
+replayable. This matches the external guidance above: long work is stored,
+pollable, cancellable, and replayable; it is not a hidden synchronous wait
+extension.
 
 Sources:
 

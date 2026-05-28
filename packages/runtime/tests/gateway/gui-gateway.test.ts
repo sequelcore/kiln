@@ -3593,8 +3593,18 @@ describe("startGuiGateway static mount", () => {
       const terminalSinkCalls = sessionEventSink.publish.mock.calls.filter(([events]) => (
         (events as readonly { kind?: string }[]).some((event) => event.kind === "agent_invocation_cancelled")
       ));
-      expect(terminalSinkCalls).toHaveLength(2);
-      expect(terminalSinkCalls[1]?.[0]).toEqual(terminalSinkCalls[0]?.[0]);
+      expect(terminalSinkCalls).toHaveLength(3);
+      const terminalEventIds = new Set(
+        terminalSinkCalls.flatMap(([events]) =>
+          (events as readonly { eventId?: string; kind?: string }[])
+            .filter((event) => event.kind === "agent_invocation_cancelled")
+            .map((event) => event.eventId)
+        ),
+      );
+      expect(terminalEventIds.size).toBe(1);
+      for (const terminalSinkCall of terminalSinkCalls.slice(1)) {
+        expect(terminalSinkCall[0]).toEqual(terminalSinkCalls[0]?.[0]);
+      }
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();

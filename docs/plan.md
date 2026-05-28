@@ -1,81 +1,86 @@
-# Managed Agent Replay And Timeout Evidence Plan
+# Background Managed Terminal Persistence Plan
 
 Date: 2026-05-28
 
 ## Objective
 
-Close the remaining managed-agent live-session gaps without compatibility
-shims:
-
-- persist canonical managed invocation lifecycle events into GUI/TUI
-  transcripts through the existing runtime session-event sink
-- allocate transcript sequences in the session store instead of each surface
-  owning a local counter
-- expose terminal child lineage and timeout budget evidence in model-facing
-  managed-agent output, metadata, cockpit replay, and CLI/TUI/GUI projections
-- make timeout tests deterministic and grounded in runtime-owned deadlines
-- document the primary timeout and long-running-task guidance behind the
-  route-owned timeout decision
+Persist canonical terminal lifecycle events for background `managed_agent.start`
+children when they finish naturally, even if no later `managed_agent.join`,
+`managed_agent.cancel`, or GUI control is called. Preserve the same canonical
+terminal persistence for runtime-owned startup failures that terminalize after
+side-effected lease acquisition.
 
 ## Non-Goals
 
-- No request-local timeout override.
-- No CLI-local budget admission shim.
-- No resource-read pagination ownership shim outside the resource plane.
-- No GUI synthetic replay backfill when canonical lifecycle events can be
-  persisted.
-- No provider-native compatibility contract.
+- No request-local timeout override or hidden wait shim.
+- No GUI/TUI replay-only backfill.
+- No legacy compatibility branch for missing canonical events.
+- No local implementation of runtime budget admission or resource pagination.
 
-## Completed Slices
+## Implementation Slices
 
-1. Runtime projection
-   - `managed_agent.start`, `status`, `list`, `join`, and terminal result output
-     expose `timeoutMs`, `timeoutSource`, `childSessionId`, and `childTurnId`
-     when present.
+1. Completed: failing runtime tests
+   - Add regression coverage in
+     `packages/runtime/tests/gateway/managed-invocation-tool.test.ts` proving a
+     background terminal event is appended and published before join.
+   - Add regression coverage proving a side-effected lease-acquire failure in
+     `managed_agent.start` records requested, started, and failed events without
+     invoking the adapter.
 
-2. Transcript persistence
-   - `TranscriptStore` owns append-time sequence allocation and serializes
-     concurrent appends per session.
-   - GUI/TUI session writers persist canonical `agent_invocation_*` events via
-     `ManagedInvocationSessionEventSink`.
-   - GUI join/cancel terminal events publish through the same sink after they
-     are recorded on the runtime session.
+2. Completed: runtime lifecycle notification
+   - Add an explicit terminal observer to
+     `RuntimeManagedAgentInvocationService` lifecycle options.
+   - Notify exactly once after terminal finalization for success, failure,
+     timeout, cancellation, stale, recovered, and compensated startup-failure
+     states.
+   - Keep the service ignorant of GUI/TUI persistence details.
 
-3. Gateway projection
-   - The cockpit read-only projection carries child lineage and timeout
-     provenance from canonical events and normalized managed-tool evidence.
-   - GUI, TUI, and native managed-agent cockpit views render that lineage and
-     timeout provenance from the shared view-state model.
+3. Completed: runtime-tool sink publication
+   - Have `managed_agent.start` register a terminal observer that appends the
+     canonical terminal session event to the runtime session and publishes it to
+     the configured `ManagedInvocationSessionEventSink`.
+   - Reuse the existing terminal event helper so duplicate joins/cancels do not
+     create duplicate lifecycle events.
+   - Convert terminalized startup failures into structured `managed_agent.start`
+     results with canonical session-event ids instead of dropping the transcript
+     evidence behind a thrown runtime error.
 
-4. Timeout verification
-   - CLI-harness timeout tests use fake timers and assert timeout diagnostics,
-     child lineage, and cleanup instead of depending on wall-clock races.
-
-5. Sink fanout hardening
-   - Managed invocation session-event sink composition fans out through all
-     registered sinks, so a failed live relay does not block transcript
-     persistence.
-   - GUI join/cancel controls publish existing terminal events on duplicate
-     controls, preserving replay evidence without creating new lifecycle
-     events.
-
-6. Documentation
-   - Stable managed-agent architecture, timeout research, and roadmap summary
-     document the completed behavior and the deliberate external dependencies.
+4. Completed: documentation closeout
+   - Update managed-agent architecture/research/roadmap docs with the completed
+     behavior and timeout research conclusion.
 
 ## Verification
 
-- `bun test packages/runtime/tests/gateway/managed-invocation-tool.test.ts --test-name-pattern "nonblocking managed child lifecycle tools|managed child times out"`
-- `bun test packages/cli/tests/wrapper/session-store-clear.test.ts --test-name-pattern "allocates transcript sequences"`
-- `bun run --cwd packages/cli test tests/commands/tui-session-persistence.test.ts --testNamePattern "managed invocation events"`
-- `bun run --cwd packages/runtime test tests/managed-agent/opencode-cli-harness-adapter.test.ts --testNamePattern "fake time reaches"`
-- `bun run --cwd packages/gateway-contracts test tests/operator-cockpit-projection.test.ts --testNamePattern "managed tool evidence snapshots"`
-- `bun run --cwd packages/runtime test tests/gateway/gui-gateway.test.ts --testNamePattern "cancels a live managed-agent invocation"`
-- `bun run --cwd packages/gateway-contracts test tests/operator-cockpit-view-state.test.ts --testNamePattern "timed-out"`
-- `bun run --cwd packages/gui test tests/managed-agent-cockpit-panel.test.tsx --testNamePattern "timed-out"`
-- `bun run --cwd packages/native test tests/managed-agent-cockpit-panel.test.tsx --testNamePattern "timed-out"`
+- Focused failing test before implementation:
+  `bun test packages/runtime/tests/gateway/managed-invocation-tool.test.ts --test-name-pattern "background managed child"`
+- Reviewer regression before implementation:
+  `bun test packages/runtime/tests/gateway/managed-invocation-tool.test.ts --test-name-pattern side-effected`
+  failed with a thrown `ManagedAgentRuntimeAdmissionError`.
+- Focused regression after implementation:
+  `bun test packages/runtime/tests/gateway/managed-invocation-tool.test.ts --test-name-pattern side-effected`
+  passed.
+- Managed invocation suite:
+  `bun test packages/runtime/tests/gateway/managed-invocation-tool.test.ts`
+  passed, 62 tests.
+- Runtime package:
+  `bun run --filter @kilnai/runtime test` passed, 177 files and 2,338 tests
+  with five live-test files skipped by design.
+- Typecheck:
+  `bun run typecheck` passed.
+- Additional package gates:
+  `bun run --filter @kilnai/cli test`,
+  `bun run --filter @kilnai/gui test`, and
+  `bun run --filter @kilnai/gateway-contracts test` passed.
+- Final focused GUI cancellation check:
+  `bun run --cwd packages/runtime test tests/gateway/gui-gateway.test.ts --testNamePattern cancel`
+  passed with the stricter terminal-publish count assertion.
+- Review:
+  DDD validation and final code review reported no blocking findings after the
+  side-effected startup-failure gap was fixed.
 
-## Remaining External Dependencies
+## Residual Risk
 
-- Runtime/session budget admission remains owned by the runtime budget plane.
-- Core resource-read pagination ownership remains owned by the resource plane.
+Terminal observer publication is asynchronous by design; sink failures must not
+change child terminal state. Existing sink fanout handles persistence/live-relay
+isolation, and regression tests prove canonical session events are recorded
+before a later join and for terminalized startup failures.

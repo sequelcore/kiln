@@ -189,8 +189,20 @@ export interface ManagedAgentRuntimeCancellationInput {
   readonly abortSignal: AbortSignal;
 }
 
+export interface ManagedAgentRuntimeInvocationTerminalNotification {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+  readonly record: ManagedAgentInvocationRecord;
+  readonly durationMs?: number;
+}
+
+export type ManagedAgentRuntimeInvocationTerminalObserver = (
+  notification: ManagedAgentRuntimeInvocationTerminalNotification,
+) => void | Promise<void>;
+
 export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly abortSignal?: AbortSignal;
+  readonly terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
 }
 
 export interface ManagedAgentRuntimeAdapter {
@@ -808,6 +820,8 @@ interface ManagedAgentRuntimeInvocationEntry {
   record?: ManagedAgentInvocationRecord;
   error?: Error;
   terminal?: ManagedAgentRuntimeInvocationTerminal;
+  terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
+  terminalObserverNotified?: boolean;
 }
 
 type ManagedAgentRuntimeLeaseStage = ManagedAgentRuntimeRecoveryLeaseStage;
@@ -873,6 +887,9 @@ export class RuntimeManagedAgentInvocationService {
       releasedLeaseStages: [],
       adapterStarted: false,
       terminal,
+      ...(lifecycleOptions.terminalObserver !== undefined
+        ? { terminalObserver: lifecycleOptions.terminalObserver }
+        : {}),
     };
     terminal.promise.catch(() => undefined);
     this.invocations.set(request.invocationId, entry);
@@ -908,6 +925,7 @@ export class RuntimeManagedAgentInvocationService {
         entry,
         createFailedRecord(entry.request, entry.decision, runtimeError.message),
       );
+      this.notifyTerminalObserver(entry);
       terminal.reject(runtimeError);
       throw runtimeError;
     }
@@ -1003,7 +1021,16 @@ export class RuntimeManagedAgentInvocationService {
       );
       throw runtimeError;
     });
-    adapterTerminal.then(terminal.resolve, terminal.reject);
+    adapterTerminal.then(
+      (result) => {
+        terminal.resolve(result);
+        this.notifyTerminalObserver(entry);
+      },
+      (error) => {
+        terminal.reject(error);
+        this.notifyTerminalObserver(entry);
+      },
+    );
     adapterTerminal.catch(() => undefined);
 
     return {
@@ -1061,6 +1088,7 @@ export class RuntimeManagedAgentInvocationService {
           decision: entry.decision,
           record: entry.record,
         });
+        this.notifyTerminalObserver(entry);
         throw runtimeError;
       }
     }
@@ -1082,6 +1110,7 @@ export class RuntimeManagedAgentInvocationService {
       decision: entry.decision,
       record: entry.record,
     });
+    this.notifyTerminalObserver(entry);
     return {
       status: "cancelled",
       decision: cloneJson(entry.decision),
@@ -1135,6 +1164,7 @@ export class RuntimeManagedAgentInvocationService {
         decision: entry.decision,
         record: entry.record,
       });
+      this.notifyTerminalObserver(entry);
       recovered.push(snapshotInvocation(entry));
     }
 
@@ -1181,6 +1211,7 @@ export class RuntimeManagedAgentInvocationService {
         decision: entry.decision,
         record: entry.record,
       });
+      this.notifyTerminalObserver(entry);
       recovered.push(snapshotInvocation(entry));
     }
 
@@ -1236,6 +1267,7 @@ export class RuntimeManagedAgentInvocationService {
       decision,
       record: entry.record,
     });
+    this.notifyTerminalObserver(entry);
     return {
       status: "started",
       decision: cloneJson(decision),
@@ -1600,6 +1632,26 @@ export class RuntimeManagedAgentInvocationService {
       return defineManagedAgentInvocationRecord(entry.record);
     }
     throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no terminal record");
+  }
+
+  private notifyTerminalObserver(entry: ManagedAgentRuntimeInvocationEntry): void {
+    const observer = entry.terminalObserver;
+    if (entry.terminalObserverNotified || observer === undefined || entry.record === undefined) {
+      return;
+    }
+    entry.terminalObserverNotified = true;
+    const durationMs = entry.finishedAt === undefined
+      ? undefined
+      : entry.finishedAt.getTime() - entry.startedAt.getTime();
+    const notification: ManagedAgentRuntimeInvocationTerminalNotification = {
+      request: cloneJson(entry.request),
+      decision: cloneJson(entry.decision),
+      record: cloneJson(entry.record),
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    };
+    void Promise.resolve()
+      .then(() => observer(notification))
+      .catch(() => undefined);
   }
 
   private async finalizeTerminalLease(

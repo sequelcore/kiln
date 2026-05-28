@@ -325,7 +325,7 @@ function mapTerminalEvent(input: {
         ...managedInvocationIdentity(input.record, input.request),
         lifecycleState: input.record.lifecycleState,
         errorCode: "ENGINE_FAILURE",
-        errorMessage: "Managed invocation failed.",
+        errorMessage: input.record.resultHandoff?.summary ?? "Managed invocation failed.",
         retriable: true,
         ...(evidence !== undefined ? { managedInvocationEvidence: evidence } : {}),
         source: input.source,
