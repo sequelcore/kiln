@@ -6,6 +6,7 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -20,6 +21,20 @@ import type {
   CliSessionEvent,
   CliSessionRunOptions,
 } from "../../src/execution/cli-session-contract.js";
+
+function deferred<T = void>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 function makeRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
@@ -139,6 +154,16 @@ function makeWriteRequest(timeoutMs = 120000): ManagedAgentInvocationRequest {
   });
 }
 
+function snapshotInputFor(
+  request: ManagedAgentInvocationRequest,
+): ManagedAgentCapabilitySnapshotInput {
+  return {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeSource: "explicit-managed-route",
+  };
+}
+
 function eventStream(events: readonly CliSessionEvent[]): AsyncIterable<CliSessionEvent> {
   return (async function* stream(): AsyncGenerator<CliSessionEvent> {
     for (const event of events) {
@@ -173,7 +198,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const request = makeRequest();
 
-    const result = await service.invoke(request, adapter);
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(result.status).toBe("completed");
     expect(factory).toHaveBeenCalledWith(
@@ -290,7 +315,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       },
     });
 
-    const result = await service.invoke(request, adapter);
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(result.status).toBe("completed");
     expect(resourceReader).toHaveBeenCalledWith(expect.objectContaining({
@@ -320,7 +345,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const request = makeRequest();
 
-    const result = await service.invoke(request, adapter);
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -370,7 +395,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const request = makeWriteRequest();
 
-    const result = await service.invoke(request, adapter);
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(result.status).toBe("completed");
     expect(factory).toHaveBeenCalledWith(
@@ -475,7 +500,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const request = makeRequest();
 
-    const result = await service.invoke(request, adapter);
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -520,7 +545,8 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       });
       const service = new RuntimeManagedAgentInvocationService();
 
-      const result = await service.invoke(makeRequest(), adapter);
+      const request = makeRequest();
+      const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {
@@ -536,35 +562,57 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     }
   });
 
-  it("returns a timed-out record with diagnostic evidence and disposes the CLI session", async () => {
+  it("returns a timed-out record deterministically when fake time reaches the authority timeout", async () => {
+    vi.useFakeTimers({ now: new Date("2026-05-28T04:45:00.000Z") });
+    const runStarted = deferred();
     const run = vi.fn(() =>
       (async function* neverFinishes(): AsyncGenerator<CliSessionEvent> {
+        runStarted.resolve();
         await new Promise(() => undefined);
       })(),
     );
     const dispose = vi.fn().mockResolvedValue(undefined);
-    const adapter = new ManagedCliHarnessAdapter({
-      providerId: "opencode",
-      model: "sonic",
-      factory: () => ({ run, dispose }),
-    });
-    const service = new RuntimeManagedAgentInvocationService();
+    try {
+      const adapter = new ManagedCliHarnessAdapter({
+        providerId: "opencode",
+        model: "sonic",
+        factory: () => ({ run, dispose }),
+      });
+      const service = new RuntimeManagedAgentInvocationService();
 
-    const result = await service.invoke(makeRequest(1), adapter);
+      const timeoutRequest = makeRequest(5000);
+      const resultPromise = service.invoke(timeoutRequest, adapter, snapshotInputFor(timeoutRequest));
+      await runStarted.promise;
+      let settled = false;
+      resultPromise.then(() => {
+        settled = true;
+      }, () => {
+        settled = true;
+      });
 
-    expect(result.status).toBe("completed");
-    if (result.status !== "completed") {
-      throw new Error("Expected completed managed invocation result");
+      await vi.advanceTimersByTimeAsync(4999);
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await resultPromise;
+
+      expect(result.status).toBe("completed");
+      if (result.status !== "completed") {
+        throw new Error("Expected completed managed invocation result");
+      }
+      expect(result.record.lifecycleState).toBe("timed_out");
+      expect(result.record.diagnostics).toEqual([{
+        uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/timeout",
+        kind: "timeout",
+      }]);
+      expect(result.record.resultHandoff?.summary).toContain("timed out after 5000ms");
+      expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
+      expect(result.record.resultHandoff?.summary).toContain("Inspect the transcript and timeout diagnostic resources");
+      expect(dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
     }
-    expect(result.record.lifecycleState).toBe("timed_out");
-    expect(result.record.diagnostics).toEqual([{
-      uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/timeout",
-      kind: "timeout",
-    }]);
-    expect(result.record.resultHandoff?.summary).toContain("timed out after 1ms");
-    expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
-    expect(result.record.resultHandoff?.summary).toContain("Inspect the transcript and timeout diagnostic resources");
-    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it("preserves partial write evidence when a live harness times out after a bounded file change", async () => {
@@ -599,7 +647,8 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     });
     const service = new RuntimeManagedAgentInvocationService();
 
-    const result = await service.invoke(makeWriteRequest(1), adapter);
+    const timeoutWriteRequest = makeWriteRequest(1);
+    const result = await service.invoke(timeoutWriteRequest, adapter, snapshotInputFor(timeoutWriteRequest));
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -655,7 +704,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const request = makeWriteRequest();
 
-    const result = await service.invoke(request, adapter);
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -725,7 +774,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     const service = new RuntimeManagedAgentInvocationService();
     const request = makeWriteRequest();
 
-    const result = await service.invoke(request, adapter);
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -807,9 +856,8 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     };
     const service = new RuntimeManagedAgentInvocationService({ environmentLeaseManager });
 
-    const result = await service.invoke(makeRequest(), adapter, {
-      capturedAt: "2026-05-07T08:00:00.000Z",
-    });
+    const request = makeRequest();
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
 
     expect(run.mock.calls[0]?.[0].env).toEqual({
       KILN_DEV_SERVER_PORT: "49152",

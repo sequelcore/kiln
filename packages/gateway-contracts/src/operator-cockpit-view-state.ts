@@ -91,7 +91,14 @@ export interface OperatorCockpitManagedAgentViewItem {
   readonly sessionId: string;
   readonly status: OperatorCockpitInvocationProjection["status"];
   readonly lifecycleState?: string;
+  readonly parentTurnId?: string;
+  readonly childSessionId?: string;
+  readonly childTurnId?: string;
+  readonly routeId?: string;
+  readonly routeSource?: string;
   readonly providerRoute?: string;
+  readonly timeoutMs?: number;
+  readonly timeoutSource?: string;
   readonly attentionState: OperatorCockpitManagedAgentAttentionState;
   readonly dirtyWorkspaceReviewRequired: boolean;
   readonly worktreeConflictBlocked: boolean;
@@ -186,7 +193,14 @@ function projectManagedAgentItem(
     sessionId: invocation.sessionId,
     status: invocation.status,
     ...(invocation.lifecycleState !== undefined ? { lifecycleState: invocation.lifecycleState } : {}),
+    ...(invocation.parentTurnId !== undefined ? { parentTurnId: invocation.parentTurnId } : {}),
+    ...(invocation.childSessionId !== undefined ? { childSessionId: invocation.childSessionId } : {}),
+    ...(invocation.childTurnId !== undefined ? { childTurnId: invocation.childTurnId } : {}),
+    ...(invocation.routeId !== undefined ? { routeId: invocation.routeId } : {}),
+    ...(invocation.routeSource !== undefined ? { routeSource: invocation.routeSource } : {}),
     ...(invocation.providerRoute !== undefined ? { providerRoute: invocation.providerRoute } : {}),
+    ...(invocation.timeoutMs !== undefined ? { timeoutMs: invocation.timeoutMs } : {}),
+    ...(invocation.timeoutSource !== undefined ? { timeoutSource: invocation.timeoutSource } : {}),
     attentionState,
     dirtyWorkspaceReviewRequired: invocation.resourceLease?.worktreeReview?.status === "required",
     worktreeConflictBlocked: invocation.resourceLease?.worktreeConflict?.status === "blocked",

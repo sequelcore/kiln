@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
-import { InMemoryContextArtifactCache, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import { createSessionEvent, InMemoryContextArtifactCache, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
 
 const {
   mockGatewaySessionCtor,
@@ -188,6 +188,26 @@ vi.mock("@kilnai/runtime", () => ({
     ...options,
     invocationService: options.invocationService ?? {},
   }),
+  attachManagedInvocationSessionEventSink: (
+    options: Record<string, unknown> | undefined,
+    sessionEventSink: { publish: (events: readonly unknown[], context: unknown) => void | Promise<void> },
+  ) => {
+    if (!options) {
+      return undefined;
+    }
+    const existingSink = options.sessionEventSink as
+      | { publish?: (events: readonly unknown[], context: unknown) => void | Promise<void> }
+      | undefined;
+    return {
+      ...options,
+      sessionEventSink: {
+        publish: async (events: readonly unknown[], context: unknown) => {
+          await existingSink?.publish?.(events, context);
+          await sessionEventSink.publish(events, context);
+        },
+      },
+    };
+  },
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
   discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
     models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
@@ -269,10 +289,30 @@ function makeStore(lastRecord: SessionRecord | null = null) {
 }
 
 function makeTranscriptStore() {
+  const events: import("../../src/wrapper/session-store.js").PersistedTranscriptEvent[] = [];
+  const append = vi.fn().mockImplementation(async (_sessionId: string, event: import("../../src/wrapper/session-store.js").PersistedTranscriptEvent) => {
+    events.push(event);
+  });
+  const appendManyNext = vi.fn().mockImplementation(async (sessionId: string, drafts: readonly import("../../src/wrapper/session-store.js").PersistedTranscriptEventDraft[]) => {
+    let sequence = events.length;
+    const appended = drafts.map((draft) => ({
+      ...draft,
+      sequence: ++sequence,
+    } as import("../../src/wrapper/session-store.js").PersistedTranscriptEvent));
+    for (const event of appended) {
+      await append(sessionId, event);
+    }
+    return appended;
+  });
   return {
     init: vi.fn().mockResolvedValue(undefined),
-    readTranscript: vi.fn().mockResolvedValue([]),
-    append: vi.fn().mockResolvedValue(undefined),
+    readTranscript: vi.fn().mockImplementation(async () => [...events]),
+    append,
+    appendNext: vi.fn().mockImplementation(async (sessionId: string, draft: import("../../src/wrapper/session-store.js").PersistedTranscriptEventDraft) => {
+      const [event] = await appendManyNext(sessionId, [draft]);
+      return event ?? null;
+    }),
+    appendManyNext,
     finalize: vi.fn().mockResolvedValue(undefined),
     readMeta: vi.fn().mockResolvedValue(null),
     listSessions: vi.fn().mockResolvedValue([]),
@@ -736,6 +776,102 @@ describe("makeMultiProviderSessionFactory", () => {
         outputTokens: 12,
         cacheReadTokens: 3,
       }],
+    });
+  });
+
+  it("persists managed invocation events through the shared transcript allocator", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-managed-events",
+        providerSessionId: "prov-managed-events",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "tool_use", toolCallId: "call-managed-start", toolName: "managed_agent.start", input: {} };
+          yield { type: "tool_result", toolCallId: "call-managed-start", toolName: "managed_agent.start", output: "{}" };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory, managedInvocation } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+      { routes: [] },
+    );
+    const session = factory("sys", "/proj");
+    const run = session.run({ prompt: "start a managed child", kilnSessionId: "sess-managed-events" } as any);
+    await run.next();
+    await managedInvocation?.sessionEventSink?.publish([
+      createSessionEvent<"agent_invocation_requested">({
+        eventId: "event-managed-requested",
+        kilnSessionId: "sess-managed-events",
+        sequence: 99,
+        timestamp: new Date("2026-05-28T04:42:00.000Z"),
+        kind: "agent_invocation_requested",
+        turnId: "sess-managed-events:turn:1",
+        invocationId: "managed-1",
+        agentId: "agent-reviewer",
+        parentSessionId: "sess-managed-events",
+        requestedBy: "assistant",
+        requestSource: "runtime-tool",
+        routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
+        lifecycleState: "pending",
+        inputSummary: "Review runtime projection.",
+        source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+      }),
+      createSessionEvent<"agent_invocation_started">({
+        eventId: "event-managed-started",
+        kilnSessionId: "sess-managed-events",
+        sequence: 100,
+        timestamp: new Date("2026-05-28T04:42:00.001Z"),
+        kind: "agent_invocation_started",
+        turnId: "sess-managed-events:turn:1",
+        parentEventId: "event-managed-requested",
+        invocationId: "managed-1",
+        agentId: "agent-reviewer",
+        parentSessionId: "sess-managed-events",
+        routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
+        lifecycleState: "running",
+        attempt: 1,
+        source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+      }),
+    ], {
+      session: { id: "sess-managed-events" },
+    } as never);
+    for await (const _ of run) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+
+    expect(appendedEvents.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "tool_call_started",
+      "agent_invocation_requested",
+      "agent_invocation_started",
+      "tool_call_completed",
+      "turn_completed",
+    ]);
+    expect(appendedEvents.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(appendedEvents[3]).toMatchObject({
+      eventId: "event-managed-requested",
+      sequence: 4,
+      kind: "agent_invocation_requested",
+      payload: {
+        invocationId: "managed-1",
+        managedInvocationId: "managed-1",
+      },
     });
   });
 

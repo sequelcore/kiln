@@ -11,6 +11,7 @@ import type {
   ManagedAgentLifecycleState,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
+  ManagedAgentRouteSource,
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
@@ -403,6 +404,9 @@ export interface SessionAgentInvocationIdentity {
   readonly agentId: string;
   readonly agentName?: string;
   readonly parentSessionId?: string;
+  readonly parentTurnId?: string;
+  readonly routeId?: string;
+  readonly routeSource?: ManagedAgentRouteSource;
   readonly requestedBy?: string;
   readonly requestSource?: string;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;

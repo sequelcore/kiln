@@ -104,7 +104,13 @@ export interface ManagedAgentMemoryScope {
   readonly access: "none" | "read-only" | "write-proposals";
 }
 
-export type ManagedAgentTimeoutSource = "default" | "explicit-route" | "request";
+export type ManagedAgentRouteSource =
+  | "ordered-routing"
+  | "explicit-managed-route"
+  | "managed-default-route"
+  | "enabled-engine-fallback";
+
+export type ManagedAgentTimeoutSource = "default" | "explicit-route";
 
 export interface ManagedAgentAuthorityProfile {
   readonly authorityProfileId: string;
@@ -246,6 +252,7 @@ export interface ManagedAgentCapabilitySnapshot {
   readonly snapshotId: string;
   readonly capturedAt: string;
   readonly routeId: string;
+  readonly routeSource: ManagedAgentRouteSource;
   readonly routeHealth: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof: ManagedAgentProviderModelProofSnapshot;
   readonly providerRoute: ManagedAgentProviderRoute;
@@ -261,7 +268,8 @@ export interface ManagedAgentCapabilitySnapshot {
 
 export interface ManagedAgentCapabilitySnapshotInput {
   readonly capturedAt?: string;
-  readonly routeId?: string;
+  readonly routeId: string;
+  readonly routeSource: ManagedAgentRouteSource;
   readonly routeHealth?: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof?: ManagedAgentProviderModelProofSnapshot;
   readonly resourcePlane?: ManagedAgentResourcePlaneSnapshot;
@@ -362,6 +370,7 @@ export interface ManagedAgentLifecycleEvidence {
   readonly parentSessionId: string;
   readonly parentTurnId: string;
   readonly routeId: string;
+  readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
   readonly profile: ManagedAgentAdmissionProfile;
@@ -415,6 +424,8 @@ export type ManagedAgentAdmissionDecision =
     readonly status: "denied";
     readonly invocationId?: string;
     readonly profile?: ManagedAgentAdmissionProfile;
+    readonly routeId: string;
+    readonly routeSource: ManagedAgentRouteSource;
     readonly reason: string;
     readonly missingCapabilities: readonly string[];
     readonly resourceLease?: ManagedAgentResourceLeaseEvidence;
@@ -495,6 +506,7 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
     snapshotId: requireText(input.snapshotId, "Managed capability snapshot id is required"),
     capturedAt: requireIsoTimestamp(input.capturedAt, "Managed capability snapshot timestamp is required"),
     routeId: requireText(input.routeId, "Managed capability snapshot route id is required"),
+    routeSource: requireRouteSource(input.routeSource),
     routeHealth: {
       status: requireRouteHealthStatus(input.routeHealth.status),
       reason: requireText(input.routeHealth.reason, "Managed capability snapshot route health reason is required"),
@@ -566,9 +578,11 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
 export function evaluateManagedAgentAdmission(
   request: ManagedAgentInvocationRequest,
   descriptor: ManagedAgentAdapterDescriptor,
-  snapshotInput: ManagedAgentCapabilitySnapshotInput = {},
+  snapshotInput: ManagedAgentCapabilitySnapshotInput,
 ): ManagedAgentAdmissionDecision {
   const missingCapabilities: string[] = [];
+  const routeId = requireText(snapshotInput.routeId, "Managed capability snapshot route id is required");
+  const routeSource = requireRouteSource(snapshotInput.routeSource);
   collectRequestGaps(request, missingCapabilities);
 
   const profile = request.profile;
@@ -600,6 +614,8 @@ export function evaluateManagedAgentAdmission(
       status: "denied",
       invocationId: request.invocationId,
       profile: request.profile,
+      routeId,
+      routeSource,
       reason: `foundation-readonly-plan denied: ${missingCapabilities.join(", ")}`,
       missingCapabilities,
     };
@@ -623,7 +639,7 @@ export function evaluateManagedAgentAdmission(
 export function buildManagedAgentCapabilitySnapshot(
   request: ManagedAgentInvocationRequest,
   descriptor: ManagedAgentAdapterDescriptor,
-  input: ManagedAgentCapabilitySnapshotInput = {},
+  input: ManagedAgentCapabilitySnapshotInput,
 ): ManagedAgentCapabilitySnapshot {
   const resourcePlane = input.resourcePlane ?? {
     available: true,
@@ -633,7 +649,8 @@ export function buildManagedAgentCapabilitySnapshot(
   return defineManagedAgentCapabilitySnapshot({
     snapshotId: `${request.invocationId}:capability-snapshot`,
     capturedAt,
-    routeId: input.routeId ?? `${request.providerRoute.providerId}:${request.profile}`,
+    routeId: input.routeId,
+    routeSource: input.routeSource,
     routeHealth: input.routeHealth ?? {
       status: "healthy",
       reason: "Route descriptor admitted by managed invocation policy.",
@@ -847,6 +864,7 @@ export function buildManagedAgentLifecycleEvidence(
     parentSessionId: record.parentSessionId,
     parentTurnId: record.parentTurnId,
     routeId: record.capabilitySnapshot.routeId,
+    routeSource: record.capabilitySnapshot.routeSource,
     providerId: record.providerRoute.providerId,
     ...(record.providerRoute.model !== undefined ? { model: record.providerRoute.model } : {}),
     profile: record.profile,
@@ -894,10 +912,22 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
 }
 
 function requireTimeoutSource(source: ManagedAgentTimeoutSource): ManagedAgentTimeoutSource {
-  if (source === "default" || source === "explicit-route" || source === "request") {
+  if (source === "default" || source === "explicit-route") {
     return source;
   }
   throw new Error(`Unsupported managed invocation timeout source: ${String(source)}`);
+}
+
+function requireRouteSource(source: ManagedAgentRouteSource): ManagedAgentRouteSource {
+  if (
+    source === "ordered-routing" ||
+    source === "explicit-managed-route" ||
+    source === "managed-default-route" ||
+    source === "enabled-engine-fallback"
+  ) {
+    return source;
+  }
+  throw new Error(`Unsupported managed capability snapshot route source: ${String(source)}`);
 }
 
 function requireProviderRoute(input: ManagedAgentProviderRoute): ManagedAgentProviderRoute {

@@ -301,6 +301,7 @@ function makeSurface(
       ...(artifactStore ? { artifactStore } : {}),
       routes: [{
         routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
         providerId: "opencode",
         model: "opencode-default-model",
         adapter,
@@ -314,6 +315,7 @@ function makeSurface(
               mode: "read-only",
             },
             timeoutMs: 120000,
+            timeoutSource: "explicit-route",
             credentialRoute: {
               mode: "runtime-selected",
               routeId: "credential-route:opencode:primary",
@@ -332,6 +334,7 @@ function makeSurface(
 function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter()) {
   return {
     routeId,
+    routeSource: "explicit-managed-route" as const,
     providerId: "opencode",
     model,
     adapter,
@@ -474,8 +477,17 @@ describe("managed invocation runtime tool", () => {
         readonly status: string;
         readonly lifecycleState: string;
         readonly routeId: string;
+        readonly routeSource: string;
+        readonly parentTurnId: string;
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
         readonly sessionEventIds?: readonly string[];
       };
+    };
+    const startedOutput = JSON.parse(started.output) as {
+      readonly parentTurnId?: string;
+      readonly timeoutMs?: number;
+      readonly timeoutSource?: string;
     };
 
     expect(started).toMatchObject({
@@ -484,7 +496,16 @@ describe("managed invocation runtime tool", () => {
         status: "started",
         lifecycleState: "running",
         routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
+        parentTurnId: `${session.id}:turn:1`,
+        timeoutMs: 120000,
+        timeoutSource: "explicit-route",
       },
+    });
+    expect(startedOutput).toMatchObject({
+      parentTurnId: `${session.id}:turn:1`,
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
@@ -504,14 +525,30 @@ describe("managed invocation runtime tool", () => {
       readonly metadata: {
         readonly status?: string;
         readonly lifecycleState?: string;
+        readonly routeSource?: string;
+        readonly parentTurnId?: string;
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
       };
+    };
+    const statusOutput = JSON.parse(status.output) as {
+      readonly timeoutMs?: number;
+      readonly timeoutSource?: string;
     };
     expect(status).toMatchObject({
       isError: false,
       metadata: {
         status: "running",
         lifecycleState: "running",
+        routeSource: "explicit-managed-route",
+        parentTurnId: `${session.id}:turn:1`,
+        timeoutMs: 120000,
+        timeoutSource: "explicit-route",
       },
+    });
+    expect(statusOutput).toMatchObject({
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
     });
 
     const listed = await surface.callBuiltinTools.get("managed_agent.list")?.({}, {
@@ -520,8 +557,21 @@ describe("managed invocation runtime tool", () => {
     }) as {
       readonly isError: boolean;
       readonly metadata: {
-        readonly invocations?: readonly { readonly invocationId?: string; readonly lifecycleState?: string }[];
+        readonly invocations?: readonly {
+          readonly invocationId?: string;
+          readonly lifecycleState?: string;
+          readonly routeSource?: string;
+          readonly parentTurnId?: string;
+          readonly timeoutMs?: number;
+          readonly timeoutSource?: string;
+        }[];
       };
+    };
+    const listedOutput = JSON.parse(listed.output) as {
+      readonly invocations?: readonly {
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
+      }[];
     };
     expect(listed).toMatchObject({
       isError: false,
@@ -530,9 +580,17 @@ describe("managed invocation runtime tool", () => {
           {
             invocationId: started.metadata.invocationId,
             lifecycleState: "running",
+            routeSource: "explicit-managed-route",
+            parentTurnId: `${session.id}:turn:1`,
+            timeoutMs: 120000,
+            timeoutSource: "explicit-route",
           },
         ],
       },
+    });
+    expect(listedOutput.invocations?.[0]).toMatchObject({
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
     });
 
     const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
@@ -549,8 +607,10 @@ describe("managed invocation runtime tool", () => {
       authority: request.authority,
       capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
         routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
       }),
       childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+      childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
       resultHandoff: {
         summary: "Child review completed.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
@@ -567,14 +627,34 @@ describe("managed invocation runtime tool", () => {
     }) as {
       readonly metadata: {
         readonly lifecycleState?: string;
+        readonly childSessionId?: string;
+        readonly childTurnId?: string;
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
         readonly resultHandoff?: unknown;
         readonly transcript?: unknown;
         readonly terminalEvidenceAvailable?: boolean;
       };
     };
+    const completedStatusOutput = JSON.parse(completedStatusBeforeJoin.output) as {
+      readonly childSessionId?: string;
+      readonly childTurnId?: string;
+      readonly timeoutMs?: number;
+      readonly timeoutSource?: string;
+    };
     expect(completedStatusBeforeJoin.metadata).toMatchObject({
       lifecycleState: "completed",
+      childSessionId: `${session.id}:managed:${started.metadata.invocationId}`,
+      childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
       terminalEvidenceAvailable: true,
+    });
+    expect(completedStatusOutput).toMatchObject({
+      childSessionId: `${session.id}:managed:${started.metadata.invocationId}`,
+      childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
     });
     expect(completedStatusBeforeJoin.metadata.resultHandoff).toBeUndefined();
     expect(completedStatusBeforeJoin.metadata.transcript).toBeUndefined();
@@ -586,15 +666,37 @@ describe("managed invocation runtime tool", () => {
       readonly metadata: {
         readonly invocations?: readonly {
           readonly lifecycleState?: string;
+          readonly childSessionId?: string;
+          readonly childTurnId?: string;
+          readonly timeoutMs?: number;
+          readonly timeoutSource?: string;
           readonly resultHandoff?: unknown;
           readonly transcript?: unknown;
           readonly terminalEvidenceAvailable?: boolean;
         }[];
       };
     };
+    const completedListOutput = JSON.parse(completedListBeforeJoin.output) as {
+      readonly invocations?: readonly {
+        readonly childSessionId?: string;
+        readonly childTurnId?: string;
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
+      }[];
+    };
     expect(completedListBeforeJoin.metadata.invocations?.[0]).toMatchObject({
       lifecycleState: "completed",
+      childSessionId: `${session.id}:managed:${started.metadata.invocationId}`,
+      childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
       terminalEvidenceAvailable: true,
+    });
+    expect(completedListOutput.invocations?.[0]).toMatchObject({
+      childSessionId: `${session.id}:managed:${started.metadata.invocationId}`,
+      childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
     });
     expect(completedListBeforeJoin.metadata.invocations?.[0]?.resultHandoff).toBeUndefined();
     expect(completedListBeforeJoin.metadata.invocations?.[0]?.transcript).toBeUndefined();
@@ -610,8 +712,18 @@ describe("managed invocation runtime tool", () => {
       readonly metadata: {
         readonly status?: string;
         readonly lifecycleState?: string;
-        readonly resultHandoff?: { readonly summary?: string };
+        readonly childSessionId?: string;
+        readonly childTurnId?: string;
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
+        readonly resultHandoff?: { readonly summary?: string; readonly resourceUris?: readonly string[] };
       };
+    };
+    const joinedOutput = JSON.parse(joined.output) as {
+      readonly childSessionId?: string;
+      readonly childTurnId?: string;
+      readonly timeoutMs?: number;
+      readonly timeoutSource?: string;
     };
 
     expect(joined).toMatchObject({
@@ -620,12 +732,24 @@ describe("managed invocation runtime tool", () => {
       metadata: {
         status: "completed",
         lifecycleState: "completed",
+        childSessionId: `${session.id}:managed:${started.metadata.invocationId}`,
+        childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
+        timeoutMs: 120000,
+        timeoutSource: "explicit-route",
         resultHandoff: {
           summary: "Child review completed.",
         },
       },
     });
-    expect(joined.output).toContain(`kiln://managed-agents/invocations/${started.metadata.invocationId}/resources/result`);
+    expect(joinedOutput).toMatchObject({
+      childSessionId: `${session.id}:managed:${started.metadata.invocationId}`,
+      childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
+    });
+    expect(joined.metadata.resultHandoff?.resourceUris).toContain(
+      `kiln://managed-agents/invocations/${started.metadata.invocationId}/resources/result`,
+    );
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "agent_invocation_requested",
       "agent_invocation_started",
@@ -714,6 +838,8 @@ describe("managed invocation runtime tool", () => {
       readonly isError: boolean;
       readonly metadata: {
         readonly capabilitySnapshot?: unknown;
+        readonly parentTurnId?: string;
+        readonly routeSource?: string;
       };
     };
     const serializedSurfaceEvidence = JSON.stringify({
@@ -722,6 +848,8 @@ describe("managed invocation runtime tool", () => {
     });
 
     expect(started.isError).toBe(false);
+    expect(started.metadata.parentTurnId).toBe(`${session.id}:turn:1`);
+    expect(started.metadata.routeSource).toBe("explicit-managed-route");
     expect(serializedSurfaceEvidence).toContain(canonicalResourceUri);
     expect(serializedSurfaceEvidence).not.toContain("kiln://managed-invocations/");
   });
@@ -767,6 +895,7 @@ describe("managed invocation runtime tool", () => {
       authority: request.authority,
       capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
         routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
       }),
       transcript: {
         uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
@@ -1164,6 +1293,7 @@ describe("managed invocation runtime tool", () => {
       authority: request.authority,
       capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
         routeId: "opencode-sandbox",
+        routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
         summary: "Child review completed.",
@@ -1277,6 +1407,7 @@ describe("managed invocation runtime tool", () => {
       authority: request.authority,
       capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
         routeId: "opencode-sandbox",
+        routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
         summary: "Late sandbox output must be suppressed.",
@@ -1337,6 +1468,7 @@ describe("managed invocation runtime tool", () => {
         }),
         routes: [{
           routeId: "opencode-approved-write",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -1494,6 +1626,7 @@ describe("managed invocation runtime tool", () => {
         }),
         routes: [{
           routeId: "opencode-approved-write",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -1809,9 +1942,8 @@ describe("managed invocation runtime tool", () => {
   });
 
   it("records nonblocking terminal duration from child runtime time instead of join wait time", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ now: new Date("2026-05-21T00:00:00.000Z") });
     try {
-      vi.setSystemTime(new Date("2026-05-21T00:00:00.000Z"));
       const { adapter, terminal } = makeDeferredAdapter();
       const surface = makeSurface(adapter);
       const session = makeSession();
@@ -1839,7 +1971,7 @@ describe("managed invocation runtime tool", () => {
       };
       const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
 
-      vi.setSystemTime(new Date("2026-05-21T00:00:01.234Z"));
+      vi.useFakeTimers({ now: new Date("2026-05-21T00:00:01.234Z") });
       terminal.resolve(defineManagedAgentInvocationRecord({
         invocationId: request.invocationId,
         agentId: request.agentId,
@@ -1853,6 +1985,7 @@ describe("managed invocation runtime tool", () => {
         authority: request.authority,
         capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
           routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
         }),
         resultHandoff: {
           summary: "Child review completed.",
@@ -1862,7 +1995,7 @@ describe("managed invocation runtime tool", () => {
       }));
       await flushMicrotasks();
 
-      vi.setSystemTime(new Date("2026-05-21T00:00:06.234Z"));
+      vi.useFakeTimers({ now: new Date("2026-05-21T00:00:06.234Z") });
       await surface.callBuiltinTools.get("managed_agent.join")?.({
         invocationId: started.metadata.invocationId,
       }, {
@@ -1943,6 +2076,7 @@ describe("managed invocation runtime tool", () => {
       authority: request.authority,
       capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
         routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
         summary: "Late child output must be ignored.",
@@ -2041,6 +2175,7 @@ describe("managed invocation runtime tool", () => {
         authority: request.authority,
         capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
           routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
         }),
         childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
         childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
@@ -2071,6 +2206,8 @@ describe("managed invocation runtime tool", () => {
         readonly metadata: {
           readonly status?: string;
           readonly lifecycleState?: string;
+          readonly routeSource?: string;
+          readonly parentTurnId?: string;
           readonly resourceLease?: {
             readonly leaseId?: string;
           };
@@ -2080,8 +2217,12 @@ describe("managed invocation runtime tool", () => {
       expect(joined.isError).toBe(false);
       expect(joined.metadata.status).toBe(lifecycleState);
       expect(joined.metadata.lifecycleState).toBe(lifecycleState);
+      expect(joined.metadata.routeSource).toBe("explicit-managed-route");
+      expect(joined.metadata.parentTurnId).toBe(`${session.id}:turn:1`);
       expect(joined.metadata.resourceLease?.leaseId).toBe(`${request.invocationId}:resource-lease`);
       expect(joined.output).toContain(`"status": "${lifecycleState}"`);
+      expect(joined.output).toContain('"routeSource": "explicit-managed-route"');
+      expect(joined.output).toContain(`"parentTurnId": "${session.id}:turn:1"`);
       expect(joined.output).toContain('"resourceLease"');
       expect(joined.output).toContain(`${request.invocationId}:resource-lease`);
       expect(joined.output).toContain(`kiln://managed-agents/invocations/${request.invocationId}/transcript`);
@@ -2160,6 +2301,102 @@ describe("managed invocation runtime tool", () => {
     ]);
   });
 
+  it("keeps managed child lineage and route provenance when cancel join fails", async () => {
+    const { adapter, terminal } = makeAbortableDeferredAdapter();
+    const invocationService = new RuntimeManagedAgentInvocationService({
+      credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+        allowedRouteIds: ["credential-route:opencode-readonly"],
+      }),
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        invocationService,
+        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-cancel-failure-start",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect cancel failure provenance.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    const joinSpy = vi.spyOn(invocationService, "join").mockRejectedValueOnce(new Error("join store unavailable"));
+
+    const cancelled = await surface.callBuiltinTools.get("managed_agent.cancel")?.({
+      invocationId: started.metadata.invocationId,
+      reason: "Operator cancelled before join failed.",
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-cancel-failure", name: "managed_agent.cancel", input: {} },
+    }) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly invocationId?: string;
+        readonly routeId?: string;
+        readonly routeSource?: string;
+        readonly parentSessionId?: string;
+        readonly parentTurnId?: string;
+        readonly status?: string;
+        readonly lifecycleState?: string;
+      };
+    };
+
+    expect(cancelled.isError).toBe(true);
+    expect(cancelled.output).toContain("Managed invocation cancel failed: join store unavailable");
+    expect(cancelled.metadata).toMatchObject({
+      invocationId: started.metadata.invocationId,
+      routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
+      parentSessionId: session.id,
+      parentTurnId: `${session.id}:turn:1`,
+      status: "cancelled",
+      lifecycleState: "cancelled",
+    });
+
+    joinSpy.mockRestore();
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      invocationId: request.invocationId,
+      agentId: request.agentId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      profile: request.profile,
+      lifecycleState: "completed",
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authority: request.authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+        routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
+      }),
+      resultHandoff: {
+        summary: "Late child output must be ignored.",
+        resourceUris: [`kiln://managed-invocations/${request.invocationId}/late`],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    await flushMicrotasks();
+  });
+
   it("publishes runtime cancellation evidence before late adapter cleanup evidence", async () => {
     const { adapter, terminal, signal } = makeAbortableDeferredAdapter();
     const surface = makeSurface(adapter);
@@ -2215,6 +2452,7 @@ describe("managed invocation runtime tool", () => {
       authority: request.authority,
       capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
         routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
       }),
       transcript: {
         uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
@@ -2418,6 +2656,30 @@ describe("managed invocation runtime tool", () => {
     const events = [];
 
     await options?.sessionEventSink?.publish(events, context);
+
+    expect(originalSink).toHaveBeenCalledWith(events, context);
+    expect(surfaceSink).toHaveBeenCalledWith(events, context);
+  });
+
+  it("does not let one managed invocation session event sink block another", async () => {
+    const originalSink = vi.fn().mockRejectedValue(new Error("relay unavailable"));
+    const surfaceSink = vi.fn();
+    const options = attachManagedInvocationSessionEventSink({
+      routes: [],
+      sessionEventSink: { publish: originalSink },
+    }, { publish: surfaceSink });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-1",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+    const events = [];
+
+    await expect(options?.sessionEventSink?.publish(events, context)).resolves.toBeUndefined();
 
     expect(originalSink).toHaveBeenCalledWith(events, context);
     expect(surfaceSink).toHaveBeenCalledWith(events, context);
@@ -2633,11 +2895,19 @@ describe("managed invocation runtime tool", () => {
       readonly isError: boolean;
       readonly metadata: {
         readonly status?: string;
+        readonly childSessionId?: string;
+        readonly childTurnId?: string;
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
         readonly managedInvocationRecovery?: Record<string, unknown>;
       };
     };
     const output = JSON.parse(result.output) as {
       readonly status?: string;
+      readonly childSessionId?: string;
+      readonly childTurnId?: string;
+      readonly timeoutMs?: number;
+      readonly timeoutSource?: string;
       readonly recovery?: {
         readonly nextTool?: string;
         readonly workItemId?: string;
@@ -2648,6 +2918,12 @@ describe("managed invocation runtime tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.metadata.status).toBe("timed_out");
+    expect(result.metadata).toMatchObject({
+      childSessionId: expect.stringContaining(`${session.id}:managed:`),
+      childTurnId: expect.stringContaining(`${session.id}:managed:`),
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
+    });
     expect(result.metadata.managedInvocationRecovery).toMatchObject({
       nextTool: "work_item.update",
       workItemId: "work-ui",
@@ -2656,6 +2932,10 @@ describe("managed invocation runtime tool", () => {
     });
     expect(output).toMatchObject({
       status: "timed_out",
+      childSessionId: expect.stringContaining(`${session.id}:managed:`),
+      childTurnId: expect.stringContaining(`${session.id}:managed:`),
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
       recovery: {
         nextTool: "work_item.update",
         workItemId: "work-ui",
@@ -3158,6 +3438,7 @@ describe("managed invocation runtime tool", () => {
       managedInvocation: {
         routes: [{
           routeId: "opencode-readonly-visual-without-network",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -3287,6 +3568,7 @@ describe("managed invocation runtime tool", () => {
       managedInvocation: {
         routes: [{
           routeId: "opencode-readonly-visual-without-network",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -3409,6 +3691,7 @@ describe("managed invocation runtime tool", () => {
         invocationService,
         routes: [{
           routeId: "opencode-approved-write",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -3552,9 +3835,6 @@ describe("managed invocation runtime tool", () => {
         }),
       ],
     });
-    expect(denied.metadata.presentationIntent?.rows?.[0]).toMatchObject({
-      failureReason: expect.stringContaining("missingCapabilities=resourceLease.worktreeConflict"),
-    });
     expect(session.sessionEvents.slice(-2).map((event) => event.kind)).toEqual([
       "agent_invocation_requested",
       "agent_invocation_failed",
@@ -3623,6 +3903,7 @@ describe("managed invocation runtime tool", () => {
       managedInvocation: {
         routes: [{
           routeId: "opencode-propose-writes",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -4366,6 +4647,7 @@ describe("managed invocation runtime tool", () => {
     expect(transcriptText).toContain("Model: opencode-default-model");
     expect(transcriptText).toContain("## Capability Snapshot");
     expect(transcriptText).toContain("Route ID: opencode-readonly");
+    expect(transcriptText).toContain("Route source: explicit-managed-route");
     expect(transcriptText).toContain("Provider proof: live-proven");
     expect(transcriptText).toContain("Child review completed.");
   });

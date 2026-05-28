@@ -1179,6 +1179,18 @@ function wireOperatorTransport(
                   ? events
                   : findManagedInvocationTerminalSessionEvents(session.sessionEvents, invocationId);
                 await sessionRegistry.save(session);
+                await input.managedInvocation?.sessionEventSink?.publish(terminalEvents, {
+                  session,
+                  toolCall: {
+                    id: requestId ?? `managed-agent-control:${action}:${invocationId}`,
+                    name: `managed_agent.${action}`,
+                    input: {
+                      action,
+                      sessionId,
+                      invocationId,
+                    },
+                  },
+                });
                 activityStreamer.forwardSessionEvents(terminalEvents);
                 ws.send(JSON.stringify(managedAgentControlResult({
                   action,

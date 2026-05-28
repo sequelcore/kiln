@@ -6,6 +6,7 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentAdapterDescriptor,
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRequest,
 } from "../../src/agents/managed-invocation/index.js";
 
@@ -90,9 +91,16 @@ function makeRequest(): ManagedAgentInvocationRequest {
   });
 }
 
+function makeSnapshotInput(): ManagedAgentCapabilitySnapshotInput {
+  return {
+    routeId: "opencode-readonly",
+    routeSource: "explicit-managed-route",
+  };
+}
+
 describe("managed agent admission policy", () => {
   it("admits foundation-readonly-plan only when route, authority, credential, memory, timeout, lifecycle, and handoff evidence are explicit", () => {
-    const decision = evaluateManagedAgentAdmission(makeRequest(), makeDescriptor());
+    const decision = evaluateManagedAgentAdmission(makeRequest(), makeDescriptor(), makeSnapshotInput());
 
     expect(decision).toMatchObject({
       status: "admitted",
@@ -112,6 +120,7 @@ describe("managed agent admission policy", () => {
         requestedAuthority: "destructive",
       }),
       makeDescriptor(),
+      makeSnapshotInput(),
     );
     const admitted = evaluateManagedAgentAdmission(
       defineManagedAgentInvocationRequest({
@@ -123,6 +132,7 @@ describe("managed agent admission policy", () => {
         },
       }),
       makeDescriptor(),
+      makeSnapshotInput(),
     );
 
     expect(denied).toMatchObject({
@@ -166,7 +176,7 @@ describe("managed agent admission policy", () => {
     })],
   ])("denies foundation-readonly-plan when %s is missing", (_label, mutate) => {
     const malformed = mutate(makeRequest()) as ManagedAgentInvocationRequest;
-    const decision = evaluateManagedAgentAdmission(malformed, makeDescriptor());
+    const decision = evaluateManagedAgentAdmission(malformed, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
     expect(decision.reason).toContain("foundation-readonly-plan");
@@ -187,7 +197,7 @@ describe("managed agent admission policy", () => {
       resultHandoff: { boundedSummary: false, resourcePointers: true },
     };
 
-    const decision = evaluateManagedAgentAdmission(makeRequest(), descriptor);
+    const decision = evaluateManagedAgentAdmission(makeRequest(), descriptor, makeSnapshotInput());
 
     expect(decision).toMatchObject({
       status: "denied",

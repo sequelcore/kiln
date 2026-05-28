@@ -201,7 +201,13 @@ describe("ManagedAgentCockpitPanel", () => {
           sessionId: "session-1",
           status: "failed",
           lifecycleState: "timed_out",
+          parentTurnId: "session-1:turn:1",
+          childSessionId: "child-timeout-session",
+          childTurnId: "child-timeout-turn",
           providerRoute: "codex-oauth/gpt-5.5",
+          routeSource: "explicit-managed-route",
+          timeoutMs: 120000,
+          timeoutSource: "explicit-route",
           attentionState: "timed_out",
           dirtyWorkspaceReviewRequired: false,
           worktreeConflictBlocked: false,
@@ -241,6 +247,11 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.getByText("Timed out")).toBeVisible();
     expect(screen.getByText("failed")).toBeVisible();
     expect(screen.getByText("lifecycle timed_out")).toBeVisible();
+    expect(screen.getByText("route source explicit-managed-route")).toBeVisible();
+    expect(screen.getByText("parent turn session-1:turn:1")).toBeVisible();
+    expect(screen.getByText("child session child-timeout-session")).toBeVisible();
+    expect(screen.getByText("child turn child-timeout-turn")).toBeVisible();
+    expect(screen.getByText("timeout 120000ms explicit-route")).toBeVisible();
     expect(screen.getByText("Cancel unavailable")).toBeDisabled();
     expect(screen.getByText("timeout")).toBeVisible();
   });

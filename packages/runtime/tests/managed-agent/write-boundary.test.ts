@@ -10,6 +10,7 @@ import {
 import type {
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdmissionDecision,
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
 } from "@kilnai/core";
@@ -95,6 +96,16 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
   });
 }
 
+function snapshotInputFor(
+  request: ManagedAgentInvocationRequest,
+): ManagedAgentCapabilitySnapshotInput {
+  return {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeSource: "explicit-managed-route",
+  };
+}
+
 function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): ManagedAgentAdapterDescriptor {
   return defineManagedAgentAdapterDescriptor({
     adapterDescriptorId: "adapter:opencode:harness",
@@ -156,6 +167,7 @@ function admitted(request: ManagedAgentInvocationRequest): Extract<ManagedAgentA
     capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "opencode-write",
+      routeSource: "explicit-managed-route",
     }),
   };
 }
@@ -175,6 +187,7 @@ function makeRecord(request: ManagedAgentInvocationRequest): ManagedAgentInvocat
     capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "opencode-write",
+      routeSource: "explicit-managed-route",
     }),
     childSessionId: "child-session-1",
     transcript: {
@@ -318,7 +331,8 @@ describe("managed agent runtime write boundary", () => {
     };
     const service = new RuntimeManagedAgentInvocationService();
 
-    await expect(service.invoke(readonlyRequest, adapter)).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
+    await expect(service.invoke(readonlyRequest, adapter, snapshotInputFor(readonlyRequest)))
+      .rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 });

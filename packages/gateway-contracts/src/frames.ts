@@ -437,6 +437,7 @@ export interface OperatorManagedAgentCapabilitySnapshot {
   readonly snapshotId: string;
   readonly capturedAt: string;
   readonly routeId: string;
+  readonly routeSource: string;
   readonly routeHealth: OperatorManagedAgentRouteHealthSnapshot;
   readonly providerModelProof: OperatorManagedAgentProviderModelProofSnapshot;
   readonly providerRoute: OperatorManagedAgentProviderRoute;
@@ -453,6 +454,10 @@ export interface OperatorManagedAgentCapabilitySnapshot {
 export interface OperatorManagedAgentInvocationEventPayload extends Record<string, unknown> {
   readonly invocationId: string;
   readonly agentId: string;
+  readonly parentSessionId?: string;
+  readonly parentTurnId?: string;
+  readonly routeId?: string;
+  readonly routeSource?: string;
   readonly lifecycleState?: string;
   readonly profile?: string;
   readonly providerRoute?: OperatorManagedAgentProviderRoute;

@@ -179,7 +179,10 @@ describe("createManagedDirectProviderAdapterFactory", () => {
           mode: "resources",
         },
       },
-    }), adapter!);
+    }), adapter!, {
+      routeId: "openai-readonly",
+      routeSource: "explicit-managed-route",
+    });
 
     expect(result.status).toBe("completed");
     expect(resourceProvider.read).toHaveBeenCalledWith("kiln://test/current-direct-resource", {});

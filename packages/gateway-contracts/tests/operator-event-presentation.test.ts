@@ -297,6 +297,7 @@ describe("operator event presentation", () => {
     const presentation = presentOperatorEventPayload("agent_invocation_completed", {
       invocationId: "inv-1",
       agentId: "codex-oauth:foundation-readonly-plan",
+      parentTurnId: "session-1:turn:2",
       profile: "foundation-readonly-plan",
       providerRoute: {
         providerId: "codex-oauth",
@@ -309,6 +310,8 @@ describe("operator event presentation", () => {
       capabilitySnapshot: {
         snapshotId: "inv-1:capability-snapshot",
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
         routeHealth: {
           status: "healthy",
           reason: "Configured managed invocation route selected.",
@@ -338,6 +341,7 @@ describe("operator event presentation", () => {
       },
       managedInvocationEvidence: {
         lifecycle: {
+          routeSource: "explicit-managed-route",
           resourceLease: {
             leaseId: "inv-1:resource-lease",
             createdAt: "2026-05-07T08:00:00.000Z",
@@ -368,6 +372,8 @@ describe("operator event presentation", () => {
       { label: "Authority", value: "authority:foundation-readonly-plan" },
       { label: "Capability snapshot", value: "inv-1:capability-snapshot" },
       { label: "Captured", value: "2026-05-07T08:00:00.000Z" },
+      { label: "Route ID", value: "codex-oauth-readonly" },
+      { label: "Route source", value: "explicit-managed-route" },
       { label: "Route health", value: "healthy" },
       { label: "Route health reason", value: "Configured managed invocation route selected." },
       { label: "Provider proof", value: "live-proven" },
@@ -382,6 +388,7 @@ describe("operator event presentation", () => {
       { label: "Lease diagnostics", value: "kiln://artifacts/inv-1/lease-diagnostics" },
       { label: "Child identity", value: "Piama" },
       { label: "Invocation ID", value: "inv-1" },
+      { label: "Parent turn", value: "session-1:turn:2" },
       { label: "Duration", value: "950 ms" },
       { label: "Result", value: "Inspection completed." },
     ]);
@@ -666,7 +673,10 @@ describe("operator event presentation", () => {
         text: expect.stringContaining("| Route"),
       },
     });
-    expect(presentation.toolPresentation?.preview?.text).not.toContain("\"metadata\"");
+    const previewText = typeof presentation.toolPresentation?.preview?.text === "string"
+      ? presentation.toolPresentation.preview.text
+      : JSON.stringify(presentation.toolPresentation?.preview?.text);
+    expect(previewText).not.toContain("\"metadata\"");
   });
 
   it("ignores invalid presentation intents and keeps fallback rendering", () => {
@@ -717,6 +727,8 @@ describe("operator event presentation", () => {
         kind: "managed-invocation",
         profile: "foundation-readonly-plan",
         routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
+        parentTurnId: "session-1:turn:7",
         providerRoute: {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
@@ -749,6 +761,8 @@ describe("operator event presentation", () => {
           kind: "managed-invocation",
           invocationId: "inv-1",
           routeId: "codex-oauth",
+          routeSource: "explicit-managed-route",
+          parentTurnId: "session-1:turn:7",
           status: "completed",
           profile: "foundation-readonly-plan",
           providerRoute: {
@@ -769,6 +783,8 @@ describe("operator event presentation", () => {
           capabilitySnapshot: {
             snapshotId: "inv-1:capability-snapshot",
             capturedAt: "2026-05-07T08:00:00.000Z",
+            routeId: "codex-oauth",
+            routeSource: "explicit-managed-route",
             routeHealth: {
               status: "healthy",
               reason: "Configured managed invocation route selected.",
@@ -836,6 +852,8 @@ describe("operator event presentation", () => {
       { label: "Authority", value: "authority:foundation-readonly-plan" },
       { label: "Capability snapshot", value: "inv-1:capability-snapshot" },
       { label: "Captured", value: "2026-05-07T08:00:00.000Z" },
+      { label: "Route ID", value: "codex-oauth" },
+      { label: "Route source", value: "explicit-managed-route" },
       { label: "Route health", value: "healthy" },
       { label: "Route health reason", value: "Configured managed invocation route selected." },
       { label: "Provider proof", value: "live-proven" },
@@ -850,7 +868,7 @@ describe("operator event presentation", () => {
       { label: "Lease diagnostics", value: "kiln://artifacts/inv-1/lease-diagnostics" },
       { label: "Child identity", value: "architecture-reviewer" },
       { label: "Invocation ID", value: "inv-1" },
-      { label: "Route ID", value: "codex-oauth" },
+      { label: "Parent turn", value: "session-1:turn:7" },
       { label: "Child session", value: "child-session-1" },
       { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
       { label: "Summary", value: "Inspect managed agents architecture doc" },

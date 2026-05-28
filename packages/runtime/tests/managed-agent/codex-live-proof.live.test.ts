@@ -10,6 +10,7 @@ import {
   KILN_LIVE_CODEX_TESTS_ENV,
   describeManagedAgentProviderLive,
   expectManagedAgentLiveFilesystemAndEvidence,
+  makeManagedAgentLiveCapabilitySnapshotInput,
   makeManagedAgentLiveHarnessReadOnlyRequest,
   makeManagedAgentLiveHarnessWriteRequest,
   withManagedAgentLiveFixtureWorkspace,
@@ -53,7 +54,7 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
       });
       const service = new RuntimeManagedAgentInvocationService();
 
-      const result = await service.invoke(request, adapter);
+      const result = await service.invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {
@@ -111,7 +112,7 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
       });
       const service = new RuntimeManagedAgentInvocationService();
 
-      const result = await service.invoke(request, adapter);
+      const result = await service.invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {

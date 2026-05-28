@@ -262,6 +262,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-readonly",
+      routeSource: "enabled-engine-fallback",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.4-mini",
@@ -269,6 +270,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]?.routeId).toBe("codex-readonly");
+    expect(result.managedInvocation?.routes[0]?.routeSource).toBe("enabled-engine-fallback");
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.timeoutMs).toBe(300000);
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.timeoutSource).toBe("default");
     expect(result.managedInvocation?.requestSource).toBe("gui");
@@ -332,6 +334,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-oauth-readonly",
+      routeSource: "ordered-routing",
       kind: "direct",
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
@@ -339,6 +342,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }, {
       routeId: "openrouter-readonly",
+      routeSource: "ordered-routing",
       kind: "direct",
       provider: "openrouter",
       model: "qwen/qwen3-coder:free",
@@ -346,6 +350,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }, {
       routeId: "codex-readonly",
+      routeSource: "ordered-routing",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.4-mini",
@@ -353,6 +358,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }, {
       routeId: "opencode-readonly",
+      routeSource: "ordered-routing",
       kind: "harness",
       provider: "opencode",
       model: "openai/gpt-4o:free",
@@ -365,8 +371,14 @@ describe("resolveManagedInvocationToolOptions", () => {
       "openrouter-readonly",
       "codex-readonly",
     ]);
+    expect(result.managedInvocation?.routes.map((route) => route.routeSource)).toEqual([
+      "ordered-routing",
+      "ordered-routing",
+      "ordered-routing",
+    ]);
     expect(result.managedInvocation?.unavailableRoutes).toContainEqual({
       routeId: "opencode-readonly",
+      routeSource: "ordered-routing",
       providerId: "opencode",
       model: "openai/gpt-4o:free",
       profiles: ["foundation-readonly-plan"],
@@ -490,6 +502,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth.map((route) => ({
       routeId: route.routeId,
+      routeSource: route.routeSource,
       provider: route.provider,
       model: route.model,
       profiles: route.profiles,
@@ -497,6 +510,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }))).toEqual([
       {
         routeId: "codex-oauth-readonly",
+        routeSource: "ordered-routing",
         provider: "codex-oauth",
         model: "gpt-5.5",
         profiles: ["foundation-readonly-plan"],
@@ -504,6 +518,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       },
       {
         routeId: "opencode-go-kimi-k2-6-readonly",
+        routeSource: "ordered-routing",
         provider: "opencode-go",
         model: "kimi-k2.6",
         profiles: ["foundation-readonly-plan"],
@@ -511,6 +526,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       },
       {
         routeId: "opencode-go-deepseek-v4-pro-readonly",
+        routeSource: "ordered-routing",
         provider: "opencode-go",
         model: "deepseek-v4-pro",
         profiles: ["foundation-readonly-plan"],
@@ -518,6 +534,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       },
       {
         routeId: "opencode-go-approved-write",
+        routeSource: "explicit-managed-route",
         provider: "opencode-go",
         model: "deepseek-v4-pro",
         profiles: ["foundation-apply-approved-writes"],
@@ -568,6 +585,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual(["codex-readonly"]);
     expect(result.managedInvocation?.unavailableRoutes).toEqual([{
       routeId: "openrouter-readonly",
+      routeSource: "ordered-routing",
       providerId: "openrouter",
       model: "openrouter/free",
       profiles: ["foundation-readonly-plan"],
@@ -627,6 +645,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-readonly",
+      routeSource: "explicit-managed-route",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
@@ -634,6 +653,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }]);
     expect(result.managedInvocation?.routes).toHaveLength(1);
+    expect(result.managedInvocation?.routes[0]?.routeSource).toBe("explicit-managed-route");
     expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
       adapterKind: "harness",
       providerId: "codex",
@@ -781,7 +801,10 @@ describe("resolveManagedInvocationToolOptions", () => {
           mode: "resources",
         },
       },
-    }), route!.adapter);
+    }), route!.adapter, {
+      routeId: route!.routeId,
+      routeSource: route!.routeSource,
+    });
 
     expect(invokeResult.status).toBe("completed");
     expect(readUris).toEqual(["kiln://test/current-harness-resource"]);
@@ -874,6 +897,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-oauth-sandbox-readonly",
+      routeSource: "explicit-managed-route",
       kind: "direct",
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
@@ -909,6 +933,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-sandbox-readonly",
+      routeSource: "explicit-managed-route",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
@@ -950,6 +975,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-cloud-remote-readonly",
+      routeSource: "explicit-managed-route",
       kind: "harness",
       provider: "codex-cloud",
       model: "gpt-5.5",
@@ -1276,6 +1302,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "opencode-readonly",
+      routeSource: "managed-default-route",
       kind: "harness",
       provider: "opencode",
       model: "openai/gpt-4o:free",
@@ -1299,6 +1326,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "opencode-readonly",
+      routeSource: "managed-default-route",
       kind: "harness",
       provider: "opencode",
       model: "opencode/minimax-m2.5-free",
@@ -1309,6 +1337,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation?.routes).toEqual([]);
     expect(result.managedInvocation?.unavailableRoutes).toEqual([{
       routeId: "opencode-readonly",
+      routeSource: "managed-default-route",
       providerId: "opencode",
       model: "opencode/minimax-m2.5-free",
       profiles: ["foundation-readonly-plan"],
@@ -1370,6 +1399,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "opencode-readonly",
+      routeSource: "managed-default-route",
       kind: "harness",
       provider: "opencode",
       model: "opencode/minimax-m2.5-free",
@@ -1403,6 +1433,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "opencode-readonly",
+      routeSource: "managed-default-route",
       kind: "harness",
       provider: "opencode",
       model: "opencode/nemotron-3-super-free",
@@ -1431,6 +1462,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation).toBeUndefined();
     expect(result.routeHealth).toEqual([{
       routeId: "codex-readonly",
+      routeSource: "explicit-managed-route",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
@@ -1456,6 +1488,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation).toBeUndefined();
     expect(result.routeHealth).toEqual([{
       routeId: "codex-readonly",
+      routeSource: "enabled-engine-fallback",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
@@ -1508,6 +1541,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "openai-readonly",
+      routeSource: "explicit-managed-route",
       kind: "direct",
       provider: "openai",
       model: "gpt-5.4-mini",
@@ -1593,6 +1627,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-approved-write",
+      routeSource: "explicit-managed-route",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
@@ -1686,6 +1721,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.routeHealth).toEqual([{
       routeId: "codex-oauth-approved-write",
+      routeSource: "explicit-managed-route",
       kind: "direct",
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
@@ -1755,6 +1791,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation?.routes).toEqual([]);
     expect(result.managedInvocation?.unavailableRoutes).toEqual([{
       routeId: "opencode-go-frontend-approved-write",
+      routeSource: "explicit-managed-route",
       providerId: "opencode-go",
       model: "kimi-k2.6",
       profiles: ["foundation-apply-approved-writes"],

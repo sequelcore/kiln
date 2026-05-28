@@ -13,6 +13,7 @@ import type {
   ManagedAgentInvocationRecord,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
+  ManagedAgentRouteSource,
   ManagedAgentWorkingDirectory,
   ModelTaskSuitability,
   ModelTaskSuitabilityTask,
@@ -79,6 +80,7 @@ export interface ManagedInvocationRouteProfile {
 
 export interface ManagedInvocationToolRoute {
   readonly routeId: string;
+  readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
   readonly voiceProfile?: string;
@@ -91,6 +93,7 @@ export interface ManagedInvocationToolRoute {
 
 export interface ManagedInvocationUnavailableRoute {
   readonly routeId: string;
+  readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
   readonly profiles: readonly ManagedAgentAdmissionProfile[];
@@ -697,8 +700,10 @@ export function attachManagedInvocationSessionEventSink(
     ...options,
     sessionEventSink: {
       publish: async (events, context) => {
-        await existingSink?.publish(events, context);
-        await sessionEventSink.publish(events, context);
+        const sinks = [existingSink, sessionEventSink].filter((sink): sink is ManagedInvocationSessionEventSink => (
+          sink !== undefined
+        ));
+        await Promise.allSettled(sinks.map((sink) => sink.publish(events, context)));
       },
     },
   };
@@ -755,6 +760,7 @@ async function prepareManagedInvocationRequest(
           `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.input.providerRoute.providerId}' and profile '${parsed.input.profile}': ${unavailableRoute.reason}`,
           {
             routeId: unavailableRoute.routeId,
+            routeSource: unavailableRoute.routeSource,
             profile: parsed.input.profile,
             providerRoute: {
               providerId: unavailableRoute.providerId,
@@ -764,6 +770,7 @@ async function prepareManagedInvocationRequest(
             presentationIntent: buildManagedInvocationPresentationIntent({
               sourceToolName: toolName,
               routeId: unavailableRoute.routeId,
+              routeSource: unavailableRoute.routeSource,
               profile: parsed.input.profile,
               providerId: unavailableRoute.providerId,
               model: unavailableRoute.model,
@@ -802,6 +809,7 @@ async function prepareManagedInvocationRequest(
         `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required tools: ${missingRequiredTools.join(", ")}.`,
         {
           routeId: route.routeId,
+          routeSource: route.routeSource,
           profile: parsed.input.profile,
           status: "unavailable",
           missingRequiredTools,
@@ -810,6 +818,7 @@ async function prepareManagedInvocationRequest(
           presentationIntent: buildManagedInvocationPresentationIntent({
             sourceToolName: toolName,
             routeId: route.routeId,
+            routeSource: route.routeSource,
             profile: parsed.input.profile,
             providerId: route.providerId,
             model: route.model,
@@ -835,6 +844,7 @@ async function prepareManagedInvocationRequest(
         `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required capabilities: ${missingRequiredCapabilities.join(", ")}.`,
         {
           routeId: route.routeId,
+          routeSource: route.routeSource,
           profile: parsed.input.profile,
           status: "unavailable",
           missingRequiredCapabilities,
@@ -842,6 +852,7 @@ async function prepareManagedInvocationRequest(
           presentationIntent: buildManagedInvocationPresentationIntent({
             sourceToolName: toolName,
             routeId: route.routeId,
+            routeSource: route.routeSource,
             profile: parsed.input.profile,
             providerId: route.providerId,
             model: route.model,
@@ -868,6 +879,7 @@ async function prepareManagedInvocationRequest(
         profile: parsed.input.profile,
         requestedAuthority,
         routeId: route.routeId,
+        routeSource: route.routeSource,
       }, toolName),
     };
   }
@@ -879,6 +891,7 @@ async function prepareManagedInvocationRequest(
       ok: false,
       result: errorResult(contextResolution.error, {
         routeId: route.routeId,
+        routeSource: route.routeSource,
         profile: parsed.input.profile,
         providerRoute: {
           providerId: route.providerId,
@@ -890,6 +903,7 @@ async function prepareManagedInvocationRequest(
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: toolName,
           routeId: route.routeId,
+          routeSource: route.routeSource,
           profile: parsed.input.profile,
           providerId: route.providerId,
           model: route.model,
@@ -990,9 +1004,10 @@ async function prepareManagedInvocationRequest(
       request,
       capabilitySnapshotInput: {
         routeId: route.routeId,
+        routeSource: route.routeSource,
         routeHealth: {
           status: "healthy",
-          reason: managedInvocationRouteHealthReason(profileDefaults),
+          reason: managedInvocationRouteHealthReason(profileDefaults, route.routeSource),
         },
         providerModelProof: {
           ...(route.providerModelProof ?? {
@@ -1162,6 +1177,9 @@ async function executeManagedInvocationTool(
         kind: "managed-invocation",
         invocationId: prepared.request.invocationId,
         routeId: prepared.route.routeId,
+        routeSource: prepared.route.routeSource,
+        parentSessionId: prepared.request.parentSessionId,
+        parentTurnId: prepared.request.parentTurnId,
         status: "denied",
         profile: prepared.request.profile,
         providerRoute: prepared.request.providerRoute,
@@ -1185,6 +1203,7 @@ async function executeManagedInvocationTool(
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
           routeId: prepared.route.routeId,
+          routeSource: prepared.route.routeSource,
           profile: prepared.request.profile,
           providerId: prepared.request.providerRoute.providerId,
           model: prepared.request.providerRoute.model,
@@ -1244,6 +1263,9 @@ async function executeManagedInvocationStartTool(
         kind: "managed-invocation",
         invocationId: prepared.request.invocationId,
         routeId: prepared.route.routeId,
+        routeSource: prepared.route.routeSource,
+        parentSessionId: prepared.request.parentSessionId,
+        parentTurnId: prepared.request.parentTurnId,
         status: "denied",
         lifecycleState: "failed",
         profile: prepared.request.profile,
@@ -1267,6 +1289,7 @@ async function executeManagedInvocationStartTool(
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: MANAGED_AGENT_START_TOOL_NAME,
           routeId: prepared.route.routeId,
+          routeSource: prepared.route.routeSource,
           profile: prepared.request.profile,
           providerId: prepared.request.providerRoute.providerId,
           model: prepared.request.providerRoute.model,
@@ -1283,13 +1306,20 @@ async function executeManagedInvocationStartTool(
     startResult.snapshot.decision.capabilitySnapshot,
     projectManagedInvocationPublicResourceUri,
   );
+  const timeoutEvidence = projectManagedInvocationTimeoutEvidence(
+    startResult.snapshot.decision.capabilitySnapshot.authorityProfile,
+  );
   return {
     output: JSON.stringify({
       status: "started",
       lifecycleState: startResult.snapshot.lifecycleState,
       invocationId: startResult.snapshot.invocationId,
       routeId: prepared.route.routeId,
+      routeSource: prepared.route.routeSource,
+      parentSessionId: startResult.snapshot.parentSessionId,
+      parentTurnId: startResult.snapshot.parentTurnId,
       profile: startResult.snapshot.profile,
+      ...timeoutEvidence,
     }, null, 2),
     isError: false,
     metadata: {
@@ -1297,8 +1327,12 @@ async function executeManagedInvocationStartTool(
       kind: "managed-invocation",
       invocationId: startResult.snapshot.invocationId,
       routeId: prepared.route.routeId,
+      routeSource: prepared.route.routeSource,
+      parentSessionId: startResult.snapshot.parentSessionId,
+      parentTurnId: startResult.snapshot.parentTurnId,
       status: "started",
       lifecycleState: startResult.snapshot.lifecycleState,
+      ...timeoutEvidence,
       profile: startResult.snapshot.profile,
       providerRoute: startResult.snapshot.providerRoute,
       ...(prepared.route.voiceProfile ? { voiceProfile: prepared.route.voiceProfile } : {}),
@@ -1402,6 +1436,9 @@ async function executeManagedInvocationJoinTool(
         invocationId: invocationId.value,
         status: failedSnapshot?.lifecycleState ?? "failed",
         lifecycleState: failedSnapshot?.lifecycleState ?? "failed",
+        ...(failedSnapshot ? { routeId: failedSnapshot.decision.capabilitySnapshot.routeId } : {}),
+        ...(failedSnapshot ? { routeSource: failedSnapshot.decision.capabilitySnapshot.routeSource } : {}),
+        ...(failedSnapshot ? { parentSessionId: failedSnapshot.parentSessionId, parentTurnId: failedSnapshot.parentTurnId } : {}),
         error: failedSnapshot?.error,
         sessionEventIds: events.map((event) => event.eventId),
       },
@@ -1413,6 +1450,8 @@ async function executeManagedInvocationJoinTool(
       `Managed invocation denied: ${invocationResult.decision.reason}`,
       {
         invocationId: invocationId.value,
+        routeId: invocationResult.decision.routeId,
+        routeSource: invocationResult.decision.routeSource,
         status: "denied",
         lifecycleState: "failed",
         missingCapabilities: invocationResult.decision.missingCapabilities,
@@ -1476,11 +1515,13 @@ async function executeManagedInvocationCancelTool(
     await service.cancel(invocationId.value, reason);
     terminalResult = await service.join(invocationId.value);
   } catch (error) {
+    const failedSnapshot = service.status(invocationId.value) ?? visibility.snapshot;
     return errorResult(
       `Managed invocation cancel failed: ${error instanceof Error ? error.message : String(error)}`,
       {
-        invocationId: invocationId.value,
-        status: service.status(invocationId.value)?.lifecycleState ?? "failed",
+        ...managedInvocationSnapshotErrorMetadata(failedSnapshot),
+        status: failedSnapshot.lifecycleState,
+        lifecycleState: failedSnapshot.lifecycleState,
       },
       MANAGED_AGENT_CANCEL_TOOL_NAME,
     );
@@ -1489,8 +1530,9 @@ async function executeManagedInvocationCancelTool(
     return errorResult(
       "Managed invocation cancel failed: terminal record was not available after cancellation",
       {
-        invocationId: invocationId.value,
+        ...managedInvocationSnapshotErrorMetadata(visibility.snapshot),
         status: terminalResult.status,
+        lifecycleState: visibility.snapshot.lifecycleState,
       },
       MANAGED_AGENT_CANCEL_TOOL_NAME,
     );
@@ -1572,11 +1614,16 @@ function managedInvocationSnapshotResult(
 }
 
 function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocationSnapshot): Record<string, unknown> {
+  const capabilitySnapshot = snapshot.decision.capabilitySnapshot;
   return {
     invocationId: snapshot.invocationId,
     agentId: snapshot.agentId,
     parentSessionId: snapshot.parentSessionId,
     parentTurnId: snapshot.parentTurnId,
+    routeId: capabilitySnapshot.routeId,
+    routeSource: capabilitySnapshot.routeSource,
+    ...projectManagedInvocationTimeoutEvidence(capabilitySnapshot.authorityProfile),
+    ...projectManagedInvocationChildLineage(snapshot.record),
     profile: snapshot.profile,
     providerRoute: snapshot.providerRoute,
     adapterKind: snapshot.adapterKind,
@@ -1587,6 +1634,27 @@ function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocatio
     ...(snapshot.finishedAt ? { finishedAt: snapshot.finishedAt } : {}),
     ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
     terminalEvidenceAvailable: snapshot.record !== undefined || snapshot.error !== undefined,
+  };
+}
+
+function managedInvocationSnapshotErrorMetadata(
+  snapshot: ManagedAgentRuntimeInvocationSnapshot,
+): Record<string, unknown> {
+  const capabilitySnapshot = snapshot.decision.capabilitySnapshot;
+  return {
+    invocationId: snapshot.invocationId,
+    agentId: snapshot.agentId,
+    parentSessionId: snapshot.parentSessionId,
+    parentTurnId: snapshot.parentTurnId,
+    routeId: capabilitySnapshot.routeId,
+    routeSource: capabilitySnapshot.routeSource,
+    ...projectManagedInvocationTimeoutEvidence(capabilitySnapshot.authorityProfile),
+    ...projectManagedInvocationChildLineage(snapshot.record),
+    profile: snapshot.profile,
+    providerRoute: snapshot.providerRoute,
+    adapterKind: snapshot.adapterKind,
+    executionMode: snapshot.executionMode,
+    authorityProfileId: snapshot.authorityProfileId,
   };
 }
 
@@ -1622,6 +1690,9 @@ function terminalManagedInvocationResult(input: {
   const handoffError = handoffRecovery !== undefined;
   const projectedStatus = handoffError ? "handoff_not_substantive" : input.record.lifecycleState;
   const resourceLease = input.record.resourceLease ?? input.record.capabilitySnapshot.resourceLease;
+  const routeSource = input.record.capabilitySnapshot.routeSource;
+  const timeoutEvidence = projectManagedInvocationTimeoutEvidence(input.record.capabilitySnapshot.authorityProfile);
+  const childLineage = projectManagedInvocationChildLineage(input.record);
   const structuredEvidence = input.record.resultHandoff !== undefined
     || input.record.transcript !== undefined
     || resourceLease !== undefined
@@ -1631,6 +1702,13 @@ function terminalManagedInvocationResult(input: {
       ? JSON.stringify({
           status: projectedStatus,
           summary,
+          invocationId: input.record.invocationId,
+          routeId: input.routeId,
+          routeSource,
+          parentSessionId: input.record.parentSessionId,
+          parentTurnId: input.record.parentTurnId,
+          ...childLineage,
+          ...timeoutEvidence,
           ...(input.record.resultHandoff ? { resultHandoff: input.record.resultHandoff } : {}),
           ...(input.record.transcript ? { transcript: input.record.transcript } : {}),
           ...(resourceLease ? { resourceLease } : {}),
@@ -1646,6 +1724,11 @@ function terminalManagedInvocationResult(input: {
       kind: "managed-invocation",
       invocationId: input.record.invocationId,
       routeId: input.routeId,
+      routeSource,
+      parentSessionId: input.record.parentSessionId,
+      parentTurnId: input.record.parentTurnId,
+      ...childLineage,
+      ...timeoutEvidence,
       status: projectedStatus,
       lifecycleState: input.record.lifecycleState,
       profile: input.record.profile,
@@ -1658,8 +1741,6 @@ function terminalManagedInvocationResult(input: {
       capabilitySnapshot: input.record.capabilitySnapshot,
       context: input.request.input.context,
       ...(input.request.input.handoff ? { handoffContract: input.request.input.handoff } : {}),
-      childSessionId: input.record.childSessionId,
-      childTurnId: input.record.childTurnId,
       resultHandoff: input.record.resultHandoff,
       transcript: input.record.transcript,
       ...(resourceLease ? { resourceLease } : {}),
@@ -1671,6 +1752,7 @@ function terminalManagedInvocationResult(input: {
       presentationIntent: buildManagedInvocationPresentationIntent({
         sourceToolName: input.toolName,
         routeId: input.routeId,
+        routeSource,
         profile: input.record.profile,
         providerId: input.record.providerRoute.providerId,
         model: input.record.providerRoute.model,
@@ -1683,9 +1765,24 @@ function terminalManagedInvocationResult(input: {
   };
 }
 
+function projectManagedInvocationTimeoutEvidence(authority: ManagedAgentAuthorityProfile): Record<string, unknown> {
+  return {
+    timeoutMs: authority.timeoutMs,
+    ...(authority.timeoutSource ? { timeoutSource: authority.timeoutSource } : {}),
+  };
+}
+
+function projectManagedInvocationChildLineage(record: ManagedAgentInvocationRecord | undefined): Record<string, unknown> {
+  return {
+    ...(record?.childSessionId ? { childSessionId: record.childSessionId } : {}),
+    ...(record?.childTurnId ? { childTurnId: record.childTurnId } : {}),
+  };
+}
+
 function buildManagedInvocationPresentationIntent(input: {
   readonly sourceToolName: string;
   readonly routeId: string;
+  readonly routeSource: ManagedAgentRouteSource;
   readonly profile: ManagedAgentAdmissionProfile;
   readonly providerId: string;
   readonly model?: string;
@@ -1702,6 +1799,7 @@ function buildManagedInvocationPresentationIntent(input: {
     confidence: input.substantiveEvidence ? "high" : "medium",
     columns: [
       { key: "routeId", label: "Route", valueKind: "text" },
+      { key: "routeSource", label: "Source", valueKind: "text" },
       { key: "provider", label: "Provider", valueKind: "text" },
       { key: "model", label: "Model", valueKind: "text" },
       { key: "profile", label: "Profile", valueKind: "text" },
@@ -1712,6 +1810,7 @@ function buildManagedInvocationPresentationIntent(input: {
     ],
     rows: [{
       routeId: input.routeId,
+      routeSource: input.routeSource,
       provider: input.providerId,
       model: input.model ?? "",
       profile: input.profile,
@@ -1877,13 +1976,13 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
         .map((route) => {
           const suitability = formatTaskSuitability(route.taskSuitability, managedInvocationSkillNames(options));
           const timeoutSummary = formatRouteTimeoutSummary(route.profiles);
-          return `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
+          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
         })
         .join("\n")
     : "- none";
   const unavailable = options.unavailableRoutes && options.unavailableRoutes.length > 0
     ? options.unavailableRoutes
-        .map((route) => `- ${route.routeId}: providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, profiles=${route.profiles.join(",")}, reason=${route.reason}`)
+        .map((route) => `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, profiles=${route.profiles.join(",")}, reason=${route.reason}`)
         .join("\n")
     : "- none";
   return [
@@ -1928,10 +2027,10 @@ function formatRouteTimeoutEntry(entry: {
     : `timeoutMs=${entry.timeoutMs}`;
 }
 
-function managedInvocationRouteHealthReason(profile: ManagedInvocationRouteProfile): string {
+function managedInvocationRouteHealthReason(profile: ManagedInvocationRouteProfile, routeSource: ManagedAgentRouteSource): string {
   return profile.timeoutSource
-    ? `Configured managed invocation route selected by runtime tool; effective timeoutMs=${profile.timeoutMs} source=${profile.timeoutSource}.`
-    : `Configured managed invocation route selected by runtime tool; effective timeoutMs=${profile.timeoutMs}.`;
+    ? `Configured managed invocation route selected by runtime tool; routeSource=${routeSource}; effective timeoutMs=${profile.timeoutMs} source=${profile.timeoutSource}.`
+    : `Configured managed invocation route selected by runtime tool; routeSource=${routeSource}; effective timeoutMs=${profile.timeoutMs}.`;
 }
 
 function formatTaskSuitability(

@@ -167,6 +167,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     managedInvocationWithService,
     runtimeBudgetAdmission,
   );
+  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationWithService;
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
@@ -211,7 +212,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     initialOperatorDiscovery,
     onOperatorDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
     builtinToolOptions,
-    managedInvocation: managedInvocationWithService,
+    managedInvocation: managedInvocationForGateway,
     memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
     operatorTransport: {
       sessionManager,
@@ -227,7 +228,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       sttAdapter: operatorVoice.sttAdapter,
       ttsAdapter: operatorVoice.ttsAdapter,
       executionMode: flags.plan ? "plan" : "execute",
-      managedInvocation: managedInvocationWithService,
+      managedInvocation: managedInvocationForGateway,
       budgetAdmission: runtimeBudgetAdmission,
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,

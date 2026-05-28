@@ -386,6 +386,20 @@ timeout diagnostic, and `timeoutSource: "explicit-route"` evidence. Runtime,
 GUI, CLI, and adapter code must not add request-local timeout shims that bypass
 the resolved route profile.
 
+Route-source provenance is a separate projection field and is required before
+managed invocation admission. CLI projection records:
+
+- `ordered-routing` for synthesized read-only routes from `routing.routes`
+- `explicit-managed-route` for `managedAgents.routes[]`
+- `managed-default-route` for `managedAgents.enabled` with default provider or
+  profile settings
+- `enabled-engine-fallback` for the final supported enabled-engine fallback
+
+The route source is projected into route health, unavailable-route diagnostics,
+managed tool options, capability snapshots, session events, replay, CLI status,
+and GUI/TUI cockpit state. It is not written into the YAML schema and must not
+be guessed by runtime services.
+
 Remote harness routes are explicit managed-agent route overrides. Projection
 requires HTTPS invoke and cancel endpoints, a portable auth-token environment
 name when authentication is configured, `surface: remote-harness`,
@@ -413,9 +427,10 @@ tool behavior or write authority.
   canonical workflow evidence; status surfaces may report drift, but must not
   repair them implicitly.
 - Managed-agent route projection is governed config, not assistant preference.
-- `routing.routes` is the managed-agent route source for read-only routes;
-  explicit `managedAgents.routes` is an exception and authority layer, not a
-  second routing graph to keep in sync.
+- `routing.routes`, explicit `managedAgents.routes[]`, managed-agent defaults,
+  and enabled-engine fallback paths have distinct `routeSource` values; runtime
+  and operator surfaces consume those projected values instead of inferring
+  route provenance.
 - Instruction profile, agent, and skill definitions are canonical only under
   Kiln-owned directories, never in native harness folders.
 - Config mutation is a governed proposal/approval/apply lifecycle; direct YAML,

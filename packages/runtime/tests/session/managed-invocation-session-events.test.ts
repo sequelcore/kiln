@@ -138,6 +138,7 @@ function makeCapabilitySnapshot(request: ManagedAgentInvocationRequest) {
   return buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
     routeId: `${request.providerRoute.providerId}-readonly`,
+    routeSource: "explicit-managed-route",
   });
 }
 
@@ -445,6 +446,7 @@ describe("appendManagedInvocationSessionEvents", () => {
       invocationId: request.invocationId,
       lifecycleState: "running",
       parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
       profile: record.profile,
       providerRoute: record.providerRoute,
       adapterKind: record.adapterKind,
@@ -456,6 +458,7 @@ describe("appendManagedInvocationSessionEvents", () => {
       invocationId: request.invocationId,
       lifecycleState: "completed",
       parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
       profile: record.profile,
       providerRoute: record.providerRoute,
       adapterKind: record.adapterKind,
@@ -495,6 +498,7 @@ describe("appendManagedInvocationSessionEvents", () => {
         parentSessionId: request.parentSessionId,
         parentTurnId: request.parentTurnId,
         routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
         providerId: "opencode",
         model: "sonic",
         contextMode: "isolated",

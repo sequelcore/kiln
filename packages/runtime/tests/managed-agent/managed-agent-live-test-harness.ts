@@ -8,6 +8,7 @@ import {
   defineManagedAgentWriteScope,
 } from "@kilnai/core";
 import type {
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRequest,
   ManagedAgentWriteEvidence,
 } from "@kilnai/core";
@@ -232,6 +233,15 @@ export function makeManagedAgentLiveHarnessReadOnlyRequest(
       prompt: options.prompt ?? "Inspect the live fixture and report what would change.",
     },
   });
+}
+
+export function makeManagedAgentLiveCapabilitySnapshotInput(
+  request: ManagedAgentInvocationRequest,
+): ManagedAgentCapabilitySnapshotInput {
+  return {
+    routeId: `${request.providerRoute.providerId}-live-proof`,
+    routeSource: "explicit-managed-route",
+  };
 }
 
 export async function expectManagedAgentLiveFilesystemAndEvidence(

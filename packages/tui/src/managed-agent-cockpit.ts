@@ -165,6 +165,12 @@ function formatManagedAgentItemLines(item: OperatorCockpitManagedAgentViewItem):
   const lines = [
     `${prefix} ${item.managedInvocationId} ${item.attentionState} ${item.status}${route}${dirty}${conflict} events:${item.lifecycleTimeline.length}${adoption}${resources}${cancel}`,
   ];
+  if (item.parentTurnId || item.childSessionId || item.childTurnId) {
+    lines.push(`  lineage parent:${item.parentTurnId ?? "--"} child-session:${item.childSessionId ?? "--"} child-turn:${item.childTurnId ?? "--"}`);
+  }
+  if (item.routeSource || item.timeoutMs !== undefined || item.timeoutSource) {
+    lines.push(`  route-source ${item.routeSource ?? "--"} timeout ${item.timeoutMs !== undefined ? `${item.timeoutMs}ms` : "--"} source:${item.timeoutSource ?? "--"}`);
+  }
   if (item.transcriptUri) {
     lines.push(`  tx ${item.transcriptUri}`);
   }

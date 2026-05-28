@@ -8,6 +8,7 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentAdapterDescriptor,
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRequest,
 } from "../../src/agents/managed-invocation/index.js";
 
@@ -133,9 +134,16 @@ function makeRequest(profile: "foundation-propose-writes" | "foundation-apply-ap
   });
 }
 
+function makeSnapshotInput(): ManagedAgentCapabilitySnapshotInput {
+  return {
+    routeId: "opencode-write",
+    routeSource: "explicit-managed-route",
+  };
+}
+
 describe("managed agent write admission policy", () => {
   it("admits provider-neutral write proposals only when request scope and descriptor capabilities are explicit", () => {
-    const decision = evaluateManagedAgentAdmission(makeRequest(), makeDescriptor());
+    const decision = evaluateManagedAgentAdmission(makeRequest(), makeDescriptor(), makeSnapshotInput());
 
     expect(decision).toMatchObject({
       status: "admitted",
@@ -173,7 +181,7 @@ describe("managed agent write admission policy", () => {
       },
     });
 
-    const decision = evaluateManagedAgentAdmission(request, makeDescriptor());
+    const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
     expect(decision.missingCapabilities).toContain("request.authority.toolAuthority.networkAllowed.false");
@@ -189,7 +197,7 @@ describe("managed agent write admission policy", () => {
       },
     } as ManagedAgentInvocationRequest;
 
-    const decision = evaluateManagedAgentAdmission(request, makeDescriptor());
+    const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
     expect(decision.missingCapabilities).toContain("request.authority.writeAuthority.none");
@@ -208,7 +216,7 @@ describe("managed agent write admission policy", () => {
       },
     };
 
-    const decision = evaluateManagedAgentAdmission(makeRequest("foundation-apply-approved-writes"), descriptor);
+    const decision = evaluateManagedAgentAdmission(makeRequest("foundation-apply-approved-writes"), descriptor, makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
     expect(decision.missingCapabilities).toEqual(expect.arrayContaining([
@@ -244,7 +252,7 @@ describe("managed agent write admission policy", () => {
       },
     } as ManagedAgentInvocationRequest;
 
-    const decision = evaluateManagedAgentAdmission(request, makeDescriptor());
+    const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
     expect(decision.missingCapabilities).toEqual(expect.arrayContaining([

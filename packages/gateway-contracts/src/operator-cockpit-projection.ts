@@ -154,7 +154,14 @@ export interface OperatorCockpitInvocationProjection {
   readonly target: OperatorCockpitActionTarget;
   readonly status: OperatorCockpitInvocationStatus;
   readonly lifecycleState?: string;
+  readonly parentTurnId?: string;
+  readonly childSessionId?: string;
+  readonly childTurnId?: string;
+  readonly routeId?: string;
+  readonly routeSource?: string;
   readonly providerRoute?: string;
+  readonly timeoutMs?: number;
+  readonly timeoutSource?: string;
   readonly resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   readonly transcript?: OperatorCockpitInvocationTranscriptProjection;
   readonly resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
@@ -298,7 +305,14 @@ interface InvocationAccumulator {
   readonly evidenceResourceUris: Set<string>;
   status: OperatorCockpitInvocationStatus;
   lifecycleState?: string;
+  parentTurnId?: string;
+  childSessionId?: string;
+  childTurnId?: string;
+  routeId?: string;
+  routeSource?: string;
   providerRoute?: string;
+  timeoutMs?: number;
+  timeoutSource?: string;
   resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   transcript?: OperatorCockpitInvocationTranscriptProjection;
   resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
@@ -461,7 +475,14 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.latestEventId = event.eventId;
       invocation.title = presentation.title;
       invocation.lifecycleState = readString(payload.lifecycleState) ?? invocation.lifecycleState;
+      invocation.parentTurnId = readString(payload.parentTurnId) ?? event.turnId ?? invocation.parentTurnId;
+      invocation.childSessionId = readChildSessionId(payload) ?? invocation.childSessionId;
+      invocation.childTurnId = readChildTurnId(payload) ?? invocation.childTurnId;
+      invocation.routeId = readRouteId(payload) ?? invocation.routeId;
+      invocation.routeSource = readRouteSource(payload) ?? invocation.routeSource;
       invocation.providerRoute = readProviderRoute(payload) ?? invocation.providerRoute;
+      invocation.timeoutMs = readTimeoutMs(payload) ?? invocation.timeoutMs;
+      invocation.timeoutSource = readTimeoutSource(payload) ?? invocation.timeoutSource;
       invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
       applyManagedInvocationEvidence(invocation, payload);
       const pendingAdoptionGate = adoptionGates.get(adoptionKey);
@@ -726,7 +747,14 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     target: input.target,
     status: input.status,
     ...(input.lifecycleState !== undefined ? { lifecycleState: input.lifecycleState } : {}),
+    ...(input.parentTurnId !== undefined ? { parentTurnId: input.parentTurnId } : {}),
+    ...(input.childSessionId !== undefined ? { childSessionId: input.childSessionId } : {}),
+    ...(input.childTurnId !== undefined ? { childTurnId: input.childTurnId } : {}),
+    ...(input.routeId !== undefined ? { routeId: input.routeId } : {}),
+    ...(input.routeSource !== undefined ? { routeSource: input.routeSource } : {}),
     ...(input.providerRoute !== undefined ? { providerRoute: input.providerRoute } : {}),
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.timeoutSource !== undefined ? { timeoutSource: input.timeoutSource } : {}),
     ...(input.resourceLease !== undefined ? { resourceLease: input.resourceLease } : {}),
     ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: input.resultHandoff } : {}),
@@ -833,6 +861,56 @@ function readProviderRoute(payload: Record<string, unknown>): string | null {
   const model = readString(payload.model) ?? readString(providerRoute.model);
   if (!provider) return null;
   return model ? `${provider}/${model}` : provider;
+}
+
+function readRouteId(payload: Record<string, unknown>): string | null {
+  const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence.lifecycle);
+  return readString(payload.routeId)
+    ?? readString(capabilitySnapshot.routeId)
+    ?? readString(lifecycle.routeId);
+}
+
+function readRouteSource(payload: Record<string, unknown>): string | null {
+  const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence.lifecycle);
+  return readString(payload.routeSource)
+    ?? readString(capabilitySnapshot.routeSource)
+    ?? readString(lifecycle.routeSource);
+}
+
+function readChildSessionId(payload: Record<string, unknown>): string | null {
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  return readString(payload.childSessionId)
+    ?? readString(evidence.childSessionId);
+}
+
+function readChildTurnId(payload: Record<string, unknown>): string | null {
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  return readString(payload.childTurnId)
+    ?? readString(evidence.childTurnId);
+}
+
+function readTimeoutMs(payload: Record<string, unknown>): number | null {
+  const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
+  const authorityProfile = asRecord(capabilitySnapshot.authorityProfile);
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence.lifecycle);
+  return readNumber(payload.timeoutMs)
+    ?? readNumber(lifecycle.timeoutMs)
+    ?? readNumber(authorityProfile.timeoutMs);
+}
+
+function readTimeoutSource(payload: Record<string, unknown>): string | null {
+  const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
+  const authorityProfile = asRecord(capabilitySnapshot.authorityProfile);
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence.lifecycle);
+  return readString(payload.timeoutSource)
+    ?? readString(lifecycle.timeoutSource)
+    ?? readString(authorityProfile.timeoutSource);
 }
 
 function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInvocationResourceLeaseProjection | null {
@@ -1454,27 +1532,35 @@ function managedToolMetadataPayload(
   options: NormalizeManagedAgentOperatorEventsOptions,
 ): Record<string, unknown> {
   const capabilitySnapshot = asRecord(metadata.capabilitySnapshot);
+  const authorityProfile = asRecord(capabilitySnapshot.authorityProfile);
   const resultHandoff = asRecord(metadata.resultHandoff);
   const transcript = asRecord(metadata.transcript);
   const resourceLease = asRecord(metadata.resourceLease);
+  const timeoutMs = readNumber(metadata.timeoutMs) ?? readNumber(authorityProfile.timeoutMs) ?? undefined;
+  const timeoutSource = readString(metadata.timeoutSource) ?? readString(authorityProfile.timeoutSource) ?? undefined;
+  const childSessionId = readString(metadata.childSessionId) ?? undefined;
+  const childTurnId = readString(metadata.childTurnId) ?? undefined;
   const evidence = compactRecord({
     lifecycle: compactRecord({
       lifecycleState: readString(metadata.lifecycleState) ?? readString(metadata.status),
       invocationId,
       parentSessionId: readString(metadata.parentSessionId) ?? event.kilnSessionId,
       parentTurnId: readString(metadata.parentTurnId) ?? event.turnId,
-      routeId: readString(metadata.routeId),
+      routeId: readString(metadata.routeId) ?? readString(capabilitySnapshot.routeId),
+      routeSource: readString(metadata.routeSource) ?? readString(capabilitySnapshot.routeSource),
       providerId: readString(asRecord(metadata.providerRoute).providerId),
       model: readString(asRecord(metadata.providerRoute).model),
       profile: readString(metadata.profile),
       contextMode: readString(asRecord(metadata.context).mode) ?? readString(capabilitySnapshot.contextMode),
       authorityProfileId: readString(metadata.authorityProfileId),
+      timeoutMs,
+      timeoutSource,
       resourceLease: Object.keys(resourceLease).length > 0 ? resourceLease : undefined,
       diagnosticUris: readStringArray(metadata.diagnosticUris),
       handoffResourceUris: readStringArray(resultHandoff.resourceUris),
     }),
-    childSessionId: readString(metadata.childSessionId),
-    childTurnId: readString(metadata.childTurnId),
+    childSessionId,
+    childTurnId,
     transcript: Object.keys(transcript).length > 0 ? transcript : undefined,
     diagnostics: readRecordArray(metadata.diagnostics),
     usage: asOptionalRecord(metadata.usage),
@@ -1490,6 +1576,12 @@ function managedToolMetadataPayload(
     agentId: readString(metadata.agentId) ?? managedToolAgentId(metadata),
     parentSessionId: readString(metadata.parentSessionId) ?? event.kilnSessionId,
     parentTurnId: readString(metadata.parentTurnId) ?? event.turnId,
+    routeId: readString(metadata.routeId) ?? readString(capabilitySnapshot.routeId),
+    routeSource: readString(metadata.routeSource) ?? readString(capabilitySnapshot.routeSource),
+    timeoutMs,
+    timeoutSource,
+    childSessionId,
+    childTurnId,
     profile: readString(metadata.profile),
     providerRoute: asOptionalRecord(metadata.providerRoute),
     adapterKind: readString(metadata.adapterKind),
@@ -1511,6 +1603,10 @@ function managedListItemPayload(
   invocationId: string,
   options: NormalizeManagedAgentOperatorEventsOptions,
 ): Record<string, unknown> {
+  const timeoutMs = readNumber(item.timeoutMs) ?? undefined;
+  const timeoutSource = readString(item.timeoutSource) ?? undefined;
+  const childSessionId = readString(item.childSessionId) ?? undefined;
+  const childTurnId = readString(item.childTurnId) ?? undefined;
   return compactRecord({
     instanceId: readString(item.instanceId) ?? options.defaultInstanceId,
     sessionId: readString(item.sessionId) ?? event.kilnSessionId,
@@ -1519,6 +1615,12 @@ function managedListItemPayload(
     agentId: readString(item.agentId),
     parentSessionId: readString(item.parentSessionId) ?? event.kilnSessionId,
     parentTurnId: readString(item.parentTurnId) ?? event.turnId,
+    routeId: readString(item.routeId),
+    routeSource: readString(item.routeSource),
+    timeoutMs,
+    timeoutSource,
+    childSessionId,
+    childTurnId,
     profile: readString(item.profile),
     providerRoute: asOptionalRecord(item.providerRoute),
     adapterKind: readString(item.adapterKind),

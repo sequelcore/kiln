@@ -971,7 +971,13 @@ function addManagedInvocationToolDetails(
     addItem(details, "Authority", identity.authorityProfileId);
     addManagedCapabilitySnapshotDetails(details, identity);
     addItem(details, "Invocation ID", identity.invocationId);
-    addItem(details, "Route ID", identity.routeId);
+    addItem(details, "Parent turn", identity.parentTurnId);
+    if (!asRecord(identity.capabilitySnapshot)?.routeId) {
+      addItem(details, "Route ID", identity.routeId);
+    }
+    if (!asRecord(identity.capabilitySnapshot)?.routeSource) {
+      addItem(details, "Route source", identity.routeSource);
+    }
     addItem(details, "Child session", identity.childSessionId);
     addItem(details, "Child turn", identity.childTurnId);
   }
@@ -990,7 +996,7 @@ function addManagedCapabilitySnapshotDetails(
   const rawLifecycleLease = asRecord(lifecycle?.resourceLease);
   const rawResourceLease = rawLifecycleLease ?? rawSnapshotLease;
   const resourceLease = readCompleteResourceLease(rawResourceLease);
-  if (!snapshot && !rawResourceLease) {
+  if (!snapshot && !lifecycle && !rawResourceLease) {
     return;
   }
   const routeHealth = asRecord(snapshot?.routeHealth);
@@ -1001,12 +1007,17 @@ function addManagedCapabilitySnapshotDetails(
   if (snapshot) {
     addItem(details, "Capability snapshot", snapshot.snapshotId);
     addItem(details, "Captured", snapshot.capturedAt);
+    addItem(details, "Route ID", snapshot.routeId);
+    addItem(details, "Route source", snapshot.routeSource);
     addItem(details, "Route health", routeHealth?.status);
     addItem(details, "Route health reason", routeHealth?.reason);
     addItem(details, "Provider proof", providerModelProof?.status);
     addItem(details, "Provider proof source", providerModelProof?.source);
     addItem(details, "Route limitations", formatStringList(adapterDescriptor?.limitations));
     addItem(details, "Resource plane", resourcePlane?.available === true ? "available" : resourcePlane?.available === false ? "unavailable" : undefined);
+  } else if (lifecycle) {
+    addItem(details, "Route ID", lifecycle.routeId);
+    addItem(details, "Route source", lifecycle.routeSource);
   }
   const leasePath = readString(resourceLease?.workingDirectoryPath);
   const leaseMode = readString(resourceLease?.workingDirectoryMode);
@@ -1146,7 +1157,7 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: false });
   }
-  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
+  addPrimitiveItems(details, input, 10, ["toolName", "toolCallId", "input", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   return {
     title: `Using ${toolName}`,
     summary: managedInvocationSummary ? `${managedInvocationSummary} · Execution in progress` : "Execution in progress",
@@ -1176,7 +1187,7 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
   }
-  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
+  addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
   return {
     title: `${isError ? "Failed" : "Completed"} ${toolName}`,
     summary: summary ?? undefined,
@@ -1487,6 +1498,13 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
   addItem(details, "Authority", payload.authorityProfileId);
   addManagedCapabilitySnapshotDetails(details, payload);
   addItem(details, "Invocation ID", payload.invocationId);
+  addItem(details, "Parent turn", payload.parentTurnId);
+  if (!asRecord(payload.capabilitySnapshot)?.routeId) {
+    addItem(details, "Route ID", payload.routeId);
+  }
+  if (!asRecord(payload.capabilitySnapshot)?.routeSource) {
+    addItem(details, "Route source", payload.routeSource);
+  }
   addItem(details, "Requested by", payload.requestedBy);
   addItem(details, "Source", payload.requestSource ?? payload.source);
   addItem(details, "Attempt", readNumber(payload.attempt));
@@ -1498,7 +1516,7 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
     details,
     payload,
     8,
-    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "managedInvocationEvidence", "invocationId", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
+    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "managedInvocationEvidence", "invocationId", "parentTurnId", "routeId", "routeSource", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
   );
   return {
     title: titles[kind] ?? "Agent invocation",

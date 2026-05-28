@@ -157,6 +157,9 @@ function ManagedAgentItem(props: {
   const terminalFailure = item.attentionState === "failed" || item.attentionState === "timed_out" || item.attentionState === "stale";
   const active = item.attentionState === "active";
   const canCancel = item.cancelControl.status === "requires-control-channel" && props.onCancel !== undefined;
+  const timeoutLabel = item.timeoutMs !== undefined
+    ? `${item.timeoutMs}ms${item.timeoutSource ? ` ${item.timeoutSource}` : ""}`
+    : undefined;
   return (
     <article className="rounded-md border border-border/70 bg-card px-4 py-3 shadow-sm">
       <div className="flex min-w-0 items-start gap-3">
@@ -195,6 +198,36 @@ function ManagedAgentItem(props: {
               <dt className="sr-only">Provider</dt>
               <dd className="truncate">route {item.providerRoute ?? "unknown"}</dd>
             </div>
+            {item.routeSource ? (
+              <div className="min-w-0">
+                <dt className="sr-only">Route source</dt>
+                <dd className="truncate">route source {item.routeSource}</dd>
+              </div>
+            ) : null}
+            {item.parentTurnId ? (
+              <div className="min-w-0">
+                <dt className="sr-only">Parent turn</dt>
+                <dd className="truncate">parent turn {item.parentTurnId}</dd>
+              </div>
+            ) : null}
+            {item.childSessionId ? (
+              <div className="min-w-0">
+                <dt className="sr-only">Child session</dt>
+                <dd className="truncate">child session {item.childSessionId}</dd>
+              </div>
+            ) : null}
+            {item.childTurnId ? (
+              <div className="min-w-0">
+                <dt className="sr-only">Child turn</dt>
+                <dd className="truncate">child turn {item.childTurnId}</dd>
+              </div>
+            ) : null}
+            {timeoutLabel ? (
+              <div className="min-w-0">
+                <dt className="sr-only">Timeout</dt>
+                <dd className="truncate">timeout {timeoutLabel}</dd>
+              </div>
+            ) : null}
           </dl>
         </div>
         <Button

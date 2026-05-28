@@ -193,6 +193,8 @@ const transcriptStoreMocks = vi.hoisted(() => ({
   readMeta: vi.fn().mockResolvedValue(null),
   readTranscript: vi.fn().mockResolvedValue([]),
   append: vi.fn().mockResolvedValue(undefined),
+  appendNext: vi.fn().mockResolvedValue(null),
+  appendManyNext: vi.fn().mockResolvedValue([]),
   init: vi.fn().mockResolvedValue(undefined),
   finalize: vi.fn().mockResolvedValue(undefined),
   listSessions: vi.fn().mockResolvedValue([]),
@@ -250,6 +252,10 @@ vi.mock("@kilnai/runtime", () => ({
     ...options,
     invocationService: options.invocationService ?? {},
   }),
+  attachManagedInvocationSessionEventSink: (
+    options: Record<string, unknown> | undefined,
+    sessionEventSink: unknown,
+  ) => options ? { ...options, sessionEventSink } : undefined,
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
   ManagedRuntimeCredentialRouteLeaseManager: class MockManagedRuntimeCredentialRouteLeaseManager {},
   ManagedGitWorktreeLeaseManager: class MockManagedGitWorktreeLeaseManager {},
@@ -332,6 +338,8 @@ vi.mock("../../src/wrapper/session-store.js", () => ({
     readMeta = transcriptStoreMocks.readMeta;
     readTranscript = transcriptStoreMocks.readTranscript;
     append = transcriptStoreMocks.append;
+    appendNext = transcriptStoreMocks.appendNext;
+    appendManyNext = transcriptStoreMocks.appendManyNext;
     init = transcriptStoreMocks.init;
     finalize = transcriptStoreMocks.finalize;
     listSessions = transcriptStoreMocks.listSessions;

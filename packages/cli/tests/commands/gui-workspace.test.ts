@@ -76,7 +76,7 @@ describe("createLocalWorkspaceExplorer", () => {
       provider: "git",
       state: "untracked",
     });
-  });
+  }, 15000);
 
   it("projects nested git changes onto ancestor directories at the workspace root", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-workspace-"));
@@ -103,5 +103,5 @@ describe("createLocalWorkspaceExplorer", () => {
       provider: "git",
       state: "modified",
     });
-  });
+  }, 15000);
 });

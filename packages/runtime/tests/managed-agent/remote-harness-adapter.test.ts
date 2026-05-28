@@ -6,6 +6,7 @@ import {
   evaluateManagedAgentAdmission,
 } from "@kilnai/core";
 import type {
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentCapabilitySnapshot,
   ManagedAgentInvocationRequest,
 } from "@kilnai/core";
@@ -70,14 +71,19 @@ function admitted(
   childRequest: ManagedAgentInvocationRequest,
   adapter: ManagedRemoteHarnessAdapter,
 ) {
-  const decision = evaluateManagedAgentAdmission(childRequest, adapter.descriptor, {
-    capturedAt: "2026-05-07T08:00:00.000Z",
-    routeId: "codex-cloud-remote-readonly",
-  });
+  const decision = evaluateManagedAgentAdmission(childRequest, adapter.descriptor, snapshotInput());
   if (decision.status !== "admitted") {
     throw new Error(decision.reason);
   }
   return decision;
+}
+
+function snapshotInput(): ManagedAgentCapabilitySnapshotInput {
+  return {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: "codex-cloud-remote-readonly",
+    routeSource: "explicit-managed-route",
+  };
 }
 
 function completedRecord(
@@ -331,7 +337,7 @@ describe("ManagedRemoteHarnessAdapter", () => {
     });
     const service = new RuntimeManagedAgentInvocationService();
 
-    const started = await service.start(childRequest, adapter);
+    const started = await service.start(childRequest, adapter, snapshotInput());
     expect(started.status).toBe("started");
     expect(transport.invoke).toHaveBeenCalledTimes(1);
 

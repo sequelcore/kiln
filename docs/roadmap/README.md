@@ -95,6 +95,31 @@ keeps direct-provider child handoffs bounded while preserving long child output
 as managed replay resources, so broad reviews with clipped summaries remain
 actionable through `resource_read` without leaking full child tails into
 session events or model-facing metadata.
+The 2026-05-28 provenance closeout is also closed: managed-agent route
+projection now carries required `routeSource` evidence across healthy and
+unavailable routes, admission snapshots, session events, status/list/join/cancel
+tools, cockpit replay, CLI inspection, and transcript resources. Managed-child
+lineage is first-class through `parentTurnId` on the same cross-surface paths.
+Timeout source remains route-owned (`default` or `explicit-route`) and
+request-local timeout shims remain intentionally invalid. Runtime recovery
+quarantines invalid or stale-contract filesystem checkpoints with metadata
+instead of adopting them or synthesizing compatibility values. Full
+runtime/session budget admission enforcement beyond route timeout/source
+evidence, and core resource-read pagination ownership beyond model-visible
+cursors, remain separate runtime/resource-plane dependencies; no local
+compatibility shims were added.
+The follow-up replay and timeout-evidence slice is closed as of 2026-05-28 UTC:
+model-facing managed-agent start/status/list/join/cancel projections expose
+timeout budgets and terminal child lineage, GUI/TUI transcript persistence
+writes canonical `agent_invocation_*` lifecycle events through the managed
+invocation session-event sink and shared transcript sequence allocator,
+out-of-band GUI join/cancel controls publish the same terminal events for
+transcript replay, and cockpit projection carries child session ids, child turn
+ids, timeout budgets, and timeout provenance across normalized managed-tool
+evidence. GUI, TUI, and native managed-agent cockpit views render the same
+lineage and timeout fields from the shared view-state model. Timeout behavior
+remains route-owned; deterministic timeout tests use fake time instead of
+wall-clock races.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark
@@ -131,8 +156,9 @@ not in roadmap files. Current completed areas include:
 - GUI parity and operator surface foundations.
 - TUI and GUI gateway-backed operation.
 - Managed agent invocation, background and parallel lifecycle, write authority,
-  live adapter hardening, cockpit projection, resource pagination, budget
-  admission, and remote harness route constraints.
+  live adapter hardening, cockpit projection, route-source provenance,
+  parent-turn lineage, timeout diagnostics, and remote harness route
+  constraints.
 - Work governance, plan mode, goal execution, and evidence-gated closeout.
 - Config projection, native harness projection, and governed config mutation.
 - Agent context, instruction profiles, skills, and repo shims.

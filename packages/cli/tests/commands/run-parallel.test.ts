@@ -400,6 +400,7 @@ function createManagedInvocation(input: {
     }),
     routes: [{
       routeId: "test-write",
+      routeSource: "explicit-managed-route",
       providerId: "codex",
       model: "gpt-5.5",
       surface: "cli-harness",

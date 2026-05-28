@@ -238,6 +238,12 @@ describe("native managed-agent cockpit panel", () => {
             model: "gpt-5.5",
           },
           lifecycleState: "timed_out",
+          parentTurnId: "native-session:turn:1",
+          childSessionId: "native-child-session",
+          childTurnId: "native-child-turn",
+          routeSource: "explicit-managed-route",
+          timeoutMs: 120000,
+          timeoutSource: "explicit-route",
           managedInvocationEvidence: {
             diagnostics: [{
               uri: "kiln://managed-agent/child-timeout/timeout",
@@ -265,6 +271,11 @@ describe("native managed-agent cockpit panel", () => {
     expect(markup).toContain("data-attention=\"timed_out\"");
     expect(markup).toContain("timed_out");
     expect(markup).toContain("failed");
+    expect(markup).toContain("explicit-managed-route");
+    expect(markup).toContain("native-session:turn:1");
+    expect(markup).toContain("native-child-session");
+    expect(markup).toContain("native-child-turn");
+    expect(markup).toContain("120000ms explicit-route");
     expect(markup).toContain("unavailable");
     expect(markup).toContain("kiln://managed-agent/child-timeout/handoff");
     expect(markup).toContain("kiln://managed-agent/child-timeout/timeout");

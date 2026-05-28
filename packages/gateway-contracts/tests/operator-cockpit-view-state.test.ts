@@ -434,6 +434,10 @@ describe("operator cockpit read-only view state", () => {
             invocationId: "managed-timeout:child:1",
             agentId: "agent-coder",
             lifecycleState: "timed_out",
+            childSessionId: "managed-timeout:child-session:1",
+            childTurnId: "managed-timeout:child-turn:1",
+            timeoutMs: 120000,
+            timeoutSource: "explicit-route",
             providerRoute: {
               providerId: "codex-oauth",
               model: "gpt-5.5",
@@ -466,6 +470,10 @@ describe("operator cockpit read-only view state", () => {
       attentionState: "timed_out",
       status: "failed",
       lifecycleState: "timed_out",
+      childSessionId: "managed-timeout:child-session:1",
+      childTurnId: "managed-timeout:child-turn:1",
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
       providerRoute: "codex-oauth/gpt-5.5",
       resourceUris: [
         "kiln://managed-invocations/managed-timeout-child-1/handoff",

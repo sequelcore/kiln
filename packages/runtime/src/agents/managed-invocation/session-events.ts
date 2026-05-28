@@ -178,6 +178,9 @@ function collectManagedInvocationStartEvents(
     requestedBy: input.request.requestedBy,
     requestSource: input.request.requestSource,
     ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
+    ...(input.decision.status === "denied"
+      ? { routeId: input.decision.routeId, routeSource: input.decision.routeSource }
+      : {}),
     lifecycleState: "pending",
     inputSummary: input.request.input.summary,
     source,
@@ -197,6 +200,8 @@ function collectManagedInvocationStartEvents(
       agentId: input.request.agentId,
       parentSessionId: input.request.parentSessionId,
       ...managedInvocationIdentity(input.request),
+      routeId: input.decision.routeId,
+      routeSource: input.decision.routeSource,
       lifecycleState: "failed",
       errorCode: "ADMISSION_DENIED",
       errorMessage: formatAdmissionDenied(input.decision),
@@ -419,7 +424,7 @@ function managedInvocationIdentity(
   source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
   request?: ManagedAgentInvocationRequest,
   capabilitySnapshot?: ManagedAgentCapabilitySnapshot,
-): Pick<CanonicalAgentInvocationStartedEvent, "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract"> {
+): Pick<CanonicalAgentInvocationStartedEvent, "parentTurnId" | "routeId" | "routeSource" | "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract"> {
   const invocationContext = "input" in source
     ? source.input.context
     : request?.input.context;
@@ -430,6 +435,8 @@ function managedInvocationIdentity(
     ? source.capabilitySnapshot
     : capabilitySnapshot;
   return {
+    parentTurnId: source.parentTurnId,
+    ...(snapshot ? { routeId: snapshot.routeId, routeSource: snapshot.routeSource } : {}),
     profile: source.profile,
     providerRoute: source.providerRoute,
     adapterKind: source.adapterKind,
@@ -517,7 +524,8 @@ function collectDeniedEvidence(
       invocationId: request.invocationId,
       parentSessionId: request.parentSessionId,
       parentTurnId: request.parentTurnId,
-      routeId: `${request.providerRoute.providerId}:${request.profile}`,
+      routeId: decision.routeId,
+      routeSource: decision.routeSource,
       providerId: request.providerRoute.providerId,
       ...(request.providerRoute.model !== undefined ? { model: request.providerRoute.model } : {}),
       profile: request.profile,

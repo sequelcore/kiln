@@ -74,6 +74,26 @@ export function ManagedAgentCockpitPanel({
                   <dd>{item.lifecycleState ?? "unknown"}</dd>
                 </div>
                 <div>
+                  <dt>Route source</dt>
+                  <dd>{item.routeSource ?? "unknown"}</dd>
+                </div>
+                <div>
+                  <dt>Parent turn</dt>
+                  <dd>{item.parentTurnId ?? "unknown"}</dd>
+                </div>
+                <div>
+                  <dt>Child session</dt>
+                  <dd>{item.childSessionId ?? "unknown"}</dd>
+                </div>
+                <div>
+                  <dt>Child turn</dt>
+                  <dd>{item.childTurnId ?? "unknown"}</dd>
+                </div>
+                <div>
+                  <dt>Timeout</dt>
+                  <dd>{item.timeoutMs !== undefined ? `${item.timeoutMs}ms ${item.timeoutSource ?? "unknown"}` : "unknown"}</dd>
+                </div>
+                <div>
                   <dt>Review</dt>
                   <dd>{item.worktreeConflictBlocked ? "worktree conflict" : item.dirtyWorkspaceReviewRequired ? "dirty worktree" : "clear"}</dd>
                 </div>

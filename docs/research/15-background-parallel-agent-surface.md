@@ -139,6 +139,46 @@ large systems routinely misclassify retryable versus permanent errors as APIs
 evolve, so Kiln treats timeout, cancellation, and failure as typed terminal
 states with replay evidence instead of free-form retry prose.
 
+2026-05-28 timeout and provenance follow-up: the durable fix is to separate
+deadline ownership from route provenance. AWS Builders Library guidance treats
+timeouts as mandatory remote/process-call boundaries but warns that short
+timeouts and unbounded retries can amplify load; Google SRE guidance similarly
+requires bounded deadlines, retry limits, randomized backoff, budgets, and
+cancellation propagation. Dean and Barroso's Tail at Scale shows that broad
+fan-out turns small tail probabilities into ordinary user-visible latency, so
+Kiln should not hide slow children behind a parent-local timeout. OpenAI Agents
+SDK tool guidance keeps tool timeouts explicit and model-visible or exception
+visible, while its runner guidance exposes max-turn and timeout exceptions as
+typed run outcomes. Microsoft Azure transient-fault guidance reinforces that
+timeouts, retry intervals, and retry counts must fit the end-to-end objective
+and stay finite. Together, these sources keep timeout budgets on the owning
+execution plane with terminal evidence, not on an unrecorded caller-side shim.
+
+Kiln consequence: managed-agent route projection now records required
+`routeSource` evidence independently from `timeoutSource`. Valid route sources
+are `ordered-routing`, `explicit-managed-route`, `managed-default-route`, and
+`enabled-engine-fallback`. Valid timeout sources remain `default` and
+`explicit-route`; request-local timeout provenance is intentionally invalid.
+This keeps GUI, TUI, CLI, replay, transcript resources, and model-facing
+managed tools able to answer two different questions: where the route came
+from, and where its timeout budget came from.
+
+2026-05-28 async timeout implementation follow-up: current first-party model
+and cloud guidance continues to separate long-running work from synchronous
+request lifetimes. OpenAI background mode models long reasoning as stored async
+responses with polling, terminal status, cancellation, and resumable stream
+cursors. Anthropic Message Batches uses async processing, independent per-item
+results, polling, and streamed result retrieval for large or non-immediate
+work. AWS recommends selecting timeouts from downstream latency percentiles and
+warns that both too-short timeouts and retry amplification can create outages.
+Google Cloud retries are tied to retryable errors, idempotency, total deadlines,
+and exponential backoff with jitter; Google Research's Tail at Scale explains
+why broad fan-out makes slow children normal rather than exceptional. Kiln's
+implementation consequence is durable managed invocation state with
+store-owned transcript sequencing, replayable child lineage, explicit route
+timeout evidence, and deterministic timeout tests. The runtime must not replace
+that with request-local timeout extensions or hidden caller-side replay shims.
+
 Sources:
 
 - OpenAI API background mode: <https://platform.openai.com/docs/guides/background>
@@ -157,8 +197,18 @@ Sources:
   <https://research.google/pubs/the-tail-at-scale/>
 - AWS Builders Library, "Timeouts, retries, and backoff with jitter":
   <https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/>
+- Anthropic Message Batches:
+  <https://docs.anthropic.com/en/docs/build-with-claude/batch-processing>
+- Google Cloud Storage retry strategy:
+  <https://cloud.google.com/storage/docs/retry-strategy>
 - Google SRE, "Addressing Cascading Failures":
   <https://sre.google/sre-book/addressing-cascading-failures/>
+- Dean and Barroso, "The Tail at Scale":
+  <https://www.barroso.org/publications/TheTailAtScale.pdf>
+- OpenAI Agents SDK, "Tools":
+  <https://openai.github.io/openai-agents-python/tools/>
+- OpenAI Agents SDK, "Running agents":
+  <https://openai.github.io/openai-agents-python/running_agents/>
 - Microsoft Azure Architecture Center, "Best practices for transient fault
   handling":
   <https://learn.microsoft.com/en-us/azure/architecture/best-practices/transient-faults>

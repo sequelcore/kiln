@@ -289,6 +289,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
   return {
     routes: [{
       routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "openai/gpt-4o:free",
       adapter,
@@ -412,6 +413,7 @@ function makeManagedWriteConflictFixture(): {
     invocationService,
     routes: [{
       routeId: "opencode-approved-write",
+      routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "opencode-default-model",
       adapter: writeAdapter,
@@ -599,6 +601,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
     invocationService,
     routes: [{
       routeId: "opencode-isolated-write",
+      routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "opencode-default-model",
       adapter,
@@ -2056,6 +2059,7 @@ describe("startGuiGateway static mount", () => {
       routes: [],
       unavailableRoutes: [{
         routeId: "openrouter-readonly",
+        routeSource: "explicit-managed-route",
         providerId: "openrouter",
         model: "openrouter/free",
         profiles: ["foundation-readonly-plan" as const],
@@ -3411,6 +3415,7 @@ describe("startGuiGateway static mount", () => {
     const parentSessionId = "session-control";
     let startedInvocationId = "";
     let abortObserved = false;
+    const sessionEventSink = { publish: vi.fn() };
     const cancellableAdapter: ManagedAgentRuntimeAdapter = {
       descriptor: baseRoute.adapter.descriptor,
       invoke: async ({ abortSignal }) => {
@@ -3490,6 +3495,7 @@ describe("startGuiGateway static mount", () => {
         managedInvocation: {
           ...baseManagedInvocation,
           invocationService,
+          sessionEventSink,
           routes: [{
             ...controlRoute,
             adapter: cancellableAdapter,
@@ -3571,6 +3577,24 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "cancel",
+            sessionId: parentSessionId,
+            invocationId: startedInvocationId,
+            reason: "Operator retried the same cancellation.",
+            requestId: "managed-agent-control-duplicate",
+          }),
+        }),
+        wsCtx,
+      );
+      const terminalSinkCalls = sessionEventSink.publish.mock.calls.filter(([events]) => (
+        (events as readonly { kind?: string }[]).some((event) => event.kind === "agent_invocation_cancelled")
+      ));
+      expect(terminalSinkCalls).toHaveLength(2);
+      expect(terminalSinkCalls[1]?.[0]).toEqual(terminalSinkCalls[0]?.[0]);
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();
       resolveGuiOperatorDiscoverySpy.mockRestore();

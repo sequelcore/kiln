@@ -511,9 +511,10 @@ async function invokeManagedMultimodalDelegation(input: {
   const startedAt = Date.now();
   const result = await service.invoke(request, input.route.adapter, {
     routeId: input.route.route.routeId,
+    routeSource: "explicit-managed-route",
     routeHealth: {
       status: "healthy",
-      reason: input.route.route.routeHealth.evidence,
+      reason: `${input.route.route.routeHealth.evidence} routeSource=explicit-managed-route.`,
     },
     providerModelProof: {
       status: "configured",
@@ -580,6 +581,9 @@ async function invokeManagedMultimodalDelegation(input: {
         kind: "multimodal-delegation",
         invocationId: record.invocationId,
         routeId: input.route.route.routeId,
+        routeSource: record.capabilitySnapshot.routeSource,
+        parentSessionId: record.parentSessionId,
+        parentTurnId: record.parentTurnId,
         profile: record.profile,
         providerRoute: record.providerRoute,
         adapterKind: record.adapterKind,

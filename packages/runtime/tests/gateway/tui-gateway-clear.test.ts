@@ -176,6 +176,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
   return {
     routes: [{
       routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "openai/gpt-4o:free",
       adapter,

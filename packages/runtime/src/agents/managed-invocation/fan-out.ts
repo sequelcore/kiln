@@ -95,9 +95,10 @@ export async function runManagedAgentFanOutLifecycle(
   const startResults = await Promise.allSettled(requests.map(async (request) => {
     const startResult = await service.start(request, route.adapter, {
       routeId: route.routeId,
+      routeSource: route.routeSource,
       routeHealth: {
         status: "healthy",
-        reason: "Configured managed lifecycle fan-out route selected by CLI worker orchestration.",
+        reason: `Configured managed lifecycle fan-out route selected by CLI worker orchestration; routeSource=${route.routeSource}.`,
       },
       providerModelProof: {
         status: "live-proven",

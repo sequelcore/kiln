@@ -246,6 +246,12 @@ describe("TUI managed-agent cockpit projection", () => {
         model: "gpt-5.5",
       },
       lifecycleState: "timed_out",
+      parentTurnId: "session-1:turn:1",
+      childSessionId: "child-timeout-session",
+      childTurnId: "child-timeout-turn",
+      routeSource: "explicit-managed-route",
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
       managedInvocationEvidence: {
         diagnostics: [{
           uri: "kiln://managed-agent/child-timeout/timeout",
@@ -273,6 +279,12 @@ describe("TUI managed-agent cockpit projection", () => {
       attentionState: "timed_out",
       status: "failed",
       lifecycleState: "timed_out",
+      parentTurnId: "session-1:turn:1",
+      childSessionId: "child-timeout-session",
+      childTurnId: "child-timeout-turn",
+      routeSource: "explicit-managed-route",
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
       resourceUris: [
         "kiln://managed-agent/child-timeout/handoff",
         "kiln://managed-agent/child-timeout/timeout",
@@ -281,6 +293,8 @@ describe("TUI managed-agent cockpit projection", () => {
     expect(formatManagedAgentCockpitLines(viewState)).toEqual(expect.arrayContaining([
       "attention: 1  active: 0",
       "! child-timeout timed_out failed codex-oauth/gpt-5.5 events:1 resources:2",
+      "  lineage parent:session-1:turn:1 child-session:child-timeout-session child-turn:child-timeout-turn",
+      "  route-source explicit-managed-route timeout 120000ms source:explicit-route",
       "  res kiln://managed-agent/child-timeout/handoff",
       "  res kiln://managed-agent/child-timeout/timeout",
       "drilldown child-timeout",

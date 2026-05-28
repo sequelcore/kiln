@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import type {
   AgentResponse,
+  ManagedAgentCapabilitySnapshotInput,
+  ManagedAgentInvocationRequest,
   ProviderAdapter,
   ToolDefinition,
 } from "@kilnai/core";
@@ -120,6 +122,32 @@ function request(overrides: Partial<Parameters<typeof defineManagedAgentInvocati
   });
 }
 
+function snapshotInputFor(
+  childRequest: ManagedAgentInvocationRequest,
+): ManagedAgentCapabilitySnapshotInput {
+  return {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: `${childRequest.providerRoute.providerId}:${childRequest.profile}`,
+    routeSource: "explicit-managed-route",
+  };
+}
+
+function invokeManaged(
+  service: RuntimeManagedAgentInvocationService,
+  childRequest: ManagedAgentInvocationRequest,
+  adapter: ManagedDirectProviderRuntimeAdapter,
+) {
+  return service.invoke(childRequest, adapter, snapshotInputFor(childRequest));
+}
+
+function startManaged(
+  service: RuntimeManagedAgentInvocationService,
+  childRequest: ManagedAgentInvocationRequest,
+  adapter: ManagedDirectProviderRuntimeAdapter,
+) {
+  return service.start(childRequest, adapter, snapshotInputFor(childRequest));
+}
+
 describe("ManagedDirectProviderRuntimeAdapter", () => {
   it("runs a child RuntimeSessionOrchestrator and returns the shared managed invocation record shape", async () => {
     const provider = providerWithResponses([
@@ -136,7 +164,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
     const service = new RuntimeManagedAgentInvocationService();
 
-    const result = await service.invoke(request(), adapter);
+    const result = await invokeManaged(service, request(), adapter);
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -190,7 +218,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
     });
 
-    const result = await new RuntimeManagedAgentInvocationService().invoke(request(), adapter);
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -234,7 +262,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
     const service = new RuntimeManagedAgentInvocationService();
 
-    const result = await service.invoke(request({
+    const result = await invokeManaged(service, request({
       input: {
         summary: "Summarize a managed resource.",
         prompt: "Summarize the supplied resource.",
@@ -292,7 +320,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     runtimeBuiltinTools = new Map([["resource_read", resourceReadTool]]);
     const service = new RuntimeManagedAgentInvocationService();
 
-    const result = await service.invoke(request({
+    const result = await invokeManaged(service, request({
       input: {
         summary: "Summarize a late managed resource.",
         prompt: "Summarize the supplied late resource.",
@@ -339,7 +367,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
     const service = new RuntimeManagedAgentInvocationService();
 
-    const result = await service.invoke(request(), adapter);
+    const result = await invokeManaged(service, request(), adapter);
 
     expect(result.status).toBe("completed");
     expect(writeTool).not.toHaveBeenCalled();
@@ -403,7 +431,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
       });
 
-      const result = await service.invoke(request({
+      const result = await invokeManaged(service, request({
         agentId: "direct-write:foundation-apply-approved-writes",
         profile: "foundation-apply-approved-writes",
         providerRoute: {
@@ -508,7 +536,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
     });
 
-    const result = await new RuntimeManagedAgentInvocationService().invoke(request(), adapter);
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
 
     expect(result.status).toBe("completed");
     if (result.status !== "completed") {
@@ -541,7 +569,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
     });
 
-    const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
       providerRoute: {
         providerId: "codex-oauth",
         surface: "direct-provider",
@@ -584,7 +612,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
     });
 
-    const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
       authority: {
         ...request().authority,
         timeoutMs: 1,
@@ -635,7 +663,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
     });
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(request(), adapter);
+    const started = await startManaged(service, request(), adapter);
 
     expect(started.status).toBe("started");
     await flushMicrotasks();
@@ -704,6 +732,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       managedInvocation: {
         routes: [{
           routeId: "openai-direct-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "openai",
           model: "gpt-5.4-mini",
           adapter,
@@ -825,21 +854,25 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     });
 
     try {
-      const result = await new RuntimeManagedAgentInvocationService({
-        sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
-      }).invoke(request({
-        authority: {
-          ...request().authority,
-          workingDirectory: {
-            path: workspaceRoot,
-            mode: "sandbox",
+      const result = await invokeManaged(
+        new RuntimeManagedAgentInvocationService({
+          sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
+        }),
+        request({
+          authority: {
+            ...request().authority,
+            workingDirectory: {
+              path: workspaceRoot,
+              mode: "sandbox",
+            },
           },
-        },
-        input: {
-          summary: "Attempt an out-of-scope read.",
-          prompt: "Read the requested file and report the result.",
-        },
-      }), adapter);
+          input: {
+            summary: "Attempt an out-of-scope read.",
+            prompt: "Read the requested file and report the result.",
+          },
+        }),
+        adapter,
+      );
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {
@@ -873,7 +906,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
     });
 
-    const result = await new RuntimeManagedAgentInvocationService().invoke(request({
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
       input: {
         summary: "Read admitted resource.",
         prompt: "Use the admitted resource URI.",

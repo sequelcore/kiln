@@ -12,6 +12,7 @@ import {
   KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV,
   describeManagedAgentProviderLive,
   expectManagedAgentLiveFilesystemAndEvidence,
+  makeManagedAgentLiveCapabilitySnapshotInput,
   makeManagedAgentLiveHarnessReadOnlyRequest,
   makeManagedAgentLiveHarnessWriteRequest,
   withManagedAgentLiveFixtureWorkspace,
@@ -56,7 +57,7 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
       });
       const service = createOpenCodeLiveInvocationService();
 
-      const result = await service.invoke(request, adapter);
+      const result = await service.invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {
@@ -111,7 +112,7 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
       });
       const service = createOpenCodeLiveInvocationService();
 
-      const result = await service.invoke(request, adapter);
+      const result = await service.invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {
@@ -200,7 +201,7 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
       });
       const service = createOpenCodeLiveInvocationService();
 
-      const started = await service.start(request, adapter);
+      const started = await service.start(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
       expect(started.status).toBe("started");
       await withTimeout(
         runStarted.promise,

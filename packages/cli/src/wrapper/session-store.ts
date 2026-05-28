@@ -402,6 +402,10 @@ export interface PersistedTranscriptEvent extends PersistedTranscriptEnvelopeBas
   payload: Record<string, unknown>;
 }
 
+export type PersistedTranscriptEventDraft = Omit<PersistedTranscriptEvent, 'sequence'> & {
+  readonly sequence?: number;
+};
+
 const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'turn_started',
   'user_message',
@@ -500,6 +504,7 @@ function isPersistedTranscriptEvent(value: unknown): value is PersistedTranscrip
 
 export class TranscriptStore {
   private readonly baseDir: string;
+  private readonly appendQueues = new Map<string, Promise<void>>();
 
   constructor(projectPath: string) {
     this.baseDir = join(projectPath, '.kiln', 'sessions');
@@ -526,6 +531,69 @@ export class TranscriptStore {
       await appendFile(join(dir, 'transcript.jsonl'), JSON.stringify(event) + '\n', 'utf-8');
     } catch {
       // fail-open
+    }
+  }
+
+  async appendNext(sessionId: string, event: PersistedTranscriptEventDraft): Promise<PersistedTranscriptEvent | null> {
+    const appended = await this.appendManyNext(sessionId, [event]);
+    return appended[0] ?? null;
+  }
+
+  async appendManyNext(
+    sessionId: string,
+    events: readonly PersistedTranscriptEventDraft[],
+  ): Promise<readonly PersistedTranscriptEvent[]> {
+    return this.enqueueAppend(sessionId, () => this.appendManyNextNow(sessionId, events));
+  }
+
+  private async enqueueAppend<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.appendQueues.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => current, () => current);
+    this.appendQueues.set(sessionId, queued);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.appendQueues.get(sessionId) === queued) {
+        this.appendQueues.delete(sessionId);
+      }
+    }
+  }
+
+  private async appendManyNextNow(
+    sessionId: string,
+    drafts: readonly PersistedTranscriptEventDraft[],
+  ): Promise<readonly PersistedTranscriptEvent[]> {
+    try {
+      const dir = this.sessionDir(sessionId);
+      await mkdir(dir, { recursive: true });
+      const existing = await this.readTranscript(sessionId);
+      const existingEventIds = new Set(existing.map((event) => event.eventId));
+      let sequence = existing.reduce((highest, event) => Math.max(highest, event.sequence), 0);
+      const events: PersistedTranscriptEvent[] = [];
+      for (const draft of drafts) {
+        if (existingEventIds.has(draft.eventId)) {
+          continue;
+        }
+        sequence += 1;
+        const event = {
+          ...draft,
+          sequence,
+        };
+        if (isPersistedTranscriptEvent(event)) {
+          events.push(event);
+          existingEventIds.add(event.eventId);
+        }
+      }
+      await writeTranscriptEvents(dir, events);
+      return events;
+    } catch {
+      return [];
     }
   }
 
@@ -594,6 +662,16 @@ export class TranscriptStore {
       return [];
     }
   }
+}
+
+async function writeTranscriptEvents(
+  sessionDir: string,
+  events: readonly PersistedTranscriptEvent[],
+): Promise<void> {
+  if (events.length === 0) {
+    return;
+  }
+  await appendFile(join(sessionDir, 'transcript.jsonl'), `${events.map((event) => JSON.stringify(event)).join('\n')}\n`, 'utf-8');
 }
 
 function decodeSessionPathSegment(segment: string): string {

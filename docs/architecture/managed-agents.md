@@ -80,10 +80,10 @@ The core contract is defined in `@kilnai/core`:
   transcript persistence, usage reporting, credential routing, memory context,
   cleanup, unsupported-field policy, and write authority.
 - `ManagedAgentCapabilitySnapshot`
-  Captures the immutable admission-time capability view: route id and health,
-  provider/model proof, effective provider route, adapter kind, execution mode,
-  adapter descriptor, authority profile, context mode, resource-plane
-  availability, and projected child identity.
+  Captures the immutable admission-time capability view: route id, route
+  source, route health, provider/model proof, effective provider route, adapter
+  kind, execution mode, adapter descriptor, authority profile, context mode,
+  resource-plane availability, and projected child identity.
 
 `ManagedAgentInvocationInput.handoff` carries the parent-side work contract
 when a child is executing or reviewing a governed work item. It may include
@@ -130,6 +130,10 @@ child lineage. Hydrated GUI/TUI sessions may have more messages in memory than
 the currently persisted turn ordinal; child `parentTurnId` and invocation id
 must follow the transcript turn being executed, not a reconstructed runtime
 message count.
+The parent turn is first-class operator evidence. Start, status, list, join,
+cancel, canonical session events, cockpit replay, CLI inspection, and transcript
+resources must preserve the same `parentTurnId` instead of forcing operators to
+derive lineage from invocation-id text.
 
 Admission for parallel children fails closed when any required plane is
 unavailable:
@@ -164,6 +168,10 @@ there is no overlap. A write-capable child should normally run in an isolated
 worktree with an invocation-scoped lease. Runtime startup recovery reconstructs
 abandoned children, preserves leaked or dirty worktree evidence, and emits
 review-required diagnostics instead of mutating the parent checkout silently.
+Invalid, stale-contract, or non-regular filesystem recovery checkpoint entries
+are quarantined with metadata at the recovery-store boundary; the runtime does
+not synthesize missing route provenance, accept request-local timeout source
+values, or adopt malformed checkpoint content.
 
 Cleanup is evidence, not best effort background noise. Normal completion,
 failure, cancellation, parent interruption, timeout, and restart recovery all
@@ -188,6 +196,8 @@ already admitted capability snapshot.
 The snapshot is intentionally normalized rather than provider-native. It records:
 
 - route id and admitted route-health reason
+- route source: `ordered-routing`, `explicit-managed-route`,
+  `managed-default-route`, or `enabled-engine-fallback`
 - provider/model proof status and source
 - effective provider route, adapter kind, and execution mode
 - full adapter descriptor used for admission
@@ -451,10 +461,14 @@ Parent agents should route broad repository review, long reasoning, or
 multi-file analysis to a child route with enough admitted time, or split work
 into smaller children and join them separately. The timeout budget remains
 route authority; parent prompts do not silently extend it. The authority
-profile records the effective timeout source as `default`, `explicit-route`, or
-`request` so GUI, TUI, CLI, replay, and model-facing diagnostics can distinguish
-a safe synthesized default from an intentionally configured short or long route
-budget.
+profile records the effective timeout source as `default` or `explicit-route`
+so GUI, TUI, CLI, replay, and model-facing diagnostics can distinguish a safe
+synthesized default from an intentionally configured short or long route budget.
+Request-local timeout source is not a valid managed invocation authority. Route
+source is recorded separately as `routeSource`, so operators can tell whether a
+route came from ordered routing, an explicit managed-agent route, a managed
+default, or the enabled-engine fallback path without confusing provenance with
+timeout budgeting.
 GUI and TUI startup use a CLI-owned staged managed invocation route catalog.
 The first catalog is built without blocking on child provider model discovery.
 Routes whose provider model evidence is not known yet are exposed only as
@@ -474,6 +488,12 @@ session id. This keeps `managed_agent.status`, `managed_agent.list`,
 `managed_agent.join`, and `managed_agent.cancel` scoped to the same operator
 session across turns without adopting provider-native thread ids as lifecycle
 authority.
+Model-facing start, status, list, join, and cancel results expose the admitted
+timeout budget (`timeoutMs`), timeout provenance (`timeoutSource`), and terminal
+child lineage (`childSessionId`, `childTurnId`) when that evidence exists.
+Those fields are duplicated in tool metadata and public JSON output so parent
+agents, GUI/TUI replay, CLI inspection, and cockpit projections do not need to
+parse provider prose or infer child identity from invocation ids.
 The attached tool definition is generated from the resolved route registry. It
 lists healthy and unavailable route ids, constrains model-facing provider ids to
 configured routes, and instructs parent agents to treat failed or unavailable
@@ -557,11 +577,16 @@ state, not lifecycle owners. GUI, TUI, CLI, native, SDK, replay, and future
 remote surfaces derive child state from `agent_invocation_*` session events,
 managed invocation records, managed invocation tool-result metadata, and shared
 gateway cockpit projection. They do not infer lifecycle state from free-form
-provider prose or hold surface-local child registries. Transcript replay
-prefers canonical `agent_invocation_*` events when present. When a GUI or TUI
-transcript persisted only partial canonical lifecycle evidence or managed
-tool-completion evidence, replay projects the missing operator events from the
-managed invocation metadata and list snapshots so `kiln managed-agent
+provider prose or hold surface-local child registries. GUI and TUI transcript
+writers persist canonical `agent_invocation_*` events through the managed
+invocation session-event sink and a store-owned transcript sequence allocator,
+so provider stream events and managed-child lifecycle events share one ordered
+session transcript. Out-of-band GUI join and cancel controls publish the same
+terminal events through that sink after recording them on the runtime session.
+Transcript replay prefers canonical `agent_invocation_*` events when present.
+When a GUI or TUI transcript contains only partial canonical lifecycle evidence
+or managed tool-completion evidence, replay projects the missing operator events
+from managed invocation metadata and list snapshots so `kiln managed-agent
 list/status/resources` remains consistent with the live operator cockpit. The
 replay normalizer lives in `@kilnai/gateway-contracts`;
 GUI, TUI, and CLI consumers feed that shared projection instead of carrying
@@ -580,8 +605,12 @@ The shared cockpit projection carries active and terminal children, attention
 state, stale heartbeat state, lifecycle timeline, route identity, dirty-worktree
 review markers, cancellation availability, join replay state, adoption-gate
 state, worktree-conflict evidence, denied context evidence, transcript links,
-handoff links, diagnostics, and resource bundles. Surface-specific UI may choose
-layout and density, but it must render the same contract fields.
+handoff links, diagnostics, resource bundles, child session lineage, and timeout
+budget provenance. Surface-specific UI may choose layout and density, but it
+must render the same contract fields.
+Event sinks are fan-out ports. Adding a GUI, TUI, transcript, telemetry, or
+streaming sink must not replace an existing sink, and a failure in one sink must
+not prevent another sink from receiving the same canonical lifecycle events.
 
 Managed invocation resources are read-only pointers under
 `kiln://managed-agents/invocations`. They summarize lifecycle, transcript,

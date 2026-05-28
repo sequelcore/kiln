@@ -35,6 +35,8 @@ describe("managed-agent command", () => {
       sessionId: "session-1",
       status: "completed",
       lifecycleState: "completed",
+      parentTurnId: "turn-1",
+      routeSource: "explicit-managed-route",
       providerRoute: "codex/gpt-5.5",
       resourceLease: {
         cleanupStatus: "completed",
@@ -61,6 +63,8 @@ describe("managed-agent command", () => {
       sessionId: "session-1",
       status: "failed",
       lifecycleState: "timed_out",
+      parentTurnId: "session-1:turn:1",
+      routeSource: "explicit-managed-route",
       providerRoute: "codex-oauth/gpt-5.5",
       transcript: {
         uri: "kiln://artifacts/managed-invocations/artifact_1/content",
@@ -77,6 +81,8 @@ describe("managed-agent command", () => {
       sessionId: "session-1",
       status: "failed",
       lifecycleState: "timed_out",
+      parentTurnId: "session-1:turn:1",
+      routeSource: "explicit-managed-route",
       providerRoute: "codex-oauth/gpt-5.5",
     });
   });
@@ -197,9 +203,11 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[0]?.[0]).toContain("Managed children for session session-1:");
     expect(log.mock.calls[0]?.[0]).toContain("child-1");
     expect(log.mock.calls[0]?.[0]).toContain("completed");
+    expect(log.mock.calls[0]?.[0]).toContain("parent:turn-1");
     expect(log.mock.calls[0]?.[0]).toContain("review:required");
     expect(log.mock.calls[1]?.[0]).toContain("Managed child: child-1");
     expect(log.mock.calls[1]?.[0]).toContain("Lifecycle: completed");
+    expect(log.mock.calls[1]?.[0]).toContain("Parent turn: turn-1");
     expect(log.mock.calls[1]?.[0]).toContain("Provider: codex/gpt-5.5");
     expect(log.mock.calls[1]?.[0]).toContain("Worktree: C:/repo/.kiln/worktrees/child-1");
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review: required · dirty-worktree-preserved");
@@ -769,6 +777,7 @@ async function appendManagedInvocationEvents(
     agentId: "agent-reviewer",
     parentSessionId: sessionId,
     parentTurnId: "turn-1",
+    routeSource: "explicit-managed-route",
     profile: "foundation-apply-approved-writes",
     providerRoute: {
       providerId: "codex",
@@ -849,6 +858,8 @@ async function appendGuiManagedToolEvidenceEvents(
   const baseMetadata = {
     kind: "managed-invocation",
     routeId: "codex-oauth-readonly",
+    routeSource: "explicit-managed-route",
+    parentTurnId: `${sessionId}:turn:1`,
     profile: "foundation-readonly-plan",
     providerRoute: {
       providerId: "codex-oauth",
@@ -876,6 +887,8 @@ async function appendGuiManagedToolEvidenceEvents(
         lifecycleState: "running",
         invocationId: "gui-child-1",
         routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
+        parentTurnId: `${sessionId}:turn:1`,
         profile: "foundation-readonly-plan",
       }),
       metadata: {
@@ -904,6 +917,8 @@ async function appendGuiManagedToolEvidenceEvents(
         lifecycleState: "running",
         invocationId: "gui-child-2",
         routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
+        parentTurnId: `${sessionId}:turn:1`,
         profile: "foundation-readonly-plan",
       }),
       metadata: {
@@ -979,6 +994,7 @@ async function appendGuiManagedToolEvidenceEvents(
             agentId: "codex-oauth-readonly:foundation-readonly-plan",
             parentSessionId: sessionId,
             parentTurnId: `${sessionId}:turn:1`,
+            routeSource: "explicit-managed-route",
             profile: "foundation-readonly-plan",
             providerRoute: baseMetadata.providerRoute,
             adapterKind: "direct",
@@ -995,6 +1011,7 @@ async function appendGuiManagedToolEvidenceEvents(
             agentId: "codex-oauth-readonly:foundation-readonly-plan",
             parentSessionId: sessionId,
             parentTurnId: `${sessionId}:turn:1`,
+            routeSource: "explicit-managed-route",
             profile: "foundation-readonly-plan",
             providerRoute: baseMetadata.providerRoute,
             adapterKind: "direct",

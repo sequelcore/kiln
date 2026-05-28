@@ -1369,6 +1369,7 @@ describe("attached runtime builtin tool surface", () => {
       managedInvocation: {
         routes: [{
           routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -1478,6 +1479,7 @@ describe("attached runtime builtin tool surface", () => {
       managedInvocation: {
         routes: [{
           routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
           adapter,
@@ -1595,6 +1597,7 @@ describe("attached runtime builtin tool surface", () => {
         routes: [
           {
             routeId: "opencode-visual-without-browser",
+            routeSource: "explicit-managed-route",
             providerId: "opencode",
             model: "model-without-browser",
             adapter,
@@ -1613,6 +1616,7 @@ describe("attached runtime builtin tool surface", () => {
           },
           {
             routeId: "opencode-visual-browser-readonly",
+            routeSource: "explicit-managed-route",
             providerId: "opencode",
             model: "model-with-browser",
             adapter,
@@ -1768,6 +1772,7 @@ describe("attached runtime builtin tool surface", () => {
         routes: [],
         unavailableRoutes: [{
           routeId: "openrouter-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
           profiles: ["foundation-readonly-plan"],
@@ -1859,6 +1864,7 @@ describe("attached runtime builtin tool surface", () => {
       managedInvocation: {
         routes: [{
           routeId: "opencode-go-frontend-approved-write",
+          routeSource: "explicit-managed-route",
           providerId: "opencode-go",
           model: "kimi-k2.6",
           adapter,

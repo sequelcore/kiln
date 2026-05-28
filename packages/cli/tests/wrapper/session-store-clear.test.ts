@@ -230,6 +230,56 @@ describe("TranscriptStore", () => {
     expect(dirs[0]).toBe(encodeURIComponent(sessionId));
   });
 
+  it("allocates transcript sequences centrally across concurrent append requests", async () => {
+    const sessionId = "managed-sequence";
+
+    await Promise.all([
+      store.appendNext(sessionId, {
+        eventId: "evt-managed-requested",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.000Z",
+        kind: "agent_invocation_requested",
+        source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+        payload: { invocationId: "managed-1" },
+      }),
+      store.appendManyNext(sessionId, [
+        {
+          eventId: "evt-managed-started",
+          kilnSessionId: sessionId,
+          timestamp: "2026-05-28T04:40:00.001Z",
+          kind: "agent_invocation_started",
+          source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+          payload: { invocationId: "managed-1" },
+        },
+        {
+          eventId: "evt-managed-started",
+          kilnSessionId: sessionId,
+          timestamp: "2026-05-28T04:40:00.001Z",
+          kind: "agent_invocation_started",
+          source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+          payload: { invocationId: "managed-1" },
+        },
+      ]),
+      store.appendNext(sessionId, {
+        eventId: "evt-managed-completed",
+        kilnSessionId: sessionId,
+        timestamp: "2026-05-28T04:40:00.002Z",
+        kind: "agent_invocation_completed",
+        source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+        payload: { invocationId: "managed-1" },
+      }),
+    ]);
+
+    const transcript = await store.readTranscript(sessionId);
+
+    expect(transcript.map((event) => event.sequence)).toEqual([1, 2, 3]);
+    expect(transcript.map((event) => event.eventId).sort()).toEqual([
+      "evt-managed-completed",
+      "evt-managed-requested",
+      "evt-managed-started",
+    ]);
+  });
+
   it("accumulates provider token usage across transcript finalization calls", async () => {
     const sessionId = "kiln-gui:_gui:user-1:1776916220893";
 

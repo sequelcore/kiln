@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type {
+  ManagedAgentCapabilitySnapshotInput,
   ManagedAgentAdapterDescriptor,
   ManagedAgentInvocationRequest,
   ManagedAgentInvocationRecord,
@@ -38,6 +39,17 @@ import type {
 } from "../../src/agents/managed-invocation/index.js";
 
 const execFileAsync = promisify(execFile);
+
+function makeSnapshotInput(
+  overrides: Partial<ManagedAgentCapabilitySnapshotInput> = {},
+): ManagedAgentCapabilitySnapshotInput {
+  return {
+    capturedAt: "2026-05-07T08:00:00.000Z",
+    routeId: "opencode:managed-test-route",
+    routeSource: "explicit-managed-route",
+    ...overrides,
+  };
+}
 
 function makeRequest(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
@@ -332,6 +344,7 @@ function makeRecord(
   capabilitySnapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
     routeId: "opencode-readonly",
+    routeSource: "explicit-managed-route",
   }),
 ): ManagedAgentInvocationRecord {
   const request = makeRequest();
@@ -373,6 +386,7 @@ function makeReadonlyRecordForRequest(
   capabilitySnapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
     routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeSource: "explicit-managed-route",
   }),
 ): ManagedAgentInvocationRecord {
   return defineManagedAgentInvocationRecord({
@@ -395,6 +409,7 @@ function makeRecordForRequest(
   capabilitySnapshot = buildManagedAgentCapabilitySnapshot(request, makeWriteDescriptor(), {
     capturedAt: "2026-05-07T08:00:00.000Z",
     routeId: `${request.providerRoute.providerId}:${request.profile}`,
+    routeSource: "explicit-managed-route",
   }),
 ): ManagedAgentInvocationRecord {
   return defineManagedAgentInvocationRecord({
@@ -555,7 +570,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const result = await service.invoke(makeRequest(), adapter);
+    const result = await service.invoke(makeRequest(), adapter, makeSnapshotInput());
 
     expect(result.status).toBe("completed");
     expect(invoke).toHaveBeenCalledTimes(1);
@@ -581,6 +596,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -652,6 +668,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
       resourcePlane: {
         available: true,
         resourceUris: explicitLease.resourceUris,
@@ -692,6 +709,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const first = await service.start(firstRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(first.status).toBe("started");
@@ -699,6 +718,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       "C:/workspace/kiln/packages/core/src/agents",
     ]), adapter, {
       capturedAt: "2026-05-07T08:00:01.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(denied.status).toBe("denied");
@@ -742,10 +763,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const first = await service.start(makeApprovedWriteRequest("write-1", [
       "C:/workspace/kiln/packages/core",
-    ]), adapter);
+    ]), adapter, makeSnapshotInput());
     const second = await service.start(makeApprovedWriteRequest("write-2", [
       "C:/workspace/kiln/packages/cli",
-    ]), adapter);
+    ]), adapter, makeSnapshotInput());
 
     expect(first.status).toBe("started");
     expect(second.status).toBe("started");
@@ -763,6 +784,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeIsolatedWorktreeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("isolated worktree lease manager");
     expect(invoke).not.toHaveBeenCalled();
     expect(service.status("write-1")).toBeUndefined();
@@ -790,10 +813,14 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const firstStart = service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     await expect(service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("already registered");
     expect(worktreeLeaseManager.acquire).toHaveBeenCalledTimes(1);
 
@@ -838,10 +865,14 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const firstStart = service.start(firstRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     const denied = await service.start(secondSharedPathRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(denied.status).toBe("denied");
@@ -904,10 +935,14 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const firstStart = service.start(firstRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     const denied = await service.start(secondAliasRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(denied.status).toBe("denied");
@@ -957,6 +992,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(escapedRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("outside configured worktree root");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("write-1")).toBeUndefined();
@@ -987,6 +1024,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(escapedRequest, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("outside configured worktree root");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("write-1")).toBeUndefined();
@@ -1021,6 +1060,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       await mkdir(existingPath);
       await expect(service.start(existingRequest, adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       })).rejects.toThrow("refusing to adopt unmanaged checkout");
       expect(adapter.invoke).not.toHaveBeenCalled();
       expect(service.status("write-1")).toBeUndefined();
@@ -1046,6 +1087,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("working directory path does not match admission");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("write-1")).toBeUndefined();
@@ -1068,6 +1111,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("resource uri is outside invocation artifacts");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("write-1")).toBeUndefined();
@@ -1095,6 +1140,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("worktree review evidence is runtime-owned");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("write-1")).toBeUndefined();
@@ -1123,6 +1170,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -1167,6 +1216,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeSandboxRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("sandbox lease manager is required");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("invocation-1")).toBeUndefined();
@@ -1223,6 +1274,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeSandboxRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -1272,6 +1325,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeSandboxRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("outside invocation artifacts");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(sandboxLeaseManager.release).not.toHaveBeenCalled();
@@ -1300,6 +1355,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeSandboxRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -1330,6 +1387,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeSandboxRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -1361,11 +1420,15 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const first = await service.start(makeSandboxWriteRequest("write-1", ["C:/workspace/kiln/packages/core"]), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(first.status).toBe("started");
 
     const denied = await service.start(makeSandboxWriteRequest("write-2", ["C:/workspace/kiln/packages/core"]), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(denied.status).toBe("denied");
@@ -1421,6 +1484,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -1466,6 +1530,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("outside invocation artifacts");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("invocation-1")).toBeUndefined();
@@ -1497,6 +1563,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const startedPromise = service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     const cancelled = await service.cancel("invocation-1", "Operator cancelled before artifact-directory acquisition completed.");
     const joinedBeforeAcquirePromise = service.join("invocation-1");
@@ -1550,6 +1618,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -1605,6 +1674,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "opencode-readonly",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -1649,6 +1719,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("outside invocation artifacts");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("invocation-1")).toBeUndefined();
@@ -1671,6 +1743,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -1679,6 +1753,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       invocationId: "invocation-2",
     }), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("No managed dev-server ports are available");
 
     terminal.resolve(makeRecord(started.status === "started" ? started.decision.capabilitySnapshot : undefined));
@@ -1720,12 +1796,16 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const results = await Promise.allSettled([
       service.start(makeRequest(), adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       }),
       service.start(defineManagedAgentInvocationRequest({
         ...makeRequest(),
         invocationId: "invocation-2",
       }), adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       }),
     ]);
 
@@ -1767,6 +1847,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
       await expect(service.start(makeRequest(), adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       })).rejects.toThrow("No managed dev-server ports are available");
       expect(adapter.invoke).not.toHaveBeenCalled();
       return port;
@@ -1790,6 +1872,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
     try {
       await service.start(makeRequest(), adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       });
     } catch (error) {
       thrown = error;
@@ -1860,6 +1944,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -1915,6 +2001,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("outside invocation artifacts");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(environmentLeaseManager.release).toHaveBeenCalledTimes(1);
@@ -1972,6 +2060,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -2028,6 +2118,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("must not contain environment binding values");
 
     expect(adapter.invoke).not.toHaveBeenCalled();
@@ -2076,6 +2168,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -2128,6 +2222,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("must not contain environment binding values");
 
     const terminalRecord = service.status("invocation-1")?.record;
@@ -2173,6 +2269,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("value must be a string");
 
     expect(adapter.invoke).not.toHaveBeenCalled();
@@ -2222,6 +2320,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("reserved environment binding name");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(environmentLeaseManager.release).toHaveBeenCalledTimes(1);
@@ -2278,6 +2378,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
       resourceLease: explicitLease,
       resourcePlane: {
         available: true,
@@ -2309,6 +2411,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("credential-route lease manager is required");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("invocation-1")).toBeUndefined();
@@ -2372,6 +2476,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -2431,6 +2537,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("outside invocation artifacts");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(credentialRouteLeaseManager.release).not.toHaveBeenCalled();
@@ -2466,6 +2574,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -2506,6 +2616,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -2537,6 +2649,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -2565,6 +2679,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("not admitted by the credential route lease manager");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(service.status("invocation-1")).toBeUndefined();
@@ -2587,6 +2703,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeCredentiallessRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     expect(started.status).toBe("started");
     const joined = await service.join("invocation-1");
@@ -2616,6 +2734,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
       const started = await service.start(makeRequest(), adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       });
 
       expect(started.status).toBe("started");
@@ -2661,6 +2781,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
       const started = await service.start(makeRequest(), adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       });
 
       expect(started.status).toBe("started");
@@ -2708,6 +2830,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
       await expect(service.start(makeRequest(), adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       })).rejects.toThrow("refusing to adopt unmanaged artifact directory");
       expect(adapter.invoke).not.toHaveBeenCalled();
       expect(service.status("invocation-1")).toBeUndefined();
@@ -2759,6 +2883,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -2831,6 +2957,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -2909,6 +3037,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -2958,6 +3088,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const startedPromise = service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     const cancelled = await service.cancel("write-1", "Operator cancelled before lease acquisition completed.");
 
@@ -3001,6 +3133,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -3056,6 +3190,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await expect(service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("git worktree add failed after creating files");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(worktreeLeaseManager.release).toHaveBeenCalledTimes(1);
@@ -3090,6 +3226,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -3134,6 +3272,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -3196,6 +3336,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
       const started = await service.start(request, adapter, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       });
 
       expect(started.status).toBe("started");
@@ -3274,6 +3416,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -3347,6 +3491,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -3423,6 +3569,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     await service.recoverStaleInvocations({
@@ -3481,6 +3629,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     const recoveredPromise = service.recoverStaleInvocations({
       staleAfterMs: 1,
@@ -3553,6 +3703,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const startedPromise = service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     const recovered = await service.recoverStaleInvocations({
       staleAfterMs: 1,
@@ -3626,6 +3778,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const startedPromise = service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     await flushMicrotasks();
 
@@ -3727,6 +3881,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const startedPromise = service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
     await flushMicrotasks();
 
@@ -3817,6 +3973,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     await service.recoverStaleInvocations({
@@ -3889,6 +4047,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -3938,6 +4098,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       invoke: vi.fn(async ({ request, admission }) => makeRecordForRequest(request, admission.capabilitySnapshot)),
     }, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     })).rejects.toThrow("git worktree add failed");
 
     expect(recoveryStore.save.mock.calls[0]?.[0]).toMatchObject({
@@ -3992,6 +4154,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
         }),
       }, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       });
 
       const checkpoints = await recoveryStore.listRecoverable();
@@ -4020,15 +4184,142 @@ describe("RuntimeManagedAgentInvocationService", () => {
     }
   });
 
-  it("rejects malformed filesystem recovery checkpoints instead of adopting them", async () => {
+  it("quarantines malformed filesystem recovery checkpoints instead of adopting them", async () => {
     const rootPath = await mkdtemp(join(tmpdir(), "kiln-managed-recovery-"));
     try {
       const recoveryStore = new ManagedFilesystemRuntimeRecoveryStore({ rootPath });
 
       await mkdir(rootPath, { recursive: true });
+      await mkdir(join(rootPath, "directory.json"));
       await writeFile(join(rootPath, "malformed.json"), JSON.stringify({ version: 1 }), "utf-8");
 
-      await expect(recoveryStore.listRecoverable()).rejects.toBeInstanceOf(ManagedAgentRuntimeAdmissionError);
+      const checkpoints = await recoveryStore.listRecoverable();
+
+      expect(checkpoints).toEqual([]);
+      const quarantined = await readdir(join(rootPath, "quarantine"));
+      const checkpointFile = quarantined.find((fileName) => fileName.endsWith(".malformed.json"));
+      const directoryFile = quarantined.find((fileName) => fileName.endsWith(".directory.json"));
+      expect(checkpointFile).toBeDefined();
+      expect(directoryFile).toBeDefined();
+      expect(quarantined).toContain(`${checkpointFile}.metadata.json`);
+      expect(quarantined).toContain(`${directoryFile}.metadata.json`);
+      const metadata = JSON.parse(
+        await readFile(join(rootPath, "quarantine", `${checkpointFile}.metadata.json`), "utf-8"),
+      ) as Record<string, unknown>;
+      expect(metadata).toMatchObject({
+        originalFileName: "malformed.json",
+      });
+      expect(String(metadata.reason)).toContain("Managed runtime recovery checkpoint lifecycle state");
+      const directoryMetadata = JSON.parse(
+        await readFile(join(rootPath, "quarantine", `${directoryFile}.metadata.json`), "utf-8"),
+      ) as Record<string, unknown>;
+      expect(directoryMetadata).toMatchObject({
+        originalFileName: "directory.json",
+      });
+      expect(String(directoryMetadata.reason)).toContain("Managed runtime recovery checkpoint must be a regular file");
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not abort recovery when an invalid checkpoint disappears during quarantine", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "kiln-managed-recovery-"));
+    try {
+      const recoveryStore = new ManagedFilesystemRuntimeRecoveryStore({ rootPath });
+      const recoveryStoreInternals = recoveryStore as unknown as {
+        readonly quarantineInvalidCheckpoint: (
+          rootPath: string,
+          fileName: string,
+          checkpointPath: string,
+          error: unknown,
+        ) => Promise<void>;
+      };
+
+      await mkdir(rootPath, { recursive: true });
+
+      await expect(recoveryStoreInternals.quarantineInvalidCheckpoint(
+        rootPath,
+        "raced.json",
+        join(rootPath, "raced.json"),
+        new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint is invalid"),
+      )).resolves.toBeUndefined();
+      expect(await readdir(join(rootPath, "quarantine"))).toEqual([]);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("quarantines stale recovery checkpoints with legacy provenance instead of adopting them", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "kiln-managed-recovery-"));
+    try {
+      const request = makeIsolatedWorktreeRequest();
+      const terminal = deferred<ManagedAgentInvocationRecord>();
+      const recoveryStore = new ManagedFilesystemRuntimeRecoveryStore({ rootPath });
+      const worktreeLeaseManager = {
+        acquire: vi.fn(async ({ lease }) => lease),
+        release: vi.fn(async ({ lease }) => ({
+          ...lease,
+          healthStatus: "released" as const,
+          cleanupStatus: "completed" as const,
+        })),
+      };
+      const service = new RuntimeManagedAgentInvocationService({
+        recoveryStore,
+        worktreeLeaseManager,
+      });
+      const started = await service.start(request, {
+        descriptor: makeWriteDescriptor(),
+        invoke: vi.fn(async ({ request, admission }) => {
+          await terminal.promise;
+          return makeRecordForRequest(request, admission.capabilitySnapshot);
+        }),
+      }, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
+      });
+      expect(started.status).toBe("started");
+
+      type RecoveryCheckpointJson = {
+        decision: {
+          capabilitySnapshot: Record<string, unknown>;
+        };
+        request: {
+          authority: Record<string, unknown>;
+        };
+      };
+      const originalPath = join(rootPath, "write-1.json");
+      const validCheckpoint = JSON.parse(await readFile(originalPath, "utf-8")) as RecoveryCheckpointJson;
+      const missingRouteSource = JSON.parse(JSON.stringify(validCheckpoint)) as RecoveryCheckpointJson;
+      delete missingRouteSource.decision.capabilitySnapshot.routeSource;
+      const requestTimeoutSource = JSON.parse(JSON.stringify(validCheckpoint)) as RecoveryCheckpointJson;
+      requestTimeoutSource.request.authority.timeoutSource = "request";
+
+      await rm(originalPath, { force: true });
+      await writeFile(join(rootPath, "missing-route-source.json"), JSON.stringify(missingRouteSource), "utf-8");
+      await writeFile(join(rootPath, "request-timeout-source.json"), JSON.stringify(requestTimeoutSource), "utf-8");
+
+      const checkpoints = await recoveryStore.listRecoverable();
+
+      expect(checkpoints).toEqual([]);
+      const quarantined = await readdir(join(rootPath, "quarantine"));
+      expect(quarantined.some((fileName) => fileName.endsWith(".missing-route-source.json"))).toBe(true);
+      expect(quarantined.some((fileName) => fileName.endsWith(".request-timeout-source.json"))).toBe(true);
+      const metadataReasons = (await Promise.all(
+        quarantined
+          .filter((fileName) => fileName.endsWith(".metadata.json"))
+          .map(async (fileName) => JSON.parse(
+            await readFile(join(rootPath, "quarantine", fileName), "utf-8"),
+          ) as Record<string, unknown>),
+      )).map((metadata) => String(metadata.reason)).join("\n");
+      expect(metadataReasons).toContain("Unsupported managed capability snapshot route source");
+      expect(metadataReasons).toContain("Unsupported managed invocation timeout source");
+
+      terminal.resolve(makeRecordForRequest(
+        request,
+        started.status === "started" ? started.decision.capabilitySnapshot : undefined,
+      ));
+      await service.join("write-1");
     } finally {
       await rm(rootPath, { recursive: true, force: true });
     }
@@ -4061,6 +4352,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
     await firstService.start(request, firstAdapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     const restartedWorktreeLeaseManager = {
@@ -4138,6 +4431,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
         }),
       }, {
         capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
       });
 
       expect(await recoveryStore.listRecoverable()).toHaveLength(1);
@@ -4224,6 +4519,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       }),
     }, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     const checkpoint = recoveryStore.entries.get("write-1");
@@ -4277,6 +4574,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       }),
     }, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     const checkpoint = recoveryStore.entries.get("write-1");
@@ -4330,6 +4629,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       }),
     }, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     const checkpoint = recoveryStore.entries.get("write-1");
@@ -4388,6 +4689,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       }),
     }, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     const restartedService = new RuntimeManagedAgentInvocationService({
@@ -4455,6 +4758,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
     const started = await service.start(makeRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
     });
 
     expect(started.status).toBe("started");
@@ -4482,7 +4787,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(request, adapter);
+    const started = await service.start(request, adapter, makeSnapshotInput());
 
     expect(started.status).toBe("started");
     if (started.status !== "started") {
@@ -4531,7 +4836,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter);
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput());
 
     expect(started.status).toBe("started");
     await expect(service.join("invocation-1")).rejects.toThrow("adapter crashed");
@@ -4555,7 +4860,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter);
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput());
 
     expect(started.status).toBe("started");
     expect(adapterSignal).toBeInstanceOf(AbortSignal);
@@ -4595,7 +4900,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter, undefined, {
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput(), {
       abortSignal: parentController.signal,
     });
     const joined = await service.join("invocation-1");
@@ -4640,7 +4945,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
     const service = new RuntimeManagedAgentInvocationService({ sandboxLeaseManager });
 
-    const start = service.start(makeSandboxRequest(), adapter, undefined, {
+    const start = service.start(makeSandboxRequest(), adapter, makeSnapshotInput(), {
       abortSignal: parentController.signal,
     });
 
@@ -4674,7 +4979,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter, undefined, {
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput(), {
       abortSignal: parentController.signal,
     });
 
@@ -4709,7 +5014,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter);
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput());
 
     expect(started.status).toBe("started");
     expect(adapterSignal?.aborted).toBe(false);
@@ -4737,7 +5042,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter);
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput());
 
     expect(started.status).toBe("started");
     if (started.status !== "started") {
@@ -4798,10 +5103,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter);
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput());
 
     expect(started.status).toBe("started");
-    await expect(service.start(makeRequest(), adapter)).rejects.toThrow("already registered");
+    await expect(service.start(makeRequest(), adapter, makeSnapshotInput())).rejects.toThrow("already registered");
 
     if (started.status === "started") {
       terminal.resolve(makeRecord(started.decision.capabilitySnapshot));
@@ -4819,7 +5124,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const result = await service.invoke(makeRequest(), adapter);
+    const result = await service.invoke(makeRequest(), adapter, makeSnapshotInput());
 
     expect(result.status).toBe("denied");
     expect(result.decision).toMatchObject({
@@ -4839,7 +5144,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     };
 
     const service = new RuntimeManagedAgentInvocationService();
-    const started = await service.start(makeRequest(), adapter);
+    const started = await service.start(makeRequest(), adapter, makeSnapshotInput());
 
     expect(started.status).toBe("denied");
     expect(service.status("invocation-1")).toBeUndefined();

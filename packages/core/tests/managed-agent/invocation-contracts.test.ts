@@ -189,6 +189,7 @@ describe("managed agent invocation contracts", () => {
     const snapshot = buildManagedAgentCapabilitySnapshot(request, descriptor, {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "codex-cloud-remote-readonly",
+      routeSource: "explicit-managed-route",
     });
 
     expect(descriptor.adapterKind).toBe("harness");
@@ -198,6 +199,7 @@ describe("managed agent invocation contracts", () => {
       "Remote harness cannot expose local live terminal streaming.",
     ]);
     expect(snapshot.adapterDescriptor.limitations).toEqual(descriptor.limitations);
+    expect(snapshot.routeSource).toBe("explicit-managed-route");
     expect(snapshot.providerRoute.surface).toBe("remote-harness");
   });
 
@@ -213,6 +215,7 @@ describe("managed agent invocation contracts", () => {
     const snapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
     });
 
     expect(snapshot.resourceLease).toEqual({
@@ -247,6 +250,7 @@ describe("managed agent invocation contracts", () => {
     const snapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "codex-oauth-workspace-write",
+      routeSource: "explicit-managed-route",
     });
 
     expect(snapshot.resourceLease).toMatchObject({
@@ -264,8 +268,13 @@ describe("managed agent invocation contracts", () => {
     const snapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
     });
 
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      routeSource: "legacy-shim" as typeof snapshot.routeSource,
+    })).toThrow("Unsupported managed capability snapshot route source: legacy-shim");
     expect(() => defineManagedAgentCapabilitySnapshot({
       ...snapshot,
       resourceLease: {
@@ -342,6 +351,7 @@ describe("managed agent invocation contracts", () => {
 
     expect(record.lifecycleState).toBe("completed");
     expect(record.capabilitySnapshot.routeId).toBe("codex-oauth-readonly");
+    expect(record.capabilitySnapshot.routeSource).toBe("explicit-managed-route");
     expect(record.transcript?.redacted).toBe(true);
     expect(record.usage?.tokenClasses[2]).toEqual({ name: "cached_tokens", value: "unknown" });
     expect(record.resultHandoff?.summary).toBe("No file writes were needed.");
@@ -387,6 +397,7 @@ describe("managed agent invocation contracts", () => {
       parentSessionId: "session-parent",
       parentTurnId: "turn-parent",
       routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
       providerId: "codex-oauth",
       model: "gpt-5.4",
       profile: "foundation-readonly-plan",
@@ -469,6 +480,16 @@ describe("managed agent invocation contracts", () => {
       diagnosticUris: ["kiln://artifacts/invocation-1/worktree-review-required"],
     });
   });
+
+  it("rejects request-local timeout provenance at the authority boundary", () => {
+    expect(() => defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      authority: {
+        ...makeRequest().authority,
+        timeoutSource: "request" as ManagedAgentInvocationRequest["authority"]["timeoutSource"],
+      },
+    })).toThrow("Unsupported managed invocation timeout source: request");
+  });
 });
 
 function makeCompletedRecordInput(
@@ -496,6 +517,7 @@ function makeCompletedRecordInput(
     capabilitySnapshot: buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
       capturedAt: "2026-05-07T08:00:00.000Z",
       routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
     }),
     childSessionId: "child-session-1",
     transcript: {

@@ -53,7 +53,7 @@ import {
   type ProviderId,
 } from "../wrapper/session-registry.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
-import type { PersistedProviderTokenUsage, PersistedTranscriptEvent } from "../wrapper/session-store.js";
+import type { PersistedProviderTokenUsage, PersistedTranscriptEvent, PersistedTranscriptEventDraft } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
@@ -71,12 +71,14 @@ import {
   createSessionBuiltinToolOptions,
   extractText,
   type AgentMessage,
+  type CanonicalSessionEvent,
   type CanonicalSessionEventKind,
   type ContextArtifactCache,
   type DefaultBuiltinToolRegistryOptions,
   type SessionEventSource,
 } from "@kilnai/core";
 import {
+  attachManagedInvocationSessionEventSink,
   getProjectContextArtifactCache,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
@@ -90,6 +92,7 @@ import {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "@kilnai/runtime";
+import { toManagedInvocationPersistedTranscriptEventDraft } from "../application/managed-invocation-transcript-persistence.js";
 import type {
   CliSessionFactoryContext,
   CliSessionRunOptions,
@@ -362,6 +365,15 @@ function persistedEvent(
   };
 }
 
+function managedInvocationEventDrafts(
+  events: readonly CanonicalSessionEvent[],
+): readonly PersistedTranscriptEventDraft[] {
+  return events.flatMap((event) => {
+    const draft = toManagedInvocationPersistedTranscriptEventDraft(event);
+    return draft ? [draft] : [];
+  });
+}
+
 function parseToolResultEnvelope(value: string | undefined): {
   readonly output: string;
   readonly isError?: boolean;
@@ -459,8 +471,22 @@ export async function makeMultiProviderSessionFactory(
   const providerModelState = new Map<ProviderId, string>(
     providers.map((provider) => [provider, ""]),
   );
-  const managedInvocationWithService = managedInvocation
-    ? withManagedInvocationService(managedInvocation)
+  const activeTranscriptWriters = new Map<string, {
+    appendManagedInvocationEvents(events: readonly CanonicalSessionEvent[]): Promise<void>;
+  }>();
+  const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocation, {
+    publish: async (events, context) => {
+      const sessionId = context.session.id;
+      const writer = activeTranscriptWriters.get(sessionId);
+      if (writer) {
+        await writer.appendManagedInvocationEvents(events);
+        return;
+      }
+      await transcriptStore.appendManyNext(sessionId, managedInvocationEventDrafts(events));
+    },
+  });
+  const managedInvocationWithService = managedInvocationWithTranscriptSink
+    ? withManagedInvocationService(managedInvocationWithTranscriptSink)
     : undefined;
   const sessionBuiltinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
@@ -597,7 +623,17 @@ export async function makeMultiProviderSessionFactory(
         const toolCompletions: GovernedTurnOutcomeToolRecord[] = [];
         let syntheticToolOrdinal = 0;
         const priorTranscript = await transcriptStore.readTranscript(capturedId);
-        let transcriptSeq = priorTranscript.length;
+        const appendTranscriptEvent = async (event: PersistedTranscriptEventDraft): Promise<void> => {
+          await transcriptStore.appendNext(capturedId, event);
+        };
+        activeTranscriptWriters.set(capturedId, {
+          appendManagedInvocationEvents: async (events) => {
+            await transcriptStore.appendManyNext(
+              capturedId,
+              managedInvocationEventDrafts(events),
+            );
+          },
+        });
         const turnOrdinal = priorTranscript.filter((event) => event.kind === "turn_started").length + 1;
         const turnId = `${capturedId}:turn:${turnOrdinal}`;
         const assistantMessageId = `${turnId}:assistant`;
@@ -606,9 +642,8 @@ export async function makeMultiProviderSessionFactory(
           surface: transcriptSurface,
           component: transcriptSurface === "gui" ? "gui-command" : "tui-command",
         });
-        await transcriptStore.append(
-          capturedId,
-          persistedEvent(capturedId, ++transcriptSeq, "turn_started", source("runtime"), {
+        await appendTranscriptEvent(
+          persistedEvent(capturedId, 0, "turn_started", source("runtime"), {
             turnId,
             turnOrdinal,
             trigger: "user_message",
@@ -616,9 +651,8 @@ export async function makeMultiProviderSessionFactory(
         );
         const userText = latestUserText(options.messages) ?? options.prompt.trim();
         if (userText) {
-          await transcriptStore.append(
-            capturedId,
-            toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "user", {
+          await appendTranscriptEvent(
+            toPersistedTranscriptEvent(capturedId, 0, "user", {
               messageId: `${turnId}:user`,
               content: userText,
             }, transcriptSurface, turnId),
@@ -632,9 +666,8 @@ export async function makeMultiProviderSessionFactory(
             }
             if (event.type === "text_delta" && !event.isThinking) {
               assistantContent += event.content;
-              await transcriptStore.append(
-                capturedId,
-                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "text_delta", {
+              await appendTranscriptEvent(
+                toPersistedTranscriptEvent(capturedId, 0, "text_delta", {
                   messageId: assistantMessageId,
                   delta: event.content,
                   deltaIndex: assistantDeltaIndex++,
@@ -645,9 +678,8 @@ export async function makeMultiProviderSessionFactory(
               const pending = pendingToolCallIds.get(event.toolName) ?? [];
               pending.push(toolCallId);
               pendingToolCallIds.set(event.toolName, pending);
-              await transcriptStore.append(
-                capturedId,
-                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_use", {
+              await appendTranscriptEvent(
+                toPersistedTranscriptEvent(capturedId, 0, "tool_use", {
                   toolCallId,
                   toolName: event.toolName,
                   input: event.input,
@@ -670,9 +702,8 @@ export async function makeMultiProviderSessionFactory(
               }
               if (!toolCallId) {
                 toolCallId = `${turnId}:tool:${++syntheticToolOrdinal}`;
-                await transcriptStore.append(
-                  capturedId,
-                  toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_use", {
+                await appendTranscriptEvent(
+                  toPersistedTranscriptEvent(capturedId, 0, "tool_use", {
                     toolCallId,
                     toolName: event.toolName,
                   }, transcriptSurface, turnId),
@@ -686,15 +717,13 @@ export async function makeMultiProviderSessionFactory(
                   ...(event.isError !== undefined ? { isError: event.isError } : {}),
               });
               toolCompletions.push(toolCompletionFromPayload(toolResultPayload));
-              await transcriptStore.append(
-                capturedId,
-                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "tool_result", toolResultPayload, transcriptSurface, turnId),
+              await appendTranscriptEvent(
+                toPersistedTranscriptEvent(capturedId, 0, "tool_result", toolResultPayload, transcriptSurface, turnId),
               );
             } else if (event.type === "error") {
               turnIsError = true;
-              await transcriptStore.append(
-                capturedId,
-                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "error", {
+              await appendTranscriptEvent(
+                toPersistedTranscriptEvent(capturedId, 0, "error", {
                   message: event.message,
                   code: event.code,
                   retriable: event.isRetryable,
@@ -715,9 +744,8 @@ export async function makeMultiProviderSessionFactory(
                 cacheReadTokens: turnCacheReadTokens,
                 cacheWriteTokens: 0,
               };
-              await transcriptStore.append(
-                capturedId,
-                toPersistedTranscriptEvent(capturedId, ++transcriptSeq, "cost_update", {
+              await appendTranscriptEvent(
+                toPersistedTranscriptEvent(capturedId, 0, "cost_update", {
                   provider: {
                     provider: usageProvider,
                     ...(usageModel ? { model: usageModel } : {}),
@@ -744,9 +772,8 @@ export async function makeMultiProviderSessionFactory(
           }
         } finally {
           if (assistantContent.trim().length > 0) {
-            await transcriptStore.append(
-              capturedId,
-              persistedEvent(capturedId, ++transcriptSeq, "assistant_message", source("assistant"), {
+            await appendTranscriptEvent(
+              persistedEvent(capturedId, 0, "assistant_message", source("assistant"), {
                 messageId: assistantMessageId,
                 content: assistantContent,
                 provider: {
@@ -759,14 +786,14 @@ export async function makeMultiProviderSessionFactory(
           const lastTurnOutcome = turnIsError || deriveGovernedTurnOutcomeFromToolRecords(toolCompletions) === "failed"
             ? "failed"
             : "completed";
-          await transcriptStore.append(
-            capturedId,
-            persistedEvent(capturedId, ++transcriptSeq, "turn_completed", source("runtime"), {
+          await appendTranscriptEvent(
+            persistedEvent(capturedId, 0, "turn_completed", source("runtime"), {
               turnId,
               outcome: lastTurnOutcome,
               ...(assistantContent.trim().length > 0 ? { outputMessageId: assistantMessageId } : {}),
             }, turnId),
           );
+          activeTranscriptWriters.delete(capturedId);
           await resumedSession.dispose();
           for (const [providerId, providerRuntimeState] of providerState) {
             providerRuntimeState.resumeSessionId = capturedId;
@@ -834,6 +861,7 @@ export async function makeMultiProviderSessionFactory(
 
   return {
     factory: policyAwareFactory,
+    managedInvocation: managedInvocationWithService,
     getProvider: () => currentProvider ?? "",
     setProvider: (newProvider: string) => {
       if (providers.includes(newProvider as ProviderId)) {
@@ -871,6 +899,7 @@ export async function makeMultiProviderSessionFactory(
 
 export interface MultiProviderSessionManager {
   readonly factory: CliSessionFactory;
+  readonly managedInvocation?: ManagedInvocationToolOptions;
   getProvider: () => string;
   setProvider: (provider: string) => void;
   getModel: () => string;
@@ -1284,6 +1313,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
+  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationWithService;
 
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
   const bootstrap = await bootstrapTuiSession({
@@ -1293,7 +1323,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     contextArtifactCache,
     systemPrompt,
     builtinToolOptions,
-    managedInvocation: managedInvocationWithService,
+    managedInvocation: managedInvocationForGateway,
     budgetAdmission: runtimeBudgetAdmission,
     resumeSessionHydrator,
     operatorVoice,

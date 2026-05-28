@@ -99,13 +99,18 @@ export class ManagedFilesystemRuntimeRecoveryStore implements ManagedAgentRuntim
       if (!fileName.endsWith(".json")) {
         continue;
       }
-      const checkpointPath = this.checkpointPath(rootPath, decodeCheckpointFileName(fileName));
-      const stat = await lstat(checkpointPath);
-      if (!stat.isFile() || stat.isSymbolicLink()) {
-        throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint must be a regular file");
+      const checkpointPath = this.childPath(rootPath, fileName);
+      try {
+        const stat = await lstat(checkpointPath);
+        if (!stat.isFile() || stat.isSymbolicLink()) {
+          throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint must be a regular file");
+        }
+        decodeCheckpointFileName(fileName);
+        const parsed = JSON.parse(await readFile(checkpointPath, "utf-8")) as unknown;
+        checkpoints.push(validateManagedAgentRuntimeRecoveryCheckpoint(parsed));
+      } catch (error) {
+        await this.quarantineInvalidCheckpoint(rootPath, fileName, checkpointPath, error);
       }
-      const parsed = JSON.parse(await readFile(checkpointPath, "utf-8")) as unknown;
-      checkpoints.push(validateManagedAgentRuntimeRecoveryCheckpoint(parsed));
     }
     return checkpoints;
   }
@@ -115,11 +120,41 @@ export class ManagedFilesystemRuntimeRecoveryStore implements ManagedAgentRuntim
   }
 
   private checkpointPath(rootPath: string, invocationId: string): string {
-    const path = resolve(rootPath, `${encodeURIComponent(invocationId)}.json`);
+    return this.childPath(rootPath, `${encodeURIComponent(invocationId)}.json`);
+  }
+
+  private childPath(rootPath: string, fileName: string): string {
+    const path = resolve(rootPath, fileName);
     if (path !== rootPath && !path.startsWith(`${rootPath}\\`) && !path.startsWith(`${rootPath}/`)) {
       throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint path escapes the recovery root");
     }
     return path;
+  }
+
+  private async quarantineInvalidCheckpoint(
+    rootPath: string,
+    fileName: string,
+    checkpointPath: string,
+    error: unknown,
+  ): Promise<void> {
+    const quarantineRoot = this.childPath(rootPath, "quarantine");
+    await mkdir(quarantineRoot, { recursive: true });
+    const quarantinedAt = new Date().toISOString();
+    const quarantineFileName = `${quarantinedAt.replace(/[:.]/g, "-")}.${fileName}`;
+    const quarantinePath = this.childPath(quarantineRoot, quarantineFileName);
+    try {
+      await rename(checkpointPath, quarantinePath);
+    } catch (renameError) {
+      if (isNodeError(renameError) && renameError.code === "ENOENT") {
+        return;
+      }
+      throw renameError;
+    }
+    await writeFile(`${quarantinePath}.metadata.json`, `${JSON.stringify({
+      originalFileName: fileName,
+      quarantinedAt,
+      reason: error instanceof Error ? error.message : "Managed runtime recovery checkpoint is invalid",
+    }, null, 2)}\n`, "utf-8");
   }
 }
 

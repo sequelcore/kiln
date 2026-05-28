@@ -7,6 +7,7 @@ import type {
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
   ManagedAgentAuthorityProfile,
+  ManagedAgentRouteSource,
   ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
@@ -51,6 +52,7 @@ export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
 export interface ManagedAgentRouteHealth {
   readonly routeId: string;
+  readonly routeSource: ManagedAgentRouteSource;
   readonly kind: "harness" | "direct";
   readonly provider: string;
   readonly model?: string;
@@ -85,6 +87,11 @@ export interface ResolveManagedInvocationToolOptionsContext {
 }
 
 type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
+
+interface ManagedAgentRouteConfigProjection {
+  readonly routeConfig: KilnManagedAgentRouteConfig;
+  readonly routeSource: ManagedAgentRouteSource;
+}
 
 export interface ManagedAgentRouteConfigSource {
   readonly managedAgents?: KilnManagedAgentsConfig;
@@ -164,6 +171,7 @@ export async function resolveManagedInvocationToolOptions(
     .filter((route) => !route.available)
     .map((route) => ({
       routeId: route.routeId,
+      routeSource: route.routeSource,
       providerId: route.provider,
       ...(route.model ? { model: route.model } : {}),
       profiles: route.profiles,
@@ -391,18 +399,27 @@ function loadManagedInvocationSkillCatalog(
 
 function resolveRouteConfigs(
   config: ManagedAgentRouteConfigSource,
-): readonly KilnManagedAgentRouteConfig[] {
+): readonly ManagedAgentRouteConfigProjection[] {
   const managedAgents = config.managedAgents;
-  const routingRoutes = synthesizeRoutesFromRouting(config);
-  const explicitRoutes = managedAgents?.routes ?? [];
+  const routingRoutes = synthesizeRoutesFromRouting(config)
+    .map((routeConfig) => projectedRoute(routeConfig, "ordered-routing"));
+  const explicitRoutes = (managedAgents?.routes ?? [])
+    .map((routeConfig) => projectedRoute(routeConfig, "explicit-managed-route"));
   if (routingRoutes.length > 0 || explicitRoutes.length > 0) {
     return mergeDerivedAndExplicitRoutes(routingRoutes, explicitRoutes);
   }
   if (managedAgents?.enabled === true) {
-    return [synthesizeDefaultRoute(managedAgents)];
+    return [projectedRoute(synthesizeDefaultRoute(managedAgents), "managed-default-route")];
   }
   const route = synthesizeRouteFromEnabledEngines(config);
-  return route ? [route] : [];
+  return route ? [projectedRoute(route, "enabled-engine-fallback")] : [];
+}
+
+function projectedRoute(
+  routeConfig: KilnManagedAgentRouteConfig,
+  routeSource: ManagedAgentRouteSource,
+): ManagedAgentRouteConfigProjection {
+  return { routeConfig, routeSource };
 }
 
 function managedAgentVoiceProfile(
@@ -489,18 +506,18 @@ function countRoutingProviders(
 }
 
 function mergeDerivedAndExplicitRoutes(
-  derivedRoutes: readonly KilnManagedAgentRouteConfig[],
-  explicitRoutes: readonly KilnManagedAgentRouteConfig[],
-): readonly KilnManagedAgentRouteConfig[] {
+  derivedRoutes: readonly ManagedAgentRouteConfigProjection[],
+  explicitRoutes: readonly ManagedAgentRouteConfigProjection[],
+): readonly ManagedAgentRouteConfigProjection[] {
   if (explicitRoutes.length === 0) {
     return derivedRoutes;
   }
   if (derivedRoutes.length === 0) {
     return explicitRoutes;
   }
-  const explicitRouteIds = new Set(explicitRoutes.map((route) => route.id));
+  const explicitRouteIds = new Set(explicitRoutes.map((route) => route.routeConfig.id));
   return [
-    ...derivedRoutes.filter((route) => !explicitRouteIds.has(route.id)),
+    ...derivedRoutes.filter((route) => !explicitRouteIds.has(route.routeConfig.id)),
     ...explicitRoutes,
   ];
 }
@@ -569,16 +586,18 @@ function isEnabledSupportedChildEngine(
 }
 
 async function resolveRouteConfig(
-  routeConfig: KilnManagedAgentRouteConfig,
+  projection: ManagedAgentRouteConfigProjection,
   context: ResolveManagedInvocationToolOptionsContext,
   config: ManagedAgentRouteConfigSource,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
 }> {
+  const { routeConfig, routeSource } = projection;
   const profiles = normalizeProfiles(routeConfig.profiles);
   const baseHealth = {
     routeId: routeConfig.id,
+    routeSource,
     kind: routeConfig.kind,
     provider: routeConfig.provider,
     ...(routeConfig.model ? { model: routeConfig.model } : {}),
@@ -660,6 +679,7 @@ async function resolveRouteConfig(
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
+    routeSource,
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
@@ -720,6 +740,7 @@ async function resolveRemoteHarnessRouteConfig(
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
+    routeSource: baseHealth.routeSource,
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
@@ -1040,6 +1061,7 @@ async function resolveDirectRouteConfig(
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
+    routeSource: baseHealth.routeSource,
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
@@ -1206,7 +1228,7 @@ function createManagedInvocationService(
     return existingService;
   }
   const leaseConfig = config.managedAgents?.worktreeLease;
-  const routeConfigs = resolveRouteConfigs(config);
+  const routeConfigs = resolveRouteConfigs(config).map((route) => route.routeConfig);
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
   const needsSandboxLease = routeConfigs.some(routeUsesRuntimeSandboxLease);
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
@@ -1235,7 +1257,7 @@ function managedInvocationServiceKey(
   config: ManagedAgentRouteConfigSource,
   cwd: string,
 ): string | undefined {
-  const routeConfigs = resolveRouteConfigs(config);
+  const routeConfigs = resolveRouteConfigs(config).map((route) => route.routeConfig);
   const leaseConfig = config.managedAgents?.worktreeLease;
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
   const needsSandboxLease = routeConfigs.some(routeUsesRuntimeSandboxLease);

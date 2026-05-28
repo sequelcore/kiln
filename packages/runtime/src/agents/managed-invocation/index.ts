@@ -820,7 +820,7 @@ export class RuntimeManagedAgentInvocationService {
   async invoke(
     request: ManagedAgentInvocationRequest,
     adapter: ManagedAgentRuntimeAdapter,
-    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput = {},
+    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
     lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationResult> {
     const started = await this.start(request, adapter, capabilitySnapshotInput, lifecycleOptions);
@@ -836,7 +836,7 @@ export class RuntimeManagedAgentInvocationService {
   async start(
     request: ManagedAgentInvocationRequest,
     adapter: ManagedAgentRuntimeAdapter,
-    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput = {},
+    capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
     lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationStartResult> {
     if (this.invocations.has(request.invocationId)) {
@@ -2061,6 +2061,8 @@ function deniedWriteLeaseConflictDecision(input: {
     status: "denied",
     invocationId: input.request.invocationId,
     profile: input.request.profile,
+    routeId: input.decision.capabilitySnapshot.routeId,
+    routeSource: input.decision.capabilitySnapshot.routeSource,
     reason: `Managed agent ${input.reason}: ${activeInvocationId} already holds ${input.request.authority.workingDirectory.path}`,
     missingCapabilities: ["resourceLease.worktreeConflict"],
     resourceLease,
@@ -2564,6 +2566,7 @@ function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnapshot): M
   return {
     capturedAt: snapshot.capturedAt,
     routeId: snapshot.routeId,
+    routeSource: snapshot.routeSource,
     routeHealth: snapshot.routeHealth,
     providerModelProof: snapshot.providerModelProof,
     resourcePlane: snapshot.resourcePlane,
