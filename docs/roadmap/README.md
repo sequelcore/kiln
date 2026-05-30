@@ -123,6 +123,168 @@ normalized managed-tool evidence. GUI, TUI, and native managed-agent cockpit
 views render the same lineage and timeout fields from the shared view-state
 model. Timeout behavior remains route-owned; deterministic timeout tests use
 fake time instead of wall-clock races.
+The managed handoff recovery slice is closed as of 2026-05-29 UTC: local
+frontend-reference research can satisfy visual-reference governance when it
+cites code-backed UI evidence from concrete repository paths such as
+`C:/Proyectos/Sequel/t1code` or `C:/Proyectos/Sequel/vllm-studio`; generic
+screenshots, repository chrome, and placeholder notes remain rejected.
+`handoff_not_substantive` is a terminal child status but not governed phase
+evidence, so parent execution stays blocked until the required
+`work_item.update` records substantive phase evidence. Direct-provider children
+that finish without final handoff text now emit an actionable no-handoff summary
+and transcript pointer instead of a generic success-like completion. Runtime
+diagnostic resources project `timeoutMs` and `timeoutSource` for timed-out
+managed invocations, and GUI/TUI/CLI cockpit projection surfaces recovery and
+phase-completion instructions as review attention. The 2026-05-29 follow-up
+also persists bounded direct child execution replay resources for empty
+handoffs and child tool calls, including stop reason, token usage, tool
+execution summaries, and clipped outputs. No-handoff visual-reference recovery
+now includes a blocked work-item update template for the case where transcript,
+child-execution resources, and local inspection still cannot produce qualifying
+evidence, so the parent must block rather than record placeholder evidence or
+continue execution. Gateway cockpit projection preserves that blocked template
+and projects `handoff_not_substantive` as failed managed-child attention, not a
+success-like completed state. Timeout guidance follows
+published reliability doctrine: AWS Builders Library recommends explicit
+timeouts, idempotent retries, backoff, and jitter
+(`https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/`);
+Google SRE warns that naive retries and waiting the full deadline can amplify
+cascading failures
+(`https://sre.google/sre-book/addressing-cascading-failures/`);
+Dean and Barroso's tail-latency work treats slow tails as a scale problem that
+must be bounded and observed (`https://research.google/pubs/the-tail-at-scale/`);
+Microsoft and Google Cloud retry guidance require bounded total retry time or
+max attempts, idempotency awareness, and jittered exponential backoff
+(`https://learn.microsoft.com/en-us/azure/architecture/best-practices/transient-faults`,
+`https://cloud.google.com/java/docs/client-retries`);
+OpenAI Agents SDK exposes `maxTurns`, `AbortSignal`, tool timeout errors, and
+run error handlers as explicit execution boundaries
+(`https://openai.github.io/openai-agents-js/guides/running-agents/`,
+`https://openai.github.io/openai-agents-js/guides/tools/`); and Anthropic
+long-request guidance recommends streaming or batch-style polling for
+requests that can exceed long network windows instead of relying on an
+uninterrupted connection (`https://docs.anthropic.com/en/api/errors`). Kiln's
+managed-agent timeout policy therefore remains evidence-first: separate
+per-route budgets from end-to-end work governance, emit replayable diagnostics,
+avoid hidden retry loops, and require phase-sliced recovery evidence before
+continuing a governed workflow.
+The final 2026-05-29 GUI follow-up closes the route-owned request admission
+gap seen in session
+`.kiln/sessions/kiln-gui%3A_gui%3A297d1c6d-1d59-44c7-8178-f4567e4c1df9%3A1780030948334`:
+visual-reference managed invocation requests now carry
+`forbiddenInputFields: ["agentProfile"]`, and `managed_agent.invoke` returns a
+structured `route_profile_conflict` recovery payload with a retry template that
+omits `agentProfile` while preserving the explicit route, provider, work item,
+goal, attempt, and execution phase. Route/profile validation remains
+fail-closed, adapters are not invoked on contradictory input, and no child
+lifecycle events are emitted before admission is coherent.
+The subsequent 2026-05-29 GUI stress session
+`.kiln/sessions/kiln-gui%3A_gui%3A8d0f06a4-6189-47d1-96ff-bcc1beb51e37%3A1780046728980`
+closed the remaining route-owned retry loop. The attached runtime surface no
+longer derives `agentProfile` from `routeId` when
+`forbiddenInputFields` forbids it, and `managed_agent.invoke` canonicalizes
+forbidden `agentProfile` before route/profile validation so repeated parent
+materialization cannot turn the same route-owned request into another
+`route_profile_conflict`. Explicit visual-reference phase routes also own the
+effective model: stale write-route `managedModel` hints are omitted by
+`work_item.execution.start`, and attached/runtime hydration uses the selected
+route catalog model for the child. When a route intentionally uses the provider
+default model, stale caller model hints are removed rather than preserved. This
+follows the timeout/retry research
+stance already recorded above: do not add hidden retry loops; make repeated
+failure states deterministic, bounded, replayable, and safe to resume from the
+same canonical request.
+Verification for this closeout passed the focused route-owned canonicalization
+tests, the related package suites, `bun run typecheck`, `bun run build`,
+`git diff --check`, and a sequential full `bun run test`. A concurrent
+test/build attempt briefly surfaced a core field-runtime lifecycle timeout;
+the Vitest file passed in isolation and the later sequential workspace test
+passed.
+The latest 2026-05-29 GUI stress session
+`.kiln/sessions/kiln-gui%3A_gui%3A20afacf8-3b10-4b7d-905b-77d60686976a%3A1780050552811`
+proved that route-owned canonicalization is now effective: the child ran on
+the visual-reference route, the forbidden `agentProfile` was canonicalized
+away, and no stale write-route model controlled the child identity. The
+remaining failure was not timeout or route admission; it was a missing governed
+state transition after `handoff_not_substantive`. Runtime now rejects final
+assistant text while `managedInvocationRecovery` or
+`managedInvocationPhaseCompletion` requires a next work-item tool, and it fails
+closed with `managed_invocation_state_transition_required` when the tool-round
+budget is exhausted before that transition is recorded. GUI session projection
+now renders failed `turn_completed` outcomes as error tone so the operator does
+not see a success-colored closeout for a failed governed turn. Additional
+verification passed `bun run typecheck`, the runtime orchestrator tool test
+file, the GUI session-store test file, the full GUI package suite, and the
+gateway-contracts package suite. An initial full runtime package suite exposed
+one suite-level timeout in `tests/gateway/tui-gateway-clear.test.ts:350`;
+rerunning that file in isolation passed all 18 tests, and a later standalone
+runtime package suite passed with 177 test files and 2353 tests.
+The final 2026-05-29 GUI stress session
+`.kiln/sessions/kiln-gui%3A_gui%3A0eb1c062-b0bb-4d8e-bd71-a461a33f06e8%3A1780052576091`
+showed the state-transition guard failing closed correctly, but also showed
+that the parent could spend the last normal tool round inspecting child
+resources and local frontend-reference code before it recorded the required
+`work_item.update`. Runtime now treats that unresolved handoff transition as a
+first-class state with exactly one reserve round after normal tool rounds are
+exhausted. The reserve round projects only the required next work-item tool,
+adds a one-tool executor allowlist, returns any non-transition tool calls as
+blocked results, resolves either evidence or blocked-pause transitions, and
+fails closed when the transition tool is not admitted or still not called. This
+keeps timeout and retry behavior aligned with the research stance above:
+bounded extra work, no hidden retry loop, no automatic state mutation, and no
+success-colored closeout until the governed state transition is recorded.
+Focused verification passed `bun run typecheck` and `bun run --cwd
+packages/runtime test tests/session/runtime-session-orchestrator-tools.test.ts`.
+Reviewer follow-up also closed a multi-child edge case: unresolved managed
+transitions are now tracked in execution order, so recording a later child's
+state transition cannot hide an earlier unresolved child handoff. The focused
+runtime test file now includes that regression and passes 61 tests.
+The final 2026-05-29 GUI stress session
+`.kiln/sessions/kiln-gui%3A_gui%3A4ee1ae9f-586c-4839-bef4-7f4fdf858135%3A1780081054547`
+closed the remaining direct-child no-handoff protocol gap. The session proved
+route-owned admission, child execution, and parent blocking were working, but
+the child provider ended on `stop_reason: "tool_calls"` with no final handoff
+text after tool use. Runtime no-tools fallback is now a hard protocol
+boundary: when fallback still returns tool calls, a tool-continuation stop
+reason, or empty text, Kiln emits deterministic non-substantive output instead
+of executing, retrying, or treating it as a final answer. Max-round fallback
+uses `tool_rounds_exhausted`; repeated malformed tool-call fallback uses
+`no_tool_finalization_failed`. Direct-provider managed children project these
+states through the existing no-handoff summary and child-execution replay
+resource, preserving stop reason, token usage, and executed tool summaries for
+`resource_read` without adding a hidden repair call or adapter-local retry.
+This matches the timeout and retry research already recorded here: AWS,
+Google SRE, Microsoft Azure, OpenAI Agents SDK, and tail-latency guidance all
+favor explicit deadlines, bounded retry/finalization attempts, idempotency
+awareness, and replayable evidence over indefinite waiting or opaque retries.
+Verification passed the focused orchestrator fallback regressions, the direct
+runtime adapter regression, the full runtime package suite with 177 test files
+and 2362 tests, and `bun run typecheck`.
+The latest 2026-05-29 GUI stress session
+`.kiln/sessions/kiln-gui%3A_gui%3Ae294e374-2b9e-4c4b-a144-dc03579522f2%3A1780083012476`
+closed the sibling-reference authority gap. The parent could see
+`C:/Proyectos/Sequel/t1code` and `C:/Proyectos/Sequel/vllm-studio`, but the
+read-only managed child could not because the direct sandbox was limited to
+the Kiln working directory. Managed routes now support explicit
+`readAuthority.workspace.allowedPaths` for read-only reference roots; CLI route
+projection preserves those roots, and direct-provider child sandboxes admit
+them for reads while keeping writes denied. A blocked visual-reference recovery
+transition no longer depends on one hard-coded pause id: if the same work item
+is blocked with a pending operator pause and a failed verification gate for the
+required evidence, the runtime resolves the managed-invocation recovery
+transition cleanly. This keeps the research route capable of reading Sequel
+reference repos without turning sibling repos into writable workspaces.
+Reviewer follow-up closed two final operator-safety gaps from this same slice:
+direct-provider children that end with
+`managed_invocation_state_transition_required` now fail closed instead of
+recording a completed handoff, and cancelled GUI `turn_completed` events now
+render as error-tone timeline entries instead of success-tone entries. The
+local `~/.kiln/config.yaml` read-only research routes were updated with
+read-only roots for `C:/Proyectos/Sequel/t1code` and
+`C:/Proyectos/Sequel/vllm-studio`, with `.git` and `node_modules` denied.
+Final verification passed `bun run test`, `bun run typecheck`,
+`bun run build`, `bun run --filter @kilnai/runtime test`,
+`bun run --filter @kilnai/gui test`, and `git diff --check`.
 
 1. [Native Operator Surface](./01-native-operator-surface.md)
    Started on 2026-05-15. Current scope is the native operator surface benchmark

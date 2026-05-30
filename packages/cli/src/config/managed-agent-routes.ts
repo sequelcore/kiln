@@ -12,6 +12,7 @@ import type {
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
 import {
+  defineManagedAgentReadAuthority,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
   isDirectProviderId,
@@ -848,7 +849,22 @@ function buildReadonlyProfile(
     timeoutSource: timeout.source,
     credentialRoute: resolveCredentialRoute(routeConfig),
     memoryScope: resolveMemoryScope(routeConfig, cwd),
+    ...(routeConfig.readAuthority
+      ? { readAuthority: buildReadAuthority(routeConfig, cwd) }
+      : {}),
   };
+}
+
+function buildReadAuthority(
+  routeConfig: KilnManagedAgentRouteConfig,
+  cwd: string,
+): ManagedAgentAuthorityProfile["readAuthority"] {
+  return defineManagedAgentReadAuthority({
+    workspace: {
+      allowedPaths: normalizeManagedRoutePaths(routeConfig.readAuthority?.workspace?.allowedPaths ?? [], cwd),
+      deniedPaths: normalizeManagedRoutePaths(routeConfig.readAuthority?.workspace?.deniedPaths ?? [], cwd),
+    },
+  });
 }
 
 function buildWriteProfile(

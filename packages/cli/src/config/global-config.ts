@@ -612,8 +612,26 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
     throw new KilnYamlError(`managedAgents.routes[${index}].workingDirectory must be "project", "isolated-worktree", or "sandbox"`);
   }
   validateManagedAgentVoiceProfile(value.voiceProfile, `managedAgents.routes[${index}].voiceProfile`, operatorVoice);
+  validateManagedAgentReadAuthority(value.readAuthority, `managedAgents.routes[${index}].readAuthority`);
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
   validateManagedAgentRemoteHarness(value.remoteHarness, value.kind, `managedAgents.routes[${index}].remoteHarness`);
+}
+
+function validateManagedAgentReadAuthority(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  validateManagedAgentWorkspaceReadConfig(value.workspace, `${path}.workspace`);
+}
+
+function validateManagedAgentWorkspaceReadConfig(value: unknown, path: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  validateOptionalStringArray(value.allowedPaths, `${path}.allowedPaths`);
+  validateOptionalStringArray(value.deniedPaths, `${path}.deniedPaths`);
 }
 
 function validateManagedAgentRemoteHarness(value: unknown, routeKind: unknown, path: string): void {

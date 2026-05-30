@@ -132,6 +132,49 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
   });
 
+  it("serves direct child execution evidence through public managed-agent resource URIs", async () => {
+    const rawExecutionUri = "kiln://managed-invocations/child-1/child-execution";
+    const canonicalExecutionUri = "kiln://managed-agents/invocations/child-1/resources/child-execution";
+    const executionEvidence = [
+      "# Direct Child Execution Evidence",
+      "",
+      "Final output: <empty>",
+      "Stop reason: end_turn",
+      "Tool executions: 0",
+    ].join("\n");
+    const snapshot = managedInvocationSnapshot();
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [{
+          ...snapshot,
+          record: {
+            ...snapshot.record!,
+            resultHandoff: {
+              ...snapshot.record!.resultHandoff!,
+              resourceUris: [rawExecutionUri],
+            },
+            replayResources: [{
+              uri: rawExecutionUri,
+              title: "Managed invocation child execution evidence",
+              mimeType: "text/markdown",
+              text: executionEvidence,
+            }],
+          },
+        }],
+      },
+    });
+
+    const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
+    expect(JSON.parse(resources!.contents[0]!.text).resourceUris).toContain(canonicalExecutionUri);
+
+    const childExecutionResource = await provider.read(canonicalExecutionUri);
+    expect(childExecutionResource!.contents[0]).toMatchObject({
+      uri: canonicalExecutionUri,
+      mimeType: "text/markdown",
+      text: executionEvidence,
+    });
+  });
+
   it("persists full child result resources as session artifacts when an artifact store is attached", async () => {
     const rawResultUri = "kiln://managed-invocations/child-1/result/final";
     const fullResult = "complete child review result\n\nfinding-tail: artifact-backed evidence.";

@@ -1,4 +1,4 @@
-import type { ContentPart, ProviderAdapter } from "@kilnai/core";
+import type { ContentPart, ProviderAdapter, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
 import type { OrchestratorUsageSnapshot, OrchestratorResponseUsage } from "./runtime-session-orchestrator-telemetry.js";
@@ -11,6 +11,7 @@ export interface FinalizeRuntimeSessionResponseInput {
   readonly usage: OrchestratorResponseUsage;
   readonly usageTotals: OrchestratorUsageSnapshot;
   readonly toolExecutions: readonly ToolExecutionSummary[];
+  readonly stopReason?: string;
   readonly routingDecision?: {
     readonly provider: string;
     readonly model: string;
@@ -50,6 +51,7 @@ export async function finalizeRuntimeSessionResponse(
     queued: false,
     escalation,
     contextSummary,
+    ...(input.stopReason !== undefined ? { stopReason: input.stopReason } : {}),
     toolExecutions: input.toolExecutions.length > 0 ? input.toolExecutions : undefined,
     routingDecision: input.routingDecision,
   };
@@ -62,7 +64,9 @@ export async function requestRuntimeSessionFallbackResponse(
   maxTokens: number | undefined,
 ): Promise<{
   readonly parts: readonly ContentPart[];
+  readonly toolCalls: readonly ToolCall[];
   readonly usage: OrchestratorResponseUsage;
+  readonly stopReason?: string;
 }> {
   const response = await provider.createMessage({
     sessionId: session.id,
@@ -73,6 +77,8 @@ export async function requestRuntimeSessionFallbackResponse(
 
   return {
     parts: response.parts,
+    toolCalls: response.toolCalls,
+    ...(response.stopReason !== undefined ? { stopReason: response.stopReason } : {}),
     usage: {
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,

@@ -1277,6 +1277,199 @@ describe("operator cockpit read-only projection", () => {
     });
   });
 
+  it("projects non-substantive managed handoff recovery from managed_agent.invoke evidence", () => {
+    const rawEvents: readonly OperatorSessionEvent[] = [{
+      eventId: "recovery:event:invoke",
+      kilnSessionId: "recovery:session:1",
+      sequence: 1,
+      timestamp: "2026-05-29T12:00:00.000Z",
+      turnId: "recovery:turn:1",
+      kind: "tool_call_completed",
+      payload: {
+        sessionId: "recovery:session:1",
+        toolCallId: "recovery:tool:invoke",
+        toolName: "managed_agent.invoke",
+        state: "succeeded",
+        metadata: {
+          kind: "managed-invocation",
+          managedInvocationId: "recovery:child:1",
+          invocationId: "recovery:child:1",
+          parentSessionId: "recovery:session:1",
+          parentTurnId: "recovery:turn:1",
+          childSessionId: "recovery:child-session:1",
+          childTurnId: "recovery:child-turn:1",
+          routeId: "visual-researcher",
+          routeSource: "phase-route",
+          status: "handoff_not_substantive",
+          lifecycleState: "completed",
+          timeoutMs: 300000,
+          timeoutSource: "explicit-route",
+          providerRoute: {
+            providerId: "opencode-go",
+            model: "qwen3.6-plus",
+          },
+          transcript: {
+            uri: "kiln://artifacts/managed-invocations/recovery-child/transcript",
+            persisted: true,
+            truncated: false,
+          },
+          resultHandoff: {
+            summary: "Direct provider managed invocation finished without final handoff text. Inspect the transcript resource before recording governed evidence.",
+            resourceUris: ["kiln://artifacts/managed-invocations/recovery-child/content"],
+            memoryWriteProposalUris: [],
+          },
+          managedInvocationRecovery: {
+            status: "phase_evidence_required",
+            nextTool: "work_item.update",
+            thenTool: "work_item.execution.start",
+            workItemId: "work-1",
+            evidenceToRecord: ["visual-reference-research"],
+            requiredToolNames: ["read", "glob", "grep"],
+            sourceResourceUris: [
+              "kiln://artifacts/managed-invocations/recovery-child/content",
+              "kiln://artifacts/managed-invocations/recovery-child/phase-recovery",
+            ],
+            inspectionTool: "resource_read",
+            blockedWorkItemUpdateInputTemplate: {
+              id: "work-1",
+              status: "blocked",
+              pauseRequirements: [{
+                id: "managed-invocation-handoff-recovery",
+                kind: "operator_input",
+                summary: "No qualifying evidence after inspection.",
+                status: "pending",
+              }],
+            },
+            blockedWhen: "Use blockedWorkItemUpdateInputTemplate if sourceResourceUris and local recovery cannot produce qualifying evidence.",
+          },
+        },
+      },
+    }];
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-29T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "recovery:instance:gui",
+        label: "GUI",
+        kind: "local",
+      }],
+      events: normalizeManagedAgentOperatorEvents(rawEvents, {
+        defaultInstanceId: "recovery:instance:gui",
+      }),
+    });
+
+    expect(projection.timeline.map((event) => event.eventId)).toEqual([
+      "recovery:event:invoke:managed:recovery:child:1:agent_invocation_failed",
+    ]);
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "recovery:child:1",
+      status: "failed",
+      lifecycleState: "handoff_not_substantive",
+      parentTurnId: "recovery:turn:1",
+      childSessionId: "recovery:child-session:1",
+      childTurnId: "recovery:child-turn:1",
+      routeId: "visual-researcher",
+      routeSource: "phase-route",
+      providerRoute: "opencode-go/qwen3.6-plus",
+      timeoutMs: 300000,
+      timeoutSource: "explicit-route",
+      transcript: {
+        uri: "kiln://artifacts/managed-invocations/recovery-child/transcript",
+        persisted: true,
+        truncated: false,
+      },
+      resultHandoff: {
+        summary: "Direct provider managed invocation finished without final handoff text. Inspect the transcript resource before recording governed evidence.",
+        resourceUris: ["kiln://artifacts/managed-invocations/recovery-child/content"],
+        memoryWriteProposalUris: [],
+      },
+      managedInvocationRecovery: {
+        status: "phase_evidence_required",
+        nextTool: "work_item.update",
+        thenTool: "work_item.execution.start",
+        workItemId: "work-1",
+        evidenceToRecord: ["visual-reference-research"],
+        requiredToolNames: ["read", "glob", "grep"],
+        sourceResourceUris: [
+          "kiln://artifacts/managed-invocations/recovery-child/content",
+          "kiln://artifacts/managed-invocations/recovery-child/phase-recovery",
+        ],
+        inspectionTool: "resource_read",
+        blockedWorkItemUpdateInputTemplate: {
+          id: "work-1",
+          status: "blocked",
+          pauseRequirements: [{
+            id: "managed-invocation-handoff-recovery",
+            kind: "operator_input",
+            summary: "No qualifying evidence after inspection.",
+            status: "pending",
+          }],
+        },
+        blockedWhen: "Use blockedWorkItemUpdateInputTemplate if sourceResourceUris and local recovery cannot produce qualifying evidence.",
+      },
+    });
+    expect(projection.invocations[0]?.evidenceResourceUris).toEqual([
+      "kiln://artifacts/managed-invocations/recovery-child/content",
+      "kiln://artifacts/managed-invocations/recovery-child/phase-recovery",
+      "kiln://artifacts/managed-invocations/recovery-child/transcript",
+    ]);
+  });
+
+  it("projects route-profile conflicts as failed managed invocation attention", () => {
+    const rawEvents: readonly OperatorSessionEvent[] = [{
+      eventId: "route-conflict:event:invoke",
+      kilnSessionId: "route-conflict:session:1",
+      sequence: 1,
+      timestamp: "2026-05-29T13:00:00.000Z",
+      turnId: "route-conflict:turn:1",
+      kind: "tool_call_completed",
+      payload: {
+        sessionId: "route-conflict:session:1",
+        toolCallId: "route-conflict:tool:invoke",
+        toolName: "managed_agent.invoke",
+        state: "failed",
+        metadata: {
+          kind: "managed-invocation",
+          managedInvocationId: "route-conflict:child:1",
+          invocationId: "route-conflict:child:1",
+          parentSessionId: "route-conflict:session:1",
+          parentTurnId: "route-conflict:turn:1",
+          status: "route_profile_conflict",
+          lifecycleState: "route_profile_conflict",
+          nextTool: "managed_agent.invoke",
+          forbiddenInputFields: ["agentProfile"],
+          retryInputTemplate: {
+            routeId: "opencode-readonly",
+            workItemId: "work-ui",
+            forbiddenInputFields: ["agentProfile"],
+          },
+        },
+      },
+    }];
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-29T13:01:00.000Z",
+      attachTargets: [{
+        instanceId: "route-conflict:instance:gui",
+        label: "GUI",
+        kind: "local",
+      }],
+      events: normalizeManagedAgentOperatorEvents(rawEvents, {
+        defaultInstanceId: "route-conflict:instance:gui",
+      }),
+    });
+
+    expect(projection.timeline.map((event) => event.eventId)).toEqual([
+      "route-conflict:event:invoke:managed:route-conflict:child:1:agent_invocation_failed",
+    ]);
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "route-conflict:child:1",
+      status: "failed",
+      lifecycleState: "route_profile_conflict",
+      parentTurnId: "route-conflict:turn:1",
+    });
+  });
+
   it("projects tool resource links as target-aware read-only cockpit resources", () => {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "resource-links",

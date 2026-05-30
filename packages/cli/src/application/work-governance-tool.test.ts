@@ -1723,6 +1723,27 @@ describe("work-governance-tool", () => {
 
     expect(codeBackedAccepted?.isError).toBe(false);
 
+    const localCodeBackedAccepted = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Collect local frontend reference research.",
+        workflowProfile: "ui-change",
+        triggers: ["ui"],
+        expectedEvidence: ["visual-reference-research"],
+        providedEvidence: ["visual-reference-research"],
+        verificationGateResults: [{
+          gate: "visual-reference-research: frontend-reference evidence before planning",
+          status: "passed",
+          summary: "No running product screenshots were available. Code-backed frontend implementation evidence from local source C:/Proyectos/Sequel/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
+          evidence: [
+            "Local source C:/Proyectos/Sequel/vllm-studio/frontend/src/components/AppShell.tsx and C:/Proyectos/Sequel/t1code/src/app/layout.tsx show component structure, layout pattern, navigation model, panels, status area, typography, spacing, and density.",
+          ],
+        }],
+      },
+    });
+
+    expect(localCodeBackedAccepted?.isError).toBe(false);
+
     const accepted = await updateTool?.execute({
       name: "work_item.update",
       input: {
@@ -2185,6 +2206,8 @@ describe("work-governance-tool", () => {
       input: {
         goalRunId: goal.id,
         governanceRecommendation: "orchestrate",
+        managedProviderId: "opencode-go",
+        managedModel: "kimi-k2.6",
       },
     });
     const output = JSON.parse(missingInvocation?.output ?? "{}") as {
@@ -2192,6 +2215,11 @@ describe("work-governance-tool", () => {
         readonly profile?: string;
         readonly routeId?: string;
         readonly agentProfile?: string;
+        readonly forbiddenInputFields?: readonly string[];
+        readonly providerRoute?: {
+          readonly providerId?: string;
+          readonly model?: string;
+        };
         readonly executionPhase?: {
           readonly id?: string;
           readonly expectedEvidence?: readonly string[];
@@ -2213,13 +2241,18 @@ describe("work-governance-tool", () => {
     expect(output.managedInvocationRequest).toMatchObject({
       profile: "foundation-readonly-plan",
       routeId: "opencode-go-qwen3-6-plus-readonly",
+      forbiddenInputFields: ["agentProfile"],
+      providerRoute: {
+        providerId: "opencode-go",
+      },
     });
     expect(output.managedInvocationRequest?.agentProfile).toBeUndefined();
+    expect(output.managedInvocationRequest?.providerRoute?.model).toBeUndefined();
     expect(output.missingManagedInvocationFields).toBeUndefined();
     expect(output.managedInvocationRequest?.executionPhase).toMatchObject({
       id: "visual-reference-research",
       expectedEvidence: ["visual-reference-research"],
-      requiredToolNames: ["web_search", "web_fetch", "web_extract"],
+      requiredToolNames: ["read", "glob", "grep"],
       completionTool: "work_item.update",
       finalPhase: false,
       autoStartAllowed: false,
@@ -2234,9 +2267,9 @@ describe("work-governance-tool", () => {
     ]);
     expect(output.managedInvocationRequest?.expectedEvidence).toEqual(["visual-reference-research"]);
     expect(output.managedInvocationRequest?.requiredToolNames).toEqual([
-      "web_search",
-      "web_fetch",
-      "web_extract",
+      "read",
+      "glob",
+      "grep",
     ]);
     expect(output.managedInvocationRequest?.doneCriteria).toEqual([
       "Produce phase evidence: visual-reference-research.",
@@ -2244,7 +2277,7 @@ describe("work-governance-tool", () => {
     ]);
     expect(output.managedInvocationRequest?.task).toContain("Produce only this phase evidence: visual-reference-research.");
     expect(output.managedInvocationRequest?.task).toContain("Use read-only frontend-reference research authority.");
-    expect(output.managedInvocationRequest?.task).toContain("This phase requires route tools: web_search, web_fetch, web_extract.");
+    expect(output.managedInvocationRequest?.task).toContain("This phase requires route tools: read, glob, grep.");
     expect(output.managedInvocationRequest?.task).toContain("Do not expand into later phases.");
   });
 

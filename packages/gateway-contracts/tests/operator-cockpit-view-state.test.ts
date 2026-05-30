@@ -3,6 +3,7 @@ import {
   createOperatorCockpitBenchmarkFixture,
 } from "../src/operator-cockpit-benchmark.js";
 import {
+  normalizeManagedAgentOperatorEvents,
   projectOperatorCockpitReadOnlyView,
 } from "../src/operator-cockpit-projection.js";
 import {
@@ -486,6 +487,99 @@ describe("operator cockpit read-only view state", () => {
     });
   });
 
+  it("marks non-substantive managed handoff recovery as review attention", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-29T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-recovery:instance:1",
+        label: "Local / kiln",
+        kind: "local",
+      }],
+      events: normalizeManagedAgentOperatorEvents([{
+        eventId: "managed-recovery:event:invoke",
+        kilnSessionId: "managed-recovery:session:1",
+        sequence: 1,
+        timestamp: "2026-05-29T12:00:00.000Z",
+        turnId: "managed-recovery:turn:1",
+        kind: "tool_call_completed",
+        payload: {
+          sessionId: "managed-recovery:session:1",
+          toolCallId: "managed-recovery:tool:invoke",
+          toolName: "managed_agent.invoke",
+          state: "succeeded",
+          metadata: {
+            kind: "managed-invocation",
+            managedInvocationId: "managed-recovery:child:1",
+            status: "handoff_not_substantive",
+            lifecycleState: "completed",
+            resultHandoff: {
+              summary: "Direct provider managed invocation finished without final handoff text. Inspect the transcript resource before recording governed evidence.",
+              resourceUris: ["kiln://managed-invocations/managed-recovery-child-1/content"],
+              memoryWriteProposalUris: [],
+            },
+            managedInvocationRecovery: {
+              status: "phase_evidence_required",
+              nextTool: "work_item.update",
+              thenTool: "work_item.execution.start",
+              workItemId: "work-managed-recovery",
+              evidenceToRecord: ["visual-reference-research"],
+              requiredToolNames: ["read", "glob", "grep"],
+              sourceResourceUris: ["kiln://managed-invocations/managed-recovery-child-1/content"],
+              inspectionTool: "resource_read",
+              blockedWorkItemUpdateInputTemplate: {
+                id: "work-managed-recovery",
+                status: "blocked",
+                pauseRequirements: [{
+                  id: "managed-invocation-handoff-recovery",
+                  kind: "operator_input",
+                  summary: "No qualifying evidence after inspection.",
+                  status: "pending",
+                }],
+              },
+            },
+          },
+        },
+      }], {
+        defaultInstanceId: "managed-recovery:instance:1",
+      }),
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.activeCount).toBe(0);
+    expect(view.managedAgents.attentionCount).toBe(1);
+    expect(view.managedAgents.items[0]).toMatchObject({
+      managedInvocationId: "managed-recovery:child:1",
+      status: "failed",
+      lifecycleState: "handoff_not_substantive",
+      attentionState: "needs_review",
+      managedInvocationRecovery: {
+        status: "phase_evidence_required",
+        nextTool: "work_item.update",
+        thenTool: "work_item.execution.start",
+        workItemId: "work-managed-recovery",
+        evidenceToRecord: ["visual-reference-research"],
+        requiredToolNames: ["read", "glob", "grep"],
+        sourceResourceUris: ["kiln://managed-invocations/managed-recovery-child-1/content"],
+        inspectionTool: "resource_read",
+        blockedWorkItemUpdateInputTemplate: {
+          id: "work-managed-recovery",
+          status: "blocked",
+          pauseRequirements: [{
+            id: "managed-invocation-handoff-recovery",
+            kind: "operator_input",
+            summary: "No qualifying evidence after inspection.",
+            status: "pending",
+          }],
+        },
+      },
+      resourceUris: ["kiln://managed-invocations/managed-recovery-child-1/content"],
+    });
+  });
+
   it("projects stale heartbeat recovery as distinct managed-child attention", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-05-24T12:01:00.000Z",
@@ -627,6 +721,45 @@ describe("operator cockpit read-only view state", () => {
       eventId: "managed-failed:event:failed",
       compactText: "codex-oauth/gpt-5.5 · Managed child adapter failed before handoff.",
       tone: "error",
+    });
+  });
+
+  it("marks route-profile conflicts as managed child review attention", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-29T13:01:00.000Z",
+      attachTargets: [{
+        instanceId: "managed-route-conflict:instance:1",
+        label: "GUI",
+        kind: "local",
+      }],
+      events: [{
+        eventId: "managed-route-conflict:event:failed",
+        kilnSessionId: "managed-route-conflict:session:1",
+        sequence: 1,
+        timestamp: "2026-05-29T13:00:00.000Z",
+        kind: "agent_invocation_failed",
+        payload: {
+          instanceId: "managed-route-conflict:instance:1",
+          sessionId: "managed-route-conflict:session:1",
+          managedInvocationId: "managed-route-conflict:child:1",
+          invocationId: "managed-route-conflict:child:1",
+          lifecycleState: "route_profile_conflict",
+        },
+      }],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.managedAgents.activeCount).toBe(0);
+    expect(view.managedAgents.attentionCount).toBe(1);
+    expect(view.managedAgents.items[0]).toMatchObject({
+      managedInvocationId: "managed-route-conflict:child:1",
+      attentionState: "needs_review",
+      status: "failed",
+      lifecycleState: "route_profile_conflict",
     });
   });
 

@@ -690,6 +690,7 @@ function hydrateManagedInvocationRequest(
 ): Record<string, unknown> {
   const providerRoute = readRecord(request.providerRoute);
   const routeId = readTextFromUnknown(request.routeId);
+  const forbiddenInputFields = readTextArray(request.forbiddenInputFields);
   const requestedProfile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
   const exactRoute = routeId
     ? options.routes.find((route) => route.routeId === routeId)
@@ -702,11 +703,9 @@ function hydrateManagedInvocationRequest(
       profile,
       requestedAuthority: normalizeManagedInvocationRequestedAuthority(request.requestedAuthority, profile),
       providerRoute: {
-        ...(providerRoute ?? {}),
+        ...providerRouteInputProjection(providerRoute, forbiddenInputFields),
         providerId: exactRoute.providerId,
-        ...(readTextFromUnknown(providerRoute?.model) || !exactRoute.model
-          ? {}
-          : { model: exactRoute.model }),
+        ...exactRouteProviderModelProjection(providerRoute, exactRoute.model, forbiddenInputFields),
       },
     };
   }
@@ -782,6 +781,9 @@ function attachMatchingAgentProfile(
   request: Record<string, unknown>,
   options: ManagedInvocationToolOptions,
 ): Record<string, unknown> {
+  if (readTextArray(request.forbiddenInputFields).includes("agentProfile")) {
+    return request;
+  }
   if (readTextFromUnknown(request.agentProfile)) {
     return request;
   }
@@ -797,6 +799,33 @@ function attachMatchingAgentProfile(
     ...request,
     agentProfile: matches[0]!.name,
   };
+}
+
+function providerRouteInputProjection(
+  providerRoute: Record<string, unknown> | undefined,
+  forbiddenInputFields: readonly string[],
+): Record<string, unknown> {
+  if (!forbiddenInputFields.includes("agentProfile")) {
+    return providerRoute ?? {};
+  }
+  return Object.fromEntries(
+    Object.entries(providerRoute ?? {}).filter(([key]) => key !== "model"),
+  );
+}
+
+function exactRouteProviderModelProjection(
+  providerRoute: Record<string, unknown> | undefined,
+  routeModel: string | undefined,
+  forbiddenInputFields: readonly string[],
+): Record<string, unknown> {
+  const requestModel = readTextFromUnknown(providerRoute?.model);
+  if (forbiddenInputFields.includes("agentProfile")) {
+    return routeModel ? { model: routeModel } : {};
+  }
+  if (requestModel || !routeModel) {
+    return {};
+  }
+  return { model: routeModel };
 }
 
 function requiredToolNamesFromManagedRequest(request: Record<string, unknown>): readonly string[] {

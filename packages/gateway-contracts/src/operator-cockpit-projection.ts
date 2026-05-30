@@ -165,12 +165,51 @@ export interface OperatorCockpitInvocationProjection {
   readonly resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   readonly transcript?: OperatorCockpitInvocationTranscriptProjection;
   readonly resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
+  readonly managedInvocationRecovery?: OperatorCockpitManagedInvocationRecoveryProjection;
+  readonly managedInvocationPhaseCompletion?: OperatorCockpitManagedInvocationPhaseCompletionProjection;
   readonly adoptionGate?: OperatorCockpitManagedOrchestrationAdoptionGateProjection;
   readonly diagnosticPointers: readonly OperatorCockpitInvocationDiagnosticPointerProjection[];
   readonly evidenceResourceUris: readonly string[];
   readonly eventCount: number;
   readonly latestEventId: string;
   readonly title: string;
+}
+
+export interface OperatorCockpitManagedInvocationRecoveryProjection {
+  readonly status?: string;
+  readonly reason?: string;
+  readonly nextTool?: string;
+  readonly thenTool?: string;
+  readonly workItemId?: string;
+  readonly evidenceToRecord: readonly string[];
+  readonly requiredToolNames: readonly string[];
+  readonly sourceResourceUris: readonly string[];
+  readonly inspectionTool?: string;
+  readonly blockedWorkItemUpdateInputTemplate?: Record<string, unknown>;
+  readonly blockedWhen?: string;
+}
+
+export interface OperatorCockpitManagedInvocationPhaseCompletionProjection {
+  readonly status?: string;
+  readonly reason?: string;
+  readonly nextTool?: string;
+  readonly thenTool?: string;
+  readonly workItemId?: string;
+  readonly evidenceToRecord: readonly string[];
+  readonly requiredToolNames: readonly string[];
+  readonly sourceResourceUris: readonly string[];
+}
+
+interface ManagedInvocationPhaseActionFields {
+  readonly status?: string;
+  readonly reason?: string;
+  readonly nextTool?: string;
+  readonly thenTool?: string;
+  readonly workItemId?: string;
+  readonly evidenceToRecord: readonly string[];
+  readonly requiredToolNames: readonly string[];
+  readonly sourceResourceUris: readonly string[];
+  readonly inspectionTool?: string;
 }
 
 export interface OperatorCockpitInvocationTranscriptProjection {
@@ -316,6 +355,8 @@ interface InvocationAccumulator {
   resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
   transcript?: OperatorCockpitInvocationTranscriptProjection;
   resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
+  managedInvocationRecovery?: OperatorCockpitManagedInvocationRecoveryProjection;
+  managedInvocationPhaseCompletion?: OperatorCockpitManagedInvocationPhaseCompletionProjection;
   adoptionGate?: OperatorCockpitManagedOrchestrationAdoptionGateProjection;
   eventCount: number;
   latestEventId: string;
@@ -484,6 +525,12 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.timeoutMs = readTimeoutMs(payload) ?? invocation.timeoutMs;
       invocation.timeoutSource = readTimeoutSource(payload) ?? invocation.timeoutSource;
       invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
+      invocation.managedInvocationRecovery = readManagedInvocationRecovery(payload.managedInvocationRecovery)
+        ?? invocation.managedInvocationRecovery;
+      invocation.managedInvocationPhaseCompletion = readManagedInvocationPhaseCompletion(payload.managedInvocationPhaseCompletion)
+        ?? invocation.managedInvocationPhaseCompletion;
+      addEvidenceResourceUris(invocation, invocation.managedInvocationRecovery?.sourceResourceUris ?? []);
+      addEvidenceResourceUris(invocation, invocation.managedInvocationPhaseCompletion?.sourceResourceUris ?? []);
       applyManagedInvocationEvidence(invocation, payload);
       const pendingAdoptionGate = adoptionGates.get(adoptionKey);
       if (pendingAdoptionGate) {
@@ -758,6 +805,8 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     ...(input.resourceLease !== undefined ? { resourceLease: input.resourceLease } : {}),
     ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: input.resultHandoff } : {}),
+    ...(input.managedInvocationRecovery !== undefined ? { managedInvocationRecovery: input.managedInvocationRecovery } : {}),
+    ...(input.managedInvocationPhaseCompletion !== undefined ? { managedInvocationPhaseCompletion: input.managedInvocationPhaseCompletion } : {}),
     ...(input.adoptionGate !== undefined ? { adoptionGate: input.adoptionGate } : {}),
     diagnosticPointers: Array.from(input.diagnosticPointers.values()).sort(compareDiagnosticPointers),
     evidenceResourceUris: Array.from(input.evidenceResourceUris).sort(),
@@ -1050,6 +1099,80 @@ function readInvocationResultHandoff(value: unknown): OperatorCockpitInvocationR
     ...(summary !== undefined ? { summary } : {}),
     resourceUris,
     memoryWriteProposalUris,
+  };
+}
+
+function readManagedInvocationRecovery(value: unknown): OperatorCockpitManagedInvocationRecoveryProjection | null {
+  const fields = readManagedInvocationPhaseActionFields(value);
+  if (!fields || !isRecordValue(value)) {
+    return fields;
+  }
+  const blockedWorkItemUpdateInputTemplate = isRecordValue(value.blockedWorkItemUpdateInputTemplate)
+    ? value.blockedWorkItemUpdateInputTemplate
+    : undefined;
+  const blockedWhen = readString(value.blockedWhen) ?? undefined;
+  return {
+    ...fields,
+    ...(blockedWorkItemUpdateInputTemplate !== undefined ? { blockedWorkItemUpdateInputTemplate } : {}),
+    ...(blockedWhen !== undefined ? { blockedWhen } : {}),
+  };
+}
+
+function readManagedInvocationPhaseCompletion(
+  value: unknown,
+): OperatorCockpitManagedInvocationPhaseCompletionProjection | null {
+  const fields = readManagedInvocationPhaseActionFields(value);
+  if (!fields) {
+    return null;
+  }
+  return {
+    ...(fields.status !== undefined ? { status: fields.status } : {}),
+    ...(fields.reason !== undefined ? { reason: fields.reason } : {}),
+    ...(fields.nextTool !== undefined ? { nextTool: fields.nextTool } : {}),
+    ...(fields.thenTool !== undefined ? { thenTool: fields.thenTool } : {}),
+    ...(fields.workItemId !== undefined ? { workItemId: fields.workItemId } : {}),
+    evidenceToRecord: fields.evidenceToRecord,
+    requiredToolNames: fields.requiredToolNames,
+    sourceResourceUris: fields.sourceResourceUris,
+  };
+}
+
+function readManagedInvocationPhaseActionFields(value: unknown): ManagedInvocationPhaseActionFields | null {
+  if (!isRecordValue(value)) {
+    return null;
+  }
+  const evidenceToRecord = readOptionalStringList(value.evidenceToRecord);
+  const requiredToolNames = readOptionalStringList(value.requiredToolNames);
+  const sourceResourceUris = readOptionalStringList(value.sourceResourceUris);
+  const status = readString(value.status) ?? undefined;
+  const reason = readString(value.reason) ?? undefined;
+  const nextTool = readString(value.nextTool) ?? undefined;
+  const thenTool = readString(value.thenTool) ?? undefined;
+  const workItemId = readString(value.workItemId) ?? undefined;
+  const inspectionTool = readString(value.inspectionTool) ?? undefined;
+  if (
+    !status
+    && !reason
+    && !nextTool
+    && !thenTool
+    && !workItemId
+    && !inspectionTool
+    && evidenceToRecord.length === 0
+    && requiredToolNames.length === 0
+    && sourceResourceUris.length === 0
+  ) {
+    return null;
+  }
+  return {
+    ...(status !== undefined ? { status } : {}),
+    ...(reason !== undefined ? { reason } : {}),
+    ...(nextTool !== undefined ? { nextTool } : {}),
+    ...(thenTool !== undefined ? { thenTool } : {}),
+    ...(workItemId !== undefined ? { workItemId } : {}),
+    evidenceToRecord,
+    requiredToolNames,
+    sourceResourceUris,
+    ...(inspectionTool !== undefined ? { inspectionTool } : {}),
   };
 }
 
@@ -1427,7 +1550,7 @@ function normalizeManagedAgentToolEvidenceEvent(
   if (!invocationId) {
     return [];
   }
-  const lifecycleState = readString(metadata.lifecycleState) ?? readString(metadata.status);
+  const lifecycleState = managedToolLifecycleState(metadata);
   const kind = managedToolLifecycleEventKind(toolName, lifecycleState);
   if (!kind) {
     return [];
@@ -1502,7 +1625,7 @@ function managedToolReplayPriority(toolName: string): number {
 
 function managedToolLifecycleEventKind(
   toolName: string,
-  lifecycleState: string | null,
+  lifecycleState: string | null | undefined,
 ): OperatorSessionEventKind | undefined {
   if (toolName === "managed_agent.start") {
     return "agent_invocation_started";
@@ -1516,6 +1639,8 @@ function managedToolLifecycleEventKind(
     case "cancelled":
       return "agent_invocation_cancelled";
     case "failed":
+    case "route_profile_conflict":
+    case "handoff_not_substantive":
     case "timed_out":
     case "stale":
     case "recovered":
@@ -1523,6 +1648,18 @@ function managedToolLifecycleEventKind(
     default:
       return undefined;
   }
+}
+
+function lifecycleStateFromManagedToolStatus(status: string | null): string | undefined {
+  return status ?? undefined;
+}
+
+function managedToolLifecycleState(metadata: Record<string, unknown>): string | undefined {
+  const statusLifecycleState = lifecycleStateFromManagedToolStatus(readString(metadata.status) ?? null);
+  if (statusLifecycleState === "handoff_not_substantive") {
+    return statusLifecycleState;
+  }
+  return readString(metadata.lifecycleState) ?? statusLifecycleState;
 }
 
 function managedToolMetadataPayload(
@@ -1536,13 +1673,14 @@ function managedToolMetadataPayload(
   const resultHandoff = asRecord(metadata.resultHandoff);
   const transcript = asRecord(metadata.transcript);
   const resourceLease = asRecord(metadata.resourceLease);
+  const lifecycleState = managedToolLifecycleState(metadata);
   const timeoutMs = readNumber(metadata.timeoutMs) ?? readNumber(authorityProfile.timeoutMs) ?? undefined;
   const timeoutSource = readString(metadata.timeoutSource) ?? readString(authorityProfile.timeoutSource) ?? undefined;
   const childSessionId = readString(metadata.childSessionId) ?? undefined;
   const childTurnId = readString(metadata.childTurnId) ?? undefined;
   const evidence = compactRecord({
     lifecycle: compactRecord({
-      lifecycleState: readString(metadata.lifecycleState) ?? readString(metadata.status),
+      lifecycleState,
       invocationId,
       parentSessionId: readString(metadata.parentSessionId) ?? event.kilnSessionId,
       parentTurnId: readString(metadata.parentTurnId) ?? event.turnId,
@@ -1591,8 +1729,11 @@ function managedToolMetadataPayload(
     capabilitySnapshot: Object.keys(capabilitySnapshot).length > 0 ? capabilitySnapshot : undefined,
     invocationContext: asOptionalRecord(metadata.context),
     handoffContract: asOptionalRecord(metadata.handoffContract),
-    lifecycleState: readString(metadata.lifecycleState) ?? readString(metadata.status),
+    lifecycleState,
+    status: readString(metadata.status),
     resultSummary: readString(resultHandoff.summary),
+    managedInvocationRecovery: asOptionalRecord(metadata.managedInvocationRecovery),
+    managedInvocationPhaseCompletion: asOptionalRecord(metadata.managedInvocationPhaseCompletion),
     managedInvocationEvidence: Object.keys(evidence).length > 0 ? evidence : undefined,
   });
 }

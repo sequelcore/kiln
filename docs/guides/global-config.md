@@ -695,12 +695,48 @@ git worktree under `rootPath` before adapter execution and releases it through
 managed-agent lifecycle cleanup evidence.
 Network/browser research and approved workspace writes are separate authority
 profiles. Use a read-only route with `tools.network: true` and browser/web
-tools for visual-reference research. Approved-write routes must keep
-`tools.network: false`; config projection marks write routes with network
-authority unavailable instead of silently admitting a combined write+internet
-child. When creating a routed UI work item that uses an approved-write route,
-also set `phaseRoutes.visual-reference-research` to the read-only
-browser-capable route, for example `opencode-go-qwen3-6-plus-readonly`. If the
+tools for visual-reference research. When the research must inspect sibling
+local frontend repositories, add explicit read-only reference roots under
+`readAuthority.workspace.allowedPaths`; do not add those paths to
+`writeAuthority.workspace.allowedPaths` unless the child is intentionally
+allowed to edit them. Example:
+
+```yaml
+managedAgents:
+  routes:
+    - id: opencode-go-qwen3-6-plus-readonly
+      kind: direct
+      provider: opencode-go
+      model: qwen3.6-plus
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      tools:
+        allowed:
+          - read
+          - grep
+          - glob
+          - web_search
+        network: true
+        writes: false
+      readAuthority:
+        workspace:
+          allowedPaths:
+            - C:/Proyectos/Sequel/t1code
+            - C:/Proyectos/Sequel/vllm-studio
+          deniedPaths: []
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+```
+
+Approved-write routes must keep `tools.network: false`; config projection marks
+write routes with network authority unavailable instead of silently admitting a
+combined write+internet child. When creating a routed UI work item that uses an
+approved-write route, also set `phaseRoutes.visual-reference-research` to the
+read-only browser-capable route, for example
+`opencode-go-qwen3-6-plus-readonly`. If the
 tool rejects the work item with `visual_reference_phase_route_required`, retry
 `work_item.update` with the structured `retryInputPatch` shape and that
 configured route id; writing the JSON in normal assistant text is not a valid

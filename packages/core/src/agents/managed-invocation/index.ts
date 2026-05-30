@@ -1,5 +1,7 @@
 import { defineMemoryScope } from "../../memory/domain/scope.js";
 import type { MemoryScope } from "../../memory/domain/scope.js";
+import { defineManagedAgentReadAuthority } from "./read-authority.js";
+import type { ManagedAgentReadAuthority } from "./read-authority.js";
 import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentWriteAuthority,
@@ -13,6 +15,7 @@ import type {
 } from "./write-authority.js";
 
 export * from "./write-authority.js";
+export * from "./read-authority.js";
 export * from "./write-integration.js";
 export * from "./orchestration.js";
 
@@ -121,6 +124,7 @@ export interface ManagedAgentAuthorityProfile {
   readonly timeoutSource?: ManagedAgentTimeoutSource;
   readonly credentialRoute: ManagedAgentCredentialRoute;
   readonly memoryScope: ManagedAgentMemoryScope;
+  readonly readAuthority?: ManagedAgentReadAuthority;
   readonly writeAuthority?: ManagedAgentWriteAuthority;
 }
 
@@ -907,6 +911,7 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
       scope: defineMemoryScope(input.memoryScope.scope),
       access: input.memoryScope.access,
     },
+    ...(input.readAuthority !== undefined ? { readAuthority: defineManagedAgentReadAuthority(input.readAuthority) } : {}),
     ...(input.writeAuthority !== undefined ? { writeAuthority: defineManagedAgentWriteAuthority(input.writeAuthority) } : {}),
   };
 }

@@ -462,6 +462,8 @@ function isManagedInvocationTerminalFailureStatus(status: unknown): boolean {
   return status === "failed"
     || status === "denied"
     || status === "unavailable"
+    || status === "route_profile_conflict"
+    || status === "handoff_not_substantive"
     || status === "timed_out"
     || status === "timed-out"
     || status === "cancelled"

@@ -12,6 +12,7 @@ import type {
   VerificationGateResult,
 } from "@kilnai/core";
 import {
+  containsFrontendReferenceEvidence,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   goalToolMetadata,
@@ -1554,7 +1555,9 @@ function buildManagedInvocationRequest(
     ? step.workItem.phaseRoutes?.[phase.id] ?? readText(input.managedResearchRouteId)
     : step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goalOwnedRouteId;
   const providerId = readText(input.managedProviderId);
-  const model = readText(input.managedModel);
+  const model = phaseRequiresReadOnlyVisualResearch && routeId
+    ? undefined
+    : readText(input.managedModel);
   const reasoningEffort = readText(input.managedReasoningEffort)
     ?? step.workItem.routingRecommendation?.reasoningEffort;
   const expectedEvidence = phase.expectedEvidence;
@@ -1568,6 +1571,7 @@ function buildManagedInvocationRequest(
   const request: Record<string, unknown> = {
     profile,
     ...(routeId ? { routeId } : {}),
+    ...(phaseRequiresReadOnlyVisualResearch ? { forbiddenInputFields: ["agentProfile"] } : {}),
     ...(providerId
       ? {
         providerRoute: {
@@ -1698,7 +1702,7 @@ function phaseIdForEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): Ma
 function requiredToolNamesForPhaseEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): readonly string[] {
   return uniqueText([
     ...(evidence.includes("visual-reference-research")
-      ? ["web_search", "web_fetch", "web_extract"]
+      ? ["read", "glob", "grep"]
       : []),
     ...(evidence.includes("browser-qa")
       ? ["browser_session_start", "browser_navigate", "browser_observe"]
@@ -1721,7 +1725,7 @@ function formatManagedInvocationTask(
     lines.push(`Produce only this phase evidence: ${phase.expectedEvidence.join(", ")}.`);
   }
   if (phase.id === "visual-reference-research") {
-    lines.push("Use read-only frontend-reference research authority. Prefer running-product UI captures when available. If the reference repository has no public screenshots, inspect the frontend implementation itself and produce code-backed evidence: component structure, layout/navigation model, spacing/typography/density, panels, work surfaces, composer-like interactions, status areas, and relevant frontend file paths. Repository chrome, stars/forks/issues, and raw file listings alone do not count.");
+    lines.push("Use read-only frontend-reference research authority. Prefer running-product UI captures when available. If the reference repository has no public screenshots, inspect the frontend implementation itself and produce code-backed evidence: component structure, layout/navigation model, spacing/typography/density, panels, work surfaces, composer-like interactions, status areas, and relevant frontend file paths. Local reference repositories are valid only when evidence cites concrete source paths and extracted UI principles. Repository chrome, stars/forks/issues, and raw file listings alone do not count.");
   }
   if (phase.requiredToolNames.length > 0) {
     lines.push(`This phase requires route tools: ${phase.requiredToolNames.join(", ")}.`);
@@ -1791,7 +1795,7 @@ function validateVisualReferenceEvidence(input: {
     return {
       ok: false,
       code: "visual_reference_product_ui_required",
-      message: "repository chrome, stars, forks, issues, README text, or raw file listings alone do not satisfy visual-reference-research; provide product UI capture evidence or code-backed frontend implementation evidence with source URLs and relevant frontend file paths.",
+      message: "repository chrome, stars, forks, issues, README text, or raw file listings alone do not satisfy visual-reference-research; provide product UI capture evidence or code-backed frontend implementation evidence with source URLs or local source paths and relevant frontend file paths.",
     };
   }
   return { ok: true };
@@ -1853,67 +1857,6 @@ function isRepositoryChromeOnlyEvidence(value: string): boolean {
     return false;
   }
   return !containsFrontendReferenceEvidence(value);
-}
-
-function containsFrontendReferenceEvidence(value: string): boolean {
-  return containsProductUiVisualEvidence(value) || containsCodeBackedFrontendEvidence(value);
-}
-
-function containsProductUiVisualEvidence(value: string): boolean {
-  const normalized = value.toLowerCase();
-  const hasVisualPointer = normalized.includes("kiln://")
-    || normalized.includes("http://")
-    || normalized.includes("https://");
-  if (!hasVisualPointer) {
-    return false;
-  }
-  return normalized.includes("product ui")
-    || normalized.includes("app ui")
-    || normalized.includes("running app")
-    || normalized.includes("running vllm studio")
-    || normalized.includes("dashboard")
-    || normalized.includes("demo")
-    || normalized.includes("video")
-    || normalized.includes("readme image")
-    || normalized.includes("readme screenshot")
-    || normalized.includes("docs image")
-    || normalized.includes("docs screenshot")
-    || normalized.includes("frontend screenshot")
-    || normalized.includes("browser visual reference");
-}
-
-function containsCodeBackedFrontendEvidence(value: string): boolean {
-  const normalized = value.toLowerCase();
-  const hasSource = normalized.includes("http://")
-    || normalized.includes("https://")
-    || normalized.includes("kiln://");
-  if (!hasSource) {
-    return false;
-  }
-  const hasFrontendSource = normalized.includes("frontend/")
-    || normalized.includes("frontend\\")
-    || normalized.includes("src/app")
-    || normalized.includes("src/components")
-    || normalized.includes(".tsx")
-    || normalized.includes(".jsx")
-    || normalized.includes(".css")
-    || normalized.includes("component")
-    || normalized.includes("layout")
-    || normalized.includes("navigation")
-    || normalized.includes("panel")
-    || normalized.includes("work surface")
-    || normalized.includes("composer")
-    || normalized.includes("status area")
-    || normalized.includes("typography")
-    || normalized.includes("spacing")
-    || normalized.includes("density");
-  return hasFrontendSource
-    && (normalized.includes("frontend implementation")
-      || normalized.includes("code-backed")
-      || normalized.includes("component structure")
-      || normalized.includes("layout pattern")
-      || normalized.includes("navigation model")
-      || normalized.includes("product ergonomics"));
 }
 
 function readManagedInvocationProfile(value: unknown): ManagedInvocationProfile | undefined {

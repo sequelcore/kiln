@@ -14,6 +14,12 @@ export type {
   GoalRunUpdateInput,
 } from "./goal-run.js";
 export {
+  containsCodeBackedFrontendEvidence,
+  containsFrontendReferenceEvidence,
+  containsLocalSourcePointer,
+  containsProductUiVisualEvidence,
+} from "./frontend-reference-evidence.js";
+export {
   GoalRunStore,
   isTerminalGoalStatus,
   reconstructGoalRunsFromSessionEvents,

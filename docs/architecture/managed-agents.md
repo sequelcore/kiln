@@ -347,9 +347,12 @@ calls and Kiln can enforce the configured authority through its own runtime tool
 surface.
 
 Direct-provider builtin tools execute with a request-scoped sandbox derived
-from the admitted managed authority. Read-only routes can read only inside the
-managed working directory or explicitly admitted write scope, cannot write, and
-cannot use network tools unless the request authority admits network access.
+from the admitted managed authority. Read-only routes can read inside the
+managed working directory plus any explicit `readAuthority.workspace` reference
+roots, cannot write, and cannot use network tools unless the request authority
+admits network access. Write scopes remain separate: admitting a sibling
+reference repository for read-only visual research does not grant mutation
+authority for that repository.
 Models may still hallucinate hidden or out-of-scope tool calls, but the runtime
 allowlist and sandbox deny them before tool execution.
 Direct-provider write-capable managed routes are available only when the direct

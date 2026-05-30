@@ -271,6 +271,7 @@ function projectInvocationSummary(snapshot: ManagedAgentRuntimeInvocationSnapsho
     executionMode: snapshot.executionMode,
     authorityProfileId: snapshot.authorityProfileId,
     lifecycleState: snapshot.lifecycleState,
+    ...projectInvocationTimeoutEvidence(snapshot),
     startedAt: snapshot.startedAt,
     ...(snapshot.finishedAt ? { finishedAt: snapshot.finishedAt } : {}),
     ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
@@ -327,6 +328,7 @@ function projectInvocationResource(
     resourcePath,
     lifecycleState: snapshot.lifecycleState,
     providerRoute: snapshot.providerRoute,
+    ...projectInvocationTimeoutEvidence(snapshot),
     ...(resultHandoff?.resourceUris.some(matchesResource) ? { resultHandoff } : {}),
     ...(diagnostics.length > 0 ? { diagnostics } : {}),
     ...(writeEvidence.length > 0 ? { writeEvidence } : {}),
@@ -340,6 +342,17 @@ function projectInvocationResource(
       ? { admissionResourceLease: snapshot.decision.capabilitySnapshot.resourceLease }
       : {}),
     ...(snapshot.record?.resultHandoff?.summary ? { resultSummary: snapshot.record.resultHandoff.summary } : {}),
+  };
+}
+
+function projectInvocationTimeoutEvidence(snapshot: ManagedAgentRuntimeInvocationSnapshot): Record<string, unknown> {
+  const authorityProfile = snapshot.decision.capabilitySnapshot.authorityProfile;
+  if (!authorityProfile || !Number.isFinite(authorityProfile.timeoutMs)) {
+    return {};
+  }
+  return {
+    timeoutMs: authorityProfile.timeoutMs,
+    ...(authorityProfile.timeoutSource ? { timeoutSource: authorityProfile.timeoutSource } : {}),
   };
 }
 

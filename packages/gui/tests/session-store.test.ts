@@ -1664,6 +1664,51 @@ describe("session-store", () => {
     }));
   });
 
+  it("renders failed turn completion events with error tone", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-turn-failed",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-05-29T10:32:08.471Z",
+      kind: "turn_completed",
+      payload: {
+        turnId: "session-live:turn:1",
+        outcome: "failed",
+        outputMessageId: "session-live:turn:1:assistant",
+      },
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "turn_completed",
+      summary: "failed",
+      tone: "error",
+    }));
+  });
+
+  it("renders cancelled turn completion events with error tone", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-turn-cancelled",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-05-29T10:32:08.471Z",
+      kind: "turn_completed",
+      payload: {
+        turnId: "session-live:turn:1",
+        outcome: "cancelled",
+      },
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "turn_completed",
+      summary: "cancelled",
+      tone: "error",
+    }));
+  });
+
   it("onError adds error row and sets banner", () => {
     useSessionStore.getState().onError({
       type: "error",

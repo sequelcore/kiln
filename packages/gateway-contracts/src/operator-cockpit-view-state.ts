@@ -104,6 +104,8 @@ export interface OperatorCockpitManagedAgentViewItem {
   readonly worktreeConflictBlocked: boolean;
   readonly worktreeConflict?: NonNullable<OperatorCockpitInvocationProjection["resourceLease"]>["worktreeConflict"];
   readonly adoptionGate?: OperatorCockpitInvocationProjection["adoptionGate"];
+  readonly managedInvocationRecovery?: OperatorCockpitInvocationProjection["managedInvocationRecovery"];
+  readonly managedInvocationPhaseCompletion?: OperatorCockpitInvocationProjection["managedInvocationPhaseCompletion"];
   readonly transcriptUri?: string;
   readonly resourceUris: readonly string[];
   readonly latestEventId: string;
@@ -208,6 +210,12 @@ function projectManagedAgentItem(
       ? { worktreeConflict: invocation.resourceLease.worktreeConflict }
       : {}),
     ...(invocation.adoptionGate !== undefined ? { adoptionGate: invocation.adoptionGate } : {}),
+    ...(invocation.managedInvocationRecovery !== undefined
+      ? { managedInvocationRecovery: invocation.managedInvocationRecovery }
+      : {}),
+    ...(invocation.managedInvocationPhaseCompletion !== undefined
+      ? { managedInvocationPhaseCompletion: invocation.managedInvocationPhaseCompletion }
+      : {}),
     ...(invocation.transcript?.uri ? { transcriptUri: invocation.transcript.uri } : {}),
     resourceUris,
     latestEventId: invocation.latestEventId,
@@ -231,6 +239,9 @@ function managedAgentAttentionState(
     (invocation.adoptionGate?.required === true
       && invocation.adoptionGate.status !== "adopted"
       && invocation.adoptionGate.status !== "not_required")
+    || invocation.managedInvocationRecovery?.status === "phase_evidence_required"
+    || invocation.managedInvocationRecovery?.nextTool !== undefined
+    || invocation.managedInvocationPhaseCompletion?.nextTool !== undefined
   ) {
     return "needs_review";
   }
@@ -238,6 +249,9 @@ function managedAgentAttentionState(
     return "active";
   }
   if (invocation.status === "failed") {
+    if (isReviewRequiredLifecycleState(invocation.lifecycleState)) {
+      return "needs_review";
+    }
     if (isTimedOutLifecycleState(invocation.lifecycleState)) {
       return "timed_out";
     }
@@ -253,6 +267,10 @@ function managedAgentAttentionState(
     return "clear";
   }
   return "unknown";
+}
+
+function isReviewRequiredLifecycleState(value: string | undefined): boolean {
+  return value === "route_profile_conflict";
 }
 
 function isTimedOutLifecycleState(value: string | undefined): boolean {

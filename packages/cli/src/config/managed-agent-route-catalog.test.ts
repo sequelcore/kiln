@@ -200,6 +200,62 @@ describe("managed agent route catalog", () => {
     expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(true);
   });
 
+  it("projects explicit read-only reference roots for managed frontend research routes", async () => {
+    const cwd = createTempRoot();
+    const resolution = await resolveManagedInvocationToolOptions({
+      managedAgents: {
+        enabled: true,
+        routes: [{
+          id: "opencode-go-frontend-reference-readonly",
+          kind: "direct",
+          provider: "opencode-go",
+          model: "qwen3.6-plus",
+          profiles: ["foundation-readonly-plan"],
+          workingDirectory: "project",
+          tools: {
+            allowed: ["read", "grep", "glob", "web_search"],
+            network: true,
+            writes: false,
+          },
+          readAuthority: {
+            workspace: {
+              allowedPaths: [
+                "C:/Proyectos/Sequel/t1code",
+                "C:/Proyectos/Sequel/vllm-studio",
+              ],
+              deniedPaths: [],
+            },
+          },
+          memory: { access: "read-only" },
+          credentials: { mode: "runtime-selected" },
+        }],
+      },
+    }, {
+      cwd,
+      registry: createRegistry("opencode-go"),
+      surface: "gui",
+      isProviderAvailable: () => true,
+      providerModels: {
+        "opencode-go": ["qwen3.6-plus"],
+      },
+      directAdapterFactory: async () => makeAdapter(),
+    });
+
+    expect(resolution.routeHealth[0]).toMatchObject({ available: true });
+    expect(resolution.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
+      permissionProfile: "read-only",
+      readAuthority: {
+        workspace: {
+          allowedPaths: [
+            "C:\\Proyectos\\Sequel\\t1code",
+            "C:\\Proyectos\\Sequel\\vllm-studio",
+          ],
+          deniedPaths: [],
+        },
+      },
+    });
+  });
+
   it("projects isolated worktree routes with a shared runtime invocation service", async () => {
     const cwd = createTempRoot();
     const resolution = await resolveManagedInvocationToolOptions(makeIsolatedWorktreeWriteConfig(), {

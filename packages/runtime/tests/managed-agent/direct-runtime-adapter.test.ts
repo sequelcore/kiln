@@ -188,7 +188,10 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       childSessionId: "parent-session:managed:inv-direct-1",
       resultHandoff: {
         summary: "Direct child completed.",
-        resourceUris: ["kiln://managed-agents/invocations/inv-direct-1/transcript"],
+        resourceUris: [
+          "kiln://managed-agents/invocations/inv-direct-1/transcript",
+          "kiln://managed-agents/invocations/inv-direct-1/resources/child-execution",
+        ],
         memoryWriteProposalUris: [],
       },
       usage: {
@@ -201,6 +204,78 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         ],
       },
     });
+    expect(result.record.replayResources?.[0]).toMatchObject({
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/child-execution",
+      title: "Managed invocation child execution evidence",
+      mimeType: "text/markdown",
+    });
+    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: end_turn");
+    expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 1");
+    expect(result.record.replayResources?.[0]?.text).toContain("## Tool 1: read");
+    expect(result.record.replayResources?.[0]?.text).toContain("doc contents");
+  });
+
+  it("admits explicit read-only reference roots into the direct child sandbox", async () => {
+    const provider = providerWithResponses([
+      response("reading reference", [{
+        id: "tool-read-reference",
+        name: "read",
+        input: { filePath: "C:/Proyectos/Sequel/t1code/src/app/layout.tsx" },
+      }]),
+      response("Reference evidence collected."),
+    ]);
+    const readTool = vi.fn(async (_input, context) => {
+      const sandbox = context?.sandbox as { readonly policy?: { canRead(filePath: string): boolean; canWrite(filePath: string): boolean } } | undefined;
+      const filePath = "C:/Proyectos/Sequel/t1code/src/app/layout.tsx";
+      return sandbox?.policy?.canRead(filePath) === true && sandbox.policy.canWrite(filePath) === false
+        ? "reference file visible read-only"
+        : "reference file denied";
+    });
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await invokeManaged(service, request({
+      authority: {
+        authorityProfileId: "authority:direct-readonly:foundation-readonly-plan",
+        permissionProfile: "read-only",
+        toolAuthority: {
+          allowedToolNames: ["read"],
+          writeAllowed: false,
+          networkAllowed: false,
+        },
+        workingDirectory: {
+          path: "C:/Proyectos/Sequel/kiln",
+          mode: "read-only",
+        },
+        readAuthority: {
+          workspace: {
+            allowedPaths: ["C:/Proyectos/Sequel/t1code", "C:/Proyectos/Sequel/vllm-studio"],
+            deniedPaths: [],
+          },
+        },
+        timeoutMs: 5000,
+        credentialRoute: {
+          mode: "credentialless",
+        },
+        memoryScope: {
+          scope: { kind: "project", id: "kiln" },
+          access: "read-only",
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    expect(readTool).toHaveBeenCalledTimes(1);
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.replayResources?.[0]?.text).toContain("reference file visible read-only");
   });
 
   it("keeps long direct-provider child output bounded while exposing the full result as a managed resource", async () => {
@@ -237,6 +312,113 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       mimeType: "text/markdown",
       text: extractedResult,
     }]);
+  });
+
+  it("records empty direct-provider child output as an actionable no-handoff result", async () => {
+    const provider = providerWithResponses([response("   ")]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("completed");
+    expect(result.record.resultHandoff?.summary).toContain("finished without final handoff text");
+    expect(result.record.resultHandoff?.summary).toContain("Inspect the transcript");
+    expect(result.record.resultHandoff?.resourceUris).toEqual([
+      "kiln://managed-agents/invocations/inv-direct-1/transcript",
+      "kiln://managed-agents/invocations/inv-direct-1/resources/child-execution",
+    ]);
+    expect(result.record.replayResources?.[0]).toMatchObject({
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/child-execution",
+      title: "Managed invocation child execution evidence",
+      mimeType: "text/markdown",
+    });
+    expect(result.record.replayResources?.[0]?.text).toContain("Final output: <empty>");
+    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: end_turn");
+    expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 0");
+    expect(result.record.replayResources?.[0]?.text).toContain("Input tokens: 10");
+    expect(result.record.replayResources?.[0]?.text).toContain("Output tokens: 5");
+  });
+
+  it("records exhausted direct-provider tool loops as actionable no-handoff evidence", async () => {
+    const provider = providerWithResponses([
+      response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
+      {
+        parts: [],
+        inputTokens: 10,
+        outputTokens: 0,
+        cacheReadTokens: 1,
+        cacheWriteTokens: 0,
+        toolCalls: [{ id: "tool-2", name: "read", input: { uri: "kiln://docs/b" } }],
+        stopReason: "tool_calls",
+      },
+    ]);
+    const readTool = vi.fn(async () => "doc contents");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+      maxToolRounds: 1,
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("completed");
+    expect(result.record.resultHandoff?.summary).toContain("finished without final handoff text");
+    expect(result.record.resultHandoff?.summary).toContain("Tool round budget exhausted after 1 tool round.");
+    expect(result.record.diagnostics).toBeUndefined();
+    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: tool_rounds_exhausted");
+    expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 1");
+    expect(readTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a direct-provider child still requires a managed invocation state transition", async () => {
+    const provider = providerWithResponses([{
+      parts: textParts([
+        "Managed invocation state transition is still pending after the tool-round budget was exhausted.",
+        "Work item work-1 must be transitioned with work_item.update before the governed workflow can continue.",
+      ].join("\n")),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 1,
+      cacheWriteTokens: 0,
+      toolCalls: [],
+      stopReason: "managed_invocation_state_transition_required",
+    }]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.resultHandoff?.summary).toContain("Managed invocation state transition is still pending");
+    expect(result.record.resultHandoff?.resourceUris).toContain(
+      "kiln://managed-agents/invocations/inv-direct-1/resources/child-execution",
+    );
   });
 
   it("hydrates admitted resource context through resource_read without broadening child tool authority", async () => {

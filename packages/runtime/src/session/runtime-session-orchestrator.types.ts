@@ -39,6 +39,11 @@ import type { EscalationDetector, EscalationSignal } from "./support/escalation/
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
 
+export const RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON = "tool_rounds_exhausted";
+export const RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON = "no_tool_finalization_failed";
+export const RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON =
+  "managed_invocation_state_transition_required";
+
 export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
   readonly turnId?: string;
@@ -154,6 +159,7 @@ export interface OrchestrateResult {
   readonly queued: boolean;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
+  readonly stopReason?: string;
   readonly toolExecutions?: readonly ToolExecutionSummary[];
   readonly routingDecision?: {
     readonly provider: string;

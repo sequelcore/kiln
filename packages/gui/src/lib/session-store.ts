@@ -360,6 +360,13 @@ function toolEntryStatusFromPresentation(value: unknown, tone: TimelineEventEntr
   return toolEntryStatus(value);
 }
 
+function turnCompletedTone(outcome: unknown): TimelineEventEntry["tone"] {
+  const normalized = readString(outcome);
+  return normalized === "failed" || normalized === "cancelled" || normalized === "timed_out" || normalized === "error"
+    ? "error"
+    : "success";
+}
+
 function approvalIdFromDetails(details: unknown): string | null {
   const record = isObjectRecord(details) ? details : null;
   if (!record) return null;
@@ -954,7 +961,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         sequence: event.sequence,
         title: "Turn completed",
         summary: readString(payload.outcome) ?? undefined,
-        tone: "success",
+        tone: turnCompletedTone(payload.outcome),
         details: payload,
       });
       continue;
@@ -2415,7 +2422,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ...timelineTurnId(event),
             title: "Turn completed",
             summary: readString(payload.outcome) ?? undefined,
-            tone: "success",
+            tone: turnCompletedTone(payload.outcome),
             details: payload,
           },
         ],

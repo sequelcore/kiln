@@ -28,6 +28,7 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
 } from "../../session/runtime-session-orchestrator.types.js";
+import { RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON } from "../../session/runtime-session-orchestrator.types.js";
 import {
   ManagedRuntimeCredentialRouteLeaseManager,
   ManagedRuntimeSandboxLeaseManager,
@@ -77,6 +78,7 @@ export interface ManagedInvocationRouteProfile {
   readonly timeoutSource?: ManagedAgentAuthorityProfile["timeoutSource"];
   readonly credentialRoute: ManagedAgentCredentialRoute;
   readonly memoryScope: ManagedAgentMemoryScope;
+  readonly readAuthority?: ManagedAgentAuthorityProfile["readAuthority"];
   readonly writeAuthority?: ManagedAgentAuthorityProfile["writeAuthority"];
 }
 
@@ -190,6 +192,7 @@ interface ManagedInvocationToolInput {
   readonly summary: string;
   readonly resourceUris?: readonly string[];
   readonly agentProfile?: string;
+  readonly forbiddenInputFields?: readonly string[];
   readonly skills?: readonly string[];
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly goalRunId?: string;
@@ -267,6 +270,11 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       agentProfile: {
         type: "string",
         description: "Optional configured Kiln agent profile to request for the child. The runtime must resolve and admit it before execution.",
+      },
+      forbiddenInputFields: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional route-owned input contract from work_item.execution.start. Pass through unchanged; do not populate any listed fields.",
       },
       skills: {
         type: "array",
@@ -721,7 +729,8 @@ export function createManagedInvocationToolCallMetadataResolver(
   options: ManagedInvocationToolOptions,
 ): (input: Record<string, unknown>) => Record<string, unknown> | undefined {
   return (rawInput) => {
-    const parsed = parseInput(rawInput);
+    const canonicalizedRawInput = canonicalizeManagedInvocationRawInput(rawInput, options.routes);
+    const parsed = parseInput(canonicalizedRawInput.input);
     if (!parsed.ok) {
       return undefined;
     }
@@ -785,9 +794,62 @@ export function attachManagedInvocationSessionEventSink(
 interface PreparedManagedInvocationRequest {
   readonly context: RuntimeBuiltinToolExecutionContext;
   readonly parsed: ManagedInvocationToolInput;
+  readonly canonicalizedRawInput: Record<string, unknown>;
   readonly route: ManagedInvocationToolRoute;
   readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
   readonly capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput;
+  readonly canonicalizedForbiddenInputFields?: readonly string[];
+}
+
+function canonicalizeManagedInvocationRawInput(
+  rawInput: Record<string, unknown>,
+  routes: readonly ManagedInvocationToolRoute[],
+): {
+  readonly input: Record<string, unknown>;
+  readonly canonicalizedForbiddenInputFields: readonly string[];
+} {
+  const forbiddenInputFields = readTextArray(rawInput.forbiddenInputFields) ?? [];
+  const routeOwnsAgentSelection = forbiddenInputFields.includes("agentProfile");
+  if (!routeOwnsAgentSelection) {
+    return { input: rawInput, canonicalizedForbiddenInputFields: [] };
+  }
+
+  const canonicalizedForbiddenInputFields: string[] = [];
+  const providerRoute = readRecord(rawInput.providerRoute);
+  const routeId = readText(rawInput.routeId);
+  const providerId = readText(providerRoute?.providerId);
+  const route = routeId && providerId
+    ? routes.find((candidate) => candidate.routeId === routeId && candidate.providerId === providerId)
+    : undefined;
+  const nextProviderRoute = providerRoute && route
+    ? routeOwnedProviderRoute(providerRoute, route.model)
+    : providerRoute;
+  if (readText(rawInput.agentProfile)) {
+    canonicalizedForbiddenInputFields.push("agentProfile");
+  }
+  const withoutAgentProfile = Object.fromEntries(
+    Object.entries(rawInput).filter(([key]) => key !== "agentProfile"),
+  );
+  return {
+    input: {
+      ...withoutAgentProfile,
+      ...(nextProviderRoute ? { providerRoute: nextProviderRoute } : {}),
+    },
+    canonicalizedForbiddenInputFields: unique(canonicalizedForbiddenInputFields),
+  };
+}
+
+function routeOwnedProviderRoute(
+  providerRoute: Record<string, unknown>,
+  routeModel: string | undefined,
+): Record<string, unknown> {
+  const providerRouteWithoutModel = Object.fromEntries(
+    Object.entries(providerRoute).filter(([key]) => key !== "model"),
+  );
+  return {
+    ...providerRouteWithoutModel,
+    ...(routeModel ? { model: routeModel } : {}),
+  };
 }
 
 async function prepareManagedInvocationRequest(
@@ -803,7 +865,8 @@ async function prepareManagedInvocationRequest(
     return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
   }
 
-  const parsed = parseInput(rawInput, toolName);
+  const canonicalizedRawInput = canonicalizeManagedInvocationRawInput(rawInput, options.routes);
+  const parsed = parseInput(canonicalizedRawInput.input, toolName);
   if (!parsed.ok) {
     return { ok: false, result: errorResult(parsed.error, {}, toolName) };
   }
@@ -811,13 +874,10 @@ async function prepareManagedInvocationRequest(
   const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
   const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile, toolName);
   if (!agentRouteValidation.ok) {
+    const recovery = buildRouteProfileConflictRecovery(parsed.input, agentRouteValidation, context, toolName);
     return {
       ok: false,
-      result: errorResult(agentRouteValidation.error, {
-        profile: parsed.input.profile,
-        agentProfile: parsed.input.agentProfile,
-        routeId: parsed.input.routeId,
-      }, toolName),
+      result: errorResult(recovery.output, recovery.metadata, toolName),
     };
   }
   const routeResolution = resolveRoute(options.routes, parsed.input, agentProfile);
@@ -1049,6 +1109,7 @@ async function prepareManagedInvocationRequest(
       ...(profileDefaults.timeoutSource ? { timeoutSource: profileDefaults.timeoutSource } : {}),
       credentialRoute: normalizeManagedInvocationCredentialRoute(profileDefaults.credentialRoute),
       memoryScope: profileDefaults.memoryScope,
+      ...(profileDefaults.readAuthority ? { readAuthority: profileDefaults.readAuthority } : {}),
       ...(resolvedAuthority.writeAuthority ? { writeAuthority: resolvedAuthority.writeAuthority } : {}),
     },
     input: {
@@ -1073,6 +1134,7 @@ async function prepareManagedInvocationRequest(
     prepared: {
       context,
       parsed: parsed.input,
+      canonicalizedRawInput: canonicalizedRawInput.input,
       route,
       request,
       capabilitySnapshotInput: {
@@ -1106,6 +1168,9 @@ async function prepareManagedInvocationRequest(
           ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
         },
       },
+      ...(canonicalizedRawInput.canonicalizedForbiddenInputFields.length > 0
+        ? { canonicalizedForbiddenInputFields: canonicalizedRawInput.canonicalizedForbiddenInputFields }
+        : {}),
     },
   };
 }
@@ -1291,12 +1356,15 @@ async function executeManagedInvocationTool(
 
   return terminalManagedInvocationResult({
     toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
-    rawInput,
+    rawInput: prepared.canonicalizedRawInput,
     routeId: prepared.route.routeId,
     ...(prepared.route.voiceProfile ? { voiceProfile: prepared.route.voiceProfile } : {}),
     contextMode: prepared.parsed.contextMode,
     request: prepared.request,
     record: result.record,
+    ...(prepared.canonicalizedForbiddenInputFields
+      ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
+      : {}),
     sessionEventIds: events.map((event) => event.eventId),
   });
 }
@@ -1379,6 +1447,9 @@ async function executeManagedInvocationStartTool(
         contextMode: terminalizedSnapshot.decision.capabilitySnapshot.contextMode,
         request: terminalizedSnapshot.request,
         record,
+        ...(prepared.canonicalizedForbiddenInputFields
+          ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
+          : {}),
         sessionEventIds: terminalSessionEventIdsForResult({
           events,
           context: prepared.context,
@@ -1817,6 +1888,7 @@ function terminalManagedInvocationResult(input: {
   readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
   readonly record: ManagedAgentInvocationRecord;
   readonly expectedTerminalLifecycleState?: ManagedAgentInvocationRecord["lifecycleState"];
+  readonly canonicalizedForbiddenInputFields?: readonly string[];
   readonly sessionEventIds: readonly string[];
 }): ManagedInvocationToolResult {
   const summary = input.record.resultHandoff?.summary ?? `Managed invocation ${input.record.lifecycleState}.`;
@@ -1890,6 +1962,9 @@ function terminalManagedInvocationResult(input: {
       authorityProfileId: input.record.authority.authorityProfileId,
       capabilitySnapshot: input.record.capabilitySnapshot,
       context: input.request.input.context,
+      ...(input.canonicalizedForbiddenInputFields
+        ? { canonicalizedForbiddenInputFields: input.canonicalizedForbiddenInputFields }
+        : {}),
       ...(input.request.input.handoff ? { handoffContract: input.request.input.handoff } : {}),
       resultHandoff: input.record.resultHandoff,
       transcript: input.record.transcript,
@@ -1990,10 +2065,17 @@ function hasSubstantiveManagedInvocationEvidence(record: ManagedAgentInvocationR
     return false;
   }
   const summary = record.resultHandoff?.summary.trim();
-  if (!summary || summary === "Direct provider managed invocation completed.") {
+  if (!summary || isNonSubstantiveManagedInvocationSummary(summary)) {
     return false;
   }
   return (record.resultHandoff?.resourceUris.length ?? 0) > 0;
+}
+
+function isNonSubstantiveManagedInvocationSummary(summary: string): boolean {
+  return summary === "Direct provider managed invocation completed."
+    || summary.startsWith("Direct provider managed invocation finished without final handoff text.")
+    || summary.includes(RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON)
+    || summary.startsWith("Managed invocation state transition is still pending after the tool-round budget was exhausted.");
 }
 
 function missingManagedInvocationRequiredTools(
@@ -2118,6 +2200,73 @@ function validateAgentRouteHint(
     };
   }
   return { ok: true };
+}
+
+function buildRouteProfileConflictRecovery(
+  input: ManagedInvocationToolInput,
+  validation: { readonly ok: false; readonly error: string },
+  context: RuntimeBuiltinToolExecutionContext,
+  toolName: string,
+): {
+  readonly output: string;
+  readonly metadata: Record<string, unknown>;
+} {
+  const forbiddenInputFields = unique([...(input.forbiddenInputFields ?? []), "agentProfile"]);
+  const parentTurnId = resolveManagedInvocationParentTurnId(context);
+  const invocationId = buildRouteProfileConflictInvocationId(context);
+  const payload = {
+    status: "route_profile_conflict",
+    lifecycleState: "route_profile_conflict",
+    error: validation.error,
+    managedInvocationId: invocationId,
+    invocationId,
+    parentSessionId: context.session.id,
+    parentTurnId,
+    nextTool: toolName,
+    retryInputTemplate: buildManagedInvocationRetryInputTemplate(input, forbiddenInputFields),
+    forbiddenInputFields,
+    correction: "Retry managed_agent.invoke with retryInputTemplate exactly; do not add agentProfile when a route-owned request forbids it.",
+  };
+  return {
+    output: JSON.stringify(payload, null, 2),
+    metadata: payload,
+  };
+}
+
+function buildRouteProfileConflictInvocationId(context: RuntimeBuiltinToolExecutionContext): string {
+  return `${sanitizeId(context.session.id)}:${sanitizeId(context.toolCall.id)}:route-profile-conflict`;
+}
+
+function buildManagedInvocationRetryInputTemplate(
+  input: ManagedInvocationToolInput,
+  forbiddenInputFields: readonly string[],
+): Record<string, unknown> {
+  return {
+    profile: input.profile,
+    ...(input.routeId ? { routeId: input.routeId } : {}),
+    providerRoute: {
+      providerId: input.providerRoute.providerId,
+      ...(input.providerRoute.model ? { model: input.providerRoute.model } : {}),
+      ...(input.providerRoute.reasoningEffort ? { reasoningEffort: input.providerRoute.reasoningEffort } : {}),
+    },
+    ...(input.requestedAuthority ? { requestedAuthority: input.requestedAuthority } : {}),
+    task: input.task,
+    summary: input.summary,
+    ...(input.resourceUris ? { resourceUris: input.resourceUris } : {}),
+    forbiddenInputFields,
+    ...(input.skills ? { skills: input.skills } : {}),
+    contextMode: input.contextMode,
+    ...(input.goalRunId ? { goalRunId: input.goalRunId } : {}),
+    ...(input.workItemId ? { workItemId: input.workItemId } : {}),
+    ...(input.attemptId ? { attemptId: input.attemptId } : {}),
+    ...(input.roleIntent ? { roleIntent: input.roleIntent } : {}),
+    ...(input.expectedEvidence ? { expectedEvidence: input.expectedEvidence } : {}),
+    ...(input.requiredToolNames ? { requiredToolNames: input.requiredToolNames } : {}),
+    ...(input.requiredResultFields ? { requiredResultFields: input.requiredResultFields } : {}),
+    ...(input.doneCriteria ? { doneCriteria: input.doneCriteria } : {}),
+    ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired } : {}),
+    ...(input.executionPhase ? { executionPhase: input.executionPhase } : {}),
+  };
 }
 
 function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptions): string {
@@ -2370,6 +2519,7 @@ function parseInput(
   const requiredToolNames = readTextArray(input.requiredToolNames);
   const requiredResultFields = readTextArray(input.requiredResultFields);
   const doneCriteria = readTextArray(input.doneCriteria);
+  const forbiddenInputFields = readTextArray(input.forbiddenInputFields);
   const requestedAuthority = parseManagedInvocationRequestedAuthority(input.requestedAuthority);
   if (!requestedAuthority.ok) {
     return { ok: false, error: `${toolName} requestedAuthority is not supported.` };
@@ -2397,6 +2547,7 @@ function parseInput(
       summary: readText(input.summary) ?? task,
       ...(resourceUris && resourceUris.length > 0 ? { resourceUris } : {}),
       ...(readText(input.agentProfile) ? { agentProfile: readText(input.agentProfile) } : {}),
+      ...(forbiddenInputFields && forbiddenInputFields.length > 0 ? { forbiddenInputFields } : {}),
       ...(skills && skills.length > 0 ? { skills } : {}),
       contextMode,
       ...(readText(input.goalRunId) ? { goalRunId: readText(input.goalRunId) } : {}),

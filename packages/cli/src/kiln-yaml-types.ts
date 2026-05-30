@@ -371,6 +371,15 @@ export interface KilnManagedAgentWorkspaceWriteConfig {
   readonly deniedPaths?: readonly string[];
 }
 
+export interface KilnManagedAgentWorkspaceReadConfig {
+  readonly allowedPaths?: readonly string[];
+  readonly deniedPaths?: readonly string[];
+}
+
+export interface KilnManagedAgentReadAuthorityConfig {
+  readonly workspace?: KilnManagedAgentWorkspaceReadConfig;
+}
+
 export interface KilnManagedAgentMemoryWriteConfig {
   readonly mode?: KilnManagedAgentWriteMode;
   readonly operations?: readonly KilnManagedAgentMemoryWriteOperation[];
@@ -435,6 +444,7 @@ export interface KilnManagedAgentRouteConfig {
   readonly timeoutMs?: number;
   readonly tools?: KilnManagedAgentToolsConfig;
   readonly memory?: KilnManagedAgentMemoryConfig;
+  readonly readAuthority?: KilnManagedAgentReadAuthorityConfig;
   readonly writeAuthority?: KilnManagedAgentWriteAuthorityConfig;
   readonly credentials?: KilnManagedAgentCredentialsConfig;
   readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;

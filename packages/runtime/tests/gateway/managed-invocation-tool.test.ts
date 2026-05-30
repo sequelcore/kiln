@@ -3513,8 +3513,76 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
-  it("fails a visual phase child completion when the handoff is not substantive evidence", async () => {
-    const surface = makeSurface(makeAdapterWithHandoff("Direct provider managed invocation completed."));
+  it("accepts local code-backed frontend implementation evidence for visual-reference phases", async () => {
+    const phaseSummary = [
+      "No public product screenshots were available.",
+      "Code-backed frontend implementation evidence from local source C:/Proyectos/Sequel/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
+      "Local source C:/Proyectos/Sequel/t1code/src/app/layout.tsx and C:/Proyectos/Sequel/vllm-studio/frontend/src/components/AppShell.tsx show status area, composer-like panels, typography, spacing, and density.",
+    ].join(" ");
+    const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-phase-local-code-backed-complete",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Collect frontend reference research before UI implementation.",
+      summary: "Collect frontend reference research before UI implementation.",
+      workItemId: "work-ui",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["read", "glob", "grep"],
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read", "glob", "grep"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly managedInvocationPhaseCompletion?: Record<string, unknown>;
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly phaseCompletion?: {
+        readonly evidenceToRecord?: readonly string[];
+        readonly requiredToolNames?: readonly string[];
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(output.status).toBe("completed");
+    expect(output.phaseCompletion).toMatchObject({
+      evidenceToRecord: ["visual-reference-research"],
+      requiredToolNames: ["read", "glob", "grep"],
+    });
+    expect(result.metadata.managedInvocationPhaseCompletion).toMatchObject({
+      status: "phase_completed_by_child",
+      workItemId: "work-ui",
+      requiredToolNames: ["read", "glob", "grep"],
+    });
+  });
+
+  it.each([
+    "Direct provider managed invocation completed.",
+    "Direct provider managed invocation finished without final handoff text. Inspect the transcript resource before recording governed evidence.",
+  ])("fails a visual phase child completion when the handoff is not substantive evidence: %s", async (summary) => {
+    const surface = makeSurface(makeAdapterWithHandoff(summary));
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
@@ -3573,6 +3641,15 @@ describe("managed invocation runtime tool", () => {
       status: "phase_evidence_required",
       nextTool: "work_item.update",
       workItemId: "work-ui",
+      blockedWorkItemUpdateInputTemplate: {
+        id: "work-ui",
+        status: "blocked",
+        pauseRequirements: [{
+          id: "managed-invocation-handoff-recovery",
+          kind: "operator_input",
+          status: "pending",
+        }],
+      },
     });
     expect(output.recovery?.reason).toContain("no-handoff");
     expect(result.metadata.status).toBe("handoff_not_substantive");
@@ -3580,6 +3657,10 @@ describe("managed invocation runtime tool", () => {
     expect(result.metadata.managedInvocationRecovery).toMatchObject({
       status: "phase_evidence_required",
       workItemId: "work-ui",
+      blockedWorkItemUpdateInputTemplate: {
+        id: "work-ui",
+        status: "blocked",
+      },
     });
   });
 
@@ -4588,20 +4669,166 @@ describe("managed invocation runtime tool", () => {
       routeId: "opencode-readonly",
       providerRoute: {
         providerId: "opencode",
+        model: "model-fast",
       },
       agentProfile: "scout",
       contextMode: "isolated",
+      goalRunId: "goal-ui",
+      workItemId: "work-ui",
+      attemptId: "goal-ui:work-ui:attempt:1",
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+      },
       task: "Scout the GUI surface.",
     }, context) as {
       readonly output: string;
       readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly nextTool?: string;
+        readonly retryInputTemplate?: Record<string, unknown>;
+        readonly forbiddenInputFields?: readonly string[];
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly nextTool?: string;
+      readonly retryInputTemplate?: {
+        readonly routeId?: string;
+        readonly agentProfile?: string;
+        readonly workItemId?: string;
+      };
+      readonly forbiddenInputFields?: readonly string[];
     };
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain("contradicts configured agentProfile 'scout' route hint");
+    expect(output).toMatchObject({
+      status: "route_profile_conflict",
+      nextTool: "managed_agent.invoke",
+      retryInputTemplate: {
+        routeId: "opencode-readonly",
+        workItemId: "work-ui",
+      },
+      forbiddenInputFields: ["agentProfile"],
+    });
+    expect(output.retryInputTemplate?.agentProfile).toBeUndefined();
+    expect(result.metadata).toMatchObject({
+      status: "route_profile_conflict",
+      managedInvocationId: "session-parent:tool-call-1:route-profile-conflict",
+      invocationId: "session-parent:tool-call-1:route-profile-conflict",
+      lifecycleState: "route_profile_conflict",
+      parentSessionId: "session-parent",
+      parentTurnId: "session-parent:turn:1",
+      nextTool: "managed_agent.invoke",
+      retryInputTemplate: {
+        routeId: "opencode-readonly",
+        workItemId: "work-ui",
+      },
+      forbiddenInputFields: ["agentProfile"],
+    });
+    expect(result.metadata.retryInputTemplate?.agentProfile).toBeUndefined();
     expect(fastAdapter.invoke).not.toHaveBeenCalled();
     expect(slowAdapter.invoke).not.toHaveBeenCalled();
     expect(session.sessionEvents).toEqual([]);
+  });
+
+  it("canonicalizes forbidden agentProfile before route validation for route-owned requests", async () => {
+    const phaseSummary = [
+      "No public product screenshots were available.",
+      "Code-backed frontend implementation evidence from local source C:/Proyectos/Sequel/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
+      "Local source C:/Proyectos/Sequel/t1code/src/app/layout.tsx shows status area, composer-like panels, typography, spacing, and density.",
+    ].join(" ");
+    const adapter = makeAdapterWithHandoff(phaseSummary);
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [
+          makeManagedRoute("opencode-readonly", "model-heavy", adapter),
+        ],
+        agentCatalog: [{
+          name: "scout",
+          displayName: "Dewey",
+          role: "Read-only context scout",
+          goal: "Map impacted files quickly",
+          tier: "fast",
+          routeId: "opencode-scout-readonly",
+          providerRoute: {
+            providerId: "opencode",
+            model: "model-fast",
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-forbidden-agent-profile",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: {
+        providerId: "opencode",
+        model: "model-fast",
+      },
+      forbiddenInputFields: ["agentProfile"],
+      agentProfile: "scout",
+      contextMode: "isolated",
+      goalRunId: "goal-ui",
+      workItemId: "work-ui",
+      attemptId: "goal-ui:work-ui:attempt:1",
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+      },
+      task: "Scout the GUI surface.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly routeId?: string;
+        readonly providerRoute?: { readonly model?: string };
+        readonly canonicalizedForbiddenInputFields?: readonly string[];
+        readonly capabilitySnapshot?: {
+          readonly childIdentity?: {
+            readonly requestedAgentProfile?: string;
+            readonly admittedAgentProfile?: string;
+          };
+        };
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.output)).toMatchObject({
+      status: "completed",
+      routeId: "opencode-readonly",
+    });
+    expect(result.metadata).toMatchObject({
+      status: "completed",
+      routeId: "opencode-readonly",
+      providerRoute: {
+        model: "model-heavy",
+      },
+      canonicalizedForbiddenInputFields: ["agentProfile"],
+    });
+    expect(result.metadata.capabilitySnapshot?.childIdentity?.requestedAgentProfile).toBeUndefined();
+    expect(result.metadata.capabilitySnapshot?.childIdentity?.admittedAgentProfile).toBeUndefined();
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
   it("reports configured but unavailable managed routes with their health reason", async () => {
@@ -4817,6 +5044,70 @@ describe("managed invocation runtime tool", () => {
         toolName: "resource_read",
         uri: canonicalTranscriptUri,
       }),
+    });
+  });
+
+  it("exposes timeout diagnostic resources with effective timeout evidence", async () => {
+    const managedInvocation = withManagedInvocationService({
+      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", makeTimedOutAdapter())],
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        resourceProviders: [
+          createManagedAgentInvocationResourceProvider({
+            service: managedInvocation.invocationService,
+          }),
+        ],
+      },
+      managedInvocation,
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-provider-readable-timeout",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+      task: "Inspect managed invocation timeout resource readability.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly resultHandoff?: { readonly resourceUris?: readonly string[] };
+      };
+    };
+    const timeoutUri = result.metadata.resultHandoff?.resourceUris
+      ?.find((uri) => uri.endsWith("/resources/timeout"));
+
+    expect(result.isError).toBe(true);
+    expect(timeoutUri).toEqual(expect.any(String));
+    const timeoutResource = await surface.callBuiltinTools.get("resource_read")?.({
+      uri: timeoutUri,
+    }) as {
+      readonly isError: boolean;
+      readonly output: string;
+    };
+    const payload = JSON.parse(timeoutResource.output) as {
+      readonly resource?: {
+        readonly lifecycleState?: string;
+        readonly timeoutMs?: number;
+        readonly timeoutSource?: string;
+        readonly diagnostics?: readonly { readonly kind?: string }[];
+      };
+    };
+
+    expect(timeoutResource.isError).toBe(false);
+    expect(payload.resource).toMatchObject({
+      lifecycleState: "timed_out",
+      timeoutMs: 120000,
+      timeoutSource: "explicit-route",
+      diagnostics: [expect.objectContaining({ kind: "timeout" })],
     });
   });
 

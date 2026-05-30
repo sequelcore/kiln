@@ -26,7 +26,13 @@ import type {
   PerCallToolConfig,
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
+  OrchestrateResult,
   ToolExecutionSummary,
+} from "../../session/runtime-session-orchestrator.types.js";
+import {
+  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
+  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
+  RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON,
 } from "../../session/runtime-session-orchestrator.types.js";
 import type {
   ManagedAgentRuntimeAdapter,
@@ -56,7 +62,10 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
 
 const TIMEOUT = { type: "managed-direct-runtime-timeout" } as const;
 const RESULT_SUMMARY_LIMIT = 2000;
+const CHILD_EXECUTION_RESOURCE_LIMIT = 12000;
+const TOOL_OUTPUT_LIMIT = 1200;
 const RESULT_RESOURCE_NOTICE = "Full child result is available through the managed invocation result resource.";
+const NO_DIRECT_HANDOFF_SUMMARY = "Direct provider managed invocation finished without final handoff text.";
 
 export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor;
@@ -239,15 +248,21 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       );
       const resultText = extractText(result.parts);
       const replayResource = resultReplayResource(request.invocationId, resultText);
-      const summary = clipSummary(resultText, replayResource?.uri);
+      const childExecutionResource = childExecutionReplayResource(request.invocationId, result, resultText);
+      const summary = clipSummary(resultText, replayResource?.uri, result.stopReason);
       const writeEvidence = collectDirectRuntimeWriteEvidence(request, result.toolExecutions ?? []);
-      const resultResourceUris = replayResource
-        ? [managedInvocationUri(request.invocationId, "transcript"), replayResource.uri, ...writeEvidence.resultResourceUris]
-        : [managedInvocationUri(request.invocationId, "transcript"), ...writeEvidence.resultResourceUris];
+      const resultResourceUris = [
+        managedInvocationUri(request.invocationId, "transcript"),
+        ...(replayResource ? [replayResource.uri] : []),
+        ...(childExecutionResource ? [childExecutionResource.uri] : []),
+        ...writeEvidence.resultResourceUris,
+      ];
+      const replayResources = [replayResource, childExecutionResource]
+        .filter((resource): resource is ManagedAgentReplayResource => resource !== undefined);
 
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
-        lifecycleState: "completed",
+        lifecycleState: lifecycleStateForDirectChildStopReason(result.stopReason),
         childSessionId,
         childTurnId,
         transcript: transcriptPointer(request.invocationId),
@@ -269,7 +284,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           resourceUris: resultResourceUris,
           memoryWriteProposalUris: [],
         },
-        ...(replayResource ? { replayResources: [replayResource] } : {}),
+        ...(replayResources.length > 0 ? { replayResources } : {}),
         ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
     } catch (err) {
@@ -384,7 +399,7 @@ function createManagedToolSandbox(request: ManagedAgentInvocationRequest): {
       : "read-only",
     netPolicy: request.authority.toolAuthority.networkAllowed === true ? "full" : "none",
     allowedPaths: resolveAllowedPaths(request),
-    deniedPaths: request.authority.writeAuthority?.scope.workspace.deniedPaths ?? [],
+    deniedPaths: resolveDeniedPaths(request),
     allowedDomains: request.authority.toolAuthority.networkAllowed === true ? ["*"] : [],
   };
   return {
@@ -397,11 +412,31 @@ function createManagedToolSandbox(request: ManagedAgentInvocationRequest): {
 }
 
 function resolveAllowedPaths(request: ManagedAgentInvocationRequest): readonly string[] {
+  if (
+    request.authority.toolAuthority.writeAllowed !== true
+    || request.authority.workingDirectory.mode === "read-only"
+  ) {
+    return uniquePaths([
+      request.authority.workingDirectory.path,
+      ...(request.authority.readAuthority?.workspace.allowedPaths ?? []),
+    ]);
+  }
   const workspaceScope = request.authority.writeAuthority?.scope.workspace;
   if (workspaceScope && workspaceScope.allowedPaths.length > 0) {
     return workspaceScope.allowedPaths;
   }
   return [request.authority.workingDirectory.path];
+}
+
+function resolveDeniedPaths(request: ManagedAgentInvocationRequest): readonly string[] {
+  return uniquePaths([
+    ...(request.authority.readAuthority?.workspace.deniedPaths ?? []),
+    ...(request.authority.writeAuthority?.scope.workspace.deniedPaths ?? []),
+  ]);
+}
+
+function uniquePaths(paths: readonly string[]): readonly string[] {
+  return [...new Set(paths)];
 }
 
 function buildChildSessionId(request: ManagedAgentInvocationRequest): string {
@@ -473,10 +508,13 @@ function unknownRuntimeUsage() {
   };
 }
 
-function clipSummary(summary: string, resultResourceUri?: string): string {
+function clipSummary(summary: string, resultResourceUri?: string, stopReason?: string): string {
   const trimmed = summary.trim();
   if (trimmed.length === 0) {
-    return "Direct provider managed invocation completed.";
+    return `${NO_DIRECT_HANDOFF_SUMMARY} Inspect the transcript resource before recording governed evidence.`;
+  }
+  if (isNoHandoffStopReason(stopReason)) {
+    return `${NO_DIRECT_HANDOFF_SUMMARY} ${trimmed}`;
   }
   if (trimmed.length <= RESULT_SUMMARY_LIMIT) {
     return trimmed;
@@ -484,6 +522,19 @@ function clipSummary(summary: string, resultResourceUri?: string): string {
   const suffix = resultResourceUri ? `... ${RESULT_RESOURCE_NOTICE}` : "...";
   const prefixLength = Math.max(0, RESULT_SUMMARY_LIMIT - suffix.length);
   return `${trimmed.slice(0, prefixLength)}${suffix}`;
+}
+
+function isNoHandoffStopReason(stopReason: string | undefined): boolean {
+  return stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
+    || stopReason === RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON;
+}
+
+function lifecycleStateForDirectChildStopReason(stopReason: string | undefined): "completed" | "failed" {
+  return isFailedDirectChildStopReason(stopReason) ? "failed" : "completed";
+}
+
+function isFailedDirectChildStopReason(stopReason: string | undefined): boolean {
+  return stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
 }
 
 function resultReplayResource(invocationId: string, text: string): ManagedAgentReplayResource | undefined {
@@ -496,6 +547,69 @@ function resultReplayResource(invocationId: string, text: string): ManagedAgentR
     mimeType: "text/markdown",
     text,
   };
+}
+
+function childExecutionReplayResource(
+  invocationId: string,
+  result: OrchestrateResult,
+  resultText: string,
+): ManagedAgentReplayResource | undefined {
+  const toolExecutions = result.toolExecutions ?? [];
+  if (
+    resultText.trim().length > 0
+    && toolExecutions.length === 0
+    && !isFailedDirectChildStopReason(result.stopReason)
+  ) {
+    return undefined;
+  }
+  return {
+    uri: managedInvocationUri(invocationId, "child-execution"),
+    title: "Managed invocation child execution evidence",
+    mimeType: "text/markdown",
+    text: clipResourceText(formatChildExecutionEvidence(result, resultText), CHILD_EXECUTION_RESOURCE_LIMIT),
+  };
+}
+
+function formatChildExecutionEvidence(result: OrchestrateResult, resultText: string): string {
+  return [
+    "# Direct Child Execution Evidence",
+    "",
+    resultText.trim().length > 0 ? "## Final Output" : "Final output: <empty>",
+    resultText.trim().length > 0 ? clipResourceText(resultText.trim(), TOOL_OUTPUT_LIMIT) : undefined,
+    "",
+    `Stop reason: ${result.stopReason ?? "unknown"}`,
+    `Input tokens: ${result.inputTokens}`,
+    `Output tokens: ${result.outputTokens}`,
+    `Cache read tokens: ${result.cacheReadTokens}`,
+    `Cache write tokens: ${result.cacheWriteTokens}`,
+    `Tool executions: ${result.toolExecutions?.length ?? 0}`,
+    "",
+    ...formatToolExecutionEvidence(result.toolExecutions ?? []),
+  ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatToolExecutionEvidence(toolExecutions: readonly ToolExecutionSummary[]): readonly string[] {
+  if (toolExecutions.length === 0) {
+    return [];
+  }
+  return toolExecutions.flatMap((execution, index) => [
+    `## Tool ${index + 1}: ${execution.toolName}`,
+    "",
+    execution.toolCallId ? `Tool call: ${execution.toolCallId}` : undefined,
+    `Success: ${execution.success ? "true" : "false"}`,
+    `Duration ms: ${execution.durationMs}`,
+    execution.input ? `Input: ${clipResourceText(JSON.stringify(execution.input), TOOL_OUTPUT_LIMIT)}` : undefined,
+    `Result summary: ${execution.resultSummary}`,
+    execution.output ? `Output: ${clipResourceText(execution.output, TOOL_OUTPUT_LIMIT)}` : undefined,
+    "",
+  ].filter((line): line is string => line !== undefined));
+}
+
+function clipResourceText(text: string, limit: number): string {
+  if (text.length <= limit) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, limit - 14))}... [truncated]`;
 }
 
 function formatTimeoutSummary(input: {

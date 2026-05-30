@@ -1,3 +1,4 @@
+import { containsFrontendReferenceEvidence } from "@kilnai/core";
 import type { WorkItemExecutionFailureReason } from "@kilnai/core";
 
 export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
@@ -193,6 +194,22 @@ function buildManagedInvocationPhaseAction(
         ? { verificationGateResults: visualReferenceRecovery.verificationGateResults }
         : {}),
     },
+    ...(options.status === "phase_evidence_required"
+      ? {
+          blockedWorkItemUpdateInputTemplate: {
+            id: workItemId,
+            status: "blocked",
+            summary: `Managed invocation recovery is blocked for ${summary}`,
+            pauseRequirements: [{
+              id: "managed-invocation-handoff-recovery",
+              kind: "operator_input",
+              summary: "Managed child completed without substantive phase evidence, and source resources did not contain qualifying governed evidence after inspection.",
+              status: "pending",
+            }],
+          },
+          blockedWhen: "Use blockedWorkItemUpdateInputTemplate if sourceResourceUris and local recovery cannot produce qualifying evidence. Do not record providedEvidence or continue execution in that case.",
+        }
+      : {}),
     thenTool: "work_item.execution.start",
     then: "After work_item.update records the phase evidence, call work_item.execution.start again for the next phase.",
     ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
@@ -222,37 +239,17 @@ function hasSubstantivePhaseHandoff(
     return false;
   }
   const normalized = summary.toLowerCase();
-  if (normalized === "direct provider managed invocation completed." || normalized === "managed invocation completed.") {
+  if (
+    normalized === "direct provider managed invocation completed."
+    || normalized === "managed invocation completed."
+    || normalized.startsWith("direct provider managed invocation finished without final handoff text.")
+  ) {
     return false;
   }
   if (evidenceToRecord.includes(VISUAL_REFERENCE_PHASE_ID)) {
-    return hasFrontendReferenceEvidence(summary);
+    return containsFrontendReferenceEvidence(summary);
   }
   return true;
-}
-
-function hasFrontendReferenceEvidence(summary: string): boolean {
-  return hasVisualReferenceEvidence(summary) || hasCodeBackedFrontendReferenceEvidence(summary);
-}
-
-function hasVisualReferenceEvidence(summary: string): boolean {
-  const normalized = summary.toLowerCase();
-  const hasVisualArtifact = /\b(screenshot|capture|demo|video frame|image|artifact|browser_observe|running app|docs image|readme image)\b/i.test(summary);
-  const hasSource = /\bhttps?:\/\/|\bkiln:\/\//i.test(summary);
-  const rejectsPlaceholder = normalized.includes("<source url") || normalized.includes("<kiln://");
-  return hasVisualArtifact && hasSource && !rejectsPlaceholder;
-}
-
-function hasCodeBackedFrontendReferenceEvidence(summary: string): boolean {
-  const normalized = summary.toLowerCase();
-  const hasSource = /\bhttps?:\/\/|\bkiln:\/\//i.test(summary);
-  const rejectsPlaceholder = normalized.includes("<source url") || normalized.includes("<kiln://");
-  if (!hasSource || rejectsPlaceholder) {
-    return false;
-  }
-  const hasFrontendPathOrPattern = /\b(frontend\/|src\/app|src\/components|\.tsx|\.jsx|\.css|component|layout|navigation|panel|work surface|composer|status area|typography|spacing|density)\b/i.test(summary);
-  const declaresCodeBackedEvidence = /\b(frontend implementation|code-backed|component structure|layout pattern|navigation model|product ergonomics)\b/i.test(summary);
-  return hasFrontendPathOrPattern && declaresCodeBackedEvidence;
 }
 
 function visualReferenceRecoveryContract(): {
@@ -268,7 +265,7 @@ function visualReferenceRecoveryContract(): {
       "embedded README product image",
       "docs product image",
       "code-backed frontend implementation evidence when the reference has no public screenshots",
-      "source URLs plus relevant frontend file paths and reusable design principles",
+      "source URLs or local source paths plus relevant frontend file paths and reusable design principles",
       "comparable real technical workstation UI screenshot with source URL",
     ],
     invalidEvidence: [
@@ -281,15 +278,16 @@ function visualReferenceRecoveryContract(): {
     localRecoveryInstructions: [
       "Continue read-only frontend-reference research before replying.",
       "Prefer actual vLLM Studio product UI captures if available; if none are available, explicitly state that and inspect frontend implementation files instead.",
-      "Record source URLs, relevant frontend file paths, component/layout/navigation patterns, and extracted reusable design principles.",
+      "Record source URLs or local source paths, relevant frontend file paths, component/layout/navigation patterns, and extracted reusable design principles.",
       "Only call work_item.update after the frontend-reference gate has passed with qualifying UI capture or code-backed frontend implementation evidence.",
+      "If sourceResourceUris and local inspection still do not produce qualifying evidence, use blockedWorkItemUpdateInputTemplate instead of recording providedEvidence.",
     ],
     verificationGateResults: [{
       gate: "visual-reference-research: frontend-reference evidence before planning; running-product UI captures when available, or code-backed frontend implementation evidence when screenshots are unavailable; repository chrome, stars/forks/issues, and raw file listings alone do not count",
       status: "passed",
-      summary: "<summarize qualifying frontend-reference evidence, source URLs, relevant frontend file paths, and reusable design principles>",
+      summary: "<summarize qualifying frontend-reference evidence, source URLs or local source paths, relevant frontend file paths, and reusable design principles>",
       evidence: [
-        "<source URL showing product UI capture or frontend implementation source>",
+        "<source URL or local source path showing product UI capture or frontend implementation source>",
         "<relevant frontend file path or kiln:// artifact URI>",
       ],
     }],

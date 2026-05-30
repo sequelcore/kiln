@@ -74,6 +74,40 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
     ])).toBeUndefined();
   });
 
+  it("keeps non-substantive managed handoff recovery blocked until work_item.update records phase evidence", () => {
+    const noHandoffChild = record({
+      toolName: "managed_agent.invoke",
+      success: false,
+      metadata: {
+        kind: "managed-invocation",
+        status: "handoff_not_substantive",
+        managedInvocationRecovery: {
+          nextTool: "work_item.update",
+          workItemId: "work-ui",
+          evidenceToRecord: ["visual-reference-research"],
+        },
+      },
+    });
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([noHandoffChild])).toBe("failed");
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      noHandoffChild,
+      record({
+        toolName: "work_item.update",
+        success: true,
+        metadata: {
+          id: "work-ui",
+          item: {
+            id: "work-ui",
+            status: "pending",
+            providedEvidence: ["visual-reference-research"],
+            pauseRequirements: [],
+          },
+        },
+      }),
+    ])).toBeUndefined();
+  });
+
   it("keeps final managed invocation failure blocked after work_item.execution.fail records missing evidence", () => {
     const timedOutChild = record({
       toolName: "managed_agent.invoke",
@@ -174,6 +208,24 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
     });
 
     expect(deriveGovernedTurnOutcomeFromToolRecords([unavailableChild])).toBe("failed");
+  });
+
+  it("treats route/profile managed invocation conflicts as terminal blocking failures", () => {
+    const routeConflict = record({
+      toolName: "managed_agent.invoke",
+      success: false,
+      metadata: {
+        kind: "managed-invocation",
+        status: "route_profile_conflict",
+        nextTool: "managed_agent.invoke",
+        retryInputTemplate: {
+          routeId: "opencode-readonly",
+          forbiddenInputFields: ["agentProfile"],
+        },
+      },
+    });
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([routeConflict])).toBe("failed");
   });
 
   it("treats denied managed invocation context admission as a terminal blocking failure", () => {
