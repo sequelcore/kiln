@@ -168,11 +168,31 @@ export interface OperatorCockpitInvocationProjection {
   readonly managedInvocationRecovery?: OperatorCockpitManagedInvocationRecoveryProjection;
   readonly managedInvocationPhaseCompletion?: OperatorCockpitManagedInvocationPhaseCompletionProjection;
   readonly adoptionGate?: OperatorCockpitManagedOrchestrationAdoptionGateProjection;
+  readonly promptAdmissionCount: number;
+  readonly latestPromptAdmission?: OperatorCockpitInvocationPromptAdmissionProjection;
   readonly diagnosticPointers: readonly OperatorCockpitInvocationDiagnosticPointerProjection[];
   readonly evidenceResourceUris: readonly string[];
   readonly eventCount: number;
   readonly latestEventId: string;
   readonly title: string;
+}
+
+export interface OperatorCockpitInvocationPromptAdmissionProjection {
+  readonly promptAdmissionId: string;
+  readonly deliveryMode: "steer" | "queue";
+  readonly deliveryState?: "available" | "queued" | "delivered" | "stale";
+  readonly admissionState: "admitted";
+  readonly inputSummary: string;
+  readonly promptHash: string;
+  readonly wakeRequested: boolean;
+  readonly recovery?: {
+    readonly reason: string;
+    readonly recoveredAt: string;
+    readonly eventId: string;
+  };
+  readonly eventId: string;
+  readonly sequence: number;
+  readonly timestamp: string;
 }
 
 export interface OperatorCockpitManagedInvocationRecoveryProjection {
@@ -358,6 +378,7 @@ interface InvocationAccumulator {
   managedInvocationRecovery?: OperatorCockpitManagedInvocationRecoveryProjection;
   managedInvocationPhaseCompletion?: OperatorCockpitManagedInvocationPhaseCompletionProjection;
   adoptionGate?: OperatorCockpitManagedOrchestrationAdoptionGateProjection;
+  readonly promptAdmissions: Map<string, OperatorCockpitInvocationPromptAdmissionProjection>;
   eventCount: number;
   latestEventId: string;
   title: string;
@@ -532,13 +553,25 @@ export function projectOperatorCockpitReadOnlyView(
       addEvidenceResourceUris(invocation, invocation.managedInvocationRecovery?.sourceResourceUris ?? []);
       addEvidenceResourceUris(invocation, invocation.managedInvocationPhaseCompletion?.sourceResourceUris ?? []);
       applyManagedInvocationEvidence(invocation, payload);
+      const promptAdmission = readPromptAdmission(event, payload);
+      if (promptAdmission) {
+        const existingPromptAdmission = invocation.promptAdmissions.get(promptAdmission.promptAdmissionId);
+        invocation.promptAdmissions.set(promptAdmission.promptAdmissionId, existingPromptAdmission
+          ? mergePromptAdmission(existingPromptAdmission, promptAdmission)
+          : promptAdmission);
+      }
       const pendingAdoptionGate = adoptionGates.get(adoptionKey);
       if (pendingAdoptionGate) {
         invocation.adoptionGate = pendingAdoptionGate;
         addEvidenceResourceUris(invocation, pendingAdoptionGate.resourceUris);
         addEvidenceResourceUris(invocation, pendingAdoptionGate.rejection?.evidence ?? []);
       }
-      invocation.status = readInvocationStatus(event, payload);
+      if (
+        event.kind !== "agent_invocation_prompt_admitted" &&
+        event.kind !== "agent_invocation_prompt_recovered"
+      ) {
+        invocation.status = readInvocationStatus(event, payload);
+      }
       instance.invocations.add(managedInvocationKey);
       session.invocations.add(managedInvocationId);
     }
@@ -714,6 +747,7 @@ function getOrCreateInvocation(
     target: input.target,
     diagnosticPointers: new Map<string, OperatorCockpitInvocationDiagnosticPointerProjection>(),
     evidenceResourceUris: new Set<string>(),
+    promptAdmissions: new Map<string, OperatorCockpitInvocationPromptAdmissionProjection>(),
     status: "unknown",
     eventCount: 0,
     latestEventId: input.latestEventId,
@@ -787,6 +821,7 @@ function projectSession(input: SessionAccumulator): OperatorCockpitSessionProjec
 }
 
 function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocationProjection {
+  const latestAdmission = latestPromptAdmission(input.promptAdmissions);
   return {
     managedInvocationId: input.managedInvocationId,
     instanceId: input.instanceId,
@@ -808,6 +843,8 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     ...(input.managedInvocationRecovery !== undefined ? { managedInvocationRecovery: input.managedInvocationRecovery } : {}),
     ...(input.managedInvocationPhaseCompletion !== undefined ? { managedInvocationPhaseCompletion: input.managedInvocationPhaseCompletion } : {}),
     ...(input.adoptionGate !== undefined ? { adoptionGate: input.adoptionGate } : {}),
+    promptAdmissionCount: input.promptAdmissions.size,
+    ...(latestAdmission !== undefined ? { latestPromptAdmission: latestAdmission } : {}),
     diagnosticPointers: Array.from(input.diagnosticPointers.values()).sort(compareDiagnosticPointers),
     evidenceResourceUris: Array.from(input.evidenceResourceUris).sort(),
     eventCount: input.eventCount,
@@ -910,6 +947,108 @@ function readProviderRoute(payload: Record<string, unknown>): string | null {
   const model = readString(payload.model) ?? readString(providerRoute.model);
   if (!provider) return null;
   return model ? `${provider}/${model}` : provider;
+}
+
+function readPromptAdmission(
+  event: OperatorSessionEvent,
+  payload: Record<string, unknown>,
+): OperatorCockpitInvocationPromptAdmissionProjection | null {
+  if (
+    event.kind !== "agent_invocation_prompt_admitted" &&
+    event.kind !== "agent_invocation_prompt_recovered"
+  ) {
+    return null;
+  }
+  const promptAdmissionId = readString(payload.promptAdmissionId);
+  const deliveryMode = readPromptDeliveryMode(payload.deliveryMode);
+  const deliveryState = readPromptDeliveryState(payload.deliveryState);
+  if (event.kind === "agent_invocation_prompt_recovered") {
+    const recoveryReason = readString(payload.recoveryReason);
+    const recoveredAt = readString(payload.recoveredAt);
+    if (!promptAdmissionId || !deliveryMode || !deliveryState || !recoveryReason || !recoveredAt) {
+      return null;
+    }
+    const recovery = {
+      reason: recoveryReason,
+      recoveredAt,
+      eventId: event.eventId,
+    };
+    return {
+      promptAdmissionId,
+      deliveryMode,
+      deliveryState,
+      admissionState: "admitted",
+      inputSummary: readString(payload.inputSummary) ?? "",
+      promptHash: readString(payload.promptHash) ?? "",
+      wakeRequested: typeof payload.wakeRequested === "boolean" ? payload.wakeRequested : false,
+      recovery,
+      eventId: event.eventId,
+      sequence: event.sequence,
+      timestamp: event.timestamp,
+    };
+  }
+  const admissionState = readPromptAdmissionState(payload.admissionState);
+  const inputSummary = readString(payload.inputSummary);
+  const promptHash = readString(payload.promptHash);
+  const wakeRequested = typeof payload.wakeRequested === "boolean" ? payload.wakeRequested : null;
+  if (!promptAdmissionId || !deliveryMode || !admissionState || !inputSummary || !promptHash || wakeRequested === null) {
+    return null;
+  }
+  return {
+    promptAdmissionId,
+    deliveryMode,
+    ...(deliveryState !== null ? { deliveryState } : {}),
+    admissionState,
+    inputSummary,
+    promptHash,
+    wakeRequested,
+    eventId: event.eventId,
+    sequence: event.sequence,
+    timestamp: event.timestamp,
+  };
+}
+
+function readPromptDeliveryMode(value: unknown): "steer" | "queue" | null {
+  return value === "steer" || value === "queue" ? value : null;
+}
+
+function readPromptDeliveryState(value: unknown): "available" | "queued" | "delivered" | "stale" | null {
+  return value === "available" || value === "queued" || value === "delivered" || value === "stale" ? value : null;
+}
+
+function readPromptAdmissionState(value: unknown): "admitted" | null {
+  return value === "admitted" ? value : null;
+}
+
+function latestPromptAdmission(
+  admissions: ReadonlyMap<string, OperatorCockpitInvocationPromptAdmissionProjection>,
+): OperatorCockpitInvocationPromptAdmissionProjection | undefined {
+  return Array.from(admissions.values()).sort((left, right) => {
+    if (left.sequence !== right.sequence) {
+      return right.sequence - left.sequence;
+    }
+    const timestampCompare = right.timestamp.localeCompare(left.timestamp);
+    return timestampCompare === 0 ? right.eventId.localeCompare(left.eventId) : timestampCompare;
+  })[0];
+}
+
+function mergePromptAdmission(
+  existing: OperatorCockpitInvocationPromptAdmissionProjection,
+  incoming: OperatorCockpitInvocationPromptAdmissionProjection,
+): OperatorCockpitInvocationPromptAdmissionProjection {
+  return {
+    ...existing,
+    ...incoming,
+    inputSummary: incoming.inputSummary.length > 0 ? incoming.inputSummary : existing.inputSummary,
+    promptHash: incoming.promptHash.length > 0 ? incoming.promptHash : existing.promptHash,
+    wakeRequested: incoming.wakeRequested || existing.wakeRequested,
+    ...(incoming.deliveryState !== undefined || existing.deliveryState !== undefined
+      ? { deliveryState: incoming.deliveryState ?? existing.deliveryState }
+      : {}),
+    ...(incoming.recovery !== undefined || existing.recovery !== undefined
+      ? { recovery: incoming.recovery ?? existing.recovery }
+      : {}),
+  };
 }
 
 function readRouteId(payload: Record<string, unknown>): string | null {
@@ -1793,6 +1932,8 @@ function toSyntheticManagedAgentEvent(
 
 const MANAGED_AGENT_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
   "agent_invocation_requested",
+  "agent_invocation_prompt_admitted",
+  "agent_invocation_prompt_recovered",
   "agent_invocation_started",
   "agent_invocation_completed",
   "agent_invocation_failed",

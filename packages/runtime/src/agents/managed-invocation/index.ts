@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { access, mkdir, rmdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
+import { createHash } from "node:crypto";
 import { win32 as pathWin32 } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -53,6 +54,17 @@ export {
 export type {
   AppendManagedInvocationSessionEventsInput,
 } from "./session-events.js";
+export {
+  appendManagedInvocationPromptAdmissionSessionEvent,
+  appendManagedInvocationPromptRecoverySessionEvent,
+  ManagedInvocationPromptAdmissionConflictError,
+} from "./prompt-admission.js";
+export type {
+  AppendManagedInvocationPromptAdmissionSessionEventInput,
+  AppendManagedInvocationPromptRecoverySessionEventInput,
+  ManagedInvocationPromptDeliveryState,
+  ManagedInvocationPromptDeliveryMode,
+} from "./prompt-admission.js";
 export {
   runManagedAgentFanOutLifecycle,
 } from "./fan-out.js";
@@ -179,6 +191,7 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly request: ManagedAgentInvocationRequest;
   readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly abortSignal: AbortSignal;
+  readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
   readonly environment?: ManagedAgentEnvironmentVariables;
 }
 
@@ -746,9 +759,80 @@ export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly record?: ManagedAgentInvocationRecord;
+  readonly promptInbox?: readonly ManagedAgentRuntimePromptAdmissionRecord[];
   readonly error?: {
     readonly message: string;
   };
+}
+
+export type ManagedAgentRuntimePromptDeliveryMode = "steer" | "queue";
+export type ManagedAgentRuntimePromptDeliveryState = "available" | "queued" | "delivered" | "stale";
+export type ManagedAgentRuntimePromptDeliveryBoundary = "immediate" | "safe-turn";
+
+export interface ManagedAgentRuntimePromptAdmissionRecord {
+  readonly promptAdmissionId: string;
+  readonly invocationId: string;
+  readonly agentId: string;
+  readonly parentSessionId: string;
+  readonly parentTurnId: string;
+  readonly prompt: string;
+  readonly inputSummary: string;
+  readonly promptHash: string;
+  readonly deliveryMode: ManagedAgentRuntimePromptDeliveryMode;
+  readonly deliveryState: ManagedAgentRuntimePromptDeliveryState;
+  readonly wakeRequested: boolean;
+  readonly requestedBy?: string;
+  readonly requestSource?: string;
+  readonly admittedAt: string;
+  readonly updatedAt: string;
+  readonly deliveredAt?: string;
+  readonly recovery?: {
+    readonly reason: string;
+    readonly recoveredAt: string;
+  };
+}
+
+export interface ManagedAgentRuntimePromptAdmissionInput {
+  readonly invocationId: string;
+  readonly promptAdmissionId?: string;
+  readonly prompt: string;
+  readonly deliveryMode: ManagedAgentRuntimePromptDeliveryMode;
+  readonly wakeRequested: boolean;
+  readonly requestedBy?: string;
+  readonly requestSource?: string;
+  readonly admittedAt?: Date;
+}
+
+export interface ManagedAgentRuntimePromptAdmissionResult {
+  readonly status: "admitted";
+  readonly prompt: ManagedAgentRuntimePromptAdmissionRecord;
+}
+
+export interface ManagedAgentRuntimePromptDeliveryClaimInput {
+  readonly invocationId: string;
+  readonly boundary: ManagedAgentRuntimePromptDeliveryBoundary;
+  readonly claimedAt?: Date;
+}
+
+export interface ManagedAgentRuntimePromptDeliveryClaimResult {
+  readonly claimed: readonly ManagedAgentRuntimePromptAdmissionRecord[];
+}
+
+export interface ManagedAgentRuntimePromptDeliveryCoordinator {
+  claim(input: {
+    readonly boundary: ManagedAgentRuntimePromptDeliveryBoundary;
+    readonly claimedAt?: Date;
+  }): ManagedAgentRuntimePromptDeliveryClaimResult;
+}
+
+export interface ManagedAgentRuntimePromptStuckRecoveryInput {
+  readonly staleAfterMs: number;
+  readonly now?: Date;
+  readonly reason?: string;
+}
+
+export interface ManagedAgentRuntimePromptStuckRecoveryResult {
+  readonly recovered: readonly ManagedAgentRuntimePromptAdmissionRecord[];
 }
 
 export type ManagedAgentRuntimeInvocationResult =
@@ -813,6 +897,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   environmentValueLeakingUris?: readonly string[];
   acquiredLeaseStages: ManagedAgentRuntimeLeaseStage[];
   releasedLeaseStages: ManagedAgentRuntimeLeaseStage[];
+  promptInbox: ManagedAgentRuntimePromptAdmissionRecord[];
   adapterStarted: boolean;
   parentAbortCleanup?: () => void;
   leaseFinalization?: Promise<ManagedAgentInvocationRecord>;
@@ -885,6 +970,7 @@ export class RuntimeManagedAgentInvocationService {
       abortController,
       acquiredLeaseStages: [],
       releasedLeaseStages: [],
+      promptInbox: [],
       adapterStarted: false,
       terminal,
       ...(lifecycleOptions.terminalObserver !== undefined
@@ -941,6 +1027,7 @@ export class RuntimeManagedAgentInvocationService {
       adapter,
       admission: cloneJson(registeredDecision),
       abortSignal: abortController.signal,
+      promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
       ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
     }).then(async (record) => {
       if (entry.lifecycleState === "failed" && entry.record) {
@@ -1047,6 +1134,129 @@ export class RuntimeManagedAgentInvocationService {
 
   list(): readonly ManagedAgentRuntimeInvocationSnapshot[] {
     return Array.from(this.invocations.values(), snapshotInvocation);
+  }
+
+  admitPrompt(input: ManagedAgentRuntimePromptAdmissionInput): ManagedAgentRuntimePromptAdmissionResult {
+    const entry = this.invocations.get(input.invocationId);
+    if (!entry) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is not registered");
+    }
+    if (isTerminalLifecycleState(entry.lifecycleState)) {
+      throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime invocation is already terminal: ${entry.lifecycleState}`);
+    }
+    const prompt = validatePromptText(input.prompt);
+    const admittedAt = input.admittedAt ?? new Date();
+    assertValidRuntimeDate(admittedAt, "Managed agent prompt admission timestamp is invalid");
+    const promptAdmissionId = input.promptAdmissionId
+      ? validatePromptId(input.promptAdmissionId)
+      : `runtime-prompt-${entry.request.invocationId}-${entry.promptInbox.length + 1}`;
+    const existing = entry.promptInbox.find((record) => record.promptAdmissionId === promptAdmissionId);
+    if (existing) {
+      assertSameRuntimePromptAdmission(existing, {
+        prompt,
+        deliveryMode: input.deliveryMode,
+        wakeRequested: input.wakeRequested,
+        requestedBy: input.requestedBy,
+        requestSource: input.requestSource,
+      });
+      return {
+        status: "admitted",
+        prompt: cloneJson(existing),
+      };
+    }
+    const promptRecord: ManagedAgentRuntimePromptAdmissionRecord = {
+      promptAdmissionId,
+      invocationId: entry.request.invocationId,
+      agentId: entry.request.agentId,
+      parentSessionId: entry.request.parentSessionId,
+      parentTurnId: entry.request.parentTurnId,
+      prompt,
+      inputSummary: summarizeRuntimePrompt(prompt),
+      promptHash: hashRuntimePrompt(prompt),
+      deliveryMode: input.deliveryMode,
+      deliveryState: input.deliveryMode === "steer" ? "available" : "queued",
+      wakeRequested: input.wakeRequested,
+      ...(input.requestedBy !== undefined ? { requestedBy: input.requestedBy } : {}),
+      ...(input.requestSource !== undefined ? { requestSource: input.requestSource } : {}),
+      admittedAt: admittedAt.toISOString(),
+      updatedAt: admittedAt.toISOString(),
+    };
+    entry.promptInbox.push(promptRecord);
+    return {
+      status: "admitted",
+      prompt: cloneJson(promptRecord),
+    };
+  }
+
+  claimPromptDeliveries(input: ManagedAgentRuntimePromptDeliveryClaimInput): ManagedAgentRuntimePromptDeliveryClaimResult {
+    const entry = this.invocations.get(input.invocationId);
+    if (!entry) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is not registered");
+    }
+    const claimedAt = input.claimedAt ?? new Date();
+    assertValidRuntimeDate(claimedAt, "Managed agent prompt delivery claim timestamp is invalid");
+    const claimed: ManagedAgentRuntimePromptAdmissionRecord[] = [];
+    for (const prompt of entry.promptInbox) {
+      if (!isPromptClaimable(prompt, input.boundary)) {
+        continue;
+      }
+      const mutablePrompt = prompt as {
+        deliveryState: ManagedAgentRuntimePromptDeliveryState;
+        deliveredAt?: string;
+        updatedAt: string;
+      };
+      mutablePrompt.deliveryState = "delivered";
+      mutablePrompt.deliveredAt = claimedAt.toISOString();
+      mutablePrompt.updatedAt = claimedAt.toISOString();
+      claimed.push(cloneJson(prompt));
+    }
+    return {
+      claimed,
+    };
+  }
+
+  recoverStuckPromptAdmissions(
+    input: ManagedAgentRuntimePromptStuckRecoveryInput,
+  ): ManagedAgentRuntimePromptStuckRecoveryResult {
+    if (!Number.isFinite(input.staleAfterMs) || input.staleAfterMs <= 0) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent prompt stale threshold must be greater than zero");
+    }
+    const now = input.now ?? new Date();
+    assertValidRuntimeDate(now, "Managed agent prompt recovery timestamp is invalid");
+    const reason = stuckPromptRecoveryReason(input.reason);
+    const recovered: ManagedAgentRuntimePromptAdmissionRecord[] = [];
+    for (const entry of this.invocations.values()) {
+      if (isTerminalLifecycleState(entry.lifecycleState)) {
+        continue;
+      }
+      for (const prompt of entry.promptInbox) {
+        if (prompt.deliveryState !== "available" && prompt.deliveryState !== "queued") {
+          continue;
+        }
+        const ageMs = now.getTime() - new Date(prompt.admittedAt).getTime();
+        if (ageMs < input.staleAfterMs) {
+          continue;
+        }
+        const mutablePrompt = prompt as {
+          deliveryState: ManagedAgentRuntimePromptDeliveryState;
+          updatedAt: string;
+          recovery?: {
+            reason: string;
+            recoveredAt: string;
+          };
+        };
+        mutablePrompt.deliveryState = "stale";
+        mutablePrompt.updatedAt = now.toISOString();
+        mutablePrompt.recovery = {
+          reason,
+          recoveredAt: now.toISOString(),
+        };
+        recovered.push(cloneJson(prompt));
+      }
+    }
+    return {
+      recovered,
+    };
   }
 
   async cancel(invocationId: string, reason = "Managed invocation cancelled."): Promise<ManagedAgentRuntimeInvocationCancelResult> {
@@ -1225,6 +1435,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly adapter: ManagedAgentRuntimeAdapter;
     readonly admission: ManagedAgentAdmissionDecision;
     readonly abortSignal?: AbortSignal;
+    readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
     readonly environment?: ManagedAgentEnvironmentVariables;
   }): Promise<ManagedAgentInvocationRecord> {
     const admission = this.requireRuntimeAdmission(input);
@@ -1233,10 +1444,21 @@ export class RuntimeManagedAgentInvocationService {
       request: input.request,
       admission,
       abortSignal: input.abortSignal ?? new AbortController().signal,
+      promptDelivery: input.promptDelivery ?? this.promptDeliveryCoordinator(input.request.invocationId),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
     });
     this.assertRecordWithinAdmission(record, input.request, admission);
     return record;
+  }
+
+  private promptDeliveryCoordinator(invocationId: string): ManagedAgentRuntimePromptDeliveryCoordinator {
+    return {
+      claim: (input) => this.claimPromptDeliveries({
+        invocationId,
+        boundary: input.boundary,
+        ...(input.claimedAt !== undefined ? { claimedAt: input.claimedAt } : {}),
+      }),
+    };
   }
 
   private bindParentAbortSignal(
@@ -1865,6 +2087,7 @@ function invocationEntryFromRecoveryCheckpoint(
     runtimeLeaseForRelease: cloneJson(validated.runtimeLeaseForRelease),
     acquiredLeaseStages: [...validated.acquiredLeaseStages],
     releasedLeaseStages: [...validated.releasedLeaseStages],
+    promptInbox: [],
     adapterStarted: validated.adapterStarted,
     ...(validated.finishedAt !== undefined ? { finishedAt: new Date(validated.finishedAt) } : {}),
     ...(validated.record !== undefined ? { record: cloneJson(validated.record) } : {}),
@@ -1914,6 +2137,7 @@ function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedA
     request: cloneJson(entry.request),
     decision: cloneJson(entry.decision),
     ...(snapshotRecord(entry) !== undefined ? { record: cloneJson(snapshotRecord(entry)) } : {}),
+    ...(entry.promptInbox.length > 0 ? { promptInbox: cloneJson(entry.promptInbox) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
   };
 }
@@ -2175,6 +2399,79 @@ function cloneJson<T>(value: T): T {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function validatePromptText(value: string): string {
+  if (typeof value !== "string") {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent prompt must be a string");
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent prompt is required");
+  }
+  return trimmed;
+}
+
+function validatePromptId(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent prompt admission id is required");
+  }
+  return trimmed;
+}
+
+function assertValidRuntimeDate(value: Date, message: string): void {
+  if (Number.isNaN(value.getTime())) {
+    throw new ManagedAgentRuntimeAdmissionError(message);
+  }
+}
+
+function summarizeRuntimePrompt(prompt: string): string {
+  const normalized = prompt.replace(/\s+/gu, " ").trim();
+  return normalized.length <= 160 ? normalized : `${normalized.slice(0, 157)}...`;
+}
+
+function hashRuntimePrompt(prompt: string): string {
+  return `sha256:${createHash("sha256").update(prompt, "utf8").digest("hex")}`;
+}
+
+function assertSameRuntimePromptAdmission(
+  existing: ManagedAgentRuntimePromptAdmissionRecord,
+  candidate: {
+    readonly prompt: string;
+    readonly deliveryMode: ManagedAgentRuntimePromptDeliveryMode;
+    readonly wakeRequested: boolean;
+    readonly requestedBy?: string;
+    readonly requestSource?: string;
+  },
+): void {
+  if (
+    existing.prompt !== candidate.prompt ||
+    existing.deliveryMode !== candidate.deliveryMode ||
+    existing.wakeRequested !== candidate.wakeRequested ||
+    existing.requestedBy !== candidate.requestedBy ||
+    existing.requestSource !== candidate.requestSource
+  ) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed agent prompt admission id already exists with different evidence");
+  }
+}
+
+function isPromptClaimable(
+  prompt: ManagedAgentRuntimePromptAdmissionRecord,
+  boundary: ManagedAgentRuntimePromptDeliveryBoundary,
+): boolean {
+  if (prompt.deliveryState === "available") {
+    return boundary === "immediate" || boundary === "safe-turn";
+  }
+  if (prompt.deliveryState === "queued") {
+    return boundary === "safe-turn";
+  }
+  return false;
+}
+
+function stuckPromptRecoveryReason(reason: string | undefined): string {
+  const trimmed = reason?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : "Managed invocation prompt marked stale by runtime recovery.";
 }
 
 function staleRecoveryReason(reason: string | undefined): string {

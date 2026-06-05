@@ -57,6 +57,7 @@ import {
 } from "../agents/managed-invocation/runtime-tool.js";
 import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
+import { appendManagedInvocationPromptAdmissionSessionEvent } from "../agents/managed-invocation/prompt-admission.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
@@ -341,7 +342,7 @@ function isBrowserOperatorInputConsumer(value: unknown): value is BrowserOperato
 }
 
 function isManagedAgentControlAction(value: unknown): value is GuiManagedAgentControlAction {
-  return value === "cancel" || value === "join";
+  return value === "cancel" || value === "join" || value === "prompt";
 }
 
 function findManagedInvocationTerminalSessionEvents(
@@ -1132,7 +1133,7 @@ function wireOperatorTransport(
               };
 
               if (!action) {
-                fail("Managed agent control action must be cancel or join.");
+                fail("Managed agent control action must be cancel, join, or prompt.");
                 return;
               }
               if (!sessionId || !invocationId) {
@@ -1160,6 +1161,73 @@ function wireOperatorTransport(
               }
 
               try {
+                if (action === "prompt") {
+                  const prompt = typeof frame.prompt === "string" ? frame.prompt.trim() : "";
+                  const deliveryMode = frame.deliveryMode === "steer" || frame.deliveryMode === "queue"
+                    ? frame.deliveryMode
+                    : undefined;
+                  if (prompt.length === 0) {
+                    fail("Managed agent prompt control requires prompt.");
+                    return;
+                  }
+                  if (!deliveryMode) {
+                    fail("Managed agent prompt control requires deliveryMode steer or queue.");
+                    return;
+                  }
+                  const deliveryState = deliveryMode === "steer" ? "available" : "queued";
+                  const promptEvent = appendManagedInvocationPromptAdmissionSessionEvent({
+                    session,
+                    invocationId,
+                    agentId: snapshot.agentId,
+                    parentTurnId: snapshot.parentTurnId,
+                    prompt,
+                    deliveryMode,
+                    deliveryState,
+                    requestedBy: userId,
+                    requestSource: "gui",
+                    wakeRequested: typeof frame.wakeRequested === "boolean" ? frame.wakeRequested : deliveryMode === "steer",
+                    source: {
+                      actor: "runtime",
+                      surface: "gui",
+                      component: "gui-gateway",
+                    },
+                  });
+                  invocationService.admitPrompt({
+                    invocationId,
+                    promptAdmissionId: promptEvent.promptAdmissionId,
+                    prompt,
+                    deliveryMode,
+                    wakeRequested: promptEvent.wakeRequested,
+                    requestedBy: userId,
+                    requestSource: "gui",
+                    admittedAt: promptEvent.timestamp,
+                  });
+                  await sessionRegistry.save(session);
+                  await input.managedInvocation?.sessionEventSink?.publish([promptEvent], {
+                    session,
+                    toolCall: {
+                      id: requestId ?? `managed-agent-control:${action}:${invocationId}`,
+                      name: "managed_agent.prompt",
+                      input: {
+                        action,
+                        sessionId,
+                        invocationId,
+                        promptAdmissionId: promptEvent.promptAdmissionId,
+                        deliveryMode,
+                        wakeRequested: promptEvent.wakeRequested,
+                      },
+                    },
+                  });
+                  activityStreamer.forwardSessionEvents([promptEvent]);
+                  ws.send(JSON.stringify(managedAgentControlResult({
+                    action,
+                    sessionId,
+                    invocationId,
+                    status: "accepted",
+                    ...(requestId ? { requestId } : {}),
+                  })));
+                  return;
+                }
                 if (action === "cancel") {
                   await invocationService.cancel(invocationId, reason);
                 }

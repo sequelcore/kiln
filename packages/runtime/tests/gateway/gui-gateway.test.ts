@@ -3613,6 +3613,230 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("admits live managed-agent prompts and streams canonical prompt evidence", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const invocationService = new RuntimeManagedAgentInvocationService();
+    const baseManagedInvocation = makeManagedInvocationOptions();
+    const baseRoute = baseManagedInvocation.routes[0]!;
+    const controlRoute = {
+      ...baseRoute,
+      profiles: {
+        ...baseRoute.profiles,
+        "foundation-readonly-plan": {
+          ...baseRoute.profiles["foundation-readonly-plan"]!,
+          credentialRoute: { mode: "credentialless" as const },
+        },
+      },
+    };
+    const parentSessionId = "session-prompt-control";
+    let completeChild!: () => void;
+    let startedInvocationId = "";
+    const sessionEventSink = { publish: vi.fn() };
+    const promptableAdapter: ManagedAgentRuntimeAdapter = {
+      descriptor: baseRoute.adapter.descriptor,
+      invoke: async ({ request: adapterRequest, admission }) => {
+        await new Promise<void>((resolve) => {
+          completeChild = resolve;
+        });
+        return defineManagedAgentInvocationRecord({
+          invocationId: adapterRequest.invocationId,
+          agentId: adapterRequest.agentId,
+          parentSessionId: adapterRequest.parentSessionId,
+          parentTurnId: adapterRequest.parentTurnId,
+          profile: adapterRequest.profile,
+          lifecycleState: "completed",
+          providerRoute: adapterRequest.providerRoute,
+          adapterKind: adapterRequest.adapterKind,
+          executionMode: adapterRequest.executionMode,
+          authority: adapterRequest.authority,
+          capabilitySnapshot: admission.capabilitySnapshot,
+          resultHandoff: {
+            summary: "Promptable child completed.",
+            resourceUris: [],
+            memoryWriteProposalUris: [],
+          },
+        });
+      },
+    };
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const session = await input.sessionRegistry.getOrCreate({
+        sessionId: parentSessionId,
+        appName: "kiln-gui",
+        tenantId: "_gui",
+        userId: "operator-1",
+        systemPrompt: "You are a helpful assistant.",
+      });
+      const startManagedAgent = input.callBuiltinTools?.get("managed_agent.start");
+      if (!startManagedAgent) {
+        throw new Error("managed_agent.start was not attached to the GUI turn surface");
+      }
+      const toolResult = await startManagedAgent({
+        profile: "foundation-readonly-plan",
+        routeId: baseRoute.routeId,
+        providerRoute: {
+          providerId: baseRoute.providerId,
+          model: baseRoute.model,
+        },
+        task: "Inspect a promptable GUI child.",
+      }, {
+        session,
+        toolCall: {
+          id: "tool-call-managed-prompt-start",
+          name: "managed_agent.start",
+          input: {},
+        },
+      });
+      if (toolResult.isError) {
+        throw new Error(toolResult.output);
+      }
+      startedInvocationId = (toolResult.metadata as { invocationId: string }).invocationId;
+      await input.sessionRegistry.save(session);
+      return {
+        ok: true,
+        result: {
+          parts: [{ type: "text", text: "Child is running." }],
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: session.id,
+          sessionMode: "mode-a",
+          traceId: "trace-managed-prompt-control",
+        },
+      } as never;
+    });
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        managedInvocation: {
+          ...baseManagedInvocation,
+          invocationService,
+          sessionEventSink,
+          routes: [{
+            ...controlRoute,
+            adapter: promptableAdapter,
+          }],
+        },
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
+        "Expected GUI provider discovery to finish before starting managed-agent prompt fixture.",
+      );
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "start child" }),
+        }),
+        wsCtx,
+      );
+      expect(startedInvocationId).not.toBe("");
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "managed_agent_control",
+            action: "prompt",
+            sessionId: parentSessionId,
+            invocationId: startedInvocationId,
+            prompt: "Use the latest runtime ledger evidence before continuing.",
+            deliveryMode: "steer",
+            wakeRequested: true,
+            requestId: "managed-agent-prompt-accepted",
+          }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as {
+          type: string;
+          action?: string;
+          status?: string;
+          requestId?: string;
+          event?: { kind: string; payload: Record<string, unknown> };
+        });
+      const controlResultFrame = outboundFrames.find((frame) =>
+        frame.type === "managed_agent_control_result" && frame.action === "prompt"
+      );
+      const promptEventFrame = outboundFrames.find((frame) =>
+        frame.type === "session_event"
+        && frame.event?.kind === "agent_invocation_prompt_admitted"
+      );
+
+      expect(controlResultFrame).toMatchObject({
+        type: "managed_agent_control_result",
+        action: "prompt",
+        sessionId: parentSessionId,
+        invocationId: startedInvocationId,
+        status: "accepted",
+        requestId: "managed-agent-prompt-accepted",
+      });
+      expect(promptEventFrame?.event?.payload).toMatchObject({
+        invocationId: startedInvocationId,
+        agentId: invocationService.status(startedInvocationId)?.agentId,
+        parentSessionId,
+        deliveryMode: "steer",
+        admissionState: "admitted",
+        inputSummary: "Use the latest runtime ledger evidence before continuing.",
+        wakeRequested: true,
+        requestedBy: "operator-1",
+        requestSource: "gui",
+      });
+      expect(invocationService.status(startedInvocationId)?.promptInbox).toEqual([
+        expect.objectContaining({
+          promptAdmissionId: promptEventFrame?.event?.payload.promptAdmissionId,
+          deliveryMode: "steer",
+          deliveryState: "available",
+        }),
+      ]);
+      expect(sessionEventSink.publish).toHaveBeenCalledWith(
+        [expect.objectContaining({ kind: "agent_invocation_prompt_admitted" })],
+        expect.objectContaining({
+          toolCall: expect.objectContaining({
+            id: "managed-agent-prompt-accepted",
+            name: "managed_agent.prompt",
+          }),
+        }),
+      );
+
+      completeChild();
+      await invocationService.join(startedInvocationId);
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("joins a live managed-agent invocation and streams terminal evidence", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

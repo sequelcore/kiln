@@ -4,15 +4,26 @@ import type {
   OperatorCockpitManagedAgentViewState,
   OperatorCockpitTimelineEntry,
 } from "@kilnai/gateway-contracts";
-import { AlertTriangle, Bot, ExternalLink, ShieldAlert } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, Bot, ExternalLink, Send, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+
+type ManagedAgentPromptDeliveryMode = "steer" | "queue";
 
 interface ManagedAgentCockpitPanelProps {
   readonly viewState: OperatorCockpitManagedAgentViewState;
   readonly onOpenResource?: (uri: string) => void;
   readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onPrompt?: (input: {
+    readonly sessionId: string;
+    readonly invocationId: string;
+    readonly prompt: string;
+    readonly deliveryMode: ManagedAgentPromptDeliveryMode;
+    readonly wakeRequested: boolean;
+  }) => void;
 }
 
 const ATTENTION_LABELS: Record<OperatorCockpitManagedAgentAttentionState, string> = {
@@ -111,6 +122,79 @@ function ManagedAgentResources(props: {
   );
 }
 
+function ManagedAgentPromptControl(props: {
+  readonly item: OperatorCockpitManagedAgentViewItem;
+  readonly onPrompt?: ManagedAgentCockpitPanelProps["onPrompt"];
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState<ManagedAgentPromptDeliveryMode>("steer");
+  const active = props.item.attentionState === "active";
+  const canPrompt = active && props.onPrompt !== undefined;
+  if (!canPrompt) {
+    return null;
+  }
+  const trimmedPrompt = prompt.trim();
+  const invocationId = props.item.managedInvocationId;
+  const sendPrompt = (): void => {
+    if (trimmedPrompt.length === 0) {
+      return;
+    }
+    props.onPrompt?.({
+      sessionId: props.item.sessionId,
+      invocationId,
+      prompt: trimmedPrompt,
+      deliveryMode,
+      wakeRequested: deliveryMode === "steer",
+    });
+    setPrompt("");
+  };
+  return (
+    <div className="mt-3 grid gap-2 border-t border-border/70 pt-3">
+      <Textarea
+        aria-label={`Prompt managed child ${invocationId}`}
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        rows={2}
+        className="min-h-16 resize-none text-sm"
+      />
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="inline-flex shrink-0 rounded-md border border-border bg-background p-0.5" role="group" aria-label={`Prompt delivery for ${invocationId}`}>
+          <Button
+            type="button"
+            size="xs"
+            variant={deliveryMode === "steer" ? "secondary" : "ghost"}
+            aria-pressed={deliveryMode === "steer"}
+            aria-label={`Steer prompt delivery for ${invocationId}`}
+            onClick={() => setDeliveryMode("steer")}
+          >
+            Steer
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant={deliveryMode === "queue" ? "secondary" : "ghost"}
+            aria-pressed={deliveryMode === "queue"}
+            aria-label={`Queue prompt delivery for ${invocationId}`}
+            onClick={() => setDeliveryMode("queue")}
+          >
+            Queue
+          </Button>
+        </div>
+        <Button
+          type="button"
+          size="xs"
+          disabled={trimmedPrompt.length === 0}
+          aria-label={`Send prompt to managed child ${invocationId}`}
+          onClick={sendPrompt}
+        >
+          <Send data-icon="inline-start" aria-hidden="true" />
+          Send
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitManagedAgentViewItem }) {
   const conflict = props.item.worktreeConflict;
   if (!props.item.worktreeConflictBlocked || !conflict) {
@@ -151,6 +235,7 @@ function ManagedAgentItem(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
   readonly onOpenResource?: (uri: string) => void;
   readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onPrompt?: ManagedAgentCockpitPanelProps["onPrompt"];
 }) {
   const item = props.item;
   const needsReview = item.attentionState === "needs_review";
@@ -257,6 +342,7 @@ function ManagedAgentItem(props: {
       ) : null}
       <ManagedAgentWorktreeConflict item={item} />
       <ManagedAgentResources item={item} onOpenResource={props.onOpenResource} />
+      <ManagedAgentPromptControl item={item} onPrompt={props.onPrompt} />
       <ManagedAgentTimeline entries={item.lifecycleTimeline} />
     </article>
   );
@@ -294,6 +380,7 @@ export function ManagedAgentCockpitPanel(props: ManagedAgentCockpitPanelProps) {
                 item={item}
                 onOpenResource={props.onOpenResource}
                 onCancel={props.onCancel}
+                onPrompt={props.onPrompt}
               />
             ))}
           </div>

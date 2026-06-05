@@ -343,6 +343,8 @@ export type OperatorSessionEventKind =
   | "work_item_execution_started"
   | "work_item_execution_finished"
   | "agent_invocation_requested"
+  | "agent_invocation_prompt_admitted"
+  | "agent_invocation_prompt_recovered"
   | "agent_invocation_started"
   | "agent_invocation_completed"
   | "agent_invocation_failed"
@@ -356,6 +358,8 @@ export type GuiSessionEventKind = OperatorSessionEventKind;
 
 export type OperatorAgentInvocationSessionEventKind =
   | "agent_invocation_requested"
+  | "agent_invocation_prompt_admitted"
+  | "agent_invocation_prompt_recovered"
   | "agent_invocation_started"
   | "agent_invocation_completed"
   | "agent_invocation_failed"
@@ -466,6 +470,16 @@ export interface OperatorManagedAgentInvocationEventPayload extends Record<strin
   readonly requestedAuthority?: "auto" | "read_only" | "audited" | "destructive";
   readonly authorityProfileId?: string;
   readonly capabilitySnapshot?: OperatorManagedAgentCapabilitySnapshot;
+  readonly promptAdmissionId?: string;
+  readonly deliveryMode?: "steer" | "queue";
+  readonly deliveryState?: "available" | "queued" | "delivered" | "stale";
+  readonly previousDeliveryState?: "available" | "queued" | "delivered" | "stale";
+  readonly admissionState?: "admitted";
+  readonly inputSummary?: string;
+  readonly promptHash?: string;
+  readonly wakeRequested?: boolean;
+  readonly recoveryReason?: string;
+  readonly recoveredAt?: string;
 }
 
 export interface OperatorSessionEvent {
@@ -646,7 +660,7 @@ export interface GuiBrowserSessionControlFrame {
   readonly requestId?: string;
 }
 
-export type GuiManagedAgentControlAction = "cancel" | "join";
+export type GuiManagedAgentControlAction = "cancel" | "join" | "prompt";
 
 export type GuiManagedAgentControlResultStatus = "accepted" | "failed";
 
@@ -655,6 +669,9 @@ export interface GuiManagedAgentControlFrame {
   readonly action: GuiManagedAgentControlAction;
   readonly sessionId: string;
   readonly invocationId: string;
+  readonly prompt?: string;
+  readonly deliveryMode?: "steer" | "queue";
+  readonly wakeRequested?: boolean;
   readonly reason?: string;
   readonly requestId?: string;
 }

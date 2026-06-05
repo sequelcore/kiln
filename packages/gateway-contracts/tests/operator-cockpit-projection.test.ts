@@ -1277,6 +1277,192 @@ describe("operator cockpit read-only projection", () => {
     });
   });
 
+  it("projects admitted managed invocation prompts without downgrading running lifecycle state", () => {
+    const rawEvents: readonly OperatorSessionEvent[] = [{
+      eventId: "prompt-admission:event:started",
+      kilnSessionId: "prompt-admission:session:1",
+      sequence: 1,
+      timestamp: "2026-06-05T16:00:00.000Z",
+      turnId: "prompt-admission:turn:1",
+      kind: "agent_invocation_started",
+      payload: {
+        instanceId: "prompt-admission:instance:gui",
+        sessionId: "prompt-admission:session:1",
+        managedInvocationId: "prompt-admission:child:1",
+        invocationId: "prompt-admission:child:1",
+        agentId: "agent-reviewer",
+        lifecycleState: "running",
+      },
+    }, {
+      eventId: "prompt-admission:event:prompt-1",
+      kilnSessionId: "prompt-admission:session:1",
+      sequence: 2,
+      timestamp: "2026-06-05T16:00:05.000Z",
+      turnId: "prompt-admission:turn:1",
+      kind: "agent_invocation_prompt_admitted",
+      payload: {
+        instanceId: "prompt-admission:instance:gui",
+        sessionId: "prompt-admission:session:1",
+        managedInvocationId: "prompt-admission:child:1",
+        invocationId: "prompt-admission:child:1",
+        agentId: "agent-reviewer",
+        parentTurnId: "prompt-admission:turn:1",
+        promptAdmissionId: "prompt-admission:prompt:1",
+        deliveryMode: "steer",
+        admissionState: "admitted",
+        inputSummary: "Use the latest runtime ledger evidence.",
+        promptHash: "sha256:5d41402abc4b2a76b9719d911017c592",
+        wakeRequested: true,
+      },
+    }, {
+      eventId: "prompt-admission:event:prompt-2",
+      kilnSessionId: "prompt-admission:session:1",
+      sequence: 3,
+      timestamp: "2026-06-05T16:00:10.000Z",
+      turnId: "prompt-admission:turn:1",
+      kind: "agent_invocation_prompt_admitted",
+      payload: {
+        instanceId: "prompt-admission:instance:gui",
+        sessionId: "prompt-admission:session:1",
+        managedInvocationId: "prompt-admission:child:1",
+        invocationId: "prompt-admission:child:1",
+        agentId: "agent-reviewer",
+        parentTurnId: "prompt-admission:turn:1",
+        promptAdmissionId: "prompt-admission:prompt:2",
+        deliveryMode: "queue",
+        admissionState: "admitted",
+        inputSummary: "Queue follow-up until the child reaches a safe boundary.",
+        promptHash: "sha256:7d793037a0760186574b0282f2f435e7",
+        wakeRequested: false,
+      },
+    }];
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-06-05T16:01:00.000Z",
+      attachTargets: [{
+        instanceId: "prompt-admission:instance:gui",
+        label: "GUI",
+        kind: "local",
+      }],
+      events: rawEvents,
+    });
+
+    expect(projection.timeline.map((event) => event.title)).toEqual([
+      "Agent invocation started",
+      "Agent prompt admitted",
+      "Agent prompt admitted",
+    ]);
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "prompt-admission:child:1",
+      status: "running",
+      lifecycleState: "running",
+      promptAdmissionCount: 2,
+      latestPromptAdmission: {
+        promptAdmissionId: "prompt-admission:prompt:2",
+        deliveryMode: "queue",
+        admissionState: "admitted",
+        inputSummary: "Queue follow-up until the child reaches a safe boundary.",
+        wakeRequested: false,
+        eventId: "prompt-admission:event:prompt-2",
+        sequence: 3,
+      },
+    });
+  });
+
+  it("projects stuck prompt recovery as replayable managed invocation evidence", () => {
+    const rawEvents: readonly OperatorSessionEvent[] = [{
+      eventId: "prompt-recovery:event:started",
+      kilnSessionId: "prompt-recovery:session:1",
+      sequence: 1,
+      timestamp: "2026-06-05T16:00:00.000Z",
+      turnId: "prompt-recovery:turn:1",
+      kind: "agent_invocation_started",
+      payload: {
+        instanceId: "prompt-recovery:instance:gui",
+        sessionId: "prompt-recovery:session:1",
+        managedInvocationId: "prompt-recovery:child:1",
+        invocationId: "prompt-recovery:child:1",
+        agentId: "agent-reviewer",
+        lifecycleState: "running",
+      },
+    }, {
+      eventId: "prompt-recovery:event:prompt-1",
+      kilnSessionId: "prompt-recovery:session:1",
+      sequence: 2,
+      timestamp: "2026-06-05T16:00:05.000Z",
+      turnId: "prompt-recovery:turn:1",
+      kind: "agent_invocation_prompt_admitted",
+      payload: {
+        instanceId: "prompt-recovery:instance:gui",
+        sessionId: "prompt-recovery:session:1",
+        managedInvocationId: "prompt-recovery:child:1",
+        invocationId: "prompt-recovery:child:1",
+        agentId: "agent-reviewer",
+        parentTurnId: "prompt-recovery:turn:1",
+        promptAdmissionId: "prompt-recovery:prompt:1",
+        deliveryMode: "queue",
+        deliveryState: "queued",
+        admissionState: "admitted",
+        inputSummary: "Queue follow-up until the child reaches a safe boundary.",
+        promptHash: "sha256:7d793037a0760186574b0282f2f435e7",
+        wakeRequested: false,
+      },
+    }, {
+      eventId: "prompt-recovery:event:prompt-1:recovered",
+      kilnSessionId: "prompt-recovery:session:1",
+      sequence: 3,
+      timestamp: "2026-06-05T16:02:05.000Z",
+      turnId: "prompt-recovery:turn:1",
+      kind: "agent_invocation_prompt_recovered",
+      payload: {
+        instanceId: "prompt-recovery:instance:gui",
+        sessionId: "prompt-recovery:session:1",
+        managedInvocationId: "prompt-recovery:child:1",
+        invocationId: "prompt-recovery:child:1",
+        agentId: "agent-reviewer",
+        parentTurnId: "prompt-recovery:turn:1",
+        promptAdmissionId: "prompt-recovery:prompt:1",
+        deliveryMode: "queue",
+        previousDeliveryState: "queued",
+        deliveryState: "stale",
+        recoveryReason: "Prompt remained queued beyond the managed-agent control timeout.",
+        recoveredAt: "2026-06-05T16:02:05.000Z",
+      },
+    }];
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-06-05T16:03:00.000Z",
+      attachTargets: [{
+        instanceId: "prompt-recovery:instance:gui",
+        label: "GUI",
+        kind: "local",
+      }],
+      events: rawEvents,
+    });
+
+    expect(projection.timeline.map((event) => event.title)).toEqual([
+      "Agent invocation started",
+      "Agent prompt admitted",
+      "Agent prompt recovered",
+    ]);
+    expect(projection.invocations[0]).toMatchObject({
+      managedInvocationId: "prompt-recovery:child:1",
+      status: "running",
+      lifecycleState: "running",
+      promptAdmissionCount: 1,
+      latestPromptAdmission: {
+        promptAdmissionId: "prompt-recovery:prompt:1",
+        deliveryMode: "queue",
+        deliveryState: "stale",
+        recovery: {
+          reason: "Prompt remained queued beyond the managed-agent control timeout.",
+          recoveredAt: "2026-06-05T16:02:05.000Z",
+          eventId: "prompt-recovery:event:prompt-1:recovered",
+        },
+      },
+    });
+  });
+
   it("projects non-substantive managed handoff recovery from managed_agent.invoke evidence", () => {
     const rawEvents: readonly OperatorSessionEvent[] = [{
       eventId: "recovery:event:invoke",

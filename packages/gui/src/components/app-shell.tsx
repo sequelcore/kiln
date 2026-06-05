@@ -1391,6 +1391,29 @@ export function AppShell() {
       reason: "Operator cancelled the managed child from the GUI cockpit.",
     });
   };
+  const promptManagedAgent = (input: {
+    readonly sessionId: string;
+    readonly invocationId: string;
+    readonly prompt: string;
+    readonly deliveryMode: "steer" | "queue";
+    readonly wakeRequested: boolean;
+  }): void => {
+    const sendFrame = sendRef.current;
+    if (!sendFrame) {
+      setErrorBanner("Managed agent control is unavailable until the gateway connection is open.");
+      return;
+    }
+    sendFrame({
+      type: "managed_agent_control",
+      action: "prompt",
+      sessionId: input.sessionId,
+      invocationId: input.invocationId,
+      prompt: input.prompt,
+      deliveryMode: input.deliveryMode,
+      wakeRequested: input.wakeRequested,
+      reason: "Operator sent a managed-child follow-up prompt from the GUI cockpit.",
+    });
+  };
 
   const sessionsPanel = (
     <SessionList
@@ -1810,6 +1833,7 @@ export function AppShell() {
                 viewState={managedAgentCockpitView}
                 onOpenResource={(uri) => void openManagedAgentResource(uri)}
                 onCancel={cancelManagedAgent}
+                onPrompt={promptManagedAgent}
               />
             </div>
           ) : workbenchSurface === "activity" ? (

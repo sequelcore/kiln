@@ -1470,6 +1470,8 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
   const durationMs = readNumber(payload.durationMs);
   const titles: Record<string, string> = {
     agent_invocation_requested: "Agent invocation requested",
+    agent_invocation_prompt_admitted: "Agent prompt admitted",
+    agent_invocation_prompt_recovered: "Agent prompt recovered",
     agent_invocation_started: "Agent invocation started",
     agent_invocation_completed: "Agent invocation completed",
     agent_invocation_failed: "Agent invocation failed",
@@ -1488,6 +1490,12 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
       : routeSummary;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Agent", label);
+  addItem(details, "Prompt admission", payload.promptAdmissionId);
+  addItem(details, "Delivery", payload.deliveryMode);
+  addItem(details, "Delivery state", payload.deliveryState);
+  addItem(details, "Previous delivery state", payload.previousDeliveryState);
+  addItem(details, "Prompt", payload.inputSummary);
+  addItem(details, "Wake requested", payload.wakeRequested);
   addItem(details, "Profile", payload.profile);
   addItem(details, "Provider", asRecord(payload.providerRoute)?.providerId);
   addItem(details, "Model", asRecord(payload.providerRoute)?.model);
@@ -1512,11 +1520,13 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
   addItem(details, "Result", payload.resultSummary ?? payload.result);
   addItem(details, "Error", payload.errorMessage ?? payload.errorCode);
   addItem(details, "Reason", payload.reason);
+  addItem(details, "Recovery reason", payload.recoveryReason);
+  addItem(details, "Recovered at", payload.recoveredAt);
   addPrimitiveItems(
     details,
     payload,
     8,
-    ["agentName", "agentType", "agentId", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "managedInvocationEvidence", "invocationId", "parentTurnId", "routeId", "routeSource", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "cancelledBy"],
+    ["agentName", "agentType", "agentId", "promptAdmissionId", "deliveryMode", "deliveryState", "previousDeliveryState", "admissionState", "inputSummary", "promptHash", "wakeRequested", "profile", "providerRoute", "invocationContext", "adapterKind", "executionMode", "authorityProfileId", "capabilitySnapshot", "managedInvocationEvidence", "invocationId", "parentTurnId", "routeId", "routeSource", "requestedBy", "requestSource", "source", "attempt", "durationMs", "resultSummary", "result", "errorMessage", "errorCode", "reason", "recoveryReason", "recoveredAt", "cancelledBy"],
   );
   return {
     title: titles[kind] ?? "Agent invocation",
@@ -1827,6 +1837,8 @@ export function presentOperatorEventPayload(
     case "config_change_failed":
       return configChangePresentation(kind, payload);
     case "agent_invocation_requested":
+    case "agent_invocation_prompt_admitted":
+    case "agent_invocation_prompt_recovered":
     case "agent_invocation_started":
     case "agent_invocation_completed":
     case "agent_invocation_failed":

@@ -50,6 +50,8 @@ export type CanonicalSessionEventKind =
   | "work_item_execution_started"
   | "work_item_execution_finished"
   | "agent_invocation_requested"
+  | "agent_invocation_prompt_admitted"
+  | "agent_invocation_prompt_recovered"
   | "agent_invocation_started"
   | "agent_invocation_completed"
   | "agent_invocation_failed"
@@ -481,6 +483,29 @@ export interface CanonicalAgentInvocationRequestedEvent extends SessionEventEnve
   readonly inputSummary?: string;
 }
 
+export type SessionAgentInvocationPromptDeliveryMode = "steer" | "queue";
+export type SessionAgentInvocationPromptAdmissionState = "admitted";
+export type SessionAgentInvocationPromptDeliveryState = "available" | "queued" | "delivered" | "stale";
+
+export interface CanonicalAgentInvocationPromptAdmittedEvent extends SessionEventEnvelope<"agent_invocation_prompt_admitted">, SessionAgentInvocationIdentity {
+  readonly promptAdmissionId: string;
+  readonly deliveryMode: SessionAgentInvocationPromptDeliveryMode;
+  readonly deliveryState?: SessionAgentInvocationPromptDeliveryState;
+  readonly admissionState: SessionAgentInvocationPromptAdmissionState;
+  readonly inputSummary: string;
+  readonly promptHash: string;
+  readonly wakeRequested: boolean;
+}
+
+export interface CanonicalAgentInvocationPromptRecoveredEvent extends SessionEventEnvelope<"agent_invocation_prompt_recovered">, SessionAgentInvocationIdentity {
+  readonly promptAdmissionId: string;
+  readonly deliveryMode: SessionAgentInvocationPromptDeliveryMode;
+  readonly previousDeliveryState: SessionAgentInvocationPromptDeliveryState;
+  readonly deliveryState: "stale";
+  readonly recoveryReason: string;
+  readonly recoveredAt: string;
+}
+
 export interface CanonicalAgentInvocationStartedEvent extends SessionEventEnvelope<"agent_invocation_started">, SessionAgentInvocationIdentity {
   readonly attempt?: number;
 }
@@ -556,6 +581,8 @@ export interface CanonicalSessionEventMap {
   work_item_execution_started: CanonicalWorkItemExecutionStartedEvent;
   work_item_execution_finished: CanonicalWorkItemExecutionFinishedEvent;
   agent_invocation_requested: CanonicalAgentInvocationRequestedEvent;
+  agent_invocation_prompt_admitted: CanonicalAgentInvocationPromptAdmittedEvent;
+  agent_invocation_prompt_recovered: CanonicalAgentInvocationPromptRecoveredEvent;
   agent_invocation_started: CanonicalAgentInvocationStartedEvent;
   agent_invocation_completed: CanonicalAgentInvocationCompletedEvent;
   agent_invocation_failed: CanonicalAgentInvocationFailedEvent;

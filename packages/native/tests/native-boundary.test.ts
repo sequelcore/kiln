@@ -429,7 +429,10 @@ describe("native operator surface foundation", () => {
       },
     });
     expect(projection.view.invocations.length).toBeGreaterThan(0);
-    expect(JSON.stringify(projection)).not.toContain("prompt");
+    expect(projection.view.invocations.every((invocation) => invocation.promptAdmissionCount === 0)).toBe(true);
+    expect(projection.view.invocations.every((invocation) => invocation.latestPromptAdmission === undefined)).toBe(true);
+    expect(JSON.stringify(projection)).not.toContain("inputSummary");
+    expect(JSON.stringify(projection)).not.toContain("promptHash");
   });
 
   it("inherits fail-closed attach target validation for native cockpit projection", () => {

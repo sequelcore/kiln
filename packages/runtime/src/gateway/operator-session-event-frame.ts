@@ -70,9 +70,11 @@ function canonicalSessionEventPayload(
 function isManagedInvocationEvent(
   event: CanonicalSessionEvent,
 ): event is Extract<CanonicalSessionEvent, {
-  readonly kind: "agent_invocation_requested" | "agent_invocation_started" | "agent_invocation_completed" | "agent_invocation_failed" | "agent_invocation_cancelled";
+  readonly kind: "agent_invocation_requested" | "agent_invocation_prompt_admitted" | "agent_invocation_prompt_recovered" | "agent_invocation_started" | "agent_invocation_completed" | "agent_invocation_failed" | "agent_invocation_cancelled";
 }> {
   return event.kind === "agent_invocation_requested"
+    || event.kind === "agent_invocation_prompt_admitted"
+    || event.kind === "agent_invocation_prompt_recovered"
     || event.kind === "agent_invocation_started"
     || event.kind === "agent_invocation_completed"
     || event.kind === "agent_invocation_failed"

@@ -408,4 +408,46 @@ describe("ManagedAgentCockpitPanel", () => {
       invocationId: "child-running",
     });
   });
+
+  it("dispatches prompt follow-ups with explicit queued delivery semantics", () => {
+    const onPrompt = vi.fn();
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 1,
+      attentionCount: 1,
+      items: [
+        {
+          managedInvocationId: "child-running",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "running",
+          lifecycleState: "running",
+          attentionState: "active",
+          dirtyWorkspaceReviewRequired: false,
+          resourceUris: [],
+          latestEventId: "event-running",
+          lifecycleTimeline: [],
+          cancelControl: {
+            status: "requires-control-channel",
+            reason: "Read-only cockpit projection cannot dispatch cancellation.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} onPrompt={onPrompt} />);
+
+    fireEvent.change(screen.getByLabelText("Prompt managed child child-running"), {
+      target: { value: "Continue from the latest runtime ledger evidence." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Queue prompt delivery for child-running" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send prompt to managed child child-running" }));
+
+    expect(onPrompt).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      invocationId: "child-running",
+      prompt: "Continue from the latest runtime ledger evidence.",
+      deliveryMode: "queue",
+      wakeRequested: false,
+    });
+  });
 });

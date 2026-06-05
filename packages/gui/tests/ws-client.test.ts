@@ -399,6 +399,16 @@ describe("GuiWsClient", () => {
           requestId: "managed-agent-control-2",
         },
         {
+          type: "managed_agent_control",
+          action: "prompt",
+          sessionId: "session-1",
+          invocationId: "child-running",
+          prompt: "Use the latest runtime ledger evidence before continuing.",
+          deliveryMode: "steer",
+          wakeRequested: true,
+          requestId: "managed-agent-control-3",
+        },
+        {
           type: "browser_operator_input",
           requestId: "browser-input-1",
           sessionId: "browser-1",
@@ -923,6 +933,26 @@ describe("GuiWsClient", () => {
             status: "accepted",
             requestId: "managed-agent-control-2",
             handledAt: "2026-05-23T12:00:01.000Z",
+          },
+        },
+        {
+          json: {
+            type: "managed_agent_control_result",
+            action: "prompt",
+            sessionId: "session-1",
+            invocationId: "child-running",
+            status: "accepted",
+            requestId: "managed-agent-control-3",
+            handledAt: "2026-06-05T16:00:01.000Z",
+          },
+          expected: {
+            type: "managed_agent_control_result",
+            action: "prompt",
+            sessionId: "session-1",
+            invocationId: "child-running",
+            status: "accepted",
+            requestId: "managed-agent-control-3",
+            handledAt: "2026-06-05T16:00:01.000Z",
           },
         },
         {
