@@ -4,9 +4,9 @@ import type {
   CreateMessageOptions,
   ProviderAdapter,
 } from "../index.js";
-import type { CredentialOutcome } from "./outcome.js";
+import type { CredentialExhaustionReason, CredentialOutcome } from "./outcome.js";
 import { AllCredentialsExhaustedError, isRetryable } from "./outcome.js";
-import type { CredentialPool } from "./pool.js";
+import { buildCredentialPoolExhaustionDiagnostic, type CredentialPool } from "./pool.js";
 
 export type ErrorOutcomeMapper = (error: unknown) => CredentialOutcome;
 
@@ -65,7 +65,11 @@ export class PooledProviderAdapter<
       }
     }
 
-    throw new AllCredentialsExhaustedError(lastError, lastOutcome);
+    throw new AllCredentialsExhaustedError(
+      lastError,
+      lastOutcome,
+      this.buildDiagnostic("attempts-exhausted", lastOutcome),
+    );
   }
 
   async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
@@ -99,7 +103,11 @@ export class PooledProviderAdapter<
       }
     }
 
-    throw new AllCredentialsExhaustedError(lastError, lastOutcome);
+    throw new AllCredentialsExhaustedError(
+      lastError,
+      lastOutcome,
+      this.buildDiagnostic("attempts-exhausted", lastOutcome),
+    );
   }
 
   private resolveMaxAttempts(): number {
@@ -117,9 +125,20 @@ export class PooledProviderAdapter<
       return this.pool.acquire();
     } catch (error) {
       if (error instanceof AllCredentialsExhaustedError) {
-        throw new AllCredentialsExhaustedError(lastError ?? error.cause, lastOutcome ?? undefined);
+        throw new AllCredentialsExhaustedError(
+          lastError ?? error.cause,
+          lastOutcome ?? undefined,
+          this.buildDiagnostic(error.diagnostic?.reason ?? "all-credentials-unavailable", lastOutcome ?? error.lastOutcome),
+        );
       }
       throw error;
     }
+  }
+
+  private buildDiagnostic(
+    reason: CredentialExhaustionReason,
+    lastOutcome: CredentialOutcome | null | undefined,
+  ) {
+    return buildCredentialPoolExhaustionDiagnostic(this.pool.snapshot(), reason, lastOutcome ?? null);
   }
 }

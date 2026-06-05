@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   ManagedCliHarnessAdapter,
+  ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
   appendManagedInvocationSessionEvents,
 } from "../../src/agents/managed-invocation/index.js";
@@ -52,7 +53,7 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
           restoreReadOnlyViolations: true,
         },
       });
-      const service = new RuntimeManagedAgentInvocationService();
+      const service = createCodexLiveInvocationService();
 
       const result = await service.invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
@@ -110,7 +111,7 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
           trackedPaths: [workspace.filePath("proof.txt")],
         },
       });
-      const service = new RuntimeManagedAgentInvocationService();
+      const service = createCodexLiveInvocationService();
 
       const result = await service.invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
@@ -149,10 +150,15 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
 
       expect(events[2]).toMatchObject({
         managedInvocationEvidence: {
-          writeAuthority: request.authority.writeAuthority,
           writeEvidence: result.record.writeEvidence,
         },
       });
+      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+        `kiln://managed-agents/invocations/${request.invocationId}/resources/write`,
+      );
+      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+        `kiln://managed-agents/invocations/${request.invocationId}/resources/approval`,
+      );
     });
   }, 240000);
 });
@@ -172,5 +178,13 @@ function createCodexLiveSessionFactory(options: {
     ephemeral: true,
     sessionLedgerOwner: "host",
     reasoningEffort: "low",
+  });
+}
+
+function createCodexLiveInvocationService(): RuntimeManagedAgentInvocationService {
+  return new RuntimeManagedAgentInvocationService({
+    credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+      allowedRouteIds: ["credential-route:codex"],
+    }),
   });
 }

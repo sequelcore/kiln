@@ -3,6 +3,15 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { describe, expect } from "vitest";
 import {
+  KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_TESTS_ENV,
+  KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
+  KILN_LIVE_OPENCODE_TESTS_ENV,
+  KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV,
+  KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
+} from "../../../../scripts/managed-agent-live-preflight.js";
+import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
@@ -13,13 +22,15 @@ import type {
   ManagedAgentWriteEvidence,
 } from "@kilnai/core";
 
-export const KILN_LIVE_MANAGED_AGENT_TESTS_ENV = "KILN_LIVE_MANAGED_AGENT_TESTS";
-export const KILN_LIVE_CODEX_TESTS_ENV = "KILN_LIVE_CODEX_TESTS";
-export const KILN_LIVE_OPENCODE_TESTS_ENV = "KILN_LIVE_OPENCODE_TESTS";
-export const KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV = "KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS";
-export const KILN_LIVE_OPENAI_DIRECT_TESTS_ENV = "KILN_LIVE_OPENAI_DIRECT_TESTS";
-export const KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS";
-export const KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS";
+export {
+  KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_TESTS_ENV,
+  KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
+  KILN_LIVE_OPENCODE_TESTS_ENV,
+  KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV,
+  KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
+} from "../../../../scripts/managed-agent-live-preflight.js";
 
 export interface ManagedAgentLiveFixtureWorkspace {
   readonly workspaceRoot: string;

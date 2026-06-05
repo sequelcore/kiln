@@ -12,6 +12,7 @@ import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attac
 import {
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
   describeManagedAgentProviderLive,
+  makeManagedAgentLiveCapabilitySnapshotInput,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 
@@ -94,7 +95,8 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
         },
       });
 
-      const result = await new RuntimeManagedAgentInvocationService().invoke(request, adapter);
+      const result = await new RuntimeManagedAgentInvocationService()
+        .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {

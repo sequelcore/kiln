@@ -17,6 +17,10 @@ export {
 
 export {
   type CredentialOutcome,
+  type CredentialDiagnosticHealth,
+  type CredentialExhaustionDiagnostic,
+  type CredentialExhaustionEntryDiagnostic,
+  type CredentialExhaustionReason,
   isOk,
   isRetryable,
   isAuthError,
@@ -48,6 +52,7 @@ export {
 export {
   type CredentialPoolSnapshot,
   type CredentialPoolEntrySnapshot,
+  buildCredentialPoolExhaustionDiagnostic,
   CredentialPool,
 } from "./pool.js";
 

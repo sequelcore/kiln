@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_TESTS_ENV,
   KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
+  KILN_LIVE_OPENCODE_TESTS_ENV,
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
   expectManagedAgentLiveFilesystemAndEvidence,
   isManagedAgentLiveTestsEnabled,
@@ -11,6 +13,7 @@ import {
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
+import { evaluateManagedAgentLivePreflight } from "../../../../scripts/managed-agent-live-preflight.js";
 
 describe("managed agent live test harness", () => {
   it("is disabled unless the explicit live test environment flag is set", () => {
@@ -43,6 +46,52 @@ describe("managed agent live test harness", () => {
       [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
       [KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV]: "1",
     })).toBe(true);
+  });
+
+  it("fails live preflight when the global live flag is absent", () => {
+    expect(evaluateManagedAgentLivePreflight({}).ok).toBe(false);
+    expect(evaluateManagedAgentLivePreflight({}).message).toContain(KILN_LIVE_MANAGED_AGENT_TESTS_ENV);
+  });
+
+  it("keeps explicit global disable stronger than auto-detected live providers", () => {
+    const result = evaluateManagedAgentLivePreflight({
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "0",
+    }, [KILN_LIVE_CODEX_TESTS_ENV]);
+
+    expect(result.ok).toBe(false);
+    expect(result.enabledProviders).toEqual([]);
+  });
+
+  it("fails live preflight when no provider-specific flag is enabled", () => {
+    const result = evaluateManagedAgentLivePreflight({
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain(KILN_LIVE_OPENAI_DIRECT_TESTS_ENV);
+    expect(result.message).toContain(KILN_LIVE_CODEX_TESTS_ENV);
+    expect(result.message).toContain(KILN_LIVE_OPENCODE_TESTS_ENV);
+  });
+
+  it("passes live preflight from auto-detected provider flags", () => {
+    const result = evaluateManagedAgentLivePreflight({}, [KILN_LIVE_CODEX_TESTS_ENV]);
+
+    expect(result.ok).toBe(true);
+    expect(result.enabledProviders).toEqual([KILN_LIVE_CODEX_TESTS_ENV]);
+    expect(result.environment).toMatchObject({
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_TESTS_ENV]: "1",
+    });
+  });
+
+  it("passes live preflight with explicit global and provider flags", () => {
+    const result = evaluateManagedAgentLivePreflight({
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]: "1",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.enabledProviders).toEqual([KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]);
   });
 
   it("creates an isolated fixture workspace and removes it after failures", async () => {

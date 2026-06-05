@@ -5,11 +5,13 @@ import {
   CodexOAuthAdapter,
   CodexOAuthAuth,
   CredentialPool,
+  AllCredentialsExhaustedError,
   KilnError,
   PooledProviderAdapter,
   isRetryable,
   type CodexOAuthTokenFile,
   type Credential,
+  type CredentialExhaustionDiagnostic,
   type CredentialOutcome,
   type ProviderAdapter,
 } from "@kilnai/core";
@@ -161,6 +163,14 @@ export class CodexOAuthCredentialPoolService {
   }
 
   async createPooledAdapter(options: CreateCodexOAuthPooledAdapterOptions): Promise<ProviderAdapter> {
+    const status = await this.listStatus();
+    if (!status.some(isExecutableCredentialStatus)) {
+      throw new AllCredentialsExhaustedError(
+        undefined,
+        undefined,
+        buildCodexOAuthExhaustionDiagnostic(status),
+      );
+    }
     const pool = await this.createPool();
     this.observability?.register(CODEX_OAUTH_POOL_PROVIDER_ID, pool);
     return new PooledProviderAdapter<CodexOAuthPoolCredential>({
@@ -337,6 +347,39 @@ function describeExpiry(expiresAt: string): "valid" | "expiring-soon" | "expired
 
 function isExecutableTokenFile(tokenFile: CodexOAuthTokenFile): boolean {
   return describeExpiry(tokenFile.expires_at) !== "expired";
+}
+
+function isExecutableCredentialStatus(status: CodexOAuthCredentialStatus): boolean {
+  return status.status === "valid" || status.status === "expiring-soon";
+}
+
+function buildCodexOAuthExhaustionDiagnostic(
+  statuses: readonly CodexOAuthCredentialStatus[],
+): CredentialExhaustionDiagnostic {
+  const availableCredentials = statuses.filter(isExecutableCredentialStatus).length;
+  return {
+    providerId: CODEX_OAUTH_POOL_PROVIDER_ID,
+    reason: "no-executable-credentials",
+    totalCredentials: statuses.length,
+    availableCredentials,
+    unavailableCredentials: statuses.length - availableCredentials,
+    lastOutcome: null,
+    entries: statuses.map((status) => ({
+      id: status.id,
+      label: status.label,
+      health: status.status === "valid" || status.status === "expiring-soon" ? "ok" : status.status,
+      expiresAt: status.expiresAt,
+      ...(status.invalidReason ? { invalidReason: status.invalidReason } : {}),
+      ...(status.health
+        ? {
+            requestCount: status.health.requestCount,
+            lastSuccess: status.health.lastSuccess,
+            lastExhausted: status.health.lastExhausted,
+            cooldownUntil: status.health.cooldownUntil,
+          }
+        : {}),
+    })),
+  };
 }
 
 function errorMessage(error: unknown): string {

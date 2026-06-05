@@ -15,6 +15,7 @@ import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   describeManagedAgentProviderLive,
   expectManagedAgentLiveFilesystemAndEvidence,
+  makeManagedAgentLiveCapabilitySnapshotInput,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 
@@ -104,7 +105,8 @@ describeManagedAgentProviderLive(
           },
         });
 
-        const result = await createCodexOauthDirectLiveService().invoke(request, adapter);
+        const result = await createCodexOauthDirectLiveService()
+          .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
         expect(result.status).toBe("completed");
         if (result.status !== "completed") {
@@ -233,7 +235,8 @@ describeManagedAgentProviderLive(
           },
         });
 
-        const result = await createCodexOauthDirectLiveService().invoke(request, adapter);
+        const result = await createCodexOauthDirectLiveService()
+          .invoke(request, adapter, makeManagedAgentLiveCapabilitySnapshotInput(request));
 
         expect(result.status).toBe("completed");
         if (result.status !== "completed") {

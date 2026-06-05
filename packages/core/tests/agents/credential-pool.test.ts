@@ -422,6 +422,21 @@ describe("PooledProviderAdapter", () => {
       name: "AllCredentialsExhaustedError",
       cause: providerError,
       lastOutcome: { type: "rate-limited" },
+      diagnostic: {
+        providerId: "test-provider",
+        reason: "attempts-exhausted",
+        totalCredentials: 1,
+        availableCredentials: 0,
+        unavailableCredentials: 1,
+        lastOutcome: { type: "rate-limited" },
+        entries: [
+          expect.objectContaining({
+            id: "cred-1",
+            health: "exhausted",
+            requestCount: 1,
+          }),
+        ],
+      },
     });
   });
 
@@ -529,6 +544,51 @@ describe("AllCredentialsExhaustedError", () => {
     expect(error.message).toBe("All credentials in the pool are exhausted");
     expect(error.cause).toBeInstanceOf(Error);
     expect(error.lastOutcome?.type).toBe("rate-limited");
+  });
+
+  it("captures a secret-free structured diagnostic", () => {
+    const error = new AllCredentialsExhaustedError(
+      undefined,
+      { type: "quota-exceeded" },
+      {
+        providerId: "test-provider",
+        reason: "all-credentials-unavailable",
+        totalCredentials: 1,
+        availableCredentials: 0,
+        unavailableCredentials: 1,
+        lastOutcome: { type: "quota-exceeded" },
+        entries: [{
+          id: "cred-1",
+          label: "Primary",
+          source: "manual",
+          health: "exhausted",
+          requestCount: 3,
+          lastSuccess: null,
+          lastExhausted: 1000,
+          cooldownUntil: 2000,
+        }],
+      },
+    );
+
+    expect(error.diagnostic).toEqual({
+      providerId: "test-provider",
+      reason: "all-credentials-unavailable",
+      totalCredentials: 1,
+      availableCredentials: 0,
+      unavailableCredentials: 1,
+      lastOutcome: { type: "quota-exceeded" },
+      entries: [{
+        id: "cred-1",
+        label: "Primary",
+        source: "manual",
+        health: "exhausted",
+        requestCount: 3,
+        lastSuccess: null,
+        lastExhausted: 1000,
+        cooldownUntil: 2000,
+      }],
+    });
+    expect(JSON.stringify(error.diagnostic)).not.toContain("apiKey");
   });
 });
 

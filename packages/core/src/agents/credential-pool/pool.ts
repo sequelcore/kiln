@@ -9,7 +9,7 @@ import {
   releaseSoftLease,
   getHealthStatus,
 } from "./credential.js";
-import type { CredentialOutcome } from "./outcome.js";
+import type { CredentialExhaustionDiagnostic, CredentialExhaustionReason, CredentialOutcome } from "./outcome.js";
 import type { CredentialPoolStatePort } from "./state-port.js";
 import { AllCredentialsExhaustedError, getResetAt, isRetryable } from "./outcome.js";
 import type { SelectionStrategy } from "./strategies.js";
@@ -36,6 +36,32 @@ export interface CredentialPoolEntrySnapshot {
   readonly lastSuccess: number | null;
   readonly lastExhausted: number | null;
   readonly cooldownUntil: number | null;
+}
+
+export function buildCredentialPoolExhaustionDiagnostic(
+  snapshot: CredentialPoolSnapshot,
+  reason: CredentialExhaustionReason,
+  lastOutcome?: CredentialOutcome | null,
+): CredentialExhaustionDiagnostic {
+  const availableCredentials = snapshot.entries.filter((entry) => entry.health === "ok").length;
+  return {
+    providerId: snapshot.providerId,
+    reason,
+    totalCredentials: snapshot.entries.length,
+    availableCredentials,
+    unavailableCredentials: snapshot.entries.length - availableCredentials,
+    lastOutcome: lastOutcome ?? null,
+    entries: snapshot.entries.map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      source: entry.source,
+      health: entry.health,
+      requestCount: entry.requestCount,
+      lastSuccess: entry.lastSuccess,
+      lastExhausted: entry.lastExhausted,
+      cooldownUntil: entry.cooldownUntil,
+    })),
+  };
 }
 
 export class CredentialPool<TAuth> {
@@ -76,12 +102,24 @@ export class CredentialPool<TAuth> {
     const selectedId = selectCredential(this.strategy, credentialsArray, this.selectionContext);
 
     if (selectedId === null) {
-      throw new AllCredentialsExhaustedError();
+      const snapshot = this.snapshot();
+      throw new AllCredentialsExhaustedError(
+        undefined,
+        undefined,
+        buildCredentialPoolExhaustionDiagnostic(
+          snapshot,
+          snapshot.entries.length === 0 ? "empty-pool" : "all-credentials-unavailable",
+        ),
+      );
     }
 
     const credential = this.credentials.get(selectedId);
     if (!credential) {
-      throw new AllCredentialsExhaustedError();
+      throw new AllCredentialsExhaustedError(
+        undefined,
+        undefined,
+        buildCredentialPoolExhaustionDiagnostic(this.snapshot(), "all-credentials-unavailable"),
+      );
     }
 
     const updated = acquireSoftLease(clearExpiredCooldown(credential));

@@ -150,6 +150,58 @@ describe("CodexOAuthCredentialPoolService", () => {
     ]);
   });
 
+  it("fails fast with secret-free diagnostics when no Codex OAuth credential is executable", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({
+      id: "expired",
+      tokenFile: token({
+        access_token: "access-expired",
+        refresh_token: "refresh-expired",
+        expires_at: "2020-01-01T00:00:00.000Z",
+      }),
+    });
+    await mkdir(join(rootDir, "codex-oauth"), { recursive: true });
+    await writeFile(join(rootDir, "codex-oauth", "invalid.json"), JSON.stringify({
+      access_token: "",
+      refresh_token: "refresh-invalid",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      client_id: "client",
+    }), "utf8");
+
+    await expect(service.createPooledAdapter({ defaultModel: "gpt-5.5" }))
+      .rejects.toMatchObject({
+        name: "AllCredentialsExhaustedError",
+        diagnostic: {
+          providerId: "codex-oauth",
+          reason: "no-executable-credentials",
+          totalCredentials: 2,
+          availableCredentials: 0,
+          unavailableCredentials: 2,
+          entries: [
+            expect.objectContaining({
+              id: "expired",
+              health: "expired",
+              expiresAt: "2020-01-01T00:00:00.000Z",
+            }),
+            expect.objectContaining({
+              id: "invalid",
+              health: "invalid",
+              expiresAt: "unknown",
+              invalidReason: expect.stringContaining("Malformed Codex OAuth credential file"),
+            }),
+          ],
+        },
+      });
+
+    try {
+      await service.createPooledAdapter({ defaultModel: "gpt-5.5" });
+    } catch (error) {
+      expect(JSON.stringify(error)).not.toContain("access-expired");
+      expect(JSON.stringify(error)).not.toContain("refresh-expired");
+      expect(JSON.stringify(error)).not.toContain("refresh-invalid");
+    }
+  });
+
   it("projects malformed credentials as invalid status and excludes them from execution pools", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await mkdir(join(rootDir, "codex-oauth"), { recursive: true });
