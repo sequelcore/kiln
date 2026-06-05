@@ -1,3 +1,193 @@
+# Managed-Agent Core Reliability Plan
+
+Date: 2026-06-05
+Status: Closed on 2026-06-05
+
+## Objective
+
+Rework Kiln managed-agent harness reliability around explicit, replayable
+runtime contracts instead of flags or UI-local state. The first implementation
+slice fixes direct-provider credential availability evidence so Codex OAuth
+routes cannot fail with an opaque "pool exhausted" state when Kiln already has
+enough local information to explain expired, invalid, cooling, or absent
+credentials.
+
+## Non-Goals
+
+- No full UI rewrite in this slice.
+- No hidden live-provider execution.
+- No fallback from direct providers to CLI harnesses.
+- No secret-bearing diagnostics.
+- No legacy compatibility branch for old credential shapes.
+
+## Implementation Slices
+
+1. TDD: Codex OAuth credential availability diagnostics
+   - Add coverage proving expired and malformed Codex OAuth credentials remain
+     visible in status but block direct adapter creation with a structured,
+     secret-free exhaustion diagnostic.
+   - Add coverage proving generic pooled exhaustion also carries provider,
+     count, entry-health, and last-outcome evidence.
+
+2. Runtime implementation: fail-fast provider availability
+   - Extend the credential-pool error contract with a typed diagnostic.
+   - Build Codex OAuth diagnostics from `listStatus()` before returning a direct
+     pooled adapter when there are no executable credentials.
+   - Preserve existing retry rotation for valid credentials.
+
+## Slice 1 Closeout
+
+Completed on 2026-06-05. `AllCredentialsExhaustedError` now carries a
+secret-free `CredentialExhaustionDiagnostic`, generic pooled adapters include
+provider/count/health/last-outcome evidence on exhaustion, and Codex OAuth
+direct adapter creation fails fast when the local pool has no executable
+credential. Expired and invalid Codex OAuth entries remain visible in status
+without exposing access or refresh tokens.
+
+Local pool diagnosis on this machine found five `codex-oauth` credentials and
+all are expired: four expired on 2026-05-23 between 11:45:39Z and 11:50:33Z,
+and one expired on 2026-06-04 at 08:25:35Z. Native Codex CLI live proof remains
+separate and passed through the CLI harness route.
+
+Verification passed:
+
+- `bun run --cwd packages/core build`
+- `bun run --cwd packages/core test tests/agents/credential-pool.test.ts`
+- `bun run --cwd packages/runtime test tests/agents/codex-oauth-credential-pool.test.ts`
+- `bun run --cwd packages/cli test tests/wrapper/direct-provider-adapter-factory.test.ts`
+- `bun run typecheck`
+- `bun run test:harness`
+- `bun run test:managed-agents:live`
+- `bun run build`
+- `bun run test`
+- `git diff --check`
+
+3. Durable managed prompt admission
+   - Introduce a managed-agent admission inbox contract modelled after the
+     OpenCode `session_input` pattern: exact retry idempotency, conflicting
+     prompt id rejection, explicit `steer` versus `queue`, and replay cursor
+     semantics.
+
+4. Cross-surface prompt control and recovery evidence
+   - Wire GUI managed-agent controls to durable prompt admission instead of
+     local UI-only state.
+   - Project prompt admission and stale-prompt recovery through canonical
+     events, gateway frames, event presentation, and cockpit read models.
+   - Keep recovery replayable: stale prompts become `stale` with recovery
+     reason and timestamp instead of being silently dropped or retried.
+
+## Verification
+
+- `bun run --cwd packages/core test tests/agents/credential-pool.test.ts`
+- `bun run --cwd packages/runtime test tests/agents/codex-oauth-credential-pool.test.ts`
+- `bun run --cwd packages/cli test tests/wrapper/direct-provider-adapter-factory.test.ts`
+- `bun run typecheck`
+- `bun run test:harness`
+- `bun run test:managed-agents:live`
+- `bun run build`
+- `bun run test`
+- `git diff --check`
+
+## Final Closeout
+
+Closed on 2026-06-05. Managed-agent operator follow-up prompts now enter a
+runtime prompt inbox with stable prompt admission ids, prompt hashes, delivery
+mode, delivery state, wake intent, operator identity, and request source.
+`steer` prompts are immediately claimable, `queue` prompts wait for a safe-turn
+boundary, delivered prompts are not reclaimed, and stale active admissions are
+marked with recovery evidence rather than being silently retried or left as
+ambiguous active state.
+Runtime adapters receive a prompt-delivery coordinator in their invocation
+input, so interactive adapters have a runtime-owned path to claim admitted
+prompts during an active child run. Existing one-shot adapters keep their
+one-turn execution contract and do not simulate interactive delivery without a
+provider-native input mechanism.
+
+GUI `managed_agent_control` frames now admit `prompt` actions through the
+gateway, append canonical `agent_invocation_prompt_admitted` events, update the
+live runtime invocation service, publish managed-agent prompt tool evidence,
+and stream accepted control results back to the operator surface. Cockpit
+projections and event presentation include prompt admission count, latest
+prompt admission, delivery state, and `agent_invocation_prompt_recovered`
+evidence.
+
+After the operator refreshed Codex OAuth credentials on 2026-06-05, explicit
+Codex OAuth direct-provider live proof passed both the governed read fixture
+and the approved write fixture. The remaining skipped live files were provider
+routes that were not explicitly admitted for that run, not false success.
+
+# Harness Reliability Repair Plan
+
+Date: 2026-06-05
+Status: Closed on 2026-06-05
+
+## Objective
+
+Make Kiln managed-agent harness verification deterministic and honest across
+runtime, GUI, TUI, and gateway-contract surfaces. The repair must prevent root
+mixed test invocations from bypassing package configuration and must make live
+managed-agent proof run authenticated local harnesses when available or fail
+explicitly when no live provider is admitted.
+
+## Non-Goals
+
+- No full runtime rewrite in this slice.
+- No weakening of managed-agent authority, handoff, replay, or write evidence.
+- No hidden provider calls, retries, or compatibility shims.
+- No GUI redesign; this slice fixes the verification contract first.
+- No live provider execution unless the required `KILN_LIVE_*` flags are
+  explicitly present.
+
+## Implementation Slices
+
+1. TDD: live preflight contract
+   - Add coverage proving managed-agent live proof reports a failed preflight
+     when the global live flag is missing, when no provider flag is enabled,
+     and when at least one provider is enabled.
+   - Keep provider selection explicit through the existing `KILN_LIVE_*`
+     variables.
+
+2. Harness command repair
+   - Add a root `test:harness` command that runs the focused deterministic
+     managed-agent cockpit/session tests through each package's own Vitest
+     configuration.
+   - Route `test:managed-agents:live` through a live runner that detects
+     authenticated local Codex and OpenCode harnesses, sets the matching live
+     environment, and then runs the runtime package's `test:live` script.
+
+3. Documentation and operator evidence
+   - Keep this plan updated with the exact verification gates.
+   - Treat skipped live proof as missing evidence, not a successful test run.
+
+## Verification
+
+- `bun run --cwd packages/runtime test tests/managed-agent/live-test-harness.test.ts`
+- `bun run test:harness`
+- `bun run test:managed-agents:live` with no `KILN_LIVE_*` flags must fail
+  during preflight only when no authenticated local harness is detected.
+- `bun run typecheck`
+- `bun run build`
+- `git diff --check`
+
+## Closeout Notes
+
+The deterministic harness gate now runs through package-owned Vitest
+configuration and explicitly excludes runtime live provider suites. The live
+managed-agent command now runs a preflight/runner that auto-detects
+authenticated local Codex and OpenCode harnesses, sets the matching live flags
+for the child process, and fails only when no explicit or detected live provider
+is admitted. Skipped live proof can no longer be misread as successful evidence.
+
+Verification on 2026-06-05 passed `bun run test:harness`, `bun run typecheck`,
+`bun run build`, and `git diff --check`. `bun run test:managed-agents:live`
+without manual `KILN_LIVE_*` flags auto-detected Codex and OpenCode on this
+machine and passed real live proof: Codex read-only write denial, Codex
+approved fixture write with canonical write evidence, and OpenCode cancellation
+with late-write suppression. A manual Codex OAuth direct-provider read proof
+reached the adapter but failed with credential-pool exhaustion for
+`codex-oauth`/`gpt-5.5`; that route remains explicit-only until credentials are
+actually available.
+
 # Managed Handoff Recovery Plan
 
 Date: 2026-05-29

@@ -575,6 +575,22 @@ control, the observer appends and publishes the same canonical terminal event.
 Later joins and cancels observe the existing terminal event instead of
 synthesizing duplicates.
 
+Operator follow-up prompts for active managed children are runtime-owned
+session evidence. A surface submits them as managed-agent control input, the
+gateway appends `agent_invocation_prompt_admitted`, and the runtime records the
+same prompt in the invocation prompt inbox with a stable admission id, prompt
+hash, delivery mode, delivery state, wake intent, operator identity, and request
+source. `steer` prompts are claimable at the immediate or safe-turn boundary;
+`queue` prompts are claimable only at a safe-turn boundary. Once claimed, a
+prompt is marked `delivered` and is not replayed.
+
+Stuck prompt delivery is also canonical state. Runtime recovery marks
+nonterminal `available` or `queued` prompt admissions as `stale`, records the
+recovery reason and timestamp, and emits `agent_invocation_prompt_recovered`
+evidence for cockpit and transcript replay. Surfaces must not keep private
+prompt queues, retry prompts silently, or infer prompt delivery from UI-local
+state.
+
 Plan mode excludes `managed_agent.invoke`; planning turns may inspect and submit
 plans, but may not spawn managed child work.
 
@@ -900,11 +916,24 @@ Focused managed invocation checks live under:
 - `packages/cli/tests/wrapper/codex-session.test.ts`
 - `packages/cli/tests/wrapper/opencode-session.test.ts`
 
+Deterministic cross-surface harness coverage uses package-owned Vitest
+configuration and excludes live provider suites:
+
+```bash
+cmd.exe /d /s /c "cd /d C:\workspace\kiln && bun run test:harness"
+```
+
 Opt-in live checks use:
 
 ```bash
 cmd.exe /d /s /c "cd /d C:\workspace\kiln && bun run test:managed-agents:live"
 ```
 
-Provider-specific live checks require the relevant environment flags and must
-never run as part of normal deterministic CI.
+Provider-specific live checks can be enabled explicitly with
+`KILN_LIVE_MANAGED_AGENT_TESTS=1` plus at least one provider-specific
+`KILN_LIVE_*` flag. The root live command also detects authenticated local
+Codex and OpenCode harnesses and sets those live flags for the Vitest child
+process. `KILN_LIVE_MANAGED_AGENT_TESTS=0` remains an explicit disable. The
+root live command fails when no explicit or detected live provider is admitted,
+because an all-skipped live suite is missing evidence rather than a successful
+proof. Live provider checks must never run as part of normal deterministic CI.
