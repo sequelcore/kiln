@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 export type ProjectRootSource = "kiln-yaml" | "git" | "explicit" | "cwd";
@@ -73,6 +74,9 @@ function findAncestor(start: string, predicate: (candidate: string) => boolean):
 }
 
 function hasGitMarker(candidate: string): boolean {
+  if (resolve(candidate) === resolve(homedir())) {
+    return false;
+  }
   return existsSync(join(candidate, ".git"));
 }
 

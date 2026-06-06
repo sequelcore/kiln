@@ -136,17 +136,46 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const request = this.buildRequest(options);
-    const { body } = request;
-    const response = await this.postWith401Retry(body, options.signal);
-    const completed = await this.consumeStreamingResponse(response, (options.tools?.length ?? 0) > 0);
-    return this.mapResponse(completed, request.toolNames);
+    try {
+      return await this.createMessageAttempt(request, options);
+    } catch (error) {
+      if (!isEmptyTerminalStreamError(error)) {
+        throw error;
+      }
+    }
+    return await this.createMessageAttempt(request, options);
   }
 
   async *streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent> {
     const request = this.buildRequest(options);
-    const { body } = request;
-    const response = await this.postWith401Retry(body, options.signal);
     const shouldBufferText = (options.tools?.length ?? 0) > 0;
+    try {
+      const response = await this.postWith401Retry(request.body, options.signal);
+      yield* this.streamResponseAttempt(request, response, shouldBufferText);
+      return;
+    } catch (error) {
+      if (!isEmptyTerminalStreamError(error)) {
+        throw error;
+      }
+    }
+    const response = await this.postWith401Retry(request.body, options.signal);
+    yield* this.streamResponseAttempt(request, response, shouldBufferText);
+  }
+
+  private async createMessageAttempt(
+    request: ResponsesRequest,
+    options: CreateMessageOptions,
+  ): Promise<AgentResponse> {
+    const response = await this.postWith401Retry(request.body, options.signal);
+    const completed = await this.consumeStreamingResponse(response, (options.tools?.length ?? 0) > 0);
+    return this.mapResponse(completed, request.toolNames);
+  }
+
+  private async *streamResponseAttempt(
+    request: ResponsesRequest,
+    response: Response,
+    shouldBufferText: boolean,
+  ): AsyncGenerator<AgentStreamEvent> {
     let collectedText = "";
     const collectedFunctionCallsByItemId = new Map<string, ResponsesOutputItem>();
     const collectedFunctionCallsByCallId = new Map<string, ResponsesOutputItem>();
@@ -426,9 +455,14 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       return;
     }
 
-    throw this.providerError("Codex OAuth stream completed without response.completed event", {
+    throw this.missingResponseCompletedError({
       status: response.status,
       collectedText,
+      collectedTextComplete,
+      collectedFunctionCalls: [
+        ...collectedFunctionCallsByItemId.values(),
+        ...collectedFunctionCallsByCallId.values(),
+      ],
     });
   }
 
@@ -842,9 +876,14 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       return fallbackResponse;
     }
 
-    throw this.providerError("Codex OAuth stream completed without response.completed event", {
+    throw this.missingResponseCompletedError({
       status: response.status,
       collectedText,
+      collectedTextComplete,
+      collectedFunctionCalls: [
+        ...collectedFunctionCallsByItemId.values(),
+        ...collectedFunctionCallsByCallId.values(),
+      ],
     });
   }
 
@@ -1050,6 +1089,26 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     return new KilnError("PROVIDER_UNAVAILABLE", message, { context, cause, retryable: true });
   }
 
+  private missingResponseCompletedError(input: {
+    readonly status: number;
+    readonly collectedText: string;
+    readonly collectedTextComplete: boolean;
+    readonly collectedFunctionCalls: readonly ResponsesOutputItem[];
+  }): KilnError {
+    const streamedFunctionCallCount = input.collectedFunctionCalls
+      .filter((item) => item.type === "function_call")
+      .length;
+    return this.providerError("Codex OAuth stream completed without response.completed event", {
+      status: input.status,
+      collectedText: input.collectedText,
+      collectedTextComplete: input.collectedTextComplete,
+      streamedFunctionCallCount,
+      hasStreamedOutput: input.collectedText.length > 0
+        || input.collectedTextComplete
+        || streamedFunctionCallCount > 0,
+    });
+  }
+
   private providerAuthError(message: string, context: Record<string, unknown>, cause?: unknown): KilnError {
     return new KilnError("PROVIDER_AUTH_FAILED", message, { context, cause });
   }
@@ -1240,6 +1299,13 @@ function addFunctionCallIds(target: Set<string>, ...ids: ReadonlyArray<string | 
       target.add(id);
     }
   }
+}
+
+function isEmptyTerminalStreamError(error: unknown): boolean {
+  return error instanceof KilnError
+    && error.code === "PROVIDER_UNAVAILABLE"
+    && error.message === "Codex OAuth stream completed without response.completed event"
+    && error.context.hasStreamedOutput === false;
 }
 
 function functionCallIdentityIds(

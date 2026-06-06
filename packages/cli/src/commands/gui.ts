@@ -28,6 +28,7 @@ import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
@@ -74,7 +75,7 @@ export interface GuiFlags {
 }
 
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
-  const cwd = flags.cwd ?? process.cwd();
+  const cwd = resolveProjectRoot({ explicitPath: flags.cwd }).rootPath;
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);

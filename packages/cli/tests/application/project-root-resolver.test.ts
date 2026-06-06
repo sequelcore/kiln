@@ -62,4 +62,26 @@ describe("project-root-resolver", () => {
     expect(resolved.rootPath).toBe(root);
     expect(resolved.source).toBe("git");
   });
+
+  it("ignores nested Kiln state that is not a project config", () => {
+    const root = resetFixture();
+    mkdirSync(join(root, ".git"), { recursive: true });
+    mkdirSync(join(root, ".kiln"), { recursive: true });
+    mkdirSync(join(root, "packages", "cli", ".kiln"), { recursive: true });
+    writeFileSync(join(root, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+    writeFileSync(
+      join(root, "packages", "cli", ".kiln", "resume-targets.json"),
+      JSON.stringify({ defaultSessionId: "stale-nested-session" }),
+      "utf-8",
+    );
+
+    const resolved = resolveProjectRoot({
+      cwd: root,
+      explicitPath: "packages/cli",
+    });
+
+    expect(resolved.rootPath).toBe(root);
+    expect(resolved.source).toBe("kiln-yaml");
+    expect(resolved.hasKilnYaml).toBe(true);
+  });
 });

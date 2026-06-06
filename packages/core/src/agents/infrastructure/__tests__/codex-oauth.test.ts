@@ -954,6 +954,35 @@ describe("CodexOAuthAdapter", () => {
       expect(response.outputTokens).toBe(2);
     });
 
+    it("retries once when the stream ends empty without response.completed", async () => {
+      mockFetch
+        .mockResolvedValueOnce(sseResponse([]))
+        .mockResolvedValueOnce(sseResponse([
+          {
+            event: "response.completed",
+            data: {
+              response: {
+                id: "resp_empty_retry_1",
+                status: "completed",
+                output: [{
+                  type: "message",
+                  content: [{ type: "output_text", text: "Recovered answer" }],
+                }],
+                usage: { input_tokens: 9, output_tokens: 3 },
+              },
+            },
+          },
+        ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(response.parts).toEqual([{ type: "text", text: "Recovered answer" }]);
+      expect(response.inputTokens).toBe(9);
+      expect(response.outputTokens).toBe(3);
+    });
+
     it("returns streamed text when a stream stalls after output_text.done", async () => {
       mockFetch.mockResolvedValueOnce(stalledSseResponse([
         { event: "response.output_text.delta", data: { delta: "DIRECT_CODEX_" } },
@@ -2546,6 +2575,47 @@ describe("CodexOAuthAdapter", () => {
           outputPer1M: 0,
         },
       });
+    });
+
+    it("retries streamed messages once when the stream ends empty without response.completed", async () => {
+      mockFetch
+        .mockResolvedValueOnce(sseResponse([]))
+        .mockResolvedValueOnce(sseResponse([
+          { event: "response.output_text.delta", data: { delta: "Recovered " } },
+          { event: "response.output_text.delta", data: { delta: "stream" } },
+          {
+            event: "response.completed",
+            data: {
+              response: {
+                id: "resp_stream_empty_retry_1",
+                status: "completed",
+                output: [{
+                  type: "message",
+                  content: [{ type: "output_text", text: "Recovered stream" }],
+                }],
+                usage: { input_tokens: 11, output_tokens: 4 },
+              },
+            },
+          },
+        ]));
+
+      const { adapter } = await createAdapter();
+      const events = await collectEvents(adapter.streamMessage(createOptions()));
+      const doneEvent = events.at(-1) as AgentStreamEvent & {
+        response?: AgentResponse;
+        inputTokens?: number;
+        outputTokens?: number;
+      };
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(events.filter((event) => event.type === "text")).toEqual([
+        { type: "text", content: "Recovered " },
+        { type: "text", content: "stream" },
+      ]);
+      expect(doneEvent.type).toBe("done");
+      expect(doneEvent.inputTokens).toBe(11);
+      expect(doneEvent.outputTokens).toBe(4);
+      expect(doneEvent.response?.parts).toEqual([{ type: "text", text: "Recovered stream" }]);
     });
 
     it("treats response.completed as terminal after output_text.done", async () => {

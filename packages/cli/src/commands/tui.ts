@@ -103,6 +103,7 @@ import type {
   RuntimeSessionHydrator,
 } from "@kilnai/runtime";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 export interface TuiFlags {
   provider?: string;
@@ -116,6 +117,7 @@ type TuiStartupTransport = "gateway" | "direct";
 
 interface TuiBootstrapOptions {
   readonly flags: TuiFlags;
+  readonly cwd: string;
   readonly sessionManager: MultiProviderSessionManager;
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
   readonly contextArtifactCache: ContextArtifactCache;
@@ -1064,8 +1066,8 @@ function mapSessionEventToTui(
 async function bootstrapDirectSession(
   options: TuiBootstrapOptions,
 ): Promise<TuiBootstrapResult> {
-  const { flags, sessionManager, systemPrompt } = options;
-  const sessionCwd = flags.cwd ?? process.cwd();
+  const { sessionManager, systemPrompt } = options;
+  const sessionCwd = options.cwd;
   let session: TuiControlSession | null = null;
   const providerModelsRef: { current: Record<string, string[]> } = { current: {} };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
@@ -1206,7 +1208,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const providerDisplayInfo = getProviderDisplayInfo(registry);
   const providerIds = providerDisplayInfo.map((entry) => entry.id);
 
-  const cwd = flags.cwd ?? process.cwd();
+  const cwd = resolveProjectRoot({ explicitPath: flags.cwd }).rootPath;
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
@@ -1328,6 +1330,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
   const bootstrap = await bootstrapTuiSession({
     flags,
+    cwd,
     sessionManager,
     registry,
     contextArtifactCache,

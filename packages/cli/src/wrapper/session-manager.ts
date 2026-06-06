@@ -60,6 +60,7 @@ function buildResumeProjectionState(input: {
   moduleArtifactKeys: readonly string[];
   preferredProvider?: ProviderId;
   feedback?: ResumeFeedback;
+  projectHistoricalContext: boolean;
 }): {
   hasCachedResumeContext: boolean;
   cachedResumeSignalCount: number;
@@ -70,15 +71,19 @@ function buildResumeProjectionState(input: {
   shouldUseProviderNativeResume: boolean;
 } {
   const { cache, projectPath, task, worktreePath, resumeSessionId, resumedMeta, moduleArtifactKeys } = input;
-  const sessionArtifactKey = resumeSessionId
+  const sessionArtifactKey = input.projectHistoricalContext && resumeSessionId
     ? buildCliSessionSummaryArtifactKey(resumeSessionId)
     : undefined;
-  const projectArtifactKey = buildCliProjectSummaryArtifactKey(projectPath);
-  const planArtifactKey = buildCliPlanSummaryArtifactKey(projectPath, task, 80);
+  const projectArtifactKey = input.projectHistoricalContext
+    ? buildCliProjectSummaryArtifactKey(projectPath)
+    : undefined;
+  const planArtifactKey = input.projectHistoricalContext
+    ? buildCliPlanSummaryArtifactKey(projectPath, task, 80)
+    : undefined;
   const signals = collectResumeSignals({
     cache,
     keys: [sessionArtifactKey, projectArtifactKey, planArtifactKey],
-    includeModules: moduleArtifactKeys.length > 0,
+    includeModules: input.projectHistoricalContext && moduleArtifactKeys.length > 0,
   });
   const { cachedResumeSignalCount, hasCachedResumeContext } = signals;
 
@@ -93,9 +98,14 @@ function buildResumeProjectionState(input: {
     turnDepth: resumedMeta?.sessionLedger?.turnDepth,
   };
 
-  const fallbackArtifacts = hasCachedResumeContext
-    ? []
-    : (resumedMeta?.exactArtifacts ?? []).slice(0, 10);
+  const fallbackArtifacts = input.projectHistoricalContext && !hasCachedResumeContext
+    ? (resumedMeta?.exactArtifacts ?? []).slice(0, 10)
+    : [];
+  const exactArtifacts = [
+    ...fallbackArtifacts,
+    ...(worktreePath ? [`Active isolated worktree path: ${worktreePath}`] : []),
+  ];
+
   const decision = decideResumeStrategy({
     resumeSessionId,
     preferredProvider: input.preferredProvider,
@@ -109,11 +119,42 @@ function buildResumeProjectionState(input: {
     resumeStrategy: decision.resumeStrategy,
     resumeFeedback: decision.resumeFeedback,
     sessionLedger,
-    exactArtifacts: [
-      ...fallbackArtifacts,
-      ...(worktreePath ? [`Active isolated worktree path: ${worktreePath}`] : []),
-    ],
+    exactArtifacts,
     shouldUseProviderNativeResume: decision.shouldUseProviderNativeResume,
+  };
+}
+
+function shouldProjectHistoricalContext(resumeSessionId: string | undefined): boolean {
+  return resumeSessionId !== undefined;
+}
+
+function buildHistoricalContextProjection(input: {
+  enabled: boolean;
+  useCache: boolean;
+  artifactCache: ContextArtifactCache;
+  moduleArtifactKeys: readonly string[];
+  projectPath: string;
+  task: string;
+  resumeSessionId?: string;
+}): {
+  readonly artifactCache?: ContextArtifactCache;
+  readonly moduleArtifactKeys: readonly string[];
+  readonly projectArtifactKey?: string;
+  readonly planArtifactKey?: string;
+  readonly sessionArtifactKey?: string;
+} {
+  if (!input.enabled) {
+    return { moduleArtifactKeys: [] };
+  }
+
+  return {
+    artifactCache: input.useCache ? input.artifactCache : undefined,
+    moduleArtifactKeys: input.moduleArtifactKeys,
+    projectArtifactKey: buildCliProjectSummaryArtifactKey(input.projectPath),
+    planArtifactKey: buildCliPlanSummaryArtifactKey(input.projectPath, input.task, 80),
+    sessionArtifactKey: input.resumeSessionId
+      ? buildCliSessionSummaryArtifactKey(input.resumeSessionId)
+      : undefined,
   };
 }
 
@@ -197,7 +238,10 @@ export class SessionManager {
       this.activeSessionId = sessionId;
     }
 
-    const touchedFiles = extractTouchedFilePaths(resumedMeta?.exactArtifacts ?? []);
+    const historicalContextEnabled = shouldProjectHistoricalContext(resumeSessionId);
+    const touchedFiles = historicalContextEnabled
+      ? extractTouchedFilePaths(resumedMeta?.exactArtifacts ?? [])
+      : [];
     const moduleArtifactKeys = (
       await Promise.all(touchedFiles.slice(0, 5).map((filePath) => buildModuleArtifactKey(projectPath, filePath)))
     ).filter((key): key is string => key !== undefined);
@@ -217,8 +261,18 @@ export class SessionManager {
       moduleArtifactKeys,
       preferredProvider,
       feedback: resumeStrategyFeedback,
+      projectHistoricalContext: historicalContextEnabled,
     });
     const governancePolicy = resolveContextGovernancePolicy(this.appConfig);
+    const historicalContextProjection = buildHistoricalContextProjection({
+      enabled: historicalContextEnabled,
+      useCache: governancePolicy.useCache,
+      artifactCache: this.contextArtifactCache,
+      moduleArtifactKeys,
+      projectPath,
+      task,
+      resumeSessionId,
+    });
     const providerResumeSessionId = shouldUseProviderNativeResume ? resumeSessionId : undefined;
     const projectedContext = new DefaultContextGovernor<
       SessionLedger,
@@ -230,13 +284,11 @@ export class SessionManager {
       renderLedger: renderSessionLedger,
       artifacts: this.appConfig.contextCandidates,
       exactArtifacts,
-      artifactCache: governancePolicy.useCache ? this.contextArtifactCache : undefined,
-      moduleArtifactKeys,
-      projectArtifactKey: buildCliProjectSummaryArtifactKey(projectPath),
-      planArtifactKey: buildCliPlanSummaryArtifactKey(projectPath, task, 80),
-      sessionArtifactKey: resumeSessionId
-        ? buildCliSessionSummaryArtifactKey(resumeSessionId)
-        : undefined,
+      artifactCache: historicalContextProjection.artifactCache,
+      moduleArtifactKeys: historicalContextProjection.moduleArtifactKeys,
+      projectArtifactKey: historicalContextProjection.projectArtifactKey,
+      planArtifactKey: historicalContextProjection.planArtifactKey,
+      sessionArtifactKey: historicalContextProjection.sessionArtifactKey,
       tokenBudget: governancePolicy.tokenBudget,
       preferredSources: governancePolicy.preferredSources,
       summaryAggressiveness: governancePolicy.summaryAggressiveness,

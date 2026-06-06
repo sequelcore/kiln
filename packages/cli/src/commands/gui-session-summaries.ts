@@ -1,7 +1,7 @@
 import type { GuiDashboardSnapshot } from "@kilnai/runtime";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import { resolveSessionSummary, mergeProvidersUsed } from "../application/session-metadata.js";
-import type { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import type { PersistedSessionMeta, SessionRecord, SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 
 export function toProviderLabel(provider: string): string {
   return getGuiProviderMetadata(provider)?.label ?? provider;
@@ -27,66 +27,76 @@ function isGenericSummary(value: string): boolean {
   return normalized === "interactive" || normalized === "untitled session" || normalized.endsWith(" session");
 }
 
+type GuiSessionSummary = GuiDashboardSnapshot["sessions"][number];
+
+function buildSummaryFromMeta(sessionId: string, meta: PersistedSessionMeta): GuiSessionSummary {
+  const provider = meta.sessionLedger?.lastProvider ?? meta.provider;
+  return {
+    id: sessionId,
+    ...(meta.title ? { title: meta.title } : {}),
+    ...(meta.summary ? { summary: meta.summary } : {}),
+    ...(meta.tags ? { tags: meta.tags } : {}),
+    providersUsed: mergeProvidersUsed(
+      meta.providerTokenUsage?.map((usage) => usage.provider),
+      [meta.provider, meta.sessionLedger?.lastProvider],
+    ),
+    lastProvider: provider,
+    ...(meta.lastTurnOutcome ? { lastTurnOutcome: meta.lastTurnOutcome } : {}),
+    completedAt: meta.completedAt ?? meta.startedAt,
+    cost: meta.costUsd ?? 0,
+    taskSummary: buildSessionSummary({
+      summary: meta.summary,
+      canonicalTitle: meta.title,
+      task: meta.task,
+      provider,
+    }),
+  };
+}
+
+function applyLedgerRecord(summary: GuiSessionSummary, record: SessionRecord): GuiSessionSummary {
+  const candidateSummary = buildSessionSummary({
+    summary: record.summary,
+    canonicalTitle: record.canonicalTitle,
+    title: record.title,
+    task: record.task,
+    provider: record.provider,
+  });
+  const taskSummary = isGenericSummary(summary.taskSummary) && !isGenericSummary(candidateSummary)
+    ? candidateSummary
+    : summary.taskSummary;
+  return {
+    ...summary,
+    ...(summary.title ?? record.title ? { title: summary.title ?? record.title } : {}),
+    ...(summary.summary ?? record.summary ? { summary: summary.summary ?? record.summary } : {}),
+    ...(summary.tags ?? record.tags ? { tags: summary.tags ?? record.tags } : {}),
+    providersUsed: mergeProvidersUsed(record.providersUsed, [record.provider, ...summary.providersUsed]),
+    lastProvider: record.provider,
+    completedAt: record.completedAt.localeCompare(summary.completedAt) > 0 ? record.completedAt : summary.completedAt,
+    cost: summary.cost || record.cost,
+    taskSummary,
+  };
+}
+
 export async function loadSessionSummaries(
   sessionStore: SessionStore,
   transcriptStore: TranscriptStore,
 ): Promise<GuiDashboardSnapshot["sessions"]> {
-  const sessions = await sessionStore.list();
-  const loadableSessionIds = new Set(await transcriptStore.listSessions());
-  const summaries = new Map<string, {
-    id: string;
-    providersUsed: string[];
-    lastProvider: string;
-    lastTurnOutcome?: "completed" | "failed" | "cancelled";
-    completedAt: string;
-    cost: number;
-    taskSummary: string;
-  }>();
+  const ledgerSessions = await sessionStore.list();
+  const ledgerBySessionId = new Map(ledgerSessions.map((session) => [session.sessionId, session]));
+  const transcriptSessionIds = await transcriptStore.listSessions();
+  const summaries: GuiSessionSummary[] = [];
 
-  for (const session of sessions) {
-    if (!loadableSessionIds.has(session.sessionId)) {
+  for (const sessionId of transcriptSessionIds) {
+    const meta = await transcriptStore.readMeta(sessionId);
+    if (!meta) {
       continue;
     }
-    const meta = await transcriptStore.readMeta(session.sessionId);
-    const existing = summaries.get(session.sessionId);
-    if (!existing) {
-      summaries.set(session.sessionId, {
-        id: session.sessionId,
-        providersUsed: mergeProvidersUsed(session.providersUsed, [session.provider]),
-        lastProvider: session.provider,
-        ...(meta?.lastTurnOutcome ? { lastTurnOutcome: meta.lastTurnOutcome } : {}),
-        completedAt: session.completedAt,
-        cost: session.cost,
-        taskSummary: buildSessionSummary({
-          summary: session.summary,
-          canonicalTitle: session.canonicalTitle,
-          title: session.title,
-          task: session.task,
-          provider: session.provider,
-        }),
-      });
-      continue;
-    }
-
-    existing.providersUsed = mergeProvidersUsed(existing.providersUsed, [
-      ...(session.providersUsed ?? []),
-      session.provider,
-    ]);
-    const candidateSummary = buildSessionSummary({
-      summary: session.summary,
-      canonicalTitle: session.canonicalTitle,
-      title: session.title,
-      task: session.task,
-      provider: session.provider,
-    });
-    if (isGenericSummary(existing.taskSummary) && !isGenericSummary(candidateSummary)) {
-      existing.taskSummary = candidateSummary;
-    }
-    if (meta?.lastTurnOutcome) {
-      existing.lastTurnOutcome = meta.lastTurnOutcome;
-    }
-    existing.cost += session.cost;
+    const fromMeta = buildSummaryFromMeta(sessionId, meta);
+    const ledger = ledgerBySessionId.get(sessionId);
+    summaries.push(ledger ? applyLedgerRecord(fromMeta, ledger) : fromMeta);
   }
 
-  return [...summaries.values()].slice(0, 20);
+  return summaries
+    .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+    .slice(0, 20);
 }

@@ -115,7 +115,13 @@ describe("SessionManager context governor integration", () => {
       artifactCache,
     );
 
-    await manager.prepare("shape test", "/workspace/project", "memory snapshot");
+    await manager.prepare(
+      "shape test",
+      "/workspace/project",
+      "memory snapshot",
+      false,
+      "resume-shape",
+    );
 
     expect(coreGovernorProjectMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -135,7 +141,7 @@ describe("SessionManager context governor integration", () => {
     expect(coreGovernorProjectMock.mock.calls[0]?.[0]).not.toHaveProperty("cache");
   });
 
-  it("defaults missing summary aggressiveness to medium for legacy CLI behavior", async () => {
+  it("defaults missing summary aggressiveness to medium", async () => {
     const { SessionManager } = await import("../session-manager.js");
 
     const artifactCache = {
@@ -202,6 +208,47 @@ describe("SessionManager context governor integration", () => {
     );
   });
 
+  it("does not inject cached historical summaries into fresh sessions", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+
+    const artifactCache = {
+      get: vi.fn().mockReturnValue({
+        key: "context-artifact",
+        kind: "project-summary",
+        content: "Project-level historical evidence.\nPrevious task",
+        createdAt: new Date("2026-06-06T00:00:00.000Z"),
+        updatedAt: new Date("2026-06-06T00:00:00.000Z"),
+      }),
+      set: vi.fn(),
+      delete: vi.fn().mockReturnValue(false),
+      listByKind: vi.fn().mockReturnValue([]),
+    };
+    const manager = new SessionManager(
+      { mode: "api-key", permissionPolicy: {} as never },
+      {
+        createRegistry: () => ({
+          loadInstalledDomains: vi.fn(),
+          detectAndMerge: vi.fn().mockReturnValue({ displayName: "CLI Test Domain" }),
+        }) as never,
+        buildSystemPrompt: vi.fn().mockReturnValue("system prompt"),
+      },
+      artifactCache,
+    );
+
+    await manager.prepare("fresh task", "/workspace/project");
+
+    const input = coreGovernorProjectMock.mock.calls[0]?.[0];
+
+    expect(input).toMatchObject({
+      artifactCache: undefined,
+      projectArtifactKey: undefined,
+      planArtifactKey: undefined,
+      sessionArtifactKey: undefined,
+      moduleArtifactKeys: [],
+    });
+    expect(artifactCache.get).not.toHaveBeenCalled();
+  });
+
   it("passes resume ledger and replay artifacts through the core renderLedger path", async () => {
     const { SessionManager } = await import("../session-manager.js");
 
@@ -247,6 +294,10 @@ describe("SessionManager context governor integration", () => {
     const input = coreGovernorProjectMock.mock.calls[0]?.[0];
 
     expect(input).toMatchObject({
+      artifactCache,
+      projectArtifactKey: "project-summary:/workspace/project",
+      planArtifactKey: "plan-summary:/workspace/project:resume-test",
+      sessionArtifactKey: "session-summary:resume-123",
       sessionLedger: expect.objectContaining({
         currentPhase: "verify",
         resumedFrom: "resume-123",

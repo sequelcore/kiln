@@ -1,8 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ManagedAgentFanOutLifecycleInput } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
 import { buildRunSessionRequirements, resolveRunProviderModelAdmission, runCommand } from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
 const runWiringMocks = vi.hoisted(() => {
   const builtinToolSurfaceOptions = { id: "surface-options" };
@@ -147,6 +151,18 @@ vi.mock("@kilnai/runtime", () => ({
     };
   },
   ManagedDirectProviderRuntimeAdapter: class MockManagedDirectProviderRuntimeAdapter {},
+  PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
+    constructor(readonly options: unknown) {}
+  },
+  PlaywrightBrowserUseProvider: class MockPlaywrightBrowserUseProvider {
+    constructor(readonly options: unknown) {}
+  },
+  WindowsComputerUseProvider: class MockWindowsComputerUseProvider {
+    constructor(readonly options: unknown) {}
+  },
+  WindowsUiaComputerUseProvider: class MockWindowsUiaComputerUseProvider {
+    constructor(readonly options: unknown) {}
+  },
 }));
 
 vi.mock("@kilnai/core", async (importOriginal) => {
@@ -417,8 +433,11 @@ describe("run command builtin tool wiring", () => {
     await runCommand(APP_CONFIG, "ship it", { provider: "openai", model: "gpt-4o", apiKey: "sk-test" });
 
     expect(runWiringMocks.loadConfiguredWebToolSurfaceOptions).toHaveBeenCalledWith(
-      APP_CONFIG,
-      process.cwd(),
+      expect.objectContaining({
+        createRegistry: APP_CONFIG.createRegistry,
+        kilnYaml: expect.objectContaining({ version: "1" }),
+      }),
+      REPO_ROOT,
       {
         memoryAuthority: {
           modelFacingSession: true,
@@ -1532,7 +1551,7 @@ describe("run command builtin tool wiring", () => {
     );
 
     expect(runWiringMocks.cleanupWorktree).toHaveBeenCalledWith(expect.objectContaining({
-      worktreePath: process.cwd(),
+      worktreePath: REPO_ROOT,
     }));
     exit.mockRestore();
   });

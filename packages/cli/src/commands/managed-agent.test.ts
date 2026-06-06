@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ import {
   sendManagedAgentJoinControl,
   type ManagedAgentGatewaySocket,
 } from "./managed-agent.js";
-import { TranscriptStore } from "../wrapper/session-store.js";
+import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 
 const roots: string[] = [];
 
@@ -213,6 +213,47 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review: required · dirty-worktree-preserved");
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review resources: kiln://artifacts/child-1/worktree-review");
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
+  });
+
+  it("resolves project state from the canonical root when invoked with a nested project path", async () => {
+    const root = await tempRoot();
+    const packageCliPath = join(root, "packages", "cli");
+    await mkdir(join(root, ".git"), { recursive: true });
+    await mkdir(join(root, ".kiln"), { recursive: true });
+    await mkdir(join(packageCliPath, ".kiln"), { recursive: true });
+    await writeFile(join(root, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+
+    const rootSessionStore = new SessionStore(root);
+    const nestedSessionStore = new SessionStore(packageCliPath);
+    const rootTranscriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(rootTranscriptStore, "root-session");
+    await rootSessionStore.append({
+      sessionId: "root-session",
+      provider: "codex-oauth",
+      task: "Root session",
+      completedAt: "2026-05-23T00:00:00.000Z",
+      cost: 0,
+      projectPath: root,
+    });
+    await nestedSessionStore.append({
+      sessionId: "nested-stale-session",
+      provider: "codex-oauth",
+      task: "Nested stale session",
+      completedAt: "2026-05-23T00:01:00.000Z",
+      cost: 0,
+      projectPath: packageCliPath,
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "list",
+      [],
+      { projectPath: packageCliPath, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+
+    expect(log.mock.calls[0]?.[0]).toContain("Managed children for session root-session:");
+    expect(log.mock.calls[0]?.[0]).not.toContain("nested-stale-session");
   });
 
   it("prints governed worktree conflict state from shared projection", async () => {

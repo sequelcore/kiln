@@ -64,6 +64,41 @@ describe("GrepTool", () => {
     expect(commandRunner).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to the internal scanner when rg fails to launch", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "a.txt"), "one\nneedle line\nthree", "utf8");
+      const commandRunner = vi.fn(async () => {
+        throw Object.assign(new Error("ENOENT: no such file or directory, uv_spawn 'rg.exe'"), {
+          code: "ENOENT",
+          stdout: "",
+          stderr: "",
+        });
+      });
+      const tool = new GrepTool({
+        environmentProvider: async () => ({
+          rg: { path: "rg-bin", version: "15.0.0" },
+        }),
+        commandRunner,
+      });
+
+      const result = await tool.execute(
+        {
+          name: "grep",
+          input: { pattern: "needle", path: tempDir, outputMode: "content" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("a.txt:2:needle line");
+      expect(result.metadata?.["strategy"]).toBe("fallback");
+      expect(commandRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("uses the parent directory as cwd when grep path is a file", async () => {
     const tempDir = await makeTempDir();
     try {
@@ -243,6 +278,44 @@ describe("GlobTool", () => {
       30_000,
     );
     expect(commandRunner).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the internal walker when fd fails to launch", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "src"), { recursive: true });
+      await writeFile(join(tempDir, "src", "match.ts"), "const x = 1;\n", "utf8");
+      await writeFile(join(tempDir, "src", "skip.js"), "const y = 2;\n", "utf8");
+      const commandRunner = vi.fn(async () => {
+        throw Object.assign(new Error("ENOENT: no such file or directory, uv_spawn 'fd.exe'"), {
+          code: "ENOENT",
+          stdout: "",
+          stderr: "",
+        });
+      });
+      const tool = new GlobTool({
+        environmentProvider: async () => ({
+          fd: { path: "fd-bin", version: "10.0.0" },
+        }),
+        commandRunner,
+      });
+
+      const result = await tool.execute(
+        {
+          name: "glob",
+          input: { pattern: "**/*.ts", path: tempDir },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("src/match.ts");
+      expect(result.output).not.toContain("skip.js");
+      expect(result.metadata?.["strategy"]).toBe("fallback");
+      expect(commandRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await removeTempDir(tempDir);
+    }
   });
 
   it("expands brace alternates before calling fd so fast path matches fallback semantics", async () => {

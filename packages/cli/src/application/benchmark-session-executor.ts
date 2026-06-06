@@ -43,6 +43,7 @@ import { resolveManagedInvocationToolOptions } from "../config/managed-agent-rou
 import { SessionHooks } from "./session-hooks.js";
 import { runSession } from "./run-session.js";
 import { createNonHumanRunOutputSink } from "./run-output.js";
+import { resolveProjectRoot } from "./project-root-resolver.js";
 
 const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
 
@@ -61,7 +62,7 @@ export interface BenchmarkSessionExecutorOptions {
 export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutorOptions): BenchmarkItemExecutor {
   return async (input, context) => {
     const startedAt = Date.now();
-    const cwd = process.cwd();
+    const cwd = resolveProjectRoot().rootPath;
     const mode = resolveMode(options.flags);
     const globalConfig = readGlobalConfig();
     const projectConfig = readKilnYaml(join(cwd, ".kiln"));

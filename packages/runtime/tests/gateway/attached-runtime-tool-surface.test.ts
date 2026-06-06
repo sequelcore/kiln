@@ -2455,4 +2455,36 @@ describe("attached runtime builtin tool surface", () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("surfaces large bash output through resource links without inline stream metadata", async () => {
+    const largeOutput = "runtime bash link\n".repeat(1_000);
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        bash: {
+          commandRunner: async () => ({
+            stdout: largeOutput,
+            stderr: "",
+          }),
+        },
+      },
+    });
+
+    const result = await runtimeSurface.callBuiltinTools.get("bash")?.({
+      command: "generate-large-output",
+    }) as {
+      output: string;
+      resourceLinks?: readonly { uri: string; title?: string }[];
+      metadata?: Record<string, unknown>;
+    };
+
+    expect(result.output).toContain("Full tool output is available as resource links");
+    expect(result.output).not.toContain("runtime bash link");
+    expect(result.resourceLinks).toEqual([expect.objectContaining({
+      uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+      title: "bash full output",
+    })]);
+    expect(result.metadata?.["stdoutBytes"]).toBe(Buffer.byteLength(largeOutput));
+    expect(result.metadata?.["stdoutTruncated"]).toBe(true);
+    expect(Buffer.byteLength(String(result.metadata?.["stdout"] ?? ""), "utf8")).toBeLessThanOrEqual(8 * 1024);
+  });
 });

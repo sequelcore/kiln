@@ -167,7 +167,8 @@ describe("BashTool", () => {
     expect(result.metadata?.["timedOut"]).toBe(false);
     expect(result.metadata?.["truncated"]).toBe(true);
     expect(result.metadata?.["maxBufferBytes"]).toBe(2 * 1024 * 1024);
-    expect(result.metadata?.["stdout"]).toBe(maxBufferOutput);
+    expect(result.metadata?.["stdout"]).toBe("x".repeat(8 * 1024));
+    expect(result.metadata?.["stdoutTruncated"]).toBe(true);
     expect(result.metadata?.["stdoutBytes"]).toBe(2 * 1024 * 1024);
     expect(result.metadata?.["stderrBytes"]).toBe(0);
     expect(result.metadata?.["durationMs"]).toEqual(expect.any(Number));

@@ -87,6 +87,38 @@ describe("GUI session summaries", () => {
     expect(summaries[0]?.taskSummary).toBe("Refactor session ledger metadata slice for provider-agnostic resume");
   });
 
+  it("lists canonical transcript sessions even when no ledger row was written", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-sessions-transcript-only-"));
+    const sessionStore = new SessionStore(tmpDir);
+    const transcriptStore = new TranscriptStore(tmpDir);
+
+    await transcriptStore.init("kiln-session-transcript-only", {
+      kilnSessionId: "kiln-session-transcript-only",
+      provider: "codex-oauth",
+      title: "Final focused review after fixing App Gateway fresh detach",
+      summary: "Final focused review after fixing App Gateway fresh detach",
+      tags: ["codex-oauth", "gpt-5.5"],
+      task: "Final focused review after fixing App Gateway fresh detach.",
+      startedAt: "2026-06-06T09:31:13.072Z",
+      completedAt: "2026-06-06T09:32:27.809Z",
+      lastTurnOutcome: "completed",
+      costUsd: 0,
+    });
+
+    const summaries = await loadSessionSummaries(sessionStore, transcriptStore);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatchObject({
+      id: "kiln-session-transcript-only",
+      providersUsed: ["codex-oauth"],
+      lastProvider: "codex-oauth",
+      lastTurnOutcome: "completed",
+      completedAt: "2026-06-06T09:32:27.809Z",
+      cost: 0,
+      taskSummary: "Final focused review after fixing App Gateway fresh detach",
+    });
+  });
+
   it("loads detail from session metadata when transcript storage is present", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-session-detail-"));
     const sessionStore = new SessionStore(tmpDir);

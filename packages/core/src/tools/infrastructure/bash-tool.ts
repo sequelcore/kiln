@@ -9,7 +9,6 @@ import {
   requireString,
   resolvePath,
   toErrorResult,
-  toSuccessResult,
   validateCommand,
   validateReadPath,
 } from "./tool-helpers.js";
@@ -19,6 +18,7 @@ const execFile = promisify(execFileCallback);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MAX_BUFFER = 2 * 1024 * 1024;
+const METADATA_STREAM_PREVIEW_BYTES = 8 * 1024;
 
 type BashCommandResult = {
   readonly stdout: string;
@@ -94,21 +94,39 @@ export class BashTool implements DevTool {
       const stdout = result.stdout;
       const stderr = result.stderr;
       const output = [stdout, stderr].filter(Boolean).join("").trim();
+      const stdoutPreview = clipTextToBytes(stdout, METADATA_STREAM_PREVIEW_BYTES);
+      const stderrPreview = clipTextToBytes(stderr, METADATA_STREAM_PREVIEW_BYTES);
+      const metadataTruncated = stdoutPreview.truncated || stderrPreview.truncated;
       const metadata = commandToolMetadata("bash", {
         cwd,
         command: commandInput.value,
         timeoutMs: timeoutInput.value,
-        stdout,
-        stderr,
+        stdout: stdoutPreview.text,
+        stderr: stderrPreview.text,
+        stdoutTruncated: stdoutPreview.truncated,
+        stderrTruncated: stderrPreview.truncated,
         stdoutBytes: byteLength(stdout),
         stderrBytes: byteLength(stderr),
         exitCode: 0,
         timedOut: false,
-        truncated: false,
+        truncated: metadataTruncated,
         durationMs,
         verbosity: verbosityInput.value,
       });
-      return toSuccessResult(formatBashOutput(output, metadata), metadata);
+      return {
+        output: formatBashOutput(output, metadata),
+        isError: false,
+        metadata,
+        ...(metadataTruncated || verbosityInput.value !== "raw"
+          ? {
+            resourcePayload: {
+              title: "bash full output",
+              mimeType: "text/plain",
+              text: output,
+            },
+          }
+          : {}),
+      };
     } catch (error) {
       const err = error as NodeJS.ErrnoException & {
         stdout?: string;
@@ -120,11 +138,15 @@ export class BashTool implements DevTool {
       const durationMs = elapsedDurationMs(startedAtMs);
       const stdout = err.stdout ?? "";
       const stderr = err.stderr ?? "";
+      const stdoutPreview = clipTextToBytes(stdout, METADATA_STREAM_PREVIEW_BYTES);
+      const stderrPreview = clipTextToBytes(stderr, METADATA_STREAM_PREVIEW_BYTES);
 
       const message =
         [stderr, stdout].filter(Boolean).join("").trim() ||
         err.message ||
         "bash command failed";
+      const maxBufferExceeded = isMaxBufferExceeded(err);
+      const metadataTruncated = maxBufferExceeded || stdoutPreview.truncated || stderrPreview.truncated;
 
       const metadata = commandToolMetadata("bash", {
         cwd,
@@ -133,17 +155,32 @@ export class BashTool implements DevTool {
         maxBufferBytes: MAX_BUFFER,
         code: err.code,
         signal: err.signal,
-        stdout,
-        stderr,
+        stdout: stdoutPreview.text,
+        stderr: stderrPreview.text,
+        stdoutTruncated: stdoutPreview.truncated,
+        stderrTruncated: stderrPreview.truncated,
         stdoutBytes: byteLength(stdout),
         stderrBytes: byteLength(stderr),
         exitCode: deriveExitCode(err.code),
         timedOut: isTimedOut(err),
-        truncated: isMaxBufferExceeded(err),
+        truncated: metadataTruncated,
         durationMs,
         verbosity: verbosityInput.value,
       });
-      return toErrorResult(formatBashOutput(message, metadata), metadata);
+      return {
+        output: formatBashOutput(message, metadata),
+        isError: true,
+        metadata,
+        ...(metadataTruncated || verbosityInput.value !== "raw"
+          ? {
+            resourcePayload: {
+              title: "bash full output",
+              mimeType: "text/plain",
+              text: message,
+            },
+          }
+          : {}),
+      };
     }
   }
 }
@@ -212,6 +249,14 @@ async function runBashCommand(
 
 function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
+}
+
+function clipTextToBytes(value: string, maxBytes: number): { readonly text: string; readonly truncated: boolean } {
+  const buffer = Buffer.from(value, "utf8");
+  if (buffer.byteLength <= maxBytes) {
+    return { text: value, truncated: false };
+  }
+  return { text: buffer.subarray(0, maxBytes).toString("utf8"), truncated: true };
 }
 
 function elapsedDurationMs(startedAtMs: number): number {

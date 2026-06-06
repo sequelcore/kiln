@@ -84,7 +84,10 @@ export class GlobTool implements DevTool {
       const fdPath = environment.fd?.path;
 
       if (fdPath) {
-        return await this.executeFastPath(fdPath, searchRoot, patternInput.value, verbosityInput.value);
+        const fastPathResult = await this.executeFastPath(fdPath, searchRoot, patternInput.value, verbosityInput.value);
+        if (!fastPathResult.isError) {
+          return fastPathResult;
+        }
       }
 
       return await this.executeFallback(searchRoot, patternInput.value, verbosityInput.value, sandbox);

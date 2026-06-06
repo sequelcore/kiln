@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ const gatewayHarness = vi.hoisted(() => ({
   startGuiGateway: vi.fn(async (options: {
     getSnapshot: (context?: { operatorModels?: Record<string, string[]> }) => Promise<unknown>;
     builtinToolOptions?: unknown;
+    workingDirectory?: string;
   }) => {
     gatewayHarness.lastOptions = options;
     gatewayHarness.snapshot = await options.getSnapshot({
@@ -271,6 +272,7 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
 }));
 
 import { guiCommand } from "../../src/commands/gui.js";
+import { getProjectContextArtifactCache } from "@kilnai/runtime";
 
 const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {
@@ -337,6 +339,34 @@ describe("GUI dashboard provider availability", () => {
         },
       },
     });
+  });
+
+  it("resolves nested cwd to the canonical project root before opening GUI state", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+    const packageCliPath = join(tmpDir, "packages", "cli");
+    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    mkdirSync(join(tmpDir, ".kiln"), { recursive: true });
+    mkdirSync(join(packageCliPath, ".kiln"), { recursive: true });
+    writeFileSync(join(tmpDir, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+    writeFileSync(
+      join(packageCliPath, ".kiln", "resume-targets.json"),
+      JSON.stringify({ defaultSessionId: "stale-nested-session" }),
+      "utf-8",
+    );
+
+    await guiCommand(APP_CONFIG, {
+      cwd: packageCliPath,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.lastOptions?.workingDirectory).toBe(tmpDir);
+    expect(gatewayHarness.snapshot).toMatchObject({
+      workingDirectory: tmpDir,
+    });
+    expect(getProjectContextArtifactCache).toHaveBeenCalledWith(tmpDir);
+    expect(existsSync(join(packageCliPath, ".kiln", "resume-targets.json"))).toBe(true);
   });
 
   afterEach(() => {

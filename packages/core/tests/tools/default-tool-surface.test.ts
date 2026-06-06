@@ -575,6 +575,71 @@ describe("default builtin tool surface", () => {
     }
   });
 
+  it("links large bash output without storing full streams in metadata", async () => {
+    const largeOutput = "alpha\n".repeat(2_000);
+    const surface = createDefaultBuiltinToolSurface({
+      bash: {
+        commandRunner: async () => ({
+          stdout: largeOutput,
+          stderr: "",
+        }),
+      },
+    });
+
+    const result = await surface.bridge.execute({
+      name: "bash",
+      input: { command: "generate-large-output" },
+    });
+
+    const link = result.result.metadata?.resourceLinks?.[0];
+    expect(link).toMatchObject({
+      uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+      relation: "full_output",
+      mimeType: "text/plain",
+      title: "bash full output",
+    });
+    expect(result.result.metadata?.["stdoutBytes"]).toBe(Buffer.byteLength(largeOutput));
+    expect(result.result.metadata?.["stdoutTruncated"]).toBe(true);
+    expect(Buffer.byteLength(String(result.result.metadata?.["stdout"] ?? ""), "utf8")).toBeLessThanOrEqual(8 * 1024);
+
+    const artifact = await surface.resources.read(link!.uri);
+    const artifactText = artifact.contents[0] && "text" in artifact.contents[0]
+      ? artifact.contents[0].text
+      : "";
+    expect(artifactText).toBe(largeOutput.trim().slice(0, artifactText.length));
+    expect(link?.size).toBe(Buffer.byteLength(largeOutput.trim()));
+  });
+
+  it("stores large read output as an artifact resource link", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const filePath = join(tempDir, "transcript.jsonl");
+      const content = "{\"event\":\"tool_call_completed\",\"payload\":\"large\"}\n".repeat(400);
+      await writeFile(filePath, content, "utf8");
+      const surface = createDefaultBuiltinToolSurface();
+
+      const result = await surface.bridge.execute({
+        name: "read",
+        input: { filePath },
+      });
+
+      const link = result.result.metadata?.resourceLinks?.[0];
+      expect(link).toMatchObject({
+        relation: "full_output",
+        mimeType: "text/plain",
+        title: "read full output",
+      });
+
+      const artifact = await surface.resources.read(link!.uri);
+      const artifactText = artifact.contents[0] && "text" in artifact.contents[0]
+        ? artifact.contents[0].text
+        : "";
+      expect(artifactText).toContain("\"tool_call_completed\"");
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("links browser session stop recorder proof payloads as session artifacts", () => {
     const store = new MemoryArtifactResourceStore();
     const linker = new ArtifactToolResourceLinker({ store });

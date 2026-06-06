@@ -15,6 +15,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import type { KilnAppConfig } from "../config.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 export interface ManagedAgentCommandOptions {
   readonly projectPath?: string;
@@ -69,7 +70,7 @@ export async function managedAgentCommand(
   args: readonly string[],
   options: ManagedAgentCommandOptions = {},
 ): Promise<void> {
-  const root = options.projectPath ?? process.cwd();
+  const root = resolveProjectRoot({ explicitPath: options.projectPath }).rootPath;
   const transcriptStore = new TranscriptStore(root);
 
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {

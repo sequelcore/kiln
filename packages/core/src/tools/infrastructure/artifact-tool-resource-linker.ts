@@ -15,6 +15,8 @@ const DEFAULT_RETENTION: ArtifactRetentionPolicy = {
   maxArtifacts: 100,
 };
 const DEFAULT_LINKED_TOOLS = new Set([
+  "bash",
+  "read",
   "read_many",
   "tree",
   "monitor_read",
@@ -99,7 +101,7 @@ export class ArtifactToolResourceLinker implements ToolResourceLinker {
   }
 
   private shouldLink(toolName: string, result: ToolResult): boolean {
-    if (result.isError || !result.metadata || !this.linkedTools.has(toolName)) {
+    if (!result.metadata || !this.linkedTools.has(toolName)) {
       return false;
     }
     if (toolName === "browser_session_stop" && result.resourcePayload) {

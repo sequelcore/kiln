@@ -98,7 +98,7 @@ export class GrepTool implements DevTool {
       const rgPath = environment.rg?.path;
 
       if (rgPath) {
-        return await this.executeFastPath(
+        const fastPathResult = await this.executeFastPath(
           rgPath,
           searchTarget,
           patternInput.value,
@@ -106,6 +106,9 @@ export class GrepTool implements DevTool {
           outputMode,
           verbosityInput.value,
         );
+        if (!fastPathResult.isError) {
+          return fastPathResult;
+        }
       }
 
       return await this.executeFallback(

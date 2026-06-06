@@ -50,4 +50,34 @@ describe("detectToolEnvironment", () => {
 
     expect(environment).toBeDefined();
   });
+
+  it("skips located binaries that cannot launch from their exact path", async () => {
+    const calls: string[] = [];
+    const environment = await detectToolEnvironment({
+      commandExecutor: async (command, args) => {
+        calls.push(`${command} ${args.join(" ")}`);
+        if (command === "where" || command === "which") {
+          const name = args[0];
+          if (name === "fd") {
+            return { stdout: "C:\\broken\\fd.exe\nC:\\tools\\fd.exe\n" };
+          }
+          throw new Error(`${name} not found`);
+        }
+        if (command === "C:\\broken\\fd.exe") {
+          throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        }
+        if (command === "C:\\tools\\fd.exe") {
+          return { stdout: "fd 10.4.2\n" };
+        }
+        throw new Error(`unexpected command ${command}`);
+      },
+    });
+
+    expect(environment.fd).toEqual({
+      path: "C:\\tools\\fd.exe",
+      version: "fd 10.4.2",
+    });
+    expect(calls).toContain("C:\\broken\\fd.exe --version");
+    expect(calls).toContain("C:\\tools\\fd.exe --version");
+  });
 });

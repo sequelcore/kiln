@@ -17,11 +17,18 @@ export interface ToolEnvironment {
 
 export interface ToolEnvironmentOptions {
   readonly searchPaths?: readonly string[];
+  readonly commandExecutor?: ToolEnvironmentCommandExecutor;
 }
 
 interface CommandResult {
   readonly stdout: string;
 }
+
+export type ToolEnvironmentCommandExecutor = (
+  command: string,
+  args: readonly string[],
+  searchPaths?: readonly string[],
+) => Promise<CommandResult>;
 
 const TOOL_NAMES = ["rg", "fd", "jq", "git"] as const;
 
@@ -83,33 +90,39 @@ function executeCommand(
 
 const executeCommandAsync = promisify(executeCommand);
 
+const defaultCommandExecutor: ToolEnvironmentCommandExecutor = async (command, args, searchPaths) =>
+  await executeCommandAsync(command, args, searchPaths) as CommandResult;
+
 async function detectBinary(
   name: (typeof TOOL_NAMES)[number],
   searchPaths?: readonly string[],
+  commandExecutor: ToolEnvironmentCommandExecutor = defaultCommandExecutor,
 ): Promise<BinaryInfo | undefined> {
   try {
     const locator = process.platform === "win32" ? "where" : "which";
-    const locationResult = await executeCommandAsync(locator, [name], searchPaths);
-    const path = locationResult!.stdout
+    const locationResult = await commandExecutor(locator, [name], searchPaths);
+    const paths = locationResult.stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .find((line) => line.length > 0);
+      .filter((line) => line.length > 0);
 
-    if (!path) {
-      return undefined;
+    for (const path of paths) {
+      try {
+        const versionResult = await commandExecutor(path, ["--version"], searchPaths);
+        const version = versionResult.stdout
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find((line) => line.length > 0);
+
+        if (version) {
+          return { path, version };
+        }
+      } catch {
+        continue;
+      }
     }
 
-    const versionResult = await executeCommandAsync(name, ["--version"], searchPaths);
-    const version = versionResult!.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0);
-
-    if (!version) {
-      return undefined;
-    }
-
-    return { path, version };
+    return undefined;
   } catch {
     return undefined;
   }
@@ -122,11 +135,12 @@ export async function detectToolEnvironment(
     return cachedToolEnvironment;
   }
 
+  const commandExecutor = options.commandExecutor ?? defaultCommandExecutor;
   const [rg, fd, jq, git] = await Promise.all([
-    detectBinary("rg", options.searchPaths),
-    detectBinary("fd", options.searchPaths),
-    detectBinary("jq", options.searchPaths),
-    detectBinary("git", options.searchPaths),
+    detectBinary("rg", options.searchPaths, commandExecutor),
+    detectBinary("fd", options.searchPaths, commandExecutor),
+    detectBinary("jq", options.searchPaths, commandExecutor),
+    detectBinary("git", options.searchPaths, commandExecutor),
   ]);
 
   const environment: ToolEnvironment = {

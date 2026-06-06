@@ -141,6 +141,8 @@ export interface CommandToolResultMetadata<TToolName extends CommandToolName = C
   readonly timeoutMs?: number;
   readonly stdout?: string;
   readonly stderr?: string;
+  readonly stdoutTruncated?: boolean;
+  readonly stderrTruncated?: boolean;
   readonly stdoutBytes?: number;
   readonly stderrBytes?: number;
   readonly exitCode?: number | string;

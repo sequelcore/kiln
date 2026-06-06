@@ -6,6 +6,7 @@ import type { KilnAppConfig } from "../config.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { PersistedTranscriptEvent as StoredTranscriptEvent } from "../wrapper/session-store.js";
 import type { PersistedTranscriptEvent as SkillCaptureTranscriptEvent } from "@kilnai/core";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 const MAX_NAME_LENGTH = 40;
 
@@ -72,8 +73,9 @@ export async function skillCaptureCommand(
   flags: SkillCaptureFlags,
 ): Promise<void> {
   const normalized = normalizeLeadingFlag(sessionId, flags);
-  const sessionStore = new SessionStore(process.cwd());
-  const transcriptStore = new TranscriptStore(process.cwd());
+  const projectPath = resolveProjectRoot().rootPath;
+  const sessionStore = new SessionStore(projectPath);
+  const transcriptStore = new TranscriptStore(projectPath);
   const resolvedSessionId = normalized.last || !normalized.sessionId
     ? (await sessionStore.last())?.sessionId
     : normalized.sessionId;
@@ -152,7 +154,7 @@ export async function skillCaptureCommand(
 
   const skillsDir = normalized.flags.scope === "user"
     ? join(homedir(), ".kiln", "skills", skillName)
-    : join(process.cwd(), ".kiln", "skills", skillName);
+    : join(projectPath, ".kiln", "skills", skillName);
   const skillFilePath = join(skillsDir, "SKILL.md");
 
   console.log("Skill preview");
