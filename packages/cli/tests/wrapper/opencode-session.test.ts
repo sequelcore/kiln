@@ -161,6 +161,22 @@ describe("OpenCode runtime config injection", () => {
     });
   });
 
+  it("omits non-native model ids from process-scoped OpenCode config", () => {
+    const content = buildOpenCodeRuntimeConfigContent(baseConfig({
+      model: "gpt-5.5",
+      permissionDefault: "allow",
+    }));
+
+    expect(JSON.parse(content)).toEqual({
+      permission: {
+        edit: "allow",
+        bash: "allow",
+        webfetch: "allow",
+      },
+      experimental: { batch_tool: true },
+    });
+  });
+
   it("merges existing OPENCODE_CONFIG_CONTENT while letting Kiln-owned fields win", () => {
     const env = buildOpenCodeRuntimeConfigEnv(
       {
@@ -219,6 +235,7 @@ describe("OpenCodeSession.run() integration", () => {
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: sessionId } }),
         prompt: vi.fn().mockResolvedValue({ data: { info: { cost, stopReason } } }),
+        messages: vi.fn().mockResolvedValue({ data: [] }),
         abort: vi.fn().mockResolvedValue(undefined),
       },
       global: {
@@ -256,11 +273,11 @@ describe("OpenCodeSession.run() integration", () => {
     }
 
     const firstUpdateCall = mock.config.update.mock.calls[0]?.[0] as {
-      body?: {
+      config?: {
         permission?: { edit?: string; bash?: string; webfetch?: string };
       };
     } | undefined;
-    expect(firstUpdateCall?.body?.permission).toEqual({
+    expect(firstUpdateCall?.config?.permission).toEqual({
       edit: "deny",
       bash: "allow",
       webfetch: "allow",
@@ -342,11 +359,65 @@ describe("OpenCodeSession.run() integration", () => {
     expect(promptText).toContain("Execute the task above in this turn.");
   });
 
+  it("run() does not write non-native model ids into OpenCode config", async () => {
+    const mock = makeMockClient("ses_model_skip", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_model_skip", status: { type: "idle" } } },
+      },
+    ], 0.001);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig({ model: "gpt-5.5" }));
+    for await (const _event of await session.run({ prompt: "test" })) {
+      // consume
+    }
+
+    expect(mock.config.update.mock.calls.some(([call]) =>
+      Boolean((call as { config?: { model?: string } } | undefined)?.config?.model),
+    )).toBe(false);
+    expect(mock.session.prompt.mock.calls[0]?.[0]).not.toEqual(expect.objectContaining({
+      model: expect.anything(),
+    }));
+  });
+
+  it("run() sends provider/model ids as prompt-scoped OpenCode model selection", async () => {
+    const mock = makeMockClient("ses_model_native", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_model_native", status: { type: "idle" } } },
+      },
+    ], 0.001);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig({ model: "kilo/openai/gpt-5.4-mini" }));
+    for await (const _event of await session.run({ prompt: "test" })) {
+      // consume
+    }
+
+    expect(mock.config.update.mock.calls.some(([call]) =>
+      Boolean((call as { config?: { model?: string } } | undefined)?.config?.model),
+    )).toBe(false);
+    expect(mock.session.prompt.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      model: { providerID: "kilo", modelID: "openai/gpt-5.4-mini" },
+    }));
+  });
+
   it("run() yields text_delta for message.part.delta via SSE", async () => {
     const mock = makeMockClient("ses_123", [
       {
         directory: "/tmp",
-        payload: { type: "message.part.delta", properties: { sessionID: "ses_123", field: "text", delta: "Hello, world!" } },
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_123",
+            part: { id: "part_text_1", type: "text", text: "" },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "message.part.delta", properties: { sessionID: "ses_123", partID: "part_text_1", field: "text", delta: "Hello, world!" } },
       },
       {
         directory: "/tmp",
@@ -362,6 +433,265 @@ describe("OpenCodeSession.run() integration", () => {
     }
 
     expect(events).toContainEqual({ type: "text_delta", content: "Hello, world!" });
+  });
+
+  it("run() yields text_delta for message.part.updated text snapshots", async () => {
+    const mock = makeMockClient("ses_text_updated", [
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_text_updated",
+            part: {
+              id: "part_text_1",
+              type: "text",
+              text: "Hello from updated text",
+            },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_text_updated", status: { type: "idle" } } },
+      },
+    ]);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({ type: "text_delta", content: "Hello from updated text" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("run() does not duplicate text when delta and updated snapshot cover the same part", async () => {
+    const mock = makeMockClient("ses_text_dedupe", [
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.delta",
+          properties: { sessionID: "ses_text_dedupe", partID: "part_text_1", field: "text", delta: "Hello" },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_text_dedupe",
+            part: { id: "part_text_1", type: "text", text: "Hello" },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_text_dedupe", status: { type: "idle" } } },
+      },
+    ]);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events.filter((event) =>
+      "type" in event && event.type === "text_delta" && (event as { content?: string }).content === "Hello",
+    )).toHaveLength(1);
+  });
+
+  it("run() buffers untyped deltas until part type is known", async () => {
+    const mock = makeMockClient("ses_pending_reasoning", [
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.delta",
+          properties: {
+            sessionID: "ses_pending_reasoning",
+            partID: "part_reasoning_1",
+            field: "text",
+            delta: "internal reasoning",
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_pending_reasoning",
+            part: {
+              id: "part_reasoning_1",
+              type: "reasoning",
+              text: "internal reasoning",
+            },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_pending_reasoning", status: { type: "idle" } } },
+      },
+    ]);
+    mock.session.prompt.mockResolvedValueOnce({
+      data: {
+        info: { cost: 0, stopReason: "end_turn" },
+        parts: [{ id: "part_text_1", type: "text", text: "visible answer" }],
+      },
+    });
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).not.toContainEqual({ type: "text_delta", content: "internal reasoning" });
+    expect(events).toContainEqual({ type: "text_delta", content: "internal reasoning", isThinking: true });
+    expect(events).toContainEqual({ type: "text_delta", content: "visible answer" });
+  });
+
+  it("run() ignores user text snapshots and recovers assistant text", async () => {
+    const mock = makeMockClient("ses_user_snapshot", [
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.updated",
+          properties: {
+            sessionID: "ses_user_snapshot",
+            info: { id: "msg_user_1", role: "user" },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_user_snapshot",
+            part: {
+              id: "part_user_1",
+              messageID: "msg_user_1",
+              type: "text",
+              text: "Do not output this prompt text",
+            },
+          },
+        },
+      },
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_user_snapshot", status: { type: "idle" } } },
+      },
+    ]);
+    mock.session.messages.mockResolvedValueOnce({
+      data: [
+        {
+          info: { role: "assistant", time: { created: 2, completed: 3 } },
+          parts: [{ type: "text", text: "Assistant final text" }],
+        },
+      ],
+    });
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).not.toContainEqual({ type: "text_delta", content: "Do not output this prompt text" });
+    expect(events).toContainEqual({ type: "text_delta", content: "Assistant final text" });
+  });
+
+  it("run() falls back to prompt response parts when SSE omits text", async () => {
+    const mock = makeMockClient("ses_prompt_parts", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_prompt_parts", status: { type: "idle" } } },
+      },
+    ]);
+    mock.session.prompt.mockResolvedValueOnce({
+      data: {
+        info: { cost: 0, stopReason: "end_turn" },
+        parts: [{ id: "part_text_1", type: "text", text: "Recovered from prompt result" }],
+      },
+    });
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({ type: "text_delta", content: "Recovered from prompt result" });
+    expect(mock.session.messages).not.toHaveBeenCalled();
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("run() falls back to final assistant messages when SSE and prompt response omit text", async () => {
+    const mock = makeMockClient("ses_messages", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.idle", properties: { sessionID: "ses_messages" } },
+      },
+    ]);
+    mock.session.messages.mockResolvedValueOnce({
+      data: [
+        {
+          info: { role: "user", time: { created: 1 } },
+          parts: [{ type: "text", text: "user prompt" }],
+        },
+        {
+          info: { role: "assistant", time: { created: 2, completed: 3 } },
+          parts: [{ type: "text", text: "Recovered from session messages" }],
+        },
+      ],
+    });
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(mock.session.messages).toHaveBeenCalledWith(
+      { sessionID: "ses_messages", directory: expect.any(String), limit: 20 },
+      { throwOnError: false },
+    );
+    expect(events).toContainEqual({ type: "text_delta", content: "Recovered from session messages" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+  });
+
+  it("run() reports an empty OpenCode response as a harness error", async () => {
+    const mock = makeMockClient("ses_empty", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_empty", status: { type: "idle" } } },
+      },
+    ]);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: object[] = [];
+    for await (const event of await session.run({ prompt: "test" })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "error",
+      code: "OPENCODE_EMPTY_RESPONSE",
+      message: "OpenCode session reached idle without assistant text, usage, tool, or file-change evidence.",
+      isRetryable: true,
+    });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
   });
 
   it("run() yields tool_use for pending/running tool via message.part.updated", async () => {

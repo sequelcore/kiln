@@ -215,7 +215,7 @@ export class CodexSession implements IKilnSession {
       "exec",
       "--json",
       "-c",
-      `approval_policy="${this.config.approvalMode ?? "on-request"}"`,
+      `approval_policy=${this.config.approvalMode ?? "on-request"}`,
       "--sandbox",
       this.config.sandboxMode ?? "read-only",
     ];
@@ -261,7 +261,7 @@ export class CodexSession implements IKilnSession {
       promptWithTaskReminder,
       this._constraintInstructions,
     );
-    args.push("--cd", cwd, promptWithConstraints);
+    args.push("-C", cwd, "-");
 
     if (options.abortSignal?.aborted) {
       yield {
@@ -280,10 +280,11 @@ export class CodexSession implements IKilnSession {
     const proc: import("node:child_process").ChildProcess = spawn(codexBin, args, {
       cwd,
       env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       detached: false,
     });
     this._process = proc;
+    proc.stdin?.end(promptWithConstraints);
 
     if (options.abortSignal) {
       this._abortListener = () => {

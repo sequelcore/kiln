@@ -14,6 +14,24 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
+function openCodeCredential(id: string, tier: "go" | "zen", apiKey: string) {
+  return {
+    id,
+    label: id,
+    providerId: "opencode-api",
+    source: "manual",
+    priority: 0,
+    tier,
+    auth: {
+      api_key: apiKey,
+      tier,
+      created_at: "2026-05-01T00:00:00.000Z",
+    },
+    createdAt: "2026-05-01T00:00:00.000Z",
+    updatedAt: "2026-05-01T00:00:00.000Z",
+  };
+}
+
 describe("auth command", () => {
   let logs: string[];
 
@@ -22,39 +40,27 @@ describe("auth command", () => {
     vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
       logs.push(String(message ?? ""));
     });
-    await mkdir(join(homeDir, ".kiln", "auth", "opencode"), { recursive: true });
+    await mkdir(join(homeDir, ".kiln", "auth", "opencode-api"), { recursive: true });
     await writeFile(
-      join(homeDir, ".kiln", "auth", "opencode", "go-primary.json"),
-      `${JSON.stringify({
-        api_key: "opencode-test-key",
-        tier: "go",
-        created_at: "2026-05-01T00:00:00.000Z",
-      })}\n`,
+      join(homeDir, ".kiln", "auth", "opencode-api", "go-primary.json"),
+      `${JSON.stringify(openCodeCredential("go-primary", "go", "opencode-test-key"))}\n`,
       "utf8",
     );
     await writeFile(
-      join(homeDir, ".kiln", "auth", "opencode", "go-exhausted.json"),
-      `${JSON.stringify({
-        api_key: "opencode-test-key-2",
-        tier: "go",
-        created_at: "2026-05-01T00:00:00.000Z",
-      })}\n`,
+      join(homeDir, ".kiln", "auth", "opencode-api", "go-exhausted.json"),
+      `${JSON.stringify(openCodeCredential("go-exhausted", "go", "opencode-test-key-2"))}\n`,
       "utf8",
     );
     await writeFile(
-      join(homeDir, ".kiln", "auth", "opencode", "zen-primary.json"),
-      `${JSON.stringify({
-        api_key: "opencode-zen-key",
-        tier: "zen",
-        created_at: "2026-05-01T00:00:00.000Z",
-      })}\n`,
+      join(homeDir, ".kiln", "auth", "opencode-api", "zen-primary.json"),
+      `${JSON.stringify(openCodeCredential("zen-primary", "zen", "opencode-zen-key"))}\n`,
       "utf8",
     );
     await mkdir(join(homeDir, ".kiln", "auth", ".health"), { recursive: true });
     await writeFile(
-      join(homeDir, ".kiln", "auth", ".health", "opencode.json"),
+      join(homeDir, ".kiln", "auth", ".health", "opencode-api.json"),
       `${JSON.stringify([{
-        providerId: "opencode",
+        providerId: "opencode-api",
         credentialId: "go-primary",
         requestCount: 3,
         lastSuccess: 1777593600000,
@@ -63,7 +69,7 @@ describe("auth command", () => {
         lastOutcome: { type: "quota-exceeded" },
         updatedAt: "2026-05-01T00:00:00.000Z",
       }, {
-        providerId: "opencode",
+        providerId: "opencode-api",
         credentialId: "go-exhausted",
         requestCount: 5,
         lastSuccess: null,
@@ -142,12 +148,22 @@ describe("auth command", () => {
     await runAuth(["opencode", "link", "--tier", "zen", "--id", "zen-work", "--key", "sk-zen-work"]);
 
     const raw = JSON.parse(
-      await readFile(join(homeDir, ".kiln", "auth", "opencode", "zen-work.json"), "utf8"),
+      await readFile(join(homeDir, ".kiln", "auth", "opencode-api", "zen-work.json"), "utf8"),
     );
     expect(raw).toEqual({
-      api_key: "sk-zen-work",
+      id: "zen-work",
+      label: "zen-work",
+      providerId: "opencode-api",
+      source: "manual",
+      priority: 0,
       tier: "zen",
-      created_at: expect.any(String),
+      auth: {
+        api_key: "sk-zen-work",
+        tier: "zen",
+        created_at: expect.any(String),
+      },
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
     });
     expect(logs.join("\n")).toContain("Linked OpenCode (zen) as zen-work from --key");
   }, 10_000);

@@ -31,13 +31,24 @@ interface OpencodeClientShape {
       params: {
         sessionID: string;
         parts?: Array<{ type: "text"; text: string }>;
+        model?: { providerID: string; modelID: string };
         directory?: string;
       },
       options?: { throwOnError?: boolean },
     ): Promise<{
       data?: {
         info: { cost: number; stopReason?: string };
+        parts?: unknown[];
       };
+    }>;
+    messages(
+      params: { sessionID: string; directory?: string; limit?: number },
+      options?: { throwOnError?: boolean },
+    ): Promise<{
+      data?: Array<{
+        info?: { role?: string; time?: { created?: number; completed?: number } };
+        parts?: unknown[];
+      }>;
     }>;
     abort(
       params: { sessionID: string; directory?: string },
@@ -56,7 +67,7 @@ interface OpencodeClientShape {
   };
   config: {
     update(options?: {
-      body?: {
+      config?: {
         permission?: {
           edit?: "ask" | "allow" | "deny";
           bash?: "ask" | "allow" | "deny";
@@ -65,7 +76,7 @@ interface OpencodeClientShape {
         mcp?: Record<string, unknown>;
         experimental?: Record<string, unknown>;
       };
-      query?: { directory?: string };
+      directory?: string;
     }): Promise<unknown>;
   };
 }
@@ -308,8 +319,9 @@ export function buildOpenCodeRuntimeConfigContent(config: OpenCodeSessionConfig)
     experimental: { batch_tool: true },
   };
 
-  if (config.model) {
-    document.model = config.model;
+  const nativeModel = parseOpenCodeModel(config.model);
+  if (nativeModel) {
+    document.model = `${nativeModel.providerID}/${nativeModel.modelID}`;
   }
 
   const mcpEntry = buildOpenCodeMcpEntry(config);
@@ -410,6 +422,56 @@ function extractPreambleTask(prompt: string): string | undefined {
   return task && task.length > 0 ? task : undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractTextFromParts(parts: unknown): string {
+  if (!Array.isArray(parts)) return "";
+  const texts: string[] = [];
+  for (const part of parts) {
+    if (!isRecord(part)) continue;
+    if (part.type !== "text") continue;
+    if (part.ignored === true) continue;
+    if (typeof part.text === "string" && part.text.length > 0) {
+      texts.push(part.text);
+    }
+  }
+  return texts.join("\n").trim();
+}
+
+function extractAssistantTextFromMessages(messages: unknown): string {
+  if (!Array.isArray(messages)) return "";
+  const assistantMessages = messages
+    .filter((message): message is { info?: { role?: string; time?: { created?: number; completed?: number } }; parts?: unknown[] } =>
+      isRecord(message) && isRecord(message.info) && message.info.role === "assistant",
+    )
+    .sort((a, b) => {
+      const aTime = a.info?.time?.completed ?? a.info?.time?.created ?? 0;
+      const bTime = b.info?.time?.completed ?? b.info?.time?.created ?? 0;
+      return bTime - aTime;
+    });
+
+  for (const message of assistantMessages) {
+    const text = extractTextFromParts(message.parts);
+    if (text.length > 0) return text;
+  }
+  return "";
+}
+
+function parseOpenCodeModel(model: string | undefined): { providerID: string; modelID: string } | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed) return undefined;
+  const separatorIndex = trimmed.indexOf("/");
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
+    return undefined;
+  }
+  return {
+    providerID: trimmed.slice(0, separatorIndex),
+    modelID: trimmed.slice(separatorIndex + 1),
+  };
+}
+
 interface MutableCapabilities {
   supportedTools: readonly string[];
 }
@@ -466,7 +528,12 @@ export class OpenCodeSession implements IKilnSession {
     this._abortController = abortController;
     const knownMcpToolNames = new Set<string>();
     const partTypes = new Map<string, string>(); // partID → part type ("text" | "reasoning" | "tool" | ...)
+    const messageRoles = new Map<string, string>();
+    const textPartSnapshots = new Map<string, string>();
+    const pendingPartDeltas = new Map<string, string>();
     const cwd = options.cwd ?? this._config.cwd;
+    let sawProviderEvidence = false;
+    let emittedAssistantText = false;
 
     if (options.abortSignal) {
       if (options.abortSignal.aborted) {
@@ -519,8 +586,8 @@ export class OpenCodeSession implements IKilnSession {
         const permissionPayload = toPermissionPayload(this._config);
         await client.config
           .update({
-            body: { permission: permissionPayload },
-            query: { directory: cwd },
+            config: { permission: permissionPayload },
+            directory: cwd,
           })
           .catch((err: unknown) => {
             if (this._config.strictPermissionConfig === true) {
@@ -535,8 +602,8 @@ export class OpenCodeSession implements IKilnSession {
         if (mcpEntry !== undefined) {
           await client.config
             .update({
-              body: { mcp: { kiln: mcpEntry } },
-              query: { directory: cwd },
+              config: { mcp: { kiln: mcpEntry } },
+              directory: cwd,
             })
             .catch((err: unknown) => {
               console.debug(
@@ -549,8 +616,8 @@ export class OpenCodeSession implements IKilnSession {
 
         await client.config
           .update({
-            body: { experimental: { batch_tool: true } },
-            query: { directory: cwd },
+            config: { experimental: { batch_tool: true } },
+            directory: cwd,
           })
           .catch((err: unknown) => {
             console.debug(
@@ -558,17 +625,10 @@ export class OpenCodeSession implements IKilnSession {
             );
           });
 
-        if (this._config.model) {
-          await client.config
-            .update({
-              body: { model: this._config.model } as Record<string, unknown>,
-              query: { directory: cwd },
-            })
-            .catch((err: unknown) => {
-              console.debug(
-                `[opencode] model config.update failed: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            });
+        if (this._config.model && parseOpenCodeModel(this._config.model) === undefined) {
+          debug(
+            `[opencode] ignoring non-native model id '${this._config.model}'; OpenCode requires provider/model and will use its configured default.`,
+          );
         }
       }
 
@@ -640,10 +700,13 @@ export class OpenCodeSession implements IKilnSession {
         }),
       );
       const promptWithTaskReminder = appendTaskReminder(promptWithExecutionIdentity, options.prompt);
+      const nativeModel = parseOpenCodeModel(this._config.model);
+      let promptError: unknown;
       const promptResult = await client.session
         .prompt(
           {
             sessionID: this._remoteSessionId!,
+            ...(nativeModel ? { model: nativeModel } : {}),
             parts: [{
               type: "text",
               text: appendConstraintInstructions(
@@ -656,13 +719,63 @@ export class OpenCodeSession implements IKilnSession {
           },
           { throwOnError: false },
         )
-        .catch(() => ({ data: undefined }));
+        .catch((err: unknown) => {
+          promptError = err;
+          return { data: undefined };
+        });
+      const promptResultError = (promptResult as { error?: unknown } | undefined)?.error;
+      const promptParts = promptResult?.data?.parts;
+      debug(
+        `[opencode] prompt result: data=${promptResult?.data !== undefined ? "yes" : "no"} ` +
+          `parts=${Array.isArray(promptParts) ? promptParts.length : 0} ` +
+          `cost=${promptResult?.data?.info?.cost ?? 0} ` +
+          `error=${promptError !== undefined || promptResultError !== undefined ? "yes" : "no"}`,
+      );
+
+      if (promptError !== undefined || promptResultError !== undefined) {
+        const message = formatOpenCodeError(promptError ?? promptResultError);
+        yield {
+          type: "error",
+          code: "OPENCODE_PROMPT_FAILED",
+          message,
+          isRetryable: false,
+        };
+        yield {
+          type: "completed",
+          totalUsd: this._lastCostUsd,
+          durationMs: Date.now() - startTime,
+          isError: true,
+          isPreflightCrash: false,
+        };
+        return;
+      }
 
       this._lastCostUsd = promptResult?.data?.info?.cost ?? this._lastCostUsd;
+      if ((promptResult?.data?.info?.cost ?? 0) > 0) {
+        sawProviderEvidence = true;
+      }
 
       while (true) {
         const event = await waitForEvent();
         if (!event) break;
+
+        if (event.payload.type === "message.updated") {
+          const props = event.payload.properties as {
+            sessionID?: string;
+            info?: { id?: string; role?: string; cost?: number };
+          } | undefined;
+          if (props?.sessionID !== this._remoteSessionId) continue;
+          if (typeof props.info?.id === "string" && typeof props.info?.role === "string") {
+            messageRoles.set(props.info.id, props.info.role);
+          }
+          if (props.info?.role === "assistant") {
+            sawProviderEvidence = true;
+            if (typeof props.info.cost === "number" && props.info.cost > 0) {
+              this._lastCostUsd = props.info.cost;
+            }
+          }
+          continue;
+        }
 
         if (event.payload.type === "sessionUpdate") {
           const props = event.payload.properties as {
@@ -690,6 +803,7 @@ export class OpenCodeSession implements IKilnSession {
               outputTokens: props.cost.outputTokens,
               cacheReadTokens: props.cost.cacheReadTokens,
             };
+            sawProviderEvidence = true;
           }
           continue;
         }
@@ -697,17 +811,32 @@ export class OpenCodeSession implements IKilnSession {
         if (event.payload.type === "message.part.delta") {
           const props = event.payload.properties as {
             sessionID?: string;
+            messageID?: string;
             partID?: string;
             field?: string;
             delta?: string;
           } | undefined;
           if (props?.sessionID !== this._remoteSessionId) continue;
+          if (props.messageID && messageRoles.get(props.messageID) === "user") continue;
           if (props?.field === "text" && props?.delta) {
+            sawProviderEvidence = true;
+            if (props.partID) {
+              textPartSnapshots.set(
+                props.partID,
+                `${textPartSnapshots.get(props.partID) ?? ""}${props.delta}`,
+              );
+            }
             const partType = props.partID ? partTypes.get(props.partID) : undefined;
             if (partType === "reasoning") {
               yield { type: "text_delta", content: props.delta, isThinking: true };
-            } else {
+            } else if (partType === "text") {
+              emittedAssistantText = true;
               yield { type: "text_delta", content: props.delta };
+            } else if (props.partID) {
+              pendingPartDeltas.set(
+                props.partID,
+                `${pendingPartDeltas.get(props.partID) ?? ""}${props.delta}`,
+              );
             }
           }
           continue;
@@ -716,12 +845,14 @@ export class OpenCodeSession implements IKilnSession {
         if (event.payload.type === "message.part.updated") {
           const props = event.payload.properties as {
             sessionID?: string;
-            part?: {
-              id?: string;
-              type?: string;
-              callID?: string;
-              tool?: string;
-              state?: {
+              part?: {
+                id?: string;
+                messageID?: string;
+                type?: string;
+                text?: string;
+                callID?: string;
+                tool?: string;
+                state?: {
                 status?: string;
                 input?: Record<string, unknown>;
                 output?: string;
@@ -736,8 +867,39 @@ export class OpenCodeSession implements IKilnSession {
 
           const part = props.part;
           if (part.id && part.type) partTypes.set(part.id, part.type);
+          const pendingDelta = part.id ? pendingPartDeltas.get(part.id) : undefined;
+          if (part.id && pendingDelta !== undefined) {
+            pendingPartDeltas.delete(part.id);
+          }
+
+          if (pendingDelta && part.type === "reasoning") {
+            yield { type: "text_delta", content: pendingDelta, isThinking: true };
+          }
+
+          if (part.type === "text") {
+            if (part.messageID && messageRoles.get(part.messageID) !== "assistant") {
+              continue;
+            }
+            sawProviderEvidence = true;
+            if (pendingDelta) {
+              emittedAssistantText = true;
+              yield { type: "text_delta", content: pendingDelta };
+            }
+            const text = typeof part.text === "string" ? part.text : "";
+            if (text.length > 0) {
+              const prior = part.id ? textPartSnapshots.get(part.id) ?? "" : "";
+              const delta = part.id && text.startsWith(prior) ? text.slice(prior.length) : text;
+              if (part.id) textPartSnapshots.set(part.id, text);
+              if (delta.length > 0) {
+                emittedAssistantText = true;
+                yield { type: "text_delta", content: delta };
+              }
+            }
+            continue;
+          }
 
           if (part.type === "tool") {
+            sawProviderEvidence = true;
             if (part.state?.status === "pending" || part.state?.status === "running") {
               const toolName = part.tool ?? "unknown";
               const isMcpTool = knownMcpToolNames.has(toolName);
@@ -798,6 +960,7 @@ export class OpenCodeSession implements IKilnSession {
             if (typeof diff.file !== "string" || diff.file.trim().length === 0) continue;
             const path = normalizeOpenCodeDiffPath(cwd, diff.file);
             if (isKilnRuntimeMemoryPath(path)) continue;
+            sawProviderEvidence = true;
             const additions = diff.additions;
             const deletions = diff.deletions;
             yield {
@@ -823,12 +986,19 @@ export class OpenCodeSession implements IKilnSession {
           }
         }
 
+        if (event.payload.type === "session.idle") {
+          const props = event.payload.properties as { sessionID?: string } | undefined;
+          if (props?.sessionID !== this._remoteSessionId) continue;
+          break;
+        }
+
         if (event.payload.type === "session.compacted") {
           const props = event.payload.properties as {
             sessionID?: string;
             tokens?: number;
           } | undefined;
           if (props?.sessionID !== this._remoteSessionId) continue;
+          sawProviderEvidence = true;
           const output = props?.tokens !== undefined
             ? `Context compacted to approximately ${props.tokens} tokens`
             : "Context compacted";
@@ -843,6 +1013,8 @@ export class OpenCodeSession implements IKilnSession {
           } | undefined;
           if (props?.sessionID !== this._remoteSessionId) continue;
           if (props?.question) {
+            sawProviderEvidence = true;
+            emittedAssistantText = true;
             yield { type: "text_delta", content: `[Question] ${props.question}` };
           }
           continue;
@@ -865,13 +1037,47 @@ export class OpenCodeSession implements IKilnSession {
             knownMcpToolNames.add(toolName);
           }
           const toolList = props?.tools?.map((t) => t.name).join(", ") ?? "";
+          sawProviderEvidence = true;
           yield { type: "tool_result", toolName: "mcp.tools.changed", output: toolList };
           continue;
         }
       }
 
+      if (!emittedAssistantText) {
+        const promptText = extractTextFromParts(promptResult?.data?.parts);
+        if (promptText.length > 0) {
+          emittedAssistantText = true;
+          sawProviderEvidence = true;
+          yield { type: "text_delta", content: promptText };
+        }
+      }
+
+      if (!emittedAssistantText && typeof client.session.messages === "function") {
+        const messageResult = await client.session
+          .messages(
+            { sessionID: this._remoteSessionId!, directory: cwd, limit: 20 },
+            { throwOnError: false },
+          )
+          .catch(() => ({ data: undefined }));
+        const messageText = extractAssistantTextFromMessages(messageResult?.data);
+        if (messageText.length > 0) {
+          emittedAssistantText = true;
+          sawProviderEvidence = true;
+          yield { type: "text_delta", content: messageText };
+        }
+      }
+
       const stopReason = promptResult?.data?.info?.stopReason;
-      const isError = stopReason === "cancelled";
+      const emptyResponse = !sawProviderEvidence && !emittedAssistantText;
+      if (emptyResponse) {
+        yield {
+          type: "error",
+          code: "OPENCODE_EMPTY_RESPONSE",
+          message: "OpenCode session reached idle without assistant text, usage, tool, or file-change evidence.",
+          isRetryable: true,
+        };
+      }
+      const isError = stopReason === "cancelled" || emptyResponse;
       yield {
         type: "completed",
         totalUsd: this._lastCostUsd,
@@ -1037,6 +1243,20 @@ function isOpenCodeWriteTool(toolName: string | undefined): boolean {
     normalized === "apply_patch" ||
     normalized === "multiedit" ||
     normalized === "notebookedit";
+}
+
+function formatOpenCodeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (isRecord(error)) {
+    const message = error.message ?? error.error ?? error.data;
+    if (typeof message === "string") return message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
 }
 
 function normalizeOpenCodeDiffPath(cwd: string, file: string): string {

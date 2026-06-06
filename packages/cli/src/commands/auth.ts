@@ -11,6 +11,7 @@ import {
 const AUTH_DIR = join(homedir(), ".kiln", "auth");
 const EXPIRING_SOON_MS = 120 * 1000;
 const POOLED_PROVIDER_AUTH_FILES = new Set(["opencode.json", "codex-oauth.json"]);
+const DIRECT_OPENCODE_AUTH_DIR = "opencode-api";
 
 export async function runAuth(args: string[]): Promise<void> {
   const [subcommand, action] = args;
@@ -319,7 +320,7 @@ async function printAllProviderStatuses(): Promise<void> {
     return;
   }
 
-  if (providerDirs.includes("opencode")) {
+  if (providerDirs.includes(DIRECT_OPENCODE_AUTH_DIR)) {
     await runOpenCodeStatus();
   }
   if (providerDirs.includes("codex-oauth")) {

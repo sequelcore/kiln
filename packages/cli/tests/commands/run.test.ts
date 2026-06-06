@@ -468,6 +468,34 @@ describe("run command", () => {
       consoleSpy.mockRestore();
       exitSpy.mockRestore();
     });
+
+    it("prints run help without starting a session", async () => {
+      const output: string[] = [];
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation((msg: unknown) => {
+        output.push(String(msg));
+      });
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "--help",
+      ];
+
+      await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow("process.exit called");
+
+      const text = output.join("\n");
+      expect(text).toContain("Usage: kiln run");
+      expect(text).toContain("--provider");
+      expect(text).toContain("--model");
+      expect(text).not.toContain("Kiln session starting");
+
+      consoleSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
   });
 
   describe("session mode resolution", () => {
@@ -504,6 +532,7 @@ describe("run command", () => {
 
       const report = manager.cleanup("session-123");
       expect(report.sessionId).toBe("session-123");
+      expect(report.task).toBe("Add tests");
     });
   });
 

@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { readdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,10 +12,11 @@ import {
   type ProviderAdapter,
 } from "@kilnai/core";
 import { CredentialHealthStore } from "./credential-health-store.js";
+import { CredentialFileStore } from "./credential-file-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
 
-export const OPENCODE_POOL_PROVIDER_ID = "opencode";
+export const OPENCODE_POOL_PROVIDER_ID = "opencode-api";
 
 export interface OpenCodeCredentialPoolServiceConfig {
   readonly rootDir?: string;
@@ -60,12 +61,14 @@ export interface CreateOpenCodePooledAdapterOptions {
 export class OpenCodeCredentialPoolService {
   private readonly rootDir: string;
   private readonly healthStore: CredentialHealthStore;
+  private readonly fileStore: CredentialFileStore<OpenCodeAuthFile>;
   private readonly watcher?: CredentialWatcher;
   private readonly observability?: CredentialPoolObservabilityRegistry;
 
   constructor(config: OpenCodeCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
+    this.fileStore = new CredentialFileStore<OpenCodeAuthFile>({ rootDir: this.rootDir });
     this.watcher = config.watcher;
     this.observability = config.observability;
   }
@@ -79,8 +82,13 @@ export class OpenCodeCredentialPoolService {
       created_at: options.createdAt ?? new Date().toISOString(),
     };
     validateOpenCodeAuthFile(file, this.credentialFilePath(id));
-    await mkdir(this.providerDirectory(), { recursive: true });
-    await writeFile(this.credentialFilePath(id), `${JSON.stringify(file, null, 2)}\n`, "utf8");
+    await this.fileStore.writeCredential({
+      id,
+      label: id,
+      providerId: OPENCODE_POOL_PROVIDER_ID,
+      tier: options.tier,
+      auth: file,
+    });
   }
 
   async listStatus(): Promise<readonly OpenCodeCredentialStatus[]> {
@@ -178,17 +186,15 @@ export class OpenCodeCredentialPoolService {
   }
 
   private async readCredentials(): Promise<ReadonlyArray<{ readonly id: string; readonly auth: OpenCodeAuthFile }>> {
-    const files = await this.listCredentialFileNames();
-    const credentials = await Promise.all(files.map(async (fileName) => {
-      const filePath = join(this.providerDirectory(), fileName);
-      const parsed = JSON.parse(await readFile(filePath, "utf8")) as unknown;
-      const auth = validateOpenCodeAuthFile(parsed, filePath);
-      return {
-        id: fileName.slice(0, -".json".length),
-        auth,
-      };
+    const credentials = (await this.fileStore.readProviderCredentials(OPENCODE_POOL_PROVIDER_ID)).map((file) => ({
+      id: file.id,
+      auth: validateOpenCodeAuthFile(file.auth, this.credentialFilePath(file.id)),
     }));
     return credentials.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  private providerDirectory(): string {
+    return join(this.rootDir, OPENCODE_POOL_PROVIDER_ID);
   }
 
   private async listCredentialFileNames(): Promise<readonly string[]> {
@@ -204,10 +210,6 @@ export class OpenCodeCredentialPoolService {
       }
       throw error;
     }
-  }
-
-  private providerDirectory(): string {
-    return join(this.rootDir, OPENCODE_POOL_PROVIDER_ID);
   }
 
   private credentialFilePath(id: string): string {

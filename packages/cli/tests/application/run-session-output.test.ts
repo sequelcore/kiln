@@ -94,6 +94,52 @@ describe("runSession output routing", () => {
     expect(consoleLog).not.toHaveBeenCalled();
   });
 
+  it("does not route thinking deltas into answer output", async () => {
+    const output = {
+      mode: "answer" as const,
+      writeAssistantDelta: vi.fn(),
+      resetAssistantAnswer: vi.fn(),
+      writeToolUse: vi.fn(),
+      writeProviderFallback: vi.fn(),
+    };
+    const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((() => true) as never);
+    const session = createSessionFromEvents([
+      { type: "text_delta", content: "private reasoning", isThinking: true },
+      { type: "text_delta", content: "visible answer" },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "opencode", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as never,
+        reportFailure: () => {},
+        reportSuccess: () => {},
+      } as never,
+      cleanupRegistry: { register: () => {} } as never,
+      manager: { trackCostUpdate: () => {} } as never,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      },
+      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse: () => {},
+        postToolUse: () => {},
+      } as never,
+      output,
+    });
+
+    expect(result.accumulatedText).toBe("visible answer");
+    expect(output.writeAssistantDelta).toHaveBeenCalledTimes(1);
+    expect(output.writeAssistantDelta).toHaveBeenCalledWith("visible answer");
+    expect(stdoutWrite).not.toHaveBeenCalled();
+  });
+
   it("routes provider fallback notices through the supplied output sink", async () => {
     const output = {
       mode: "answer" as const,
@@ -231,5 +277,41 @@ describe("runSession output routing", () => {
     expect(stdoutWrite).toHaveBeenCalledWith("primary partial");
     expect(stdoutWrite).toHaveBeenCalledWith("fallback answer");
     expect(consoleError).toHaveBeenCalledWith("[kiln] Provider claude failed, trying next...");
+  });
+
+  it("preserves provider error details when a run crashes before turn start", async () => {
+    const session = createSessionFromEvents([
+      { type: "error", code: "CODEX_EXIT_ERROR", message: "unexpected argument --bad", isRetryable: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: true },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "codex", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as never,
+        reportFailure: () => {},
+        reportSuccess: () => {},
+      } as never,
+      cleanupRegistry: { register: () => {} } as never,
+      manager: { trackCostUpdate: () => {} } as never,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      },
+      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse: () => {},
+        postToolUse: () => {},
+      } as never,
+    });
+
+    expect(result.lastError).toBe("Provider codex crashed before starting: unexpected argument --bad");
+    expect(result.attempts).toMatchObject([
+      { providerId: "codex", succeeded: false, error: "Provider codex crashed before starting: unexpected argument --bad" },
+    ]);
   });
 });

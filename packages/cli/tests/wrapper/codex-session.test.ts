@@ -51,6 +51,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 interface MockProc {
+  stdin: { end: ReturnType<typeof vi.fn> };
   stdout: EventEmitter;
   stderr: EventEmitter;
   kill: ReturnType<typeof vi.fn>;
@@ -75,6 +76,7 @@ function makeMockProc(): ProcController {
   let closeHandler: ((code: number) => void) | null = null;
 
   const proc: MockProc = {
+    stdin: { end: vi.fn() },
     stdout,
     stderr,
     kill: vi.fn(),
@@ -229,13 +231,13 @@ describe("CodexSession.run() JSONL parsing", () => {
     const spawnCall = vi.mocked(mockSpawn).mock.calls[0];
     const spawnArgs = spawnCall?.[1] as string[] | undefined;
     expect(spawnArgs).toBeDefined();
-    const promptArg = spawnArgs?.[spawnArgs.length - 1] ?? "";
-    expect(promptArg).toContain("Implement feature X");
-    expect(promptArg).toContain("[KILN EXECUTION IDENTITY]");
-    expect(promptArg).toContain("provider: codex");
-    expect(promptArg).toContain("model: gpt-5.4");
-    expect(promptArg).toContain("Kiln policy constraints for codex:");
-    expect(promptArg).toContain("[data-firewall] DENY logs");
+    expect(spawnArgs?.[spawnArgs.length - 1]).toBe("-");
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("Implement feature X"));
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("[KILN EXECUTION IDENTITY]"));
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("provider: codex"));
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("model: gpt-5.4"));
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("Kiln policy constraints for codex:"));
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("[data-firewall] DENY logs"));
   });
 
   it("run() appends prepared system context after the governed turn prompt", async () => {
@@ -256,15 +258,15 @@ describe("CodexSession.run() JSONL parsing", () => {
     await collectPromise;
 
     const spawnArgs = vi.mocked(mockSpawn).mock.calls[0]?.[1] as string[] | undefined;
-    const promptArg = spawnArgs?.[spawnArgs.length - 1] ?? "";
-    expect(promptArg.indexOf("<kiln-preamble>")).toBeLessThan(promptArg.indexOf("## Operator Identity"));
-    expect(promptArg).toContain("## Operator Identity");
-    expect(promptArg).toContain("- Operator name: Alex");
-    expect(promptArg).toContain("--- Kiln Prepared System Context ---");
-    expect(promptArg).toContain("<kiln-preamble>");
-    expect(promptArg).toContain("--- Kiln Task To Execute Now ---");
-    expect(promptArg).toContain("inspect");
-    expect(promptArg).toContain("Execute the task above in this turn.");
+    const prompt = vi.mocked(proc.stdin.end).mock.calls[0]?.[0] as string;
+    expect(prompt.indexOf("<kiln-preamble>")).toBeLessThan(prompt.indexOf("## Operator Identity"));
+    expect(prompt).toContain("## Operator Identity");
+    expect(prompt).toContain("- Operator name: Alex");
+    expect(prompt).toContain("--- Kiln Prepared System Context ---");
+    expect(prompt).toContain("<kiln-preamble>");
+    expect(prompt).toContain("--- Kiln Task To Execute Now ---");
+    expect(prompt).toContain("inspect");
+    expect(prompt).toContain("Execute the task above in this turn.");
   });
 
   it("run() passes reasoning effort as a Codex config override", async () => {
@@ -309,9 +311,11 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(spawnArgs).toBeDefined();
     expect(spawnArgs).not.toContain("--full-auto");
     expect(spawnArgs).toContain("-c");
-    expect(spawnArgs).toContain('approval_policy="untrusted"');
+    expect(spawnArgs).toContain("approval_policy=untrusted");
     expect(spawnArgs).toContain("--sandbox");
     expect(spawnArgs).toContain("read-only");
+    expect(spawnArgs).toContain("-C");
+    expect(spawnArgs).not.toContain("--cd");
   });
 
   it("run() passes configured model to codex CLI via -m", async () => {
@@ -365,8 +369,8 @@ describe("CodexSession.run() JSONL parsing", () => {
     const spawnOptions = spawnCall?.[2] as { env?: Record<string, string> } | undefined;
     expect(spawnArgs).toBeDefined();
     expect(spawnArgs).not.toContain("-m");
-    const promptArg = spawnArgs?.[spawnArgs.length - 1] ?? "";
-    expect(promptArg).toContain("model: experimental-model-alpha");
+    const prompt = vi.mocked(proc.stdin.end).mock.calls[0]?.[0] as string;
+    expect(prompt).toContain("model: experimental-model-alpha");
     expect(spawnOptions?.env?.CODEX_MODEL).toBeUndefined();
     expect(spawnOptions?.env?.FOO).toBe("bar");
   });

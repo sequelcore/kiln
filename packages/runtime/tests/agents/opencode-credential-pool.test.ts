@@ -55,7 +55,7 @@ describe("OpenCodeCredentialPoolService", () => {
     await rm(rootDir, { recursive: true, force: true });
   });
 
-  it("links OpenCode credentials as raw auth files and projects secret-free status", async () => {
+  it("links OpenCode credentials as canonical runtime credential files and projects secret-free status", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
 
     await service.linkCredential({
@@ -65,11 +65,21 @@ describe("OpenCodeCredentialPoolService", () => {
       createdAt: "2026-05-02T00:00:00.000Z",
     });
 
-    const raw = JSON.parse(await readFile(join(rootDir, "opencode", "work.json"), "utf8"));
+    const raw = JSON.parse(await readFile(join(rootDir, "opencode-api", "work.json"), "utf8"));
     expect(raw).toEqual({
-      api_key: "sk-work",
+      id: "work",
+      label: "work",
+      providerId: "opencode-api",
+      source: "manual",
+      priority: 0,
       tier: "zen",
-      created_at: "2026-05-02T00:00:00.000Z",
+      auth: {
+        api_key: "sk-work",
+        tier: "zen",
+        created_at: "2026-05-02T00:00:00.000Z",
+      },
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
     });
 
     const status = await service.listStatus();
@@ -84,25 +94,15 @@ describe("OpenCodeCredentialPoolService", () => {
     expect(JSON.stringify(status)).not.toContain("sk-work");
   });
 
-  it("ignores unrelated singleton files and only reads directory credentials", async () => {
+  it("keeps direct OpenCode API credentials out of the native opencode harness namespace", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
-    await mkdir(join(rootDir, "opencode"), { recursive: true });
-    await writeFile(join(rootDir, "opencode", "existing.json"), JSON.stringify({
-      api_key: "sk-existing",
-      tier: "go",
-      created_at: "2026-05-01T00:00:00.000Z",
-    }), "utf8");
-    await writeFile(join(rootDir, "opencode.json"), JSON.stringify({
-      api_key: "sk-singleton",
-      tier: "go",
-      created_at: "2026-05-01T00:00:00.000Z",
-    }), "utf8");
+    await service.linkCredential({ id: "existing", apiKey: "sk-existing", tier: "go" });
 
     await expect(service.listStatus()).resolves.toEqual([expect.objectContaining({
       id: "existing",
       key: "sk-e…ting",
     })]);
-    expect(await readFile(join(rootDir, "opencode.json"), "utf8")).toContain("sk-singleton");
+    await expect(readFile(join(rootDir, "opencode", "existing.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("clears only credentials matching the requested tier and id", async () => {
@@ -121,8 +121,8 @@ describe("OpenCodeCredentialPoolService", () => {
 
   it("clears all OpenCode credential files without requiring each file to parse", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
-    await mkdir(join(rootDir, "opencode"), { recursive: true });
-    await writeFile(join(rootDir, "opencode", "broken.json"), "{", "utf8");
+    await service.linkCredential({ id: "broken", apiKey: "sk-broken", tier: "go" });
+    await writeFile(join(rootDir, "opencode-api", "broken.json"), "{", "utf8");
 
     await service.clearCredentials();
 

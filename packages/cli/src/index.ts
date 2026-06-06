@@ -160,6 +160,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   }
 
   if (command === "run") {
+    if (args.includes("--help") || args.includes("-h")) {
+      printRunHelp(APP_NAME);
+      process.exit(0);
+    }
     const { task, flags } = parseRunArgs(args.slice(1));
     const { runCommand } = await import("./commands/run.js");
     await runCommand(config, task, flags);
@@ -356,6 +360,27 @@ function findFlag(args: readonly string[], flag: string): string | undefined {
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function printRunHelp(appName: string): void {
+  console.log(`\nUsage: ${appName} run [options] <task>\n`);
+  console.log("Start a CLI-only Kiln session.");
+  console.log("\nOptions:");
+  console.log("  --provider <id>              Provider route (codex, opencode, codex-oauth, opencode-go, ...)");
+  console.log("  --model <model>              Model override for the selected provider");
+  console.log("  --effort <level>             Reasoning effort (minimal, low, medium, high, xhigh)");
+  console.log("  --authority <authority>      Requested authority (auto, read_only, audited, destructive)");
+  console.log("  --agent <name>               Agent profile from .kiln/agents or ~/.kiln/agents");
+  console.log("  --plan                       Run read-only plan mode first");
+  console.log("  --ephemeral                  Run Codex without persisting native session files");
+  console.log("  --profile <name>             Codex profile name from ~/.codex/config.toml");
+  console.log("  --output <mode>              Output mode (human, answer, json)");
+  console.log("  --output-schema <path>       JSON schema file for Codex structured output");
+  console.log("  --add-dir <path>             Additional writable directory for Codex");
+  console.log("  --skip-git-repo-check        Allow Codex runs outside a git repo");
+  console.log("  --local-provider <name>      Codex local provider (ollama or lmstudio)");
+  console.log("  --workers <n>                Run parallel isolated workers");
+  console.log("  -h, --help                   Show this help");
 }
 
 function parsePort(args: readonly string[], fallbackPort?: number): number | undefined {

@@ -130,6 +130,7 @@ export class SessionManager {
   private readonly worktreeManager?: WorktreeManager;
   private orchestrator: Orchestrator | null = null;
   private domain: DomainConfig | null = null;
+  private task: string | null = null;
   private sessionStartTime: number | null = null;
   private activeSessionId: string | null = null;
   private costTurns: Array<{
@@ -182,6 +183,7 @@ export class SessionManager {
     );
 
     this.orchestrator = new Orchestrator();
+    this.task = task;
     this.sessionStartTime = Date.now();
 
     let workingDirectory = projectPath;
@@ -288,7 +290,7 @@ export class SessionManager {
 
     const report: SessionReport = {
       sessionId,
-      task: this.orchestrator?.task ?? "",
+      task: this.orchestrator?.task ?? this.task ?? "",
       domain: this.domain?.displayName ?? "Unknown",
       phaseReached: this.orchestrator?.currentPhase ?? "analyze",
       cost: {
@@ -304,6 +306,7 @@ export class SessionManager {
     };
     this.orchestrator?.dispose();
     this.orchestrator = null;
+    this.task = null;
     return report;
   }
 

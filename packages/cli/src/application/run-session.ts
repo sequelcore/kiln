@@ -144,6 +144,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       })) {
         switch (event.type) {
           case "text_delta": {
+            if (event.isThinking) {
+              break;
+            }
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
@@ -360,7 +363,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
           case "completed": {
             isPreflightCrash = event.isPreflightCrash;
             if (event.isPreflightCrash) {
-              attemptError = `Provider ${providerId} crashed before starting`;
+              attemptError = attemptError
+                ? `Provider ${providerId} crashed before starting: ${attemptError}`
+                : `Provider ${providerId} crashed before starting`;
               lastError = attemptError;
               exactArtifacts.add(lastError);
               options.registry.reportFailure(providerId, true);
