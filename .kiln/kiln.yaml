@@ -1,4 +1,6 @@
 version: "1"
+contextGovernance:
+  turnBudget: 12000
 web:
   enabled: true
   netPolicy: full
@@ -31,3 +33,49 @@ interactiveUse:
 permissions:
   approval: on-request
   sandbox: workspace-write
+  tools:
+    - tool: work_governance.*
+      action: allow
+      reason: Governed Kiln turns must be able to assess work without interactive tool approval.
+    - tool: work_profile.list
+      action: allow
+      reason: Governed Kiln turns need read-only access to configured work profiles.
+    - tool: goal.*
+      action: allow
+      reason: Governed Kiln turns materialize approved orchestration goals through control-plane tools.
+    - tool: work_item.*
+      action: allow
+      reason: Governed Kiln turns materialize and close out scoped work items through control-plane tools.
+    - tool: managed_agent.*
+      action: allow
+      reason: Governed Kiln turns delegate scoped work through managed child agent tools.
+    - tool: kiln_config.read
+      action: allow
+      reason: Governed Kiln turns may inspect effective configuration without mutating it.
+    - tool: tool_catalog_search
+      action: allow
+      reason: Governed Kiln turns may discover available control-plane tools without execution authority.
+    - tool: read
+      action: allow
+      reason: Governed Kiln turns may inspect files for planning and review.
+    - tool: tree
+      action: allow
+      reason: Governed Kiln turns may map repository surfaces for planning and review.
+    - tool: grep
+      action: allow
+      reason: Governed Kiln turns may search repository text for planning and review.
+    - tool: glob
+      action: allow
+      reason: Governed Kiln turns may discover files for planning and review.
+    - tool: git
+      action: allow
+      reason: Governed Kiln plan and review turns may inspect repository status and diffs.
+    - tool: resource_list
+      action: allow
+      reason: Governed Kiln turns may discover shared read-only resources.
+    - tool: resource_template_list
+      action: allow
+      reason: Governed Kiln turns may discover shared read-only resource templates.
+    - tool: resource_read
+      action: allow
+      reason: Governed Kiln turns may read shared resources.

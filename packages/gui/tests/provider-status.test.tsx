@@ -28,7 +28,9 @@ function resetStore(): void {
     activeModel: "claude-sonnet-4-6",
     sessionList: [],
     selectedSessionId: null,
+    liveSessionId: null,
     resumeTargetId: null,
+    detachedSessionIds: [],
     routedProvider: null,
     routedModel: null,
     routeMode: "auto",
@@ -108,7 +110,7 @@ describe("ProviderStatus", () => {
 
     render(<ProviderStatus onOpenPicker={() => undefined} compact />);
 
-    expect(screen.getByRole("button", { name: "Select provider / model. authority: unknown. Click to change." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Provider selector. Current selection: Select provider / model. authority: unknown. Click to change." })).toBeInTheDocument();
     expect(screen.getByText("Select provider / model")).toBeInTheDocument();
   });
 });

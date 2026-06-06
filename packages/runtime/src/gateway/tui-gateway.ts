@@ -780,6 +780,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             ws.send(JSON.stringify({ type: "thinking" }));
             let result;
             let turnPerCallConfig: PerCallToolConfig | undefined;
+            let turnProvider: string | undefined;
+            let turnModel: string | undefined;
             try {
               const currentDiscovery = await refreshDiscovery();
               const activeProvider = options.sessionManager.getProvider();
@@ -837,6 +839,8 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               );
               const executionMode = resolveExecutionMode(frame.executionMode);
               const requestedAuthority = resolveTuiRequestedAuthority(frame.requestedAuthority);
+              turnProvider = activeProvider;
+              turnModel = activeModel;
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions,
                 executionMode,
@@ -906,10 +910,17 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             }
             const output = result.result;
             const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
-            const routedProvider = output.routingDecision?.provider ?? options.sessionManager.getProvider();
+            if (!turnProvider) {
+              ws.send(JSON.stringify({
+                type: "error",
+                message: "Runtime completed without a provider route.",
+              }));
+              return;
+            }
+            const routedProvider = output.routingDecision?.provider ?? turnProvider;
             const fallbackRoutedModel = isGuiProviderModeless(routedProvider)
               ? ""
-              : options.sessionManager.getModel();
+              : turnModel ?? "";
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
             const authorityStatus = deriveTuiDoneAuthorityStatus(turnPerCallConfig);
             const sourceMessageId = crypto.randomUUID();

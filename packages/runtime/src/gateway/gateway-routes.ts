@@ -782,15 +782,40 @@ async function processAppGatewayGuiMessage(
   }
 
   const userParts = guiOutboundMessageParts(frame);
-  const sessionId = typeof frame.resumeSessionId === "string" && frame.resumeSessionId.trim()
+  const requestedResumeSessionId = typeof frame.resumeSessionId === "string" && frame.resumeSessionId.trim()
     ? frame.resumeSessionId.trim()
     : undefined;
+  if (frame.sessionIntent === "fresh" && requestedResumeSessionId) {
+    ws.send(JSON.stringify({
+      type: "error",
+      code: "APP_GATEWAY_CONFLICTING_SESSION_INTENT",
+      message: "sessionIntent=fresh cannot be combined with resumeSessionId.",
+    } satisfies GuiInboundFrame));
+    return;
+  }
+  const sessionId = frame.sessionIntent === "fresh" ? undefined : requestedResumeSessionId;
   if (!isRequestedAuthority(frame.requestedAuthority)) {
     ws.send(JSON.stringify({
       type: "error",
       message: "requestedAuthority must be auto, read_only, audited, or destructive",
     } satisfies GuiInboundFrame));
     return;
+  }
+  if (frame.sessionIntent === "fresh") {
+    try {
+      await selectedRuntime.runtime.sessionRegistry.detachActive(
+        selectedRuntime.loadedApp.name,
+        selectedRuntime.userId,
+        selectedRuntime.tenantId,
+      );
+    } catch {
+      ws.send(JSON.stringify({
+        type: "error",
+        code: "APP_GATEWAY_FRESH_SESSION_RESET_FAILED",
+        message: "Fresh session reset failed.",
+      } satisfies GuiInboundFrame));
+      return;
+    }
   }
   ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
 
@@ -833,8 +858,18 @@ async function processAppGatewayGuiMessage(
     }
 
     const result = processResult.result;
+    const completedSessionId = result.sessionId ?? sessionId;
+    if (!completedSessionId) {
+      ws.send(JSON.stringify({
+        type: "error",
+        code: "APP_GATEWAY_DONE_WITHOUT_SESSION",
+        message: "Runtime completed without a session id.",
+      } satisfies GuiInboundFrame));
+      return;
+    }
     ws.send(JSON.stringify({
       type: "done",
+      kilnSessionId: completedSessionId,
       content: extractText(result.parts),
       parts: result.parts,
       inputTokens: result.inputTokens,

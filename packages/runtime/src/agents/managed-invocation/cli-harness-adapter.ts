@@ -251,8 +251,8 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       filesystemChanges,
       readOnlyFilesystemViolation,
     });
-    const lifecycleState = resolveLifecycleState(collected, writeEvidence);
-    const summary = summarizeResult(collected, writeEvidence);
+    const lifecycleState = resolveLifecycleState(request, collected, writeEvidence);
+    const summary = summarizeResult(request, collected, writeEvidence);
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
       lifecycleState,
@@ -575,6 +575,7 @@ function countLines(contents: string): number {
 }
 
 function resolveLifecycleState(
+  request: ManagedAgentInvocationRequest,
   collected: CollectedCliHarnessEvidence,
   writeEvidence: ReturnType<typeof collectWriteEvidence>,
 ): ManagedAgentInvocationRecord["lifecycleState"] {
@@ -582,6 +583,9 @@ function resolveLifecycleState(
     return isCancellationError(collected.error) ? "cancelled" : "failed";
   }
   if (collected.completed?.isError) {
+    return "failed";
+  }
+  if (requiresApprovedWorkspaceWriteEvidence(request) && !hasCompletedWorkspaceWriteEvidence(writeEvidence)) {
     return "failed";
   }
   if (!hasSubstantiveResultHandoff(collected, writeEvidence)) {
@@ -596,11 +600,15 @@ function isCancellationError(error: Extract<CliSessionEvent, { readonly type: "e
 }
 
 function summarizeResult(
+  request: ManagedAgentInvocationRequest,
   collected: CollectedCliHarnessEvidence,
   writeEvidence: ReturnType<typeof collectWriteEvidence>,
 ): string {
   if (collected.error) {
     return `[${collected.error.code}] ${collected.error.message}`;
+  }
+  if (requiresApprovedWorkspaceWriteEvidence(request) && !hasCompletedWorkspaceWriteEvidence(writeEvidence)) {
+    return "Managed CLI harness invocation failed: apply-approved workspace write authority completed without write-attempt evidence.";
   }
   const text = collected.textParts.join("").trim();
   return text.length > 0
@@ -616,6 +624,16 @@ function hasSubstantiveResultHandoff(
 ): boolean {
   return collected.textParts.join("").trim().length > 0
     || writeEvidence.evidence.length > 0;
+}
+
+function requiresApprovedWorkspaceWriteEvidence(request: ManagedAgentInvocationRequest): boolean {
+  return request.authority.writeAuthority?.scope.workspace.mode === "apply-approved"
+    && request.authority.toolAuthority.writeAllowed === true
+    && request.authority.workingDirectory.mode === "workspace-write";
+}
+
+function hasCompletedWorkspaceWriteEvidence(writeEvidence: ReturnType<typeof collectWriteEvidence>): boolean {
+  return writeEvidence.evidence.some((evidence) => evidence.kind === "write-attempt-completed");
 }
 
 function formatTimeoutSummary(input: {

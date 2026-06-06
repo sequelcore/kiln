@@ -76,7 +76,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
         type="button"
         variant={routeMode === "responding" ? "secondary" : "outline"}
         size="sm"
-        aria-label={`${compactLabel}. ${authorityLabel}. Click to change.`}
+        aria-label={`Provider selector. Current selection: ${compactLabel}. ${authorityLabel}. Click to change.`}
         onClick={props.onOpenPicker}
         className="h-auto min-w-0 max-w-full justify-start py-1.5 text-left"
       >
@@ -97,7 +97,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
     <Button
       type="button"
       variant={routeMode === "responding" ? "secondary" : "outline"}
-      aria-label="Current provider. Click to change."
+      aria-label={`Provider selector. Current selection: ${compactLabel}. ${authorityLabel}. Click to change.`}
       onClick={props.onOpenPicker}
       title={[
         `domain: ${props.domainLabel ?? "—"}`,

@@ -412,6 +412,13 @@ export class WorkItemStore {
     return this.items.get(id);
   }
 
+  restore(item: WorkItem): WorkItem {
+    this.items.set(item.id, item);
+    this.sequence = Math.max(this.sequence, item.sequence);
+    this.notifyChanged(item.id);
+    return item;
+  }
+
   snapshot(status?: WorkItemStatus): WorkItemSnapshot {
     const items = this.list(status);
     return {

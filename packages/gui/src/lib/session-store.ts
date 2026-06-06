@@ -103,12 +103,16 @@ export type ProviderCatalogStatus = GuiProviderCatalogStatus;
 type StoreTextDeltaFrame = {
   type: "text_delta";
   content: string;
+  kilnSessionId: string;
   turnId?: string;
 };
+
+const MAX_DETACHED_SESSION_IDS = 20;
 
 type StoreActivityFrame = {
   type: "activity";
   activity: string;
+  kilnSessionId: string;
   toolName?: string;
   output?: string;
   usd?: number;
@@ -1460,6 +1464,9 @@ function shouldApplySessionScopedFrame(
   state: SessionStoreState,
   kilnSessionId: string,
 ): boolean {
+  if (state.detachedSessionIds.includes(kilnSessionId)) {
+    return false;
+  }
   if (state.liveSessionId) {
     return state.liveSessionId === kilnSessionId;
   }
@@ -1469,7 +1476,17 @@ function shouldApplySessionScopedFrame(
   if (state.resumeTargetId && state.status !== "running") {
     return state.resumeTargetId === kilnSessionId;
   }
-  return true;
+  return state.status === "running" || state.status === "idle";
+}
+
+function appendDetachedSessionId(
+  ids: readonly string[],
+  sessionId: string | null,
+): readonly string[] {
+  if (!sessionId || ids.includes(sessionId)) {
+    return ids;
+  }
+  return [...ids, sessionId].slice(-MAX_DETACHED_SESSION_IDS);
 }
 
 function interactiveSnapshotFromPersistedToolEvent(
@@ -1631,6 +1648,7 @@ interface SessionStoreState {
   readonly selectedSessionId: string | null;
   readonly liveSessionId: string | null;
   readonly resumeTargetId: string | null;
+  readonly detachedSessionIds: readonly string[];
   readonly routedProvider: string | null;
   readonly routedModel: string | null;
   readonly routeMode: RouteMode;
@@ -1746,6 +1764,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   selectedSessionId: null,
   liveSessionId: null,
   resumeTargetId: null,
+  detachedSessionIds: [],
   routedProvider: null,
   routedModel: null,
   routeMode: "auto",
@@ -1999,7 +2018,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (event.kind === "assistant_delta") {
       const delta = readString(payload.delta) ?? eventPayloadText(payload);
       if (delta) {
-        state.onTextDelta({ type: "text_delta", content: delta, ...(event.turnId ? { turnId: event.turnId } : {}) });
+        state.onTextDelta({
+          type: "text_delta",
+          content: delta,
+          kilnSessionId: event.kilnSessionId,
+          ...(event.turnId ? { turnId: event.turnId } : {}),
+        });
       }
       return;
     }
@@ -2190,6 +2214,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       state.onActivity({
         type: "activity",
         activity: "cost_update",
+        kilnSessionId: event.kilnSessionId,
         usd: readNumber(cost?.deltaUsd) ?? 0,
         inputTokens: readNumber(usage?.inputTokens) ?? undefined,
         outputTokens: readNumber(usage?.outputTokens) ?? undefined,
@@ -2459,6 +2484,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   onTextDelta: (frame) => {
     const state = get();
+    if (state.clearPending) {
+      return;
+    }
+    if (!shouldApplySessionScopedFrame(state, frame.kilnSessionId)) {
+      return;
+    }
     const messageList = [...state.messages];
     const timelineEntries = [...state.timelineEntries];
     const existingId = state.currentAssistant;
@@ -2520,6 +2551,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   onActivity: (frame) => {
     const current = get();
+    if (!shouldApplySessionScopedFrame(current, frame.kilnSessionId)) {
+      return;
+    }
     if (frame.activity === "cost_update" && typeof frame.usd === "number") {
       set({
         sessionCostUsd: current.sessionCostUsd + frame.usd,
@@ -2583,6 +2617,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   onDone: (frame) => {
     const state = get();
+    if (state.clearPending) {
+      return;
+    }
+    if (!shouldApplySessionScopedFrame(state, frame.kilnSessionId)) {
+      return;
+    }
     const finalizedProvider = frame.routedProvider ?? state.respondingProvider ?? state.activeProvider ?? undefined;
     const finalizedModel = frame.routedModel ?? state.respondingModel ?? state.activeModel ?? undefined;
     const responseParts = frame.parts && frame.parts.length > 0 ? frame.parts : undefined;
@@ -2873,8 +2913,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerSwitching: false,
       providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
-      respondingProvider: null,
-      respondingModel: null,
+      respondingProvider: state.status === "running" ? state.respondingProvider : null,
+      respondingModel: state.status === "running" ? state.respondingModel : null,
     });
     writeStoredProviderSelection(frame.provider, nextModel);
   },
@@ -3173,6 +3213,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       createdAt: nowIso(),
     };
     const isPreviewWithoutExplicitResume = state.selectedSessionId !== null && state.resumeTargetId === null;
+    const startsFreshSession = state.resumeTargetId === null
+      && (
+        isPreviewWithoutExplicitResume
+        || (
+          state.liveSessionId === null
+          && state.messages.length === 0
+          && state.sessionEvents.length === 0
+        )
+      );
     const baseMessages = isPreviewWithoutExplicitResume ? [] : state.messages;
     const baseTimelineEntries = isPreviewWithoutExplicitResume ? [] : state.timelineEntries;
     const baseSessionEvents = isPreviewWithoutExplicitResume ? [] : state.sessionEvents;
@@ -3208,6 +3257,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ...(outboundParts ? { parts: outboundParts } : {}),
       executionMode: state.planMode ? "plan" : "execute",
       resumeSessionId: state.resumeTargetId ?? undefined,
+      ...(startsFreshSession ? { sessionIntent: "fresh" } : {}),
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
       ...(options?.appName ? { appName: options.appName } : {}),
@@ -3270,6 +3320,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       selectedSessionId: null,
       liveSessionId: null,
       resumeTargetId: null,
+      detachedSessionIds: appendDetachedSessionId(state.detachedSessionIds, state.liveSessionId),
       clearPending: true,
       clearTimeoutId: timeoutId,
       status: "running",

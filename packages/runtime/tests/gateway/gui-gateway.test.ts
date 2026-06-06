@@ -1525,6 +1525,78 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("clears transport resume state before admitting a fresh GUI message", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    const onClear = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(processAdmittedTurn).mockReset();
+    vi.mocked(processAdmittedTurn).mockResolvedValue({
+      ok: true,
+      result: {
+        parts: [{ type: "text", text: "fresh turn admitted" }],
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        sessionId: "fresh-session",
+        sessionMode: "mode-a",
+        traceId: "trace-fresh",
+      },
+    } as never);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+          onClear,
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "message", content: "hello from gui", sessionIntent: "fresh" }),
+        }),
+        wsCtx,
+      );
+
+      expect(onClear).toHaveBeenCalledWith();
+      expect(onClear.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(processAdmittedTurn).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+      );
+      expect(processAdmittedTurn).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: undefined,
+      }));
+      expect(mockWs.send).toHaveBeenCalledWith(expect.stringContaining("fresh turn admitted"));
+    } finally {
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("omits model from model-less Claude provider switch acknowledgements", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

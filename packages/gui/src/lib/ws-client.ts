@@ -20,6 +20,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     executionMode: z.enum(["execute", "plan"]).optional(),
     requestedAuthority: z.enum(["auto", "read_only", "audited", "destructive"]).optional(),
     resumeSessionId: z.string().optional(),
+    sessionIntent: z.literal("fresh").optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
     appName: z.string().optional(),
     tenantId: z.string().optional(),
@@ -424,6 +425,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("done"),
+    kilnSessionId: z.string().trim().min(1),
     sourceMessageId: z.string().optional(),
     content: z.string(),
     parts: z.array(z.unknown()).optional(),

@@ -24,6 +24,10 @@ export interface SessionRecord {
   resumeStrategy?: ResumeStrategy;
 }
 
+export interface SessionRecordAppendOptions {
+  readonly updateResumeTarget?: boolean;
+}
+
 interface ResumeTargetsFile {
   readonly defaultSessionId?: string;
   readonly providerSessionIds?: Record<string, string>;
@@ -144,7 +148,7 @@ export class SessionStore {
     this.resumeTargetsPath = join(projectPath, '.kiln', 'resume-targets.json');
   }
 
-  async append(record: SessionRecord): Promise<void> {
+  async append(record: SessionRecord, options: SessionRecordAppendOptions = {}): Promise<void> {
     try {
       const dir = join(this.filePath, '..');
       await mkdir(dir, { recursive: true });
@@ -153,7 +157,9 @@ export class SessionStore {
       const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
       records.push(mergeRepeatedSessionRecord(previous, record));
       await this.writeRecords(records);
-      await this.setResumeTarget(record);
+      if (options.updateResumeTarget !== false) {
+        await this.setResumeTarget(record);
+      }
     } catch (err) {
       console.error('[SessionStore] Failed to append session record:', err);
     }

@@ -39,6 +39,7 @@ import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../confi
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
+import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
 import {
   readProviderDiscoveryCache,
@@ -1287,11 +1288,20 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   // Inject CLI session factory into the gateway (dependency inversion)
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
+  await recoverStaleOpenTranscriptSessions({
+    transcriptStore,
+    sessionStore,
+    projectPath: cwd,
+  });
   const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
     globalConfig,
     createCliTranscriptBudgetUsageReader(transcriptStore),
   );
-  const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
+  const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
+    transcriptStore,
+    workItemStore,
+    goalRunStore,
+  });
   const initialResumeInfo: Record<string, ResumeSidebarInfo> = await loadResumeSidebarInfo(
     sessionStore,
     transcriptStore,

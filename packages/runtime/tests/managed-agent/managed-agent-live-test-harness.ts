@@ -301,14 +301,28 @@ function requireRelativeSafeSegment(value: string): string {
 }
 
 async function removeWorkspaceWithRetry(workspaceRoot: string): Promise<void> {
-  const attempts = 10;
+  const attempts = 30;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       await rm(workspaceRoot, { recursive: true, force: true });
       return;
     } catch (error) {
-      if (attempt === attempts) throw error;
-      await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+      if (attempt === attempts) {
+        if (isTransientWindowsRemoveError(error)) {
+          console.warn(`Live fixture cleanup left locked workspace for OS cleanup: ${workspaceRoot}`);
+          return;
+        }
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
+}
+
+function isTransientWindowsRemoveError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "EBUSY" || code === "ENOTEMPTY" || code === "EPERM";
 }

@@ -361,6 +361,25 @@ describe("GuiWsClient", () => {
   });
 
   describe("outbound frame serialization", () => {
+    it("serializes fresh session message intent frames", () => {
+      client = createClient();
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1];
+      wsInstance.simulateOpen();
+
+      client.send({
+        type: "message",
+        content: "fresh turn",
+        sessionIntent: "fresh",
+      });
+
+      expect(wsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "message",
+        content: "fresh turn",
+        sessionIntent: "fresh",
+      }));
+    });
+
     it("All outbound frame shapes serialize through Zod without error", () => {
       const frames: GuiOutboundFrame[] = [
         { type: "message", content: "hello world" },
@@ -958,6 +977,7 @@ describe("GuiWsClient", () => {
         {
           json: {
             type: "done",
+            kilnSessionId: "session-completed",
             content: "completed",
             inputTokens: 100,
             outputTokens: 50,
@@ -993,6 +1013,7 @@ describe("GuiWsClient", () => {
           },
           expected: {
             type: "done",
+            kilnSessionId: "session-completed",
             content: "completed",
             inputTokens: 100,
             outputTokens: 50,

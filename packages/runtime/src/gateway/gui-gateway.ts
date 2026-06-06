@@ -1465,7 +1465,16 @@ function wireOperatorTransport(
             const resumeSessionId = typeof messageFrame.resumeSessionId === "string"
               ? messageFrame.resumeSessionId.trim()
               : "";
+            const freshSessionRequested = messageFrame.sessionIntent === "fresh";
             if (!userContent.trim() && userParts.length === 0) return;
+
+            if (freshSessionRequested && resumeSessionId) {
+              ws.send(JSON.stringify({
+                type: "error",
+                message: "Fresh session messages cannot include resumeSessionId",
+              } satisfies GuiInboundFrame));
+              return;
+            }
 
             if (resumeSessionId && input.transport.onResumeSession) {
               try {
@@ -1486,6 +1495,8 @@ function wireOperatorTransport(
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
             let result;
             let turnPerCallConfig: PerCallToolConfig | undefined;
+            let turnProvider: string | undefined;
+            let turnModel: string | undefined;
             try {
               const currentDiscovery = await refreshDiscovery();
               const activeProvider = input.transport.sessionManager.getProvider().trim();
@@ -1495,6 +1506,18 @@ function wireOperatorTransport(
                   message: "No provider selected. Choose a provider before sending a message.",
                 } satisfies GuiInboundFrame));
                 return;
+              }
+              if (freshSessionRequested) {
+                try {
+                  await sessionRegistry.detachActive(GUI_APP_NAME, userId, GUI_TENANT_ID);
+                  await input.transport.onClear?.();
+                } catch {
+                  ws.send(JSON.stringify({
+                    type: "error",
+                    message: "Fresh session reset failed",
+                  } satisfies GuiInboundFrame));
+                  return;
+                }
               }
               const activeDiscovery = currentDiscovery.find((entry) => entry.provider === activeProvider);
               const providerModels = activeDiscovery?.available ? activeDiscovery.models : undefined;
@@ -1550,6 +1573,8 @@ function wireOperatorTransport(
               );
               const executionMode = resolveExecutionMode(messageFrame.executionMode);
               const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
+              turnProvider = activeProvider;
+              turnModel = activeModel;
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
                 builtinToolOptions: input.builtinToolOptions,
                 executionMode,
@@ -1620,10 +1645,17 @@ function wireOperatorTransport(
             }
             const output = result.result;
             const runtimeContinuity = output.runtimeContinuity ?? { strategy: "none" };
-            const routedProvider = output.routingDecision?.provider ?? input.transport.sessionManager.getProvider();
+            if (!turnProvider) {
+              ws.send(JSON.stringify({
+                type: "error",
+                message: "Runtime completed without a provider route.",
+              } satisfies GuiInboundFrame));
+              return;
+            }
+            const routedProvider = output.routingDecision?.provider ?? turnProvider;
             const fallbackRoutedModel = isGuiProviderModeless(routedProvider)
               ? ""
-              : input.transport.sessionManager.getModel();
+              : turnModel;
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
             const sourceMessageId = crypto.randomUUID();
             voiceSynthesisSources.set(sourceMessageId, {
@@ -1639,6 +1671,7 @@ function wireOperatorTransport(
 
             ws.send(JSON.stringify({
               type: "done",
+              kilnSessionId: output.sessionId,
               sourceMessageId,
               content: extractText(output.parts),
               parts: output.parts,

@@ -154,11 +154,74 @@ describe("App Gateway GUI routes", () => {
       };
     });
     const { createGatewayApp: createGatewayAppWithMocks } = await import("../../src/gateway/gateway-routes.js");
+    const detachActive = vi.fn().mockResolvedValue(true);
     let handlers: {
       onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
       onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
     } | undefined;
     const app = createGatewayAppWithMocks({
+      port: 3800,
+      apps: [
+        {
+          name: "support",
+          app: {} as never,
+          binding: { channels: [{ type: "api", path: "/api/support" }] },
+          registry: {} as never,
+          providerAdapterRuntime: {
+            appName: "support",
+            orchestrator: {} as never,
+            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]), detachActive } as never,
+            systemPrompt: "System prompt",
+          },
+        } as never,
+      ],
+      upgradeWebSocket: ((factory: (c: unknown) => typeof handlers) => {
+        return (c: { text: (value: string) => Response }) => {
+          handlers = factory(c);
+          return c.text("upgraded");
+        };
+      }) as never,
+    });
+
+    const response = await app.request("http://localhost/gui/ws?userId=gui-test");
+    expect(response.status).toBe(200);
+    const send = vi.fn();
+    await handlers?.onOpen?.(new Event("open"), { send });
+    await handlers?.onMessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "hello",
+          requestedAuthority: "audited",
+          sessionIntent: "fresh",
+        }),
+      }),
+      { send },
+    );
+
+    expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
+    expect(detachActive).toHaveBeenCalledWith("support", "_gui", "_default");
+    expect(detachActive.mock.invocationCallOrder[0]).toBeLessThan(processAdmittedTurnMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
+    expect(processAdmittedTurnMock.mock.calls[0]![0].requestedAuthority).toBe("audited");
+    expect(processAdmittedTurnMock.mock.calls[0]![0].sessionId).toBeUndefined();
+    const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; authorityStatus?: unknown });
+    expect(sentFrames).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "done",
+        authorityStatus: { effective: "fail_closed", completeness: "authoritative" },
+      }),
+    ]));
+
+    vi.doUnmock("../../src/gateway/message-pipeline.js");
+    vi.resetModules();
+  });
+
+  it("rejects conflicting fresh session intent and resume session id in App Gateway GUI messages", async () => {
+    let handlers: {
+      onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
+      onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
+    } | undefined;
+    const app = createGatewayApp({
       port: 3800,
       apps: [
         {
@@ -187,22 +250,24 @@ describe("App Gateway GUI routes", () => {
     const send = vi.fn();
     await handlers?.onOpen?.(new Event("open"), { send });
     await handlers?.onMessage?.(
-      new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "hello", requestedAuthority: "audited" }) }),
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "start clean",
+          sessionIntent: "fresh",
+          resumeSessionId: "session-old",
+        }),
+      }),
       { send },
     );
 
-    expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
-    expect(processAdmittedTurnMock.mock.calls[0]![0].requestedAuthority).toBe("audited");
-    const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; authorityStatus?: unknown });
+    const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; code?: string });
     expect(sentFrames).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        type: "done",
-        authorityStatus: { effective: "fail_closed", completeness: "authoritative" },
+        type: "error",
+        code: "APP_GATEWAY_CONFLICTING_SESSION_INTENT",
       }),
     ]));
-
-    vi.doUnmock("../../src/gateway/message-pipeline.js");
-    vi.resetModules();
   });
 
   it("forwards destructive requestedAuthority to App Gateway GUI processing", async () => {

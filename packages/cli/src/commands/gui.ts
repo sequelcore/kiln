@@ -30,6 +30,7 @@ import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
+import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import {
@@ -101,13 +102,22 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const transcriptStore = new TranscriptStore(cwd);
+  await recoverStaleOpenTranscriptSessions({
+    transcriptStore,
+    sessionStore,
+    projectPath: cwd,
+  });
   const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
     globalConfig,
     createCliTranscriptBudgetUsageReader(transcriptStore),
   );
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
-  const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({ transcriptStore });
+  const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
+    transcriptStore,
+    workItemStore,
+    goalRunStore,
+  });
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {

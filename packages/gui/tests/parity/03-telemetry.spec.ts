@@ -9,7 +9,7 @@ test.describe("parity category 3 - cost and telemetry", () => {
     await expect(page.getByRole("button", { name: "Details" })).toHaveCount(0);
     await expect(page.getByText("field [idle]")).toHaveCount(0);
     await page.getByRole("button", { name: /provider.*Click to change/i }).click();
-    await page.getByRole("option", { name: "Codex 6 models" }).click();
+    await page.getByRole("option", { name: /^Codex \d+ models$/ }).click();
     await page.getByRole("option", { name: "gpt-5.4-mini" }).click();
     await expect(page.getByRole("button", { name: /Codex \/ gpt-5\.4-mini/ })).toBeVisible({
       timeout: 2_000,

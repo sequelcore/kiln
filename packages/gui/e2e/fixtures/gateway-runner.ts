@@ -38,6 +38,18 @@ function responseChunks(prompt: string, userTurns: number): readonly string[] {
       "| Surface | Status |\n| --- | --- |\n| Chat | fixed |\n",
     ];
   }
+  if (prompt.toLowerCase().includes("hold stream for provider switch")) {
+    return [
+      "Reply ",
+      "streaming ",
+      "while ",
+      "provider ",
+      "selection ",
+      "changes ",
+      "for ",
+      `echo:${summarizePrompt(prompt)}`,
+    ];
+  }
   return [
     "Reply ",
     `users:${userTurns} `,
@@ -149,7 +161,7 @@ async function main(): Promise<void> {
     getSnapshot: async () => ({
       providers: [
         { id: "claude", label: "Claude", group: "harness", free: false, models: ["claude-sonnet-4-6", "claude-opus-4-6"], available: true },
-        { id: "codex", label: "Codex", group: "harness", free: false, models: ["o3", "o4-mini"], available: true },
+        { id: "codex", label: "Codex", group: "harness", free: false, models: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"], available: true },
         { id: "opencode", label: "OpenCode", group: "harness", free: false, models: [], available: true },
       ],
       sessions: sessionSummaries.slice(0, 20),

@@ -1,9 +1,18 @@
-import { textParts } from "@kilnai/core";
+import {
+  reconstructGoalRunsFromSessionEvents,
+  reconstructWorkItemsFromSessionEvents,
+  textParts,
+  type CanonicalSessionEvent,
+  type GoalRunStore,
+  type WorkItemStore,
+} from "@kilnai/core";
 import type { RuntimeSession, RuntimeSessionHydrator } from "@kilnai/runtime";
 import type { PersistedTranscriptEvent, TranscriptStore } from "../wrapper/session-store.js";
 
 export interface TranscriptRuntimeSessionHydratorOptions {
   readonly transcriptStore: TranscriptStore;
+  readonly workItemStore?: WorkItemStore;
+  readonly goalRunStore?: GoalRunStore;
   readonly maxMessages?: number;
   readonly maxCharacters?: number;
 }
@@ -125,6 +134,59 @@ function hydrateRuntimeSession(session: RuntimeSession, entries: readonly Conver
   return messageCount;
 }
 
+function canonicalSessionEventsFromTranscript(
+  events: readonly PersistedTranscriptEvent[],
+  sessionId: string,
+): CanonicalSessionEvent[] {
+  return [...events]
+    .filter((event) => event.kilnSessionId === sessionId)
+    .sort((left, right) => left.sequence - right.sequence)
+    .map((event) => {
+      const { payload, timestamp, ...envelope } = event;
+      return {
+        ...payload,
+        ...envelope,
+        timestamp: new Date(timestamp),
+      } as CanonicalSessionEvent;
+    });
+}
+
+function hydrateRuntimeSessionEvents(
+  session: RuntimeSession,
+  events: readonly PersistedTranscriptEvent[],
+  sessionId: string,
+): readonly CanonicalSessionEvent[] {
+  if (session.sessionEvents.length > 0) {
+    return session.sessionEvents;
+  }
+  const canonicalEvents = canonicalSessionEventsFromTranscript(events, sessionId);
+  if (canonicalEvents.length === 0) {
+    return [];
+  }
+  session.appendSessionEvents(canonicalEvents);
+  return canonicalEvents;
+}
+
+function hydrateWorkGovernanceStores(
+  events: readonly CanonicalSessionEvent[],
+  options: Pick<TranscriptRuntimeSessionHydratorOptions, "workItemStore" | "goalRunStore">,
+): void {
+  if (options.workItemStore) {
+    for (const item of reconstructWorkItemsFromSessionEvents(events).items) {
+      if (!options.workItemStore.get(item.id)) {
+        options.workItemStore.restore(item);
+      }
+    }
+  }
+  if (options.goalRunStore) {
+    for (const goal of reconstructGoalRunsFromSessionEvents(events).goals) {
+      if (!options.goalRunStore.get(goal.id)) {
+        options.goalRunStore.restore(goal);
+      }
+    }
+  }
+}
+
 export function createTranscriptRuntimeSessionHydrator(
   options: TranscriptRuntimeSessionHydratorOptions,
 ): RuntimeSessionHydrator {
@@ -139,8 +201,10 @@ export function createTranscriptRuntimeSessionHydrator(
       maxCharacters,
     );
     const messageCount = hydrateRuntimeSession(session, entries);
+    const sessionEvents = hydrateRuntimeSessionEvents(session, transcript, sessionId);
+    hydrateWorkGovernanceStores(sessionEvents, options);
 
-    if (messageCount === 0) {
+    if (messageCount === 0 && sessionEvents.length === 0) {
       return {
         rehydrated: false,
         messageCount,

@@ -181,6 +181,13 @@ export class GoalRunStore {
     return this.goals.get(id);
   }
 
+  restore(goal: GoalRun): GoalRun {
+    this.goals.set(goal.id, goal);
+    this.sequence = Math.max(this.sequence, goal.sequence);
+    this.notifyChanged(goal.id);
+    return goal;
+  }
+
   list(status?: GoalRunStatus): readonly GoalRun[] {
     const goals = [...this.goals.values()].sort((left, right) => left.sequence - right.sequence);
     return status ? goals.filter((goal) => goal.status === status) : goals;

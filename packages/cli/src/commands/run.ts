@@ -31,6 +31,7 @@ import {
 } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import type { KilnModelTaskSuitabilityTask, KilnReasoningPolicyConfig } from "../kiln-yaml-types.js";
 import {
@@ -137,7 +138,104 @@ function resolveMode(flags: RunFlags): SessionMode {
 }
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
-const PLAN_POLICY: KilnPermissionPolicy = { approval: "untrusted", sandbox: "read-only" };
+export const PLAN_POLICY: KilnPermissionPolicy = {
+  approval: "untrusted",
+  sandbox: "read-only",
+  fileGovernance: {
+    denyGlobs: [
+      ".git/**",
+      "**/.git/**",
+      "node_modules/**",
+      "**/node_modules/**",
+    ],
+    allowGlobs: [
+      ".",
+      "./**",
+      "**",
+      "C:/Proyectos/Sequel/kiln",
+      "C:/Proyectos/Sequel/kiln/**",
+      "C:/Proyectos/Sequel/cloned",
+      "C:/Proyectos/Sequel/cloned/**",
+    ],
+  },
+  tools: [
+    {
+      tool: "work_governance.*",
+      action: "allow",
+      reason: "Plan mode must admit governed work assessment without granting general tool authority.",
+    },
+    {
+      tool: "work_profile.list",
+      action: "allow",
+      reason: "Plan mode may inspect configured work profiles.",
+    },
+    {
+      tool: "goal.*",
+      action: "allow",
+      reason: "Plan mode may materialize governed planning goals.",
+    },
+    {
+      tool: "work_item.*",
+      action: "allow",
+      reason: "Plan mode may materialize governed planning work items.",
+    },
+    {
+      tool: "managed_agent.*",
+      action: "allow",
+      reason: "Plan mode may delegate read-only planning work through governed managed agents.",
+    },
+    {
+      tool: "kiln_config.read",
+      action: "allow",
+      reason: "Plan mode may inspect effective Kiln configuration.",
+    },
+    {
+      tool: "tool_catalog_search",
+      action: "allow",
+      reason: "Plan mode may discover available governed tools without granting execution authority.",
+    },
+    {
+      tool: "read",
+      action: "allow",
+      reason: "Plan mode requires read-only file inspection.",
+    },
+    {
+      tool: "tree",
+      action: "allow",
+      reason: "Plan mode requires read-only repository surface mapping.",
+    },
+    {
+      tool: "grep",
+      action: "allow",
+      reason: "Plan mode requires read-only code search.",
+    },
+    {
+      tool: "glob",
+      action: "allow",
+      reason: "Plan mode requires read-only file discovery.",
+    },
+    {
+      tool: "git",
+      action: "allow",
+      reason: "Plan and review mode require read-only diff and status inspection.",
+    },
+    {
+      tool: "resource_list",
+      action: "allow",
+      reason: "Plan mode may discover shared read-only Kiln resources.",
+    },
+    {
+      tool: "resource_template_list",
+      action: "allow",
+      reason: "Plan mode may discover shared read-only Kiln resource templates.",
+    },
+    {
+      tool: "resource_read",
+      action: "allow",
+      reason: "Plan mode may read shared Kiln resources.",
+    },
+  ],
+};
 
 export function buildRunSessionRequirements(preferredProvider: ProviderId | undefined): SessionRequirements {
   return {
@@ -595,7 +693,7 @@ export async function runCommand(
   }
 
   const mode = resolveMode(flags);
-  const cwd = process.cwd();
+  const cwd = resolveProjectRoot().rootPath;
   let resolvedAgent: KilnAgentDefinition | undefined;
   if (flags.agent) {
     const definitions = await loadAgentDefinitions(cwd);
@@ -621,6 +719,9 @@ export async function runCommand(
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const resolvedAppConfig: KilnAppConfig = resolvedKilnConfig
+    ? { ...appConfig, kilnYaml: resolvedKilnConfig }
+    : appConfig;
   const routeTask = inferRouteTask({
     text: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
@@ -662,7 +763,7 @@ export async function runCommand(
     ?? resolvedAgent?.model;
   const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
   let identityAppConfig = withWorkGovernanceContext(
-    withGlobalIdentityContext(appConfig, globalConfig),
+    withGlobalIdentityContext(resolvedAppConfig, globalConfig),
     resolvedKilnConfig?.workGovernance,
   );
   identityAppConfig = withContextCandidates(
@@ -765,7 +866,7 @@ export async function runCommand(
       return errorMessage;
     }
   };
-  if (appConfig.kilnYaml?.contextGovernance?.previewBeforeApply) {
+  if (runtimeAppConfig.kilnYaml?.contextGovernance?.previewBeforeApply) {
     printContextGovernancePreview(previewContextGovernance, runOutput.writeTelemetryLine);
   }
 
@@ -827,7 +928,7 @@ export async function runCommand(
 
   const requirements = buildRunSessionRequirements(preferredProvider);
 
-  const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(appConfig, cwd, {
+  const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
         permissionPolicy: config.permissionPolicy,
@@ -863,7 +964,7 @@ export async function runCommand(
     builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
-  const managedInvocation = appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+  const managedInvocation = runtimeAppConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;

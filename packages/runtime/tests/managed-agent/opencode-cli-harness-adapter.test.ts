@@ -479,6 +479,47 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     });
   });
 
+  it("fails apply-approved write invocations that complete without workspace write evidence", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "text_delta", content: "Approved fixture update applied." },
+      { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory: () => ({ run, dispose }),
+      writeAuthority: {
+        proposalSupported: true,
+        approvedApplySupported: true,
+        memoryProposalSupported: true,
+        rollbackEvidence: true,
+        cleanupEvidence: true,
+        scopeReduction: true,
+      },
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeWriteRequest();
+
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected completed service envelope with failed write invocation record");
+    }
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.writeEvidence).toBeUndefined();
+    expect(result.record.diagnostics).toEqual([{
+      uri: "kiln://managed-agents/invocations/invocation-opencode-write-1/resources/diagnostics",
+      kind: "failure",
+    }]);
+    expect(result.record.resultHandoff).toMatchObject({
+      summary: "Managed CLI harness invocation failed: apply-approved workspace write authority completed without write-attempt evidence.",
+      resourceUris: ["kiln://managed-agents/invocations/invocation-opencode-write-1/transcript"],
+      memoryWriteProposalUris: [],
+    });
+  });
+
   it("records read-only OpenCode write denials as replayable authority-denied evidence", async () => {
     const run = vi.fn((options: CliSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Write denied by policy." },

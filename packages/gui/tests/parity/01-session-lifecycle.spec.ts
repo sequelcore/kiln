@@ -61,4 +61,31 @@ test.describe("parity category 1 - session lifecycle", () => {
       return payload.connections ?? 0;
     }, { timeout: 5_000 }).toBe(0);
   });
+
+  test("sends a fresh session boundary after New Session instead of resuming the previous live turn", async ({ page }) => {
+    await page.goto("/");
+
+    const composer = page.locator("#composer-input");
+    await expect(composer).toBeEnabled({ timeout: 5_000 });
+
+    await composer.fill("first turn");
+    await composer.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').first()).toContainText("Reply", { timeout: 5_000 });
+
+    await page.getByRole("button", { name: "New Session" }).click();
+    await expect(page.getByLabel("Transcript").locator('[data-role="user"]')).toHaveCount(0, { timeout: 5_000 });
+
+    await composer.fill("fresh turn");
+    await composer.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').first()).toContainText("Reply", { timeout: 5_000 });
+
+    const messageFrames = await page.evaluate(() => {
+      return (window as unknown as { __kilnSentFrames: Array<{ type?: string; content?: string; sessionIntent?: string; resumeSessionId?: string }> })
+        .__kilnSentFrames
+        .filter((frame) => frame.type === "message");
+    });
+    const freshFrame = messageFrames.find((frame) => frame.content === "fresh turn");
+    expect(freshFrame).toMatchObject({ sessionIntent: "fresh" });
+    expect(freshFrame?.resumeSessionId).toBeUndefined();
+  });
 });

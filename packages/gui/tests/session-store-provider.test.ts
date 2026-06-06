@@ -17,7 +17,9 @@ function resetSessionStore(): void {
     activeModel: null,
     sessionList: [],
     selectedSessionId: null,
+    liveSessionId: null,
     resumeTargetId: null,
+    detachedSessionIds: [],
     routedProvider: null,
     routedModel: null,
     routeMode: "auto",
@@ -281,6 +283,71 @@ describe("session-store provider selection", () => {
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
     expect(state.routeMode).toBe("user");
+  });
+
+  it("keeps the in-flight response stamped with its original provider after switching the next-turn provider", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "codex-live-session",
+      activeProvider: "codex",
+      activeModel: "o3",
+      respondingProvider: "codex",
+      respondingModel: "o3",
+      routeMode: "responding",
+      providers: [
+        {
+          id: "codex",
+          label: "Codex",
+          group: "harness",
+          free: false,
+          available: true,
+          models: ["o3"],
+        },
+        {
+          id: "openai",
+          label: "OpenAI",
+          group: "direct-api",
+          free: false,
+          available: true,
+          models: ["gpt-5"],
+        },
+      ],
+    });
+
+    expect(useSessionStore.getState().switchProvider("openai", "gpt-5")).toBe(true);
+    const requestId = lastProviderRequestId(send);
+
+    useSessionStore.getState().onProviderChanged({
+      type: "provider_changed",
+      provider: "openai",
+      model: "gpt-5",
+      requestId,
+    });
+    useSessionStore.getState().onTextDelta({
+      type: "text_delta",
+      kilnSessionId: "codex-live-session",
+      content: "still codex",
+    });
+    useSessionStore.getState().onDone({
+      type: "done",
+      kilnSessionId: "codex-live-session",
+      content: "",
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.activeProvider).toBe("openai");
+    expect(state.activeModel).toBe("gpt-5");
+    expect(state.respondingProvider).toBeNull();
+    expect(state.respondingModel).toBeNull();
+    expect(state.messages.at(-1)).toEqual(expect.objectContaining({
+      role: "assistant",
+      routedProvider: "codex",
+      routedModel: "o3",
+    }));
   });
 
   it("provider_changed matching a pending model switch survives a transient provider catalog refresh", () => {
@@ -1409,9 +1476,14 @@ describe("session-store provider selection", () => {
   });
 
   it("done attaches routed provider/model to finalized assistant message", () => {
-    useSessionStore.getState().onTextDelta({ type: "text_delta", content: "partial" });
+    useSessionStore.getState().onTextDelta({
+      type: "text_delta",
+      kilnSessionId: "session-live",
+      content: "partial",
+    });
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       content: "",
       inputTokens: 1,
       outputTokens: 2,
@@ -1478,9 +1550,11 @@ describe("session-store provider selection", () => {
     });
     expect(useSessionStore.getState().routeMode).toBe("user");
 
+    useSessionStore.setState({ status: "running" });
     useSessionStore.getState().onActivity({
       type: "activity",
       activity: "tool_use",
+      kilnSessionId: "session-live",
       toolName: "bash",
       input: { cmd: "echo hi" },
     });
@@ -1488,6 +1562,7 @@ describe("session-store provider selection", () => {
 
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -1524,8 +1599,10 @@ describe("session-store provider selection", () => {
       completeness: "partial",
     });
 
+    useSessionStore.setState({ status: "running" });
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       content: "done",
       inputTokens: 1,
       outputTokens: 1,

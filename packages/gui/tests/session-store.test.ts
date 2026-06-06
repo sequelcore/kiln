@@ -26,6 +26,7 @@ function resetSessionStore(): void {
     selectedSessionId: null,
     liveSessionId: null,
     resumeTargetId: null,
+    detachedSessionIds: [],
     routedProvider: null,
     routedModel: null,
     routeMode: "auto",
@@ -103,8 +104,8 @@ describe("session-store", () => {
   });
 
   it("onTextDelta creates and appends to a single streaming assistant message", () => {
-    useSessionStore.getState().onTextDelta({ type: "text_delta", content: "Hello" });
-    useSessionStore.getState().onTextDelta({ type: "text_delta", content: " world" });
+    useSessionStore.getState().onTextDelta({ type: "text_delta", kilnSessionId: "session-live", content: "Hello" });
+    useSessionStore.getState().onTextDelta({ type: "text_delta", kilnSessionId: "session-live", content: " world" });
 
     const state = useSessionStore.getState();
     expect(state.messages).toHaveLength(1);
@@ -118,6 +119,7 @@ describe("session-store", () => {
   it("onDone preserves assistant response parts for cross-surface media rendering", () => {
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
       content: "spoken answer",
       parts: [
@@ -139,11 +141,12 @@ describe("session-store", () => {
   it("requests on-demand voice synthesis for canonical assistant messages", () => {
     const outboundSend = vi.fn();
     useSessionStore.setState({
-      status: "ready",
+      status: "running",
       outboundSend,
     });
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
       content: "Generate audio later.",
       parts: [{ type: "text", text: "Generate audio later." }],
@@ -168,6 +171,7 @@ describe("session-store", () => {
   it("patches on-demand synthesized audio into the source assistant message", () => {
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
       content: "Generate audio later.",
       parts: [{ type: "text", text: "Generate audio later." }],
@@ -247,6 +251,7 @@ describe("session-store", () => {
     });
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       content: "Sure.",
       admittedInput: { content: "[Voice note transcription]: Can you summarize this?" },
       inputTokens: 3,
@@ -302,7 +307,7 @@ describe("session-store", () => {
       "event:tool_call_started",
     ]);
 
-    useSessionStore.getState().onTextDelta({ type: "text_delta", content: "Patched." });
+    useSessionStore.getState().onTextDelta({ type: "text_delta", kilnSessionId: "session-live", content: "Patched." });
 
     const withDelta = useSessionStore.getState();
     expect(withDelta.currentAssistant).toBe(assistant?.id);
@@ -336,6 +341,7 @@ describe("session-store", () => {
 
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       content: "Created live_test_visibility.txt.",
       inputTokens: 1,
       outputTokens: 1,
@@ -396,9 +402,10 @@ describe("session-store", () => {
   });
 
   it("onDone closes streaming assistant and flips status to ready", () => {
-    useSessionStore.getState().onTextDelta({ type: "text_delta", content: "Hi" });
+    useSessionStore.getState().onTextDelta({ type: "text_delta", kilnSessionId: "session-live", content: "Hi" });
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -416,6 +423,98 @@ describe("session-store", () => {
     });
     expect(state.routedProvider).toBe("claude");
     expect(state.routedModel).toBe("sonnet");
+  });
+
+  it("ignores late frames from the detached live session after New Session clears the UI", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({
+      status: "running",
+      outboundSend,
+      liveSessionId: "old-live-session",
+      messages: [
+        {
+          id: "old-user",
+          role: "user",
+          content: "old turn",
+          createdAt: "2026-06-05T18:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(useSessionStore.getState().sendClear()).toBe(true);
+    useSessionStore.getState().onCleared();
+    useSessionStore.getState().onSessionEvent({
+      eventId: "old-live-session:late:1",
+      kilnSessionId: "old-live-session",
+      sequence: 1,
+      timestamp: "2026-06-05T18:00:01.000Z",
+      kind: "assistant_delta",
+      payload: {
+        messageId: "old-live-session:live:assistant",
+        delta: "late stale answer",
+      },
+    });
+    useSessionStore.getState().onActivity({
+      type: "activity",
+      activity: "tool_use",
+      kilnSessionId: "old-live-session",
+      toolName: "stale-tool",
+    });
+    useSessionStore.getState().onDone({
+      type: "done",
+      kilnSessionId: "old-live-session",
+      content: "late stale completion",
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    const cleared = useSessionStore.getState();
+    expect(cleared.messages).toEqual([]);
+    expect(cleared.sessionEvents).toEqual([]);
+    expect(cleared.activity).toBeNull();
+    expect(cleared.liveSessionId).toBeNull();
+    expect(outboundSend).toHaveBeenCalledWith({ type: "clear" });
+  });
+
+  it("accepts scoped frames from a new live session after detaching the previous session", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({
+      status: "running",
+      outboundSend,
+      liveSessionId: "old-live-session",
+    });
+
+    expect(useSessionStore.getState().sendClear()).toBe(true);
+    useSessionStore.getState().onCleared();
+    useSessionStore.setState({ status: "running" });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "new-live-session:delta:1",
+      kilnSessionId: "new-live-session",
+      sequence: 1,
+      timestamp: "2026-06-05T18:01:01.000Z",
+      kind: "assistant_delta",
+      payload: {
+        messageId: "new-live-session:live:assistant",
+        delta: "new scoped answer",
+      },
+    });
+    useSessionStore.getState().onDone({
+      type: "done",
+      kilnSessionId: "new-live-session",
+      content: "",
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.liveSessionId).toBe("new-live-session");
+    expect(state.messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "new scoped answer",
+        streaming: false,
+      }),
+    ]);
   });
 
   it("keeps managed invocation tool identity inspectable in live timeline details", () => {
@@ -581,6 +680,7 @@ describe("session-store", () => {
     useSessionStore.getState().onActivity({
       type: "activity",
       activity: "cost_update",
+      kilnSessionId: "session-1",
       usd: 0.125,
       inputTokens: 1200,
       outputTokens: 340,
@@ -687,7 +787,7 @@ describe("session-store", () => {
     expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
   });
 
-  it("does not resume the previous session after starting a blank session", () => {
+  it("marks the first blank-session message as a fresh session boundary", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.getState().setResume("session-a");
@@ -705,7 +805,43 @@ describe("session-store", () => {
       type: "message",
       content: "new task",
       resumeSessionId: undefined,
+      sessionIntent: "fresh",
     }));
+  });
+
+  it("does not mark follow-up turns in the active conversation as fresh", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      status: "ready",
+      messages: [
+        {
+          id: "message-a",
+          role: "user",
+          content: "first task",
+          createdAt: "2026-04-28T19:00:00.000Z",
+        },
+        {
+          id: "message-b",
+          role: "assistant",
+          content: "first response",
+          createdAt: "2026-04-28T19:00:01.000Z",
+        },
+      ],
+      liveSessionId: "session-live",
+      selectedSessionId: null,
+      resumeTargetId: null,
+    });
+
+    const accepted = useSessionStore.getState().sendMessage("follow up");
+
+    expect(accepted).toBe(true);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "message",
+      content: "follow up",
+      resumeSessionId: undefined,
+    }));
+    expect(send.mock.calls[0]?.[0]).not.toHaveProperty("sessionIntent");
   });
 
   it("ignores live canonical events and phase frames for another visible session", () => {
@@ -1631,6 +1767,7 @@ describe("session-store", () => {
 
     useSessionStore.getState().onDone({
       type: "done",
+      kilnSessionId: "session-live",
       content: "done",
       inputTokens: 250,
       outputTokens: 75,
@@ -1779,6 +1916,7 @@ describe("session-store", () => {
       content: "hello",
       executionMode: "plan",
       resumeSessionId: undefined,
+      sessionIntent: "fresh",
       appName: "support",
       tenantId: "acme",
       reasoningEffort: "medium",
@@ -1880,6 +2018,7 @@ describe("session-store", () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       type: "message",
       resumeSessionId: undefined,
+      sessionIntent: "fresh",
     }));
   });
 

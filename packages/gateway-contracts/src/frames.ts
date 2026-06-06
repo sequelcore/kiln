@@ -758,6 +758,7 @@ export type GuiOutboundFrame =
       parts?: readonly unknown[];
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
+      sessionIntent?: "fresh";
       resumeSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       appName?: string;
@@ -807,6 +808,7 @@ export type GuiInboundFrame =
   | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";
+      kilnSessionId: string;
       sourceMessageId?: string;
       content: string;
       parts?: readonly unknown[];

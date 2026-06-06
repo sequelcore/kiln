@@ -18,12 +18,19 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await page.getByRole("button", { name: /provider.*Click to change/i }).click();
-    await page.getByRole("option", { name: "Codex 6 models" }).click();
-    await page.getByRole("option", { name: "gpt-5.4-mini" }).click();
-    await expect(page.getByRole("button", { name: /Codex \/ gpt-5\.4-mini/ })).toBeVisible({
-      timeout: 2_000,
-    });
+    const providerStatus = page.getByRole("button", { name: /Click to change/i });
+    await expect(providerStatus).toBeVisible();
+    if (!((await providerStatus.textContent()) ?? "").includes("Codex / gpt-5.4-mini")) {
+      await providerStatus.click();
+      const codexProvider = page.getByRole("option", { name: /^Codex \d+ models$/ });
+      if (await codexProvider.count() > 0) {
+        await codexProvider.click();
+      }
+      await page.getByRole("option", { name: "gpt-5.4-mini" }).click();
+      await expect(page.getByRole("button", { name: /Codex \/ gpt-5\.4-mini/ })).toBeVisible({
+        timeout: 2_000,
+      });
+    }
 
     const composer = page.locator("#composer-input");
     await composer.fill("show visual roles");

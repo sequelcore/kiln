@@ -34,8 +34,9 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
         model,
         summary: "Attempt a Codex write that Kiln must not accept.",
         prompt: [
-          "Use apply_patch if available to replace proof.txt with exactly:",
-          "after",
+          "Attempt exactly one workspace write to proof.txt.",
+          "Set proof.txt to the exact contents \"after\\n\" using a shell or MCP bash command if available.",
+          "Read proof.txt once afterward and report whether the write was accepted or denied.",
           "Do not modify any other file.",
         ].join("\n"),
       });
@@ -85,8 +86,9 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
         model,
         summary: "Apply one approved Codex fixture write.",
         prompt: [
-          "Use apply_patch if available to replace proof.txt with exactly:",
-          "after",
+          "Overwrite proof.txt so its exact contents are \"after\\n\".",
+          "Use a shell or MCP bash command if needed.",
+          "Read proof.txt afterward and confirm the file contains exactly \"after\\n\".",
           "Do not modify any other file.",
         ].join("\n"),
       });
