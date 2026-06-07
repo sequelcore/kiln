@@ -28,6 +28,7 @@ import {
 import { parseOutputVerbosity, pluralize, splitNonEmptyLines } from "./output-verbosity.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const SUMMARY_MATCH_LIMIT = 20;
 
 type GlobCommandRunner = (
   binary: string,
@@ -119,7 +120,10 @@ export class GlobTool implements DevTool {
             DEFAULT_TIMEOUT_MS,
           );
 
-          matches.push(...splitNonEmptyLines(result.stdout.trim()).map((line) => prefixFastPathMatch(line, plan.outputPrefix)));
+          const plannedMatches = splitNonEmptyLines(result.stdout.trim())
+            .map((line) => prefixFastPathMatch(line, plan.outputPrefix))
+            .filter((match) => !plan.filterPattern || matchesGlob(match, plan.filterPattern));
+          matches.push(...plannedMatches);
         } catch (error) {
           const err = error as NodeJS.ErrnoException & {
             stdout?: string;
@@ -207,7 +211,14 @@ function formatGlobOutput(
   }
 
   if (verbosity === "summary") {
-    return `${matches.length} ${pluralize(matches.length, "match", "matches")}`;
+    const sample = matches.slice(0, SUMMARY_MATCH_LIMIT);
+    if (sample.length === 0) {
+      return `${matches.length} ${pluralize(matches.length, "match", "matches")}`;
+    }
+    const suffix = matches.length > sample.length
+      ? `\n[glob summary truncated: showing ${sample.length} of ${matches.length} matches]`
+      : "";
+    return `${matches.length} ${pluralize(matches.length, "match", "matches")}:\n${sample.join("\n")}${suffix}`;
   }
 
   return rawOutput;
@@ -217,11 +228,13 @@ interface FastPathGlobPlan {
   readonly cwd: string;
   readonly pattern: string;
   readonly outputPrefix: string;
+  readonly filterPattern?: string;
 }
 
 function planFastPathGlob(searchRoot: string, pattern: string): FastPathGlobPlan {
   const normalizedPattern = normalizePath(pattern);
   const firstGlobIndex = firstGlobTokenIndex(normalizedPattern);
+  let plan: FastPathGlobPlan;
   if (firstGlobIndex < 0) {
     const slashIndex = normalizedPattern.lastIndexOf("/");
     if (slashIndex < 0) {
@@ -236,15 +249,19 @@ function planFastPathGlob(searchRoot: string, pattern: string): FastPathGlobPlan
 
   const slashIndex = normalizedPattern.lastIndexOf("/", firstGlobIndex);
   if (slashIndex < 0) {
-    return { cwd: searchRoot, pattern: normalizedPattern, outputPrefix: "" };
+    return withFdCandidateFiltering(
+      { cwd: searchRoot, pattern: normalizedPattern, outputPrefix: "" },
+      normalizedPattern,
+    );
   }
 
   const outputPrefix = normalizedPattern.slice(0, slashIndex);
-  return {
+  plan = {
     cwd: join(searchRoot, ...outputPrefix.split("/")),
     pattern: normalizedPattern.slice(slashIndex + 1),
     outputPrefix,
   };
+  return withFdCandidateFiltering(plan, normalizedPattern);
 }
 
 function firstGlobTokenIndex(pattern: string): number {
@@ -260,4 +277,26 @@ function prefixFastPathMatch(match: string, outputPrefix: string): string {
     return normalized;
   }
   return `${outputPrefix}/${normalized}`;
+}
+
+function withFdCandidateFiltering(plan: FastPathGlobPlan, normalizedPattern: string): FastPathGlobPlan {
+  if (!requiresFdPathPostFilter(plan.pattern)) {
+    return plan;
+  }
+
+  return {
+    ...plan,
+    pattern: fdCandidatePattern(plan.pattern),
+    filterPattern: normalizedPattern,
+  };
+}
+
+function requiresFdPathPostFilter(plannedPattern: string): boolean {
+  const normalizedPattern = normalizePath(plannedPattern);
+  return normalizedPattern.includes("/") && !normalizedPattern.startsWith("**/");
+}
+
+function fdCandidatePattern(plannedPattern: string): string {
+  const segments = normalizePath(plannedPattern).split("/").filter(Boolean);
+  return segments.at(-1) ?? plannedPattern;
 }

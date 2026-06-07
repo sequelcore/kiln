@@ -180,6 +180,7 @@ export interface FileToolResultMetadata<TToolName extends FileToolName = FileToo
   readonly dryRun?: boolean;
   readonly operationCount?: number;
   readonly code?: number | string;
+  readonly suggestions?: readonly string[];
   readonly verbosity?: ToolOutputVerbosity;
 }
 

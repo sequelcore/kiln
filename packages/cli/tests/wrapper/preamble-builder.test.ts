@@ -324,6 +324,9 @@ describe("buildProviderSystemPrompt", () => {
       '{"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content","maxResults":50}',
     );
     expect(result).toContain("start with outputMode files_with_matches or count");
+    expect(result).toContain("do not proceed from count-only evidence");
+    expect(result).toContain("For UI/frontend work, confirm actual package roots first");
+    expect(result).toContain("Do not assume paths such as gui, web, app, packages/web, or packages/app exist.");
     expect(result).toContain("Use the git tool for Git inspection instead of bash commands");
     expect(result).toContain("Do not reuse /mnt/c or /c shell paths as cwd.");
     expect(result).toContain(

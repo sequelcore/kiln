@@ -118,6 +118,53 @@ describe("GrepTool", () => {
     expect(result.metadata?.["truncated"]).toBe(true);
   });
 
+  it("uses bounded fallback for files_with_matches so maxResults limits broad directory work", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "src"), { recursive: true });
+      await writeFile(join(tempDir, "src", "a.ts"), "match\n", "utf8");
+      await writeFile(join(tempDir, "src", "b.ts"), "match\n", "utf8");
+      await writeFile(join(tempDir, "src", "c.ts"), "match\n", "utf8");
+      const commandRunner = vi.fn(async () => ({
+        stdout: "",
+        stderr: "",
+      }));
+      const tool = new GrepTool({
+        environmentProvider: async () => ({
+          rg: { path: "rg-bin", version: "15.0.0" },
+        }),
+        commandRunner,
+      });
+
+      const result = await tool.execute(
+        {
+          name: "grep",
+          input: {
+            pattern: "match",
+            path: tempDir,
+            glob: "**/*.ts",
+            outputMode: "files_with_matches",
+            maxResults: 2,
+          },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("src/a.ts");
+      expect(result.output).toContain("src/b.ts");
+      expect(result.output).not.toContain("src/c.ts");
+      expect(result.output).toContain("[grep results truncated: returned 2 of 3 matches");
+      expect(result.metadata?.["strategy"]).toBe("fallback");
+      expect(result.metadata?.["count"]).toBe(2);
+      expect(result.metadata?.["totalCount"]).toBe(3);
+      expect(result.metadata?.["truncated"]).toBe(true);
+      expect(commandRunner).not.toHaveBeenCalled();
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("falls back to the internal scanner when rg fails to launch", async () => {
     const tempDir = await makeTempDir();
     try {
@@ -430,7 +477,10 @@ describe("GlobTool", () => {
     });
 
     expect(result.isError).toBe(false);
-    expect(result.output).toBe("3 matches");
+    expect(result.output).toContain("3 matches:");
+    expect(result.output).toContain("src/layout.css");
+    expect(result.output).toContain("src/view.tsx");
+    expect(result.output).toContain("src/model.ts");
     expect(result.metadata?.["count"]).toBe(3);
     expect(commandRunner).toHaveBeenNthCalledWith(
       1,
@@ -485,6 +535,88 @@ describe("GlobTool", () => {
     expect(result.output).toContain("packages/gui/src/components/app-shell.tsx");
     expect(result.output).toContain("packages/studio/src/styles/tokens.css");
     expect(result.metadata?.["count"]).toBe(2);
+  });
+
+  it("preserves path glob semantics for fd fast path when the globbed segment is before a slash", async () => {
+    const commandRunner = vi.fn(async (_binary: string, args: readonly string[]) => {
+      if (args[3] === "package.json") {
+        return {
+          stdout: [
+            "t1code/package.json",
+            "t1code/apps/web/package.json",
+            "opencode/package.json",
+            "opencode/packages/app/package.json",
+          ].join("\n") + "\n",
+          stderr: "",
+        };
+      }
+      throw Object.assign(new Error("unexpected fd invocation"), { code: 1, stdout: "", stderr: "" });
+    });
+    const tool = new GlobTool({
+      environmentProvider: async () => ({
+        fd: { path: "fd-bin", version: "10.0.0" },
+      }),
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "glob",
+      input: { pattern: "*/package.json", path: ".", verbosity: "raw" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("t1code/package.json");
+    expect(result.output).toContain("opencode/package.json");
+    expect(result.output).not.toContain("t1code/apps/web/package.json");
+    expect(result.output).not.toContain("opencode/packages/app/package.json");
+    expect(result.metadata?.["count"]).toBe(2);
+    expect(commandRunner).toHaveBeenCalledWith(
+      "fd-bin",
+      ["--glob", "--type", "f", "package.json", "."],
+      process.cwd(),
+      30_000,
+    );
+  });
+
+  it("preserves path glob semantics for fd fast path under a literal monorepo prefix", async () => {
+    const commandRunner = vi.fn(async (_binary: string, args: readonly string[], cwd: string) => {
+      if (cwd.endsWith("packages") && args[3] === "package.json") {
+        return {
+          stdout: [
+            "gui/package.json",
+            "gui/examples/demo/package.json",
+            "runtime/package.json",
+            "runtime/fixtures/package.json",
+          ].join("\n") + "\n",
+          stderr: "",
+        };
+      }
+      throw Object.assign(new Error("unexpected fd invocation"), { code: 1, stdout: "", stderr: "" });
+    });
+    const tool = new GlobTool({
+      environmentProvider: async () => ({
+        fd: { path: "fd-bin", version: "10.0.0" },
+      }),
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "glob",
+      input: { pattern: "packages/*/package.json", path: ".", verbosity: "raw" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("packages/gui/package.json");
+    expect(result.output).toContain("packages/runtime/package.json");
+    expect(result.output).not.toContain("packages/gui/examples/demo/package.json");
+    expect(result.output).not.toContain("packages/runtime/fixtures/package.json");
+    expect(result.metadata?.["count"]).toBe(2);
+    expect(commandRunner).toHaveBeenCalledWith(
+      "fd-bin",
+      ["--glob", "--type", "f", "package.json", "."],
+      join(process.cwd(), "packages"),
+      30_000,
+    );
   });
 
   it("treats fd exit code 1 as a no-match success", async () => {

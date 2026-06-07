@@ -94,6 +94,7 @@ export class GrepTool implements DevTool {
     const globFilter = optionalString(input,"glob");
     const modeValue = optionalString(input,"outputMode");
     const outputMode = isGrepOutputMode(modeValue) ? modeValue : "content";
+    const hasExplicitMaxResults = input.input["maxResults"] !== undefined;
     const maxResultsInput = parseMaxResults(input);
     if (!maxResultsInput.ok) {
       return toErrorResult(maxResultsInput.message, searchToolMetadata("grep", {
@@ -106,7 +107,7 @@ export class GrepTool implements DevTool {
       const environment = await this.environmentProvider();
       const rgPath = environment.rg?.path;
 
-      if (rgPath) {
+      if (rgPath && !shouldUseBoundedFallback(outputMode, hasExplicitMaxResults)) {
         const fastPathResult = await this.executeFastPath(
           rgPath,
           searchTarget,
@@ -228,6 +229,10 @@ export class GrepTool implements DevTool {
     let totalCount = 0;
 
     for (const filePath of files) {
+      if (outputMode === "files_with_matches" && truncated) {
+        break;
+      }
+
       const readError = validateReadPath(filePath, sandbox);
       if (readError) {
         continue;
@@ -264,6 +269,7 @@ export class GrepTool implements DevTool {
             resultsFiles.push(relativePath);
           } else {
             truncated = true;
+            break;
           }
         } else if (outputMode === "count") {
           totalCount += 1;
@@ -370,6 +376,10 @@ function projectGrepResults(results: readonly string[], maxResults: number): Gre
     totalCount: results.length,
     truncated: results.length > projected.length,
   };
+}
+
+function shouldUseBoundedFallback(outputMode: GrepOutputMode, hasExplicitMaxResults: boolean): boolean {
+  return outputMode === "files_with_matches" && hasExplicitMaxResults;
 }
 
 function parseMaxResults(input: ToolInput): { ok: true; value: number } | { ok: false; message: string } {

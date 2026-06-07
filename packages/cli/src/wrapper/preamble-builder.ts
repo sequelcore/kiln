@@ -22,6 +22,8 @@ function buildExecutableToolGuidanceSection(): string {
     'Use glob with an object like {"pattern":"**/*.ts","path":"packages/cli"} to discover candidate files when the exact path is unknown.',
     'Use grep with an object like {"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content","maxResults":50} to search file contents.',
     "For broad searches, start with outputMode files_with_matches or count, then read the small set of candidate files. Avoid package-wide content grep unless maxResults is small.",
+    "If the next step needs concrete file paths, use raw or structured output, or summary output that includes path samples; do not proceed from count-only evidence.",
+    "For UI/frontend work, confirm actual package roots first with tree on known workspace directories, glob **/package.json, or a bounded raw/structured glob. Do not assume paths such as gui, web, app, packages/web, or packages/app exist.",
     'Use read with an object like {"filePath":"packages/cli/src/wrapper/preamble-builder.ts"} before summarizing or editing a file.',
     "Use the git tool for Git inspection instead of bash commands like git status or git rev-parse.",
     "When using bash cwd on Windows, pass the host workspace path such as C:\\Proyectos\\Sequel\\kiln. Do not reuse /mnt/c or /c shell paths as cwd.",

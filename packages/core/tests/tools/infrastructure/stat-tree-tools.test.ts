@@ -163,6 +163,32 @@ describe("TreeTool", () => {
     }
   });
 
+  it("includes bounded path samples in summary output", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "packages", "gui"), { recursive: true });
+      await mkdir(join(tempDir, "packages", "runtime"), { recursive: true });
+      await writeFile(join(tempDir, "packages", "gui", "package.json"), "{}", "utf8");
+
+      const tool = new TreeTool();
+      const result = await tool.execute(
+        { name: "tree", input: { path: ".", depth: 3, includeFiles: true, verbosity: "summary" } },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("packages/");
+      expect(result.output).toContain("gui/");
+      expect(result.output).toContain("package.json");
+      expect(result.metadata).toMatchObject({
+        verbosity: "summary",
+        entryCount: 4,
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("respects sandbox read validation for the root", async () => {
     const tempDir = await makeTempDir();
     try {

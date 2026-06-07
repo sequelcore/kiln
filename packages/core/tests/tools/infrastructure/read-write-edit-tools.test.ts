@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EditTool } from "../../../src/tools/infrastructure/edit-tool.js";
@@ -69,6 +69,119 @@ describe("ReadTool", () => {
 
       expect(result.isError).toBe(true);
       expect(result.output).toContain("Read access denied");
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("suggests existing sibling files when the requested file is missing", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const write = new WriteTool();
+      await write.execute(
+        {
+          name: "write",
+          input: { filePath: "src/index.css", content: "body { color: white; }" },
+        },
+        makeSandbox(tempDir),
+      );
+      await write.execute(
+        {
+          name: "write",
+          input: { filePath: "src/app.tsx", content: "export const App = () => null;" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      const read = new ReadTool();
+      const result = await read.execute(
+        {
+          name: "read",
+          input: { filePath: "src/style.css" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("Did you mean one of these existing files?");
+      expect(result.output).toContain(join(tempDir, "src", "index.css"));
+      expect(result.metadata).toMatchObject({
+        toolName: "read",
+        kind: "file",
+        operation: "read",
+        filePath: join(tempDir, "src", "style.css"),
+        code: "ENOENT",
+        suggestions: [join(tempDir, "src", "index.css"), join(tempDir, "src", "app.tsx")],
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("suggests matching basenames under the nearest existing ancestor when parent directories are missing", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const write = new WriteTool();
+      await write.execute(
+        {
+          name: "write",
+          input: {
+            filePath: "frontend/src/components/dashboard/layout/dashboard-layout.tsx",
+            content: "export const DashboardLayout = () => null;",
+          },
+        },
+        makeSandbox(tempDir),
+      );
+
+      const read = new ReadTool();
+      const result = await read.execute(
+        {
+          name: "read",
+          input: { filePath: "frontend/components/dashboard/layout/dashboard-layout.tsx" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("Did you mean one of these existing files?");
+      expect(result.output).toContain(join(tempDir, "frontend", "src", "components", "dashboard", "layout", "dashboard-layout.tsx"));
+      expect(result.metadata).toMatchObject({
+        toolName: "read",
+        kind: "file",
+        operation: "read",
+        filePath: join(tempDir, "frontend", "components", "dashboard", "layout", "dashboard-layout.tsx"),
+        code: "ENOENT",
+        suggestions: [join(tempDir, "frontend", "src", "components", "dashboard", "layout", "dashboard-layout.tsx")],
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("rejects binary image files instead of returning decoded text", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await writeFile(join(tempDir, "screenshot.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]));
+
+      const read = new ReadTool();
+      const result = await read.execute(
+        {
+          name: "read",
+          input: { filePath: "screenshot.png" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("Binary file cannot be read as text");
+      expect(result.output).toContain("Use view_image");
+      expect(result.metadata).toMatchObject({
+        toolName: "read",
+        kind: "file",
+        operation: "read",
+        filePath: join(tempDir, "screenshot.png"),
+        code: "BINARY_FILE",
+      });
     } finally {
       await removeTempDir(tempDir);
     }

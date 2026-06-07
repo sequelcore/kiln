@@ -17,6 +17,7 @@ import { parseOutputVerbosity, pluralize } from "./output-verbosity.js";
 const DEFAULT_DEPTH = 2;
 const MAX_DEPTH = 8;
 const MAX_ENTRIES = 500;
+const SUMMARY_LINE_LIMIT = 40;
 const IGNORED_DIRECTORIES = [
   ".git",
   ".kiln-worktrees",
@@ -220,7 +221,13 @@ function formatTreeOutput(
   }
 
   if (verbosity === "summary") {
-    return `${state.entryCount} ${pluralize(state.entryCount, "entry", "entries")} under ${rootPath}${state.truncated ? " (truncated)" : ""}`;
+    const sample = state.lines.slice(1, SUMMARY_LINE_LIMIT + 1);
+    const sampleOutput = sample.length > 0 ? `\n${sample.join("\n")}` : "";
+    const sampleTruncated = state.lines.length - 1 > sample.length;
+    const suffix = sampleTruncated
+      ? `\n[tree summary truncated: showing ${sample.length} of ${state.entryCount} entries]`
+      : "";
+    return `${state.entryCount} ${pluralize(state.entryCount, "entry", "entries")} under ${rootPath}${state.truncated ? " (truncated)" : ""}${sampleOutput}${suffix}`;
   }
 
   return state.lines.join("\n");
