@@ -34,15 +34,15 @@ parent handoff contract.
 
 ## Local Repository Evidence
 
-- `C:\Proyectos\Sequel\claude-code` contains background-task and worktree
+- `/workspace/references/claude-code` contains background-task and worktree
   state, including subagent-created team cleanup, background intervals, and
   project-root stability around worktrees.
-- `C:\Proyectos\Sequel\opencode` documents primary agents and subagents, with
+- `/workspace/references/opencode` documents primary agents and subagents, with
   child-session navigation as the operator model.
-- `C:\Proyectos\Sequel\hermes-agent\AGENTS.md` documents `delegate_tool.py`
+- `/workspace/references/hermes-agent/AGENTS.md` documents `delegate_tool.py`
   for isolated subagents, batch parallel execution, `terminal(background=True)`
   notifications, a cron hard interrupt, and a Kanban multi-agent work queue.
-- `C:\Proyectos\Sequel\t1code` is structured around a desktop multi-agent
+- `/workspace/references/t1code` is structured around a desktop multi-agent
   surface and worktree-oriented parallel coding workflows.
 
 ## Kiln Implication

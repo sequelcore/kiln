@@ -351,6 +351,11 @@ export class WorkItemUpdateTool implements DevTool {
         additionalProperties: { type: "string" },
         description: "Optional phase-specific managed route ids. For UI work on foundation-apply-approved-writes, set phaseRoutes.visual-reference-research to a read-only web/frontend-reference capable route; do not leave phaseRoutes empty and do not use the write route for frontend-reference research.",
       },
+      referenceRoots: {
+        type: "array",
+        items: { type: "string", minLength: 1 },
+        description: "Optional local reference roots the read-only research phase must be able to inspect, such as sibling cloned harness repositories. These are read requirements only, never write authority.",
+      },
       authorityProfile: { type: "string", description: "Optional authority profile for the assigned work." },
       expectedEvidence: {
         type: "array",
@@ -441,6 +446,8 @@ export class WorkItemUpdateTool implements DevTool {
     const routeId = readText(input.input.routeId);
     const authorityProfile = readText(input.input.authorityProfile) ?? workflowProfile.defaultAuthorityProfile;
     const phaseRoutes = readTextRecord(input.input.phaseRoutes) ?? existing?.phaseRoutes;
+    const referenceRootsInput = readTextArray(input.input.referenceRoots);
+    const referenceRoots = referenceRootsInput.length > 0 ? referenceRootsInput : existing?.referenceRoots;
     const providedEvidence = readEvidence(input.input.providedEvidence);
     const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
     const visualEvidence = validateVisualReferenceEvidence({
@@ -501,6 +508,7 @@ export class WorkItemUpdateTool implements DevTool {
       assignedAgentProfile: readText(input.input.assignedAgentProfile),
       routeId,
       phaseRoutes,
+      referenceRoots,
       authorityProfile,
       expectedEvidence,
       providedEvidence,
@@ -1485,6 +1493,7 @@ function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput 
     ...(item.surface ? { surface: item.surface } : {}),
     ...(item.assignedAgentProfile ? { assignedAgentProfile: item.assignedAgentProfile } : {}),
     ...(routeId ? { routeId } : {}),
+    ...(item.referenceRoots ? { referenceRoots: item.referenceRoots } : {}),
     ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
     ...(item.residualRisk ? { residualRisk: item.residualRisk } : {}),
     ...(goal.planHash ? { planHash: goal.planHash } : {}),
@@ -1601,6 +1610,9 @@ function buildManagedInvocationRequest(
     },
     expectedEvidence,
     ...(phase.requiredToolNames.length > 0 ? { requiredToolNames: phase.requiredToolNames } : {}),
+    ...(phaseRequiresReadOnlyVisualResearch && step.workItem.referenceRoots
+      ? { requiredReadPaths: step.workItem.referenceRoots }
+      : {}),
     requiredResultFields: managedInvocationResultFields(expectedEvidence),
     doneCriteria: managedInvocationDoneCriteria(step, phase),
     residualRiskRequired,
@@ -1726,6 +1738,10 @@ function formatManagedInvocationTask(
   }
   if (phase.id === "visual-reference-research") {
     lines.push("Use read-only frontend-reference research authority. Prefer running-product UI captures when available. If the reference repository has no public screenshots, inspect the frontend implementation itself and produce code-backed evidence: component structure, layout/navigation model, spacing/typography/density, panels, work surfaces, composer-like interactions, status areas, and relevant frontend file paths. Local reference repositories are valid only when evidence cites concrete source paths and extracted UI principles. Repository chrome, stars/forks/issues, and raw file listings alone do not count.");
+    if (step.workItem.referenceRoots && step.workItem.referenceRoots.length > 0) {
+      lines.push(`Required reference roots: ${step.workItem.referenceRoots.join("; ")}.`);
+      lines.push("Before recording visual-reference-research, inspect each required reference root enough to cite concrete frontend source paths or explicitly report why that root has no qualifying frontend implementation evidence. A raw file listing or analysis of only this Kiln repository does not satisfy this phase.");
+    }
   }
   if (phase.requiredToolNames.length > 0) {
     lines.push(`This phase requires route tools: ${phase.requiredToolNames.join(", ")}.`);

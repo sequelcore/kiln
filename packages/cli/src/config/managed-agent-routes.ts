@@ -121,6 +121,7 @@ const WRITE_PROFILES = new Set<KilnManagedAgentProfile>([
 ]);
 const DEFAULT_ALLOWED_TOOLS = ["read", "tree", "grep", "glob"] as const;
 const DEFAULT_WRITE_ALLOWED_TOOLS = ["read", "tree", "grep", "glob", "write", "edit", "apply-patch"] as const;
+const DEFAULT_MANAGED_WORKSPACE_DENIED_ENTRIES = [".git", "node_modules", ".kiln"] as const;
 const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_MODELS: Record<string, string> = {
   codex: "gpt-5.3-codex-spark",
@@ -859,10 +860,14 @@ function buildReadAuthority(
   routeConfig: KilnManagedAgentRouteConfig,
   cwd: string,
 ): ManagedAgentAuthorityProfile["readAuthority"] {
+  const allowedPaths = normalizeManagedRoutePaths(routeConfig.readAuthority?.workspace?.allowedPaths ?? [], cwd);
   return defineManagedAgentReadAuthority({
     workspace: {
-      allowedPaths: normalizeManagedRoutePaths(routeConfig.readAuthority?.workspace?.allowedPaths ?? [], cwd),
-      deniedPaths: normalizeManagedRoutePaths(routeConfig.readAuthority?.workspace?.deniedPaths ?? [], cwd),
+      allowedPaths,
+      deniedPaths: uniqueStrings([
+        ...normalizeManagedRoutePaths(routeConfig.readAuthority?.workspace?.deniedPaths ?? [], cwd),
+        ...defaultManagedWorkspaceDeniedPaths(cwd, allowedPaths),
+      ]),
     },
   });
 }
@@ -990,7 +995,12 @@ function buildWriteAuthority(
         workspace: {
           mode: workspaceMode,
           allowedPaths: workspaceMode === "none" ? [] : allowedWorkspacePaths,
-          deniedPaths: workspaceMode === "none" ? [] : normalizeManagedRoutePaths(config.workspace?.deniedPaths ?? [".git"], cwd),
+          deniedPaths: workspaceMode === "none"
+            ? []
+            : uniqueStrings([
+              ...normalizeManagedRoutePaths(config.workspace?.deniedPaths ?? [], cwd),
+              ...defaultManagedWorkspaceDeniedPaths(cwd, allowedWorkspacePaths),
+            ]),
         },
         memory: {
           mode: memoryMode,
@@ -1398,6 +1408,26 @@ function resolveWorkingDirectoryLease(
 
 function normalizeManagedRoutePaths(paths: readonly string[], cwd: string): readonly string[] {
   return paths.map((path) => normalizeManagedRoutePath(path, cwd));
+}
+
+function defaultManagedWorkspaceDeniedPaths(cwd: string, allowedPaths: readonly string[]): readonly string[] {
+  return uniqueStrings([cwd, ...allowedPaths].flatMap((rootPath) =>
+    DEFAULT_MANAGED_WORKSPACE_DENIED_ENTRIES.map((entry) => normalizeManagedRoutePath(joinManagedRoutePath(rootPath, entry), cwd))
+  ));
+}
+
+function joinManagedRoutePath(rootPath: string, childPath: string): string {
+  if (win32.isAbsolute(rootPath)) {
+    return win32.join(rootPath, childPath);
+  }
+  if (posix.isAbsolute(rootPath)) {
+    return posix.join(rootPath, childPath);
+  }
+  return resolve(rootPath, childPath);
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }
 
 function normalizeManagedRoutePath(path: string, cwd: string): string {

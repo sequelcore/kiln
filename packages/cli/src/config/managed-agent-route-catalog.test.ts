@@ -200,8 +200,8 @@ describe("managed agent route catalog", () => {
     expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(true);
   });
 
-  it("projects explicit read-only reference roots for managed frontend research routes", async () => {
-    const cwd = createTempRoot();
+  it("projects explicit read-only reference roots with default protected descendants", async () => {
+    const cwd = "C:/workspace/kiln";
     const resolution = await resolveManagedInvocationToolOptions({
       managedAgents: {
         enabled: true,
@@ -220,8 +220,8 @@ describe("managed agent route catalog", () => {
           readAuthority: {
             workspace: {
               allowedPaths: [
-                "C:/Proyectos/Sequel/t1code",
-                "C:/Proyectos/Sequel/vllm-studio",
+                "C:/workspace/references/t1code",
+                "C:/workspace/references/vllm-studio",
               ],
               deniedPaths: [],
             },
@@ -247,10 +247,20 @@ describe("managed agent route catalog", () => {
       readAuthority: {
         workspace: {
           allowedPaths: [
-            "C:\\Proyectos\\Sequel\\t1code",
-            "C:\\Proyectos\\Sequel\\vllm-studio",
+            "C:\\workspace\\references\\t1code",
+            "C:\\workspace\\references\\vllm-studio",
           ],
-          deniedPaths: [],
+          deniedPaths: [
+            "C:\\workspace\\kiln\\.git",
+            "C:\\workspace\\kiln\\node_modules",
+            "C:\\workspace\\kiln\\.kiln",
+            "C:\\workspace\\references\\t1code\\.git",
+            "C:\\workspace\\references\\t1code\\node_modules",
+            "C:\\workspace\\references\\t1code\\.kiln",
+            "C:\\workspace\\references\\vllm-studio\\.git",
+            "C:\\workspace\\references\\vllm-studio\\node_modules",
+            "C:\\workspace\\references\\vllm-studio\\.kiln",
+          ],
         },
       },
     });

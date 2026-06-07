@@ -102,8 +102,9 @@ function buildManagedInvocationPhaseAction(
   const phaseRequiredTools = readTextArray(phase.requiredToolNames);
   const requestRequiredTools = readTextArray(request.requiredToolNames);
   const requiredToolNames = phaseRequiredTools.length > 0 ? phaseRequiredTools : requestRequiredTools;
+  const requiredReadPaths = readTextArray(request.requiredReadPaths);
   const visualReferenceRecovery = evidenceToRecord.includes(VISUAL_REFERENCE_PHASE_ID)
-    ? visualReferenceRecoveryContract()
+    ? visualReferenceRecoveryContract(requiredReadPaths)
     : undefined;
   const sourceResourceUris = options.includeResultResources
     ? options.resultHandoff?.resourceUris.filter((uri) => readText(uri) !== undefined) ?? []
@@ -178,6 +179,7 @@ function buildManagedInvocationPhaseAction(
     workItemId,
     evidenceToRecord,
     ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+    ...(requiredReadPaths.length > 0 ? { requiredReadPaths } : {}),
     ...(sourceResourceUris.length > 0
       ? {
           sourceResourceUris,
@@ -252,13 +254,15 @@ function hasSubstantivePhaseHandoff(
   return true;
 }
 
-function visualReferenceRecoveryContract(): {
+function visualReferenceRecoveryContract(requiredReadPaths: readonly string[]): {
+  readonly requiredReadPaths?: readonly string[];
   readonly validEvidence: readonly string[];
   readonly invalidEvidence: readonly string[];
   readonly localRecoveryInstructions: readonly string[];
   readonly verificationGateResults: readonly Record<string, unknown>[];
 } {
   return {
+    ...(requiredReadPaths.length > 0 ? { requiredReadPaths } : {}),
     validEvidence: [
       "running product UI screenshot",
       "demo or video frame",
@@ -277,7 +281,11 @@ function visualReferenceRecoveryContract(): {
     ],
     localRecoveryInstructions: [
       "Continue read-only frontend-reference research before replying.",
-      "Prefer actual vLLM Studio product UI captures if available; if none are available, explicitly state that and inspect frontend implementation files instead.",
+      "Prefer actual running-product UI captures when available; if none are available, explicitly state that and inspect frontend implementation files instead.",
+      ...(requiredReadPaths.length > 0
+        ? [`Inspect each required read path before recording evidence: ${requiredReadPaths.join("; ")}.`]
+        : []),
+      "A raw file listing or analysis of only the current project does not satisfy a reference-root visual phase.",
       "Record source URLs or local source paths, relevant frontend file paths, component/layout/navigation patterns, and extracted reusable design principles.",
       "Only call work_item.update after the frontend-reference gate has passed with qualifying UI capture or code-backed frontend implementation evidence.",
       "If sourceResourceUris and local inspection still do not produce qualifying evidence, use blockedWorkItemUpdateInputTemplate instead of recording providedEvidence.",

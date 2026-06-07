@@ -221,8 +221,8 @@ make timeout or no-handoff states replayable and actionable across surfaces.
 2. TDD: local frontend-reference evidence - closed
    - Add coverage in
      `packages/cli/src/application/work-governance-tool.test.ts` proving local
-     repository frontend evidence from `C:/Proyectos/Sequel/t1code` or
-     `C:/Proyectos/Sequel/vllm-studio` is accepted only when it cites concrete
+     repository frontend evidence from `/workspace/references/t1code` or
+     `/workspace/references/vllm-studio` is accepted only when it cites concrete
      frontend paths and code-backed UI principles.
    - Update managed visual-reference phase routing so local code-backed
      reference research can use read/glob-style tools instead of being forced
@@ -540,7 +540,7 @@ The latest 2026-05-29 GUI stress session
 `.kiln/sessions/kiln-gui%3A_gui%3Ae294e374-2b9e-4c4b-a144-dc03579522f2%3A1780083012476`
 proved governance was correctly blocking placeholder visual-reference evidence,
 but exposed two remaining issues. First, the parent process could inspect
-`C:/Proyectos/Sequel/t1code` and `C:/Proyectos/Sequel/vllm-studio`, while the
+`/workspace/references/t1code` and `/workspace/references/vllm-studio`, while the
 managed read-only child could not because its direct-provider sandbox admitted
 only the Kiln working directory. Second, a semantically valid blocked
 `work_item.update` with a phase-specific pause id was not recognized as the
@@ -560,7 +560,7 @@ recorded as a failed managed invocation with child-execution replay evidence,
 so it cannot be adopted as completed/substantive handoff evidence. Cancelled
 GUI `turn_completed` events now render with error tone instead of success tone.
 The live `~/.kiln/config.yaml` read-only research routes were also updated to
-admit `C:/Proyectos/Sequel/t1code` and `C:/Proyectos/Sequel/vllm-studio` as
+admit `/workspace/references/t1code` and `/workspace/references/vllm-studio` as
 read-only reference roots while denying their `.git` and `node_modules`
 subtrees.
 

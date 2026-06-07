@@ -220,13 +220,13 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       response("reading reference", [{
         id: "tool-read-reference",
         name: "read",
-        input: { filePath: "C:/Proyectos/Sequel/t1code/src/app/layout.tsx" },
+        input: { filePath: "/workspace/references/t1code/src/app/layout.tsx" },
       }]),
       response("Reference evidence collected."),
     ]);
     const readTool = vi.fn(async (_input, context) => {
       const sandbox = context?.sandbox as { readonly policy?: { canRead(filePath: string): boolean; canWrite(filePath: string): boolean } } | undefined;
-      const filePath = "C:/Proyectos/Sequel/t1code/src/app/layout.tsx";
+      const filePath = "/workspace/references/t1code/src/app/layout.tsx";
       return sandbox?.policy?.canRead(filePath) === true && sandbox.policy.canWrite(filePath) === false
         ? "reference file visible read-only"
         : "reference file denied";
@@ -250,12 +250,12 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
           networkAllowed: false,
         },
         workingDirectory: {
-          path: "C:/Proyectos/Sequel/kiln",
+          path: "/workspace/kiln",
           mode: "read-only",
         },
         readAuthority: {
           workspace: {
-            allowedPaths: ["C:/Proyectos/Sequel/t1code", "C:/Proyectos/Sequel/vllm-studio"],
+            allowedPaths: ["/workspace/references/t1code", "/workspace/references/vllm-studio"],
             deniedPaths: [],
           },
         },

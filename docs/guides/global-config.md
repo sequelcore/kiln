@@ -722,21 +722,30 @@ managedAgents:
       readAuthority:
         workspace:
           allowedPaths:
-            - C:/Proyectos/Sequel/t1code
-            - C:/Proyectos/Sequel/vllm-studio
-          deniedPaths: []
+            - /workspace/references/t1code
+            - /workspace/references/vllm-studio
       memory:
         access: read-only
       credentials:
         mode: runtime-selected
 ```
 
+Read and write authority projection automatically denies standard repository
+state and generated dependency descendants (`.git`, `node_modules`, and
+`.kiln`) under the project root and configured authority roots. Configure
+`deniedPaths` only for additional project-specific sensitive paths.
+
 Approved-write routes must keep `tools.network: false`; config projection marks
 write routes with network authority unavailable instead of silently admitting a
 combined write+internet child. When creating a routed UI work item that uses an
 approved-write route, also set `phaseRoutes.visual-reference-research` to the
 read-only browser-capable route, for example
-`opencode-go-qwen3-6-plus-readonly`. If the
+`opencode-go-qwen3-6-plus-readonly`. When that visual research must inspect
+local sibling or cloned reference repositories, set `referenceRoots` on the
+work item to the concrete roots the read-only route must be able to read. The
+managed invocation request projects those roots as `requiredReadPaths` and
+fails closed before child execution if the selected route authority does not
+cover them. If the
 tool rejects the work item with `visual_reference_phase_route_required`, retry
 `work_item.update` with the structured `retryInputPatch` shape and that
 configured route id; writing the JSON in normal assistant text is not a valid

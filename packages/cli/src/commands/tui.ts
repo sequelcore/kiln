@@ -9,6 +9,7 @@ import { inferResumeStrategyFeedback } from "../application/resume-strategy-feed
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
 import {
   deriveSessionMetadata,
+  mergeProvidersUsed,
   shouldPromoteLatestPromptToSessionTitle,
 } from "../application/session-metadata.js";
 import {
@@ -441,6 +442,21 @@ function toolCompletionFromPayload(payload: Record<string, unknown>): GovernedTu
   };
 }
 
+function extractManagedProviderRouteIdFromToolUse(toolName: string, input: unknown): string | undefined {
+  if (toolName !== "managed_agent.invoke" && toolName !== "managed_agent.start") {
+    return undefined;
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+  const providerRoute = (input as { readonly providerRoute?: unknown }).providerRoute;
+  if (!providerRoute || typeof providerRoute !== "object" || Array.isArray(providerRoute)) {
+    return undefined;
+  }
+  const providerId = (providerRoute as { readonly providerId?: unknown }).providerId;
+  return typeof providerId === "string" && providerId.trim().length > 0 ? providerId.trim() : undefined;
+}
+
 function resolveTuiStartupTransport(_flags: TuiFlags): TuiStartupTransport {
   if (process.env.KILN_TUI_TRANSPORT?.toLowerCase() === "direct") {
     return "direct";
@@ -592,6 +608,7 @@ export async function makeMultiProviderSessionFactory(
           tags: existingMeta?.tags ?? existingRecord?.tags,
           providersUsed: existingMeta?.providersUsed ?? existingRecord?.providersUsed,
         });
+        const providersUsed = new Set(metadata.providersUsed);
         const startedAt = existingMeta?.startedAt ?? new Date().toISOString();
         if (typeof (transcriptStore as { init?: unknown }).init === "function") {
           await transcriptStore.init(capturedId, {
@@ -678,6 +695,10 @@ export async function makeMultiProviderSessionFactory(
               );
             } else if (event.type === "tool_use") {
               const toolCallId = event.toolCallId ?? `${turnId}:tool:${++syntheticToolOrdinal}`;
+              const managedProvider = extractManagedProviderRouteIdFromToolUse(event.toolName, event.input);
+              if (managedProvider) {
+                providersUsed.add(managedProvider);
+              }
               const pending = pendingToolCallIds.get(event.toolName) ?? [];
               pending.push(toolCallId);
               pendingToolCallIds.set(event.toolName, pending);
@@ -804,22 +825,34 @@ export async function makeMultiProviderSessionFactory(
               providerRuntimeState.providerSessionId = resumedSession.providerSessionId;
             }
           }
+          const finalProvidersUsed = mergeProvidersUsed([...providersUsed], [providerForTurn]);
+          const finalMetadata = deriveSessionMetadata({
+            task,
+            provider: providerForTurn,
+            model: modelForTurn,
+            canonicalTitle: metadata.canonicalTitle,
+            title: metadata.title,
+            summary: metadata.summary,
+            tags: metadata.tags,
+            providersUsed: finalProvidersUsed,
+            hasError: lastTurnOutcome === "failed",
+          });
           if (typeof (transcriptStore as { finalize?: unknown }).finalize === "function") {
             await transcriptStore.finalize(capturedId, {
               completedAt: new Date().toISOString(),
-              canonicalTitle: metadata.canonicalTitle,
-              title: metadata.title,
-              summary: metadata.summary,
-              tags: metadata.tags,
-            providersUsed: metadata.providersUsed,
-            lastTurnOutcome,
-            costUsd: turnCostUsd,
-            inputTokens: turnInputTokens,
-            outputTokens: turnOutputTokens,
-            cacheReadTokens: turnCacheReadTokens,
-            ...(turnProviderTokenUsage ? { providerTokenUsage: [turnProviderTokenUsage] } : {}),
-            providerThread: resumedSession.providerSessionId
-              ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
+              canonicalTitle: finalMetadata.canonicalTitle,
+              title: finalMetadata.title,
+              summary: finalMetadata.summary,
+              tags: finalMetadata.tags,
+              providersUsed: finalMetadata.providersUsed,
+              lastTurnOutcome,
+              costUsd: turnCostUsd,
+              inputTokens: turnInputTokens,
+              outputTokens: turnOutputTokens,
+              cacheReadTokens: turnCacheReadTokens,
+              ...(turnProviderTokenUsage ? { providerTokenUsage: [turnProviderTokenUsage] } : {}),
+              providerThread: resumedSession.providerSessionId
+                ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
                 : undefined,
               resumeStrategy,
               resumeFeedback,
@@ -835,11 +868,11 @@ export async function makeMultiProviderSessionFactory(
             sessionId: capturedId,
             provider: providerForTurn,
             task,
-            canonicalTitle: metadata.canonicalTitle,
-            title: metadata.title,
-            summary: metadata.summary,
-            tags: metadata.tags,
-            providersUsed: metadata.providersUsed,
+            canonicalTitle: finalMetadata.canonicalTitle,
+            title: finalMetadata.title,
+            summary: finalMetadata.summary,
+            tags: finalMetadata.tags,
+            providersUsed: finalMetadata.providersUsed,
             completedAt: new Date().toISOString(),
             cost: turnCostUsd,
             projectPath: cwd,

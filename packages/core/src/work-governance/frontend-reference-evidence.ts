@@ -63,6 +63,20 @@ const CODE_BACKED_FRONTEND_DECLARATIONS = [
   "product ergonomics",
 ] as const;
 
+const CODE_BACKED_SOURCE_SECTION_MARKERS = [
+  "qualifying frontend found",
+  "key source paths",
+  "relevant paths",
+  "relevant frontend file paths",
+] as const;
+
+const CODE_BACKED_ANALYSIS_MARKERS = [
+  "extracted ui principles",
+  "reusable principles",
+  "ui principles",
+  "extracted principles",
+] as const;
+
 export function containsFrontendReferenceEvidence(value: string): boolean {
   return containsProductUiVisualEvidence(value) || containsCodeBackedFrontendEvidence(value);
 }
@@ -79,7 +93,10 @@ export function containsCodeBackedFrontendEvidence(value: string): boolean {
   return hasReferenceSource(normalized)
     && !containsPlaceholderFrontendReference(normalized)
     && FRONTEND_SOURCE_MARKERS.some((marker) => normalized.includes(marker))
-    && CODE_BACKED_FRONTEND_DECLARATIONS.some((marker) => normalized.includes(marker));
+    && (
+      CODE_BACKED_FRONTEND_DECLARATIONS.some((marker) => normalized.includes(marker))
+      || containsStructuredCodeBackedFrontendAnalysis(normalized)
+    );
 }
 
 export function containsLocalSourcePointer(value: string): boolean {
@@ -99,4 +116,9 @@ function hasReferenceSource(normalized: string): boolean {
 
 function containsPlaceholderFrontendReference(normalized: string): boolean {
   return PLACEHOLDER_FRONTEND_REFERENCE_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function containsStructuredCodeBackedFrontendAnalysis(normalized: string): boolean {
+  return CODE_BACKED_SOURCE_SECTION_MARKERS.some((marker) => normalized.includes(marker))
+    && CODE_BACKED_ANALYSIS_MARKERS.some((marker) => normalized.includes(marker));
 }

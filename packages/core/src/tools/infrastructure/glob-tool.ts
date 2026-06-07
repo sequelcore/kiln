@@ -29,6 +29,7 @@ import { parseOutputVerbosity, pluralize, splitNonEmptyLines } from "./output-ve
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const SUMMARY_MATCH_LIMIT = 20;
+const RAW_MATCH_LIMIT = 200;
 
 type GlobCommandRunner = (
   binary: string,
@@ -145,6 +146,7 @@ export class GlobTool implements DevTool {
         path: searchRoot,
         strategy: "fd",
         count: uniqueMatches.length,
+        ...globTruncationMetadata(uniqueMatches, verbosity),
         ...(uniqueMatches.length === 0 ? { noMatches: true } : {}),
         verbosity,
       });
@@ -193,6 +195,7 @@ export class GlobTool implements DevTool {
       path: searchRoot,
       strategy: "fallback",
       count: matches.length,
+      ...globTruncationMetadata(matches, verbosity),
       verbosity,
     }));
   }
@@ -221,7 +224,33 @@ function formatGlobOutput(
     return `${matches.length} ${pluralize(matches.length, "match", "matches")}:\n${sample.join("\n")}${suffix}`;
   }
 
+  if (matches.length > RAW_MATCH_LIMIT) {
+    const sample = matches.slice(0, RAW_MATCH_LIMIT);
+    return [
+      sample.join("\n"),
+      `[glob raw output truncated: showing ${sample.length} of ${matches.length} matches. Narrow the path or pattern, then read concrete files before using this as evidence.]`,
+    ].join("\n");
+  }
+
   return rawOutput;
+}
+
+function globTruncationMetadata(
+  matches: readonly string[],
+  verbosity: ToolOutputVerbosity,
+): Record<string, unknown> {
+  const visibleMatches = verbosity === "summary"
+    ? SUMMARY_MATCH_LIMIT
+    : verbosity === "raw"
+      ? RAW_MATCH_LIMIT
+      : undefined;
+  if (visibleMatches === undefined || matches.length <= visibleMatches) {
+    return {};
+  }
+  return {
+    truncated: true,
+    visibleMatches,
+  };
 }
 
 interface FastPathGlobPlan {

@@ -221,6 +221,7 @@ export interface WorkItemUpsertInput {
   readonly assignedAgentProfile?: string;
   readonly routeId?: string;
   readonly phaseRoutes?: Readonly<Record<string, string>>;
+  readonly referenceRoots?: readonly string[];
   readonly authorityProfile?: string;
   readonly expectedEvidence: readonly string[];
   readonly providedEvidence?: readonly string[];
@@ -367,6 +368,7 @@ export class WorkItemStore {
       assignedAgentProfile: input.assignedAgentProfile,
       routeId: input.routeId,
       phaseRoutes: normalizeTextRecord(input.phaseRoutes ?? existing?.phaseRoutes),
+      referenceRoots: normalizeTextArray(input.referenceRoots ?? existing?.referenceRoots),
       authorityProfile: input.authorityProfile,
       expectedEvidence: normalizeWorkItemExpectedEvidence({
         expectedEvidence: input.expectedEvidence,
@@ -869,6 +871,14 @@ function normalizeTextRecord(value: Readonly<Record<string, string>> | undefined
     .map(([key, recordValue]) => [key.trim(), recordValue.trim()] as const)
     .filter(([key, recordValue]) => key.length > 0 && recordValue.length > 0);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function normalizeTextArray(value: readonly string[] | undefined): readonly string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const entries = unique(value.map((item) => item.trim()).filter((item) => item.length > 0));
+  return entries.length > 0 ? entries : undefined;
 }
 
 function requiresResidualRisk(

@@ -229,6 +229,7 @@ describe("operator event presentation", () => {
         summary: "Run Slice 9 verification",
         status: "completed",
         workflowProfile: "verification-heavy",
+        referenceRoots: ["/workspace/references/cloned"],
       },
       attempt: {
         id: "goal-1:work-1:attempt:1",
@@ -263,6 +264,7 @@ describe("operator event presentation", () => {
       value: "adversarial managed-agent review",
     });
     expect(finished.details).toContainEqual({ label: "Failed verification gates", value: "bun run typecheck" });
+    expect(finished.details).toContainEqual({ label: "Reference roots", value: "/workspace/references/cloned" });
   });
 
   it("presents turn completion nested data as operator detail rows", () => {

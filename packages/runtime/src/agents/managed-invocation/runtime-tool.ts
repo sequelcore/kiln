@@ -201,6 +201,7 @@ interface ManagedInvocationToolInput {
   readonly roleIntent?: string;
   readonly expectedEvidence?: readonly string[];
   readonly requiredToolNames?: readonly string[];
+  readonly requiredReadPaths?: readonly string[];
   readonly requiredResultFields?: readonly string[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
@@ -312,6 +313,11 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         type: "array",
         items: { type: "string" },
         description: "Optional exact tool names the selected route must allow before execution starts. The runtime fails closed when the route lacks any required tool.",
+      },
+      requiredReadPaths: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional local paths the selected read-only route must be able to inspect before execution starts. The runtime fails closed when the route read authority does not cover every path.",
       },
       requiredResultFields: {
         type: "array",
@@ -993,6 +999,42 @@ async function prepareManagedInvocationRequest(
             status: "unavailable",
             substantiveEvidence: false,
             failureReason: `Missing required route capabilities: ${missingRequiredCapabilities.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
+  }
+
+  const missingRequiredReadPaths = missingManagedInvocationRequiredReadPaths(
+    parsed.input.requiredReadPaths ?? [],
+    profileDefaults,
+  );
+  if (missingRequiredReadPaths.length > 0) {
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it cannot read required paths: ${missingRequiredReadPaths.join(", ")}.`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.input.profile,
+          status: "unavailable",
+          missingRequiredReadPaths,
+          requiredReadPaths: parsed.input.requiredReadPaths ?? [],
+          allowedReadPaths: effectiveManagedInvocationReadRoots(profileDefaults),
+          deniedReadPaths: profileDefaults.readAuthority?.workspace.deniedPaths ?? [],
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
+            routeId: route.routeId,
+            routeSource: route.routeSource,
+            profile: parsed.input.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.input.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `Missing required read authority: ${missingRequiredReadPaths.join(", ")}`,
           }),
         },
         toolName,
@@ -2100,6 +2142,51 @@ function missingManagedInvocationRequiredCapabilities(
   return missing;
 }
 
+function missingManagedInvocationRequiredReadPaths(
+  requiredReadPaths: readonly string[],
+  profileDefaults: ManagedInvocationRouteProfile,
+): readonly string[] {
+  return unique(requiredReadPaths)
+    .filter((requiredPath) => !managedInvocationCanReadPath(requiredPath, profileDefaults));
+}
+
+function managedInvocationCanReadPath(
+  requiredPath: string,
+  profileDefaults: ManagedInvocationRouteProfile,
+): boolean {
+  const normalizedRequired = normalizeManagedInvocationReadPath(requiredPath);
+  if (!normalizedRequired) {
+    return false;
+  }
+  const deniedPaths = profileDefaults.readAuthority?.workspace.deniedPaths ?? [];
+  if (deniedPaths.some((deniedPath) => pathEqualsOrContains(normalizeManagedInvocationReadPath(deniedPath), normalizedRequired))) {
+    return false;
+  }
+  return effectiveManagedInvocationReadRoots(profileDefaults)
+    .some((allowedPath) => pathEqualsOrContains(normalizeManagedInvocationReadPath(allowedPath), normalizedRequired));
+}
+
+function effectiveManagedInvocationReadRoots(
+  profileDefaults: ManagedInvocationRouteProfile,
+): readonly string[] {
+  return unique([
+    profileDefaults.workingDirectory.path,
+    ...(profileDefaults.readAuthority?.workspace.allowedPaths ?? []),
+  ]);
+}
+
+function pathEqualsOrContains(rootPath: string | undefined, candidatePath: string): boolean {
+  if (!rootPath) {
+    return false;
+  }
+  return rootPath === candidatePath || candidatePath.startsWith(`${rootPath}/`);
+}
+
+function normalizeManagedInvocationReadPath(pathValue: string): string | undefined {
+  const normalized = pathValue.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function requiresNetworkCapability(toolName: string): boolean {
   return toolName.startsWith("web_") || toolName.startsWith("browser_");
 }
@@ -2517,6 +2604,7 @@ function parseInput(
     : undefined;
   const expectedEvidence = readTextArray(input.expectedEvidence);
   const requiredToolNames = readTextArray(input.requiredToolNames);
+  const requiredReadPaths = readTextArray(input.requiredReadPaths);
   const requiredResultFields = readTextArray(input.requiredResultFields);
   const doneCriteria = readTextArray(input.doneCriteria);
   const forbiddenInputFields = readTextArray(input.forbiddenInputFields);
@@ -2556,6 +2644,7 @@ function parseInput(
       ...(readText(input.roleIntent) ? { roleIntent: readText(input.roleIntent) } : {}),
       ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
       ...(requiredToolNames && requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+      ...(requiredReadPaths && requiredReadPaths.length > 0 ? { requiredReadPaths } : {}),
       ...(requiredResultFields && requiredResultFields.length > 0 ? { requiredResultFields } : {}),
       ...(doneCriteria && doneCriteria.length > 0 ? { doneCriteria } : {}),
       ...(typeof input.residualRiskRequired === "boolean" ? { residualRiskRequired: input.residualRiskRequired } : {}),

@@ -92,6 +92,40 @@ describe("shared output verbosity", () => {
     }
   });
 
+  it("bounds broad raw glob output and asks for narrower follow-up inspection", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "src"), { recursive: true });
+      for (let index = 0; index < 205; index += 1) {
+        await writeFile(join(tempDir, "src", `match-${String(index).padStart(3, "0")}.ts`), "export {};\n", "utf8");
+      }
+
+      const tool = new GlobTool({ environmentProvider: async () => ({}) });
+      const result = await tool.execute(
+        { name: "glob", input: { pattern: "**/*.ts", path: tempDir, verbosity: "raw" } },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("src/match-000.ts");
+      expect(result.output).toContain("src/match-199.ts");
+      expect(result.output).not.toContain("src/match-200.ts");
+      expect(result.output).toContain("[glob raw output truncated: showing 200 of 205 matches.");
+      expect(result.output).toContain("read concrete files before using this as evidence");
+      expect(result.metadata).toMatchObject({
+        toolName: "glob",
+        kind: "search",
+        strategy: "fallback",
+        count: 205,
+        truncated: true,
+        visibleMatches: 200,
+        verbosity: "raw",
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
   it("formats grep summary output without overloading grep outputMode", async () => {
     const tempDir = await makeTempDir();
     try {

@@ -24,8 +24,9 @@ describe("run plan permission policy", () => {
     expect(evaluator.evaluateTool("kiln_config.apply_change").action).toBe("deny");
     expect(evaluator.evaluateFile(".").action).toBe("allow");
     expect(evaluator.evaluateFile("packages/gui/src/App.tsx").action).toBe("allow");
-    expect(evaluator.evaluateFile("C:/Proyectos/Sequel/cloned/opencode").action).toBe("allow");
+    expect(evaluator.evaluateFile("/workspace/references/cloned/opencode").action).toBe("allow");
     expect(evaluator.evaluateFile(".git/config").action).toBe("deny");
     expect(evaluator.evaluateFile("packages/gui/node_modules/react/index.js").action).toBe("deny");
+    expect(JSON.stringify(PLAN_POLICY.fileGovernance?.allowGlobs ?? [])).not.toContain("/workspace/");
   });
 });

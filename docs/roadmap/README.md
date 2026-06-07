@@ -126,7 +126,7 @@ fake time instead of wall-clock races.
 The managed handoff recovery slice is closed as of 2026-05-29 UTC: local
 frontend-reference research can satisfy visual-reference governance when it
 cites code-backed UI evidence from concrete repository paths such as
-`C:/Proyectos/Sequel/t1code` or `C:/Proyectos/Sequel/vllm-studio`; generic
+`/workspace/references/t1code` or `/workspace/references/vllm-studio`; generic
 screenshots, repository chrome, and placeholder notes remain rejected.
 `handoff_not_substantive` is a terminal child status but not governed phase
 evidence, so parent execution stays blocked until the required
@@ -263,7 +263,7 @@ and 2362 tests, and `bun run typecheck`.
 The latest 2026-05-29 GUI stress session
 `.kiln/sessions/kiln-gui%3A_gui%3Ae294e374-2b9e-4c4b-a144-dc03579522f2%3A1780083012476`
 closed the sibling-reference authority gap. The parent could see
-`C:/Proyectos/Sequel/t1code` and `C:/Proyectos/Sequel/vllm-studio`, but the
+`/workspace/references/t1code` and `/workspace/references/vllm-studio`, but the
 read-only managed child could not because the direct sandbox was limited to
 the Kiln working directory. Managed routes now support explicit
 `readAuthority.workspace.allowedPaths` for read-only reference roots; CLI route
@@ -280,8 +280,9 @@ direct-provider children that end with
 recording a completed handoff, and cancelled GUI `turn_completed` events now
 render as error-tone timeline entries instead of success-tone entries. The
 local `~/.kiln/config.yaml` read-only research routes were updated with
-read-only roots for `C:/Proyectos/Sequel/t1code` and
-`C:/Proyectos/Sequel/vllm-studio`, with `.git` and `node_modules` denied.
+read-only roots for `/workspace/references/t1code` and
+`/workspace/references/vllm-studio`; standard `.git`, `node_modules`, and
+`.kiln` descendants are denied by route projection.
 Final verification passed `bun run test`, `bun run typecheck`,
 `bun run build`, `bun run --filter @kilnai/runtime test`,
 `bun run --filter @kilnai/gui test`, and `git diff --check`.

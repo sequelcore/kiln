@@ -103,6 +103,15 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
                   ))}
                 </div>
               ) : null}
+              {item.referenceRoots && item.referenceRoots.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {item.referenceRoots.map((root) => (
+                    <Badge key={root} variant="outline" className="max-w-full truncate font-mono text-[10px] text-muted-foreground">
+                      {root}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
               {missing.length > 0 ? (
                 <p className="mt-3 text-sm leading-6 text-amber-300">
                   Missing: {missing.join(", ")}

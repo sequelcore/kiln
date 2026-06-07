@@ -1632,6 +1632,7 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   addItem(details, "Surface", item?.surface);
   addItem(details, "Agent profile", item?.assignedAgentProfile);
   addItem(details, "Authority", item?.authorityProfile);
+  addItem(details, "Reference roots", readStringList(item?.referenceRoots).join(", "));
   addItem(details, "Expected evidence", Array.isArray(item?.expectedEvidence) ? item.expectedEvidence.join(", ") : undefined);
   addItem(details, "Provided evidence", Array.isArray(item?.providedEvidence) ? item.providedEvidence.join(", ") : undefined);
   addItem(details, "Missing evidence", missingEvidence.join(", "));
@@ -1681,6 +1682,7 @@ function workItemExecutionPresentation(
   addItem(details, "Status", status);
   addItem(details, "Execution mode", executionMode);
   addItem(details, "Managed invocation", attempt?.managedInvocationId);
+  addItem(details, "Reference roots", readStringList(item?.referenceRoots).join(", "));
   addItem(details, "Started", attempt?.startedAt);
   addItem(details, "Completed", attempt?.completedAt);
   addItem(details, "Missing evidence", missingEvidence.join(", "));

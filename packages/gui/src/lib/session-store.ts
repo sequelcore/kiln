@@ -73,6 +73,7 @@ export interface WorkItemEntry {
   readonly surface?: string;
   readonly assignedAgentProfile?: string;
   readonly authorityProfile?: string;
+  readonly referenceRoots?: readonly string[];
   readonly expectedEvidence: readonly string[];
   readonly providedEvidence: readonly string[];
   readonly verificationGates: readonly string[];
@@ -403,6 +404,7 @@ function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | 
   if (!id || !summary || !status || !workflowProfile) {
     return null;
   }
+  const referenceRoots = readStringArray(item.referenceRoots);
   return {
     id,
     summary,
@@ -412,6 +414,7 @@ function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | 
     surface: readString(item.surface) ?? undefined,
     assignedAgentProfile: readString(item.assignedAgentProfile) ?? undefined,
     authorityProfile: readString(item.authorityProfile) ?? undefined,
+    referenceRoots: referenceRoots.length > 0 ? referenceRoots : undefined,
     expectedEvidence: readStringArray(item.expectedEvidence),
     providedEvidence: readStringArray(item.providedEvidence),
     verificationGates: readStringArray(item.verificationGates),
@@ -485,6 +488,7 @@ function isWorkflowLifecycleTimelineEventKind(kind: OperatorSessionEventKind): b
 function mergeWorkItemEntry(previous: WorkItemEntry | undefined, next: WorkItemEntry): WorkItemEntry {
   return {
     ...next,
+    referenceRoots: next.referenceRoots ?? previous?.referenceRoots,
     pauseRequirements: next.pauseRequirements ?? previous?.pauseRequirements,
     executionAttempts: next.executionAttempts ?? previous?.executionAttempts,
   };

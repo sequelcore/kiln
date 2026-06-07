@@ -776,6 +776,94 @@ describe("managed invocation runtime tool", () => {
     ]);
   });
 
+  it("fails closed before invocation when required read paths are outside route authority", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-read-authority",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+        profile: "foundation-readonly-plan",
+        providerRoute: { providerId: "opencode" },
+        task: "Collect visual reference research from local cloned harnesses.",
+        summary: "Collect visual reference research.",
+        contextMode: "isolated",
+        requiredToolNames: ["read", "grep", "glob"],
+        requiredReadPaths: ["/workspace/references/cloned"],
+        expectedEvidence: ["visual-reference-research"],
+        executionPhase: {
+          id: "visual-reference-research",
+          expectedEvidence: ["visual-reference-research"],
+          requiredToolNames: ["read", "grep", "glob"],
+          completionTool: "work_item.update",
+          finalPhase: false,
+          autoStartAllowed: false,
+        },
+    }, context);
+
+    expect(result?.isError).toBe(true);
+    expect(result?.output).toContain("cannot execute this phase because it cannot read required paths");
+    expect(result?.metadata).toMatchObject({
+      routeId: "opencode-readonly",
+      status: "unavailable",
+      missingRequiredReadPaths: ["/workspace/references/cloned"],
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("admits invocation when required read paths are covered by read authority", async () => {
+    const adapter = makeAdapter();
+    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", adapter);
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [{
+          ...route,
+          profiles: {
+            "foundation-readonly-plan": {
+              ...route.profiles["foundation-readonly-plan"],
+              readAuthority: {
+                workspace: {
+                  allowedPaths: ["/workspace/references/cloned"],
+                  deniedPaths: ["/workspace/references/cloned/codex/.git"],
+                },
+              },
+            },
+          },
+        }],
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-read-authority-covered",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "opencode" },
+      task: "Collect visual reference research from local cloned harnesses.",
+      summary: "Collect visual reference research.",
+      contextMode: "isolated",
+      requiredToolNames: ["read", "grep", "glob"],
+      requiredReadPaths: ["/workspace/references/cloned"],
+      expectedEvidence: ["visual-reference-research"],
+    }, context);
+
+    expect(result?.isError).toBe(false);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the persisted parent turn id instead of hydrated runtime turn count", async () => {
     const adapter = makeAdapter();
     const surface = makeSurface(adapter);
@@ -3516,8 +3604,8 @@ describe("managed invocation runtime tool", () => {
   it("accepts local code-backed frontend implementation evidence for visual-reference phases", async () => {
     const phaseSummary = [
       "No public product screenshots were available.",
-      "Code-backed frontend implementation evidence from local source C:/Proyectos/Sequel/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
-      "Local source C:/Proyectos/Sequel/t1code/src/app/layout.tsx and C:/Proyectos/Sequel/vllm-studio/frontend/src/components/AppShell.tsx show status area, composer-like panels, typography, spacing, and density.",
+      "Code-backed frontend implementation evidence from local source /workspace/references/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
+      "Local source /workspace/references/t1code/src/app/layout.tsx and /workspace/references/vllm-studio/frontend/src/components/AppShell.tsx show status area, composer-like panels, typography, spacing, and density.",
     ].join(" ");
     const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
     const session = makeSession();
@@ -3582,7 +3670,26 @@ describe("managed invocation runtime tool", () => {
     "Direct provider managed invocation completed.",
     "Direct provider managed invocation finished without final handoff text. Inspect the transcript resource before recording governed evidence.",
   ])("fails a visual phase child completion when the handoff is not substantive evidence: %s", async (summary) => {
-    const surface = makeSurface(makeAdapterWithHandoff(summary));
+    const adapter = makeAdapterWithHandoff(summary);
+    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", adapter);
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [{
+          ...route,
+          profiles: {
+            "foundation-readonly-plan": {
+              ...route.profiles["foundation-readonly-plan"],
+              readAuthority: {
+                workspace: {
+                  allowedPaths: ["/workspace/references/cloned"],
+                  deniedPaths: [],
+                },
+              },
+            },
+          },
+        }],
+      },
+    });
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
@@ -3605,6 +3712,7 @@ describe("managed invocation runtime tool", () => {
       workItemId: "work-ui",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read"],
+      requiredReadPaths: ["/workspace/references/cloned/t1code", "/workspace/references/cloned/openclaw"],
       executionPhase: {
         id: "visual-reference-research",
         expectedEvidence: ["visual-reference-research"],
@@ -3630,6 +3738,8 @@ describe("managed invocation runtime tool", () => {
         readonly reason?: string;
         readonly nextTool?: string;
         readonly workItemId?: string;
+        readonly requiredReadPaths?: readonly string[];
+        readonly localRecoveryInstructions?: readonly string[];
       };
       readonly phaseCompletion?: Record<string, unknown>;
     };
@@ -3641,6 +3751,7 @@ describe("managed invocation runtime tool", () => {
       status: "phase_evidence_required",
       nextTool: "work_item.update",
       workItemId: "work-ui",
+      requiredReadPaths: ["/workspace/references/cloned/t1code", "/workspace/references/cloned/openclaw"],
       blockedWorkItemUpdateInputTemplate: {
         id: "work-ui",
         status: "blocked",
@@ -3651,16 +3762,104 @@ describe("managed invocation runtime tool", () => {
         }],
       },
     });
+    expect(output.recovery?.localRecoveryInstructions).toContain(
+      "Inspect each required read path before recording evidence: /workspace/references/cloned/t1code; /workspace/references/cloned/openclaw.",
+    );
+    expect(output.recovery?.localRecoveryInstructions).toContain(
+      "A raw file listing or analysis of only the current project does not satisfy a reference-root visual phase.",
+    );
+    expect(output.recovery?.localRecoveryInstructions?.join("\n")).not.toContain("vLLM Studio");
     expect(output.recovery?.reason).toContain("no-handoff");
     expect(result.metadata.status).toBe("handoff_not_substantive");
     expect(result.metadata.managedInvocationPhaseCompletion).toBeUndefined();
     expect(result.metadata.managedInvocationRecovery).toMatchObject({
       status: "phase_evidence_required",
       workItemId: "work-ui",
+      requiredReadPaths: ["/workspace/references/cloned/t1code", "/workspace/references/cloned/openclaw"],
       blockedWorkItemUpdateInputTemplate: {
         id: "work-ui",
         status: "blocked",
       },
+    });
+  });
+
+  it("accepts code-backed visual reference handoffs with concrete local source paths and UI principles", async () => {
+    const summary = [
+      "# Visual Reference Research - Phase Evidence",
+      "",
+      "### C:\\Proyectos\\Sequel\\cloned\\opencode - Qualifying Frontend Found",
+      "Key source paths:",
+      "- packages/app/src/pages/layout.tsx - Main layout with sidebar rail, expandable panel, session list, project avatar",
+      "- packages/app/src/pages/session.tsx - Session view with virtualized message timeline and inline composer dock",
+      "- packages/app/src/components/prompt-input.tsx - Full composer with slash popover and context items",
+      "Extracted UI principles: sidebar rail, virtualized timelines, dock surfaces, sticky activity headers, session tabs, typography, spacing, and density.",
+      "",
+      "### C:\\Proyectos\\Sequel\\cloned\\t1code - Qualifying Frontend Found",
+      "Key source paths:",
+      "- apps/web/src/components/ChatView.tsx - chat workbench structure",
+      "- apps/web/src/components/Sidebar.tsx - status-rich thread list",
+      "Extracted UI principles: project/thread grouping, composer-integrated provider controls, plan/chat split, terminal/activity drawers.",
+    ].join("\n");
+    const surface = makeSurface(makeAdapterWithHandoff(summary));
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-phase-code-backed-evidence",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Collect visual reference research before UI implementation.",
+      summary: "Collect visual reference research before UI implementation.",
+      workItemId: "work-ui",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["read", "glob", "grep"],
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read", "glob", "grep"],
+        completionTool: "work_item.update",
+        finalPhase: false,
+        autoStartAllowed: false,
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly managedInvocationPhaseCompletion?: Record<string, unknown>;
+        readonly managedInvocationRecovery?: Record<string, unknown>;
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly phaseCompletion?: Record<string, unknown>;
+      readonly recovery?: Record<string, unknown>;
+    };
+
+    expect(result.isError).toBe(false);
+    expect(output.status).toBe("completed");
+    expect(output.recovery).toBeUndefined();
+    expect(output.phaseCompletion).toMatchObject({
+      status: "phase_completed_by_child",
+      nextTool: "work_item.update",
+      workItemId: "work-ui",
+      evidenceToRecord: ["visual-reference-research"],
+    });
+    expect(result.metadata.status).toBe("completed");
+    expect(result.metadata.managedInvocationRecovery).toBeUndefined();
+    expect(result.metadata.managedInvocationPhaseCompletion).toMatchObject({
+      status: "phase_completed_by_child",
+      workItemId: "work-ui",
     });
   });
 
@@ -4741,8 +4940,8 @@ describe("managed invocation runtime tool", () => {
   it("canonicalizes forbidden agentProfile before route validation for route-owned requests", async () => {
     const phaseSummary = [
       "No public product screenshots were available.",
-      "Code-backed frontend implementation evidence from local source C:/Proyectos/Sequel/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
-      "Local source C:/Proyectos/Sequel/t1code/src/app/layout.tsx shows status area, composer-like panels, typography, spacing, and density.",
+      "Code-backed frontend implementation evidence from local source /workspace/references/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
+      "Local source /workspace/references/t1code/src/app/layout.tsx shows status area, composer-like panels, typography, spacing, and density.",
     ].join(" ");
     const adapter = makeAdapterWithHandoff(phaseSummary);
     const surface = createAttachedRuntimeBuiltinToolSurface({

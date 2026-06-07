@@ -13,6 +13,7 @@ describe("WorkItemsPanel", () => {
         workflowProfile: "implementation",
         surface: "gui",
         assignedAgentProfile: "react-ts-reviewer",
+        referenceRoots: ["/workspace/references/cloned"],
         expectedEvidence: ["test"],
         providedEvidence: [],
         verificationGates: [],
@@ -24,6 +25,7 @@ describe("WorkItemsPanel", () => {
 
     expect(screen.getByLabelText("react-ts-reviewer avatar")).toHaveAttribute("data-avatar-state", "running");
     expect(screen.getByText(/react-ts-reviewer/u)).toBeInTheDocument();
+    expect(screen.getByText("/workspace/references/cloned")).toBeInTheDocument();
   });
 
   it("renders pause requirements and latest execution attempt state", () => {

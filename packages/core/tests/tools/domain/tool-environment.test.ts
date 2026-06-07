@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearToolEnvironmentCache,
   detectToolEnvironment,
   type ToolEnvironment,
+  type ToolEnvironmentCommandExecutor,
 } from "../../../src/tools/domain/tool-environment.js";
+
+const TEST_TOOL_NAMES = ["rg", "fd", "jq", "git", "bash"] as const;
 
 describe("detectToolEnvironment", () => {
   beforeEach(() => {
@@ -28,19 +31,24 @@ describe("detectToolEnvironment", () => {
   });
 
   it("caches detected environments by default", async () => {
-    const first = await detectToolEnvironment();
-    const second = await detectToolEnvironment();
+    const commandExecutor = makeToolEnvironmentExecutor();
+    const first = await detectToolEnvironment({ commandExecutor });
+    const callCountAfterFirstDetection = commandExecutor.mock.calls.length;
+    const second = await detectToolEnvironment({ commandExecutor });
 
     expect(first).toBe(second);
+    expect(commandExecutor).toHaveBeenCalled();
+    expect(commandExecutor).toHaveBeenCalledTimes(callCountAfterFirstDetection);
   });
 
   it("returns fresh result after clearing cache", async () => {
-    const first = await detectToolEnvironment();
+    const commandExecutor = makeToolEnvironmentExecutor();
+    const first = await detectToolEnvironment({ commandExecutor });
     clearToolEnvironmentCache();
-    const second = await detectToolEnvironment();
+    const second = await detectToolEnvironment({ commandExecutor });
 
     expect(first).toEqual(second);
-    // Same shape, but not same reference after cache clear
+    expect(first).not.toBe(second);
   });
 
   it("accepts searchPaths option", async () => {
@@ -111,3 +119,22 @@ describe("detectToolEnvironment", () => {
     expect(calls).toContain("C:\\Program Files\\Git\\bin\\bash.exe --version");
   });
 });
+
+function makeToolEnvironmentExecutor(): ReturnType<typeof vi.fn<ToolEnvironmentCommandExecutor>> {
+  return vi.fn(async (command, args) => {
+    if (command === "where" || command === "which") {
+      const name = args[0];
+      if (TEST_TOOL_NAMES.some((toolName) => toolName === name)) {
+        return { stdout: `/tools/${name}\n` };
+      }
+      throw new Error(`${name} not found`);
+    }
+
+    const name = command.split(/[\\/]/u).at(-1);
+    if (TEST_TOOL_NAMES.some((toolName) => toolName === name)) {
+      return { stdout: `${name} 1.0.0\n` };
+    }
+
+    throw new Error(`unexpected command ${command}`);
+  });
+}

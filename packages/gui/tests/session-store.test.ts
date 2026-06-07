@@ -1432,6 +1432,7 @@ describe("session-store", () => {
           summary: "Run Slice 9 verification",
           status: "pending",
           workflowProfile: "verification-heavy",
+          referenceRoots: ["/workspace/references/cloned"],
           expectedEvidence: ["tests"],
           providedEvidence: [],
           verificationGates: ["bun test"],
@@ -1566,6 +1567,7 @@ describe("session-store", () => {
         missingGoalEvidence: ["typecheck"],
         missingVerificationGates: ["adversarial managed-agent review"],
         failedVerificationGates: ["bun run typecheck"],
+        referenceRoots: ["/workspace/references/cloned"],
       }),
     ]);
     expect(useSessionStore.getState().timelineEntries).toEqual(expect.arrayContaining([

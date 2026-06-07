@@ -1599,7 +1599,6 @@ describe("resolveManagedInvocationToolOptions", () => {
           workspace: {
             mode: "apply-approved",
             allowedPaths: ["packages/cli/src/config"],
-            deniedPaths: [".git", "node_modules"],
           },
           memory: {
             mode: "propose",
@@ -1666,7 +1665,14 @@ describe("resolveManagedInvocationToolOptions", () => {
           workspace: {
             mode: "apply-approved",
             allowedPaths: ["C:\\repo\\packages\\cli\\src\\config"],
-            deniedPaths: ["C:\\repo\\.git", "C:\\repo\\node_modules"],
+            deniedPaths: [
+              "C:\\repo\\.git",
+              "C:\\repo\\node_modules",
+              "C:\\repo\\.kiln",
+              "C:\\repo\\packages\\cli\\src\\config\\.git",
+              "C:\\repo\\packages\\cli\\src\\config\\node_modules",
+              "C:\\repo\\packages\\cli\\src\\config\\.kiln",
+            ],
           },
           memory: {
             mode: "propose",
@@ -1750,7 +1756,14 @@ describe("resolveManagedInvocationToolOptions", () => {
           workspace: {
             mode: "apply-approved",
             allowedPaths: ["C:\\repo\\packages\\cli\\src\\config"],
-            deniedPaths: ["C:\\repo\\.git"],
+            deniedPaths: [
+              "C:\\repo\\.git",
+              "C:\\repo\\node_modules",
+              "C:\\repo\\.kiln",
+              "C:\\repo\\packages\\cli\\src\\config\\.git",
+              "C:\\repo\\packages\\cli\\src\\config\\node_modules",
+              "C:\\repo\\packages\\cli\\src\\config\\.kiln",
+            ],
           },
         },
       },

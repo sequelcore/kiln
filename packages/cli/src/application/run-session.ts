@@ -72,6 +72,7 @@ export interface RunSessionResult {
   readonly successfulModelId?: string;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly transcript: PersistedTranscriptEvent[];
+  readonly providersUsed: readonly string[];
   readonly providerTokenUsage: readonly PersistedProviderTokenUsage[];
   readonly exactArtifacts: readonly string[];
   readonly submittedPlan?: string;
@@ -104,6 +105,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let successfulProviderId: ProviderId | undefined;
   let successfulModelId: string | undefined;
   const providerTokenUsage = new Map<string, PersistedProviderTokenUsage>();
+  const providersUsed = new Set<string>();
   const attempts: RunSessionAttemptResult[] = [];
   const transcript: PersistedTranscriptEvent[] = [];
   const exactArtifacts = new Set<string>();
@@ -116,6 +118,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
     const candidate = candidates[candidateIndex]!;
     const providerId = candidate.provider;
+    providersUsed.add(providerId);
     const candidateReasoningEffort = candidate.reasoningEffort ?? options.sessionConfig.reasoningEffort;
     const effectiveSessionConfig = candidate.model || candidateReasoningEffort
       ? {
@@ -317,6 +320,10 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 submittedPlan = submitted;
               }
             }
+            const managedProvider = extractManagedProviderRouteIdFromToolUse(event.toolName, event.input);
+            if (managedProvider !== undefined) {
+              providersUsed.add(managedProvider);
+            }
             if (options.output) {
               options.output.writeToolUse(event.toolName);
             } else {
@@ -441,6 +448,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     successfulModelId,
     attempts,
     transcript,
+    providersUsed: [...providersUsed],
     providerTokenUsage: [...providerTokenUsage.values()],
     exactArtifacts: [...exactArtifacts],
     submittedPlan,
@@ -554,6 +562,21 @@ function extractPlanFromToolInput(input: unknown): string | undefined {
     }),
   ].filter((line): line is string => typeof line === "string" && line.length > 0);
   return lines.join("\n");
+}
+
+function extractManagedProviderRouteIdFromToolUse(toolName: string, input: unknown): string | undefined {
+  if (toolName !== "managed_agent.invoke" && toolName !== "managed_agent.start") {
+    return undefined;
+  }
+  if (typeof input !== "object" || input === null) {
+    return undefined;
+  }
+  const providerRoute = (input as { providerRoute?: unknown }).providerRoute;
+  if (typeof providerRoute !== "object" || providerRoute === null) {
+    return undefined;
+  }
+  const providerId = (providerRoute as { providerId?: unknown }).providerId;
+  return typeof providerId === "string" && providerId.trim().length > 0 ? providerId.trim() : undefined;
 }
 
 async function findToolApprovalMemory(

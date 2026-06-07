@@ -1734,9 +1734,9 @@ describe("work-governance-tool", () => {
         verificationGateResults: [{
           gate: "visual-reference-research: frontend-reference evidence before planning",
           status: "passed",
-          summary: "No running product screenshots were available. Code-backed frontend implementation evidence from local source C:/Proyectos/Sequel/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
+          summary: "No running product screenshots were available. Code-backed frontend implementation evidence from local source /workspace/references/vllm-studio identifies frontend/src app shell component structure, layout pattern, navigation model, panel density, typography, spacing, and product ergonomics.",
           evidence: [
-            "Local source C:/Proyectos/Sequel/vllm-studio/frontend/src/components/AppShell.tsx and C:/Proyectos/Sequel/t1code/src/app/layout.tsx show component structure, layout pattern, navigation model, panels, status area, typography, spacing, and density.",
+            "Local source /workspace/references/vllm-studio/frontend/src/components/AppShell.tsx and /workspace/references/t1code/src/app/layout.tsx show component structure, layout pattern, navigation model, panels, status area, typography, spacing, and density.",
           ],
         }],
       },
@@ -2179,6 +2179,7 @@ describe("work-governance-tool", () => {
       phaseRoutes: {
         "visual-reference-research": "opencode-go-qwen3-6-plus-readonly",
       },
+      referenceRoots: ["/workspace/references/cloned"],
       assignedAgentProfile: "frontend-coder",
       authorityProfile: "foundation-apply-approved-writes",
     });
@@ -2231,6 +2232,7 @@ describe("work-governance-tool", () => {
         };
         readonly expectedEvidence?: readonly string[];
         readonly requiredToolNames?: readonly string[];
+        readonly requiredReadPaths?: readonly string[];
         readonly doneCriteria?: readonly string[];
         readonly task?: string;
       };
@@ -2271,12 +2273,18 @@ describe("work-governance-tool", () => {
       "glob",
       "grep",
     ]);
+    expect(output.managedInvocationRequest?.requiredReadPaths).toEqual([
+      "/workspace/references/cloned",
+    ]);
     expect(output.managedInvocationRequest?.doneCriteria).toEqual([
       "Produce phase evidence: visual-reference-research.",
       "Stop after phase visual-reference-research; record evidence with work_item.update before requesting the next phase.",
     ]);
     expect(output.managedInvocationRequest?.task).toContain("Produce only this phase evidence: visual-reference-research.");
     expect(output.managedInvocationRequest?.task).toContain("Use read-only frontend-reference research authority.");
+    expect(output.managedInvocationRequest?.task).toContain("Required reference roots: /workspace/references/cloned.");
+    expect(output.managedInvocationRequest?.task).toContain("inspect each required reference root enough to cite concrete frontend source paths");
+    expect(output.managedInvocationRequest?.task).toContain("analysis of only this Kiln repository does not satisfy this phase");
     expect(output.managedInvocationRequest?.task).toContain("This phase requires route tools: read, glob, grep.");
     expect(output.managedInvocationRequest?.task).toContain("Do not expand into later phases.");
   });

@@ -1302,6 +1302,64 @@ describe("makeMultiProviderSessionFactory", () => {
     });
   });
 
+  it("persists managed child providers in shared GUI/TUI session metadata", async () => {
+    const { store, appended } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-managed-provider",
+        providerSessionId: "prov-managed-provider",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield {
+            type: "tool_use",
+            toolCallId: "call-managed",
+            toolName: "managed_agent.invoke",
+            input: {
+              providerRoute: {
+                providerId: "opencode-go",
+                model: "qwen3.6-plus",
+              },
+            },
+          };
+          yield {
+            type: "tool_result",
+            toolCallId: "call-managed",
+            toolName: "managed_agent.invoke",
+            output: JSON.stringify({ status: "completed" }),
+          };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const manager = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+
+    const session = manager.factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "Collect visual references" } as any)) {}
+    await session.dispose();
+
+    expect(appended).toHaveLength(1);
+    expect(appended[0]).toMatchObject({
+      provider: "codex-oauth",
+      providersUsed: ["codex-oauth", "opencode-go"],
+    });
+    expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
+      providersUsed: ["codex-oauth", "opencode-go"],
+    });
+  });
+
   it("tuiCommand boots with empty project and no YAML config", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     delete process.env.KILN_TUI_TRANSPORT;

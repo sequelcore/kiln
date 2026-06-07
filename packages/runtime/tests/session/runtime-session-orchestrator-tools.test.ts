@@ -213,7 +213,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           outputTokens: 50,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          toolCalls: [{ id: "tc-tree", name: "tree", input: { path: "C:/Proyectos/Sequel/t1code" } }],
+          toolCalls: [{ id: "tc-tree", name: "tree", input: { path: "/workspace/references/t1code" } }],
           stopReason: "tool_use",
         })
         .mockResolvedValueOnce({
@@ -299,7 +299,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       },
     });
     const tree = vi.fn().mockResolvedValue({
-      output: "117 entries under C:/Proyectos/Sequel/t1code",
+      output: "117 entries under /workspace/references/t1code",
       isError: false,
       metadata: { toolName: "tree", kind: "inspection" },
     });
@@ -574,7 +574,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           outputTokens: 50,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          toolCalls: [{ id: "tc-read", name: "read", input: { filePath: "C:/Proyectos/Sequel/t1code/apps/web/src/components/Sidebar.tsx" } }],
+          toolCalls: [{ id: "tc-read", name: "read", input: { filePath: "/workspace/references/t1code/apps/web/src/components/Sidebar.tsx" } }],
           stopReason: "tool_use",
         })
         .mockResolvedValueOnce({
@@ -593,7 +593,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
                 gate: "visual-reference-research",
                 status: "passed",
                 summary: "Code-backed frontend evidence from local reference files.",
-                evidence: ["C:/Proyectos/Sequel/t1code/apps/web/src/components/Sidebar.tsx"],
+                evidence: ["/workspace/references/t1code/apps/web/src/components/Sidebar.tsx"],
               }],
             },
           }],
@@ -644,7 +644,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         toolName: "read",
         kind: "file",
         operation: "read",
-        filePath: "C:/Proyectos/Sequel/t1code/apps/web/src/components/Sidebar.tsx",
+        filePath: "/workspace/references/t1code/apps/web/src/components/Sidebar.tsx",
       },
     });
     const workItemUpdate = vi.fn().mockResolvedValue({
@@ -731,7 +731,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           toolCalls: [
-            { id: "tc-read", name: "read", input: { filePath: "C:/Proyectos/Sequel/t1code/apps/web/src/components/Sidebar.tsx" } },
+            { id: "tc-read", name: "read", input: { filePath: "/workspace/references/t1code/apps/web/src/components/Sidebar.tsx" } },
             {
               id: "tc-update",
               name: "work_item.update",
@@ -975,8 +975,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
               verificationGateResults: [{
                 gate: "visual-reference-research",
                 status: "failed",
-                summary: "Managed child could not read C:/Proyectos/Sequel/t1code or C:/Proyectos/Sequel/vllm-studio.",
-                evidence: ["C:/Proyectos/Sequel/t1code", "C:/Proyectos/Sequel/vllm-studio"],
+                summary: "Managed child could not read /workspace/references/t1code or /workspace/references/vllm-studio.",
+                evidence: ["/workspace/references/t1code", "/workspace/references/vllm-studio"],
               }],
             },
           }],
@@ -1028,8 +1028,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       verificationGateResults: [{
         gate: "visual-reference-research",
         status: "failed",
-        summary: "Managed child could not read C:/Proyectos/Sequel/t1code or C:/Proyectos/Sequel/vllm-studio.",
-        evidence: ["C:/Proyectos/Sequel/t1code", "C:/Proyectos/Sequel/vllm-studio"],
+        summary: "Managed child could not read /workspace/references/t1code or /workspace/references/vllm-studio.",
+        evidence: ["/workspace/references/t1code", "/workspace/references/vllm-studio"],
       }],
     };
     const workItemUpdate = vi.fn().mockResolvedValue({
