@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import {
-  loadResumeSidebarInfo,
-  type ResumeSidebarInfo,
-} from "../application/resume-sidebar-info.js";
+  loadContinuationSidebarInfo,
+  type ContinuationSidebarInfo,
+} from "../application/continuation-sidebar-info.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
 import {
@@ -144,7 +144,7 @@ type TuiControlSession = SessionLike & {
   approve?: (sessionId?: string) => void;
   reject?: (reason: string, sessionId?: string) => void;
 };
-type ProviderSessionState = { resumeSessionId?: string; providerSessionId?: string };
+type ProviderSessionState = { continuationSessionId?: string; providerSessionId?: string };
 type CliSessionFactory = (
   systemPrompt: string,
   cwd: string,
@@ -532,7 +532,7 @@ export async function makeMultiProviderSessionFactory(
         }
         const modelForTurn = providerModelState.get(providerForTurn) || undefined;
         const state = providerState.get(providerForTurn) ?? {};
-        const resumedFrom = state.resumeSessionId;
+        const resumedFrom = state.continuationSessionId;
         const projectArtifactKey = buildCliProjectSummaryArtifactKey(cwd);
         const sessionArtifactKey = resumedFrom
           ? buildCliSessionSummaryArtifactKey(resumedFrom)
@@ -547,7 +547,7 @@ export async function makeMultiProviderSessionFactory(
           : undefined;
         const stableRuntimeSessionId = options.kilnSessionId ?? context?.kilnSessionId ?? resumedFrom;
         const decision = decideResumeStrategy({
-          resumeSessionId: resumedFrom,
+          continuationSessionId: resumedFrom,
           preferredProvider: providerForTurn,
           signals,
           feedback,
@@ -561,7 +561,7 @@ export async function makeMultiProviderSessionFactory(
           cwd: sessionCwd || cwd,
           permissionPolicy: { approval: "never", sandbox: "workspace-write" },
           ...(stableRuntimeSessionId ? { runtimeSessionId: stableRuntimeSessionId } : {}),
-          resumeSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
+          continuationSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
           sessionLedgerOwner: "host",
           model: modelForTurn,
           reasoningEffort: options.reasoningEffort,
@@ -799,7 +799,7 @@ export async function makeMultiProviderSessionFactory(
           activeTranscriptWriters.delete(capturedId);
           await resumedSession.dispose();
           for (const [providerId, providerRuntimeState] of providerState) {
-            providerRuntimeState.resumeSessionId = capturedId;
+            providerRuntimeState.continuationSessionId = capturedId;
             if (providerId === providerForTurn) {
               providerRuntimeState.providerSessionId = resumedSession.providerSessionId;
             }
@@ -879,12 +879,12 @@ export async function makeMultiProviderSessionFactory(
     },
     onClear: async (provider?: string) => {
       for (const state of providerState.values()) {
-        state.resumeSessionId = undefined;
+        state.continuationSessionId = undefined;
         state.providerSessionId = undefined;
       }
-      await sessionStore.clearResumeTarget(provider);
+      await sessionStore.clearContinuationTarget(provider);
     },
-    setResumeSession: (sessionId: string, provider?: string) => {
+    setContinuationSession: (sessionId: string, provider?: string) => {
       const targetProvider = provider && providers.includes(provider as ProviderId)
         ? provider as ProviderId
         : currentProvider;
@@ -894,7 +894,7 @@ export async function makeMultiProviderSessionFactory(
       const state = providerState.get(targetProvider);
       if (state) {
         currentProvider = targetProvider;
-        state.resumeSessionId = sessionId;
+        state.continuationSessionId = sessionId;
       }
     },
   };
@@ -908,7 +908,7 @@ export interface MultiProviderSessionManager {
   getModel: () => string;
   setModel: (model: string) => void;
   onClear: (provider?: string) => Promise<void>;
-  setResumeSession: (sessionId: string, provider?: string) => void;
+  setContinuationSession: (sessionId: string, provider?: string) => void;
 }
 
 async function bootstrapGatewaySession(
@@ -1304,7 +1304,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     workItemStore,
     goalRunStore,
   });
-  const initialResumeInfo: Record<string, ResumeSidebarInfo> = await loadResumeSidebarInfo(
+  const initialContinuationInfo: Record<string, ContinuationSidebarInfo> = await loadContinuationSidebarInfo(
     sessionStore,
     transcriptStore,
     startupProviderIds,
@@ -1378,10 +1378,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     }
   }
 
-  // Session resume handler - sets resume session ID for the selected provider
+  // Session continuation handler - sets the selected provider's continuation target.
   const handleResumeSession = (session: { sessionId: string; provider: string }) => {
     sessionManager.setProvider(session.provider);
-    sessionManager.setResumeSession(session.sessionId, session.provider);
+    sessionManager.setContinuationSession(session.sessionId, session.provider);
   };
 
   const startupProviderDisplayInfo = buildTuiStartupProviderDisplayInfo({
@@ -1407,8 +1407,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     provider,
     domain,
     resolvedTheme,
-    startupTransport === "direct" ? initialResumeInfo : {},
-    () => loadResumeSidebarInfo(sessionStore, transcriptStore, startupProviderIds),
+    startupTransport === "direct" ? initialContinuationInfo : {},
+    () => loadContinuationSidebarInfo(sessionStore, transcriptStore, startupProviderIds),
     bootstrap.providerModelsRef,
     bootstrap.providerDiscoveryRef,
     startupTransport === "direct" ? loadSessionList : undefined,

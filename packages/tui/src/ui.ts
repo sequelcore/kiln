@@ -40,7 +40,7 @@ export interface UIComponents {
   sidebarCostText: InstanceType<typeof TextRenderable>;
   sidebarCwdText: InstanceType<typeof TextRenderable>;
   sidebarTurnsText: InstanceType<typeof TextRenderable>;
-  sidebarResumeText: InstanceType<typeof TextRenderable>;
+  sidebarContinuationText: InstanceType<typeof TextRenderable>;
   sidebarFieldText: InstanceType<typeof TextRenderable>;
   sidebarDivider: InstanceType<typeof TextRenderable>;
   sidebarToolsBox: InstanceType<typeof ScrollBoxRenderable>;
@@ -145,7 +145,7 @@ export function initUI(
       const text = inputTextarea.plainText.trim();
       if (text && state.status !== "running" && !state.themePickerOpen) {
         inputTextarea.clear();
-        if (text === "/clear" || text === "/theme" || text === "/provider" || text === "/effort" || text === "/authority" || text === "/resume" || text === "/plan" || text === "/exec" || text === "/setup") {
+        if (text === "/clear" || text === "/theme" || text === "/provider" || text === "/effort" || text === "/authority" || text === "/continue" || text === "/plan" || text === "/exec" || text === "/setup") {
           return;
         }
         onSubmit(text);
@@ -242,13 +242,13 @@ export function initUI(
   });
   sidebar.add(sidebarTurnsText);
 
-  const sidebarResumeText = new TextRenderable(renderer, {
-    id: "sidebar-resume",
-    content: t`${fg(theme.textMuted)("resume: --\nruntime: --\nctx: --\nsrcs: --\nwhy: --\nused: --\nsel: --")}`,
+  const sidebarContinuationText = new TextRenderable(renderer, {
+    id: "sidebar-continuation",
+    content: t`${fg(theme.textMuted)("cont: --\nruntime: --\nctx: --\nsrcs: --\nwhy: --\nused: --\nsel: --")}`,
     width: "100%",
     height: 8,
   });
-  sidebar.add(sidebarResumeText);
+  sidebar.add(sidebarContinuationText);
 
   const sidebarFieldText = new TextRenderable(renderer, {
     id: "sidebar-field",
@@ -390,7 +390,7 @@ export function initUI(
     sidebarCostText,
     sidebarCwdText,
     sidebarTurnsText,
-    sidebarResumeText,
+    sidebarContinuationText,
     sidebarFieldText,
     sidebarDivider,
     sidebarToolsBox,

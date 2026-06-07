@@ -6,7 +6,7 @@ export type OperatorCommandId =
   | "provider"
   | "effort"
   | "authority"
-  | "resume"
+  | "continue"
   | "plan"
   | "exec"
   | "setup"
@@ -63,10 +63,10 @@ export const OPERATOR_COMMANDS: readonly OperatorCommandDefinition[] = [
     surfaces: ["gui", "tui"],
   },
   {
-    id: "resume",
-    trigger: "resume",
-    title: "Resume session",
-    description: "Browse and resume previous sessions.",
+    id: "continue",
+    trigger: "continue",
+    title: "Continue session",
+    description: "Open session history.",
     keywords: ["history", "session", "continue"],
     surfaces: ["gui", "tui"],
   },

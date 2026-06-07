@@ -145,7 +145,7 @@ export interface OpenCodeSessionConfig {
   readonly constraintInstructions?: readonly string[];
   readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
-  readonly resumeSessionId?: string;
+  readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly strictPermissionConfig?: boolean;
 }
@@ -495,8 +495,8 @@ export class OpenCodeSession implements IKilnSession {
     this._capabilities = {
       mcp: true,
       streaming: true,
-      resumable: config.resumeSessionId !== undefined,
-      resume: config.resumeSessionId !== undefined,
+      resumable: config.continuationSessionId !== undefined,
+      resume: config.continuationSessionId !== undefined,
       costTrackingMode: "native",
       supportedTools: [],
       maxContextTokens: null,
@@ -556,10 +556,10 @@ export class OpenCodeSession implements IKilnSession {
 
       let storedRemoteSessionId: string | undefined;
       if (!isResumingTurn) {
-        if (this._config.resumeSessionId !== undefined) {
+        if (this._config.continuationSessionId !== undefined) {
           try {
             const store = new SessionStore(this._config.cwd);
-            const providerThread = await store.findProviderThread(this._config.resumeSessionId, "opencode");
+            const providerThread = await store.findProviderThread(this._config.continuationSessionId, "opencode");
             if (providerThread) {
               storedRemoteSessionId = providerThread.nativeSessionId;
             }

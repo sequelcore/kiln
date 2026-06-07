@@ -159,7 +159,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       cwd,
       env,
       permissionPolicy: BENCHMARK_POLICY,
-      resumeSessionId: sessionContext.resumeSessionId,
+      continuationSessionId: sessionContext.continuationSessionId,
       ephemeral: true,
       skipGitRepoCheck: options.flags?.skipGitRepoCheck,
       builtinToolOptions,

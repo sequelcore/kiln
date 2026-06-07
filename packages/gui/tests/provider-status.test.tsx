@@ -29,7 +29,7 @@ function resetStore(): void {
     sessionList: [],
     selectedSessionId: null,
     liveSessionId: null,
-    resumeTargetId: null,
+    continuationTargetId: null,
     detachedSessionIds: [],
     routedProvider: null,
     routedModel: null,

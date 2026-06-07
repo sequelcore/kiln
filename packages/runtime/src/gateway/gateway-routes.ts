@@ -577,7 +577,7 @@ async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise
       saturation: config.apps.length,
       entropy: 0,
     },
-    resumeInfoByProvider: {},
+    continuationInfoByProvider: {},
     apps: buildAppGatewayGuiApps(config),
     ...(selectedRuntime ? { activeAppName: selectedRuntime.loadedApp.name } : {}),
     ...(selectedRuntime ? { activeTenantId: selectedRuntime.tenantId } : {}),
@@ -782,18 +782,18 @@ async function processAppGatewayGuiMessage(
   }
 
   const userParts = guiOutboundMessageParts(frame);
-  const requestedResumeSessionId = typeof frame.resumeSessionId === "string" && frame.resumeSessionId.trim()
-    ? frame.resumeSessionId.trim()
+  const requestedContinuationSessionId = typeof frame.continuationSessionId === "string" && frame.continuationSessionId.trim()
+    ? frame.continuationSessionId.trim()
     : undefined;
-  if (frame.sessionIntent === "fresh" && requestedResumeSessionId) {
+  if (frame.sessionIntent === "fresh" && requestedContinuationSessionId) {
     ws.send(JSON.stringify({
       type: "error",
       code: "APP_GATEWAY_CONFLICTING_SESSION_INTENT",
-      message: "sessionIntent=fresh cannot be combined with resumeSessionId.",
+      message: "sessionIntent=fresh cannot be combined with continuationSessionId.",
     } satisfies GuiInboundFrame));
     return;
   }
-  const sessionId = frame.sessionIntent === "fresh" ? undefined : requestedResumeSessionId;
+  const sessionId = frame.sessionIntent === "fresh" ? undefined : requestedContinuationSessionId;
   if (!isRequestedAuthority(frame.requestedAuthority)) {
     ws.send(JSON.stringify({
       type: "error",

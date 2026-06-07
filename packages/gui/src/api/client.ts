@@ -7,7 +7,7 @@ import type {
   KilnConfigSetupActionResult,
   KilnConfigSetupSnapshot,
   GuiProviderDescriptor,
-  GuiResumeInfo,
+  GuiContinuationInfo,
   GuiSessionDetail,
   GuiSessionListResponse,
   GuiSessionSummary,
@@ -513,8 +513,8 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
   if (!isTelemetrySnapshot(snapshot.telemetry)) {
     throw new Error("Invalid dashboard telemetry payload.");
   }
-  if (!isRecord(snapshot.resumeInfoByProvider)) {
-    throw new Error("Invalid dashboard resume payload.");
+  if (!isRecord(snapshot.continuationInfoByProvider)) {
+    throw new Error("Invalid dashboard continuation payload.");
   }
 
   const apps = normalizeAppDescriptors(snapshot.apps);
@@ -523,7 +523,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
     providers: snapshot.providers,
     sessions: snapshot.sessions,
     telemetry: snapshot.telemetry,
-    resumeInfoByProvider: snapshot.resumeInfoByProvider as Record<string, GuiResumeInfo>,
+    continuationInfoByProvider: snapshot.continuationInfoByProvider as Record<string, GuiContinuationInfo>,
     ...(apps ? { apps } : {}),
     ...(typeof snapshot.activeAppName === "string" ? { activeAppName: snapshot.activeAppName } : {}),
     ...(typeof snapshot.activeTenantId === "string" ? { activeTenantId: snapshot.activeTenantId } : {}),
@@ -713,4 +713,4 @@ export {
   type GuiSessionConnectionState,
 } from "./session-client.js";
 
-export type { GuiResumeInfo, GuiSessionDetail };
+export type { GuiContinuationInfo, GuiSessionDetail };

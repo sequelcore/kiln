@@ -388,7 +388,7 @@ describe("GuiWsClient", () => {
         { type: "provider_auth", provider: "opencode-go", requestId: "provider-auth-2", apiKey: "sk-test", tier: "go" },
         { type: "provider", provider: "openai", model: "gpt-4", requestId: "provider-switch-1" },
         { type: "provider", provider: "claude", requestId: "provider-switch-2" },
-        { type: "resume", sessionId: "session-123" },
+        { type: "continue", sessionId: "session-123" },
         {
           type: "browser_session_control",
           action: "takeover",
@@ -1096,7 +1096,7 @@ describe("GuiWsClient", () => {
             requestId: "provider-switch-2",
           },
         },
-        { json: { type: "resume_selected", sessionId: "sess-1" }, expected: { type: "resume_selected", sessionId: "sess-1" } },
+        { json: { type: "continuation_selected", sessionId: "sess-1" }, expected: { type: "continuation_selected", sessionId: "sess-1" } },
       ];
 
       client = createClient();

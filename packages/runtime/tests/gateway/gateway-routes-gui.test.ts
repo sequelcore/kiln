@@ -21,7 +21,7 @@ describe("App Gateway GUI routes", () => {
         saturation: 0,
         entropy: 0,
       },
-      resumeInfoByProvider: {},
+      continuationInfoByProvider: {},
       domainLabel: "app-gateway",
     });
   });
@@ -255,7 +255,7 @@ describe("App Gateway GUI routes", () => {
           type: "message",
           content: "start clean",
           sessionIntent: "fresh",
-          resumeSessionId: "session-old",
+          continuationSessionId: "session-old",
         }),
       }),
       { send },

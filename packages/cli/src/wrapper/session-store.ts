@@ -25,10 +25,10 @@ export interface SessionRecord {
 }
 
 export interface SessionRecordAppendOptions {
-  readonly updateResumeTarget?: boolean;
+  readonly updateContinuationTarget?: boolean;
 }
 
-interface ResumeTargetsFile {
+interface ContinuationTargetsFile {
   readonly defaultSessionId?: string;
   readonly providerSessionIds?: Record<string, string>;
 }
@@ -141,11 +141,11 @@ function mergeRepeatedSessionRecord(
 
 export class SessionStore {
   private readonly filePath: string;
-  private readonly resumeTargetsPath: string;
+  private readonly continuationTargetsPath: string;
 
   constructor(projectPath: string) {
     this.filePath = join(projectPath, '.kiln', 'sessions.jsonl');
-    this.resumeTargetsPath = join(projectPath, '.kiln', 'resume-targets.json');
+    this.continuationTargetsPath = join(projectPath, '.kiln', 'continuation-targets.json');
   }
 
   async append(record: SessionRecord, options: SessionRecordAppendOptions = {}): Promise<void> {
@@ -157,8 +157,8 @@ export class SessionStore {
       const records = currentRecords.filter((entry) => entry.sessionId !== record.sessionId);
       records.push(mergeRepeatedSessionRecord(previous, record));
       await this.writeRecords(records);
-      if (options.updateResumeTarget !== false) {
-        await this.setResumeTarget(record);
+      if (options.updateContinuationTarget !== false) {
+        await this.setContinuationTarget(record);
       }
     } catch (err) {
       console.error('[SessionStore] Failed to append session record:', err);
@@ -202,9 +202,9 @@ export class SessionStore {
     }
   }
 
-  private async readResumeTargets(): Promise<ResumeTargetsFile> {
+  private async readContinuationTargets(): Promise<ContinuationTargetsFile> {
     try {
-      const parsed = JSON.parse(await readFile(this.resumeTargetsPath, 'utf-8')) as Partial<ResumeTargetsFile>;
+      const parsed = JSON.parse(await readFile(this.continuationTargetsPath, 'utf-8')) as Partial<ContinuationTargetsFile>;
       const defaultSessionId = parseOptionalString(parsed.defaultSessionId);
       const providerSessionIds = parsed.providerSessionIds && typeof parsed.providerSessionIds === 'object'
         ? Object.fromEntries(
@@ -227,22 +227,26 @@ export class SessionStore {
     }
   }
 
-  private async writeResumeTargets(targets: ResumeTargetsFile): Promise<void> {
-    const dir = join(this.resumeTargetsPath, '..');
+  private async writeContinuationTargets(targets: ContinuationTargetsFile): Promise<void> {
+    const dir = join(this.continuationTargetsPath, '..');
     await mkdir(dir, { recursive: true });
-    await writeFile(this.resumeTargetsPath, JSON.stringify(targets, null, 2), 'utf-8');
+    await writeFile(this.continuationTargetsPath, JSON.stringify(targets, null, 2), 'utf-8');
   }
 
-  async getResumeTarget(provider?: string): Promise<SessionRecord | null> {
-    const targets = await this.readResumeTargets();
-    const sessionId = provider ? targets.providerSessionIds?.[provider] : targets.defaultSessionId;
+  async getContinuationTarget(provider?: string): Promise<SessionRecord | null> {
+    const sessionId = await this.getContinuationTargetSessionId(provider);
     return sessionId ? this.find(sessionId) : null;
   }
 
-  async setResumeTarget(record: SessionRecord): Promise<void> {
+  async getContinuationTargetSessionId(provider?: string): Promise<string | undefined> {
+    const targets = await this.readContinuationTargets();
+    return provider ? targets.providerSessionIds?.[provider] : targets.defaultSessionId;
+  }
+
+  async setContinuationTarget(record: SessionRecord): Promise<void> {
     try {
-      const current = await this.readResumeTargets();
-      await this.writeResumeTargets({
+      const current = await this.readContinuationTargets();
+      await this.writeContinuationTargets({
         defaultSessionId: record.sessionId,
         providerSessionIds: {
           ...(current.providerSessionIds ?? {}),
@@ -250,28 +254,28 @@ export class SessionStore {
         },
       });
     } catch (err) {
-      console.error('[SessionStore] Failed to set resume target:', err);
+      console.error('[SessionStore] Failed to set continuation target:', err);
     }
   }
 
-  async clearResumeTarget(provider?: string): Promise<void> {
+  async clearContinuationTarget(provider?: string): Promise<void> {
     try {
       if (provider === undefined) {
-        await this.writeResumeTargets({});
+        await this.writeContinuationTargets({});
         return;
       }
-      const current = await this.readResumeTargets();
+      const current = await this.readContinuationTargets();
       const providerSessionIds = { ...(current.providerSessionIds ?? {}) };
       delete providerSessionIds[provider];
       const nextDefault = current.defaultSessionId && current.defaultSessionId === current.providerSessionIds?.[provider]
         ? undefined
         : current.defaultSessionId;
-      await this.writeResumeTargets({
+      await this.writeContinuationTargets({
         ...(nextDefault ? { defaultSessionId: nextDefault } : {}),
         ...(Object.keys(providerSessionIds).length > 0 ? { providerSessionIds } : {}),
       });
     } catch (err) {
-      console.error('[SessionStore] Failed to clear resume target:', err);
+      console.error('[SessionStore] Failed to clear continuation target:', err);
     }
   }
 

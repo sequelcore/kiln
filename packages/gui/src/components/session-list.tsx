@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef } from "react";
 import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { SessionContinuity } from "@/lib/session-continuity";
+import { buildSessionRowBadges, type SessionContinuityTone } from "@/lib/session-continuity-view";
 import { cn } from "@/lib/utils";
 
 interface SessionListProps {
   readonly sessions: readonly GuiSessionSummary[];
   readonly selectedSessionId: string | null;
-  readonly resumeTargetId: string | null;
+  readonly continuity: SessionContinuity;
   readonly onSelect: (sessionId: string) => void;
   readonly onStartNewSession: () => void;
 }
@@ -56,6 +58,37 @@ function groupSessions(sessions: readonly GuiSessionSummary[]) {
     groups.set(label, current);
   }
   return [...groups.entries()].map(([label, items]) => ({ label, items }));
+}
+
+function badgeClass(tone: SessionContinuityTone): string {
+  switch (tone) {
+    case "accent":
+      return "border-[var(--color-accent)]/35 text-[var(--color-accent)]";
+    case "info":
+      return "border-blue-500/30 text-blue-600 dark:text-blue-300";
+    case "warning":
+      return "border-amber-500/35 text-amber-700 dark:text-amber-300";
+    case "danger":
+      return "border-destructive/30 text-destructive";
+    case "muted":
+      return "border-muted-foreground/30 text-muted-foreground";
+  }
+}
+
+function railClass(tone: SessionContinuityTone | undefined): string {
+  switch (tone) {
+    case "accent":
+      return "bg-[var(--color-accent)]/80";
+    case "info":
+      return "bg-blue-500/75";
+    case "warning":
+      return "bg-amber-500/80";
+    case "danger":
+      return "bg-destructive/80";
+    case "muted":
+    case undefined:
+      return "bg-border";
+  }
 }
 
 export function SessionList(props: SessionListProps) {
@@ -118,7 +151,14 @@ export function SessionList(props: SessionListProps) {
                   {group.items.map((session) => {
                     const index = props.sessions.findIndex((item) => item.id === session.id);
                     const selected = props.selectedSessionId === session.id;
-                    const active = props.resumeTargetId === session.id;
+                    const badges = buildSessionRowBadges({
+                      sessionId: session.id,
+                      continuity: props.continuity,
+                      outcome: session.lastTurnOutcome === "failed" || session.lastTurnOutcome === "cancelled"
+                        ? session.lastTurnOutcome
+                        : null,
+                    });
+                    const railTone = badges[0]?.tone;
                     return (
                       <li key={session.id}>
                         <button
@@ -158,11 +198,11 @@ export function SessionList(props: SessionListProps) {
                           )}
                         >
                           <span className="relative block">
-                            {selected || active ? (
+                            {selected || badges.length > 0 ? (
                               <span
                                 className={cn(
                                   "absolute inset-y-2 left-0 w-px rounded-r-full",
-                                  active ? "bg-[var(--color-accent)]/80" : "bg-border",
+                                  railClass(railTone),
                                 )}
                               />
                             ) : null}
@@ -177,25 +217,17 @@ export function SessionList(props: SessionListProps) {
                               >
                                 {session.title ?? session.taskSummary}
                               </span>
-                              {active ? (
-                                <>
-                                  <span
-                                    aria-label="Active continuation target"
-                                    className="size-1.5 shrink-0 rounded-full bg-[var(--color-accent)]"
-                                  />
-                                  <span className="sr-only">Active</span>
-                                </>
-                              ) : null}
-                              {session.lastTurnOutcome === "failed" ? (
-                                <span className="shrink-0 rounded-sm border border-destructive/30 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-destructive">
-                                  Failed
+                              {badges.map((badge) => (
+                                <span
+                                  key={badge.label}
+                                  className={cn(
+                                    "shrink-0 rounded-sm border px-1 py-0.5 font-mono text-[9px] uppercase leading-none",
+                                    badgeClass(badge.tone),
+                                  )}
+                                >
+                                  {badge.label}
                                 </span>
-                              ) : null}
-                              {session.lastTurnOutcome === "cancelled" ? (
-                                <span className="shrink-0 rounded-sm border border-muted-foreground/30 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-muted-foreground">
-                                  Cancelled
-                                </span>
-                              ) : null}
+                              ))}
                             </span>
                             {session.summary ? (
                               <span className="mt-0.5 line-clamp-1 text-xs leading-5 text-muted-foreground">{session.summary}</span>

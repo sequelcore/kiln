@@ -55,8 +55,8 @@ function buildResumeProjectionState(input: {
   projectPath: string;
   task: string;
   worktreePath?: string;
-  resumeSessionId?: string;
-  resumedMeta?: PersistedSessionMeta;
+  continuationSessionId?: string;
+  continuedMeta?: PersistedSessionMeta;
   moduleArtifactKeys: readonly string[];
   preferredProvider?: ProviderId;
   feedback?: ResumeFeedback;
@@ -70,9 +70,9 @@ function buildResumeProjectionState(input: {
   exactArtifacts: readonly string[];
   shouldUseProviderNativeResume: boolean;
 } {
-  const { cache, projectPath, task, worktreePath, resumeSessionId, resumedMeta, moduleArtifactKeys } = input;
-  const sessionArtifactKey = input.projectHistoricalContext && resumeSessionId
-    ? buildCliSessionSummaryArtifactKey(resumeSessionId)
+  const { cache, projectPath, task, worktreePath, continuationSessionId, continuedMeta, moduleArtifactKeys } = input;
+  const sessionArtifactKey = input.projectHistoricalContext && continuationSessionId
+    ? buildCliSessionSummaryArtifactKey(continuationSessionId)
     : undefined;
   const projectArtifactKey = input.projectHistoricalContext
     ? buildCliProjectSummaryArtifactKey(projectPath)
@@ -88,18 +88,18 @@ function buildResumeProjectionState(input: {
   const { cachedResumeSignalCount, hasCachedResumeContext } = signals;
 
   const sessionLedger: SessionLedger = {
-    currentPhase: resumedMeta?.sessionLedger?.currentPhase ?? "prepare",
-    resumedFrom: resumeSessionId,
+    currentPhase: continuedMeta?.sessionLedger?.currentPhase ?? "prepare",
+    resumedFrom: continuationSessionId,
     workingDirectory: projectPath,
     worktreePath,
-    lastError: hasCachedResumeContext ? undefined : resumedMeta?.sessionLedger?.lastError,
-    lastProvider: resumedMeta?.sessionLedger?.lastProvider,
-    toolCallCount: resumedMeta?.sessionLedger?.toolCallCount,
-    turnDepth: resumedMeta?.sessionLedger?.turnDepth,
+    lastError: hasCachedResumeContext ? undefined : continuedMeta?.sessionLedger?.lastError,
+    lastProvider: continuedMeta?.sessionLedger?.lastProvider,
+    toolCallCount: continuedMeta?.sessionLedger?.toolCallCount,
+    turnDepth: continuedMeta?.sessionLedger?.turnDepth,
   };
 
   const fallbackArtifacts = input.projectHistoricalContext && !hasCachedResumeContext
-    ? (resumedMeta?.exactArtifacts ?? []).slice(0, 10)
+    ? (continuedMeta?.exactArtifacts ?? []).slice(0, 10)
     : [];
   const exactArtifacts = [
     ...fallbackArtifacts,
@@ -107,7 +107,7 @@ function buildResumeProjectionState(input: {
   ];
 
   const decision = decideResumeStrategy({
-    resumeSessionId,
+    continuationSessionId,
     preferredProvider: input.preferredProvider,
     signals,
     feedback: input.feedback,
@@ -124,8 +124,8 @@ function buildResumeProjectionState(input: {
   };
 }
 
-function shouldProjectHistoricalContext(resumeSessionId: string | undefined): boolean {
-  return resumeSessionId !== undefined;
+function shouldProjectHistoricalContext(continuationSessionId: string | undefined): boolean {
+  return continuationSessionId !== undefined;
 }
 
 function buildHistoricalContextProjection(input: {
@@ -135,7 +135,7 @@ function buildHistoricalContextProjection(input: {
   moduleArtifactKeys: readonly string[];
   projectPath: string;
   task: string;
-  resumeSessionId?: string;
+  continuationSessionId?: string;
 }): {
   readonly artifactCache?: ContextArtifactCache;
   readonly moduleArtifactKeys: readonly string[];
@@ -152,8 +152,8 @@ function buildHistoricalContextProjection(input: {
     moduleArtifactKeys: input.moduleArtifactKeys,
     projectArtifactKey: buildCliProjectSummaryArtifactKey(input.projectPath),
     planArtifactKey: buildCliPlanSummaryArtifactKey(input.projectPath, input.task, 80),
-    sessionArtifactKey: input.resumeSessionId
-      ? buildCliSessionSummaryArtifactKey(input.resumeSessionId)
+    sessionArtifactKey: input.continuationSessionId
+      ? buildCliSessionSummaryArtifactKey(input.continuationSessionId)
       : undefined,
   };
 }
@@ -209,8 +209,8 @@ export class SessionManager {
     projectPath: string,
     memorySnapshot?: string,
     isolate?: boolean,
-    resumeSessionId?: string,
-    resumedMeta?: PersistedSessionMeta,
+    continuationSessionId?: string,
+    continuedMeta?: PersistedSessionMeta,
     preferredProvider?: ProviderId,
     resumeStrategyFeedback?: ResumeFeedback,
   ): Promise<SessionContext> {
@@ -238,9 +238,9 @@ export class SessionManager {
       this.activeSessionId = sessionId;
     }
 
-    const historicalContextEnabled = shouldProjectHistoricalContext(resumeSessionId);
+    const historicalContextEnabled = shouldProjectHistoricalContext(continuationSessionId);
     const touchedFiles = historicalContextEnabled
-      ? extractTouchedFilePaths(resumedMeta?.exactArtifacts ?? [])
+      ? extractTouchedFilePaths(continuedMeta?.exactArtifacts ?? [])
       : [];
     const moduleArtifactKeys = (
       await Promise.all(touchedFiles.slice(0, 5).map((filePath) => buildModuleArtifactKey(projectPath, filePath)))
@@ -256,8 +256,8 @@ export class SessionManager {
       projectPath,
       task,
       worktreePath,
-      resumeSessionId,
-      resumedMeta,
+      continuationSessionId,
+      continuedMeta,
       moduleArtifactKeys,
       preferredProvider,
       feedback: resumeStrategyFeedback,
@@ -271,9 +271,9 @@ export class SessionManager {
       moduleArtifactKeys,
       projectPath,
       task,
-      resumeSessionId,
+      continuationSessionId,
     });
-    const providerResumeSessionId = shouldUseProviderNativeResume ? resumeSessionId : undefined;
+    const providerResumeSessionId = shouldUseProviderNativeResume ? continuationSessionId : undefined;
     const projectedContext = new DefaultContextGovernor<
       SessionLedger,
       KilnContextGovernanceSource,
@@ -311,7 +311,7 @@ export class SessionManager {
       workingDirectory,
       task,
       worktreePath,
-      resumeSessionId: providerResumeSessionId,
+      continuationSessionId: providerResumeSessionId,
       resumeStrategy,
       resumeFeedback,
     };

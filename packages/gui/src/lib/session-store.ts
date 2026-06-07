@@ -26,6 +26,10 @@ import {
   isGuiProviderModeless,
   presentOperatorEventPayload,
 } from "@kilnai/gateway-contracts";
+import {
+  deriveSessionContinuity,
+  shouldApplySessionScopedFrame as shouldApplyContinuityFrame,
+} from "./session-continuity.js";
 
 const BROWSER_STREAM_UNAVAILABLE_REASON = "No live browser stream transport is configured.";
 
@@ -123,7 +127,7 @@ type StoreActivityFrame = {
 };
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
-const RESUME_TARGET_KEY = "kiln.gui.resumeTarget";
+const CONTINUATION_TARGET_KEY = "kiln.gui.continuationTarget";
 const PROVIDER_SELECTION_KEY = "kiln.gui.providerSelection";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
@@ -221,9 +225,9 @@ function providerRequiresSelectedModelMessage(provider: string): string {
   return `Provider '${provider}' requires a selected model.`;
 }
 
-function clearStoredResumeTarget(): void {
+function clearStoredContinuationTarget(): void {
   try {
-    localStorage.removeItem(RESUME_TARGET_KEY);
+    localStorage.removeItem(CONTINUATION_TARGET_KEY);
   } catch {
     // fail-open
   }
@@ -1464,19 +1468,19 @@ function shouldApplySessionScopedFrame(
   state: SessionStoreState,
   kilnSessionId: string,
 ): boolean {
-  if (state.detachedSessionIds.includes(kilnSessionId)) {
-    return false;
-  }
-  if (state.liveSessionId) {
-    return state.liveSessionId === kilnSessionId;
-  }
-  if (state.selectedSessionId) {
-    return state.selectedSessionId === kilnSessionId;
-  }
-  if (state.resumeTargetId && state.status !== "running") {
-    return state.resumeTargetId === kilnSessionId;
-  }
-  return state.status === "running" || state.status === "idle";
+  return shouldApplyContinuityFrame(deriveContinuityFromState(state), kilnSessionId);
+}
+
+function deriveContinuityFromState(state: SessionStoreState) {
+  return deriveSessionContinuity({
+    status: state.status,
+    selectedSessionId: state.selectedSessionId,
+    liveSessionId: state.liveSessionId,
+    continuationTargetId: state.continuationTargetId,
+    messageCount: state.messages.length,
+    sessionEventCount: state.sessionEvents.length,
+    detachedSessionIds: state.detachedSessionIds,
+  });
 }
 
 function appendDetachedSessionId(
@@ -1647,7 +1651,7 @@ interface SessionStoreState {
   readonly sessionList: readonly GuiSessionSummary[];
   readonly selectedSessionId: string | null;
   readonly liveSessionId: string | null;
-  readonly resumeTargetId: string | null;
+  readonly continuationTargetId: string | null;
   readonly detachedSessionIds: readonly string[];
   readonly routedProvider: string | null;
   readonly routedModel: string | null;
@@ -1724,7 +1728,7 @@ interface SessionStoreActions {
   requestVoiceSynthesis: (messageId: string) => boolean;
   sendClear: () => boolean;
   setPlanMode: (enabled: boolean) => void;
-  setResume: (sessionId: string | null) => void;
+  setContinuation: (sessionId: string | null) => void;
   disconnect: () => void;
   onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
   onBrowserSessionUpdated: (frame: Extract<GuiInboundFrame, { type: "browser_session_updated" }>) => void;
@@ -1763,7 +1767,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessionList: [],
   selectedSessionId: null,
   liveSessionId: null,
-  resumeTargetId: null,
+  continuationTargetId: null,
   detachedSessionIds: [],
   routedProvider: null,
   routedModel: null,
@@ -1814,8 +1818,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const selected = state.selectedSessionId;
     const selectedStillExists = selected ? sessions.some((session) => session.id === selected) : false;
     const nextSelectedSessionId = selectedStillExists ? selected : null;
+    const nextContinuationTargetId = selectedStillExists
+      ? state.continuationTargetId
+      : state.continuationTargetId === selected ? null : state.continuationTargetId;
     if (
       state.selectedSessionId === nextSelectedSessionId
+      && state.continuationTargetId === nextContinuationTargetId
       && areSessionSummariesEqual(state.sessionList, sessions)
     ) {
       return;
@@ -1823,15 +1831,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       sessionList: sessions,
       selectedSessionId: nextSelectedSessionId,
+      continuationTargetId: nextContinuationTargetId,
     });
   },
 
   setSelectedSessionId: (sessionId) => {
-    clearStoredResumeTarget();
+    clearStoredContinuationTarget();
     set({
       selectedSessionId: sessionId,
       liveSessionId: null,
-      resumeTargetId: null,
+      continuationTargetId: sessionId,
       messages: [],
       timelineEntries: [],
       sessionEvents: [],
@@ -1853,11 +1862,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   viewSessionDetail: (detail) => {
     const loaded = mapSessionDetailToLoadedState(detail);
-    clearStoredResumeTarget();
+    clearStoredContinuationTarget();
     set({
       selectedSessionId: detail.id,
       liveSessionId: null,
-      resumeTargetId: null,
+      continuationTargetId: detail.id,
       messages: loaded.messages,
       timelineEntries: loaded.timelineEntries,
       sessionEvents: detail.events,
@@ -1926,7 +1935,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const welcomePlanMode = frame.executionMode ? frame.executionMode === "plan" : undefined;
     const resolvedPlanMode = persistedPlanMode ?? welcomePlanMode ?? current.planMode;
     const explicitSelection = Boolean(activeProvider);
-    clearStoredResumeTarget();
+    clearStoredContinuationTarget();
 
     set({
       providers,
@@ -1939,7 +1948,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       planMode: resolvedPlanMode,
       routeMode: explicitSelection ? "user" : "auto",
       providerExplicitSelection: explicitSelection,
-      resumeTargetId: current.resumeTargetId,
+      continuationTargetId: current.continuationTargetId,
       status: "ready",
       errorBanner: null,
       providerSwitching: false,
@@ -2837,7 +2846,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
     }
-    clearStoredResumeTarget();
+    clearStoredContinuationTarget();
     set({
       messages: [],
       timelineEntries: [],
@@ -2849,7 +2858,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       errorBanner: null,
       selectedSessionId: null,
       liveSessionId: null,
-      resumeTargetId: null,
+      continuationTargetId: null,
       routedProvider: null,
       routedModel: null,
       routeMode: state.providerExplicitSelection ? "user" : "auto",
@@ -3212,19 +3221,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ...(outboundParts ? { parts: outboundParts } : {}),
       createdAt: nowIso(),
     };
-    const isPreviewWithoutExplicitResume = state.selectedSessionId !== null && state.resumeTargetId === null;
-    const startsFreshSession = state.resumeTargetId === null
-      && (
-        isPreviewWithoutExplicitResume
-        || (
-          state.liveSessionId === null
-          && state.messages.length === 0
-          && state.sessionEvents.length === 0
-        )
-      );
-    const baseMessages = isPreviewWithoutExplicitResume ? [] : state.messages;
-    const baseTimelineEntries = isPreviewWithoutExplicitResume ? [] : state.timelineEntries;
-    const baseSessionEvents = isPreviewWithoutExplicitResume ? [] : state.sessionEvents;
+    const continuity = deriveContinuityFromState(state);
+    const baseMessages = continuity.shouldResetVisibleHistoryOnSubmit ? [] : state.messages;
+    const baseTimelineEntries = continuity.shouldResetVisibleHistoryOnSubmit ? [] : state.timelineEntries;
+    const baseSessionEvents = continuity.shouldResetVisibleHistoryOnSubmit ? [] : state.sessionEvents;
     set({
       messages: [...baseMessages, userMessage],
       timelineEntries: [
@@ -3256,8 +3256,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       content: normalized,
       ...(outboundParts ? { parts: outboundParts } : {}),
       executionMode: state.planMode ? "plan" : "execute",
-      resumeSessionId: state.resumeTargetId ?? undefined,
-      ...(startsFreshSession ? { sessionIntent: "fresh" } : {}),
+      continuationSessionId: continuity.outboundContinuationSessionId,
+      ...(continuity.outboundSessionIntent ? { sessionIntent: continuity.outboundSessionIntent } : {}),
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
       ...(options?.appName ? { appName: options.appName } : {}),
@@ -3304,7 +3304,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     state.outboundSend({ type: "clear" });
-    clearStoredResumeTarget();
+    clearStoredContinuationTarget();
     const timeoutId = setTimeout(() => {
       const latest = get();
       if (!latest.clearPending) return;
@@ -3319,7 +3319,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       selectedSessionId: null,
       liveSessionId: null,
-      resumeTargetId: null,
+      continuationTargetId: null,
       detachedSessionIds: appendDetachedSessionId(state.detachedSessionIds, state.liveSessionId),
       clearPending: true,
       clearTimeoutId: timeoutId,
@@ -3344,10 +3344,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ planMode: false });
   },
 
-  setResume: (sessionId) => {
-    clearStoredResumeTarget();
+  setContinuation: (sessionId) => {
+    clearStoredContinuationTarget();
     set({
-      resumeTargetId: sessionId,
+      continuationTargetId: sessionId,
     });
   },
 

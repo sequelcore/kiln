@@ -276,13 +276,13 @@ function makeStore(lastRecord: SessionRecord | null = null) {
   return {
     store: {
       last: vi.fn().mockResolvedValue(lastRecord),
-      getResumeTarget: vi.fn().mockResolvedValue(lastRecord),
+      getContinuationTarget: vi.fn().mockResolvedValue(lastRecord),
       find: vi.fn().mockImplementation(async (sessionId: string) => bySession.get(sessionId) ?? null),
       append: vi.fn().mockImplementation(async (r: SessionRecord) => {
         appended.push(r);
         bySession.set(r.sessionId, r);
       }),
-      clearResumeTarget: vi.fn().mockResolvedValue(undefined),
+      clearContinuationTarget: vi.fn().mockResolvedValue(undefined),
     } as unknown as import("../../src/wrapper/session-store.js").SessionStore,
     appended,
   };
@@ -324,13 +324,13 @@ function makeContextArtifactCache(): ContextArtifactCache {
 }
 
 function makeRegistry(sessionId = "sess-abc") {
-  const sessions: { sessionId: string; resumeSessionId?: string; dispose: () => Promise<void>; run: (opts: unknown) => AsyncGenerator<unknown> }[] = [];
+  const sessions: { sessionId: string; continuationSessionId?: string; dispose: () => Promise<void>; run: (opts: unknown) => AsyncGenerator<unknown> }[] = [];
   const registry = {
     createSession: vi.fn().mockImplementation(
-      (_provider: string, opts: { resumeSessionId?: string }) => {
+      (_provider: string, opts: { continuationSessionId?: string }) => {
         const session = {
           sessionId,
-          resumeSessionId: opts.resumeSessionId,
+          continuationSessionId: opts.continuationSessionId,
           providerSessionId: "prov-" + sessionId,
           dispose: vi.fn().mockResolvedValue(undefined),
           run: vi.fn().mockImplementation(async function* () {
@@ -365,7 +365,7 @@ describe("makeMultiProviderSessionFactory", () => {
     });
   });
 
-  it("starts without an implicit resumeSessionId even when a resume cursor exists", async () => {
+  it("starts without an implicit continuationSessionId even when a continuation cursor exists", async () => {
     const record = {
       sessionId: "prev-session",
       provider: "claude",
@@ -386,10 +386,10 @@ describe("makeMultiProviderSessionFactory", () => {
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
     expect(registry.createSession).toHaveBeenCalled();
-    expect(sessions[0]?.resumeSessionId).toBeUndefined();
+    expect(sessions[0]?.continuationSessionId).toBeUndefined();
   });
 
-  it("initializes with undefined resumeSessionId when store is empty", async () => {
+  it("initializes with undefined continuationSessionId when store is empty", async () => {
     const { store } = makeStore(null);
     const { registry, sessions } = makeRegistry();
     const transcriptStore = makeTranscriptStore();
@@ -401,7 +401,7 @@ describe("makeMultiProviderSessionFactory", () => {
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
     expect(registry.createSession).toHaveBeenCalled();
-    expect(sessions[0]?.resumeSessionId).toBeUndefined();
+    expect(sessions[0]?.continuationSessionId).toBeUndefined();
   });
 
   it("passes the persisted transcript turn id into GUI provider session runs", async () => {
@@ -1189,7 +1189,7 @@ describe("makeMultiProviderSessionFactory", () => {
     });
   });
 
-  it("passes captured sessionId as resumeSessionId on next turn", async () => {
+  it("passes captured sessionId as continuationSessionId on next turn", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry("sess-first");
     const transcriptStore = makeTranscriptStore();
@@ -1203,7 +1203,7 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(registry.createSession).toHaveBeenCalled();
   });
 
-  it("onClear resets resumeSessionId to undefined", async () => {
+  it("onClear resets continuationSessionId to undefined", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry("sess-abc");
     const transcriptStore = makeTranscriptStore();
@@ -1216,20 +1216,20 @@ describe("makeMultiProviderSessionFactory", () => {
     await session.dispose();
 
     await onClear();
-    expect(store.clearResumeTarget).toHaveBeenCalledWith(undefined);
+    expect(store.clearContinuationTarget).toHaveBeenCalledWith(undefined);
   });
 
   it("onClear clears the canonical resume target", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();
-    store.clearResumeTarget = vi.fn().mockResolvedValue(undefined);
+    store.clearContinuationTarget = vi.fn().mockResolvedValue(undefined);
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
     const { onClear } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/proj", registry, store, transcriptStore, cache);
     await onClear();
 
-    expect(store.clearResumeTarget).toHaveBeenCalledWith(undefined);
+    expect(store.clearContinuationTarget).toHaveBeenCalledWith(undefined);
   });
 
   it("tracks selected models per provider instead of reusing one global model", async () => {

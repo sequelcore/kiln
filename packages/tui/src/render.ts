@@ -88,18 +88,18 @@ export function renderSidebarTurns(
 }
 
 /**
- * Renders the sidebar resume strategy and feedback display for the current provider.
+ * Renders the sidebar continuation strategy and feedback display for the current provider.
  */
-export function renderSidebarResume(
+export function renderSidebarContinuation(
   state: ReactiveState,
   theme: KilnTheme,
   ui: UIComponents
 ): void {
-  const resumeInfo = state.resumeInfoByProvider[state.currentProvider];
+  const continuationInfo = state.continuationInfoByProvider[state.currentProvider];
   const runtimeInfo = state.runtimeContinuityByProvider[state.currentProvider];
-  const resumeLine = resumeInfo?.strategy
-    ? `resume: ${resumeInfo.strategy}${resumeInfo.feedbackLabel ? ` · ${resumeInfo.feedbackLabel}` : ""}`
-    : "resume: --";
+  const continuationLine = continuationInfo?.strategy
+    ? `cont: ${continuationInfo.strategy}${continuationInfo.feedbackLabel ? ` · ${continuationInfo.feedbackLabel}` : ""}`
+    : "cont: --";
   const runtimeLine = runtimeInfo?.strategy
     ? `runtime: ${runtimeInfo.strategy}${runtimeInfo.feedbackLabel ? ` · ${runtimeInfo.feedbackLabel}` : ""}`
     : "runtime: --";
@@ -118,7 +118,7 @@ export function renderSidebarResume(
   const selectionLine = runtimeInfo?.selectionReason
     ? `sel: ${runtimeInfo.selectionReason}`
     : "sel: --";
-  ui.sidebarResumeText.content = t`${fg(theme.textMuted)(`${resumeLine}\n${runtimeLine}\n${pressureLine}\n${sourceLine}\n${fallbackLine}\n${usedLine}\n${selectionLine}`)}`;
+  ui.sidebarContinuationText.content = t`${fg(theme.textMuted)(`${continuationLine}\n${runtimeLine}\n${pressureLine}\n${sourceLine}\n${fallbackLine}\n${usedLine}\n${selectionLine}`)}`;
 }
 
 /**

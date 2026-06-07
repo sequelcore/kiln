@@ -43,7 +43,7 @@ import {
 import { buildModuleSummaryArtifact, extractTouchedFilePaths } from "../application/repo-summary-cache.js";
 import { buildCliCompletionContextArtifacts } from "../application/session-context-artifacts.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
-import { resolveResumeSessionId } from "../application/session-resume.js";
+import { resolveContinuationSessionId } from "../application/session-continuation.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
@@ -119,7 +119,8 @@ export interface RunFlags {
   readonly agent?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
-  readonly resume?: boolean;
+  readonly continuation?: boolean;
+  readonly continuationSessionId?: string;
   readonly plan?: boolean;
   readonly ephemeral?: boolean;
   readonly profile?: string;
@@ -805,18 +806,35 @@ export async function runCommand(
   const { registry, worktreeManager } = createDefaultRegistry();
   const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
   const manager = new SessionManager(config, runtimeAppConfig, contextArtifactCache, worktreeManager);
-  const resumeSessionId = await resolveResumeSessionId(
-    cwd,
-    flags.resume,
-    preferredProvider,
-  );
+  let continuationSessionId: string | undefined;
+  try {
+    continuationSessionId = await resolveContinuationSessionId(cwd, {
+      continuation: flags.continuation,
+      explicitSessionId: flags.continuationSessionId,
+    });
+  } catch (error) {
+    const errorMessage = errorToMessage(error);
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: preferredProvider,
+      model: effectiveModel,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
+    exitRunCommand(1, executionOptions);
+  }
   const transcriptStore = new TranscriptStore(cwd);
-  const resumedMeta = resumeSessionId
-    ? await transcriptStore.readMeta(resumeSessionId)
+  const continuedMeta = continuationSessionId
+    ? await transcriptStore.readMeta(continuationSessionId)
     : null;
   const budgetUsageReader = executionOptions.budgetUsageReader ?? createCliTranscriptBudgetUsageReader(transcriptStore);
   const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(globalConfig, budgetUsageReader);
-  const resumeStrategyFeedback = resumeSessionId
+  const resumeStrategyFeedback = continuationSessionId
     ? await inferResumeStrategyFeedback(transcriptStore, preferredProvider)
     : undefined;
 
@@ -827,8 +845,8 @@ export async function runCommand(
       cwd,
       undefined,
       flags.isolate,
-      resumeSessionId,
-      resumedMeta ?? undefined,
+      continuationSessionId,
+      continuedMeta ?? undefined,
       preferredProvider,
       resumeStrategyFeedback,
     );
@@ -848,7 +866,7 @@ export async function runCommand(
     });
     exitRunCommand(1, executionOptions);
   }
-  const approvalMemorySessionId = resumeSessionId ?? sessionId;
+  const approvalMemorySessionId = continuationSessionId ?? sessionId;
   const previewContextGovernance = summarizeContextGovernance(context.projectedContext);
   let worktreeCleaned = false;
   const cleanupWorktreeOnce = async (): Promise<void> => {
@@ -1003,7 +1021,7 @@ export async function runCommand(
         resumeFeedback: context.resumeFeedback,
         sessionLedger: {
           currentPhase: workerExitCode === undefined && workerError === undefined ? "completed" : "failed",
-          resumedFrom: resumeSessionId,
+          resumedFrom: continuationSessionId,
           workingDirectory: context.workingDirectory,
           worktreePath: context.worktreePath,
           lastError: workerError,
@@ -1079,7 +1097,7 @@ export async function runCommand(
         resumeFeedback: context.resumeFeedback,
         sessionLedger: {
           currentPhase: "parallel-workers",
-          resumedFrom: resumeSessionId,
+          resumedFrom: continuationSessionId,
           workingDirectory: context.workingDirectory,
           worktreePath: context.worktreePath,
         },
@@ -1130,7 +1148,7 @@ export async function runCommand(
     resumeFeedback: context.resumeFeedback,
     sessionLedger: {
       currentPhase: "prepare",
-      resumedFrom: resumeSessionId,
+      resumedFrom: continuationSessionId,
       workingDirectory: context.workingDirectory,
       worktreePath: context.worktreePath,
     },
@@ -1146,7 +1164,7 @@ export async function runCommand(
     cwd: context.workingDirectory,
     env,
     permissionPolicy: config.permissionPolicy,
-    resumeSessionId: context.resumeSessionId,
+    continuationSessionId: context.continuationSessionId,
     ephemeral: flags.ephemeral,
     profile: flags.profile,
     skipGitRepoCheck: flags.skipGitRepoCheck,
@@ -1348,7 +1366,7 @@ export async function runCommand(
       resumeFeedback: context.resumeFeedback,
       sessionLedger: {
         currentPhase: "completed",
-        resumedFrom: resumeSessionId,
+        resumedFrom: continuationSessionId,
         workingDirectory: context.workingDirectory,
         worktreePath: context.worktreePath,
         lastProvider: successfulProviderId,
@@ -1427,7 +1445,7 @@ export async function runCommand(
       resumeFeedback: context.resumeFeedback,
       sessionLedger: {
         currentPhase: "failed",
-        resumedFrom: resumeSessionId,
+        resumedFrom: continuationSessionId,
         workingDirectory: context.workingDirectory,
         worktreePath: context.worktreePath,
         lastError: lastError ?? undefined,
@@ -1544,8 +1562,8 @@ export async function runCommand(
       resumeOutcome,
       contextGovernance: previewContextGovernance,
     };
-    const finalReport = resumeSessionId
-      ? { ...reportWithResumeStrategy, resumedFrom: resumeSessionId }
+    const finalReport = continuationSessionId
+      ? { ...reportWithResumeStrategy, resumedFrom: continuationSessionId }
       : reportWithResumeStrategy;
     printReport(finalReport, "kiln", runOutput.writeTelemetryLine);
   } catch (error) {

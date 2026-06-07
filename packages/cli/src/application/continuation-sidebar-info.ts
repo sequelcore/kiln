@@ -1,12 +1,12 @@
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 
-export interface ResumeSidebarInfo {
+export interface ContinuationSidebarInfo {
   readonly strategy?: ResumeStrategy;
   readonly feedbackLabel?: string;
 }
 
-export function formatResumeFeedback(feedback: ResumeFeedback | undefined): string | undefined {
+export function formatContinuationFeedback(feedback: ResumeFeedback | undefined): string | undefined {
   if (!feedback) {
     return undefined;
   }
@@ -15,12 +15,12 @@ export function formatResumeFeedback(feedback: ResumeFeedback | undefined): stri
   return `${source}${preferred} · ${feedback.sampleSize}`;
 }
 
-export async function loadResumeSidebarInfo(
+export async function loadContinuationSidebarInfo(
   sessionStore: SessionStore,
   transcriptStore: TranscriptStore,
   providerIds: readonly string[],
-): Promise<Record<string, ResumeSidebarInfo>> {
-  const info: Record<string, ResumeSidebarInfo> = {};
+): Promise<Record<string, ContinuationSidebarInfo>> {
+  const info: Record<string, ContinuationSidebarInfo> = {};
   const orderedRecords = await sessionStore.list();
   const latestByProvider = new Map<string, string>();
 
@@ -47,7 +47,7 @@ export async function loadResumeSidebarInfo(
     }
     info[provider] = {
       strategy: meta.resumeStrategy,
-      feedbackLabel: formatResumeFeedback(meta.resumeFeedback),
+      feedbackLabel: formatContinuationFeedback(meta.resumeFeedback),
     };
   }
 

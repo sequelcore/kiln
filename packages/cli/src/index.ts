@@ -16,6 +16,8 @@ type RunArgFlags = {
   requestedAuthority?: OperatorTurnRequestedAuthority;
   agent?: string;
   isolate?: boolean;
+  continuation?: boolean;
+  continuationSessionId?: string;
   plan?: boolean;
   ephemeral?: boolean;
   profile?: string;
@@ -101,6 +103,8 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --resources List shared tool resources as JSON");
     console.log("  --resource  Read one shared tool resource URI");
     console.log("  --plan      Plan mode: read-only exploration before execution");
+    console.log("  --continue    Continue the current canonical Kiln session target");
+    console.log("  --continue-session <id>  Continue an explicit Kiln session id");
     console.log("  --ephemeral Run Codex without persisting session files");
     console.log("  --profile    Codex profile name from ~/.codex/config.toml");
     console.log("  --output     Run output mode (human, answer, json)");
@@ -372,6 +376,8 @@ function printRunHelp(appName: string): void {
   console.log("  --authority <authority>      Requested authority (auto, read_only, audited, destructive)");
   console.log("  --agent <name>               Agent profile from .kiln/agents or ~/.kiln/agents");
   console.log("  --plan                       Run read-only plan mode first");
+  console.log("  --continue                     Continue the current canonical Kiln session target");
+  console.log("  --continue-session <id>        Continue an explicit Kiln session id");
   console.log("  --ephemeral                  Run Codex without persisting native session files");
   console.log("  --profile <name>             Codex profile name from ~/.codex/config.toml");
   console.log("  --output <mode>              Output mode (human, answer, json)");
@@ -448,6 +454,12 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
     } else if (arg === "--isolate") {
       flags.isolate = true;
       i += 1;
+    } else if (arg === "--continue") {
+      flags.continuation = true;
+      i += 1;
+    } else if (arg === "--continue-session" && i + 1 < rawArgs.length) {
+      flags.continuationSessionId = rawArgs[i + 1];
+      i += 2;
     } else if (arg === "--plan") {
       flags.plan = true;
       i += 1;

@@ -31,7 +31,7 @@ const sessionManagerMocks = vi.hoisted(() => ({
   onClear: vi.fn(),
   setModel: vi.fn(),
   setProvider: vi.fn(),
-  setResumeSession: vi.fn(),
+  setContinuationSession: vi.fn(),
 }));
 
 const registryMocks = vi.hoisted(() => {
@@ -217,8 +217,8 @@ vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
   discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
 }));
 
-vi.mock("../../src/application/resume-sidebar-info.js", () => ({
-  loadResumeSidebarInfo: vi.fn().mockResolvedValue({}),
+vi.mock("../../src/application/continuation-sidebar-info.js", () => ({
+  loadContinuationSidebarInfo: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("../../src/wrapper/session-registry.js", () => ({
@@ -349,7 +349,7 @@ describe("GUI dashboard provider availability", () => {
     mkdirSync(join(packageCliPath, ".kiln"), { recursive: true });
     writeFileSync(join(tmpDir, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
     writeFileSync(
-      join(packageCliPath, ".kiln", "resume-targets.json"),
+      join(packageCliPath, ".kiln", "continuation-targets.json"),
       JSON.stringify({ defaultSessionId: "stale-nested-session" }),
       "utf-8",
     );
@@ -366,7 +366,7 @@ describe("GUI dashboard provider availability", () => {
       workingDirectory: tmpDir,
     });
     expect(getProjectContextArtifactCache).toHaveBeenCalledWith(tmpDir);
-    expect(existsSync(join(packageCliPath, ".kiln", "resume-targets.json"))).toBe(true);
+    expect(existsSync(join(packageCliPath, ".kiln", "continuation-targets.json"))).toBe(true);
   });
 
   afterEach(() => {

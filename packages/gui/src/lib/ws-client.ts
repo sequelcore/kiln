@@ -19,7 +19,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     parts: z.array(z.unknown()).optional(),
     executionMode: z.enum(["execute", "plan"]).optional(),
     requestedAuthority: z.enum(["auto", "read_only", "audited", "destructive"]).optional(),
-    resumeSessionId: z.string().optional(),
+    continuationSessionId: z.string().optional(),
     sessionIntent: z.literal("fresh").optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
     appName: z.string().optional(),
@@ -52,7 +52,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     appliedTheme: z.string().optional(),
     error: z.string().optional(),
   }),
-  z.object({ type: z.literal("resume"), sessionId: z.string() }),
+  z.object({ type: z.literal("continue"), sessionId: z.string() }),
   z.object({
     type: z.literal("browser_session_control"),
     action: z.enum(["takeover", "release"]),
@@ -517,7 +517,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     model: z.string().trim().min(1).optional(),
     requestId: z.string().trim().min(1),
   }),
-  z.object({ type: z.literal("resume_selected"), sessionId: z.string() }),
+  z.object({ type: z.literal("continuation_selected"), sessionId: z.string() }),
 ]);
 
 /** Connection lifecycle states for the GUI WebSocket client. */

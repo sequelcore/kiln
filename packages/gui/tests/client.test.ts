@@ -62,7 +62,7 @@ describe("GuiGatewayClient", () => {
         saturation: 1,
         entropy: 0,
       },
-      resumeInfoByProvider: {},
+      continuationInfoByProvider: {},
       apps: [
         {
           name: "support",
@@ -116,7 +116,7 @@ describe("GuiGatewayClient", () => {
         saturation: 0,
         entropy: 0,
       },
-      resumeInfoByProvider: {},
+      continuationInfoByProvider: {},
       workspaceTree: {
         rootPath: 42,
         entries: [],
@@ -142,7 +142,7 @@ describe("GuiGatewayClient", () => {
         saturation: 0,
         entropy: 0,
       },
-      resumeInfoByProvider: {},
+      continuationInfoByProvider: {},
       workspaceTree: {
         rootPath: "C:/workspace/kiln",
         entries: "not-an-array",

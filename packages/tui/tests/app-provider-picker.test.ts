@@ -43,7 +43,7 @@ vi.mock("../src/handlers.js", () => ({
 
 vi.mock("../src/render.js", () => ({
   renderSidebarCost: () => undefined,
-  renderSidebarResume: () => undefined,
+  renderSidebarContinuation: () => undefined,
   renderSidebarTurns: () => undefined,
   renderSidebarProvider: () => undefined,
   renderSidebarField: () => undefined,
@@ -67,7 +67,7 @@ vi.mock("../src/ui.js", () => ({
       sidebarCostText: { content: "" },
       sidebarCwdText: { content: "" },
       sidebarTurnsText: { content: "" },
-      sidebarResumeText: { content: "" },
+      sidebarContinuationText: { content: "" },
       sidebarFieldText: { content: "" },
       sidebarDivider: { content: "" },
       sidebarToolsBox: { content: { add: () => undefined } },
@@ -321,6 +321,64 @@ describe("TUI provider picker", () => {
       expect(harness.ui?.commandBarStatus.content).toContain("Authority: read only");
       expect(harness.sendMessage).toHaveBeenCalledOnce();
       expect((harness.sendMessage.mock.calls[0]?.[0] as { state: ReactiveState }).state.currentRequestedAuthority).toBe("read_only");
+    } finally {
+      harness.renderer?.destroy();
+      void startPromise.catch(() => undefined);
+    }
+  });
+
+  it("requires explicit continue mode before empty Enter continues a selected session", async () => {
+    const onContinueSession = vi.fn();
+    const createSession = vi.fn(async () => ({
+      run: async function* () {},
+      dispose: vi.fn(),
+    }));
+
+    const startPromise = startTui(
+      createSession,
+      [
+        { id: "claude", group: "subscription", models: ["claude-sonnet-4-6"], free: false },
+      ],
+      "claude",
+      "kiln",
+      TEST_THEME,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      async () => [
+        {
+          sessionId: "session-1",
+          provider: "claude",
+          task: "Previous task",
+          completedAt: "2026-06-07T00:00:00.000Z",
+          cost: 0,
+        },
+      ],
+      onContinueSession,
+    );
+
+    try {
+      await waitForTuiReady();
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(onContinueSession).not.toHaveBeenCalled();
+      expect(harness.state?.sessionContinuationMode).toBe(false);
+
+      emitText("/continue");
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(onContinueSession).not.toHaveBeenCalled();
+      expect(harness.state?.sessionContinuationMode).toBe(true);
+      expect(harness.ui?.commandBarStatus.content).toContain("Enter to continue");
+
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(onContinueSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
+      expect(harness.state?.sessionContinuationMode).toBe(false);
     } finally {
       harness.renderer?.destroy();
       void startPromise.catch(() => undefined);

@@ -21,7 +21,7 @@ import {
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
-import type { ReactiveState, Message, ResumeSidebarInfo, PendingApproval, WorkItem } from "./state.js";
+import type { ReactiveState, Message, ContinuationSidebarInfo, PendingApproval, WorkItem } from "./state.js";
 import { update, createMessage } from "./state.js";
 import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
@@ -45,7 +45,7 @@ export interface HandlerContext {
   sidebarToolNode: TextRenderable | null;
   messageNodes: { msg: Message; node: TextRenderable | MarkdownRenderable; toolInput?: unknown }[];
   createSession: () => Promise<SessionLike>;
-  refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>;
+  refreshContinuationInfo?: () => Promise<Record<string, ContinuationSidebarInfo>>;
   provider: string;
   domain: string;
   renderSidebarApprovals?: () => void;
@@ -472,7 +472,7 @@ export function handleCompleted(
   renderSidebarTurns: () => void,
   renderSidebarProvider: () => void,
   renderCommandBarStatus: () => void,
-  renderSidebarResume?: () => void
+  renderSidebarContinuation?: () => void
 ): void {
   if (totalUsd) update(ctx.state, "cost", totalUsd);
   // Only overwrite token counts from completion if they are non-zero
@@ -504,7 +504,7 @@ export function handleCompleted(
   renderSidebarCost();
   renderSidebarTurns();
   renderSidebarProvider();
-  renderSidebarResume?.();
+  renderSidebarContinuation?.();
   renderCommandBarStatus();
 }
 
@@ -578,7 +578,7 @@ export async function sendMessage(
   renderSidebarCost: () => void,
   renderSidebarTurns: () => void,
   renderSidebarProvider: () => void,
-  renderSidebarResume: () => void,
+  renderSidebarContinuation: () => void,
   renderCommandBarStatus: () => void,
   startSpinner: () => void,
   _stopSpinner: () => void,
@@ -696,12 +696,12 @@ export async function sendMessage(
             renderSidebarTurns,
             renderSidebarProvider,
             renderCommandBarStatus,
-            renderSidebarResume,
+            renderSidebarContinuation,
           );
-          if (ctx.refreshResumeInfo) {
-            void ctx.refreshResumeInfo().then((info) => {
-              update(ctx.state, "resumeInfoByProvider", info);
-              renderSidebarResume();
+          if (ctx.refreshContinuationInfo) {
+            void ctx.refreshContinuationInfo().then((info) => {
+              update(ctx.state, "continuationInfoByProvider", info);
+              renderSidebarContinuation();
             }).catch(() => {
               // fail-open
             });

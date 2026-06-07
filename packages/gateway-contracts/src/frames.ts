@@ -214,7 +214,7 @@ export interface GuiTelemetrySnapshot {
   readonly entropy: number;
 }
 
-export interface GuiResumeInfo {
+export interface GuiContinuationInfo {
   readonly strategy: string;
   readonly feedbackLabel?: string;
 }
@@ -258,7 +258,7 @@ export interface GuiDashboardSnapshot {
   readonly providers: readonly GuiProviderDescriptor[];
   readonly sessions: readonly GuiSessionSummary[];
   readonly telemetry: GuiTelemetrySnapshot;
-  readonly resumeInfoByProvider: Readonly<Record<string, GuiResumeInfo>>;
+  readonly continuationInfoByProvider: Readonly<Record<string, GuiContinuationInfo>>;
   readonly apps?: readonly GuiAppDescriptor[];
   readonly activeAppName?: string;
   readonly activeTenantId?: string;
@@ -759,7 +759,7 @@ export type GuiOutboundFrame =
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
       sessionIntent?: "fresh";
-      resumeSessionId?: string;
+      continuationSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       appName?: string;
       tenantId?: string;
@@ -780,7 +780,7 @@ export type GuiOutboundFrame =
     }
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | OperatorThemeSetResultFrame
-  | { type: "resume"; sessionId: string }
+  | { type: "continue"; sessionId: string }
   | GuiBrowserSessionControlFrame
   | GuiManagedAgentControlFrame
   | GuiBrowserOperatorInputFrame
@@ -877,7 +877,7 @@ export type GuiInboundFrame =
       providers: readonly GuiProviderDescriptor[];
     }
     | { type: "provider_changed"; provider: string; model?: string; requestId: string }
-    | { type: "resume_selected"; sessionId: string };
+    | { type: "continuation_selected"; sessionId: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */
 export type GuiSessionConnectionState = "connecting" | "connected" | "reconnecting" | "disconnected";

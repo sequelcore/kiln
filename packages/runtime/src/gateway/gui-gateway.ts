@@ -28,7 +28,7 @@ import type {
   RuntimeTurnFileChange,
   RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
-import type { OnProviderSwitch, OnResumeSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
+import type { OnProviderSwitch, OnContinueSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
 import {
   mountGuiStaticAssets,
   resolveGuiDistPath,
@@ -1048,7 +1048,7 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "resume") {
+            if (frame.type === "continue") {
               const sessionId = typeof frame.sessionId === "string" ? frame.sessionId.trim() : "";
               if (!sessionId) {
                 ws.send(JSON.stringify({
@@ -1058,7 +1058,7 @@ function wireOperatorTransport(
                 return;
               }
               try {
-                await applyResumeSelection(input.transport.onResumeSession, sessionId);
+                await applyContinuationSelection(input.transport.onContinueSession, sessionId);
               } catch {
                 ws.send(JSON.stringify({
                   type: "error",
@@ -1067,7 +1067,7 @@ function wireOperatorTransport(
                 return;
               }
               ws.send(JSON.stringify({
-                type: "resume_selected",
+                type: "continuation_selected",
                 sessionId,
               } satisfies GuiInboundFrame));
               return;
@@ -1462,25 +1462,25 @@ function wireOperatorTransport(
               ? messageFrame.content
               : "";
             const userParts = guiOutboundMessageParts(messageFrame);
-            const resumeSessionId = typeof messageFrame.resumeSessionId === "string"
-              ? messageFrame.resumeSessionId.trim()
+            const continuationSessionId = typeof messageFrame.continuationSessionId === "string"
+              ? messageFrame.continuationSessionId.trim()
               : "";
             const freshSessionRequested = messageFrame.sessionIntent === "fresh";
             if (!userContent.trim() && userParts.length === 0) return;
 
-            if (freshSessionRequested && resumeSessionId) {
+            if (freshSessionRequested && continuationSessionId) {
               ws.send(JSON.stringify({
                 type: "error",
-                message: "Fresh session messages cannot include resumeSessionId",
+                message: "Fresh session messages cannot include continuationSessionId",
               } satisfies GuiInboundFrame));
               return;
             }
 
-            if (resumeSessionId && input.transport.onResumeSession) {
+            if (continuationSessionId && input.transport.onContinueSession) {
               try {
-                await applyResumeSelection(
-                  input.transport.onResumeSession,
-                  resumeSessionId,
+                await applyContinuationSelection(
+                  input.transport.onContinueSession,
+                  continuationSessionId,
                   input.transport.sessionManager.getProvider(),
                 );
               } catch {
@@ -1604,7 +1604,7 @@ function wireOperatorTransport(
                 appName: GUI_APP_NAME,
                 tenantId: GUI_TENANT_ID,
                 userId,
-                sessionId: resumeSessionId || undefined,
+                sessionId: continuationSessionId || undefined,
                 systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
                 userParts,
                 channel: "gui",
@@ -1790,15 +1790,15 @@ function findProviderModelRouteHealth(
   return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
 }
 
-async function applyResumeSelection(
-  onResumeSession: OnResumeSession | undefined,
+async function applyContinuationSelection(
+  onContinueSession: OnContinueSession | undefined,
   sessionId: string,
   provider?: string,
 ): Promise<void> {
-  if (!onResumeSession) {
-    throw new Error("resume selection unsupported");
+  if (!onContinueSession) {
+    throw new Error("continuation selection unsupported");
   }
-  await onResumeSession(sessionId, provider);
+  await onContinueSession(sessionId, provider);
 }
 
 function summarizeBrowserOperatorInput(input: GuiBrowserOperatorInput): Record<string, unknown> {

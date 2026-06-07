@@ -17,7 +17,7 @@ function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   };
 }
 
-describe("SessionStore resume targets", () => {
+describe("SessionStore continuation targets", () => {
   let tmpDir: string;
   let store: SessionStore;
 
@@ -30,58 +30,58 @@ describe("SessionStore resume targets", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("stores resume targets separately from the canonical session index", async () => {
+  it("stores continuation targets separately from the canonical session index", async () => {
     await store.append(makeRecord({ sessionId: "a", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "b", provider: "claude" }));
 
-    expect((await store.getResumeTarget("claude"))?.sessionId).toBe("b");
+    expect((await store.getContinuationTarget("claude"))?.sessionId).toBe("b");
 
-    await store.clearResumeTarget("claude");
+    await store.clearContinuationTarget("claude");
 
-    expect(await store.getResumeTarget("claude")).toBeNull();
+    expect(await store.getContinuationTarget("claude")).toBeNull();
     expect((await store.last("claude"))?.sessionId).toBe("b");
     expect((await store.list()).map((record) => record.sessionId)).toEqual(["b", "a"]);
   });
 
-  it("clears all resume targets without deleting session records", async () => {
+  it("clears all continuation targets without deleting session records", async () => {
     await store.append(makeRecord({ sessionId: "x", provider: "codex" }));
     await store.append(makeRecord({ sessionId: "y", provider: "opencode" }));
 
-    expect((await store.getResumeTarget())?.sessionId).toBe("y");
-    expect((await store.getResumeTarget("codex"))?.sessionId).toBe("x");
+    expect((await store.getContinuationTarget())?.sessionId).toBe("y");
+    expect((await store.getContinuationTarget("codex"))?.sessionId).toBe("x");
 
-    await store.clearResumeTarget();
+    await store.clearContinuationTarget();
 
-    expect(await store.getResumeTarget()).toBeNull();
-    expect(await store.getResumeTarget("codex")).toBeNull();
+    expect(await store.getContinuationTarget()).toBeNull();
+    expect(await store.getContinuationTarget("codex")).toBeNull();
     expect((await store.list()).map((record) => record.sessionId)).toEqual(["y", "x"]);
   });
 
-  it("clears one provider resume target without deleting other provider targets", async () => {
+  it("clears one provider continuation target without deleting other provider targets", async () => {
     await store.append(makeRecord({ sessionId: "c1", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "cx1", provider: "codex" }));
 
-    await store.clearResumeTarget("claude");
+    await store.clearContinuationTarget("claude");
 
-    expect(await store.getResumeTarget("claude")).toBeNull();
-    expect((await store.getResumeTarget("codex"))?.sessionId).toBe("cx1");
+    expect(await store.getContinuationTarget("claude")).toBeNull();
+    expect((await store.getContinuationTarget("codex"))?.sessionId).toBe("cx1");
     expect((await store.last("claude"))?.sessionId).toBe("c1");
   });
 
   it("is a no-op when store is empty", async () => {
-    await expect(store.clearResumeTarget("claude")).resolves.toBeUndefined();
+    await expect(store.clearContinuationTarget("claude")).resolves.toBeUndefined();
     const last = await store.last();
     expect(last).toBeNull();
   });
 
-  it("updates the resume target to the latest record for the same provider", async () => {
+  it("updates the continuation target to the latest record for the same provider", async () => {
     await store.append(makeRecord({ sessionId: "a1", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "a2", provider: "claude" }));
     await store.append(makeRecord({ sessionId: "a3", provider: "claude" }));
 
     const last = await store.last("claude");
     expect(last?.sessionId).toBe("a3");
-    expect((await store.getResumeTarget("claude"))?.sessionId).toBe("a3");
+    expect((await store.getContinuationTarget("claude"))?.sessionId).toBe("a3");
     expect((await store.list()).filter((record) => record.provider === "claude")).toHaveLength(3);
   });
 

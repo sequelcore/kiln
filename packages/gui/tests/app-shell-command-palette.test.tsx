@@ -19,7 +19,7 @@ const dashboardData = {
     saturation: 0,
     entropy: 0,
   },
-  resumeInfoByProvider: {},
+  continuationInfoByProvider: {},
   workingDirectory: "C:/workspace/kiln",
   domainLabel: "Kiln",
 };
@@ -65,7 +65,7 @@ vi.mock("../src/api/client.js", () => ({
           saturation: 0,
           entropy: 0,
         },
-        resumeInfoByProvider: {},
+        continuationInfoByProvider: {},
         workingDirectory: "C:/workspace/kiln",
         domainLabel: "Kiln",
       };
@@ -179,7 +179,7 @@ function resetStore(): void {
     activeModel: "claude-sonnet-4-6",
     sessionList: [],
     selectedSessionId: null,
-    resumeTargetId: null,
+    continuationTargetId: null,
     routedProvider: null,
     routedModel: null,
     routeMode: "auto",

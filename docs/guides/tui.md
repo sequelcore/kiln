@@ -35,10 +35,11 @@ The `kiln tui` command currently accepts these flags from `packages/cli/src/comm
 | `--port <number>` | Override the local TUI gateway port when gateway transport is used. |
 | `--plan` | Start the gateway session with plan mode enabled. |
 
-There is no `--resume` flag in `tui.ts`. Resume is explicit inside the TUI:
-`/resume` or empty `Enter` on a selected history row marks the visible
-continuation target for the next turn. The TUI does not silently load a
-persisted resume cursor at startup.
+There is no `--resume` flag in `tui.ts`. Continuation is explicit inside the
+TUI: `/continue` focuses the session browser, and Enter confirms the selected
+history row only while that continuation mode is active. Empty Enter outside
+that mode is a no-op. The TUI does not silently load a persisted resume cursor
+at startup.
 
 Examples:
 
@@ -123,18 +124,19 @@ Slash command discovery is not TUI-owned. The TUI projects
 shared with GUI or CLI must be added to
 `packages/gateway-contracts/src/operator-commands.ts` first. The current shared
 interactive commands include `/clear`, `/theme`, `/provider`, `/effort`,
-`/authority`, `/resume`, `/plan`, `/exec`, `/setup`, and `/goal`.
+`/authority`, `/continue`, `/plan`, `/exec`, `/setup`, and `/goal`.
 
 - `Ctrl+C` exits immediately.
 - `Ctrl+V` pastes from the system clipboard.
 - `Enter` submits the current prompt when the session is idle.
-- `Enter` with an empty input resumes the selected session from the session list.
+- Empty `Enter` is a no-op unless `/continue` opened continuation mode.
+- `Enter` in continuation mode continues the selected session from the session list.
 - `/clear` clears the active session.
 - `/plan` enables plan mode in the TUI state.
 - `/provider` opens the provider picker.
 - `/effort` cycles the active model's advertised reasoning effort options.
 - `/theme` opens the theme picker.
-- `/resume` focuses the session browser in the sidebar.
+- `/continue` focuses the session browser in the sidebar.
 - Arrow keys or `j` / `k` navigate the theme picker, provider picker, slash popover, and session list depending on the current UI state.
 
 Printable-first key routing means normal printable characters are appended to the input before most special-case handlers run. That keeps typing responsive and reserves command handling for explicit control keys and slash commands instead of intercepting ordinary text entry.
@@ -244,10 +246,10 @@ Kiln stores:
 - `.kiln/sessions/<sessionId>/transcript.jsonl` for the transcript stream
 
 At startup, `makeMultiProviderSessionFactory()` starts without a hidden active
-resume target. Once the operator explicitly resumes a canonical session, Kiln
-may pass a matching provider-native thread ID to the selected provider. If the
-provider has never participated in that session, Kiln resumes through its own
-transcript/context continuity without fabricating a native provider thread.
+continuation target. Once the operator explicitly continues a canonical session,
+Kiln may pass a matching provider-native thread ID to the selected provider. If
+the provider has never participated in that session, Kiln continues through its
+own transcript/context continuity without fabricating a native provider thread.
 
 Gateway-backed operator surfaces also pass a transcript rehydration hook to the
 runtime pipeline. If the in-memory runtime session expired while the transcript
@@ -255,10 +257,11 @@ remained selected, the next admitted turn reconstructs bounded user/assistant
 conversation history from the canonical transcript before model execution.
 
 The sidebar session browser is populated from the canonical session index.
-`/resume` or an empty-input `Enter` on a selected row marks that Kiln session as
-the active continuation target. Clear detaches the active runtime conversation
-but leaves canonical session records and transcripts available for later
-selection.
+`/continue` opens explicit continuation mode; Enter on the selected row then
+marks that Kiln session as the active continuation target. Empty Enter outside
+that mode does not continue a selected row. Clear detaches the active runtime
+conversation but leaves canonical session records and transcripts available for
+later selection.
 
 ## Operational Event Scoping
 

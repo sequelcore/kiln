@@ -236,5 +236,5 @@ async function finalizeRecoveredSession(input: {
     projectPath: input.projectPath,
     providerThread: input.meta.providerThread,
     resumeStrategy: input.meta.resumeStrategy,
-  }, { updateResumeTarget: false });
+  }, { updateContinuationTarget: false });
 }

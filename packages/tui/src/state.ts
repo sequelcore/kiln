@@ -59,8 +59,8 @@ export interface ReactiveState {
   perProviderTokens: Record<string, { input: number; output: number }>;
   /** How the current provider was selected: user-driven or automatic routing. */
   routeMode: "user" | "auto";
-  /** Last known resume metadata keyed by provider. */
-  resumeInfoByProvider: Record<string, ResumeSidebarInfo>;
+  /** Last known continuation metadata keyed by provider. */
+  continuationInfoByProvider: Record<string, ContinuationSidebarInfo>;
   /** Last known runtime continuity metadata keyed by provider. */
   runtimeContinuityByProvider: Record<string, RuntimeContinuitySidebarInfo>;
   fieldSnapshot: FieldSidebarInfo;
@@ -68,6 +68,8 @@ export interface ReactiveState {
   sessions: SessionListItem[];
   /** Currently selected session index in the sidebar browser. */
   selectedSessionIndex: number;
+  /** Whether Enter on the selected sidebar session confirms explicit continuation. */
+  sessionContinuationMode: boolean;
   /** Pending approval requests from the gateway. */
   pendingApprovals: PendingApproval[];
   /** Files changed in the current session turn. */
@@ -89,7 +91,7 @@ export interface ReactiveState {
   listeners: Set<() => void>;
 }
 
-export interface ResumeSidebarInfo {
+export interface ContinuationSidebarInfo {
   strategy?: string;
   feedbackLabel?: string;
 }
@@ -212,11 +214,12 @@ export function createReactiveState(): ReactiveState {
     perProviderCost: {},
     perProviderTokens: {},
     routeMode: "user",
-    resumeInfoByProvider: {},
+    continuationInfoByProvider: {},
     runtimeContinuityByProvider: {},
     fieldSnapshot: { dominantRegions: [], saturation: 0, entropy: 0, status: "unknown" },
     sessions: [],
     selectedSessionIndex: -1,
+    sessionContinuationMode: false,
     pendingApprovals: [],
     changedFiles: [],
     workItems: [],

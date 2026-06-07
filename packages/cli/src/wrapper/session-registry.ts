@@ -153,7 +153,7 @@ export interface ProviderCreateConfig {
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
-  readonly resumeSessionId?: string;
+  readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly ephemeral?: boolean;
   readonly profile?: string;
@@ -1078,7 +1078,7 @@ export function createDefaultRegistry(): {
           unsupportedRules: translated.unsupportedRules,
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
-          resumeSessionId: config.resumeSessionId,
+          continuationSessionId: config.continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
           model: config.model,
         });
@@ -1127,7 +1127,7 @@ export function createDefaultRegistry(): {
           unsupportedRules: translated.unsupportedRules,
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
-          resumeSessionId: config.resumeSessionId,
+          continuationSessionId: config.continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
         });
         return createPooledHarnessSession(
@@ -1176,7 +1176,7 @@ export function createDefaultRegistry(): {
           unsupportedRules: translated.unsupportedRules,
           constraintInstructions: translated.constraintInstructions,
           translationWarnings: translated.warnings,
-          resumeSessionId: (config as { resumeSessionId?: string }).resumeSessionId,
+          continuationSessionId: (config as { continuationSessionId?: string }).continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
         });
         return createPooledHarnessSession(

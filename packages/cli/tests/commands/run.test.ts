@@ -145,6 +145,57 @@ describe("run command", () => {
       );
     });
 
+    it("forwards --continue to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "continue",
+        "work",
+        "--provider",
+        "codex",
+        "--continue",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "continue work",
+        expect.objectContaining({
+          provider: "codex",
+          continuation: true,
+        }),
+      );
+    });
+
+    it("forwards --continue-session to runCommand flags", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "continue",
+        "work",
+        "--provider",
+        "codex",
+        "--continue-session",
+        "a04d3014-2770-41e1-a98e-f1d4cc578b30",
+      ];
+
+      await createCli(MOCK_APP_CONFIG);
+
+      expect(runCommandMock).toHaveBeenCalledTimes(1);
+      expect(runCommandMock).toHaveBeenCalledWith(
+        MOCK_APP_CONFIG,
+        "continue work",
+        expect.objectContaining({
+          provider: "codex",
+          continuationSessionId: "a04d3014-2770-41e1-a98e-f1d4cc578b30",
+        }),
+      );
+    });
+
     it("forwards --skip-git-repo-check to runCommand flags", async () => {
       process.argv = [
         process.argv[0] ?? "bun",
@@ -491,6 +542,8 @@ describe("run command", () => {
       expect(text).toContain("Usage: kiln run");
       expect(text).toContain("--provider");
       expect(text).toContain("--model");
+      expect(text).toContain("--continue");
+      expect(text).toContain("--continue-session");
       expect(text).not.toContain("Kiln session starting");
 
       consoleSpy.mockRestore();

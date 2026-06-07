@@ -1294,7 +1294,7 @@ describe("OpenCodeSession.run() integration", () => {
         .mockResolvedValueOnce({ provider: "opencode", nativeSessionId: "oc-abc" });
       vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
 
-      const session = new OpenCodeSession(baseConfig({ resumeSessionId: "k-123" }));
+      const session = new OpenCodeSession(baseConfig({ continuationSessionId: "k-123" }));
       const events: object[] = [];
       for await (const event of await session.run({ prompt: "resume me" })) {
         events.push(event);
@@ -1307,7 +1307,7 @@ describe("OpenCodeSession.run() integration", () => {
       expect(mock.session.create).not.toHaveBeenCalled();
     });
 
-    it("calls session.create when no resumeSessionId configured", async () => {
+    it("calls session.create when no continuationSessionId configured", async () => {
       const mock = makeMockClient("oc-fresh", [
         {
           directory: "/tmp",
@@ -1342,7 +1342,7 @@ describe("OpenCodeSession.run() integration", () => {
       vi.spyOn(SessionStore.prototype, "findProviderThread").mockResolvedValueOnce(undefined);
       vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
 
-      const session = new OpenCodeSession(baseConfig({ resumeSessionId: "k-missing" }));
+      const session = new OpenCodeSession(baseConfig({ continuationSessionId: "k-missing" }));
       for await (const _ of await session.run({ prompt: "no prior session" })) {
         // consume
       }

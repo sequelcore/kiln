@@ -170,7 +170,7 @@ const managedProviderModelMocks = vi.hoisted(() => ({
 }));
 
 const resumeMocks = vi.hoisted(() => ({
-  loadResumeSidebarInfo: vi.fn().mockResolvedValue({}),
+  loadContinuationSidebarInfo: vi.fn().mockResolvedValue({}),
 }));
 
 const sessionManagerMocks = vi.hoisted(() => ({
@@ -182,9 +182,9 @@ const sessionManagerMocks = vi.hoisted(() => ({
 
 const sessionStoreMocks = vi.hoisted(() => ({
   last: vi.fn().mockResolvedValue(null),
-  getResumeTarget: vi.fn().mockResolvedValue(null),
+  getContinuationTarget: vi.fn().mockResolvedValue(null),
   list: vi.fn().mockResolvedValue([]),
-  clearResumeTarget: vi.fn().mockResolvedValue(undefined),
+  clearContinuationTarget: vi.fn().mockResolvedValue(undefined),
   find: vi.fn().mockResolvedValue(null),
   findProviderThread: vi.fn().mockResolvedValue(null),
 }));
@@ -308,8 +308,8 @@ vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
   discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
 }));
 
-vi.mock("../../src/application/resume-sidebar-info.js", () => ({
-  loadResumeSidebarInfo: resumeMocks.loadResumeSidebarInfo,
+vi.mock("../../src/application/continuation-sidebar-info.js", () => ({
+  loadContinuationSidebarInfo: resumeMocks.loadContinuationSidebarInfo,
 }));
 
 vi.mock("../../src/wrapper/session-manager.js", () => ({
@@ -328,9 +328,9 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
 vi.mock("../../src/wrapper/session-store.js", () => ({
   SessionStore: class MockSessionStore {
     last = sessionStoreMocks.last;
-    getResumeTarget = sessionStoreMocks.getResumeTarget;
+    getContinuationTarget = sessionStoreMocks.getContinuationTarget;
     list = sessionStoreMocks.list;
-    clearResumeTarget = sessionStoreMocks.clearResumeTarget;
+    clearContinuationTarget = sessionStoreMocks.clearContinuationTarget;
     find = sessionStoreMocks.find;
     findProviderThread = sessionStoreMocks.findProviderThread;
   },

@@ -18,7 +18,7 @@ function resetSessionStore(): void {
     sessionList: [],
     selectedSessionId: null,
     liveSessionId: null,
-    resumeTargetId: null,
+    continuationTargetId: null,
     detachedSessionIds: [],
     routedProvider: null,
     routedModel: null,

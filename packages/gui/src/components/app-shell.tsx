@@ -25,6 +25,8 @@ import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
 import { useSessionStore } from "../lib/session-store.js";
 import { deriveChangedFiles, derivePendingApprovals, deriveWorkItems } from "../lib/session-store.js";
+import { deriveSessionContinuity } from "../lib/session-continuity.js";
+import { buildComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { SessionList } from "./session-list.js";
 import { WorkspacePanel } from "./workspace-panel.js";
 import { OperatorSurfaceTabs, type OperatorSurfaceKind } from "./operator-surface-tabs.js";
@@ -666,7 +668,10 @@ export function AppShell() {
   const providerAuthDetails = useSessionStore((state) => state.providerAuthDetails);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
-  const resumeTargetId = useSessionStore((state) => state.resumeTargetId);
+  const liveSessionId = useSessionStore((state) => state.liveSessionId);
+  const continuationTargetId = useSessionStore((state) => state.continuationTargetId);
+  const detachedSessionIds = useSessionStore((state) => state.detachedSessionIds);
+  const messageCount = useSessionStore((state) => state.messages.length);
   const turnCounter = useSessionStore((state) => state.turnCounter);
   const authorityStatus = useSessionStore((state) => state.authorityStatus);
   const activityPhase = useSessionStore((state) => state.activityPhase);
@@ -708,7 +713,6 @@ export function AppShell() {
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
   const switchProvider = useSessionStore((state) => state.switchProvider);
   const authenticateProvider = useSessionStore((state) => state.authenticateProvider);
-  const setResume = useSessionStore((state) => state.setResume);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
   const gatewayClient = useMemo(() => new GuiGatewayClient(resolveGatewayHttpBaseUrl()), []);
@@ -717,6 +721,27 @@ export function AppShell() {
   const workItems = useMemo(() => deriveWorkItems(timelineEntries), [timelineEntries]);
   const activityEntries = useMemo(() => timelineEntries.filter(isActivityTimelineEntry), [timelineEntries]);
   const conversationEntries = useMemo(() => timelineEntries.filter(isConversationTimelineEntry), [timelineEntries]);
+  const sessionContinuity = useMemo(() => deriveSessionContinuity({
+    status,
+    selectedSessionId,
+    liveSessionId,
+    continuationTargetId,
+    messageCount,
+    sessionEventCount: sessionEvents.length,
+    detachedSessionIds,
+  }), [
+    status,
+    selectedSessionId,
+    liveSessionId,
+    continuationTargetId,
+    messageCount,
+    sessionEvents.length,
+    detachedSessionIds,
+  ]);
+  const composerContinuityHint = useMemo(
+    () => buildComposerContinuityHint(sessionContinuity),
+    [sessionContinuity],
+  );
   const managedAgentCockpitView = useMemo(() => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: new Date().toISOString(),
@@ -1295,7 +1320,7 @@ export function AppShell() {
         closePalette();
         return;
       }
-      case "resume":
+      case "continue":
         setSessionPopoverOpen(true);
         closePalette();
         return;
@@ -1419,7 +1444,7 @@ export function AppShell() {
     <SessionList
       sessions={sessionList}
       selectedSessionId={selectedSessionId}
-      resumeTargetId={resumeTargetId}
+      continuity={sessionContinuity}
       onSelect={(sessionId) => {
         setSelectedSessionId(sessionId);
         setWorkbenchSurface("chat");
@@ -1737,7 +1762,7 @@ export function AppShell() {
           <Composer
             status={status}
             planMode={planMode}
-            resumeTargetId={resumeTargetId}
+            continuityHint={composerContinuityHint}
             providerControl={(
               <div className="flex min-w-0 items-center gap-2">
                 <ProviderStatus
@@ -1791,11 +1816,6 @@ export function AppShell() {
                 ...(selectedAppName ? { appName: selectedAppName } : {}),
                 ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
               });
-            }}
-            onEmptySubmit={() => {
-              if (selectedSessionId) {
-                setResume(selectedSessionId);
-              }
             }}
             onTogglePlanMode={setPlanMode}
             commandMenu={{
@@ -1905,7 +1925,9 @@ export function AppShell() {
               <div>
                 <p className="text-sm font-semibold text-foreground">{drawerTitle}</p>
                 <p className="text-xs text-muted-foreground">
-                  {mobileDrawerMode === "sessions" ? "Session history and resume targets." : "Workspace, changes, and approvals."}
+                  {mobileDrawerMode === "sessions"
+                    ? "Session history and continuation targets."
+                    : "Workspace, changes, and approvals."}
                 </p>
               </div>
               <Button

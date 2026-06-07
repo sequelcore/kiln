@@ -56,7 +56,7 @@ export interface SessionContext {
   readonly task: string;
   readonly worktreePath?: string;
   readonly isWorker?: boolean;
-  readonly resumeSessionId?: string;
+  readonly continuationSessionId?: string;
   readonly resumeStrategy: ResumeStrategy;
   readonly resumeFeedback?: ResumeFeedback;
 }

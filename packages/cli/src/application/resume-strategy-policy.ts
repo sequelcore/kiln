@@ -47,13 +47,13 @@ export function collectResumeSignals(input: {
 }
 
 export function decideResumeStrategy(input: {
-  resumeSessionId?: string;
+  continuationSessionId?: string;
   preferredProvider?: ProviderId;
   signals: ResumeSignalSet;
   feedback?: ResumeFeedback;
 }): ResumeStrategyDecision {
   const decision = decideResumePolicy({
-    resumeSessionId: input.resumeSessionId,
+    resumeSessionId: input.continuationSessionId,
     nativeResumeEligible: prefersProviderNativeResume(input.preferredProvider),
     signals: input.signals,
     feedback: input.feedback as ResumeFeedbackSignal | undefined,

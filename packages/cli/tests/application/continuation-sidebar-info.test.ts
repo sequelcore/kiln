@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { loadResumeSidebarInfo } from "../../src/application/resume-sidebar-info.js";
+import { loadContinuationSidebarInfo } from "../../src/application/continuation-sidebar-info.js";
 import type { SessionStore, TranscriptStore, PersistedSessionMeta } from "../../src/wrapper/session-store.js";
 
-describe("loadResumeSidebarInfo", () => {
+describe("loadContinuationSidebarInfo", () => {
   it("uses latest session per provider from canonical session ordering", async () => {
     const sessionStore = {
       list: async () => ([
@@ -66,7 +66,7 @@ describe("loadResumeSidebarInfo", () => {
       readMeta: async (sessionId: string) => metaBySession[sessionId] ?? null,
     } as unknown as TranscriptStore;
 
-    const info = await loadResumeSidebarInfo(sessionStore, transcriptStore, ["claude", "codex"]);
+    const info = await loadContinuationSidebarInfo(sessionStore, transcriptStore, ["claude", "codex"]);
     expect(info).toEqual({
       claude: {
         strategy: "cache-first",

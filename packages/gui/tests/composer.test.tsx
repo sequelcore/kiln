@@ -5,7 +5,6 @@ import { Composer } from "../src/components/composer.js";
 
 function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onSubmit = vi.fn();
-  const onEmptySubmit = vi.fn();
   const onTogglePlanMode = vi.fn();
   const onSubmitParts = vi.fn();
   const onCommandMenuOpenChange = vi.fn();
@@ -15,7 +14,11 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
     <Composer
       status="ready"
       planMode={false}
-      resumeTargetId={null}
+      continuityHint={{
+        label: "New session",
+        description: "Next message starts fresh",
+        tone: "muted",
+      }}
       providerControl={<button type="button">Claude Sonnet 4</button>}
       reasoningControl={<select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>}
       authorityControl={<select aria-label="Turn authority" defaultValue="auto"><option value="auto">Auto</option></select>}
@@ -34,7 +37,6 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
         onOpenChange: onCommandMenuOpenChange,
       }}
       onSubmit={onSubmit}
-      onEmptySubmit={onEmptySubmit}
       onTogglePlanMode={onTogglePlanMode}
       onSubmitParts={onSubmitParts}
       {...overrides}
@@ -42,7 +44,6 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   );
   return {
     onSubmit,
-    onEmptySubmit,
     onTogglePlanMode,
     onSubmitParts,
     onCommandMenuOpenChange,
@@ -76,12 +77,11 @@ describe("Composer", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("Enter with empty draft triggers empty-submit callback", () => {
-    const { onSubmit, onEmptySubmit } = renderComposer();
+  it("Enter with empty draft does not submit", () => {
+    const { onSubmit } = renderComposer();
     const textarea = screen.getByLabelText("Message");
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter", shiftKey: false });
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(onEmptySubmit).toHaveBeenCalledTimes(1);
   });
 
   it("Slash on empty draft opens the local command menu", () => {
@@ -130,12 +130,18 @@ describe("Composer", () => {
     expect(screen.queryByText("/command")).not.toBeInTheDocument();
   });
 
-  it("keeps route state out of the composer toolbar when resuming a target", () => {
-    renderComposer({ resumeTargetId: "session-42" });
+  it("renders the composer continuity hint", () => {
+    renderComposer({
+      continuityHint: {
+        label: "Continue target",
+        description: "Next message continues selected session",
+        tone: "accent",
+      },
+    });
 
-    expect(screen.queryByText("Continuing")).not.toBeInTheDocument();
-    expect(screen.queryByText("selected")).not.toBeInTheDocument();
-    expect(screen.queryByText("new")).not.toBeInTheDocument();
+    const hint = screen.getByRole("status", { name: "Session continuity" });
+    expect(within(hint).getByText("Continue target")).toBeInTheDocument();
+    expect(within(hint).getByText("Next message continues selected session")).toBeInTheDocument();
   });
 
   it("renders the provider/model control in the composer rail", () => {
@@ -307,7 +313,7 @@ describe("Composer", () => {
   });
 
   it("non-special editing keys do not trigger command actions", () => {
-    const { onSubmit, onEmptySubmit, onCommandMenuOpenChange } = renderComposer();
+    const { onSubmit, onCommandMenuOpenChange } = renderComposer();
     const textarea = screen.getByLabelText("Message");
 
     fireEvent.keyDown(textarea, { key: "Backspace", code: "Backspace" });
@@ -315,7 +321,6 @@ describe("Composer", () => {
     fireEvent.keyDown(textarea, { key: "Delete", code: "Delete" });
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(onEmptySubmit).not.toHaveBeenCalled();
     expect(onCommandMenuOpenChange).not.toHaveBeenCalled();
   });
 

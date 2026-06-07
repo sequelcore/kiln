@@ -20,7 +20,7 @@ import {
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
-import type { Message, ReasoningEffort, ResumeSidebarInfo, SessionListItem, SlashCommand } from "./state.js";
+import type { Message, ReasoningEffort, ContinuationSidebarInfo, SessionListItem, SlashCommand } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
@@ -34,7 +34,7 @@ import {
 import { sendMessage } from "./handlers.js";
 import {
   renderSidebarCost,
-  renderSidebarResume,
+  renderSidebarContinuation,
   renderSidebarTurns,
   renderSidebarProvider,
   renderSidebarField,
@@ -88,12 +88,12 @@ export async function startTui(
   provider: string,
   domain = "unknown",
   theme: KilnTheme = defaultTheme,
-  initialResumeInfo: Record<string, ResumeSidebarInfo> = {},
-  refreshResumeInfo?: () => Promise<Record<string, ResumeSidebarInfo>>,
+  initialContinuationInfo: Record<string, ContinuationSidebarInfo> = {},
+  refreshContinuationInfo?: () => Promise<Record<string, ContinuationSidebarInfo>>,
   providerModelsRef?: { current: Record<string, string[]> },
   providerDiscoveryRef?: { current: readonly GuiProviderDiscoveryResult[] },
   loadSessions?: () => Promise<SessionListItem[]>,
-  onResumeSession?: (session: SessionListItem) => void,
+  onContinueSession?: (session: SessionListItem) => void,
   refreshProviders?: () => Promise<void> | void,
   persistThemePreference?: (themeName: string) => Promise<void> | void,
   loadSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>,
@@ -111,7 +111,7 @@ export async function startTui(
   const terminalHeight = renderer.height ?? 40;
 
   const state = createReactiveState();
-  update(state, "resumeInfoByProvider", initialResumeInfo);
+  update(state, "continuationInfoByProvider", initialContinuationInfo);
 
   const messageNodes: {
     msg: Message;
@@ -195,6 +195,18 @@ export async function startTui(
   const SLASH_COMMANDS = listOperatorCommands("tui").map(operatorCommandToSlashCommand);
 
   update(state, "slashCommands", SLASH_COMMANDS);
+
+  function openSessionContinuationBrowser(noSessionsTone: "muted" | "error" = "muted"): void {
+    if (state.sessions.length > 0) {
+      update(state, "selectedSessionIndex", 0);
+      update(state, "sessionContinuationMode", true);
+      renderSidebarSessions(state, currentTheme, ui);
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to continue")}`;
+      return;
+    }
+    const color = noSessionsTone === "error" ? currentTheme.error : currentTheme.textMuted;
+    ui.commandBarStatus.content = t`${fg(color)("No previous sessions available")}`;
+  }
 
   if (providerModelsRef) {
     const pollModels = () => {
@@ -315,14 +327,8 @@ export async function startTui(
         return;
       }
 
-      if (text === "/resume") {
-        if (state.sessions.length > 0) {
-          update(state, "selectedSessionIndex", 0);
-          renderSidebarSessions(state, currentTheme, ui);
-          ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to resume")}`;
-        } else {
-          ui.commandBarStatus.content = t`${fg(currentTheme.textMuted)("No previous sessions available")}`;
-        }
+      if (text === "/continue") {
+        openSessionContinuationBrowser();
         return;
       }
 
@@ -337,6 +343,7 @@ export async function startTui(
         return;
       }
 
+      update(state, "sessionContinuationMode", false);
       void sendMessage(
         {
           renderer,
@@ -348,7 +355,7 @@ export async function startTui(
           sidebarToolNode: null,
           messageNodes,
           createSession,
-          refreshResumeInfo,
+          refreshContinuationInfo,
           provider,
           domain,
           renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
@@ -361,7 +368,7 @@ export async function startTui(
         () => renderSidebarCost(state, currentTheme, ui),
         () => renderSidebarTurns(state, currentTheme, ui),
         () => renderSidebarProvider(state, currentTheme, ui, domain),
-        () => renderSidebarResume(state, currentTheme, ui),
+        () => renderSidebarContinuation(state, currentTheme, ui),
         renderCommandBarStatus,
         startSpinner,
         stopSpinner,
@@ -422,7 +429,7 @@ export async function startTui(
   renderSidebarCost(state, currentTheme, ui);
   renderSidebarTurns(state, currentTheme, ui);
   renderSidebarProvider(state, currentTheme, ui, domain);
-  renderSidebarResume(state, currentTheme, ui);
+  renderSidebarContinuation(state, currentTheme, ui);
   renderSidebarField(state, currentTheme, ui);
   renderSidebarApprovals(state, currentTheme, ui);
   renderSidebarChanges(state, currentTheme, ui);
@@ -923,7 +930,7 @@ export async function startTui(
       update(state, "routeMode", "user");
       update(state, "providerPickerIndex", providerPickerState.providerIndex);
       renderSidebarProvider(state, currentTheme, ui, domain);
-      renderSidebarResume(state, currentTheme, ui);
+      renderSidebarContinuation(state, currentTheme, ui);
     } catch (error) {
       const message =
         error instanceof Error && error.message.trim().length > 0
@@ -1161,7 +1168,7 @@ export async function startTui(
     ui.sidebar.backgroundColor = currentTheme.backgroundPanel;
 
     renderSidebarProvider(state, currentTheme, ui, domain);
-    renderSidebarResume(state, currentTheme, ui);
+    renderSidebarContinuation(state, currentTheme, ui);
 
     ui.sidebarCostText.content = t`${fg(currentTheme.textMuted)(`$${state.cost.toFixed(4)}`)}`;
     ui.sidebarCwdText.content = t`${fg(currentTheme.textMuted)(shortPath(process.cwd()))}`;
@@ -1602,25 +1609,27 @@ export async function startTui(
       (key.sequence === "\r" || key.sequence === "\n") &&
       state.status !== "running"
     ) {
-      // First: check for session resume (only when input is empty)
       const inputText = state.input.trim();
 
-      // If input is empty and a session is selected, resume it
-      if (inputText === "" && state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
+      if (inputText === "" && state.sessionContinuationMode && state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
         const selectedSession = state.sessions[state.selectedSessionIndex];
-        if (selectedSession && onResumeSession) {
-          onResumeSession(selectedSession);
+        if (selectedSession && onContinueSession) {
+          onContinueSession(selectedSession);
           update(state, "currentProvider", selectedSession.provider);
           update(state, "routeMode", "user");
+          update(state, "sessionContinuationMode", false);
           renderSidebarProvider(state, currentTheme, ui, domain);
-          renderSidebarResume(state, currentTheme, ui);
-          ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Resuming session ${selectedSession.sessionId.slice(0, 8)}...`)}`;
+          renderSidebarContinuation(state, currentTheme, ui);
+          ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Continuing session ${selectedSession.sessionId.slice(0, 8)}...`)}`;
           return;
         }
       }
 
-      // Process slash commands (must check before session resume check)
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/authority" || inputText === "/resume" || inputText === "/plan" || inputText === "/setup") {
+      if (inputText === "") {
+        return;
+      }
+
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1672,15 +1681,8 @@ export async function startTui(
             return;
           }
 
-          if (inputText === "/resume") {
-            // Focus on session browser - move selection to first session
-            if (state.sessions.length > 0) {
-              update(state, "selectedSessionIndex", 0);
-              renderSidebarSessions(state, currentTheme, ui);
-              ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to resume")}`;
-            } else {
-              ui.commandBarStatus.content = t`${fg(currentTheme.error)("No sessions to resume")}`;
-            }
+          if (inputText === "/continue") {
+            openSessionContinuationBrowser("error");
             return;
           }
 
@@ -1694,6 +1696,7 @@ export async function startTui(
         if (inputText) {
           ui.inputTextarea.clear();
           update(state, "input", "");
+          update(state, "sessionContinuationMode", false);
 
           void sendMessage(
           {
@@ -1706,7 +1709,7 @@ export async function startTui(
             sidebarToolNode: null,
             messageNodes,
             createSession,
-            refreshResumeInfo,
+            refreshContinuationInfo,
             provider,
             domain,
             renderSidebarApprovals: () => renderSidebarApprovals(state, currentTheme, ui),
@@ -1719,7 +1722,7 @@ export async function startTui(
           () => renderSidebarCost(state, currentTheme, ui),
           () => renderSidebarTurns(state, currentTheme, ui),
           () => renderSidebarProvider(state, currentTheme, ui, domain),
-          () => renderSidebarResume(state, currentTheme, ui),
+          () => renderSidebarContinuation(state, currentTheme, ui),
           renderCommandBarStatus,
           startSpinner,
           stopSpinner,
@@ -1792,14 +1795,8 @@ export async function startTui(
             cycleRequestedAuthority();
             return;
           }
-          if (cmd.id === "resume") {
-            if (state.sessions.length > 0) {
-              update(state, "selectedSessionIndex", 0);
-              renderSidebarSessions(state, currentTheme, ui);
-              ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Use arrow keys to select, Enter to resume")}`;
-            } else {
-              ui.commandBarStatus.content = t`${fg(currentTheme.textMuted)("No previous sessions available")}`;
-            }
+          if (cmd.id === "continue") {
+            openSessionContinuationBrowser();
             return;
           }
           if (cmd.id === "plan") {

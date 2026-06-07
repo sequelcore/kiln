@@ -16,6 +16,13 @@ describe("operator command contract", () => {
     expect(findOperatorCommand("exec", "gui")?.id).toBe("exec");
   });
 
+  it("uses continue as the visible continuation command across interactive surfaces", () => {
+    expect(findOperatorCommand("/continue", "tui")?.id).toBe("continue");
+    expect(findOperatorCommand("continue", "gui")?.id).toBe("continue");
+    expect(listOperatorCommands("tui").map((command) => command.trigger)).not.toContain("resume");
+    expect(listOperatorCommands("gui").map((command) => command.trigger)).not.toContain("resume");
+  });
+
   it.each(["cli", "gui", "tui"] as const)("does not duplicate triggers on %s", (surface: OperatorCommandSurfaceKind) => {
     const triggers = listOperatorCommands(surface).map((command) => command.trigger);
 

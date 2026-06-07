@@ -29,7 +29,7 @@ import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
-import { loadResumeSidebarInfo } from "../application/resume-sidebar-info.js";
+import { loadContinuationSidebarInfo } from "../application/continuation-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
@@ -229,8 +229,8 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       sessionManager,
       systemPrompt: bootstrapContext.systemPrompt,
       onClear: sessionManager.onClear,
-      onResumeSession: (sessionId) => {
-        sessionManager.setResumeSession(sessionId);
+      onContinueSession: (sessionId) => {
+        sessionManager.setContinuationSession(sessionId);
       },
       resumeSessionHydrator,
       contextArtifactCache,
@@ -392,13 +392,13 @@ async function buildDashboardSnapshot(
   });
 
   const telemetry = await readTelemetrySnapshot();
-  const resumeInfo = await loadResumeSidebarInfo(
+  const continuationInfo = await loadContinuationSidebarInfo(
     sessionStore,
     transcriptStore,
     providers.map((provider) => provider.id),
   );
-  const resumeInfoByProvider = Object.fromEntries(
-    Object.entries(resumeInfo).flatMap(([provider, info]) => (
+  const continuationInfoByProvider = Object.fromEntries(
+    Object.entries(continuationInfo).flatMap(([provider, info]) => (
       info.strategy
         ? [[provider, { strategy: info.strategy, feedbackLabel: info.feedbackLabel }]]
         : []
@@ -410,7 +410,7 @@ async function buildDashboardSnapshot(
     providers: providerDescriptors,
     sessions,
     telemetry,
-    resumeInfoByProvider,
+    continuationInfoByProvider,
     workingDirectory,
     domainLabel,
     workspaceTree,

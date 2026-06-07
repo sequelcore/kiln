@@ -119,7 +119,7 @@ const fakeSessionFactory: CliSessionFactory = (_systemPrompt, _cwd) => ({
 
 let activeProvider = "claude";
 let activeModel = "claude-sonnet-4-6";
-let resumeSessionId: string | null = null;
+let continuationSessionId: string | null = null;
 
 const contextArtifactCache = new InMemoryContextArtifactCache();
 const memoryDbDir = mkdtempSync(join(tmpdir(), "kiln-gui-memory-"));
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
       ],
       sessions: sessionSummaries.slice(0, 20),
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
-      resumeInfoByProvider: {},
+      continuationInfoByProvider: {},
     }),
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
     getSetupSnapshot: async () => setupSnapshot,
@@ -188,10 +188,10 @@ async function main(): Promise<void> {
       },
       systemPrompt: "You are a deterministic e2e test assistant.",
       onClear: async () => {
-        resumeSessionId = null;
+        continuationSessionId = null;
       },
-      onResumeSession: async (sessionId) => {
-        resumeSessionId = sessionId;
+      onContinueSession: async (sessionId) => {
+        continuationSessionId = sessionId;
       },
       contextArtifactCache,
       executionMode: "execute",

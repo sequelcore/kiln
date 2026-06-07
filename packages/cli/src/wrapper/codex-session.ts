@@ -46,7 +46,7 @@ export interface CodexSessionConfig {
   readonly constraintInstructions?: readonly string[];
   readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
-  readonly resumeSessionId?: string;
+  readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
 }
 
@@ -169,8 +169,8 @@ export class CodexSession implements IKilnSession {
     this._capabilities = {
       mcp: false,
       streaming: true,
-      resumable: config.resumeSessionId !== undefined,
-      resume: config.resumeSessionId !== undefined,
+      resumable: config.continuationSessionId !== undefined,
+      resume: config.continuationSessionId !== undefined,
       costTrackingMode: "computed",
       supportedTools: [],
       maxContextTokens: null,
@@ -199,10 +199,10 @@ export class CodexSession implements IKilnSession {
     const cwd = options.cwd ?? this.config.cwd ?? process.cwd();
 
     let resumeThreadId: string | undefined;
-    if (this.config.resumeSessionId !== undefined) {
+    if (this.config.continuationSessionId !== undefined) {
       try {
         const store = new SessionStore(cwd);
-        const providerThread = await store.findProviderThread(this.config.resumeSessionId, "codex");
+        const providerThread = await store.findProviderThread(this.config.continuationSessionId, "codex");
         if (providerThread) {
           resumeThreadId = providerThread.nativeSessionId;
         }

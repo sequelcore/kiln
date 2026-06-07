@@ -11,10 +11,10 @@ const commands = [
     keywords: ["reset", "session"],
   },
   {
-    id: "resume",
-    trigger: "resume",
-    title: "Resume selected session",
-    description: "Continue the highlighted session.",
+    id: "continue",
+    trigger: "continue",
+    title: "Continue session",
+    description: "Open session history.",
     keywords: ["history", "continue"],
   },
 ] as const;
@@ -35,7 +35,7 @@ describe("CommandPalette", () => {
       />,
     );
 
-    expect(screen.getByText("Resume selected session")).toBeInTheDocument();
+    expect(screen.getByText("Continue session")).toBeInTheDocument();
     expect(screen.queryByText("Clear session")).not.toBeInTheDocument();
   });
 

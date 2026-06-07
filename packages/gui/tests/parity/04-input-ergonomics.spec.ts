@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures/gateway.js";
 
 test.describe("parity category 4 - input and keyboard ergonomics", () => {
-  test("opens slash palette from empty input and resumes selected session with empty Enter", async ({ page }) => {
+  test("opens slash palette from empty input and keeps selected session idle on empty Enter", async ({ page }) => {
     await page.goto("/");
 
     const composer = page.locator("#composer-input");
@@ -18,7 +18,7 @@ test.describe("parity category 4 - input and keyboard ergonomics", () => {
     await composer.press("Enter");
 
     await expect
-      .poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resumeTarget")))
+      .poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.continuationTarget")))
       .toBeNull();
   });
 });

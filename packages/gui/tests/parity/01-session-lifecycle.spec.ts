@@ -19,7 +19,7 @@ test.describe("parity category 1 - session lifecycle", () => {
     });
   });
 
-  test("launches ready, streams a turn, clears, resumes, toggles plan, and disconnects on close", async ({ page, gatewayPort }) => {
+  test("launches ready, streams a turn, clears, continues selected session, toggles plan, and disconnects on close", async ({ page, gatewayPort }) => {
     await page.goto("/");
 
     const composer = page.locator("#composer-input");
@@ -36,11 +36,22 @@ test.describe("parity category 1 - session lifecycle", () => {
     await expect(page.getByLabel("Transcript").locator('[data-role="user"]')).toHaveCount(0, { timeout: 5_000 });
 
     await page.getByRole("option", { name: /Summarize parity checklist/ }).click();
-    await composer.click();
-    await composer.press("Enter");
     await expect
-      .poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.resumeTarget")))
+      .poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.continuationTarget")))
       .toBeNull();
+
+    await composer.fill("continue selected parity thread");
+    await composer.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').last()).toContainText("Reply", { timeout: 5_000 });
+
+    const continuationFrames = await page.evaluate(() => {
+      return (window as unknown as { __kilnSentFrames: Array<{ type?: string; content?: string; continuationSessionId?: string; sessionIntent?: string }> })
+        .__kilnSentFrames
+        .filter((frame) => frame.type === "message");
+    });
+    const continuationFrame = continuationFrames.find((frame) => frame.content === "continue selected parity thread");
+    expect(continuationFrame?.continuationSessionId).toBeTruthy();
+    expect(continuationFrame?.sessionIntent).toBeUndefined();
 
     await page.getByRole("button", { name: "Plan" }).click();
     await expect(page.getByRole("button", { name: "Plan" })).toHaveAttribute("aria-pressed", "true");
@@ -80,12 +91,12 @@ test.describe("parity category 1 - session lifecycle", () => {
     await expect(page.locator('[data-role="assistant"]').first()).toContainText("Reply", { timeout: 5_000 });
 
     const messageFrames = await page.evaluate(() => {
-      return (window as unknown as { __kilnSentFrames: Array<{ type?: string; content?: string; sessionIntent?: string; resumeSessionId?: string }> })
+      return (window as unknown as { __kilnSentFrames: Array<{ type?: string; content?: string; sessionIntent?: string; continuationSessionId?: string }> })
         .__kilnSentFrames
         .filter((frame) => frame.type === "message");
     });
     const freshFrame = messageFrames.find((frame) => frame.content === "fresh turn");
     expect(freshFrame).toMatchObject({ sessionIntent: "fresh" });
-    expect(freshFrame?.resumeSessionId).toBeUndefined();
+    expect(freshFrame?.continuationSessionId).toBeUndefined();
   });
 });

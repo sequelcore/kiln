@@ -18,7 +18,7 @@ What this package does:
 
 - render the interactive two-column terminal UI
 - expose built-in themes
-- manage picker state for providers, themes, and session resume
+- manage picker state for providers, themes, and explicit session continuation
 - adapt gateway WebSocket frames into TUI session events
 - preserve a stable TUI WebSocket user ID across reconnects
 

@@ -25,7 +25,7 @@ function resetSessionStore(): void {
     sessionList: [],
     selectedSessionId: null,
     liveSessionId: null,
-    resumeTargetId: null,
+    continuationTargetId: null,
     detachedSessionIds: [],
     routedProvider: null,
     routedModel: null,
@@ -65,9 +65,9 @@ describe("session-store", () => {
     resetSessionStore();
   });
 
-  it("onWelcome seeds providers, restores plan mode, and clears stale resume targets", () => {
+  it("onWelcome seeds providers, restores plan mode, and clears stale continuation targets", () => {
     localStorage.setItem("kiln.gui.planMode", "true");
-    localStorage.setItem("kiln.gui.resumeTarget", "session-123");
+    localStorage.setItem("kiln.gui.continuationTarget", "session-123");
 
     useSessionStore.getState().onWelcome({
       type: "welcome",
@@ -99,8 +99,8 @@ describe("session-store", () => {
     expect(state.activeProvider).toBe("claude");
     expect(state.activeModel).toBe("sonnet");
     expect(state.planMode).toBe(true);
-    expect(state.resumeTargetId).toBeNull();
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+    expect(state.continuationTargetId).toBeNull();
+    expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
   });
 
   it("onTextDelta creates and appends to a single streaming assistant message", () => {
@@ -726,7 +726,7 @@ describe("session-store", () => {
   it("clears visible operational state when selecting another session", () => {
     useSessionStore.setState({
       selectedSessionId: "session-a",
-      resumeTargetId: "session-a",
+      continuationTargetId: "session-a",
       status: "running",
       activity: { phase: "tool_running", toolName: "write" },
       activityPhase: "tool_running",
@@ -763,11 +763,11 @@ describe("session-store", () => {
     expect(state.activityPhase).toBe("idle");
   });
 
-  it("clears resume target when selecting a blank session", () => {
-    useSessionStore.getState().setResume("session-a");
+  it("clears continuation target when selecting a blank session", () => {
+    useSessionStore.getState().setContinuation("session-a");
     useSessionStore.setState({
       selectedSessionId: "session-a",
-      resumeTargetId: "session-a",
+      continuationTargetId: "session-a",
       messages: [
         {
           id: "message-a",
@@ -782,19 +782,19 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.selectedSessionId).toBeNull();
-    expect(state.resumeTargetId).toBeNull();
+    expect(state.continuationTargetId).toBeNull();
     expect(state.messages).toEqual([]);
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+    expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
   });
 
   it("marks the first blank-session message as a fresh session boundary", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
-    useSessionStore.getState().setResume("session-a");
+    useSessionStore.getState().setContinuation("session-a");
     useSessionStore.setState({
       status: "ready",
       selectedSessionId: "session-a",
-      resumeTargetId: "session-a",
+      continuationTargetId: "session-a",
     });
 
     useSessionStore.getState().setSelectedSessionId(null);
@@ -804,7 +804,7 @@ describe("session-store", () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       type: "message",
       content: "new task",
-      resumeSessionId: undefined,
+      continuationSessionId: undefined,
       sessionIntent: "fresh",
     }));
   });
@@ -830,7 +830,7 @@ describe("session-store", () => {
       ],
       liveSessionId: "session-live",
       selectedSessionId: null,
-      resumeTargetId: null,
+      continuationTargetId: null,
     });
 
     const accepted = useSessionStore.getState().sendMessage("follow up");
@@ -839,7 +839,7 @@ describe("session-store", () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       type: "message",
       content: "follow up",
-      resumeSessionId: undefined,
+      continuationSessionId: undefined,
     }));
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty("sessionIntent");
   });
@@ -847,7 +847,7 @@ describe("session-store", () => {
   it("ignores live canonical events and phase frames for another visible session", () => {
     useSessionStore.setState({
       selectedSessionId: "session-visible",
-      resumeTargetId: "session-visible",
+      continuationTargetId: "session-visible",
       status: "ready",
     });
 
@@ -1860,14 +1860,14 @@ describe("session-store", () => {
     expect(state.status).toBe("ready");
   });
 
-  it("onCleared empties transcript and drops the session-scoped resume target", () => {
+  it("onCleared empties transcript and drops the session-scoped continuation target", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.getState().onProviderChanged({
       type: "provider_changed",
       provider: "claude",
     });
-    useSessionStore.getState().setResume("session-a");
+    useSessionStore.getState().setContinuation("session-a");
     useSessionStore.setState({ status: "ready" });
     useSessionStore.getState().sendMessage("test");
     useSessionStore.getState().onInteractiveUseUpdated({
@@ -1886,8 +1886,8 @@ describe("session-store", () => {
     expect(state.messages).toHaveLength(0);
     expect(state.timelineEntries).toHaveLength(0);
     expect(state.interactiveUseSnapshot).toBeNull();
-    expect(state.resumeTargetId).toBeNull();
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+    expect(state.continuationTargetId).toBeNull();
+    expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
   });
 
   it("sendMessage rejects when status is not ready", () => {
@@ -1915,7 +1915,7 @@ describe("session-store", () => {
       type: "message",
       content: "hello",
       executionMode: "plan",
-      resumeSessionId: undefined,
+      continuationSessionId: undefined,
       sessionIntent: "fresh",
       appName: "support",
       tenantId: "acme",
@@ -1931,9 +1931,9 @@ describe("session-store", () => {
     expect(send).toHaveBeenCalledWith({ type: "execution_mode_transition", toMode: "execute" });
   });
 
-  it("persists planMode but does not silently restore resume target on welcome", () => {
+  it("persists planMode but does not silently restore continuation target on welcome", () => {
     useSessionStore.getState().setPlanMode(true);
-    useSessionStore.getState().setResume("resume-42");
+    useSessionStore.getState().setContinuation("resume-42");
 
     resetSessionStore();
     useSessionStore.getState().onWelcome({
@@ -1946,45 +1946,44 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.planMode).toBe(true);
-    expect(state.resumeTargetId).toBeNull();
+    expect(state.continuationTargetId).toBeNull();
     expect(localStorage.getItem("kiln.gui.planMode")).toBe("true");
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+    expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
   });
 
-  it("treats historical selection as preview and clears explicit resume intent", () => {
-    useSessionStore.getState().setResume("resume-session");
+  it("treats historical selection as the active continuation target", () => {
+    useSessionStore.getState().setContinuation("resume-session");
     useSessionStore.getState().setSelectedSessionId("preview-session");
 
     const state = useSessionStore.getState();
     expect(state.selectedSessionId).toBe("preview-session");
-    expect(state.resumeTargetId).toBeNull();
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+    expect(state.continuationTargetId).toBe("preview-session");
+    expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
   });
 
-  it("exits historical preview when submitting a resumed live turn", () => {
+  it("keeps selected continuation state when submitting a continued live turn", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({ status: "ready" });
-    useSessionStore.getState().setSelectedSessionId("preview-session");
-    useSessionStore.getState().setResume("resume-session");
+    useSessionStore.getState().setContinuation("resume-session");
 
     expect(useSessionStore.getState().sendMessage("continue with browser")).toBe(true);
 
     const state = useSessionStore.getState();
     expect(state.selectedSessionId).toBeNull();
-    expect(state.resumeTargetId).toBe("resume-session");
+    expect(state.continuationTargetId).toBe("resume-session");
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       type: "message",
-      resumeSessionId: "resume-session",
+      continuationSessionId: "resume-session",
     }));
   });
 
-  it("starts a fresh live turn from historical preview unless resume was explicit", () => {
+  it("continues the selected historical session on submit", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
+    useSessionStore.getState().setSelectedSessionId("preview-session");
     useSessionStore.setState({
       status: "ready",
-      selectedSessionId: "preview-session",
       messages: [
         {
           id: "historical-message",
@@ -2012,14 +2011,15 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.selectedSessionId).toBeNull();
-    expect(state.resumeTargetId).toBeNull();
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]).toMatchObject({ role: "user", content: "new browser check" });
+    expect(state.continuationTargetId).toBe("preview-session");
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]).toMatchObject({ role: "assistant", content: "historical content" });
+    expect(state.messages[1]).toMatchObject({ role: "user", content: "new browser check" });
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       type: "message",
-      resumeSessionId: undefined,
-      sessionIntent: "fresh",
+      continuationSessionId: "preview-session",
     }));
+    expect(send.mock.calls[0]?.[0]).not.toHaveProperty("sessionIntent");
   });
 
   it("loads selected session detail from canonical session events", () => {
@@ -2159,8 +2159,8 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.selectedSessionId).toBe("session-77");
-    expect(state.resumeTargetId).toBeNull();
-    expect(localStorage.getItem("kiln.gui.resumeTarget")).toBeNull();
+    expect(state.continuationTargetId).toBe("session-77");
+    expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
     expect(state.status).toBe("ready");
     expect(state.messages).toHaveLength(2);
     expect(state.timelineEntries).toHaveLength(9);

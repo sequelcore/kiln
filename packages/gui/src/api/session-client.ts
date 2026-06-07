@@ -27,7 +27,7 @@ export class GuiSessionClient {
     resolve: (v: string) => void;
     reject: (err: Error) => void;
   } | null = null;
-  private pendingResumeSelection: { timerId: number; resolve: (v: { sessionId: string }) => void; reject: (err: Error) => void } | null = null;
+  private pendingContinuationSelection: { timerId: number; resolve: (v: { sessionId: string }) => void; reject: (err: Error) => void } | null = null;
 
   private readonly HEARTBEAT_INTERVAL_MS = 30_000;
   private readonly HEARTBEAT_TIMEOUT_MS = 60_000;
@@ -104,16 +104,16 @@ export class GuiSessionClient {
     });
   }
 
-  selectResumeSession(sessionId: string): Promise<{ sessionId: string }> {
-    if (this.pendingResumeSelection) throw new Error("Resume selection already in flight");
+  selectContinuationSession(sessionId: string): Promise<{ sessionId: string }> {
+    if (this.pendingContinuationSelection) throw new Error("Resume selection already in flight");
     if (!sessionId.trim()) throw new Error("Resume selection requires sessionId");
-    this.send({ type: "resume", sessionId });
+    this.send({ type: "continue", sessionId });
     return new Promise<{ sessionId: string }>((resolve, reject) => {
       const timerId = window.setTimeout(() => {
-        this.pendingResumeSelection = null;
+        this.pendingContinuationSelection = null;
         reject(new Error("Resume selection timed out"));
       }, this.ACK_TIMEOUT_MS);
-      this.pendingResumeSelection = { timerId, resolve, reject };
+      this.pendingContinuationSelection = { timerId, resolve, reject };
     });
   }
 
@@ -204,10 +204,10 @@ export class GuiSessionClient {
         this.pendingProviderChange = null;
       }
     }
-    if (frame.type === "resume_selected" && this.pendingResumeSelection) {
-      window.clearTimeout(this.pendingResumeSelection.timerId);
-      this.pendingResumeSelection.resolve({ sessionId: frame.sessionId });
-      this.pendingResumeSelection = null;
+    if (frame.type === "continuation_selected" && this.pendingContinuationSelection) {
+      window.clearTimeout(this.pendingContinuationSelection.timerId);
+      this.pendingContinuationSelection.resolve({ sessionId: frame.sessionId });
+      this.pendingContinuationSelection = null;
     }
     if (frame.type === "error") {
       if (this.pendingClear) {
@@ -220,10 +220,10 @@ export class GuiSessionClient {
         this.pendingProviderChange.reject(new Error(frame.message));
         this.pendingProviderChange = null;
       }
-      if (this.pendingResumeSelection) {
-        window.clearTimeout(this.pendingResumeSelection.timerId);
-        this.pendingResumeSelection.reject(new Error(frame.message));
-        this.pendingResumeSelection = null;
+      if (this.pendingContinuationSelection) {
+        window.clearTimeout(this.pendingContinuationSelection.timerId);
+        this.pendingContinuationSelection.reject(new Error(frame.message));
+        this.pendingContinuationSelection = null;
       }
     }
     this.options.onFrame(frame);
@@ -321,10 +321,10 @@ export class GuiSessionClient {
       this.pendingProviderChange.reject(error);
       this.pendingProviderChange = null;
     }
-    if (this.pendingResumeSelection) {
-      window.clearTimeout(this.pendingResumeSelection.timerId);
-      this.pendingResumeSelection.reject(error);
-      this.pendingResumeSelection = null;
+    if (this.pendingContinuationSelection) {
+      window.clearTimeout(this.pendingContinuationSelection.timerId);
+      this.pendingContinuationSelection.reject(error);
+      this.pendingContinuationSelection = null;
     }
   }
 

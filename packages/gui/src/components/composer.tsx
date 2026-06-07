@@ -5,6 +5,7 @@ import {
   voiceInputDisplayText,
 } from "@kilnai/gateway-contracts/voice-input-parts";
 import type { SessionStatus } from "../lib/session-store.js";
+import type { ComposerContinuityHint, SessionContinuityTone } from "../lib/session-continuity-view.js";
 import { ComposerCommandMenu } from "./composer-command-menu.js";
 import type { CommandPaletteItem } from "./command-menu-surface.js";
 import { ArrowUp, ListChecks, Mic, Paperclip, Square } from "lucide-react";
@@ -23,15 +24,29 @@ interface ComposerCommandMenuState {
 interface ComposerProps {
   readonly status: SessionStatus;
   readonly planMode: boolean;
-  readonly resumeTargetId: string | null;
+  readonly continuityHint: ComposerContinuityHint;
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
   readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly onSubmit: (text: string) => void;
   readonly onSubmitParts?: (parts: readonly unknown[], displayContent: string) => void;
-  readonly onEmptySubmit: () => void;
   readonly onTogglePlanMode: (enabled: boolean) => void;
+}
+
+function continuityHintClass(tone: SessionContinuityTone): string {
+  switch (tone) {
+    case "accent":
+      return "border-[var(--color-accent)]/35 bg-[var(--color-accent)]/8 text-[var(--color-accent)]";
+    case "info":
+      return "border-blue-500/25 bg-blue-500/8 text-blue-700 dark:text-blue-300";
+    case "warning":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300";
+    case "danger":
+      return "border-destructive/30 bg-destructive/8 text-destructive";
+    case "muted":
+      return "border-border bg-muted/35 text-muted-foreground";
+  }
 }
 
 export function Composer(props: ComposerProps) {
@@ -192,7 +207,6 @@ export function Composer(props: ComposerProps) {
                 return;
               }
               if (!draft.trim()) {
-                props.onEmptySubmit();
                 return;
               }
               props.onSubmit(draft);
@@ -203,6 +217,15 @@ export function Composer(props: ComposerProps) {
             placeholder="Message Kiln"
           />
           <div className="flex min-h-10 flex-wrap items-center gap-2 border-t border-border/55 bg-background/55 px-2.5 py-1.5">
+            <div
+              role="status"
+              aria-label="Session continuity"
+              className={`flex min-w-0 max-w-full items-center gap-1.5 rounded-sm border px-1.5 py-1 font-mono text-[10px] leading-none ${continuityHintClass(props.continuityHint.tone)}`}
+            >
+              <span className="shrink-0 uppercase">{props.continuityHint.label}</span>
+              <span aria-hidden="true" className="text-current/35">/</span>
+              <span className="min-w-0 truncate normal-case">{props.continuityHint.description}</span>
+            </div>
             {props.providerControl || props.reasoningControl || props.authorityControl ? (
               <div className="flex min-w-0 max-w-full flex-1 items-center gap-1.5 sm:flex-none">
                 {props.providerControl ? (

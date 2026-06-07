@@ -82,7 +82,7 @@ export type {
   GuiTelemetrySnapshot,
   GuiAppDescriptor,
   GuiAppTenantDescriptor,
-  GuiResumeInfo,
+  GuiContinuationInfo,
   GuiProviderThreadMeta,
   GuiDashboardSnapshot,
   GuiSessionMeta,

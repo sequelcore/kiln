@@ -70,7 +70,7 @@ describe("project-root-resolver", () => {
     mkdirSync(join(root, "packages", "cli", ".kiln"), { recursive: true });
     writeFileSync(join(root, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
     writeFileSync(
-      join(root, "packages", "cli", ".kiln", "resume-targets.json"),
+      join(root, "packages", "cli", ".kiln", "continuation-targets.json"),
       JSON.stringify({ defaultSessionId: "stale-nested-session" }),
       "utf-8",
     );

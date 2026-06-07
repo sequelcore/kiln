@@ -50,7 +50,7 @@ export interface ClaudeSessionConfig {
   readonly constraintInstructions?: readonly string[];
   readonly translationWarnings?: readonly string[];
   readonly permissionPolicy?: KilnPermissionPolicy;
-  readonly resumeSessionId?: string;
+  readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly model?: string;
 }
@@ -111,8 +111,8 @@ export class ClaudeSession implements IKilnSession {
     this._capabilities = {
       mcp: true,
       streaming: true,
-      resumable: config.resumeSessionId !== undefined,
-      resume: config.resumeSessionId !== undefined,
+      resumable: config.continuationSessionId !== undefined,
+      resume: config.continuationSessionId !== undefined,
       costTrackingMode: "native",
       supportedTools: [],
       maxContextTokens: null,
@@ -182,14 +182,14 @@ export class ClaudeSession implements IKilnSession {
       },
     };
 
-    let resumeSessionId: string | undefined;
-    if (this.config.resumeSessionId !== undefined) {
+    let continuationSessionId: string | undefined;
+    if (this.config.continuationSessionId !== undefined) {
       try {
         const store = new SessionStore(this.config.cwd);
-        const providerThread = await store.findProviderThread(this.config.resumeSessionId, "claude");
+        const providerThread = await store.findProviderThread(this.config.continuationSessionId, "claude");
         if (providerThread) {
-          resumeSessionId = providerThread.nativeSessionId;
-          const resumeOptions: Options = { ...sdkOptions, sessionId: resumeSessionId };
+          continuationSessionId = providerThread.nativeSessionId;
+          const resumeOptions: Options = { ...sdkOptions, sessionId: continuationSessionId };
           Object.assign(sdkOptions, resumeOptions);
         }
       } catch {
@@ -290,7 +290,7 @@ export class ClaudeSession implements IKilnSession {
               hasError: resultMsg.is_error ?? false,
             });
             await store.append({
-              sessionId: resumeSessionId ?? this.sessionId,
+              sessionId: continuationSessionId ?? this.sessionId,
               provider: "claude-code",
               task: this.config.task,
               title: metadata.title,

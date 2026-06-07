@@ -151,7 +151,7 @@ Terminal surfaces must preserve:
 - clear logs
 - headless execution
 - provider selection
-- session resume and handoff
+- explicit session continuation and handoff
 - test/build automation
 - the same canonical session and operator event contracts as GUI
 
@@ -304,6 +304,7 @@ claim success.
 - Surfaces are clients of contracts, not owners of runtime semantics.
 - Gateway/operator contracts are the boundary for GUI/native/TUI/CLI control.
 - MCP is the external tool/host boundary, not the GUI-to-gateway protocol.
-- Session selection means active continuation unless a surface explicitly
-  implements a read-only preview mode.
+- In chat surfaces, session selection makes the selected transcript the visible
+  continuation target; fresh/new session actions are the explicit boundary for
+  new work.
 - Roadmaps sequence work; stable operator-surface doctrine lives here.
