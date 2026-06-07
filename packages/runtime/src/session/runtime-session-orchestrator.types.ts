@@ -50,6 +50,7 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly toolCall: ToolCall;
   readonly abortSignal?: AbortSignal;
   readonly sandbox?: unknown;
+  readonly allowedToolNames?: readonly string[];
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly requestApproval?: (
     description: string,

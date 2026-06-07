@@ -189,7 +189,7 @@ export const TOOL_SCHEMAS: Record<
 > = {
   bash: {
     name: "bash",
-    description: "Run a shell command in the current workspace. Always pass a JSON object with a non-empty command string.",
+    description: "Run a Bash shell command in the current workspace when no purpose-built tool exists. Always pass a JSON object with a non-empty command string. Use the git tool for Git subcommands instead of bash.",
     inputSchema: {
       type: "object",
       properties: {
@@ -907,7 +907,7 @@ export const TOOL_SCHEMAS: Record<
   },
   grep: {
     name: "grep",
-    description: "Search file content by pattern. Always pass a JSON object with a non-empty pattern string and optional path, glob, or outputMode.",
+    description: "Search file content by pattern. Always pass a JSON object with a non-empty pattern string and optional path, glob, outputMode, or maxResults.",
     inputSchema: {
       type: "object",
       properties: {
@@ -928,6 +928,10 @@ export const TOOL_SCHEMAS: Record<
           type: "string",
           enum: ["content", "files_with_matches", "count"],
           description: "content returns matching lines, files_with_matches returns only file paths, count returns per-file counts.",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum number of returned result lines. Defaults to 200 and is capped at 1000.",
         },
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
@@ -966,7 +970,7 @@ export const TOOL_SCHEMAS: Record<
   },
   git: {
     name: "git",
-    description: "Run a git subcommand. Always pass a JSON object with a non-empty subcommand string and optional args array.",
+    description: "Run a read-only git inspection subcommand. Always pass a JSON object with a non-empty subcommand string and optional args array. Mutating subcommands such as add, checkout, commit, reset, push, and pull are denied.",
     inputSchema: {
       type: "object",
       properties: {
@@ -985,7 +989,8 @@ export const TOOL_SCHEMAS: Record<
       additionalProperties: false,
     },
     annotations: {
-      destructive: false,
+      readOnly: true,
+      idempotent: true,
     },
   },
   code_intelligence: {

@@ -321,8 +321,11 @@ describe("buildProviderSystemPrompt", () => {
     expect(result).toContain("call glob, grep, or read immediately");
     expect(result).toContain('{"pattern":"**/*.ts","path":"packages/cli"}');
     expect(result).toContain(
-      '{"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content"}',
+      '{"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content","maxResults":50}',
     );
+    expect(result).toContain("start with outputMode files_with_matches or count");
+    expect(result).toContain("Use the git tool for Git inspection instead of bash commands");
+    expect(result).toContain("Do not reuse /mnt/c or /c shell paths as cwd.");
     expect(result).toContain(
       '{"filePath":"packages/cli/src/wrapper/preamble-builder.ts"}',
     );

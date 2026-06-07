@@ -3121,6 +3121,27 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(toolFn).toHaveBeenCalled();
     });
 
+    it("passes per-call allowlist into builtin tool execution context", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue("result");
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, {
+        toolAllowlist: new Set(["get_data"]),
+      });
+
+      const context = toolFn.mock.calls[0]?.[1] as {
+        readonly allowedToolNames?: readonly string[];
+      } | undefined;
+
+      expect(context?.allowedToolNames).toEqual(["get_data"]);
+    });
+
     it("allows all tools when no allowlist", async () => {
       const provider = makeProvider(1);
       const toolFn = vi.fn().mockResolvedValue("result");

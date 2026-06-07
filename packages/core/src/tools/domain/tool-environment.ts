@@ -13,11 +13,13 @@ export interface ToolEnvironment {
   readonly fd?: BinaryInfo;
   readonly jq?: BinaryInfo;
   readonly git?: BinaryInfo;
+  readonly bash?: BinaryInfo;
 }
 
 export interface ToolEnvironmentOptions {
   readonly searchPaths?: readonly string[];
   readonly commandExecutor?: ToolEnvironmentCommandExecutor;
+  readonly detectionTimeoutMs?: number;
 }
 
 interface CommandResult {
@@ -28,9 +30,11 @@ export type ToolEnvironmentCommandExecutor = (
   command: string,
   args: readonly string[],
   searchPaths?: readonly string[],
+  timeoutMs?: number,
 ) => Promise<CommandResult>;
 
-const TOOL_NAMES = ["rg", "fd", "jq", "git"] as const;
+const TOOL_NAMES = ["rg", "fd", "jq", "git", "bash"] as const;
+const DEFAULT_DETECTION_TIMEOUT_MS = 1_500;
 
 /**
  * Process-wide cache. The first successful detection result is reused for all subsequent calls.
@@ -53,8 +57,10 @@ function executeCommand(
   command: string,
   args: readonly string[],
   searchPaths: readonly string[] | undefined,
+  timeoutMs: number | undefined,
   callback: (error: Error | null, result?: CommandResult) => void,
 ): void {
+  let completed = false;
   const child = spawn(command, [...args], {
     env: {
       ...process.env,
@@ -65,6 +71,12 @@ function executeCommand(
 
   let stdout = "";
   let stderr = "";
+  const timer = setTimeout(() => {
+    if (completed) return;
+    completed = true;
+    child.kill();
+    callback(Object.assign(new Error(`Command timed out: ${command}`), { code: "ETIMEDOUT" }));
+  }, timeoutMs ?? DEFAULT_DETECTION_TIMEOUT_MS);
 
   child.stdout.on("data", (chunk: Buffer | string) => {
     stdout += chunk.toString();
@@ -75,10 +87,16 @@ function executeCommand(
   });
 
   child.on("error", (error) => {
+    if (completed) return;
+    completed = true;
+    clearTimeout(timer);
     callback(error);
   });
 
   child.on("close", (exitCode) => {
+    if (completed) return;
+    completed = true;
+    clearTimeout(timer);
     if (exitCode !== 0) {
       callback(new Error(stderr.trim() || `Command failed: ${command}`));
       return;
@@ -90,17 +108,18 @@ function executeCommand(
 
 const executeCommandAsync = promisify(executeCommand);
 
-const defaultCommandExecutor: ToolEnvironmentCommandExecutor = async (command, args, searchPaths) =>
-  await executeCommandAsync(command, args, searchPaths) as CommandResult;
+const defaultCommandExecutor: ToolEnvironmentCommandExecutor = async (command, args, searchPaths, timeoutMs) =>
+  await executeCommandAsync(command, args, searchPaths, timeoutMs ?? DEFAULT_DETECTION_TIMEOUT_MS) as CommandResult;
 
 async function detectBinary(
   name: (typeof TOOL_NAMES)[number],
   searchPaths?: readonly string[],
   commandExecutor: ToolEnvironmentCommandExecutor = defaultCommandExecutor,
+  detectionTimeoutMs: number = DEFAULT_DETECTION_TIMEOUT_MS,
 ): Promise<BinaryInfo | undefined> {
   try {
     const locator = process.platform === "win32" ? "where" : "which";
-    const locationResult = await commandExecutor(locator, [name], searchPaths);
+    const locationResult = await commandExecutor(locator, [name], searchPaths, detectionTimeoutMs);
     const paths = locationResult.stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -108,7 +127,7 @@ async function detectBinary(
 
     for (const path of paths) {
       try {
-        const versionResult = await commandExecutor(path, ["--version"], searchPaths);
+        const versionResult = await commandExecutor(path, ["--version"], searchPaths, detectionTimeoutMs);
         const version = versionResult.stdout
           .split(/\r?\n/)
           .map((line) => line.trim())
@@ -136,11 +155,13 @@ export async function detectToolEnvironment(
   }
 
   const commandExecutor = options.commandExecutor ?? defaultCommandExecutor;
-  const [rg, fd, jq, git] = await Promise.all([
-    detectBinary("rg", options.searchPaths, commandExecutor),
-    detectBinary("fd", options.searchPaths, commandExecutor),
-    detectBinary("jq", options.searchPaths, commandExecutor),
-    detectBinary("git", options.searchPaths, commandExecutor),
+  const detectionTimeoutMs = options.detectionTimeoutMs ?? DEFAULT_DETECTION_TIMEOUT_MS;
+  const [rg, fd, jq, git, bash] = await Promise.all([
+    detectBinary("rg", options.searchPaths, commandExecutor, detectionTimeoutMs),
+    detectBinary("fd", options.searchPaths, commandExecutor, detectionTimeoutMs),
+    detectBinary("jq", options.searchPaths, commandExecutor, detectionTimeoutMs),
+    detectBinary("git", options.searchPaths, commandExecutor, detectionTimeoutMs),
+    detectBinary("bash", options.searchPaths, commandExecutor, detectionTimeoutMs),
   ]);
 
   const environment: ToolEnvironment = {
@@ -148,6 +169,7 @@ export async function detectToolEnvironment(
     ...(fd && { fd }),
     ...(jq && { jq }),
     ...(git && { git }),
+    ...(bash && { bash }),
   };
 
   cachedToolEnvironment = environment;

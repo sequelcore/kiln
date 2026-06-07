@@ -15,6 +15,33 @@ import {
 const execFile = promisify(execFileCallback);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_BUFFER = 2 * 1024 * 1024;
+const READ_ONLY_GIT_SUBCOMMANDS = new Set([
+  "blame",
+  "branch",
+  "config",
+  "diff",
+  "grep",
+  "log",
+  "ls-files",
+  "rev-list",
+  "rev-parse",
+  "shortlog",
+  "show",
+  "show-ref",
+  "status",
+  "tag",
+]);
+const DENIED_GIT_ARGS = new Set([
+  "-d",
+  "-D",
+  "-m",
+  "-M",
+  "--delete",
+  "--force",
+  "--move",
+  "--unset",
+  "--unset-all",
+]);
 
 type GitCommandResult = {
   readonly stdout: string;
@@ -52,6 +79,10 @@ export class GitTool implements DevTool {
     const argsInput = readArgs(input);
     if (!argsInput.ok) {
       return toErrorResult(argsInput.message);
+    }
+    const readonlyError = validateReadOnlyGitCommand(subcommandInput.value, argsInput.value);
+    if (readonlyError) {
+      return toErrorResult(readonlyError);
     }
 
     const sandboxContext = getSandboxContext(sandbox);
@@ -108,6 +139,22 @@ export class GitTool implements DevTool {
       }));
     }
   }
+}
+
+function validateReadOnlyGitCommand(subcommand: string, args: readonly string[]): string | undefined {
+  const normalizedSubcommand = subcommand.trim().toLowerCase();
+  if (!READ_ONLY_GIT_SUBCOMMANDS.has(normalizedSubcommand)) {
+    return `Invalid input: git tool only supports read-only git inspection subcommands; '${subcommand}' is denied.`;
+  }
+
+  if (
+    (normalizedSubcommand === "branch" || normalizedSubcommand === "tag" || normalizedSubcommand === "config")
+    && args.some((arg) => DENIED_GIT_ARGS.has(arg))
+  ) {
+    return `Invalid input: git ${normalizedSubcommand} arguments must be read-only; mutating flags are denied.`;
+  }
+
+  return undefined;
 }
 
 function readArgs(input: ToolInput): { ok: true; value: string[] } | { ok: false; message: string } {

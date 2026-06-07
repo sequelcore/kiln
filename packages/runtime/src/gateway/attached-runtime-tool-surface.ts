@@ -1204,10 +1204,11 @@ function buildBuiltinToolExecutors(
   const executors = new Map<string, RuntimeBuiltinToolExecutor>();
   for (const toolName of surface.toolNames) {
     executors.set(toolName, async (input, context) => {
+      const sandbox = mergeToolSandboxContext(context?.sandbox, context?.allowedToolNames);
       const execution = await surface.bridge.execute({
         name: toolName,
         input,
-        ...(context?.sandbox !== undefined ? { sandbox: context.sandbox } : {}),
+        ...(sandbox !== undefined ? { sandbox } : {}),
       });
       const result = execution.result;
       const resourceLinks = projectToolResultResourceLinks(result);
@@ -1222,6 +1223,22 @@ function buildBuiltinToolExecutors(
     });
   }
   return executors;
+}
+
+function mergeToolSandboxContext(
+  sandbox: unknown,
+  allowedToolNames: readonly string[] | undefined,
+): unknown {
+  if (allowedToolNames === undefined) {
+    return sandbox;
+  }
+  if (sandbox && typeof sandbox === "object" && !Array.isArray(sandbox)) {
+    return {
+      ...(sandbox as Record<string, unknown>),
+      allowedToolNames,
+    };
+  }
+  return { allowedToolNames };
 }
 
 function formatLinkedOutput(

@@ -1,5 +1,9 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import {
+  detectToolEnvironment,
+  type ToolEnvironment,
+} from "../domain/tool-environment.js";
 import { commandToolMetadata } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import {
@@ -31,8 +35,20 @@ type BashCommandRunner = (
   timeoutMs: number,
 ) => Promise<BashCommandResult>;
 
+type BashProcessRunner = (
+  executable: string,
+  args: readonly string[],
+  cwd: string,
+  timeoutMs: number,
+) => Promise<BashCommandResult>;
+
+type EnvironmentProvider = () => Promise<ToolEnvironment>;
+
 export interface BashToolOptions {
   readonly commandRunner?: BashCommandRunner;
+  readonly processRunner?: BashProcessRunner;
+  readonly environmentProvider?: EnvironmentProvider;
+  readonly platform?: NodeJS.Platform;
 }
 
 export class BashTool implements DevTool {
@@ -41,10 +57,16 @@ export class BashTool implements DevTool {
   readonly inputSchema = TOOL_SCHEMAS.bash.inputSchema;
   readonly annotations = TOOL_SCHEMAS.bash.annotations;
 
-  private readonly commandRunner: BashCommandRunner;
+  private readonly commandRunner?: BashCommandRunner;
+  private readonly processRunner: BashProcessRunner;
+  private readonly environmentProvider: EnvironmentProvider;
+  private readonly platform: NodeJS.Platform;
 
   constructor(options: BashToolOptions = {}) {
-    this.commandRunner = options.commandRunner ?? runBashCommand;
+    this.commandRunner = options.commandRunner;
+    this.processRunner = options.processRunner ?? runBashProcess;
+    this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
+    this.platform = options.platform ?? process.platform;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -63,7 +85,10 @@ export class BashTool implements DevTool {
     }
 
     const sandboxContext = getSandboxContext(sandbox);
-    const cwd = resolvePath(optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(), sandbox);
+    const cwd = resolvePath(
+      normalizeShellCwdForHost(optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(), this.platform),
+      sandbox,
+    );
 
     // Validate cwd is within sandbox boundaries (read access implies path containment)
     const cwdError = validateReadPath(cwd, sandbox);
@@ -89,7 +114,15 @@ export class BashTool implements DevTool {
     const startedAtMs = Date.now();
 
     try {
-      const result = await this.commandRunner(commandInput.value, cwd, timeoutInput.value);
+      const result = this.commandRunner
+        ? await this.commandRunner(commandInput.value, cwd, timeoutInput.value)
+        : await runBashCommand(
+          commandInput.value,
+          cwd,
+          timeoutInput.value,
+          this.environmentProvider,
+          this.processRunner,
+        );
       const durationMs = elapsedDurationMs(startedAtMs);
       const stdout = result.stdout;
       const stderr = result.stderr;
@@ -236,8 +269,27 @@ async function runBashCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
+  environmentProvider: EnvironmentProvider,
+  processRunner: BashProcessRunner,
 ): Promise<BashCommandResult> {
-  const { stdout, stderr } = await execFile("bash", ["-c", command], {
+  const environment = await environmentProvider();
+  const executable = environment.bash?.path;
+  if (!executable) {
+    throw Object.assign(new Error("bash executable is not available in the detected tool environment"), {
+      code: "BASH_NOT_FOUND",
+    });
+  }
+
+  return await processRunner(executable, ["-c", command], cwd, timeoutMs);
+}
+
+async function runBashProcess(
+  executable: string,
+  args: readonly string[],
+  cwd: string,
+  timeoutMs: number,
+): Promise<BashCommandResult> {
+  const { stdout, stderr } = await execFile(executable, [...args], {
     cwd,
     timeout: timeoutMs,
     windowsHide: true,
@@ -245,6 +297,31 @@ async function runBashCommand(
   });
 
   return { stdout, stderr };
+}
+
+function normalizeShellCwdForHost(cwd: string, platform: NodeJS.Platform): string {
+  if (platform !== "win32") return cwd;
+  return normalizeWindowsShellPath(cwd);
+}
+
+function normalizeWindowsShellPath(pathValue: string): string {
+  const normalized = pathValue.replace(/\\/g, "/");
+  const wslMatch = /^\/mnt\/([a-zA-Z])(?:\/(.*))?$/.exec(normalized);
+  if (wslMatch) {
+    return toWindowsDrivePath(wslMatch[1] ?? "", wslMatch[2]);
+  }
+
+  const msysMatch = /^\/([a-zA-Z])(?:\/(.*))?$/.exec(normalized);
+  if (msysMatch) {
+    return toWindowsDrivePath(msysMatch[1] ?? "", msysMatch[2]);
+  }
+
+  return pathValue;
+}
+
+function toWindowsDrivePath(drive: string, rest: string | undefined): string {
+  const suffix = rest && rest.length > 0 ? `\\${rest.replace(/\//g, "\\")}` : "\\";
+  return `${drive.toUpperCase()}:` + suffix;
 }
 
 function byteLength(value: string): number {

@@ -77,6 +77,118 @@ describe("BashTool", () => {
     }
   });
 
+  it("runs real bash commands through the detected exact executable path", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const processRunner = vi.fn(async () => ({
+        stdout: "ok\n",
+        stderr: "",
+      }));
+      const tool = new BashTool({
+        environmentProvider: async () => ({
+          bash: { path: "C:\\Program Files\\Git\\bin\\bash.exe", version: "GNU bash 5.2" },
+        }),
+        processRunner,
+      });
+      const result = await tool.execute(
+        {
+          name: "bash",
+          input: { command: "echo ok", timeout: 5_000 },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(processRunner).toHaveBeenCalledWith(
+        "C:\\Program Files\\Git\\bin\\bash.exe",
+        ["-c", "echo ok"],
+        tempDir,
+        5_000,
+      );
+      expect(result.metadata?.["cwd"]).toBe(tempDir);
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("fails fast when no bash executable is available", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const processRunner = vi.fn(async () => ({
+        stdout: "should not run\n",
+        stderr: "",
+      }));
+      const tool = new BashTool({
+        environmentProvider: async () => ({}),
+        processRunner,
+      });
+      const result = await tool.execute(
+        {
+          name: "bash",
+          input: { command: "echo ok", timeout: 5_000 },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("bash executable is not available");
+      expect(result.metadata?.["code"]).toBe("BASH_NOT_FOUND");
+      expect(processRunner).not.toHaveBeenCalled();
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("normalizes Windows shell cwd paths before sandbox validation and execution", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "ok\n",
+      stderr: "",
+    }));
+    const tool = new BashTool({ commandRunner, platform: "win32" });
+    const result = await tool.execute(
+      {
+        name: "bash",
+        input: {
+          command: "git rev-parse --show-toplevel",
+          timeout: 5_000,
+          cwd: "/mnt/c/Proyectos/Sequel/kiln",
+        },
+      },
+      makeSandbox("C:\\Proyectos\\Sequel\\kiln"),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(commandRunner).toHaveBeenCalledWith(
+      "git rev-parse --show-toplevel",
+      "C:\\Proyectos\\Sequel\\kiln",
+      5_000,
+    );
+    expect(result.metadata?.["cwd"]).toBe("C:\\Proyectos\\Sequel\\kiln");
+  });
+
+  it("normalizes MSYS drive cwd paths before sandbox validation and execution", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "ok\n",
+      stderr: "",
+    }));
+    const tool = new BashTool({ commandRunner, platform: "win32" });
+    const result = await tool.execute(
+      {
+        name: "bash",
+        input: {
+          command: "pwd",
+          timeout: 5_000,
+          cwd: "/c/Proyectos/Sequel/kiln",
+        },
+      },
+      makeSandbox("C:\\Proyectos\\Sequel\\kiln"),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(commandRunner).toHaveBeenCalledWith("pwd", "C:\\Proyectos\\Sequel\\kiln", 5_000);
+    expect(result.metadata?.["cwd"]).toBe("C:\\Proyectos\\Sequel\\kiln");
+  });
+
   it("preserves failed execution output and metadata when injected runner rejects", async () => {
     const tempDir = await makeTempDir();
     try {
@@ -214,5 +326,25 @@ describe("GitTool", () => {
     } finally {
       await removeTempDir(tempDir);
     }
+  });
+
+  it("denies mutating git subcommands", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "should not run\n",
+      stderr: "",
+    }));
+    const tool = new GitTool({ commandRunner });
+
+    for (const subcommand of ["checkout", "add", "reset", "commit", "push"]) {
+      const result = await tool.execute({
+        name: "git",
+        input: { subcommand, args: ["--help"] },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("read-only git inspection");
+    }
+
+    expect(commandRunner).not.toHaveBeenCalled();
   });
 });

@@ -64,6 +64,60 @@ describe("GrepTool", () => {
     expect(commandRunner).toHaveBeenCalledTimes(1);
   });
 
+  it("limits fast path content results by default and records truncation metadata", async () => {
+    const stdout = Array.from({ length: 205 }, (_, index) => `src/file.ts:${index + 1}:match`).join("\n") + "\n";
+    const commandRunner = vi.fn(async () => ({
+      stdout,
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "match", path: ".", outputMode: "content" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("src/file.ts:200:match");
+    expect(result.output).not.toContain("src/file.ts:201:match");
+    expect(result.output).toContain("[grep results truncated: returned 200 of 205 matches");
+    expect(result.metadata?.["count"]).toBe(200);
+    expect(result.metadata?.["totalCount"]).toBe(205);
+    expect(result.metadata?.["maxResults"]).toBe(200);
+    expect(result.metadata?.["truncated"]).toBe(true);
+  });
+
+  it("honors explicit maxResults for fast path output", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "src/file.ts:1:match\nsrc/file.ts:2:match\nsrc/file.ts:3:match\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "match", path: ".", outputMode: "content", maxResults: 2 },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("src/file.ts:2:match");
+    expect(result.output).not.toContain("src/file.ts:3:match");
+    expect(result.metadata?.["count"]).toBe(2);
+    expect(result.metadata?.["totalCount"]).toBe(3);
+    expect(result.metadata?.["maxResults"]).toBe(2);
+    expect(result.metadata?.["truncated"]).toBe(true);
+  });
+
   it("falls back to the internal scanner when rg fails to launch", async () => {
     const tempDir = await makeTempDir();
     try {
@@ -158,6 +212,38 @@ describe("GrepTool", () => {
       expect(result.isError).toBe(false);
       expect(result.output).toBe("notes.txt:1:needle line");
       expect(result.metadata?.["strategy"]).toBe("fallback");
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("limits fallback content results by default and records truncation metadata", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const filePath = join(tempDir, "notes.txt");
+      const content = Array.from({ length: 205 }, (_, index) => `needle ${index + 1}`).join("\n");
+      await writeFile(filePath, content, "utf8");
+
+      const tool = new GrepTool({
+        environmentProvider: async () => ({}),
+      });
+
+      const result = await tool.execute(
+        {
+          name: "grep",
+          input: { pattern: "needle", path: filePath, outputMode: "content" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toContain("notes.txt:200:needle 200");
+      expect(result.output).not.toContain("notes.txt:201:needle 201");
+      expect(result.output).toContain("[grep results truncated: returned 200 of 205 matches");
+      expect(result.metadata?.["count"]).toBe(200);
+      expect(result.metadata?.["totalCount"]).toBe(205);
+      expect(result.metadata?.["maxResults"]).toBe(200);
+      expect(result.metadata?.["truncated"]).toBe(true);
     } finally {
       await removeTempDir(tempDir);
     }

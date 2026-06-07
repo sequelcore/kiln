@@ -16,7 +16,7 @@ describe("detectToolEnvironment", () => {
     expect(environment).toBeDefined();
     expect(typeof environment).toBe("object");
 
-    for (const key of ["rg", "fd", "jq", "git"] as const) {
+    for (const key of ["rg", "fd", "jq", "git", "bash"] as const) {
       const info = environment[key];
       if (info !== undefined) {
         expect(info).toHaveProperty("path");
@@ -79,5 +79,35 @@ describe("detectToolEnvironment", () => {
     });
     expect(calls).toContain("C:\\broken\\fd.exe --version");
     expect(calls).toContain("C:\\tools\\fd.exe --version");
+  });
+
+  it("detects bash through exact executable validation", async () => {
+    const calls: string[] = [];
+    const environment = await detectToolEnvironment({
+      commandExecutor: async (command, args) => {
+        calls.push(`${command} ${args.join(" ")}`);
+        if (command === "where" || command === "which") {
+          const name = args[0];
+          if (name === "bash") {
+            return { stdout: "C:\\broken\\bash.exe\nC:\\Program Files\\Git\\bin\\bash.exe\n" };
+          }
+          throw new Error(`${name} not found`);
+        }
+        if (command === "C:\\broken\\bash.exe") {
+          throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        }
+        if (command === "C:\\Program Files\\Git\\bin\\bash.exe") {
+          return { stdout: "GNU bash, version 5.2.37(1)-release\n" };
+        }
+        throw new Error(`unexpected command ${command}`);
+      },
+    });
+
+    expect(environment.bash).toEqual({
+      path: "C:\\Program Files\\Git\\bin\\bash.exe",
+      version: "GNU bash, version 5.2.37(1)-release",
+    });
+    expect(calls).toContain("C:\\broken\\bash.exe --version");
+    expect(calls).toContain("C:\\Program Files\\Git\\bin\\bash.exe --version");
   });
 });

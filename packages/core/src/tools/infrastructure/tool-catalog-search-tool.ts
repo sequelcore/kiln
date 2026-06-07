@@ -3,7 +3,7 @@ import { catalogToolMetadata } from "../domain/tool-result-metadata.js";
 import { ToolCatalogIndex, type ToolCatalogSearchRequest } from "../domain/tool-catalog.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { parseOutputVerbosity } from "./output-verbosity.js";
-import { optionalBoolean, optionalNumber, optionalString, toErrorResult, toSuccessResult } from "./tool-helpers.js";
+import { getSandboxContext, optionalBoolean, optionalNumber, optionalString, toErrorResult, toSuccessResult } from "./tool-helpers.js";
 
 export class ToolCatalogSearchTool implements DevTool {
   readonly name = "tool_catalog_search";
@@ -13,7 +13,7 @@ export class ToolCatalogSearchTool implements DevTool {
 
   constructor(private readonly catalogProvider: () => ToolCatalogIndex) {}
 
-  async execute(input: ToolInput): Promise<ToolResult> {
+  async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const verbosity = parseOutputVerbosity(input);
     if (!verbosity.ok) {
       return verbosity.result;
@@ -38,7 +38,8 @@ export class ToolCatalogSearchTool implements DevTool {
       ...(includeSchemas !== undefined ? { includeSchemas } : {}),
     };
 
-    const result = this.catalogProvider().search(request);
+    const catalog = visibleCatalog(this.catalogProvider(), sandbox);
+    const result = catalog.search(request);
     const output = formatCatalogOutput(result, verbosity.value);
     return toSuccessResult(output, catalogToolMetadata("tool_catalog_search", {
       operation: "search",
@@ -55,8 +56,18 @@ export class ToolCatalogSearchTool implements DevTool {
   }
 }
 
+function visibleCatalog(catalog: ToolCatalogIndex, sandbox?: unknown): ToolCatalogIndex {
+  const allowedToolNames = getSandboxContext(sandbox)?.allowedToolNames;
+  if (!allowedToolNames) {
+    return catalog;
+  }
+
+  const allowed = new Set(allowedToolNames);
+  return new ToolCatalogIndex(catalog.list({ includeSchemas: true }).filter((entry) => allowed.has(entry.name)));
+}
+
 function parseTags(value: unknown): { ok: true; value: readonly string[] } | { ok: false; result: ToolResult } {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     return { ok: true, value: [] };
   }
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {

@@ -201,6 +201,9 @@ export interface SearchToolResultMetadata<TToolName extends SearchToolName = Sea
   readonly strategy?: SearchToolStrategy;
   readonly outputMode?: GrepOutputMode;
   readonly count?: number;
+  readonly totalCount?: number;
+  readonly maxResults?: number;
+  readonly truncated?: boolean;
   readonly noMatches?: boolean;
   readonly verbosity?: ToolOutputVerbosity;
 }

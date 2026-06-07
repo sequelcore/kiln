@@ -957,6 +957,7 @@ export class RuntimeSessionToolExecutor {
           ...(turnId ? { turnId } : {}),
           toolCall,
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
+          ...(perCallConfig?.toolAllowlist ? { allowedToolNames: [...perCallConfig.toolAllowlist] } : {}),
           requestApproval: (description: string) => this.requestApproval(session.id, description),
           ...(perCallConfig?.effectiveTurnAuthority
             ? { effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority }

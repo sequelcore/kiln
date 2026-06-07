@@ -16,6 +16,7 @@ export interface ToolSandboxContext {
   readonly cwd?: string;
   readonly policy?: SandboxPolicy;
   readonly pathValidator?: PathValidator;
+  readonly allowedToolNames?: readonly string[];
 }
 
 export function toErrorResult(message: string, metadata?: ToolResultMetadata): ToolResult {
@@ -43,6 +44,7 @@ export function getSandboxContext(sandbox?: unknown): ToolSandboxContext | undef
     cwd?: unknown;
     policy?: unknown;
     pathValidator?: unknown;
+    allowedToolNames?: unknown;
   };
 
   const policy = context.policy instanceof SandboxPolicy ? context.policy : undefined;
@@ -57,7 +59,12 @@ export function getSandboxContext(sandbox?: unknown): ToolSandboxContext | undef
     cwd: typeof context.cwd === "string" ? context.cwd : undefined,
     policy,
     pathValidator,
+    allowedToolNames: isStringArray(context.allowedToolNames) ? context.allowedToolNames : undefined,
   };
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 export function resolvePath(filePath: string, sandbox?: unknown): string {

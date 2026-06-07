@@ -258,6 +258,10 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.computer_type.inputSchema.required).toEqual(["text"]);
     expect(TOOL_SCHEMAS.computer_keypress.inputSchema.required).toEqual(["keys"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
+    expect(TOOL_SCHEMAS.git.annotations).toMatchObject({
+      readOnly: true,
+      idempotent: true,
+    });
     expect(TOOL_SCHEMAS.monitor_start.inputSchema.required).toEqual(["command"]);
     expect(TOOL_SCHEMAS.monitor_read.inputSchema.required).toEqual(["id"]);
     expect(TOOL_SCHEMAS.monitor_stop.inputSchema.required).toEqual(["id"]);
