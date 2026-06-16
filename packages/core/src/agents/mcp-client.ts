@@ -6,6 +6,7 @@ import type { Capability, CapabilityAnnotations } from "../engine/domain/capabil
 import type { McpServerConfig } from "../engine/domain/mcp-config.js";
 import { KilnError } from "../engine/errors.js";
 import type { PromptScanner } from "../security/prompt-scanner.js";
+import { conservativeEnvelopeFromExternalHints } from "../engine/domain/action-effect.js";
 
 /** Package identity for MCP client registration */
 const CLIENT_NAME = "kilnai";
@@ -141,6 +142,7 @@ export class McpClient {
       readOnlyHint?: boolean;
       destructiveHint?: boolean;
       idempotentHint?: boolean;
+      openWorldHint?: boolean;
     };
   }): Capability {
     const annotations: CapabilityAnnotations | undefined = tool.annotations
@@ -151,12 +153,15 @@ export class McpClient {
         }
       : undefined;
 
+    const effectEnvelope = conservativeEnvelopeFromExternalHints(tool.annotations);
+
     return {
       name: tool.name,
       description: tool.description ?? `MCP tool: ${tool.name}`,
       schema: tool.inputSchema ?? {},
       tags: ["mcp", this.serverName],
       ...(annotations ? { annotations } : {}),
+      effectEnvelope,
     };
   }
 

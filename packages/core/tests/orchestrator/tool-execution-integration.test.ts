@@ -153,7 +153,7 @@ describe("Orchestrator native tool execution path", () => {
             cwd: context?.cwd ?? null,
           },
         };
-      }),
+      }, { readOnly: true }),
     );
 
     const result = await orchestrator.executeDevTool({

@@ -388,18 +388,42 @@ export type { Capability, CapabilityAnnotations } from "./engine/domain/capabili
 // Agent type re-exported for CLI preamble builder
 export type { Agent, AgentTier } from "./engine/domain/agent.js";
 
-// Tool execution types re-exported for direct access by runtime
+// Tool execution and action-effect types re-exported for direct access by runtime
 export type {
   RetryStrategy,
   RetryConfig,
   AuthorizationLevel,
-  ToolAuthorizationResult,
   AuthorityDescriptor,
   ToolErrorType,
   ToolAuthorizer,
   ToolExecutionRequest,
   ToolExecutionResult,
 } from "./engine/domain/tool-execution.js";
+export type {
+  OperationType,
+  BoundaryType,
+  ReversibilityType,
+  DataEgressType,
+  IdentityUseType,
+  ConsequenceType,
+  IdempotencyType,
+  ActionEffectEnvelope,
+  ResolvedInvocationEffect,
+  ActionEffectAuthorityLevel,
+  ActionEffectPolicy,
+  InvocationEffectResolver,
+  InvocationEffectResolverRegistry,
+} from "./engine/domain/action-effect.js";
+export {
+  DEFAULT_ACTION_EFFECT_POLICY,
+  CONSERVATIVE_UNKNOWN_ENVELOPE,
+  conservativeEnvelopeFromExternalHints,
+  deriveAuthorityFromEffect,
+  resolveInvocationEffect,
+  isValidNarrowing,
+  catalogAuthorityFromEnvelope,
+  tagsFromEnvelope,
+} from "./engine/domain/action-effect.js";
 
 // Integration adapter types re-exported for direct access by runtime
 export type {

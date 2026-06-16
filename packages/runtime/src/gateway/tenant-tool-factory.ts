@@ -109,10 +109,7 @@ export function buildTenantToolContext(
       for (const [name, cap] of caps) {
         capabilities.set(name, cap);
         toolAuthorityClassification.set(name, classifyAuthorityFromCapability(cap));
-        const authority = authorityFromCapability(name, cap);
-        if (authority) {
-          toolAuthority.set(name, authority);
-        }
+        toolAuthority.set(name, authorityFromCapability(name, cap));
       }
 
       let hasMissingClassification = false;

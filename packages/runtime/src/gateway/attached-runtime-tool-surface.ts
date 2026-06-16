@@ -1,4 +1,5 @@
 import type {
+  ActionEffectEnvelope,
   AnalysisStateStore,
   AuthorityStateStore,
   AuthorityDescriptor,
@@ -23,6 +24,7 @@ import {
   projectToolResourceDescriptor,
   projectToolResultResourceLinks,
   resolveDirectProviderExecutionProfile,
+  getBuiltinEffectEnvelope,
 } from "@kilnai/core";
 import {
   OPERATOR_THEME_NAMES,
@@ -89,6 +91,26 @@ export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly managedInvocation?: ManagedInvocationToolOptions;
 }
 
+const RUNTIME_OBSERVE_METADATA_EGRESS: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process"],
+  reversibility: "reversible",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
+const RUNTIME_IDEMPOTENT_MUTATE_LOCAL: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "idempotent",
+};
+
 const DEFAULT_CORE_BUILTIN_TOOL_SURFACE = createDefaultBuiltinToolSurface();
 const DEFAULT_BUILTIN_TOOL_SURFACE: AttachedRuntimeBuiltinToolSurface = buildRuntimeSurface(
   DEFAULT_CORE_BUILTIN_TOOL_SURFACE,
@@ -129,6 +151,7 @@ const OPERATOR_SET_THEME_CAPABILITY: Capability = {
   schema: OPERATOR_SET_THEME_TOOL.inputSchema,
   tags: ["operator-ui"],
   annotations: { idempotent: true },
+  effectEnvelope: RUNTIME_IDEMPOTENT_MUTATE_LOCAL,
 };
 
 const SUBMIT_PLAN_TOOL: ToolDefinition = {
@@ -272,6 +295,7 @@ const SUBMIT_PLAN_CAPABILITY: Capability = {
   schema: SUBMIT_PLAN_TOOL.inputSchema,
   tags: ["operator-mode", "planning"],
   annotations: { readOnly: true },
+  effectEnvelope: RUNTIME_OBSERVE_METADATA_EGRESS,
 };
 
 const SUBMIT_SPECIFICATION_TOOL: ToolDefinition = {
@@ -361,6 +385,7 @@ const SUBMIT_SPECIFICATION_CAPABILITY: Capability = {
   schema: SUBMIT_SPECIFICATION_TOOL.inputSchema,
   tags: ["operator-mode", "planning", "specification"],
   annotations: { readOnly: true },
+  effectEnvelope: RUNTIME_OBSERVE_METADATA_EGRESS,
 };
 
 const RECORD_CLARIFICATION_TOOL: ToolDefinition = {
@@ -387,6 +412,7 @@ const RECORD_CLARIFICATION_CAPABILITY: Capability = {
   schema: RECORD_CLARIFICATION_TOOL.inputSchema,
   tags: ["operator-mode", "planning", "specification"],
   annotations: { readOnly: true },
+  effectEnvelope: RUNTIME_OBSERVE_METADATA_EGRESS,
 };
 
 const GOAL_CREATE_TOOL_NAME = "goal.create";
@@ -427,10 +453,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
   if (themeController) {
     callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
     capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
-    const authority = authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
-    if (authority) {
-      toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authority);
-    }
+    toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY));
     toolDefinitions.push(OPERATOR_SET_THEME_TOOL);
   }
 
@@ -451,10 +474,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
       ),
     );
     capabilities.set(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
-    const authority = authorityFromCapability(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
-    if (authority) {
-      toolAuthority.set(SUBMIT_PLAN_TOOL.name, authority);
-    }
+    toolAuthority.set(SUBMIT_PLAN_TOOL.name, authorityFromCapability(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY));
     toolDefinitions.push(SUBMIT_PLAN_TOOL);
 
     callBuiltinTools.set(
@@ -462,10 +482,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
       async (input) => executeSubmitSpecification(input, specificationStateStore),
     );
     capabilities.set(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY);
-    const specificationAuthority = authorityFromCapability(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY);
-    if (specificationAuthority) {
-      toolAuthority.set(SUBMIT_SPECIFICATION_TOOL.name, specificationAuthority);
-    }
+    toolAuthority.set(SUBMIT_SPECIFICATION_TOOL.name, authorityFromCapability(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY));
     toolDefinitions.push(SUBMIT_SPECIFICATION_TOOL);
 
     callBuiltinTools.set(
@@ -473,10 +490,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
       async (input) => executeRecordClarification(input, specificationStateStore),
     );
     capabilities.set(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY);
-    const clarificationAuthority = authorityFromCapability(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY);
-    if (clarificationAuthority) {
-      toolAuthority.set(RECORD_CLARIFICATION_TOOL.name, clarificationAuthority);
-    }
+    toolAuthority.set(RECORD_CLARIFICATION_TOOL.name, authorityFromCapability(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY));
     toolDefinitions.push(RECORD_CLARIFICATION_TOOL);
   }
 
@@ -508,9 +522,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     for (const [toolName, capability] of managedCapabilities) {
       capabilities.set(toolName, capability);
       const authority = authorityFromCapability(toolName, capability);
-      if (authority) {
-        toolAuthority.set(toolName, authority);
-      }
+      toolAuthority.set(toolName, authority);
     }
     toolCallMetadata.set(
       MANAGED_AGENT_INVOKE_TOOL.name,
@@ -1133,7 +1145,8 @@ function buildPlanModePerCallConfig(
   capabilities.set(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY);
   const additionalTools = toolDefinitions.filter((tool) => {
     const capability = capabilities.get(tool.name);
-    return capability?.annotations?.readOnly === true
+    const envelope = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(tool.name);
+    return envelope?.operation === "observe"
       || tool.name === SUBMIT_PLAN_TOOL.name
       || tool.name === SUBMIT_SPECIFICATION_TOOL.name
       || tool.name === RECORD_CLARIFICATION_TOOL.name;
@@ -1261,10 +1274,7 @@ function buildBuiltinToolAuthority(
 ): ReadonlyMap<string, AuthorityDescriptor> {
   const toolAuthority = new Map<string, AuthorityDescriptor>();
   for (const [toolName, capability] of capabilities.entries()) {
-    const descriptor = authorityFromCapability(toolName, capability);
-    if (descriptor) {
-      toolAuthority.set(toolName, descriptor);
-    }
+    toolAuthority.set(toolName, authorityFromCapability(toolName, capability));
   }
   return toolAuthority;
 }

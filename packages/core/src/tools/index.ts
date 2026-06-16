@@ -8,6 +8,8 @@ export type {
   ToolResultResourcePayload,
 } from "./domain/tool.js";
 export { TOOL_SCHEMAS } from "./domain/tool.js";
+export { BUILTIN_TOOL_EFFECT_ENVELOPES, getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
+export { buildBuiltinInvocationEffectResolvers } from "./infrastructure/invocation-effect-resolvers.js";
 
 export type {
   CodeIntelligenceAdapter,

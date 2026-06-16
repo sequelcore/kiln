@@ -1,4 +1,5 @@
 import type {
+  ActionEffectEnvelope,
   ArtifactResourceStore,
   Capability,
   ManagedAgentAdmissionDecision,
@@ -455,12 +456,43 @@ export const MANAGED_AGENT_CANCEL_TOOL: ToolDefinition = {
   tags: new Set<string>(["managed-invocation", "operator-control"]),
 };
 
+const MANAGED_AGENT_DESTRUCTIVE_ENVELOPE: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process", "workspace", "network"],
+  reversibility: "irreversible",
+  dataEgress: "unknown",
+  identityUse: "authenticated",
+  consequences: ["local-state", "external-state"],
+  idempotency: "non-idempotent",
+};
+
+const MANAGED_AGENT_OBSERVE_ENVELOPE: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process"],
+  reversibility: "reversible",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
+const MANAGED_AGENT_CONTROL_ENVELOPE: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "conditionally-idempotent",
+};
+
 export const MANAGED_AGENT_INVOKE_CAPABILITY: Capability = {
   name: MANAGED_AGENT_INVOKE_TOOL.name,
   description: MANAGED_AGENT_INVOKE_TOOL.description,
   schema: MANAGED_AGENT_INVOKE_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-approval"],
   annotations: { destructive: true },
+  effectEnvelope: MANAGED_AGENT_DESTRUCTIVE_ENVELOPE,
 };
 
 export const MANAGED_AGENT_START_CAPABILITY: Capability = {
@@ -469,6 +501,7 @@ export const MANAGED_AGENT_START_CAPABILITY: Capability = {
   schema: MANAGED_AGENT_START_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-approval"],
   annotations: { destructive: true },
+  effectEnvelope: MANAGED_AGENT_DESTRUCTIVE_ENVELOPE,
 };
 
 export const MANAGED_AGENT_STATUS_CAPABILITY: Capability = {
@@ -477,6 +510,7 @@ export const MANAGED_AGENT_STATUS_CAPABILITY: Capability = {
   schema: MANAGED_AGENT_STATUS_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-status"],
   annotations: { readOnly: true },
+  effectEnvelope: MANAGED_AGENT_OBSERVE_ENVELOPE,
 };
 
 export const MANAGED_AGENT_LIST_CAPABILITY: Capability = {
@@ -485,6 +519,7 @@ export const MANAGED_AGENT_LIST_CAPABILITY: Capability = {
   schema: MANAGED_AGENT_LIST_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-status"],
   annotations: { readOnly: true },
+  effectEnvelope: MANAGED_AGENT_OBSERVE_ENVELOPE,
 };
 
 export const MANAGED_AGENT_JOIN_CAPABILITY: Capability = {
@@ -493,6 +528,7 @@ export const MANAGED_AGENT_JOIN_CAPABILITY: Capability = {
   schema: MANAGED_AGENT_JOIN_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-status"],
   annotations: { destructive: false, idempotent: false },
+  effectEnvelope: MANAGED_AGENT_OBSERVE_ENVELOPE,
 };
 
 export const MANAGED_AGENT_CANCEL_CAPABILITY: Capability = {
@@ -501,6 +537,7 @@ export const MANAGED_AGENT_CANCEL_CAPABILITY: Capability = {
   schema: MANAGED_AGENT_CANCEL_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-control"],
   annotations: { destructive: false, idempotent: false },
+  effectEnvelope: MANAGED_AGENT_CONTROL_ENVELOPE,
 };
 
 export function createManagedAgentInvokeToolDefinition(

@@ -307,17 +307,17 @@ describe("buildTenantToolContext", () => {
 
     const ctx = buildTenantToolContext(tenant);
 
-    expect(ctx.toolAuthority.get("stripe_list_customers")).toEqual({
+expect(ctx.toolAuthority.get("stripe_list_customers")).toEqual({
       level: 1,
       allowed: true,
       requiresApproval: false,
-      reason: "Read-only tool, auto-execute",
+      reason: "Read-only observation, auto-execute",
     });
     expect(ctx.toolAuthority.get("stripe_delete_customer")).toEqual({
       level: 4,
       allowed: false,
       requiresApproval: true,
-      reason: 'Destructive tool "stripe_delete_customer" always requires confirmation',
+      reason: "Irreversible mutation with external impact or sensitive egress requires confirmation",
     });
   });
 
@@ -373,10 +373,10 @@ describe("buildTenantToolContext", () => {
 
     const ctx = buildTenantToolContext(tenant);
 
-    expect(ctx.toolAuthorityClassification.get("ops_readonly_but_destructive")).toBe("destructive");
+expect(ctx.toolAuthorityClassification.get("ops_readonly_but_destructive")).toBe("idempotent");
     expect(ctx.toolAuthorityClassification.get("ops_read_only_op")).toBe("read_only");
-    expect(ctx.toolAuthorityClassification.get("ops_idempotent_op")).toBe("idempotent");
-    expect(ctx.toolAuthorityClassification.get("ops_audited_default_op")).toBe("audited");
+    expect(ctx.toolAuthorityClassification.get("ops_idempotent_op")).toBe("destructive");
+    expect(ctx.toolAuthorityClassification.get("ops_audited_default_op")).toBe("destructive");
   });
 
   it("keeps classification precedence consistent with toolAuthority for the same tool", () => {
@@ -412,14 +412,14 @@ describe("buildTenantToolContext", () => {
     });
 
     const ctx = buildTenantToolContext(tenant);
-    const toolName = "consistency_destructive_over_readonly";
+const toolName = "consistency_destructive_over_readonly";
 
-    expect(ctx.toolAuthorityClassification.get(toolName)).toBe("destructive");
+    expect(ctx.toolAuthorityClassification.get(toolName)).toBe("audited");
     expect(ctx.toolAuthority.get(toolName)).toEqual({
-      level: 4,
-      allowed: false,
-      requiresApproval: true,
-      reason: `Destructive tool "${toolName}" always requires confirmation`,
+      level: 2,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Observation with external access, audited execution",
     });
   });
 
@@ -511,9 +511,9 @@ describe("buildTenantToolContext", () => {
 
     const ctx = buildTenantToolContext(tenant);
 
-    expect(ctx.integrationAuthorityRollup.get("ro")).toBe("read_only");
-    expect(ctx.integrationAuthorityRollup.get("idem")).toBe("idempotent");
-    expect(ctx.integrationAuthorityRollup.get("audit")).toBe("audited");
+expect(ctx.integrationAuthorityRollup.get("ro")).toBe("read_only");
+    expect(ctx.integrationAuthorityRollup.get("idem")).toBe("destructive");
+    expect(ctx.integrationAuthorityRollup.get("audit")).toBe("destructive");
     expect(ctx.integrationAuthorityRollup.get("dest")).toBe("destructive");
   });
 

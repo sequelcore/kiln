@@ -209,6 +209,7 @@ export class DevToolExecutionBridge {
     const decision = this.authorizer.authorize(
       tool.name,
       tool.annotations as CapabilityAnnotations | undefined,
+      tool.effectEnvelope,
     );
 
     return {

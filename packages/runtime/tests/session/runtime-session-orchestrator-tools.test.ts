@@ -3,7 +3,6 @@ import type {
   ProviderAdapter,
   Capability,
   ToolAuthorizer,
-  ToolAuthorizationResult,
   CapabilityAnnotations,
   RateLimiter,
   ToolDefinition,

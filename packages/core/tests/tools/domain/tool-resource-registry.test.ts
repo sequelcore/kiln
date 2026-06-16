@@ -584,7 +584,7 @@ describe("ToolResourceRegistry", () => {
     expect(payload).toMatchObject({
       name: "read_many",
       sourcePackage: "@kilnai/core",
-      authority: "read_only",
+      authority: "standard",
     });
     expect(payload.inputFields).toContain("paths");
   });

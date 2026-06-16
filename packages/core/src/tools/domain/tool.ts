@@ -122,6 +122,7 @@ export interface DevTool {
   readonly inputSchema: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown>;
   readonly annotations?: DevToolAnnotations;
+  readonly effectEnvelope?: import("../../engine/domain/action-effect.js").ActionEffectEnvelope;
   execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult>;
 }
 

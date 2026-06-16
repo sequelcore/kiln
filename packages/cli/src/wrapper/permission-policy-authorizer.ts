@@ -1,10 +1,54 @@
-import type { CapabilityAnnotations, ToolAuthorizer, ToolAuthorizationResult } from "@kilnai/core";
+import type { CapabilityAnnotations, ToolAuthorizer, AuthorityDescriptor } from "@kilnai/core";
+import {
+  deriveAuthorityFromEffect,
+  type ActionEffectEnvelope,
+} from "@kilnai/core";
+import { CONSERVATIVE_UNKNOWN_ENVELOPE } from "@kilnai/core";
 import type { KilnPermissionPolicy } from "./session.js";
 
-/**
- * Translates a CLI KilnPermissionPolicy into orchestrator ToolAuthorizationResult calls.
- * Implements ToolAuthorizer so RuntimeSessionOrchestrator respects CLI permission rules.
- */
+function annotationEnvelope(annotations?: CapabilityAnnotations): ActionEffectEnvelope {
+  if (!annotations) {
+    return CONSERVATIVE_UNKNOWN_ENVELOPE;
+  }
+  const readOnly = annotations.readOnly === true;
+  const destructive = annotations.destructive === true;
+  const idempotent = annotations.idempotent === true;
+  if (readOnly) {
+    return {
+      operation: "observe",
+      boundaries: ["process", "workspace"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: [],
+      idempotency: idempotent ? "idempotent" : "conditionally-idempotent",
+    };
+  }
+  if (destructive) {
+    return {
+      operation: "mutate",
+      boundaries: ["process", "workspace", "machine", "network", "external-system"],
+      reversibility: "irreversible",
+      dataEgress: "unknown",
+      identityUse: "unknown",
+      consequences: ["local-state", "security"],
+      idempotency: "non-idempotent",
+    };
+  }
+  if (idempotent) {
+    return {
+      operation: "mutate",
+      boundaries: ["process", "workspace"],
+      reversibility: "compensatable",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: ["local-state"],
+      idempotency: "idempotent",
+    };
+  }
+  return CONSERVATIVE_UNKNOWN_ENVELOPE;
+}
+
 export class PermissionPolicyAuthorizer implements ToolAuthorizer {
   private readonly approval: KilnPermissionPolicy["approval"];
 
@@ -12,58 +56,29 @@ export class PermissionPolicyAuthorizer implements ToolAuthorizer {
     this.approval = policy.approval ?? "on-request";
   }
 
-  authorize(toolName: string, annotations?: CapabilityAnnotations): ToolAuthorizationResult {
-    const isReadOnly = annotations?.readOnly === true;
-    const isIdempotent = annotations?.idempotent === true;
-    const isDestructive = annotations?.destructive === true;
+  authorize(toolName: string, annotations?: CapabilityAnnotations, effectEnvelope?: ActionEffectEnvelope): AuthorityDescriptor {
+    const envelope = effectEnvelope ?? annotationEnvelope(annotations);
 
     switch (this.approval) {
-      case "never":
-        return {
-          level: isReadOnly ? 1 : isIdempotent ? 2 : isDestructive ? 4 : 2,
-          allowed: true,
-          requiresApproval: false,
-          reason: "approval=never: all tools auto-authorized",
-        };
+      case "never": {
+        const result = deriveAuthorityFromEffect(envelope, {
+          defaultLevel: envelope.operation === "observe" ? 1 : 2,
+          requireApprovalForUnknown: false,
+        });
+        return { ...result, allowed: true, requiresApproval: false, reason: "approval=never: all tools auto-authorized" };
+      }
       case "untrusted":
-        return {
-          level: 4,
-          allowed: false,
-          requiresApproval: true,
-          reason: "approval=untrusted: all tools denied without explicit approval",
-        };
+        return { level: 4, allowed: false, requiresApproval: true, reason: "approval=untrusted: all tools denied without explicit approval" };
       case "on-failure":
       case "on-request": {
-        if (isReadOnly) {
-          return {
-            level: 1,
-            allowed: true,
-            requiresApproval: false,
-            reason: `${this.approval}: read-only tool "${toolName}" auto-authorized`,
-          };
-        }
-        if (isIdempotent) {
-          return {
-            level: 2,
-            allowed: true,
-            requiresApproval: false,
-            reason: `${this.approval}: idempotent tool "${toolName}" audited without approval`,
-          };
-        }
-        return {
-          level: isDestructive ? 4 : 3,
-          allowed: false,
-          requiresApproval: true,
-          reason: `${this.approval}: tool "${toolName}" requires approval before execution`,
-        };
+        const result = deriveAuthorityFromEffect(envelope, {
+          defaultLevel: 3,
+          requireApprovalForUnknown: true,
+        });
+        return { ...result, reason: `${this.approval}: tool "${toolName}" ${result.reason}` };
       }
       default:
-        return {
-          level: 3,
-          allowed: false,
-          requiresApproval: true,
-          reason: `Unknown approval mode "${this.approval}"`,
-        };
+        return { level: 3, allowed: false, requiresApproval: true, reason: `Unknown approval mode "${this.approval}"` };
     }
   }
 }

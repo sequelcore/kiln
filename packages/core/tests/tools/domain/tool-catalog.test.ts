@@ -77,8 +77,8 @@ describe("ToolCatalogIndex", () => {
     expect(catalog.search({ exact: "code_intelligence" }).entries[0]).toMatchObject({
       name: "code_intelligence",
       sourcePackage: "@kilnai/core",
-      authority: "read_only",
-      tags: expect.arrayContaining(["code", "semantic", "read-only"]),
+      authority: "standard",
+      tags: expect.arrayContaining(["code", "semantic", "read-only", "egress"]),
       inputFields: expect.arrayContaining(["operation", "path", "position", "query", "symbol", "verbosity"]),
     });
     expect(catalog.search({ tags: ["code"] }).entries.map((entry) => entry.name)).toContain("code_intelligence");
@@ -90,8 +90,8 @@ describe("ToolCatalogIndex", () => {
     expect(catalog.search({ exact: "read_many" }).entries[0]).toMatchObject({
       name: "read_many",
       sourcePackage: "@kilnai/core",
-      authority: "read_only",
-      tags: expect.arrayContaining(["file", "context", "read-only"]),
+      authority: "standard",
+      tags: expect.arrayContaining(["file", "context", "read-only", "egress"]),
       inputFields: expect.arrayContaining(["paths", "include", "exclude", "recursive", "respectGitIgnore"]),
     });
   });
@@ -108,8 +108,8 @@ describe("ToolCatalogIndex", () => {
     expect(catalog.search({ exact: "monitor_start" }).entries[0]).toMatchObject({
       name: "monitor_start",
       sourcePackage: "@kilnai/core",
-      authority: "destructive",
-      tags: expect.arrayContaining(["monitor", "command", "destructive"]),
+      authority: "standard",
+      tags: expect.arrayContaining(["monitor", "command", "egress"]),
       inputFields: expect.arrayContaining(["command", "cwd", "name", "timeout", "verbosity"]),
     });
   });
@@ -175,8 +175,8 @@ describe("ToolCatalogIndex", () => {
     expect(catalog.search({ exact: "computer_observe" }).entries[0]).toMatchObject({
       name: "computer_observe",
       sourcePackage: "@kilnai/core",
-      authority: "read_only",
-      tags: expect.arrayContaining(["interactive", "computer", "automation", "read-only"]),
+      authority: "standard",
+      tags: expect.arrayContaining(["interactive", "computer", "automation", "read-only", "egress"]),
       inputFields: expect.arrayContaining(["windowTitle", "verbosity"]),
     });
   });
@@ -189,11 +189,11 @@ describe("ToolCatalogIndex", () => {
       "resource_template_list",
       "resource_read",
     ]);
-    expect(catalog.search({ exact: "resource_read" }).entries[0]).toMatchObject({
+expect(catalog.search({ exact: "resource_read" }).entries[0]).toMatchObject({
       name: "resource_read",
       sourcePackage: "@kilnai/core",
-      authority: "read_only",
-      tags: expect.arrayContaining(["resource", "context", "read-only", "idempotent"]),
+      authority: "standard",
+      tags: expect.arrayContaining(["resource", "context", "read-only", "egress"]),
       inputFields: ["uri", "cursor", "limit"],
     });
   });

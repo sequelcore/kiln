@@ -1,4 +1,11 @@
 import type { Capability, AuthorityDescriptor } from "@kilnai/core";
+import {
+  deriveAuthorityFromEffect,
+  getBuiltinEffectEnvelope,
+  conservativeEnvelopeFromExternalHints,
+  DEFAULT_ACTION_EFFECT_POLICY,
+  type ActionEffectEnvelope,
+} from "@kilnai/core";
 
 export type ToolAuthorityClassification =
   | "destructive"
@@ -21,62 +28,51 @@ export function rollupIntegrationAuthority(
   return "read_only";
 }
 
+function envelopeForCapability(capability: Capability | undefined): ActionEffectEnvelope {
+  if (capability?.effectEnvelope) {
+    return capability.effectEnvelope;
+  }
+  const builtin = capability ? getBuiltinEffectEnvelope(capability.name) : undefined;
+  if (builtin) {
+    return builtin;
+  }
+  if (capability?.annotations) {
+    return conservativeEnvelopeFromExternalHints({
+      readOnlyHint: capability.annotations.readOnly,
+      destructiveHint: capability.annotations.destructive,
+      idempotentHint: capability.annotations.idempotent,
+    });
+  }
+  return conservativeEnvelopeFromExternalHints();
+}
+
 export function classifyAuthorityFromCapability(
   capability: Capability | undefined,
 ): ToolAuthorityClassification {
-  const annotations = capability?.annotations;
-  if (annotations?.destructive) {
+  const envelope = envelopeForCapability(capability);
+  const authority = deriveAuthorityFromEffect(envelope, DEFAULT_ACTION_EFFECT_POLICY);
+  if (authority.level >= 4 && !authority.allowed) {
     return "destructive";
   }
-  if (annotations?.readOnly) {
+  if (authority.level === 1 && authority.allowed && !authority.requiresApproval) {
+    if (envelope.idempotency === "idempotent") {
+      return "idempotent";
+    }
     return "read_only";
   }
-  if (annotations?.idempotent) {
-    return "idempotent";
+  if (authority.level <= 2 && authority.allowed) {
+    if (envelope.idempotency === "idempotent") {
+      return "idempotent";
+    }
+    return "audited";
   }
   return "audited";
 }
 
 export function authorityFromCapability(
-  toolName: string,
+  _toolName: string,
   capability: Capability | undefined,
-): AuthorityDescriptor | undefined {
-  const annotations = capability?.annotations;
-  if (!annotations) {
-    return undefined;
-  }
-
-  if (annotations.destructive) {
-    return {
-      level: 4,
-      allowed: false,
-      requiresApproval: true,
-      reason: `Destructive tool "${toolName}" always requires confirmation`,
-    };
-  }
-
-  if (annotations.readOnly) {
-    return {
-      level: 1,
-      allowed: true,
-      requiresApproval: false,
-      reason: "Read-only tool, auto-execute",
-    };
-  }
-
-  if (annotations.idempotent) {
-    return {
-      level: 2,
-      allowed: true,
-      requiresApproval: false,
-      reason: "Audited execution",
-    };
-  }
-
-  return {
-    level: 2,
-    allowed: true,
-    requiresApproval: false,
-    reason: "Audited execution",
-  };
+): AuthorityDescriptor {
+  const envelope = envelopeForCapability(capability);
+  return deriveAuthorityFromEffect(envelope, DEFAULT_ACTION_EFFECT_POLICY);
 }

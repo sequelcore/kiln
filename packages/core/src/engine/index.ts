@@ -122,13 +122,37 @@ export type {
   RetryStrategy,
   RetryConfig,
   AuthorizationLevel,
-  ToolAuthorizationResult,
   AuthorityDescriptor,
   ToolErrorType,
   ToolAuthorizer,
   ToolExecutionRequest,
   ToolExecutionResult,
 } from "./domain/tool-execution.js";
+export type {
+  OperationType,
+  BoundaryType,
+  ReversibilityType,
+  DataEgressType,
+  IdentityUseType,
+  ConsequenceType,
+  IdempotencyType,
+  ActionEffectEnvelope,
+  ResolvedInvocationEffect,
+  ActionEffectAuthorityLevel,
+  ActionEffectPolicy,
+  InvocationEffectResolver,
+  InvocationEffectResolverRegistry,
+} from "./domain/action-effect.js";
+export {
+  DEFAULT_ACTION_EFFECT_POLICY,
+  CONSERVATIVE_UNKNOWN_ENVELOPE,
+  conservativeEnvelopeFromExternalHints,
+  deriveAuthorityFromEffect,
+  resolveInvocationEffect,
+  isValidNarrowing,
+  catalogAuthorityFromEnvelope,
+  tagsFromEnvelope,
+} from "./domain/action-effect.js";
 export type {
   IntegrationAdapter,
   IntegrationOperation,

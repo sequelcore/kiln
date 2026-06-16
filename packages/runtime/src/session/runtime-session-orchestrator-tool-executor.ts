@@ -8,7 +8,6 @@ import type {
   Capability,
   ToolExecutionResult,
   AuthorityDescriptor,
-  ToolAuthorizationResult,
   FileToolChangeMetadata,
   FileToolResultMetadata,
   ToolResultPayloadPart,
@@ -555,7 +554,7 @@ export class RuntimeSessionToolExecutor {
     toolName: string,
     capability: Capability | undefined,
     perCallConfig?: PerCallToolConfig,
-  ): ToolAuthorizationResult | undefined {
+  ): AuthorityDescriptor | undefined {
     const authority = perCallConfig?.toolAuthority?.get(toolName);
     if (authority !== undefined) {
       if (!this.isAuthorityDescriptor(authority)) {
@@ -625,7 +624,7 @@ export class RuntimeSessionToolExecutor {
   private async handleDangerousCommandBlock(
     sessionId: string,
     toolCall: ToolCall,
-    authResult: ToolAuthorizationResult | undefined,
+    authResult: AuthorityDescriptor | undefined,
     resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
   ): Promise<boolean> {
@@ -1067,7 +1066,7 @@ export class RuntimeSessionToolExecutor {
     toolName: string,
     durationMs: number,
     outcome: "success" | "success_sanitized" | "error",
-    authResult?: ToolAuthorizationResult,
+    authResult?: AuthorityDescriptor,
   ): void {
     if (!this.deps.auditLog) return;
     try {

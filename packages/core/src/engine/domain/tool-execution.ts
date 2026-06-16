@@ -15,17 +15,10 @@ export interface RetryConfig {
 /** Authorization level (1=auto-execute, 2=audit, 3=confirm, 4=always-confirm) */
 export type AuthorizationLevel = 1 | 2 | 3 | 4;
 
-/** Result of a tool authorization check */
-export interface ToolAuthorizationResult {
-  readonly level: AuthorizationLevel;
-  readonly allowed: boolean;
-  readonly requiresApproval: boolean;
-  readonly reason: string;
-}
-
 /**
  * Canonical authority descriptor for a tool invocation.
- * Uses the same allow/deny/approval semantics as ToolAuthorizationResult.
+ * The single authority decision/result shape.
+ * ToolAuthorizationResult has been consolidated into this type.
  */
 export interface AuthorityDescriptor {
   readonly level: AuthorizationLevel;
@@ -37,9 +30,9 @@ export interface AuthorityDescriptor {
 /** Classification of a tool execution error */
 export type ToolErrorType = "validation" | "transient" | "fatal";
 
-/** Interface for authorizing tool execution based on annotations */
+/** Interface for authorizing tool execution based on action effects */
 export interface ToolAuthorizer {
-  authorize(toolName: string, annotations?: import("./capability.js").CapabilityAnnotations): ToolAuthorizationResult;
+  authorize(toolName: string, annotations?: import("./capability.js").CapabilityAnnotations, effectEnvelope?: import("./action-effect.js").ActionEffectEnvelope): AuthorityDescriptor;
 }
 
 /** Canonical request envelope for tool execution. */

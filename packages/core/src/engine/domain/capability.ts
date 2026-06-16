@@ -1,6 +1,7 @@
 // Engine primitive: Capability -- an MCP tool that agents can invoke
 
 import type { RetryConfig } from "./tool-execution.js";
+import type { ActionEffectEnvelope } from "./action-effect.js";
 
 /** Safety annotations that drive engine policies */
 export interface CapabilityAnnotations {
@@ -18,6 +19,7 @@ export interface Capability {
   readonly schema: Record<string, unknown>;
   readonly tags: readonly string[];
   readonly annotations?: CapabilityAnnotations;
+  readonly effectEnvelope?: ActionEffectEnvelope;
   readonly type?: string;                          // "delegation" | "handoff"
   readonly targetApp?: string;                     // target app name in the gateway
   readonly task?: string;                          // task description sent to target

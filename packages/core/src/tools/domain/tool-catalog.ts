@@ -1,4 +1,9 @@
 import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./tool.js";
+import { getBuiltinEffectEnvelope } from "./tool-effect-envelopes.js";
+import {
+  catalogAuthorityFromEnvelope,
+  tagsFromEnvelope,
+} from "../../engine/domain/action-effect.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
@@ -133,13 +138,11 @@ function entryFromTool(tool: DevTool): ToolCatalogEntry {
 }
 
 function authorityForTool(tool: DevTool): ToolCatalogAuthority {
-  if (tool.annotations?.readOnly) {
-    return "read_only";
+  const envelope = getBuiltinEffectEnvelope(tool.name);
+  if (!envelope) {
+    return "standard";
   }
-  if (tool.annotations?.destructive) {
-    return "destructive";
-  }
-  return "standard";
+  return catalogAuthorityFromEnvelope(envelope);
 }
 
 function tagsForTool(tool: DevTool): readonly string[] {
@@ -199,15 +202,15 @@ function tagsForTool(tool: DevTool): readonly string[] {
     tags.add("resource");
     tags.add("context");
   }
-  if (tool.annotations?.readOnly) {
-    tags.add("read-only");
+
+  // Authority tags derived from canonical effect envelope
+  const envelope = getBuiltinEffectEnvelope(tool.name);
+  if (envelope) {
+    for (const effectTag of tagsFromEnvelope(envelope)) {
+      tags.add(effectTag);
+    }
   }
-  if (tool.annotations?.idempotent) {
-    tags.add("idempotent");
-  }
-  if (tool.annotations?.destructive) {
-    tags.add("destructive");
-  }
+
   return Array.from(tags);
 }
 
