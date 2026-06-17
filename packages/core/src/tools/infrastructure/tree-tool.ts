@@ -52,7 +52,6 @@ export class TreeTool implements DevTool {
   readonly name = "tree";
   readonly description = TOOL_SCHEMAS.tree.description;
   readonly inputSchema = TOOL_SCHEMAS.tree.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.tree.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const context = getSandboxContext(sandbox);

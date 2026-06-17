@@ -27,7 +27,7 @@ import {
   OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
 import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
-import { AnnotationAuthorizer } from "@kilnai/core";
+import { ActionEffectAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, McpClient, CostTracker } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
@@ -704,7 +704,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
 
     // Wire tool execution enhancements
-    const toolAuthorizer = capabilityMap.size > 0 ? new AnnotationAuthorizer() : undefined;
+    const toolAuthorizer = capabilityMap.size > 0 ? new ActionEffectAuthorizer() : undefined;
     const safetyPipeline = safetyPipelines.get(loaded.name);
     const toolResultSanitizer = createRuntimeToolResultSanitizer({
       safetyPipeline,

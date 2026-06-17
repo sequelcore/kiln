@@ -57,7 +57,6 @@ export class WebExtractTool implements DevTool {
   readonly name = "web_extract";
   readonly description = TOOL_SCHEMAS.web_extract.description;
   readonly inputSchema = TOOL_SCHEMAS.web_extract.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.web_extract.annotations;
 
   private readonly extractProvider?: WebExtractProvider;
   private readonly networkPolicy?: SandboxPolicy;

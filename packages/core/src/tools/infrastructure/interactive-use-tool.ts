@@ -1,4 +1,4 @@
-import type { DevTool, DevToolAnnotations, DevToolName, ToolInput, ToolResult } from "../domain/tool.js";
+import type { DevTool, DevToolName, ToolInput, ToolResult } from "../domain/tool.js";
 import { TOOL_SCHEMAS } from "../domain/tool.js";
 import {
   interactiveToolMetadata,
@@ -80,7 +80,6 @@ abstract class BaseInteractiveUseTool<TToolName extends InteractiveToolName> imp
   readonly name: TToolName;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
-  readonly annotations?: DevToolAnnotations;
   private readonly target: InteractiveTarget;
   private readonly operation: InteractiveToolOperation;
   private readonly provider?: InteractiveUseProvider;
@@ -91,7 +90,6 @@ abstract class BaseInteractiveUseTool<TToolName extends InteractiveToolName> imp
     this.name = definition.name;
     this.description = schema.description;
     this.inputSchema = schema.inputSchema;
-    this.annotations = schema.annotations;
     this.target = definition.target;
     this.operation = definition.operation;
     this.provider = options.provider;

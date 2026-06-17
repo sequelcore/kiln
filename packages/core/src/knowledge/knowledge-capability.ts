@@ -17,10 +17,15 @@ export function createKnowledgeCapability(): Capability {
       required: ["query"],
     },
     tags: ["knowledge", "search", "rag"],
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-      cacheTtl: 60,
+    cacheTtl: 60,
+    effectEnvelope: {
+      operation: "observe",
+      boundaries: ["process", "workspace"],
+      reversibility: "reversible",
+      dataEgress: "project-data",
+      identityUse: "none",
+      consequences: [],
+      idempotency: "idempotent",
     },
   };
 }

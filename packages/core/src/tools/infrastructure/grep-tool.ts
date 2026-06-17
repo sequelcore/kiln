@@ -59,7 +59,6 @@ export class GrepTool implements DevTool {
   readonly name = "grep";
   readonly description = TOOL_SCHEMAS.grep.description;
   readonly inputSchema = TOOL_SCHEMAS.grep.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.grep.annotations;
 
   private readonly commandRunner: GrepCommandRunner;
   private readonly environmentProvider: EnvironmentProvider;

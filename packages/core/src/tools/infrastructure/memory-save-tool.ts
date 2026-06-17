@@ -34,7 +34,6 @@ export class MemorySaveTool implements DevTool {
   readonly name = "memory_save";
   readonly description = TOOL_SCHEMAS.memory_save.description;
   readonly inputSchema = TOOL_SCHEMAS.memory_save.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.memory_save.annotations;
 
   constructor(private readonly options: MemorySaveToolOptions = {}) {}
 

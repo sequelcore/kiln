@@ -31,9 +31,8 @@ Requested by: ${agentName}
 Arguments: ${JSON.stringify(args)}
 Context: ${context ?? "none"}
 
-Safety annotations:
-- Destructive: ${capability.annotations?.destructive}
-- Idempotent: ${capability.annotations?.idempotent}
+Declared action effect:
+${JSON.stringify(capability.effectEnvelope ?? null)}
 
 Respond with JSON only:
 {"approved": boolean, "reason": "explanation", "riskLevel": "low" | "medium" | "high" | "critical"}
@@ -104,13 +103,11 @@ export class Guardian {
   /** Check if a capability needs Guardian review */
   needsReview(capability: Capability): boolean {
     if (!this.config.enabled) return false;
-    if (
-      capability.annotations?.readOnly === true &&
-      this.config.bypassForReadOnly === true
-    ) {
+    const effect = capability.effectEnvelope;
+    if (effect?.operation === "observe" && this.config.bypassForReadOnly === true) {
       return false;
     }
-    if (capability.annotations?.destructive === true) return true;
+    if (effect?.operation === "mutate" && effect.reversibility === "irreversible") return true;
     return false;
   }
 

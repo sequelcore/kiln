@@ -1,5 +1,15 @@
-import type { DevTool, ToolInput, ToolResult } from "@kilnai/core";
+import type { ActionEffectEnvelope, DevTool, ToolInput, ToolResult } from "@kilnai/core";
 import { applyConfigChange } from "./config-apply.js";
+
+const CONFIG_APPLY_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["workspace"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
 
 export class KilnConfigApplyChangeTool implements DevTool {
   readonly name = "kiln_config.apply_change";
@@ -8,9 +18,7 @@ export class KilnConfigApplyChangeTool implements DevTool {
     "Requires proposalId and approvalId produced by Kiln's governed config approval flow.",
     "Fails closed if the proposal is invalid, approval is missing, or canonical files changed after proposal creation.",
   ].join(" ");
-  readonly annotations = {
-    destructive: true,
-  };
+  readonly effectEnvelope = CONFIG_APPLY_EFFECT;
   readonly inputSchema = {
     type: "object",
     properties: {

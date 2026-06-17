@@ -1,4 +1,4 @@
-import type { DevTool, ToolInput, ToolResult } from "@kilnai/core";
+import type { ActionEffectEnvelope, DevTool, ToolInput, ToolResult } from "@kilnai/core";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
 import type { KilnConfigReadView } from "@kilnai/gateway-contracts";
 import {
@@ -7,16 +7,23 @@ import {
   readConfigStatusView,
 } from "./config-status.js";
 
+const CONFIG_READ_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process"],
+  reversibility: "reversible",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
 export class KilnConfigReadTool implements DevTool {
   readonly name = "kiln_config.read";
   readonly description = [
     "Read canonical Kiln configuration/status views through the governed config-status contract.",
     "Use this instead of reading YAML, AGENTS.md, CLAUDE.md, Codex, Claude Code, or OpenCode files directly when inspecting Kiln setup.",
   ].join(" ");
-  readonly annotations = {
-    readOnly: true,
-    idempotent: true,
-  };
+  readonly effectEnvelope = CONFIG_READ_EFFECT;
   readonly inputSchema = {
     type: "object",
     properties: {

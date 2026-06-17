@@ -1,8 +1,18 @@
-import type { DevTool, ToolInput, ToolResult } from "@kilnai/core";
+import type { ActionEffectEnvelope, DevTool, ToolInput, ToolResult } from "@kilnai/core";
 import { KILN_CONFIG_CHANGE_OPERATIONS } from "@kilnai/gateway-contracts";
 import type { KilnConfigChangeOperation } from "@kilnai/gateway-contracts";
 import { ConfigMutationStore } from "./config-mutation-store.js";
 import { createConfigChangeProposalRecord } from "./config-proposal.js";
+
+const CONFIG_PROPOSAL_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["workspace"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
 
 export class KilnConfigProposeChangeTool implements DevTool {
   readonly name = "kiln_config.propose_change";
@@ -10,9 +20,7 @@ export class KilnConfigProposeChangeTool implements DevTool {
     "Create a validated canonical Kiln configuration-change proposal without writing files.",
     "Use this for skill.upsert, agent.upsert, and agent.attach_skills before any approved apply step.",
   ].join(" ");
-  readonly annotations = {
-    readOnly: true,
-  };
+  readonly effectEnvelope = CONFIG_PROPOSAL_EFFECT;
   readonly inputSchema = {
     type: "object",
     properties: {

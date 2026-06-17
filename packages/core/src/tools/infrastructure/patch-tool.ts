@@ -68,7 +68,6 @@ export class PatchTool implements DevTool {
   readonly name = "patch";
   readonly description = TOOL_SCHEMAS.patch.description;
   readonly inputSchema = TOOL_SCHEMAS.patch.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.patch.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const patchInput = requireString(input, "patch");

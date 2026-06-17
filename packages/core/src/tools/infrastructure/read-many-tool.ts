@@ -52,7 +52,6 @@ export class ReadManyTool implements DevTool {
   readonly name = "read_many";
   readonly description = TOOL_SCHEMAS.read_many.description;
   readonly inputSchema = TOOL_SCHEMAS.read_many.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.read_many.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const paths = parseStringArray(input.input.paths, "paths");

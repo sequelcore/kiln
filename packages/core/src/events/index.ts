@@ -197,8 +197,9 @@ export interface ToolCalledEvent extends KilnEvent {
   readonly workerIndex?: number;
   readonly toolInput?: Record<string, unknown>;
   readonly metadata?: Record<string, unknown>;
-  readonly annotations?: Record<string, unknown>;
   readonly authorizationLevel?: number;
+  readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
+  readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
 }
 
 /** Tool authorized event */
@@ -208,6 +209,8 @@ export interface ToolAuthorizedEvent extends KilnEvent {
   readonly level: number;
   readonly allowed: boolean;
   readonly reason: string;
+  readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
+  readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
 }
 
 /** Task started event */
@@ -238,6 +241,8 @@ export interface ToolResultEvent extends KilnEvent {
   readonly isError?: boolean;
   readonly retryAttempt?: number;
   readonly metadata?: Record<string, unknown>;
+  readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
+  readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
 }
 
 /** Tool cache hit event -- cached result used instead of executing tool */

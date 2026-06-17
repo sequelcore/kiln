@@ -175,14 +175,14 @@ describe("artu.yaml preset", () => {
       }
     });
 
-    it("destructive annotation on override_signal", () => {
+    it("does not carry legacy annotations on override_signal", () => {
       const team = loadArtuPreset().teams["trading"]!;
       const overrideCap = team.capabilities.find((c) => c.name === "artu_override_signal");
       expect(overrideCap).toBeDefined();
-      expect(overrideCap!.annotations?.destructive).toBe(true);
+      expect((overrideCap as { annotations?: unknown } | undefined)?.annotations).toBeUndefined();
     });
 
-    it("readOnly annotations on market intelligence tools", () => {
+    it("does not carry legacy annotations on market intelligence tools", () => {
       const team = loadArtuPreset().teams["trading"]!;
       const marketTools = [
         "artu_scan_market",
@@ -194,7 +194,7 @@ describe("artu.yaml preset", () => {
       for (const toolName of marketTools) {
         const cap = team.capabilities.find((c) => c.name === toolName);
         expect(cap).toBeDefined();
-        expect(cap!.annotations?.readOnly).toBe(true);
+        expect((cap as { annotations?: unknown } | undefined)?.annotations).toBeUndefined();
       }
     });
   });

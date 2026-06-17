@@ -8,6 +8,11 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Replaced internal tool annotation authority with canonical action-effect
+  governance: builtin tools now declare immutable effect envelopes, concrete
+  calls resolve input-sensitive invocation effects before authority, external
+  MCP hints remain untrusted presentation metadata, fallback tools authorize
+  independently, and runtime evidence records resolved effect plus authority.
 - Persisted terminal `agent_invocation_*` events for background
   `managed_agent.start` children as soon as runtime finalization completes, so
   GUI/TUI transcripts and replay no longer depend on a later join or cancel

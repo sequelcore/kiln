@@ -20,11 +20,17 @@ describe("createKnowledgeCapability", () => {
     expect(schema.properties.topK).toBeDefined();
   });
 
-  it("has correct annotations", () => {
+  it("has correct canonical effect declaration", () => {
     const cap = createKnowledgeCapability();
-    expect(cap.annotations?.readOnly).toBe(true);
-    expect(cap.annotations?.idempotent).toBe(true);
-    expect(cap.annotations?.cacheTtl).toBe(60);
+    expect(cap.cacheTtl).toBe(60);
+    expect(cap.effectEnvelope).toMatchObject({
+      operation: "observe",
+      dataEgress: "project-data",
+      identityUse: "none",
+      consequences: [],
+      idempotency: "idempotent",
+    });
+    expect((cap as { annotations?: unknown }).annotations).toBeUndefined();
   });
 
   it("marks query as required", () => {

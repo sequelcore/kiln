@@ -50,7 +50,7 @@ describe("McpClient", () => {
       expect(tools[0]?.tags).toContain("test-mcp-server");
     });
 
-    it("maps MCP annotation hints correctly", async () => {
+    it("keeps MCP annotation hints as presentation tags only", async () => {
       const client = new McpClient(config);
 
       mockListTools.mockResolvedValue({
@@ -66,9 +66,9 @@ describe("McpClient", () => {
 
       const tools = await client.discoverTools();
 
-      expect(tools[0]?.annotations?.readOnly).toBe(true);
-      expect(tools[0]?.annotations?.destructive).toBe(false);
-      expect(tools[0]?.annotations?.idempotent).toBe(true);
+      expect(tools[0]?.tags).toContain("mcp-hint:read-only");
+      expect(tools[0]?.tags).toContain("mcp-hint:idempotent");
+      expect(tools[0]?.effectEnvelope).toBeUndefined();
     });
 
     it("throws MCP_DISCOVERY_FAILED on SDK error", async () => {

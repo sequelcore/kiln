@@ -59,7 +59,6 @@ export class WebFetchTool implements DevTool {
   readonly name = "web_fetch";
   readonly description = TOOL_SCHEMAS.web_fetch.description;
   readonly inputSchema = TOOL_SCHEMAS.web_fetch.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.web_fetch.annotations;
 
   private readonly fetchClient: WebFetchClient;
   private readonly networkPolicy?: SandboxPolicy;

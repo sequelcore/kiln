@@ -36,13 +36,6 @@ function envelopeForCapability(capability: Capability | undefined): ActionEffect
   if (builtin) {
     return builtin;
   }
-  if (capability?.annotations) {
-    return conservativeEnvelopeFromExternalHints({
-      readOnlyHint: capability.annotations.readOnly,
-      destructiveHint: capability.annotations.destructive,
-      idempotentHint: capability.annotations.idempotent,
-    });
-  }
   return conservativeEnvelopeFromExternalHints();
 }
 

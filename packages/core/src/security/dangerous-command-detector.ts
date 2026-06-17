@@ -15,7 +15,7 @@ const WINDOWS_DESTRUCTIVE_PATTERN =
   /\b(?:cmd(?:\.exe)?\s+\/c\s+)?del(?:\.exe)?\b(?:\s+\/[a-z]+)*\s+\S+|\b(?:cmd(?:\.exe)?\s+\/c\s+)?(?:rd|rmdir)\b(?=[^\n;|]*\/s\b)[^\n;|]*|\b(?:remove-item|ri)\b(?=[^;\n|]*-(?:force|recurse))[^;\n|]*/i;
 
 const AMBIGUOUS_EXPANSION_PATTERN = /\$\(|`[^`]*`|%\w+%|\${[^}]+}/;
-const AMBIGUOUS_CHAINING_PATTERN = /&&|\|\||;|\n/;
+const AMBIGUOUS_CHAINING_PATTERN = /&&|\|\||\||;|\n/;
 
 const SAFE_READ_ONLY_PATTERNS: readonly RegExp[] = [
   /^\s*(?:ls|dir|pwd|whoami)\b[^\n|&;`$()]*$/i,

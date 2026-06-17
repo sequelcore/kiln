@@ -12,7 +12,8 @@ import {
 } from "./domain/tool-resource-notifications.js";
 import { ToolResourceRegistry, type ToolResourceProvider } from "./domain/tool-resource-registry.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
-import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool, type DevToolAnnotations } from "./domain/tool.js";
+import { DEV_TOOL_OUTPUT_SCHEMA, type DevTool } from "./domain/tool.js";
+import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 import { ArtifactToolResourceLinker } from "./infrastructure/artifact-tool-resource-linker.js";
 import {
   AnalysisStateStore,
@@ -476,7 +477,7 @@ export function projectDevToolCapabilities(
       description: tool.description,
       schema: cloneRecord(tool.inputSchema),
       tags: [],
-      annotations: cloneAnnotations(tool.annotations),
+      effectEnvelope: tool.effectEnvelope ?? getBuiltinEffectEnvelope(tool.name),
       outputSchema: resolveToolOutputSchema(tool),
     });
   }
@@ -561,12 +562,6 @@ function projectTools(
     "kiln_config.apply_change",
   ]);
   return tools.filter((tool) => requested.has(tool.name));
-}
-
-function cloneAnnotations(
-  annotations: DevToolAnnotations | undefined,
-): DevToolAnnotations | undefined {
-  return annotations ? { ...annotations } : undefined;
 }
 
 function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {

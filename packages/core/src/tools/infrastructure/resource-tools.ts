@@ -17,7 +17,6 @@ export class ResourceListTool implements DevTool {
   readonly name = "resource_list";
   readonly description = TOOL_SCHEMAS.resource_list.description;
   readonly inputSchema = TOOL_SCHEMAS.resource_list.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.resource_list.annotations;
 
   constructor(private readonly options: ResourceToolOptions) {}
 
@@ -50,7 +49,6 @@ export class ResourceTemplateListTool implements DevTool {
   readonly name = "resource_template_list";
   readonly description = TOOL_SCHEMAS.resource_template_list.description;
   readonly inputSchema = TOOL_SCHEMAS.resource_template_list.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.resource_template_list.annotations;
 
   constructor(private readonly options: ResourceToolOptions) {}
 
@@ -83,7 +81,6 @@ export class ResourceReadTool implements DevTool {
   readonly name = "resource_read";
   readonly description = TOOL_SCHEMAS.resource_read.description;
   readonly inputSchema = TOOL_SCHEMAS.resource_read.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.resource_read.annotations;
 
   constructor(private readonly options: ResourceToolOptions) {}
 

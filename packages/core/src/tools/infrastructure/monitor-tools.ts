@@ -272,7 +272,6 @@ export class MonitorStartTool implements DevTool {
   readonly name = "monitor_start";
   readonly description = TOOL_SCHEMAS.monitor_start.description;
   readonly inputSchema = TOOL_SCHEMAS.monitor_start.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.monitor_start.annotations;
   private readonly registry: MonitorRegistry;
 
   constructor(options: { readonly registry: MonitorRegistry }) {
@@ -337,7 +336,6 @@ export class MonitorReadTool implements DevTool {
   readonly name = "monitor_read";
   readonly description = TOOL_SCHEMAS.monitor_read.description;
   readonly inputSchema = TOOL_SCHEMAS.monitor_read.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.monitor_read.annotations;
   private readonly registry: MonitorRegistry;
 
   constructor(options: { readonly registry: MonitorRegistry }) {
@@ -386,7 +384,6 @@ export class MonitorStopTool implements DevTool {
   readonly name = "monitor_stop";
   readonly description = TOOL_SCHEMAS.monitor_stop.description;
   readonly inputSchema = TOOL_SCHEMAS.monitor_stop.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.monitor_stop.annotations;
   private readonly registry: MonitorRegistry;
 
   constructor(options: { readonly registry: MonitorRegistry }) {
@@ -432,7 +429,6 @@ export class MonitorListTool implements DevTool {
   readonly name = "monitor_list";
   readonly description = TOOL_SCHEMAS.monitor_list.description;
   readonly inputSchema = TOOL_SCHEMAS.monitor_list.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.monitor_list.annotations;
   private readonly registry: MonitorRegistry;
 
   constructor(options: { readonly registry: MonitorRegistry }) {

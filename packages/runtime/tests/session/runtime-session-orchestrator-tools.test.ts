@@ -3,11 +3,11 @@ import type {
   ProviderAdapter,
   Capability,
   ToolAuthorizer,
-  CapabilityAnnotations,
   RateLimiter,
   ToolDefinition,
   AuthorityDescriptor,
   ApprovalRequestedEvent,
+  type ActionEffectEnvelope,
 } from "@kilnai/core";
 import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
@@ -180,13 +180,43 @@ function getLastToolResultPartsFromCall(
   throw new Error(`No reinjected tool_result parts found in provider call ${callIndex + 1}.`);
 }
 
+const READ_ONLY_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process", "workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
+const MUTATION_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process", "workspace"],
+  reversibility: "irreversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
+
+const IDEMPOTENT_MUTATION_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process", "workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "idempotent",
+};
+
 function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string, Capability> {
   const cap: Capability = {
     name: "get_data",
     description: "Gets data",
     schema: {},
     tags: [],
-    annotations: { readOnly: true },
+    effectEnvelope: READ_ONLY_EFFECT,
     ...overrides,
   };
   return new Map([["get_data", cap]]);
@@ -1573,7 +1603,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       await orchestrator.processMessage(makeSession(), textParts("fetch data"));
 
-      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", { readOnly: true });
+      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", READ_ONLY_EFFECT);
 
       const authorizedEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_authorized");
       expect(authorizedEvents).toHaveLength(1);
@@ -1665,7 +1695,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
-        capabilityMap: makeCapabilityMap({ annotations: { destructive: true } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
       });
 
@@ -1693,7 +1723,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
         eventBus,
-        capabilityMap: makeCapabilityMap({ annotations: { destructive: true } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
       });
 
@@ -1765,7 +1795,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
         eventBus,
-        capabilityMap: makeCapabilityMap({ annotations: { destructive: true } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
       });
 
@@ -1927,7 +1957,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", vi.fn().mockRejectedValue(new Error("boom"))]]),
-        capabilityMap: makeCapabilityMap({ annotations: { idempotent: true } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: IDEMPOTENT_MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
         auditLog,
       });
@@ -2113,7 +2143,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           description: "Runs shell commands",
           schema: {},
           tags: [],
-          annotations: { idempotent: true },
+          effectEnvelope: IDEMPOTENT_MUTATION_EFFECT,
         }]]),
         auditLog,
       });
@@ -2288,7 +2318,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
-        capabilityMap: makeCapabilityMap({ annotations: { readOnly: true, cacheTtl: 60 } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: READ_ONLY_EFFECT, cacheTtl: 60 }),
         toolCache,
         toolResultSanitizer: sanitizer,
       });
@@ -2321,7 +2351,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
-        capabilityMap: makeCapabilityMap({ annotations: { readOnly: true, cacheTtl: 60 } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: READ_ONLY_EFFECT, cacheTtl: 60 }),
         toolCache,
         toolResultSanitizer: sanitizer,
       });
@@ -2345,7 +2375,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
-        capabilityMap: makeCapabilityMap({ annotations: { readOnly: true, cacheTtl: 60 } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: READ_ONLY_EFFECT, cacheTtl: 60 }),
         toolCache,
       });
 
@@ -2370,7 +2400,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
-        capabilityMap: makeCapabilityMap({ annotations: { readOnly: true, cacheTtl: 60 } }),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: READ_ONLY_EFFECT, cacheTtl: 60 }),
         toolCache,
         toolResultSanitizer: sanitizer,
       });
@@ -2480,7 +2510,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   });
 
   describe("enriched events", () => {
-    it("emits tool_called with toolInput and annotations", async () => {
+    it("emits tool_called with toolInput", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);
       const emitSpy = vi.spyOn(eventBus, "emit");
@@ -2501,7 +2531,6 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         type: "tool_called",
         toolName: "get_data",
         toolInput: { query: "test" },
-        annotations: { readOnly: true },
       });
     });
 
@@ -3344,15 +3373,14 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
             description: "Gets data",
             schema: {},
             tags: ["integration", "stripe"],
-            annotations: { readOnly: true, destructive: false },
+            effectEnvelope: READ_ONLY_EFFECT,
           }],
         ]),
       };
 
       await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
 
-      // Authorizer should receive annotations from perCallCapabilities
-      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", { readOnly: true, destructive: false });
+      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", READ_ONLY_EFFECT);
     });
 
     it("dep-level capabilityMap takes precedence over perCallCapabilities", async () => {
@@ -3367,7 +3395,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         description: "Gets data",
         schema: {},
         tags: [],
-        annotations: { readOnly: true },
+        effectEnvelope: READ_ONLY_EFFECT,
       };
 
       const orchestrator = new RuntimeSessionOrchestrator({
@@ -3380,14 +3408,14 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       const perCallConfig: PerCallToolConfig = {
         perCallCapabilities: new Map([
-          ["get_data", { ...depCapability, annotations: { destructive: true } }],
+          ["get_data", { ...depCapability, effectEnvelope: MUTATION_EFFECT }],
         ]),
       };
 
       await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
 
       // Dep-level should win
-      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", { readOnly: true });
+      expect(authorizer.authorize).toHaveBeenCalledWith("get_data", READ_ONLY_EFFECT);
     });
   });
 });

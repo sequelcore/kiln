@@ -1,7 +1,7 @@
 // Engine domain: Integration adapter interfaces
 // Pure TypeScript, zero external dependencies
 
-import type { CapabilityAnnotations } from "./capability.js";
+import type { ActionEffectEnvelope } from "./action-effect.js";
 
 /** Resolved credential for third-party API authentication */
 export interface ResolvedCredential {
@@ -23,7 +23,7 @@ export interface IntegrationOperation {
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown>;
-  readonly annotations?: CapabilityAnnotations;
+  readonly effectEnvelope?: ActionEffectEnvelope;
 }
 
 /** Execution options passed to adapter on each call */

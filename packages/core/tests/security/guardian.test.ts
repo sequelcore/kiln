@@ -3,11 +3,32 @@ import { Guardian } from "../../src/security/guardian.js";
 import { EventBus } from "../../src/events/event-bus.js";
 import type { GuardianConfig } from "../../src/security/types.js";
 import type { Capability } from "../../src/engine/domain/capability.js";
+import type { ActionEffectEnvelope } from "../../src/engine/domain/action-effect.js";
 import type { ProviderAdapter, AgentResponse } from "../../src/agents/index.js";
 import { textParts } from "../../src/engine/domain/content.js";
 import type { AuditLog, AuditEntry, AuditFilter, AuditChainResult } from "../../src/security/types.js";
 
 // --- Helpers ---
+
+const READ_ONLY_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process", "workspace"],
+  reversibility: "reversible",
+  dataEgress: "project-data",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
+const IRREVERSIBLE_MUTATION_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process", "workspace"],
+  reversibility: "irreversible",
+  dataEgress: "project-data",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
 
 function makeConfig(overrides?: Partial<GuardianConfig>): GuardianConfig {
   return {
@@ -25,7 +46,7 @@ function makeDestructiveCapability(overrides?: Partial<Capability>): Capability 
     description: "Deletes files from the filesystem",
     schema: {},
     tags: [],
-    annotations: { destructive: true, idempotent: false },
+    effectEnvelope: IRREVERSIBLE_MUTATION_EFFECT,
     ...overrides,
   };
 }
@@ -36,7 +57,7 @@ function makeReadOnlyCapability(): Capability {
     description: "Reads a file from the filesystem",
     schema: {},
     tags: [],
-    annotations: { readOnly: true, destructive: false },
+    effectEnvelope: READ_ONLY_EFFECT,
   };
 }
 
@@ -46,7 +67,10 @@ function makeSafeCapability(): Capability {
     description: "Lists directory contents",
     schema: {},
     tags: [],
-    annotations: {},
+    effectEnvelope: {
+      ...READ_ONLY_EFFECT,
+      idempotency: "conditionally-idempotent",
+    },
   };
 }
 
@@ -162,29 +186,28 @@ describe("Guardian", () => {
       expect(guardian.needsReview(makeReadOnlyCapability())).toBe(false);
     });
 
-    it("returns true for destructive+readOnly when bypassForReadOnly is false", () => {
+    it("returns true for irreversible mutation effects when bypassForReadOnly is false", () => {
       const cap: Capability = {
         name: "override",
-        description: "Both flags",
+        description: "Irreversible mutation",
         schema: {},
         tags: [],
-        annotations: { destructive: true, readOnly: true },
+        effectEnvelope: IRREVERSIBLE_MUTATION_EFFECT,
       };
-      // bypassForReadOnly=false means readOnly doesn't save it
       const guardian = new Guardian(makeConfig({ bypassForReadOnly: false }), makeApprovedProvider());
       expect(guardian.needsReview(cap)).toBe(true);
     });
 
-    it("bypasses destructive+readOnly when bypassForReadOnly is true", () => {
+    it("does not bypass irreversible mutation effects when bypassForReadOnly is true", () => {
       const cap: Capability = {
         name: "override",
-        description: "Both flags",
+        description: "Irreversible mutation",
         schema: {},
         tags: [],
-        annotations: { destructive: true, readOnly: true },
+        effectEnvelope: IRREVERSIBLE_MUTATION_EFFECT,
       };
       const guardian = new Guardian(makeConfig({ bypassForReadOnly: true }), makeApprovedProvider());
-      expect(guardian.needsReview(cap)).toBe(false);
+      expect(guardian.needsReview(cap)).toBe(true);
     });
   });
 

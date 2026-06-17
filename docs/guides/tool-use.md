@@ -36,26 +36,40 @@ capabilities:
   - name: search_products
     description: Search the product catalog by query
     tags: [catalog]
-    annotations:
-      readOnly: true
-      idempotent: true
+    effectEnvelope:
+      operation: observe
+      boundaries: [external-system]
+      reversibility: reversible
+      dataEgress: metadata
+      identityUse: authenticated
+      consequences: []
+      idempotency: idempotent
 
   - name: process_refund
     description: Process a customer refund
     tags: [billing]
-    annotations:
-      destructive: true
+    effectEnvelope:
+      operation: mutate
+      boundaries: [external-system]
+      reversibility: compensatable
+      dataEgress: sensitive-data
+      identityUse: authenticated
+      consequences: [financial, external-state]
+      idempotency: non-idempotent
 ```
 
-### Capability annotations
+### Capability effect envelopes
 
-| Annotation | Type | Effect |
+| Field | Type | Effect |
 |-----------|------|--------|
-| `readOnly` | boolean | Safe to auto-execute and retry. |
-| `destructive` | boolean | Classified as always-confirm. |
-| `idempotent` | boolean | Safe for audited retry. |
+| `operation` | enum | Observe or mutate. |
+| `boundaries` | enum array | Process, workspace, machine, network, or external system. |
+| `reversibility` | enum | Reversible, compensatable, irreversible, or unknown. |
+| `dataEgress` | enum | None, metadata, project data, sensitive data, or unknown. |
+| `identityUse` | enum | None, authenticated, privileged, or unknown. |
+| `consequences` | enum array | Local state, external state, financial, legal, security, or unknown. |
+| `idempotency` | enum | Idempotent, conditionally idempotent, non-idempotent, or unknown. |
 | `cacheTtl` | number | Enables tool-result caching for the declared TTL. |
-| `guardrail` | boolean | Reserved for highest-friction confirmation flows. |
 | `outputSchema` | JSON Schema | Validates the returned shape. |
 
 Unannotated capabilities default to the authorizer's configured default level.
@@ -88,14 +102,17 @@ At execution time, Kiln uses `executeWithRetry()` from `packages/core/src/agents
 
 ## Authorization model
 
-Native and app-defined tools both rely on annotation-driven authorization. `AnnotationAuthorizer` maps tool annotations onto four execution levels:
+Native and app-defined tools rely on canonical action-effect authorization.
+Trusted tool definitions declare immutable maximum effect envelopes, and the
+execution boundary resolves the concrete invocation effect from validated input
+before deriving authority.
 
-| Level | Annotation shape | Result |
+| Level | Resolved effect shape | Result |
 |-------|------------------|--------|
-| `1` | `readOnly: true` | auto-execute |
-| `2` | `idempotent: true` or default policy | audited execution |
+| `1` | read-only observation, or reversible idempotent local mutation | auto-execute |
+| `2` | compensatable mutation or observation with external access | audited execution |
 | `3` | unknown tool when approval is required | approval required |
-| `4` | `destructive: true` | approval required |
+| `4` | irreversible, privileged, malformed, or sensitive/external effect | approval required or denied |
 
 `DevToolExecutionBridge` converts authorization failures into explicit engine errors:
 
@@ -273,7 +290,7 @@ Integration tools wrap third-party APIs behind `IntegrationAdapter` implementati
 - tool definition generation
 - execution and error wrapping
 
-Tool names follow `{provider}_{operation}`, such as `google_calendar_check_availability` or `stripe_create_payment_link`. Integration operations surface annotations, so they participate in the same authorization and retry rules as other tools.
+Tool names follow `{provider}_{operation}`, such as `google_calendar_check_availability` or `stripe_create_payment_link`. Integration operations surface declared effect envelopes, so they participate in the same authorization and retry rules as other tools.
 
 ---
 
@@ -486,7 +503,7 @@ export interface DevTool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
-  readonly annotations?: DevToolAnnotations;
+  readonly effectEnvelope?: ActionEffectEnvelope;
   execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult>;
 }
 ```
@@ -558,7 +575,7 @@ The supported theme names are defined once in `@kilnai/gateway-contracts`.
 
 ### Built-in tool schemas
 
-`TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and annotations. `createDefaultBuiltinToolSurface()` turns those core definitions into registry, MCP, runtime, CLI, and capability projections.
+`TOOL_SCHEMAS` is the source of truth for names, descriptions, input schemas, and declared effect envelopes. `createDefaultBuiltinToolSurface()` turns those core definitions into registry, MCP, runtime, CLI, and capability projections.
 
 Builtin `inputSchema` properties must carry explicit JSON Schema shape
 information. Do not rely on enum-only property definitions such as
@@ -1091,9 +1108,14 @@ const echoTool: DevTool = {
     },
     required: ["payload"],
   },
-  annotations: {
-    readOnly: true,
-    idempotent: true,
+  effectEnvelope: {
+    operation: "observe",
+    boundaries: ["process"],
+    reversibility: "reversible",
+    dataEgress: "metadata",
+    identityUse: "none",
+    consequences: [],
+    idempotency: "idempotent",
   },
   async execute(input: ToolInput): Promise<ToolResult> {
     return {
@@ -1139,9 +1161,11 @@ export interface DevToolExecutionRequest {
 `authorizeRequest()` exposes the decision without executing the tool. `execute()` performs the same check again before each run:
 
 1. lookup tool
-2. classify annotations through `ToolAuthorizer`
-3. allow immediately, require approval, or deny
-4. if approved, execute with retry/fallback
+2. validate input
+3. resolve the declared effect envelope and concrete invocation effect
+4. derive authority from the resolved effect through `ToolAuthorizer`
+5. allow immediately, require approval, or deny
+6. if approved, execute with retry/fallback; fallbacks repeat this sequence
 
 Error codes:
 
@@ -1166,7 +1190,7 @@ The bridge itself focuses on execution. `Orchestrator.executeDevTool()` wraps it
 - `tool_authorized`
 - `tool_result`
 
-Those events include authorization level, annotations, duration, success, and a result summary. The design keeps the bridge reusable while preserving observability at the orchestration boundary.
+Those events include the resolved invocation effect, authority decision, duration, success, and a result summary. The design keeps the bridge reusable while preserving observability at the orchestration boundary.
 
 ---
 
@@ -1214,13 +1238,17 @@ Permission enforcement for native developer tools has two layers.
 
 ### Core execution layer
 
-Inside `@kilnai/core`, the immediate gate is annotation-based:
+Inside `@kilnai/core`, the immediate gate is action-effect based:
 
-- `read`, `grep`, and `glob` are `readOnly`
-- `bash` and `write` are destructive
-- `edit` and `git` are non-read-only but not marked destructive in the schema
+- builtin tools declare maximum `ActionEffectEnvelope` values
+- input-sensitive tools such as `bash`, `git`, and `patch` resolve concrete
+  invocation effects from validated input
+- malformed or widening resolved effects fail closed
+- external MCP annotations are hints for interoperability and presentation
+  only; they do not grant trusted effect envelopes or reduce authority
 
-`AnnotationAuthorizer` turns those annotations into execution levels before the bridge runs the tool.
+`ToolAuthorizer` consumes the resolved invocation effect before the bridge runs
+the tool.
 
 ### Wrapper policy layer
 
@@ -1263,7 +1291,7 @@ Tool execution emits two families of events.
 
 | Event | Key fields |
 |-------|------------|
-| `tool_called` | `toolName`, `toolInput`, `annotations`, `authorizationLevel`, `taskId` |
+| `tool_called` | `toolName`, `toolInput`, `resolvedEffect`, `authority`, `authorizationLevel`, `taskId` |
 | `tool_authorized` | `toolName`, `level`, `allowed`, `reason` |
 | `tool_result` | `toolName`, `durationMs`, `success`, `isError`, `retryAttempt`, `resultSummary` |
 
@@ -1287,7 +1315,7 @@ The pipeline is intentionally fail-open so a safety-service outage does not free
 
 ## Tool selection and scaling
 
-When a session has many tools, Kiln can reduce the prompt footprint by ranking relevant tools before each round. Tool descriptions and annotations still remain the source of truth; ToolRAG only narrows the candidate set.
+When a session has many tools, Kiln can reduce the prompt footprint by ranking relevant tools before each round. Tool descriptions and declared effect envelopes still remain the source of truth; ToolRAG only narrows the candidate set.
 
 For large installations, that matters because developer tools, webhook tools, integration tools, and MCP tools all compete for context budget.
 

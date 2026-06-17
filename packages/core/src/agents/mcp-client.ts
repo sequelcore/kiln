@@ -2,11 +2,10 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Capability, CapabilityAnnotations } from "../engine/domain/capability.js";
+import type { Capability } from "../engine/domain/capability.js";
 import type { McpServerConfig } from "../engine/domain/mcp-config.js";
 import { KilnError } from "../engine/errors.js";
 import type { PromptScanner } from "../security/prompt-scanner.js";
-import { conservativeEnvelopeFromExternalHints } from "../engine/domain/action-effect.js";
 
 /** Package identity for MCP client registration */
 const CLIENT_NAME = "kilnai";
@@ -145,23 +144,11 @@ export class McpClient {
       openWorldHint?: boolean;
     };
   }): Capability {
-    const annotations: CapabilityAnnotations | undefined = tool.annotations
-      ? {
-          readOnly: tool.annotations.readOnlyHint,
-          destructive: tool.annotations.destructiveHint,
-          idempotent: tool.annotations.idempotentHint,
-        }
-      : undefined;
-
-    const effectEnvelope = conservativeEnvelopeFromExternalHints(tool.annotations);
-
     return {
       name: tool.name,
       description: tool.description ?? `MCP tool: ${tool.name}`,
       schema: tool.inputSchema ?? {},
-      tags: ["mcp", this.serverName],
-      ...(annotations ? { annotations } : {}),
-      effectEnvelope,
+      tags: ["mcp", this.serverName, ...mcpHintTags(tool.annotations)],
     };
   }
 
@@ -175,4 +162,19 @@ export class McpClient {
 
     return Math.max(configuredTimeout, Math.ceil(toolTimeout + REQUEST_TIMEOUT_BUFFER_MS));
   }
+}
+
+function mcpHintTags(hints?: {
+  readonly readOnlyHint?: boolean;
+  readonly destructiveHint?: boolean;
+  readonly idempotentHint?: boolean;
+  readonly openWorldHint?: boolean;
+}): readonly string[] {
+  if (!hints) return [];
+  const tags: string[] = [];
+  if (hints.readOnlyHint === true) tags.push("mcp-hint:read-only");
+  if (hints.destructiveHint === true) tags.push("mcp-hint:destructive");
+  if (hints.idempotentHint === true) tags.push("mcp-hint:idempotent");
+  if (hints.openWorldHint === true) tags.push("mcp-hint:open-world");
+  return tags;
 }

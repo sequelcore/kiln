@@ -4,9 +4,7 @@ import {
   verifyContentHash,
   validatePackageSecurity,
   validatePackageFiles,
-  applyDefaultAnnotations,
 } from "../../src/package/security.js";
-import type { CapabilityAnnotations } from "../../src/engine/domain/capability.js";
 
 describe("computeContentHash", () => {
   it("returns a 64-character hex string (SHA-256)", () => {
@@ -120,34 +118,5 @@ describe("validatePackageFiles", () => {
   it("handles empty file list", () => {
     const result = validatePackageFiles([]);
     expect(result.valid).toBe(true);
-  });
-});
-
-describe("applyDefaultAnnotations", () => {
-  it("returns destructive defaults for undefined", () => {
-    const result = applyDefaultAnnotations();
-    expect(result.destructive).toBe(true);
-    expect(result.readOnly).toBe(false);
-    expect(result.idempotent).toBe(false);
-  });
-
-  it("returns destructive defaults for null", () => {
-    const result = applyDefaultAnnotations(null);
-    expect(result.destructive).toBe(true);
-  });
-
-  it("preserves explicit values", () => {
-    const annotations: CapabilityAnnotations = { destructive: false, readOnly: true, idempotent: true };
-    const result = applyDefaultAnnotations(annotations);
-    expect(result.destructive).toBe(false);
-    expect(result.readOnly).toBe(true);
-    expect(result.idempotent).toBe(true);
-  });
-
-  it("defaults missing fields to safe values", () => {
-    const result = applyDefaultAnnotations({});
-    expect(result.destructive).toBe(true);
-    expect(result.readOnly).toBe(false);
-    expect(result.idempotent).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import type {
   InvocationEffectResolver,
   InvocationEffectResolverRegistry,
 } from "../../engine/domain/action-effect.js";
+import { DeterministicDangerousCommandDetector } from "../../security/dangerous-command-detector.js";
 
 const OBSERVE_PROCESS: ActionEffectEnvelope = {
   operation: "observe",
@@ -155,44 +156,23 @@ const MONITOR_START_MUTATION: ActionEffectEnvelope = {
   idempotency: "non-idempotent",
 };
 
+const dangerousCommandDetector = new DeterministicDangerousCommandDetector();
+
 const bashResolver: InvocationEffectResolver = (_toolName, input, _envelope) => {
   const command = typeof input.command === "string" ? input.command : "";
   if (!command.trim()) {
     return OBSERVE_PROCESS;
   }
-
-  const safePrefixes = [
-    "ls", "dir", "cat", "head", "tail", "echo", "pwd", "whoami",
-    "env", "printenv", "which", "where", "type", "date", "uname",
-    "hostname", "id", "df", "du", "free", "uptime", "w", "who",
-  ];
-  const firstWord = command.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
-
-  if (safePrefixes.includes(firstWord)) {
+  const decision = dangerousCommandDetector.evaluate({ command, shell: "bash" });
+  if (decision.action === "allow") {
     return OBSERVE_WORKSPACE;
   }
-
-  const destructivePatterns = [
-    /\brm\s/, /\brm$/, /\brmdir\b/i, /\bdel\b/i, /\bformat\b/i,
-    /\bshutdown\b/i, /\breboot\b/i, /\bmkfs\b/i, /\bdd\s/,
-  ];
-  const networkPatterns = [
-    /\bcurl\b/i, /\bwget\b/i, /\bnc\b/, /\bncat\b/i, /\bssh\b/i,
-    /\bscp\b/i, /\brsync\b/i, /\bftp\b/i, /\bdig\b/i, /\bnslookup\b/i,
-  ];
-
-  for (const pattern of destructivePatterns) {
-    if (pattern.test(command)) {
-      return BASH_DESTRUCTIVE;
-    }
+  if (decision.reasonCode === "download_execute") {
+    return BASH_NETWORK;
   }
-
-  for (const pattern of networkPatterns) {
-    if (pattern.test(command)) {
-      return BASH_NETWORK;
-    }
+  if (decision.reasonCode === "destructive_unix" || decision.reasonCode === "destructive_windows") {
+    return BASH_DESTRUCTIVE;
   }
-
   return _envelope;
 };
 

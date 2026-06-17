@@ -121,15 +121,8 @@ export interface DevTool {
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown>;
-  readonly annotations?: DevToolAnnotations;
   readonly effectEnvelope?: import("../../engine/domain/action-effect.js").ActionEffectEnvelope;
   execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult>;
-}
-
-export interface DevToolAnnotations {
-  readonly readOnly?: boolean;
-  readonly destructive?: boolean;
-  readonly idempotent?: boolean;
 }
 
 export type DevToolName =
@@ -185,7 +178,6 @@ export const TOOL_SCHEMAS: Record<
     name: DevToolName;
     description: string;
     inputSchema: Record<string, unknown>;
-    annotations: DevToolAnnotations;
   }
 > = {
   bash: {
@@ -213,9 +205,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["command"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   read: {
     name: "read",
@@ -233,10 +222,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["filePath"],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   read_many: {
@@ -286,10 +271,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["paths"],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   write: {
     name: "write",
@@ -309,9 +290,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["filePath", "content"],
       additionalProperties: false,
-    },
-    annotations: {
-      destructive: true,
     },
   },
   edit: {
@@ -341,9 +319,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["filePath", "oldString", "newString"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: false,
-    },
   },
   patch: {
     name: "patch",
@@ -363,9 +338,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["patch"],
       additionalProperties: false,
-    },
-    annotations: {
-      destructive: true,
     },
   },
   stat: {
@@ -387,10 +359,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["path"],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   tree: {
@@ -416,10 +384,6 @@ export const TOOL_SCHEMAS: Record<
       required: [],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   view_image: {
     name: "view_image",
@@ -441,10 +405,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["path"],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   ocr_image: {
     name: "ocr_image",
@@ -464,10 +424,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["path"],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   web_search: {
@@ -499,10 +455,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["query"],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   web_fetch: {
     name: "web_fetch",
@@ -528,10 +480,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["url"],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   web_extract: {
@@ -561,10 +509,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["urls"],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   browser_session_start: {
@@ -604,9 +548,6 @@ export const TOOL_SCHEMAS: Record<
       required: [],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   browser_navigate: {
     name: "browser_navigate",
@@ -626,9 +567,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["url"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   browser_observe: {
     name: "browser_observe",
@@ -646,10 +584,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: [],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   browser_click: {
@@ -669,9 +603,6 @@ export const TOOL_SCHEMAS: Record<
       required: [],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   browser_type: {
     name: "browser_type",
@@ -690,9 +621,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["text"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   browser_keypress: {
     name: "browser_keypress",
@@ -708,9 +636,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["keys"],
       additionalProperties: false,
-    },
-    annotations: {
-      destructive: true,
     },
   },
   browser_scroll: {
@@ -729,9 +654,6 @@ export const TOOL_SCHEMAS: Record<
       required: [],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   browser_session_stop: {
     name: "browser_session_stop",
@@ -745,9 +667,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: [],
       additionalProperties: false,
-    },
-    annotations: {
-      destructive: true,
     },
   },
   computer_observe: {
@@ -764,10 +683,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: [],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   computer_click: {
@@ -788,9 +703,6 @@ export const TOOL_SCHEMAS: Record<
       required: [],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   computer_type: {
     name: "computer_type",
@@ -810,9 +722,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["text"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   computer_keypress: {
     name: "computer_keypress",
@@ -830,9 +739,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["keys"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   computer_open_application: {
     name: "computer_open_application",
@@ -847,9 +753,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["application"],
       additionalProperties: false,
-    },
-    annotations: {
-      destructive: true,
     },
   },
   computer_focus_application: {
@@ -866,9 +769,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["application"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   computer_minimize_application: {
     name: "computer_minimize_application",
@@ -884,9 +784,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["application"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   computer_close_application: {
     name: "computer_close_application",
@@ -901,9 +798,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["application"],
       additionalProperties: false,
-    },
-    annotations: {
-      destructive: true,
     },
   },
   grep: {
@@ -939,10 +833,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["pattern"],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   glob: {
     name: "glob",
@@ -964,10 +854,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["pattern"],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   git: {
     name: "git",
@@ -988,10 +874,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["subcommand"],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   code_intelligence: {
@@ -1051,10 +933,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["operation"],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   monitor_start: {
     name: "monitor_start",
@@ -1085,9 +963,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["command"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   monitor_read: {
     name: "monitor_read",
@@ -1113,10 +988,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["id"],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   monitor_stop: {
     name: "monitor_stop",
@@ -1138,9 +1009,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["id"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   monitor_list: {
     name: "monitor_list",
@@ -1158,10 +1026,6 @@ export const TOOL_SCHEMAS: Record<
       required: [],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   task_list: {
     name: "task_list",
@@ -1178,10 +1042,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: [],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   task_update: {
@@ -1218,9 +1078,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["title", "status"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: false,
-    },
   },
   operator_elicit: {
     name: "operator_elicit",
@@ -1254,9 +1111,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["mode", "message"],
       additionalProperties: false,
-    },
-    annotations: {
-      destructive: false,
     },
   },
   tool_catalog_search: {
@@ -1294,10 +1148,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: [],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   memory_save: {
@@ -1376,9 +1226,6 @@ export const TOOL_SCHEMAS: Record<
       required: ["layer", "scopeKind", "scopeId", "content", "provenance"],
       additionalProperties: false,
     },
-    annotations: {
-      destructive: true,
-    },
   },
   resource_list: {
     name: "resource_list",
@@ -1398,10 +1245,6 @@ export const TOOL_SCHEMAS: Record<
       required: [],
       additionalProperties: false,
     },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
-    },
   },
   resource_template_list: {
     name: "resource_template_list",
@@ -1420,10 +1263,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: [],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
   resource_read: {
@@ -1448,10 +1287,6 @@ export const TOOL_SCHEMAS: Record<
       },
       required: ["uri"],
       additionalProperties: false,
-    },
-    annotations: {
-      readOnly: true,
-      idempotent: true,
     },
   },
 };

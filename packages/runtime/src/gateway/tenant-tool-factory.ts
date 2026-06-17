@@ -104,7 +104,7 @@ export function buildTenantToolContext(
       }
       toolDefinitions.push(...defs);
 
-      // Collect capabilities with annotations for tool authorization/caching
+      // Collect capabilities with effect envelopes for authority projection and caching.
       const caps = registry.getCapabilities(integration.provider, integration.operations);
       for (const [name, cap] of caps) {
         capabilities.set(name, cap);

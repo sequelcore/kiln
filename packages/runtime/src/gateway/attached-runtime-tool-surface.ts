@@ -150,7 +150,6 @@ const OPERATOR_SET_THEME_CAPABILITY: Capability = {
   description: OPERATOR_SET_THEME_TOOL.description,
   schema: OPERATOR_SET_THEME_TOOL.inputSchema,
   tags: ["operator-ui"],
-  annotations: { idempotent: true },
   effectEnvelope: RUNTIME_IDEMPOTENT_MUTATE_LOCAL,
 };
 
@@ -294,7 +293,6 @@ const SUBMIT_PLAN_CAPABILITY: Capability = {
   description: SUBMIT_PLAN_TOOL.description,
   schema: SUBMIT_PLAN_TOOL.inputSchema,
   tags: ["operator-mode", "planning"],
-  annotations: { readOnly: true },
   effectEnvelope: RUNTIME_OBSERVE_METADATA_EGRESS,
 };
 
@@ -384,7 +382,6 @@ const SUBMIT_SPECIFICATION_CAPABILITY: Capability = {
   description: SUBMIT_SPECIFICATION_TOOL.description,
   schema: SUBMIT_SPECIFICATION_TOOL.inputSchema,
   tags: ["operator-mode", "planning", "specification"],
-  annotations: { readOnly: true },
   effectEnvelope: RUNTIME_OBSERVE_METADATA_EGRESS,
 };
 
@@ -411,7 +408,6 @@ const RECORD_CLARIFICATION_CAPABILITY: Capability = {
   description: RECORD_CLARIFICATION_TOOL.description,
   schema: RECORD_CLARIFICATION_TOOL.inputSchema,
   tags: ["operator-mode", "planning", "specification"],
-  annotations: { readOnly: true },
   effectEnvelope: RUNTIME_OBSERVE_METADATA_EGRESS,
 };
 

@@ -117,7 +117,7 @@ export {
 } from "./domain/speech-config.js";
 export { assembleAgentPrompt } from "./domain/prompt-assembler.js";
 export type { PromptContext } from "./domain/prompt-assembler.js";
-export type { Capability, CapabilityAnnotations } from "./domain/capability.js";
+export type { Capability } from "./domain/capability.js";
 export type {
   RetryStrategy,
   RetryConfig,
@@ -148,6 +148,7 @@ export {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
   conservativeEnvelopeFromExternalHints,
   deriveAuthorityFromEffect,
+  normalizeActionEffectEnvelope,
   resolveInvocationEffect,
   isValidNarrowing,
   catalogAuthorityFromEnvelope,

@@ -33,7 +33,6 @@ export class OcrImageTool implements DevTool {
   readonly name = "ocr_image";
   readonly description = TOOL_SCHEMAS.ocr_image.description;
   readonly inputSchema = TOOL_SCHEMAS.ocr_image.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.ocr_image.annotations;
   private readonly ocrRunner: OcrImageRunner;
 
   constructor(options: OcrImageToolOptions = {}) {

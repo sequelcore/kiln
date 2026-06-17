@@ -9,6 +9,7 @@ import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/t
 import { DevToolExecutionBridge } from "../../../src/tools/tool-executor.js";
 import { DevToolsMcpServer } from "../../../src/tools/mcp/dev-tools-server.js";
 import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/artifact-resource-store.js";
+import type { ActionEffectEnvelope } from "../../../src/engine/domain/action-effect.js";
 import { makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,10 +17,20 @@ import { join } from "node:path";
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const PNG_BYTES = Buffer.from(PNG_BASE64, "base64");
 
+const READ_ONLY_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process", "workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
 function makeTool(
   name: string,
   executeFn: (input: ToolInput) => Promise<ToolResult>,
-  annotations?: DevTool["annotations"],
+  effectEnvelope: ActionEffectEnvelope = READ_ONLY_EFFECT,
   inputSchema: DevTool["inputSchema"] = {
     type: "object",
     properties: {},
@@ -30,7 +41,7 @@ function makeTool(
     name,
     description: `${name} tool`,
     inputSchema,
-    annotations,
+    effectEnvelope,
     execute: executeFn,
   };
 }
@@ -952,7 +963,7 @@ describe("DevToolsMcpServer", () => {
       });
       const server = createServer(registry);
 
-      const responsePromise = server.callTool("bash", { command: "sleep 31", timeout: 60_000 });
+      const responsePromise = server.callTool("bash", { command: "pwd", timeout: 60_000 });
       await vi.advanceTimersByTimeAsync(31_000);
 
       const response = await responsePromise;
@@ -984,7 +995,7 @@ describe("DevToolsMcpServer", () => {
             await new Promise<ToolResult>((resolve) => {
               resolveTool = resolve;
             }),
-          undefined,
+          READ_ONLY_EFFECT,
           {
             type: "object",
             properties: {

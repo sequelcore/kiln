@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DevTool, ToolInput, ToolResult } from "../../../src/tools/domain/tool.js";
 import { TOOL_SCHEMAS } from "../../../src/tools/domain/tool.js";
+import { getBuiltinEffectEnvelope } from "../../../src/tools/domain/tool-effect-envelopes.js";
 import {
   commandToolMetadata,
   fileToolMetadata,
@@ -25,7 +26,7 @@ describe("tool domain types", () => {
       name: "read",
       description: "Read a file from disk",
       inputSchema: TOOL_SCHEMAS.read.inputSchema,
-      annotations: { readOnly: true, idempotent: true },
+      effectEnvelope: getBuiltinEffectEnvelope("read"),
       async execute(input: ToolInput): Promise<ToolResult> {
         return {
           output: JSON.stringify(input.input),
@@ -40,7 +41,7 @@ describe("tool domain types", () => {
     });
 
     expect(tool.name).toBe("read");
-    expect(tool.annotations?.readOnly).toBe(true);
+    expect(tool.effectEnvelope?.operation).toBe("observe");
     expect(result).toEqual({
       output: JSON.stringify({ filePath: "/tmp/demo.txt" }),
       isError: false,
@@ -97,91 +98,34 @@ describe("tool domain types", () => {
     ]);
   });
 
-  it("marks read-only tools with safety annotations", () => {
-    expect(TOOL_SCHEMAS.read.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.read_many.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.grep.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.glob.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.stat.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.tree.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.view_image.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.ocr_image.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.web_search.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.web_fetch.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.web_extract.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.browser_observe.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.computer_observe.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.tool_catalog_search.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.code_intelligence.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.monitor_read.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.monitor_list.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.task_list.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.resource_list.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.resource_template_list.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
-    expect(TOOL_SCHEMAS.resource_read.annotations).toEqual({
-      readOnly: true,
-      idempotent: true,
-    });
+  it("declares read-only builtin effects in the canonical envelope catalog", () => {
+    for (const toolName of [
+      "read",
+      "read_many",
+      "grep",
+      "glob",
+      "stat",
+      "tree",
+      "view_image",
+      "ocr_image",
+      "web_search",
+      "web_fetch",
+      "web_extract",
+      "browser_observe",
+      "computer_observe",
+      "tool_catalog_search",
+      "code_intelligence",
+      "monitor_read",
+      "monitor_list",
+      "task_list",
+      "resource_list",
+      "resource_template_list",
+      "resource_read",
+    ] as const) {
+      const envelope = getBuiltinEffectEnvelope(toolName);
+      expect(envelope?.operation).toBe("observe");
+      expect(["idempotent", "conditionally-idempotent"]).toContain(envelope?.idempotency);
+    }
   });
 
   it("uses JSON Schema object definitions for each tool", () => {
@@ -258,10 +202,7 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.computer_type.inputSchema.required).toEqual(["text"]);
     expect(TOOL_SCHEMAS.computer_keypress.inputSchema.required).toEqual(["keys"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
-    expect(TOOL_SCHEMAS.git.annotations).toMatchObject({
-      readOnly: true,
-      idempotent: true,
-    });
+    expect(getBuiltinEffectEnvelope("git")?.operation).toBe("observe");
     expect(TOOL_SCHEMAS.monitor_start.inputSchema.required).toEqual(["command"]);
     expect(TOOL_SCHEMAS.monitor_read.inputSchema.required).toEqual(["id"]);
     expect(TOOL_SCHEMAS.monitor_stop.inputSchema.required).toEqual(["id"]);

@@ -48,7 +48,6 @@ export class OperatorElicitationTool implements DevTool {
   readonly name = "operator_elicit";
   readonly description = TOOL_SCHEMAS.operator_elicit.description;
   readonly inputSchema = TOOL_SCHEMAS.operator_elicit.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.operator_elicit.annotations;
 
   private readonly responder?: OperatorElicitationResponder;
 

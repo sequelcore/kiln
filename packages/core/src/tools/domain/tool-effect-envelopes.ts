@@ -31,7 +31,7 @@ const OBSERVE_NONE_EGRESS: ActionEffectEnvelope = {
   reversibility: "reversible" as ReversibilityType,
   dataEgress: "none" as DataEgressType,
   identityUse: "none" as IdentityUseType,
-  consequences: ["none"] as readonly ConsequenceType[],
+  consequences: [] as readonly ConsequenceType[],
   idempotency: "idempotent" as IdempotencyType,
 };
 
@@ -41,7 +41,7 @@ const OBSERVE_METADATA_EGRESS: ActionEffectEnvelope = {
   reversibility: "reversible" as ReversibilityType,
   dataEgress: "metadata" as DataEgressType,
   identityUse: "none" as IdentityUseType,
-  consequences: ["none"] as readonly ConsequenceType[],
+  consequences: [] as readonly ConsequenceType[],
   idempotency: "idempotent" as IdempotencyType,
 };
 
@@ -81,7 +81,7 @@ const WEB_OBSERVE: ActionEffectEnvelope = {
   reversibility: "reversible" as ReversibilityType,
   dataEgress: "metadata" as DataEgressType,
   identityUse: "none" as IdentityUseType,
-  consequences: ["none"] as readonly ConsequenceType[],
+  consequences: [] as readonly ConsequenceType[],
   idempotency: "conditionally-idempotent" as IdempotencyType,
 };
 
@@ -91,7 +91,7 @@ const GIT_OBSERVE: ActionEffectEnvelope = {
   reversibility: "reversible" as ReversibilityType,
   dataEgress: "none" as DataEgressType,
   identityUse: "authenticated" as IdentityUseType,
-  consequences: ["none"] as readonly ConsequenceType[],
+  consequences: [] as readonly ConsequenceType[],
   idempotency: "idempotent" as IdempotencyType,
 };
 
@@ -161,7 +161,7 @@ const MONITOR_OBSERVE: ActionEffectEnvelope = {
   reversibility: "reversible" as ReversibilityType,
   dataEgress: "none" as DataEgressType,
   identityUse: "none" as IdentityUseType,
-  consequences: ["none"] as readonly ConsequenceType[],
+  consequences: [] as readonly ConsequenceType[],
   idempotency: "conditionally-idempotent" as IdempotencyType,
 };
 
@@ -179,7 +179,7 @@ const MEMORY_MUTATE: ActionEffectEnvelope = {
   operation: "mutate" as OperationType,
   boundaries: ["process", "workspace"] as readonly BoundaryType[],
   reversibility: "reversible" as ReversibilityType,
-  dataEgress: "metadata" as DataEgressType,
+  dataEgress: "project-data" as DataEgressType,
   identityUse: "none" as IdentityUseType,
   consequences: ["local-state"] as readonly ConsequenceType[],
   idempotency: "non-idempotent" as IdempotencyType,
@@ -201,7 +201,7 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
     reversibility: "reversible" as ReversibilityType,
     dataEgress: "metadata" as DataEgressType,
     identityUse: "none" as IdentityUseType,
-    consequences: ["none"] as readonly ConsequenceType[],
+    consequences: [] as readonly ConsequenceType[],
     idempotency: "idempotent" as IdempotencyType,
   },
   write: FILE_MUTATION,
@@ -227,7 +227,7 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
     reversibility: "reversible" as ReversibilityType,
     dataEgress: "metadata" as DataEgressType,
     identityUse: "none" as IdentityUseType,
-    consequences: ["none"] as readonly ConsequenceType[],
+    consequences: [] as readonly ConsequenceType[],
     idempotency: "idempotent" as IdempotencyType,
   },
   ocr_image: {
@@ -236,7 +236,7 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
     reversibility: "reversible" as ReversibilityType,
     dataEgress: "project-data" as DataEgressType,
     identityUse: "none" as IdentityUseType,
-    consequences: ["none"] as readonly ConsequenceType[],
+    consequences: [] as readonly ConsequenceType[],
     idempotency: "idempotent" as IdempotencyType,
   },
 
@@ -348,7 +348,7 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
     reversibility: "reversible" as ReversibilityType,
     dataEgress: "none" as DataEgressType,
     identityUse: "none" as IdentityUseType,
-    consequences: ["none"] as readonly ConsequenceType[],
+    consequences: [] as readonly ConsequenceType[],
     idempotency: "idempotent" as IdempotencyType,
   },
   task_update: {

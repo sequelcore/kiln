@@ -1,6 +1,5 @@
 export type {
   DevTool,
-  DevToolAnnotations,
   DevToolName,
   ToolInput,
   ToolResult,

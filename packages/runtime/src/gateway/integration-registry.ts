@@ -64,13 +64,13 @@ export class IntegrationRegistry {
 
     const result = new Map<string, Capability>();
     for (const op of this.filterOps(adapter, operationFilter)) {
-      if (op.annotations) {
+      if (op.effectEnvelope) {
         result.set(`${provider}_${op.name}`, {
           name: `${provider}_${op.name}`,
           description: op.description,
           schema: op.inputSchema,
           tags: ["integration", provider],
-          annotations: op.annotations,
+          effectEnvelope: op.effectEnvelope,
         });
       }
     }

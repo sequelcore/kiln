@@ -48,7 +48,6 @@ export class WebSearchTool implements DevTool {
   readonly name = "web_search";
   readonly description = TOOL_SCHEMAS.web_search.description;
   readonly inputSchema = TOOL_SCHEMAS.web_search.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.web_search.annotations;
 
   private readonly searchProvider?: WebSearchProvider;
   private readonly networkPolicy?: SandboxPolicy;

@@ -16,12 +16,20 @@ These systems interact, but they are not the same concern.
 
 The canonical sequence is:
 
-1. authority resolution (request authority descriptor, then authorizer fallback)
-2. rate-limit evaluation
-3. sandbox validation
-4. execution
-5. result sanitization
-6. reinjection or response
+1. look up the canonical tool definition
+2. validate concrete tool input
+3. resolve the trusted declared action-effect envelope
+4. resolve the concrete invocation effect from validated input
+5. validate that the resolved effect is equal to or narrower than the envelope
+6. resolve active policy or explicit authority carried by an admitted caller
+7. derive canonical authority from the resolved effect
+8. resolve approval when required
+9. execute through the actuator adapter
+10. sanitize the result
+11. record resolved effect, authority, attempts, and execution evidence
+12. reinject or return the result
+13. repeat the full sequence for any fallback tool
+14. persist canonical evidence for replay
 
 ## Canonical Authority Contract
 
@@ -29,13 +37,23 @@ Tool execution uses one canonical authority shape:
 
 - `AuthorityDescriptor`: `{ level, allowed, requiresApproval, reason }`
 - `ToolExecutionRequest`: `{ name, input, authority? }`
+- `ActionEffectEnvelope`: immutable catalog-time maximum effect
+- `ResolvedInvocationEffect`: concrete invocation effect computed from
+  validated input before authority and execution
 
 Resolution rules:
 
-- if request-level `authority` is present and valid, it is used as-is
-- if request-level `authority` is malformed, execution is denied (fail closed)
-- otherwise, existing `ToolAuthorizer` behavior is used
-- if no authorizer exists, default audited execution (level 2) is preserved
+- builtin and trusted integration definitions declare maximum effect envelopes
+- input-sensitive builtins resolve the concrete invocation effect before
+  authorization
+- malformed, missing, contradictory, or widening effects fail closed
+- `ToolAuthorizer` receives the resolved invocation effect, not annotations
+- if request-level `authority` is present and valid, it is treated as an
+  explicit admitted-policy decision and recorded with the resolved effect
+- if request-level `authority` is malformed, execution is denied
+- external MCP annotations are interoperability hints only; they may be
+  projected for presentation, but they do not narrow trusted effect envelopes
+  or reduce required authority
 
 ## Current Status
 
@@ -45,9 +63,12 @@ execution path.
 Current source-of-truth boundary:
 
 - canonical authority is resolved in execution paths (`ToolExecutionRequest`
-  authority when present, otherwise authorizer fallback and audited default)
+  authority when present, otherwise resolved-effect authorizer derivation)
 - approval is part of authority handling (`requiresApproval`) rather than a
   parallel authority model
+- execution evidence records the resolved invocation effect and authority
+  decision on tool authorization, tool result, audit, and session execution
+  summaries
 - operator approval resolution is keyed by canonical `approvalId`; session IDs
   are routing/audit context and must not be used as the approval grant key
 - safety/security middleware audit rows are explicitly non-authority surfaces
@@ -309,8 +330,8 @@ authority sources:
 
 - `toolAuthority` carries per-tool authority descriptors into execution when
   tenant or integration context provides them
-- `toolAuthorityClassification` exposes a coarse per-tool posture derived from
-  capability annotations
+- `toolAuthorityClassification` exposes a coarse per-tool posture projected
+  from canonical declared effects or explicit admitted authority
 - `integrationAuthorityRollup` exposes a conservative per-integration posture
   reduced from per-tool classifications
 - GUI/TUI `authorityStatus` exposes operator-facing visibility derived from the
@@ -333,10 +354,13 @@ Authority behavior differs by surface:
 ## Core Rules
 
 - authorization happens before execution
-- destructive actions require explicit approval unless policy says otherwise
+- authorization is derived from resolved invocation effect, not annotations
+- destructive or unknown actions require explicit approval unless an admitted
+  operator policy explicitly overrides that behavior
 - sandbox violations are denied and audited
 - results are sanitized before re-entry
-- retries and fallbacks are bounded
+- retries and fallbacks are bounded, and every fallback resolves and authorizes
+  its own tool and input
 
 ## Operational Concerns
 

@@ -533,8 +533,36 @@ describe("createWsTenantRoutes", () => {
         makeToolDefinition("write_tool"),
       ];
       const capabilities = new Map<string, Capability>([
-        ["read_tool", { name: "read_tool", description: "read", annotations: { readOnly: true } }],
-        ["write_tool", { name: "write_tool", description: "write", annotations: { idempotent: true } }],
+        ["read_tool", {
+          name: "read_tool",
+          description: "read",
+          schema: {},
+          tags: [],
+          effectEnvelope: {
+            operation: "observe",
+            boundaries: ["process"],
+            reversibility: "reversible",
+            dataEgress: "metadata",
+            identityUse: "none",
+            consequences: [],
+            idempotency: "conditionally-idempotent",
+          },
+        }],
+        ["write_tool", {
+          name: "write_tool",
+          description: "write",
+          schema: {},
+          tags: [],
+          effectEnvelope: {
+            operation: "mutate",
+            boundaries: ["workspace"],
+            reversibility: "reversible",
+            dataEgress: "project-data",
+            identityUse: "none",
+            consequences: ["local-state"],
+            idempotency: "conditionally-idempotent",
+          },
+        }],
       ]);
       mockedResolveAgentContextAsync.mockResolvedValue({
         systemPrompt: "Mock system prompt",

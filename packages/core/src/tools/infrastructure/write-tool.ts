@@ -20,7 +20,6 @@ export class WriteTool implements DevTool {
   readonly name = "write";
   readonly description = TOOL_SCHEMAS.write.description;
   readonly inputSchema = TOOL_SCHEMAS.write.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.write.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const filePathInput = requireString(input, "filePath");

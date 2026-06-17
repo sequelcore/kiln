@@ -687,7 +687,7 @@ describe("ProviderSession.run()", () => {
       {
         source: "route_policy",
         status: "applied",
-        admittedAuthority: "audited",
+        admittedAuthority: "fail_closed",
         reason: "cli direct-provider requested turn authority",
       },
       {

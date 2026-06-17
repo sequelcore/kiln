@@ -7,6 +7,7 @@ import {
   deriveAuthorityFromEffect,
   conservativeEnvelopeFromExternalHints,
   isValidNarrowing,
+  normalizeActionEffectEnvelope,
   catalogAuthorityFromEnvelope,
   tagsFromEnvelope,
   resolveInvocationEffect,
@@ -17,12 +18,8 @@ import {
   type ResolvedInvocationEffect,
 } from "../../src/engine/domain/action-effect.js";
 import { buildBuiltinInvocationEffectResolvers } from "../../src/tools/infrastructure/invocation-effect-resolvers.js";
-import {
-  BUILTIN_TOOL_EFFECT_ENVELOPES,
-  getBuiltinEffectEnvelope,
-} from "../../src/tools/domain/tool-effect-envelopes.js";
 import type { DevToolName } from "../../src/tools/domain/tool.js";
-import { AnnotationAuthorizer } from "../../src/security/annotation-authorizer.js";
+import { ActionEffectAuthorizer } from "../../src/security/action-effect-authorizer.js";
 
 const ALL_DEV_TOOL_NAMES: DevToolName[] = [
   "bash", "read", "read_many", "write", "edit", "patch",
@@ -45,7 +42,7 @@ describe("Action Effect Value Validation", () => {
     const reversibilities = ["reversible", "compensatable", "irreversible", "unknown"];
     const dataEgresses = ["none", "metadata", "project-data", "sensitive-data", "unknown"];
     const identityUses = ["none", "authenticated", "privileged", "unknown"];
-    const consequences = ["none", "local-state", "external-state", "financial", "legal", "security", "unknown"];
+    const consequences = ["local-state", "external-state", "financial", "legal", "security", "unknown"];
     const idempotencies = ["idempotent", "conditionally-idempotent", "non-idempotent", "unknown"];
 
     expect(operations).toHaveLength(2);
@@ -53,7 +50,7 @@ describe("Action Effect Value Validation", () => {
     expect(reversibilities).toHaveLength(4);
     expect(dataEgresses).toHaveLength(5);
     expect(identityUses).toHaveLength(4);
-    expect(consequences).toHaveLength(7);
+    expect(consequences).toHaveLength(6);
     expect(idempotencies).toHaveLength(4);
   });
 });
@@ -68,7 +65,7 @@ describe("Exhaustive Declared Effect Envelopes", () => {
       expect(envelope.reversibility, `${toolName} reversibility`).toBeDefined();
       expect(envelope.dataEgress, `${toolName} dataEgress`).toBeDefined();
       expect(envelope.identityUse, `${toolName} identityUse`).toBeDefined();
-      expect(envelope.consequences.length, `${toolName} consequences`).toBeGreaterThan(0);
+      expect(Array.isArray(envelope.consequences), `${toolName} consequences`).toBe(true);
       expect(envelope.idempotency, `${toolName} idempotency`).toBeDefined();
     }
   });
@@ -138,31 +135,28 @@ describe("Envelope vs Resolved Effect Narrowing", () => {
   });
 
   it("resolveInvocationEffect returns envelope for unknown tool", () => {
-    const envelope = getBuiltinEffectEnvelope("unknown_tool");
-    const result = resolveInvocationEffect("unknown_tool", {}, envelope);
-    expect(result).toEqual(envelope);
+    const result = resolveInvocationEffect("unknown_tool", {}, CONSERVATIVE_UNKNOWN_ENVELOPE);
+    expect(result).toEqual(CONSERVATIVE_UNKNOWN_ENVELOPE);
   });
 });
 
 describe("Conservative MCP Hint Mapping", () => {
-  it("maps readOnlyHint to observe for known safe tools", () => {
+  it("does not trust readOnlyHint as a narrower effect", () => {
     const envelope = conservativeEnvelopeFromExternalHints({
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
     });
-    expect(envelope.operation).toBe("observe");
-    expect(envelope.reversibility).toBe("reversible");
+    expect(envelope).toEqual(CONSERVATIVE_UNKNOWN_ENVELOPE);
   });
 
-  it("maps destructiveHint to irreversible for known destructive tools", () => {
+  it("does not trust destructiveHint as a declared envelope", () => {
     const envelope = conservativeEnvelopeFromExternalHints({
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
     });
-    expect(envelope.operation).toBe("mutate");
-    expect(envelope.reversibility).toBe("irreversible");
+    expect(envelope).toEqual(CONSERVATIVE_UNKNOWN_ENVELOPE);
   });
 
   it("treats missing annotations conservatively", () => {
@@ -174,12 +168,12 @@ describe("Conservative MCP Hint Mapping", () => {
     expect(envelope.identityUse).toBe("unknown");
   });
 
-  it("openWorldHint increases egress to unknown", () => {
+  it("openWorldHint remains conservative unknown", () => {
     const envelope = conservativeEnvelopeFromExternalHints({
       readOnlyHint: true,
       openWorldHint: true,
     });
-    expect(envelope.dataEgress).toBe("unknown");
+    expect(envelope).toEqual(CONSERVATIVE_UNKNOWN_ENVELOPE);
   });
 
   it("MCP hints cannot grant level 1 (auto-execute) authority", () => {
@@ -189,7 +183,54 @@ describe("Conservative MCP Hint Mapping", () => {
     });
     const policy: ActionEffectPolicy = { defaultLevel: 2, requireApprovalForUnknown: true };
     const authority = deriveAuthorityFromEffect(envelope, policy);
-    expect(authority.level).toBeGreaterThanOrEqual(1);
+    expect(authority.allowed).toBe(false);
+    expect(authority.requiresApproval).toBe(true);
+    expect(authority.level).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("Action Effect Normalization", () => {
+  it("uses an empty consequence array for no consequences", () => {
+    const envelope = normalizeActionEffectEnvelope({
+      operation: "observe",
+      boundaries: ["workspace", "process"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: [],
+      idempotency: "idempotent",
+    });
+
+    expect(envelope?.consequences).toEqual([]);
+    expect(envelope?.boundaries).toEqual(["process", "workspace"]);
+  });
+
+  it("rejects the old none consequence sentinel", () => {
+    const envelope = normalizeActionEffectEnvelope({
+      operation: "observe",
+      boundaries: ["process"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: ["none"],
+      idempotency: "idempotent",
+    });
+
+    expect(envelope).toBeUndefined();
+  });
+
+  it("rejects duplicate array members", () => {
+    const envelope = normalizeActionEffectEnvelope({
+      operation: "observe",
+      boundaries: ["process", "process"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: [],
+      idempotency: "idempotent",
+    });
+
+    expect(envelope).toBeUndefined();
   });
 });
 
@@ -203,7 +244,7 @@ describe("Canonical Authority Derivation", () => {
       reversibility: "reversible",
       dataEgress: "none",
       identityUse: "none",
-      consequences: ["none"],
+      consequences: [],
       idempotency: "idempotent",
     };
     const auth = deriveAuthorityFromEffect(envelope, policy);
@@ -250,7 +291,7 @@ describe("Canonical Authority Derivation", () => {
       reversibility: "reversible",
       dataEgress: "none",
       identityUse: "privileged",
-      consequences: ["none"],
+      consequences: [],
       idempotency: "idempotent",
     };
     const auth = deriveAuthorityFromEffect(envelope, policy);
@@ -288,7 +329,7 @@ describe("Catalog Authority from Envelope", () => {
       reversibility: "reversible",
       dataEgress: "none",
       identityUse: "none",
-      consequences: ["none"],
+      consequences: [],
       idempotency: "idempotent",
     };
     expect(catalogAuthorityFromEnvelope(envelope)).toBe("read_only");
@@ -329,7 +370,7 @@ describe("Tags from Envelope", () => {
       reversibility: "reversible",
       dataEgress: "none",
       identityUse: "none",
-      consequences: ["none"],
+      consequences: [],
       idempotency: "idempotent",
     };
     const tags = tagsFromEnvelope(envelope);
@@ -353,24 +394,49 @@ describe("Tags from Envelope", () => {
   });
 });
 
-describe("AnnotationAuthorizer delegates to deriveAuthorityFromEffect", () => {
-  it("authorize with readOnly annotations yields level 1", () => {
-    const authorizer = new AnnotationAuthorizer();
-    const result = authorizer.authorize("read_tool", { readOnly: true, idempotent: true });
+describe("ActionEffectAuthorizer delegates to deriveAuthorityFromEffect", () => {
+  it("authorize with read-only effect yields level 1", () => {
+    const authorizer = new ActionEffectAuthorizer();
+    const result = authorizer.authorize("read_tool", {
+      operation: "observe",
+      boundaries: ["process"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: [],
+      idempotency: "idempotent",
+    });
     expect(result.level).toBe(1);
     expect(result.allowed).toBe(true);
   });
 
-  it("authorize with destructive annotations yields level 4", () => {
-    const authorizer = new AnnotationAuthorizer();
-    const result = authorizer.authorize("write_tool", { destructive: true });
+  it("authorize with irreversible mutation effect yields level 4", () => {
+    const authorizer = new ActionEffectAuthorizer();
+    const result = authorizer.authorize("write_tool", {
+      operation: "mutate",
+      boundaries: ["process", "workspace"],
+      reversibility: "irreversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: ["local-state"],
+      idempotency: "non-idempotent",
+    });
     expect(result.level).toBe(4);
     expect(result.requiresApproval).toBe(true);
   });
 
-  it("authorize with no annotations yields conservative unknown", () => {
-    const authorizer = new AnnotationAuthorizer();
-    const result = authorizer.authorize("unknown_tool");
+  it("authorize with malformed effect fails closed", () => {
+    const authorizer = new ActionEffectAuthorizer();
+    const result = authorizer.authorize("unknown_tool", {
+      operation: "observe",
+      boundaries: ["process"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: ["none"],
+      idempotency: "idempotent",
+    } as unknown as ResolvedInvocationEffect);
     expect(result.level).toBeGreaterThanOrEqual(2);
+    expect(result.allowed).toBe(false);
   });
 });

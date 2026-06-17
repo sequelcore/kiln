@@ -56,7 +56,6 @@ export class CodeIntelligenceTool implements DevTool {
   readonly name = "code_intelligence";
   readonly description = TOOL_SCHEMAS.code_intelligence.description;
   readonly inputSchema = TOOL_SCHEMAS.code_intelligence.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.code_intelligence.annotations;
 
   private readonly adapter?: CodeIntelligenceAdapter;
 

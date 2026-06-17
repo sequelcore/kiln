@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
+  ActionEffectEnvelope,
   DevTool,
   ManagedAgentAdapterDescriptor,
   ManagedAgentInvocationRequest,
@@ -28,6 +29,16 @@ import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
 const ALWAYS_ON_RESOURCE_TOOLS = ["resource_list", "resource_template_list", "resource_read"];
+
+const RUNTIME_LOCAL_MUTATION_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
 
 function projectToolDefinitions(
   tools: readonly {
@@ -234,7 +245,7 @@ function makeManagedExecutionStartTool(
         managedInvocationId: { type: "string" },
       },
     },
-    annotations: { readOnly: false },
+    effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
     calls,
     async execute(input): Promise<ToolResult> {
       calls.push(input);
@@ -381,7 +392,13 @@ expect(admittedToolNames).not.toContain("write");
     expect(config.toolAllowlist?.has("edit")).toBe(false);
     expect(config.toolAllowlist?.has("patch")).toBe(false);
     expect(config.additionalTools?.map((tool) => tool.name)).toEqual(Array.from(config.toolAllowlist ?? []));
-    expect(config.perCallCapabilities?.get("submit_plan")?.annotations?.readOnly).toBe(true);
+    expect(config.perCallCapabilities?.get("submit_plan")?.effectEnvelope).toMatchObject({
+      operation: "observe",
+      dataEgress: "metadata",
+      identityUse: "none",
+      consequences: [],
+      idempotency: "idempotent",
+    });
     const allowlist = new Set(config.toolAllowlist ?? []);
     const perCallCapabilityNames = new Set(Array.from(config.perCallCapabilities?.keys() ?? []));
     expect(perCallCapabilityNames).toEqual(allowlist);
@@ -428,7 +445,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(allowlist.has("patch")).toBe(false);
     expect(allowlist.has("shell_command")).toBe(false);
     for (const toolName of allowlist) {
-      expect(requestedReadOnly.perCallCapabilities?.get(toolName)?.annotations?.readOnly).toBe(true);
+      expect(requestedReadOnly.perCallCapabilities?.get(toolName)?.effectEnvelope).toMatchObject({
+        operation: "observe",
+      });
       expect(requestedReadOnly.toolAuthority?.get(toolName)).toMatchObject({
         allowed: true,
         requiresApproval: false,
@@ -2137,10 +2156,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         properties: {},
         additionalProperties: true,
       },
-      annotations: {
-        readOnly: false,
-        idempotent: false,
-      },
+      effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
       async execute(input) {
         goalInputs.push(input);
         return {
@@ -2469,7 +2485,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
 
     const result = await runtimeSurface.callBuiltinTools.get("bash")?.({
-      command: "generate-large-output",
+      command: "pwd",
     }) as {
       output: string;
       resourceLinks?: readonly { uri: string; title?: string }[];

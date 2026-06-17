@@ -21,6 +21,5 @@ export type { SecurityValidationResult } from "./security.js";
 export {
   computeContentHash,
   validatePackageSecurity,
-  applyDefaultAnnotations,
   validatePackageFiles,
 } from "./security.js";

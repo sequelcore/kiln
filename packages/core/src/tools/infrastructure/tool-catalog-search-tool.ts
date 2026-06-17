@@ -9,7 +9,6 @@ export class ToolCatalogSearchTool implements DevTool {
   readonly name = "tool_catalog_search";
   readonly description = TOOL_SCHEMAS.tool_catalog_search.description;
   readonly inputSchema = TOOL_SCHEMAS.tool_catalog_search.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.tool_catalog_search.annotations;
 
   constructor(private readonly catalogProvider: () => ToolCatalogIndex) {}
 

@@ -117,6 +117,76 @@ describe("parseAppYaml", () => {
     expect(caps[0]!.schema).toEqual({});
   });
 
+  it("maps capability action effect envelopes", () => {
+    const yaml = `
+name: effect-app
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    agents:
+      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [read_status] }
+    workflow: { phases: [work], gates: {} }
+    capabilities:
+      - name: read_status
+        description: Read status
+        tags: [status]
+        effectEnvelope:
+          operation: observe
+          boundaries: [process]
+          reversibility: reversible
+          dataEgress: metadata
+          identityUse: none
+          consequences: []
+          idempotency: idempotent
+    qualityGates: []
+`;
+    const app = parseAppYaml(yaml);
+    expect(app.teams.dev?.capabilities[0]?.effectEnvelope).toMatchObject({
+      operation: "observe",
+      boundaries: ["process"],
+      consequences: [],
+      idempotency: "idempotent",
+    });
+  });
+
+  it("throws AppLoaderError for malformed capability action effect envelopes", () => {
+    const yaml = `
+name: bad-effect-app
+channels: [cli]
+memory:
+  scopes: [user]
+  backend: sqlite+fts5
+router:
+  rules: []
+  fallback: dev
+teams:
+  dev:
+    agents:
+      w: { name: W, role: Worker, goal: Work, tier: coding, tools: [bad_tool] }
+    workflow: { phases: [work], gates: {} }
+    capabilities:
+      - name: bad_tool
+        description: Bad effect
+        tags: []
+        effectEnvelope:
+          operation: observe
+          boundaries: [process]
+          reversibility: reversible
+          dataEgress: metadata
+          identityUse: none
+          consequences: [none]
+          idempotency: idempotent
+    qualityGates: []
+`;
+    expect(() => parseAppYaml(yaml)).toThrow(AppLoaderError);
+  });
+
   it("handles quality gates", () => {
     const app = parseAppYaml(SAMPLE_YAML);
     const gates = app.teams["development"]!.qualityGates;

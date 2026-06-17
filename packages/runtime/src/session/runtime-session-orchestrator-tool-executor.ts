@@ -11,12 +11,17 @@ import type {
   FileToolChangeMetadata,
   FileToolResultMetadata,
   ToolResultPayloadPart,
+  ResolvedInvocationEffect,
 } from "@kilnai/core";
 import {
+  CONSERVATIVE_UNKNOWN_ENVELOPE,
+  buildBuiltinInvocationEffectResolvers,
   executeWithRetry,
+  getBuiltinEffectEnvelope,
   getInvalidToolInputDetails,
   isFileToolResultMetadata,
   normalizeToolCall,
+  resolveInvocationEffect,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type {
@@ -353,9 +358,26 @@ export class RuntimeSessionToolExecutor {
       }
 
       const capability = this.resolveCapability(normalizedToolCall.name, perCallConfig);
-      const authResult = this.resolveAuthorization(normalizedToolCall.name, capability, perCallConfig);
+      const resolvedEffect = this.resolveInvocationEffect(
+        normalizedToolCall.name,
+        normalizedToolCall.input,
+        capability,
+      );
+      const authResult = this.resolveAuthorization(
+        normalizedToolCall.name,
+        resolvedEffect,
+        perCallConfig,
+      );
       if (authResult) {
-        this.emitToolAuthorized(session.id, normalizedToolCall.name, authResult.level, authResult.allowed, authResult.reason);
+        this.emitToolAuthorized(
+          session.id,
+          normalizedToolCall.name,
+          authResult.level,
+          authResult.allowed,
+          authResult.reason,
+          resolvedEffect,
+          authResult,
+        );
         if (!authResult.allowed) {
           if (authResult.requiresApproval) {
             const approval = await this.requestApproval(
@@ -374,6 +396,8 @@ export class RuntimeSessionToolExecutor {
                 toolCallId: normalizedToolCall.id,
                 toolName: normalizedToolCall.name,
                 input: normalizedToolCall.input,
+                resolvedEffect,
+                authority: authResult,
                 durationMs: 0,
                 success: false,
                 output: content,
@@ -393,6 +417,8 @@ export class RuntimeSessionToolExecutor {
               toolCallId: normalizedToolCall.id,
               toolName: normalizedToolCall.name,
               input: normalizedToolCall.input,
+              resolvedEffect,
+              authority: authResult,
               durationMs: 0,
               success: false,
               output: content,
@@ -403,7 +429,14 @@ export class RuntimeSessionToolExecutor {
         }
       }
 
-      if (await this.handleDangerousCommandBlock(session.id, normalizedToolCall, authResult, resultParts, toolExecutions)) {
+      if (await this.handleDangerousCommandBlock(
+        session.id,
+        normalizedToolCall,
+        authResult,
+        resolvedEffect,
+        resultParts,
+        toolExecutions,
+      )) {
         continue;
       }
 
@@ -411,7 +444,7 @@ export class RuntimeSessionToolExecutor {
         continue;
       }
 
-      const cacheTtl = capability?.annotations?.cacheTtl;
+      const cacheTtl = capability?.cacheTtl;
       const cachedResult = await this.tryCachedToolResult(
         session.id,
         normalizedToolCall,
@@ -423,15 +456,15 @@ export class RuntimeSessionToolExecutor {
         continue;
       }
 
-      const annotations = capability?.annotations
-        ? {
-            readOnly: capability.annotations.readOnly,
-            destructive: capability.annotations.destructive,
-            idempotent: capability.annotations.idempotent,
-          }
-        : undefined;
       const metadata = this.resolveToolCallMetadata(session.id, normalizedToolCall.name, normalizedToolCall.input, perCallConfig);
-      this.emitToolCalled(session.id, normalizedToolCall.name, normalizedToolCall.input, annotations, metadata);
+      this.emitToolCalled(
+        session.id,
+        normalizedToolCall.name,
+        normalizedToolCall.input,
+        metadata,
+        resolvedEffect,
+        authResult,
+      );
       const startMs = Date.now();
 
       try {
@@ -456,6 +489,8 @@ export class RuntimeSessionToolExecutor {
           execution.retryAttempt,
           sanitized.resultValue,
           metadata,
+          resolvedEffect,
+          authResult,
         );
 
         const fileChanges = this.extractFileChangesFromToolResult(
@@ -468,6 +503,8 @@ export class RuntimeSessionToolExecutor {
           toolName: normalizedToolCall.name,
           input: normalizedToolCall.input,
           ...(metadata ? { metadata } : {}),
+          resolvedEffect,
+          authority: authResult,
           durationMs,
           success,
           output: sanitized.resultValue,
@@ -505,11 +542,25 @@ export class RuntimeSessionToolExecutor {
       } catch (err) {
         const durationMs = Date.now() - startMs;
         const errMsg = err instanceof Error ? err.message : String(err);
-        this.emitToolResult(session.id, normalizedToolCall.name, durationMs, false, errMsg.slice(0, 200), true);
+        this.emitToolResult(
+          session.id,
+          normalizedToolCall.name,
+          durationMs,
+          false,
+          errMsg.slice(0, 200),
+          true,
+          undefined,
+          undefined,
+          undefined,
+          resolvedEffect,
+          authResult,
+        );
         toolExecutions.push({
           toolCallId: normalizedToolCall.id,
           toolName: normalizedToolCall.name,
           input: normalizedToolCall.input,
+          resolvedEffect,
+          authority: authResult,
           durationMs,
           success: false,
           output: errMsg,
@@ -552,7 +603,7 @@ export class RuntimeSessionToolExecutor {
 
   private resolveAuthorization(
     toolName: string,
-    capability: Capability | undefined,
+    resolvedEffect: ResolvedInvocationEffect,
     perCallConfig?: PerCallToolConfig,
   ): AuthorityDescriptor | undefined {
     const authority = perCallConfig?.toolAuthority?.get(toolName);
@@ -575,7 +626,25 @@ export class RuntimeSessionToolExecutor {
     if (!this.deps.toolAuthorizer) {
       return undefined;
     }
-    return this.deps.toolAuthorizer.authorize(toolName, capability?.annotations);
+    return this.deps.toolAuthorizer.authorize(toolName, resolvedEffect);
+  }
+
+  private resolveInvocationEffect(
+    toolName: string,
+    input: Record<string, unknown>,
+    capability: Capability | undefined,
+  ): ResolvedInvocationEffect {
+    const envelope = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName) ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+    try {
+      return resolveInvocationEffect(
+        toolName,
+        input,
+        envelope,
+        buildBuiltinInvocationEffectResolvers(),
+      );
+    } catch {
+      return CONSERVATIVE_UNKNOWN_ENVELOPE;
+    }
   }
 
   private resolveToolCallMetadata(
@@ -625,6 +694,7 @@ export class RuntimeSessionToolExecutor {
     sessionId: string,
     toolCall: ToolCall,
     authResult: AuthorityDescriptor | undefined,
+    resolvedEffect: ResolvedInvocationEffect,
     resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
   ): Promise<boolean> {
@@ -664,13 +734,27 @@ export class RuntimeSessionToolExecutor {
 
     const blockMessage = formatDangerousCommandBlockMessage(decision);
 
-    this.emitToolResult(sessionId, toolCall.name, 0, false, blockMessage.slice(0, 200), true);
+    this.emitToolResult(
+      sessionId,
+      toolCall.name,
+      0,
+      false,
+      blockMessage.slice(0, 200),
+      true,
+      undefined,
+      undefined,
+      undefined,
+      resolvedEffect,
+      authResult,
+    );
     this.emitError(sessionId, `Tool "${toolCall.name}" blocked by dangerous command detector: ${decision.reasonCode}`);
     this.appendAudit(toolCall.name, 0, "error", authResult);
     toolExecutions.push({
       toolCallId: toolCall.id,
       toolName: toolCall.name,
       input: toolCall.input,
+      resolvedEffect,
+      authority: authResult,
       durationMs: 0,
       success: false,
       output: blockMessage,
@@ -990,8 +1074,9 @@ export class RuntimeSessionToolExecutor {
     sessionId: string,
     toolName: string,
     toolInput?: Record<string, unknown>,
-    annotations?: Record<string, unknown>,
     metadata?: Record<string, unknown>,
+    resolvedEffect?: ResolvedInvocationEffect,
+    authority?: AuthorityDescriptor,
   ): void {
     const event: ToolCalledEvent = {
       type: "tool_called",
@@ -1000,7 +1085,8 @@ export class RuntimeSessionToolExecutor {
       sessionId,
       ...(toolInput ? { toolInput } : {}),
       ...(metadata ? { metadata } : {}),
-      ...(annotations ? { annotations } : {}),
+      ...(resolvedEffect ? { resolvedEffect } : {}),
+      ...(authority ? { authority, authorizationLevel: authority.level } : {}),
     };
     this.eventBus?.emit(event);
   }
@@ -1011,6 +1097,8 @@ export class RuntimeSessionToolExecutor {
     level: number,
     allowed: boolean,
     reason: string,
+    resolvedEffect?: ResolvedInvocationEffect,
+    authority?: AuthorityDescriptor,
   ): void {
     const event: ToolAuthorizedEvent = {
       type: "tool_authorized",
@@ -1018,6 +1106,8 @@ export class RuntimeSessionToolExecutor {
       level,
       allowed,
       reason,
+      ...(resolvedEffect ? { resolvedEffect } : {}),
+      ...(authority ? { authority } : {}),
       timestamp: new Date(),
       sessionId,
     };
@@ -1034,6 +1124,8 @@ export class RuntimeSessionToolExecutor {
     retryAttempt?: number,
     output?: string,
     metadata?: Record<string, unknown>,
+    resolvedEffect?: ResolvedInvocationEffect,
+    authority?: AuthorityDescriptor,
   ): void {
     const event: ToolResultEvent = {
       type: "tool_result",
@@ -1047,6 +1139,8 @@ export class RuntimeSessionToolExecutor {
       ...(isError !== undefined ? { isError } : {}),
       ...(retryAttempt !== undefined ? { retryAttempt } : {}),
       ...(metadata ? { metadata } : {}),
+      ...(resolvedEffect ? { resolvedEffect } : {}),
+      ...(authority ? { authority } : {}),
     };
     this.eventBus?.emit(event);
   }

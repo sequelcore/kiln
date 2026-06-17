@@ -1,4 +1,5 @@
 import type {
+  ActionEffectEnvelope,
   DevTool,
   ManagedAgentResultHandoff,
   ToolInput,
@@ -119,6 +120,24 @@ const MANAGED_INVOCATION_PROFILES = [
   "foundation-memory-write-proposals",
 ] as const;
 const MANAGED_INVOCATION_AUTHORITIES = ["auto", "read_only", "audited", "destructive"] as const;
+const WORK_GOVERNANCE_READ_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process"],
+  reversibility: "reversible",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+const WORK_GOVERNANCE_MUTATION_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["workspace"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
 type ManagedInvocationProfile = typeof MANAGED_INVOCATION_PROFILES[number];
 type ManagedInvocationAuthority = typeof MANAGED_INVOCATION_AUTHORITIES[number];
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
@@ -170,10 +189,7 @@ export class WorkGovernanceAssessTool implements DevTool {
     "Use before broad, risky, cross-surface, provider, runtime, UI, config, or verification-heavy work.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: true,
-    idempotent: true,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_READ_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -260,10 +276,7 @@ export class WorkProfileListTool implements DevTool {
     "Use before creating governed work items or delegating broad work.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: true,
-    idempotent: true,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_READ_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -310,10 +323,7 @@ export class WorkItemUpdateTool implements DevTool {
     "Use this when decomposing non-trivial work before managed child invocation or direct execution.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: false,
-    idempotent: false,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -619,10 +629,7 @@ export class WorkItemListTool implements DevTool {
 
   readonly description = "List session governed work items and their evidence status.";
 
-  readonly annotations = {
-    readOnly: true,
-    idempotent: true,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_READ_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -660,10 +667,7 @@ export class WorkItemCompleteTool implements DevTool {
     "The tool fails closed when expected evidence or required residual risk is missing.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: false,
-    idempotent: false,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -776,10 +780,7 @@ export class GoalCreateTool implements DevTool {
     "Use this before work_item.execution.start; never invent a goalRunId without creating it through this tool.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: false,
-    idempotent: false,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -996,10 +997,7 @@ export class WorkItemExecutionStartTool implements DevTool {
     "Selects the next ready pending item when workItemId is omitted and pauses instead of advancing when dependencies or state block execution.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: false,
-    idempotent: false,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -1190,10 +1188,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
     "Blocks the item when expected evidence is missing and updates the owning goal state.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: false,
-    idempotent: false,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
 
   readonly inputSchema = {
     type: "object",
@@ -1343,10 +1338,7 @@ export class WorkItemExecutionFailTool implements DevTool {
     "Blocks the item and keeps the owning goal paused without treating child failure as evidence.",
   ].join(" ");
 
-  readonly annotations = {
-    readOnly: false,
-    idempotent: false,
-  };
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
 
   readonly inputSchema = {
     type: "object",

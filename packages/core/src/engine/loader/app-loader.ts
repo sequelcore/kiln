@@ -8,6 +8,7 @@ import { validateApp } from "../composites/app.js";
 import type { Team, QualityGate, TeamMode } from "../composites/team.js";
 import type { Router, PatternRule } from "../composites/router.js";
 import type { Agent, AgentTier } from "../domain/agent.js";
+import { normalizeActionEffectEnvelope } from "../domain/action-effect.js";
 import type { Modality } from "../domain/modality.js";
 import { VALID_MODALITIES } from "../domain/modality.js";
 import type {
@@ -89,7 +90,6 @@ interface RawCapability {
   description?: unknown;
   schema?: unknown;
   tags?: unknown;
-  annotations?: unknown;
   type?: unknown;
   targetApp?: unknown;
   task?: unknown;
@@ -97,6 +97,7 @@ interface RawCapability {
   guardrail?: unknown;
   guardrailRetries?: unknown;
   outputSchema?: unknown;
+  effectEnvelope?: unknown;
   retry?: unknown;
 }
 
@@ -545,6 +546,13 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     }
   }
 
+  const effectEnvelope = raw.effectEnvelope === undefined
+    ? undefined
+    : normalizeActionEffectEnvelope(raw.effectEnvelope);
+  if (raw.effectEnvelope !== undefined && !effectEnvelope) {
+    errors.push({ field: `${path}.effectEnvelope`, message: "must be a valid action effect envelope" });
+  }
+
   // Validate retry config
   let retryConfig: RetryConfig | undefined;
   if (raw.retry !== undefined) {
@@ -587,7 +595,6 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
       ? (raw.schema as Record<string, unknown>)
       : {},
     tags,
-    ...(raw.annotations ? { annotations: raw.annotations as Capability["annotations"] } : {}),
     ...(typeof raw.type === "string" ? { type: raw.type } : {}),
     ...(typeof raw.targetApp === "string" ? { targetApp: raw.targetApp } : {}),
     ...(typeof raw.task === "string" ? { task: raw.task } : {}),
@@ -599,6 +606,7 @@ function mapCapability(raw: RawCapability, path: string): { capability: Capabili
     ...(typeof raw.outputSchema === "object" && raw.outputSchema !== null && !Array.isArray(raw.outputSchema)
       ? { outputSchema: raw.outputSchema as Record<string, unknown> }
       : {}),
+    ...(effectEnvelope ? { effectEnvelope } : {}),
     ...(retryConfig ? { retry: retryConfig } : {}),
   };
 

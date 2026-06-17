@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PermissionPolicyAuthorizer } from "../../src/wrapper/permission-policy-authorizer.js";
 import type { KilnPermissionPolicy } from "../../src/wrapper/session.js";
-import type { CapabilityAnnotations } from "@kilnai/core";
+import type { ResolvedInvocationEffect } from "@kilnai/core";
 
 function makePolicy(approval: KilnPermissionPolicy["approval"]): KilnPermissionPolicy {
   return { approval };
@@ -9,8 +9,24 @@ function makePolicy(approval: KilnPermissionPolicy["approval"]): KilnPermissionP
 
 describe("PermissionPolicyAuthorizer", () => {
   describe("authorize()", () => {
-    const readOnly: CapabilityAnnotations = { readOnly: true, idempotent: true };
-    const destructive: CapabilityAnnotations = { destructive: true };
+    const readOnly: ResolvedInvocationEffect = {
+      operation: "observe",
+      boundaries: ["process", "workspace"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: [],
+      idempotency: "idempotent",
+    };
+    const destructive: ResolvedInvocationEffect = {
+      operation: "mutate",
+      boundaries: ["process", "workspace"],
+      reversibility: "irreversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: ["local-state"],
+      idempotency: "non-idempotent",
+    };
 
     it("approval=never: allows all tools at level 1, no approval needed", () => {
       const auth = new PermissionPolicyAuthorizer(makePolicy("never"));
@@ -23,7 +39,7 @@ describe("PermissionPolicyAuthorizer", () => {
 
     it("approval=untrusted: denies all tools at level 4, approval required", () => {
       const auth = new PermissionPolicyAuthorizer(makePolicy("untrusted"));
-      const result = auth.authorize("write");
+      const result = auth.authorize("write", readOnly);
       expect(result.allowed).toBe(false);
       expect(result.level).toBe(4);
       expect(result.requiresApproval).toBe(true);

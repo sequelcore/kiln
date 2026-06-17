@@ -1,5 +1,7 @@
 // Engine domain: tool execution types for Phase 5a (agentic actions)
 
+import type { ResolvedInvocationEffect } from "./action-effect.js";
+
 /** Retry strategy for tool execution errors */
 export type RetryStrategy = "exponential" | "mutate_params";
 
@@ -30,9 +32,9 @@ export interface AuthorityDescriptor {
 /** Classification of a tool execution error */
 export type ToolErrorType = "validation" | "transient" | "fatal";
 
-/** Interface for authorizing tool execution based on action effects */
+/** Interface for authorizing tool execution from one resolved invocation effect. */
 export interface ToolAuthorizer {
-  authorize(toolName: string, annotations?: import("./capability.js").CapabilityAnnotations, effectEnvelope?: import("./action-effect.js").ActionEffectEnvelope): AuthorityDescriptor;
+  authorize(toolName: string, resolvedEffect: ResolvedInvocationEffect): AuthorityDescriptor;
 }
 
 /** Canonical request envelope for tool execution. */

@@ -491,7 +491,6 @@ export const MANAGED_AGENT_INVOKE_CAPABILITY: Capability = {
   description: MANAGED_AGENT_INVOKE_TOOL.description,
   schema: MANAGED_AGENT_INVOKE_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-approval"],
-  annotations: { destructive: true },
   effectEnvelope: MANAGED_AGENT_DESTRUCTIVE_ENVELOPE,
 };
 
@@ -500,7 +499,6 @@ export const MANAGED_AGENT_START_CAPABILITY: Capability = {
   description: MANAGED_AGENT_START_TOOL.description,
   schema: MANAGED_AGENT_START_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-approval"],
-  annotations: { destructive: true },
   effectEnvelope: MANAGED_AGENT_DESTRUCTIVE_ENVELOPE,
 };
 
@@ -509,7 +507,6 @@ export const MANAGED_AGENT_STATUS_CAPABILITY: Capability = {
   description: MANAGED_AGENT_STATUS_TOOL.description,
   schema: MANAGED_AGENT_STATUS_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-status"],
-  annotations: { readOnly: true },
   effectEnvelope: MANAGED_AGENT_OBSERVE_ENVELOPE,
 };
 
@@ -518,7 +515,6 @@ export const MANAGED_AGENT_LIST_CAPABILITY: Capability = {
   description: MANAGED_AGENT_LIST_TOOL.description,
   schema: MANAGED_AGENT_LIST_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-status"],
-  annotations: { readOnly: true },
   effectEnvelope: MANAGED_AGENT_OBSERVE_ENVELOPE,
 };
 
@@ -527,7 +523,6 @@ export const MANAGED_AGENT_JOIN_CAPABILITY: Capability = {
   description: MANAGED_AGENT_JOIN_TOOL.description,
   schema: MANAGED_AGENT_JOIN_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-status"],
-  annotations: { destructive: false, idempotent: false },
   effectEnvelope: MANAGED_AGENT_OBSERVE_ENVELOPE,
 };
 
@@ -536,7 +531,6 @@ export const MANAGED_AGENT_CANCEL_CAPABILITY: Capability = {
   description: MANAGED_AGENT_CANCEL_TOOL.description,
   schema: MANAGED_AGENT_CANCEL_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-control"],
-  annotations: { destructive: false, idempotent: false },
   effectEnvelope: MANAGED_AGENT_CONTROL_ENVELOPE,
 };
 

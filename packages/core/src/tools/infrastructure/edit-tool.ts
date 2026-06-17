@@ -51,7 +51,6 @@ export class EditTool implements DevTool {
   readonly name = "edit";
   readonly description = TOOL_SCHEMAS.edit.description;
   readonly inputSchema = TOOL_SCHEMAS.edit.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.edit.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const filePathInput = requireString(input, "filePath");

@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type {
-  Capability,
-  CapabilityAnnotations,
-} from "../../src/engine/domain/capability.js";
+import type { Capability } from "../../src/engine/domain/capability.js";
 
 describe("Capability interface", () => {
   it("accepts a minimal capability", () => {
@@ -16,34 +13,44 @@ describe("Capability interface", () => {
     expect(cap.tags).toEqual(["memory"]);
   });
 
-  it("accepts annotations for safety policies", () => {
+  it("accepts declared effect envelopes for safety policy input", () => {
     const cap: Capability = {
       name: "memory_delete",
       description: "Remove a memory entry",
       schema: { type: "object", properties: { id: { type: "string" } } },
       tags: ["memory"],
-      annotations: {
-        destructive: true,
-        readOnly: false,
-        idempotent: true,
+      effectEnvelope: {
+        operation: "mutate",
+        boundaries: ["process", "workspace"],
+        reversibility: "irreversible",
+        dataEgress: "none",
+        identityUse: "none",
+        consequences: ["local-state"],
+        idempotency: "non-idempotent",
       },
     };
-    expect(cap.annotations?.destructive).toBe(true);
-    expect(cap.annotations?.readOnly).toBe(false);
-    expect(cap.annotations?.idempotent).toBe(true);
+    expect(cap.effectEnvelope?.operation).toBe("mutate");
+    expect(cap.effectEnvelope?.consequences).toEqual(["local-state"]);
   });
 
-  it("allows partial annotations", () => {
-    const annotations: CapabilityAnnotations = { readOnly: true };
+  it("allows read-only declared effect envelopes", () => {
     const cap: Capability = {
       name: "cost_report",
       description: "Token usage breakdown",
       schema: {},
       tags: ["cost"],
-      annotations,
+      effectEnvelope: {
+        operation: "observe",
+        boundaries: ["process"],
+        reversibility: "reversible",
+        dataEgress: "metadata",
+        identityUse: "none",
+        consequences: [],
+        idempotency: "idempotent",
+      },
     };
-    expect(cap.annotations?.readOnly).toBe(true);
-    expect(cap.annotations?.destructive).toBeUndefined();
+    expect(cap.effectEnvelope?.operation).toBe("observe");
+    expect(cap.effectEnvelope?.idempotency).toBe("idempotent");
   });
 
   it("supports multiple tags", () => {

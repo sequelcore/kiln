@@ -25,6 +25,7 @@ import type {
   Capability,
   ToolAuthorizer,
   AuthorityDescriptor,
+  ResolvedInvocationEffect,
 } from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
 import type { ToolResultSanitizer } from "@kilnai/core";
@@ -137,6 +138,8 @@ export interface ToolExecutionSummary {
   readonly toolName: string;
   readonly input?: Record<string, unknown>;
   readonly metadata?: Record<string, unknown>;
+  readonly resolvedEffect?: ResolvedInvocationEffect;
+  readonly authority?: AuthorityDescriptor;
   readonly durationMs: number;
   readonly success: boolean;
   readonly output?: string;

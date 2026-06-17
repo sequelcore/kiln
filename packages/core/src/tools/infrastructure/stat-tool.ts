@@ -17,7 +17,6 @@ export class StatTool implements DevTool {
   readonly name = "stat";
   readonly description = TOOL_SCHEMAS.stat.description;
   readonly inputSchema = TOOL_SCHEMAS.stat.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.stat.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const pathInput = requireString(input, "path");

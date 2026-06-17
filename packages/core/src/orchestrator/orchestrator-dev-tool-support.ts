@@ -8,7 +8,7 @@ import { createPolicy, ROLE_PRESETS } from "../sandbox/index.js";
 import type { SandboxPolicy } from "../sandbox/index.js";
 import type { AuthorityDescriptor } from "../engine/domain/tool-execution.js";
 import { KilnError } from "../engine/errors.js";
-import { AnnotationAuthorizer } from "../security/annotation-authorizer.js";
+import { ActionEffectAuthorizer } from "../security/action-effect-authorizer.js";
 import { DevToolRegistry } from "../tools/domain/tool-registry.js";
 import type { DevTool } from "../tools/domain/tool.js";
 import {
@@ -34,7 +34,7 @@ export class OrchestratorDevToolSupport {
     this.registry = new DevToolRegistry();
     this.executionBridge = new DevToolExecutionBridge({
       registry: this.registry,
-      authorizer: new AnnotationAuthorizer(),
+      authorizer: new ActionEffectAuthorizer(),
     });
   }
 
@@ -69,18 +69,12 @@ export class OrchestratorDevToolSupport {
   ): Promise<DevToolExecutionResult> {
     const startedAt = Date.now();
     const { sessionId, taskId } = this.deps.getSessionContext();
-    const registeredTool = this.registry.lookup(request.name);
-    const authorization = registeredTool
-      ? this.executionBridge.authorizeRequestWithAuthority(request.name, request.authority)
-      : undefined;
 
     const calledEvent: ToolCalledEvent = {
       type: "tool_called",
       toolName: request.name,
       toolInput: request.input,
       taskId,
-      annotations: registeredTool?.annotations as Record<string, unknown> | undefined,
-      authorizationLevel: authorization?.level,
       timestamp: new Date(),
       sessionId,
     };
@@ -94,37 +88,24 @@ export class OrchestratorDevToolSupport {
         }
       : undefined);
 
-    const resolvedAuthorization = authorization ?? this.executionBridge.authorizeRequestWithAuthority(
-      request.name,
-      request.authority,
-    );
-    const authorizedEvent: ToolAuthorizedEvent = {
-      type: "tool_authorized",
-      toolName: resolvedAuthorization.toolName,
-      level: resolvedAuthorization.level,
-      allowed: resolvedAuthorization.allowed,
-      reason: resolvedAuthorization.reason,
-      timestamp: new Date(),
-      sessionId,
-    };
-    this.deps.eventBus.emit(authorizedEvent);
-
-    if (!resolvedAuthorization.allowed || resolvedAuthorization.requiresApproval) {
-      throw new KilnError("TOOL_AUTHORIZATION_DENIED", resolvedAuthorization.reason, {
-        context: {
-          toolName: resolvedAuthorization.toolName,
-          level: resolvedAuthorization.level,
-          requiresApproval: resolvedAuthorization.requiresApproval,
-        },
-        retryable: false,
-      });
-    }
-
     try {
       const execution = await this.executionBridge.execute({
         ...request,
         sandbox,
       });
+
+      const authorizedEvent: ToolAuthorizedEvent = {
+        type: "tool_authorized",
+        toolName: execution.toolName,
+        level: execution.authority.level,
+        allowed: execution.authority.allowed,
+        reason: execution.authority.reason,
+        resolvedEffect: execution.resolvedEffect,
+        authority: execution.authority,
+        timestamp: new Date(),
+        sessionId,
+      };
+      this.deps.eventBus.emit(authorizedEvent);
 
       const resultEvent: ToolResultEvent = {
         type: "tool_result",
@@ -135,6 +116,8 @@ export class OrchestratorDevToolSupport {
         isError: execution.result.isError,
         retryAttempt: execution.attempts,
         resultSummary: execution.result.output.slice(0, 200),
+        resolvedEffect: execution.resolvedEffect,
+        authority: execution.authority,
         timestamp: new Date(),
         sessionId,
       };
@@ -142,7 +125,29 @@ export class OrchestratorDevToolSupport {
 
       return execution;
     } catch (error) {
-      if (error instanceof KilnError && error.code === "TOOL_AUTHORIZATION_DENIED") {
+      if (
+        error instanceof KilnError &&
+        (error.code === "TOOL_AUTHORIZATION_DENIED" || error.code === "TOOL_APPROVAL_REQUIRED")
+      ) {
+        const context = error.context as {
+          readonly toolName?: unknown;
+          readonly resolvedEffect?: ToolAuthorizedEvent["resolvedEffect"];
+          readonly authority?: AuthorityDescriptor;
+        };
+        if (context.authority !== undefined) {
+          const authorizedEvent: ToolAuthorizedEvent = {
+            type: "tool_authorized",
+            toolName: typeof context.toolName === "string" ? context.toolName : request.name,
+            level: context.authority.level,
+            allowed: context.authority.allowed,
+            reason: context.authority.reason,
+            resolvedEffect: context.resolvedEffect,
+            authority: context.authority,
+            timestamp: new Date(),
+            sessionId,
+          };
+          this.deps.eventBus.emit(authorizedEvent);
+        }
         throw error;
       }
 

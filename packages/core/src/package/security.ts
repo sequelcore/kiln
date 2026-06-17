@@ -2,7 +2,6 @@
 // Moved from domain/ -- package-level concern, not domain config
 
 import { createHash } from "node:crypto";
-import type { CapabilityAnnotations } from "../engine/domain/capability.js";
 
 /** Result of security validation on a package */
 export interface SecurityValidationResult {
@@ -82,18 +81,6 @@ export function validatePackageSecurity(
     valid: errors.length === 0,
     errors,
     warnings,
-  };
-}
-
-/** Apply safe defaults to capability annotations -- unannotated tools default to destructive */
-export function applyDefaultAnnotations(annotations?: CapabilityAnnotations | null): CapabilityAnnotations {
-  if (!annotations) {
-    return { destructive: true, readOnly: false, idempotent: false };
-  }
-  return {
-    destructive: annotations.destructive ?? true,
-    readOnly: annotations.readOnly ?? false,
-    idempotent: annotations.idempotent ?? false,
   };
 }
 

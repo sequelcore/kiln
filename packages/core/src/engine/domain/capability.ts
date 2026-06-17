@@ -3,23 +3,15 @@
 import type { RetryConfig } from "./tool-execution.js";
 import type { ActionEffectEnvelope } from "./action-effect.js";
 
-/** Safety annotations that drive engine policies */
-export interface CapabilityAnnotations {
-  readonly readOnly?: boolean;
-  readonly destructive?: boolean;
-  readonly idempotent?: boolean;
-  /** Cache TTL in seconds. 0 = no cache, Infinity = permanent. */
-  readonly cacheTtl?: number;
-}
-
-/** An MCP tool with schema, tags, and safety annotations */
+/** An MCP/runtime capability with schema, tags, and canonical effect declaration. */
 export interface Capability {
   readonly name: string;
   readonly description: string;
   readonly schema: Record<string, unknown>;
   readonly tags: readonly string[];
-  readonly annotations?: CapabilityAnnotations;
   readonly effectEnvelope?: ActionEffectEnvelope;
+  /** Cache TTL in seconds. 0 = no cache, Infinity = permanent. */
+  readonly cacheTtl?: number;
   readonly type?: string;                          // "delegation" | "handoff"
   readonly targetApp?: string;                     // target app name in the gateway
   readonly task?: string;                          // task description sent to target

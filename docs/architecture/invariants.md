@@ -34,7 +34,11 @@ explicit control-plane definitions.
     residual-risk closeout when checks are skipped.
 14. Native harness shims and workflow snapshots are projections from canonical
     state, not sources of doctrine or authority.
-15. No biological or neural term becomes an implementation contract without an
+15. Tool authority is derived from canonical resolved action effects. Declared
+    effect envelopes are trusted only from builtin, operator, project, or
+    integration declarations; external MCP hints are presentation metadata and
+    cannot grant or reduce authority.
+16. No biological or neural term becomes an implementation contract without an
     explicit control-plane definition.
 
 ## Naming Rules

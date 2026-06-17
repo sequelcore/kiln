@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ProviderAdapter, Capability, ToolDefinition } from "@kilnai/core";
+import type { ActionEffectEnvelope, ProviderAdapter, Capability, ToolDefinition } from "@kilnai/core";
 import { textParts, EventBus, ToolCache } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+
+const READ_ONLY_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["external-system"],
+  reversibility: "reversible",
+  dataEgress: "metadata",
+  identityUse: "authenticated",
+  consequences: [],
+  idempotency: "idempotent",
+};
 
 function makeSession(): RuntimeSession {
   return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt: "Be helpful." });
@@ -45,7 +55,8 @@ function makeCapabilityMap(cacheTtl?: number): ReadonlyMap<string, Capability> {
     description: "Gets weather",
     schema: {},
     tags: [],
-    annotations: cacheTtl !== undefined ? { readOnly: true, cacheTtl } : { readOnly: true },
+    effectEnvelope: READ_ONLY_EFFECT,
+    cacheTtl,
   };
   return new Map([["get_weather", cap]]);
 }

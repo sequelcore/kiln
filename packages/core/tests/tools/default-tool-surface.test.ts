@@ -19,6 +19,7 @@ import type { MemoryMutationService } from "../../src/memory/service.js";
 import { makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ActionEffectEnvelope } from "../../src/engine/domain/action-effect.js";
 
 const BUILTIN_TOOL_NAMES = [
   "bash",
@@ -67,6 +68,16 @@ const BUILTIN_TOOL_NAMES = [
   "resource_template_list",
   "resource_read",
 ];
+
+const READ_ONLY_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process", "workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
 
 function createAuthorityAwareMemoryMutationService(authority: { canWriteMemory?: boolean } | undefined) {
   return {
@@ -219,7 +230,7 @@ describe("default builtin tool surface", () => {
     expect("register" in surface.registry).toBe(false);
   });
 
-  it("projects schemas and annotations without sharing mutable nested references", () => {
+  it("projects schemas and effect envelopes without sharing mutable nested references", () => {
     const first = createDefaultBuiltinToolSurface();
     const second = createDefaultBuiltinToolSurface();
 
@@ -232,7 +243,7 @@ describe("default builtin tool surface", () => {
     expect(firstReadDefinition?.outputSchema).not.toBe(secondReadDefinition?.outputSchema);
     expect(firstReadCapability?.schema).not.toBe(secondReadCapability?.schema);
     expect(firstReadCapability?.outputSchema).not.toBe(secondReadCapability?.outputSchema);
-    expect(firstReadCapability?.annotations).not.toBe(secondReadCapability?.annotations);
+    expect(firstReadCapability?.effectEnvelope).toEqual(secondReadCapability?.effectEnvelope);
 
     const firstSchema = firstReadDefinition?.inputSchema as {
       properties: { filePath: { description: string } };
@@ -588,7 +599,7 @@ describe("default builtin tool surface", () => {
 
     const result = await surface.bridge.execute({
       name: "bash",
-      input: { command: "generate-large-output" },
+      input: { command: "pwd" },
     });
 
     const link = result.result.metadata?.resourceLinks?.[0];
@@ -767,7 +778,7 @@ describe("default builtin tool surface", () => {
         name: "kiln_config.read",
         description: "Read config.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
-        annotations: { readOnly: true, idempotent: true },
+        effectEnvelope: READ_ONLY_EFFECT,
         execute: async () => ({ output: "{}", isError: false }),
       }],
       toolProjection: {

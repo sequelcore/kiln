@@ -472,7 +472,7 @@ export function getErrorSuggestion(
       const toolName = context?.toolName;
       let suggestion = "Tool execution was denied by the authorization policy.";
       if (toolName) {
-        suggestion += ` Tool: "${toolName}". Check the capability's annotations (readOnly, destructive) and the authorization policy.`;
+        suggestion += ` Tool: "${toolName}". Check the resolved action effect and the authorization policy.`;
       }
       return { suggestion, docUrl: docUrl(code) };
     }
@@ -481,7 +481,7 @@ export function getErrorSuggestion(
       const toolName = context?.toolName;
       let suggestion = "Tool execution requires human approval before proceeding.";
       if (toolName) {
-        suggestion += ` Tool: "${toolName}". The tool's annotations indicate it needs approval (e.g., destructive operation).`;
+        suggestion += ` Tool: "${toolName}". The resolved action effect requires approval.`;
       }
       return { suggestion, docUrl: docUrl(code) };
     }

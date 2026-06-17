@@ -49,7 +49,6 @@ export class GlobTool implements DevTool {
   readonly name = "glob";
   readonly description = TOOL_SCHEMAS.glob.description;
   readonly inputSchema = TOOL_SCHEMAS.glob.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.glob.annotations;
 
   private readonly commandRunner: GlobCommandRunner;
   private readonly environmentProvider: EnvironmentProvider;

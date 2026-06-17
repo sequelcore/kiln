@@ -20,7 +20,6 @@ export class ReadTool implements DevTool {
   readonly name = "read";
   readonly description = TOOL_SCHEMAS.read.description;
   readonly inputSchema = TOOL_SCHEMAS.read.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.read.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const filePathInput = requireString(input, "filePath");

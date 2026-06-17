@@ -20,6 +20,9 @@ import {
   type ReasoningEffort,
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
+  CONSERVATIVE_UNKNOWN_ENVELOPE,
+  deriveAuthorityFromEffect,
+  getBuiltinEffectEnvelope,
 } from "@kilnai/core";
 import {
   buildEffectiveTurnAuthorityPolicyInputs,
@@ -109,40 +112,13 @@ function authorityDescriptorFromCapability(
   toolName: string,
   capability: Capability | undefined,
 ): AuthorityDescriptor | undefined {
-  const annotations = capability?.annotations;
-  if (!annotations) {
-    return undefined;
-  }
-  if (annotations?.destructive) {
-    return {
-      level: 4,
-      allowed: false,
-      requiresApproval: true,
-      reason: `Destructive tool "${toolName}" requires approval`,
-    };
-  }
-  if (annotations?.readOnly) {
-    return {
-      level: 1,
-      allowed: true,
-      requiresApproval: false,
-      reason: "Read-only tool, auto-execute",
-    };
-  }
-  if (annotations?.idempotent) {
-    return {
-      level: 2,
-      allowed: true,
-      requiresApproval: false,
-      reason: "Audited execution",
-    };
-  }
-  return {
-    level: 2,
-    allowed: true,
-    requiresApproval: false,
-    reason: "Audited execution",
-  };
+  const effect = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName) ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+  return deriveAuthorityFromEffect(effect);
+}
+
+function isReadOnlyCapability(toolName: string, capability: Capability | undefined): boolean {
+  const effect = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName) ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+  return effect.operation === "observe" && effect.dataEgress === "none";
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
@@ -542,7 +518,7 @@ export class ProviderSession implements IKilnSession {
         continue;
       }
       if (requestedAuthority === "read_only") {
-        if (capability?.annotations?.readOnly === true && authority.level <= 1) {
+        if (isReadOnlyCapability(tool.name, capability) && authority.level <= 1) {
           admittedToolNames.add(tool.name);
           toolAuthority.set(tool.name, authority);
         }

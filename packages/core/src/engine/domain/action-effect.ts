@@ -48,7 +48,6 @@ export type IdentityUseType =
 
 /** Consequence categories a tool may produce. */
 export type ConsequenceType =
-  | "none"
   | "local-state"
   | "external-state"
   | "financial"
@@ -108,10 +107,10 @@ export interface ActionEffectPolicy {
   readonly requireApprovalForUnknown: boolean;
 }
 
-/** Default policy: level 2 (audited), no forced approval for unknown. */
+/** Default policy: unknown effects require approval unless an explicit caller policy overrides it. */
 export const DEFAULT_ACTION_EFFECT_POLICY: ActionEffectPolicy = {
-  defaultLevel: 2,
-  requireApprovalForUnknown: false,
+  defaultLevel: 3,
+  requireApprovalForUnknown: true,
 } as const;
 
 /**
@@ -131,58 +130,120 @@ export const CONSERVATIVE_UNKNOWN_ENVELOPE: ActionEffectEnvelope = {
 
 /**
  * Conservative envelope for external MCP tools.
- * Maps MCP hints to envelope fields, but defaults conservatively
- * for any missing or untrusted fields.
- * Never trusts external hints as authority.
+ * MCP hints are untrusted interoperability hints, so this function never narrows
+ * the trusted maximum effect. Trusted external-tool declarations must come from
+ * operator/project policy or an integration adapter declaration, not from an
+ * MCP server's self-description.
  */
-export function conservativeEnvelopeFromExternalHints(hints?: {
+export function conservativeEnvelopeFromExternalHints(_hints?: {
   readonly readOnlyHint?: boolean;
   readonly destructiveHint?: boolean;
   readonly idempotentHint?: boolean;
   readonly openWorldHint?: boolean;
 }): ActionEffectEnvelope {
-  if (!hints) {
-    return CONSERVATIVE_UNKNOWN_ENVELOPE;
+  return CONSERVATIVE_UNKNOWN_ENVELOPE;
+}
+
+const VALID_OPERATIONS = new Set<OperationType>(["observe", "mutate"]);
+const VALID_BOUNDARIES = new Set<BoundaryType>([
+  "process",
+  "workspace",
+  "machine",
+  "network",
+  "external-system",
+]);
+const VALID_REVERSIBILITIES = new Set<ReversibilityType>([
+  "reversible",
+  "compensatable",
+  "irreversible",
+  "unknown",
+]);
+const VALID_DATA_EGRESS = new Set<DataEgressType>([
+  "none",
+  "metadata",
+  "project-data",
+  "sensitive-data",
+  "unknown",
+]);
+const VALID_IDENTITY_USE = new Set<IdentityUseType>([
+  "none",
+  "authenticated",
+  "privileged",
+  "unknown",
+]);
+const VALID_CONSEQUENCES = new Set<ConsequenceType>([
+  "local-state",
+  "external-state",
+  "financial",
+  "legal",
+  "security",
+  "unknown",
+]);
+const VALID_IDEMPOTENCY = new Set<IdempotencyType>([
+  "idempotent",
+  "conditionally-idempotent",
+  "non-idempotent",
+  "unknown",
+]);
+
+const BOUNDARY_ORDER: readonly BoundaryType[] = [
+  "process",
+  "workspace",
+  "machine",
+  "network",
+  "external-system",
+];
+const CONSEQUENCE_ORDER: readonly ConsequenceType[] = [
+  "local-state",
+  "external-state",
+  "financial",
+  "legal",
+  "security",
+  "unknown",
+];
+
+export function normalizeActionEffectEnvelope(input: unknown): ActionEffectEnvelope | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
   }
+  const record = input as Record<string, unknown>;
+  if (!isMember(record.operation, VALID_OPERATIONS)) return undefined;
+  if (!isMember(record.reversibility, VALID_REVERSIBILITIES)) return undefined;
+  if (!isMember(record.dataEgress, VALID_DATA_EGRESS)) return undefined;
+  if (!isMember(record.identityUse, VALID_IDENTITY_USE)) return undefined;
+  if (!isMember(record.idempotency, VALID_IDEMPOTENCY)) return undefined;
+  const boundaries = normalizeUniqueArray(record.boundaries, VALID_BOUNDARIES, BOUNDARY_ORDER);
+  const consequences = normalizeUniqueArray(record.consequences, VALID_CONSEQUENCES, CONSEQUENCE_ORDER);
+  if (!boundaries) return undefined;
+  if (!consequences) return undefined;
+  return Object.freeze({
+    operation: record.operation,
+    boundaries: Object.freeze(boundaries),
+    reversibility: record.reversibility,
+    dataEgress: record.dataEgress,
+    identityUse: record.identityUse,
+    consequences: Object.freeze(consequences),
+    idempotency: record.idempotency,
+  });
+}
 
-  const operation: OperationType = hints.readOnlyHint === true ? "observe" : "mutate";
-  const reversibility: ReversibilityType =
-    hints.destructiveHint === true
-      ? "irreversible"
-      : hints.readOnlyHint === true
-        ? "reversible"
-        : "unknown";
-  const dataEgress: DataEgressType = hints.openWorldHint === true ? "unknown" : "metadata";
-  const consequences: ConsequenceType[] =
-    hints.destructiveHint === true
-      ? ["external-state"]
-      : hints.readOnlyHint === true
-        ? ["none"]
-        : ["unknown"];
-  const idempotency: IdempotencyType =
-    hints.idempotentHint === true ? "idempotent" : "unknown";
+function isMember<T extends string>(value: unknown, members: ReadonlySet<T>): value is T {
+  return typeof value === "string" && members.has(value as T);
+}
 
-  if (hints.readOnlyHint === true) {
-    return {
-      operation,
-      boundaries: ["process"],
-      reversibility,
-      dataEgress,
-      identityUse: "none",
-      consequences,
-      idempotency,
-    };
+function normalizeUniqueArray<T extends string>(
+  value: unknown,
+  members: ReadonlySet<T>,
+  order: readonly T[],
+): readonly T[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const unique = new Set<T>();
+  for (const item of value) {
+    if (!isMember(item, members)) return undefined;
+    if (unique.has(item)) return undefined;
+    unique.add(item);
   }
-
-  return {
-    operation,
-    boundaries: ["process", "workspace", "machine", "network", "external-system"],
-    reversibility,
-    dataEgress,
-    identityUse: "unknown",
-    consequences,
-    idempotency,
-  };
+  return order.filter((item) => unique.has(item));
 }
 
 // --- Narrowing validation ---
@@ -246,6 +307,13 @@ export function isValidNarrowing(
   resolved: ResolvedInvocationEffect,
   envelope: ActionEffectEnvelope,
 ): boolean {
+  const normalizedResolved = normalizeActionEffectEnvelope(resolved);
+  const normalizedEnvelope = normalizeActionEffectEnvelope(envelope);
+  if (!normalizedResolved || !normalizedEnvelope) {
+    return false;
+  }
+  resolved = normalizedResolved;
+  envelope = normalizedEnvelope;
   if (!isNarrowerOrEqual(resolved.operation, envelope.operation, OPERATION_NARROWING_ORDER)) {
     return false;
   }
@@ -293,6 +361,16 @@ export function deriveAuthorityFromEffect(
   resolved: ResolvedInvocationEffect,
   policy: ActionEffectPolicy = DEFAULT_ACTION_EFFECT_POLICY,
 ): { level: ActionEffectAuthorityLevel; allowed: boolean; requiresApproval: boolean; reason: string } {
+  const normalized = normalizeActionEffectEnvelope(resolved);
+  if (!normalized) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: true,
+      reason: "Malformed action effect requires confirmation",
+    };
+  }
+  resolved = normalized;
   const { operation, reversibility, dataEgress, consequences, idempotency, boundaries, identityUse } =
     resolved;
 
@@ -325,6 +403,28 @@ export function deriveAuthorityFromEffect(
       allowed: false,
       requiresApproval: true,
       reason: "Privileged or unknown identity use requires confirmation",
+    };
+  }
+
+  if (
+    reversibility === "unknown" ||
+    dataEgress === "unknown" ||
+    idempotency === "unknown" ||
+    consequences.includes("unknown")
+  ) {
+    if (policy.requireApprovalForUnknown) {
+      return {
+        level: 3,
+        allowed: false,
+        requiresApproval: true,
+        reason: "Unknown effects require confirmation",
+      };
+    }
+    return {
+      level: policy.defaultLevel,
+      allowed: policy.defaultLevel < 3,
+      requiresApproval: policy.defaultLevel >= 3,
+      reason: "Unknown effects, explicit override policy applied",
     };
   }
 
@@ -369,29 +469,6 @@ export function deriveAuthorityFromEffect(
       allowed: true,
       requiresApproval: false,
       reason: "Reversible or compensatable mutation, audited execution",
-    };
-  }
-
-  // Unknown effects → policy-driven
-  if (
-    reversibility === "unknown" ||
-    dataEgress === "unknown" ||
-    idempotency === "unknown" ||
-    consequences.includes("unknown")
-  ) {
-    if (policy.requireApprovalForUnknown) {
-      return {
-        level: 3,
-        allowed: false,
-        requiresApproval: true,
-        reason: "Unknown effects require confirmation",
-      };
-    }
-    return {
-      level: policy.defaultLevel,
-      allowed: policy.defaultLevel < 3,
-      requiresApproval: policy.defaultLevel >= 3,
-      reason: "Unknown effects, default policy applied",
     };
   }
 
@@ -493,16 +570,23 @@ export function resolveInvocationEffect(
   envelope: ActionEffectEnvelope,
   resolvers?: InvocationEffectResolverRegistry,
 ): ResolvedInvocationEffect {
+  const normalizedEnvelope = normalizeActionEffectEnvelope(envelope);
+  if (!normalizedEnvelope) {
+    throw new Error(`Malformed declared action-effect envelope for tool "${toolName}"`);
+  }
   if (!resolvers) {
-    return envelope;
+    return normalizedEnvelope;
   }
   const resolver = resolvers.get(toolName);
   if (!resolver) {
-    return envelope;
+    return normalizedEnvelope;
   }
-  const resolved = resolver(toolName, input, envelope);
-  if (!isValidNarrowing(resolved, envelope)) {
-    return envelope;
+  const resolved = normalizeActionEffectEnvelope(resolver(toolName, input, normalizedEnvelope));
+  if (!resolved) {
+    throw new Error(`Malformed resolved action effect for tool "${toolName}"`);
+  }
+  if (!isValidNarrowing(resolved, normalizedEnvelope)) {
+    throw new Error(`Resolved action effect exceeds declared envelope for tool "${toolName}"`);
   }
   return resolved;
 }

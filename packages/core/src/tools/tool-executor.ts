@@ -1,6 +1,13 @@
 import { executeWithRetry } from "../agents/tool-execution-engine.js";
-import type { CapabilityAnnotations } from "../engine/domain/capability.js";
+import {
+  CONSERVATIVE_UNKNOWN_ENVELOPE,
+  resolveInvocationEffect,
+  type ActionEffectEnvelope,
+  type InvocationEffectResolverRegistry,
+  type ResolvedInvocationEffect,
+} from "../engine/domain/action-effect.js";
 import type {
+  AuthorizationLevel,
   AuthorityDescriptor,
   RetryConfig,
   ToolExecutionRequest,
@@ -8,9 +15,12 @@ import type {
   ToolExecutionResult,
 } from "../engine/domain/tool-execution.js";
 import { KilnError } from "../engine/errors.js";
+import { ActionEffectAuthorizer } from "../security/action-effect-authorizer.js";
 import type { DevTool, ToolResult } from "./domain/tool.js";
+import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 import type { ToolResourceLinker } from "./domain/tool-resource-links.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
+import { buildBuiltinInvocationEffectResolvers } from "./infrastructure/invocation-effect-resolvers.js";
 
 const KILN_TIMEOUT_UNIT_SCHEMA_KEY = "x-kiln-timeout-unit";
 
@@ -23,15 +33,19 @@ export interface DevToolExecutionBridgeOptions {
   readonly registry: DevToolRegistry;
   readonly authorizer?: ToolAuthorizer;
   readonly resourceLinker?: ToolResourceLinker;
+  readonly invocationEffectResolvers?: InvocationEffectResolverRegistry;
 }
 
 export interface DevToolExecutionResult extends ToolExecutionResult {
   readonly result: ToolResult;
+  readonly toolName: string;
+  readonly resolvedEffect: ResolvedInvocationEffect;
+  readonly authority: AuthorityDescriptor;
 }
 
 export interface DevToolAuthorizationDecision {
   readonly toolName: string;
-  readonly level: number;
+  readonly level: AuthorizationLevel;
   readonly allowed: boolean;
   readonly requiresApproval: boolean;
   readonly reason: string;
@@ -39,13 +53,15 @@ export interface DevToolAuthorizationDecision {
 
 export class DevToolExecutionBridge {
   private readonly registry: DevToolRegistry;
-  private readonly authorizer?: ToolAuthorizer;
+  private readonly authorizer: ToolAuthorizer;
   private readonly resourceLinker?: ToolResourceLinker;
+  private readonly invocationEffectResolvers: InvocationEffectResolverRegistry;
 
   constructor(options: DevToolExecutionBridgeOptions) {
     this.registry = options.registry;
-    this.authorizer = options.authorizer;
+    this.authorizer = options.authorizer ?? new ActionEffectAuthorizer();
     this.resourceLinker = options.resourceLinker;
+    this.invocationEffectResolvers = options.invocationEffectResolvers ?? buildBuiltinInvocationEffectResolvers();
   }
 
   listTools(): readonly DevTool[] {
@@ -60,8 +76,6 @@ export class DevToolExecutionBridge {
         retryable: false,
       });
     }
-    this.authorize(primaryTool, request.authority);
-
     if (request.retry?.fallback && !this.registry.lookup(request.retry.fallback)) {
       throw new KilnError(
         "INTERNAL_ERROR",
@@ -77,7 +91,12 @@ export class DevToolExecutionBridge {
       toolName: string,
       input: Record<string, unknown>,
     ): Promise<ToolResult> => {
-      return await this.executeSingle(toolName, input, request.sandbox, request.authority);
+      return await this.executeSingle(
+        toolName,
+        input,
+        request.sandbox,
+        toolName === request.name ? request.authority : undefined,
+      );
     };
 
     const fallbackExecutor = request.retry?.fallback ? executor : undefined;
@@ -104,9 +123,33 @@ export class DevToolExecutionBridge {
       );
     }
 
+    const executedToolName = execution.fallbackUsed && request.retry?.fallback
+      ? request.retry.fallback
+      : request.name;
+    const executedTool = this.registry.lookup(executedToolName);
+    if (!executedTool) {
+      throw new KilnError("INTERNAL_ERROR", `Executed tool "${executedToolName}" is not registered`, {
+        context: { toolName: executedToolName },
+        retryable: false,
+      });
+    }
+    const authorityEvidence = this.getAuthorizationDecision(
+      executedTool,
+      request.input,
+      execution.fallbackUsed ? undefined : request.authority,
+    );
+
     return {
       ...execution,
       result: execution.result,
+      toolName: executedToolName,
+      resolvedEffect: authorityEvidence.resolvedEffect,
+      authority: {
+        level: authorityEvidence.level,
+        allowed: authorityEvidence.allowed,
+        requiresApproval: authorityEvidence.requiresApproval,
+        reason: authorityEvidence.reason,
+      },
     };
   }
 
@@ -126,7 +169,7 @@ export class DevToolExecutionBridge {
       });
     }
 
-    return this.getAuthorizationDecision(tool, authority);
+    return this.getAuthorizationDecision(tool, {}, authority);
   }
 
   private async executeSingle(
@@ -143,19 +186,26 @@ export class DevToolExecutionBridge {
       });
     }
 
-    this.authorize(tool, authority);
+    this.authorize(tool, input, authority);
     const result = await tool.execute({ name: toolName, input }, sandbox);
     return this.resourceLinker?.link({ toolName, input, result }) ?? result;
   }
 
-  private authorize(tool: DevTool, authority?: AuthorityDescriptor): void {
-    const decision = this.getAuthorizationDecision(tool, authority);
+  private authorize(tool: DevTool, input: Record<string, unknown>, authority?: AuthorityDescriptor): void {
+    const decision = this.getAuthorizationDecision(tool, input, authority);
 
     if (!decision.allowed) {
       throw new KilnError("TOOL_AUTHORIZATION_DENIED", decision.reason, {
         context: {
           toolName: tool.name,
           level: decision.level,
+          resolvedEffect: decision.resolvedEffect,
+          authority: {
+            level: decision.level,
+            allowed: decision.allowed,
+            requiresApproval: decision.requiresApproval,
+            reason: decision.reason,
+          },
         },
         retryable: false,
       });
@@ -167,6 +217,13 @@ export class DevToolExecutionBridge {
           toolName: tool.name,
           level: decision.level,
           requiresApproval: true,
+          resolvedEffect: decision.resolvedEffect,
+          authority: {
+            level: decision.level,
+            allowed: decision.allowed,
+            requiresApproval: decision.requiresApproval,
+            reason: decision.reason,
+          },
         },
         retryable: false,
       });
@@ -175,12 +232,17 @@ export class DevToolExecutionBridge {
 
   private getAuthorizationDecision(
     tool: DevTool,
+    input: Record<string, unknown>,
     authority?: AuthorityDescriptor,
-  ): DevToolAuthorizationDecision {
+  ): DevToolAuthorizationDecision & {
+    readonly resolvedEffect: ResolvedInvocationEffect;
+  } {
+    const resolvedEffect = this.resolveInvocationEffect(tool, input);
     if (authority !== undefined) {
       if (!isAuthorityDescriptor(authority)) {
         return {
           toolName: tool.name,
+          resolvedEffect,
           level: 4,
           allowed: false,
           requiresApproval: false,
@@ -189,6 +251,7 @@ export class DevToolExecutionBridge {
       }
       return {
         toolName: tool.name,
+        resolvedEffect,
         level: authority.level,
         allowed: authority.allowed,
         requiresApproval: authority.requiresApproval,
@@ -196,29 +259,39 @@ export class DevToolExecutionBridge {
       };
     }
 
-    if (!this.authorizer) {
-      return {
-        toolName: tool.name,
-        level: 2,
-        allowed: true,
-        requiresApproval: false,
-        reason: "Audited execution",
-      };
-    }
-
-    const decision = this.authorizer.authorize(
-      tool.name,
-      tool.annotations as CapabilityAnnotations | undefined,
-      tool.effectEnvelope,
-    );
+    const decision = this.authorizer.authorize(tool.name, resolvedEffect);
 
     return {
       toolName: tool.name,
+      resolvedEffect,
       level: decision.level,
       allowed: decision.allowed,
       requiresApproval: decision.requiresApproval,
       reason: decision.reason,
     };
+  }
+
+  private resolveInvocationEffect(
+    tool: DevTool,
+    input: Record<string, unknown>,
+  ): ResolvedInvocationEffect {
+    const envelope: ActionEffectEnvelope = tool.effectEnvelope
+      ?? getBuiltinEffectEnvelope(tool.name)
+      ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+    try {
+      return resolveInvocationEffect(
+        tool.name,
+        input,
+        envelope,
+        this.invocationEffectResolvers,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new KilnError("TOOL_AUTHORIZATION_DENIED", message, {
+        context: { toolName: tool.name },
+        retryable: false,
+      });
+    }
   }
 }
 

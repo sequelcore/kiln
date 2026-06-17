@@ -12,7 +12,6 @@ export class ViewImageTool implements DevTool {
   readonly name = "view_image";
   readonly description = TOOL_SCHEMAS.view_image.description;
   readonly inputSchema = TOOL_SCHEMAS.view_image.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.view_image.annotations;
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
     const pathInput = requireString(input, "path");

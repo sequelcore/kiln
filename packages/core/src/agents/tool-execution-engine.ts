@@ -73,6 +73,12 @@ export async function executeWithRetry(
   if (lastError instanceof KilnError && lastError.code === "TOOL_EXECUTION_TIMEOUT") {
     throw lastError;
   }
+  if (
+    lastError instanceof KilnError &&
+    (lastError.code === "TOOL_AUTHORIZATION_DENIED" || lastError.code === "TOOL_APPROVAL_REQUIRED")
+  ) {
+    throw lastError;
+  }
 
   // All retries exhausted -- try fallback if configured
   if (retryConfig?.fallback && fallbackExecutor) {
@@ -84,7 +90,13 @@ export async function executeWithRetry(
         durationMs: Date.now() - startMs,
         fallbackUsed: true,
       };
-    } catch {
+    } catch (err) {
+      if (
+        err instanceof KilnError &&
+        (err.code === "TOOL_AUTHORIZATION_DENIED" || err.code === "TOOL_APPROVAL_REQUIRED")
+      ) {
+        throw err;
+      }
       // Fallback also failed
     }
   }

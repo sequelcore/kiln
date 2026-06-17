@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { IntegrationRegistry } from "../../src/gateway/integration-registry.js";
-import type { IntegrationAdapter, IntegrationResult, ResolvedCredential } from "@kilnai/core";
+import type { ActionEffectEnvelope, IntegrationAdapter, IntegrationResult, ResolvedCredential } from "@kilnai/core";
 import { KilnError } from "@kilnai/core";
+
+const EXTERNAL_OBSERVE_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["external-system"],
+  reversibility: "reversible",
+  dataEgress: "metadata",
+  identityUse: "authenticated",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
+const EXTERNAL_MUTATE_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["external-system"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "authenticated",
+  consequences: ["external-state"],
+  idempotency: "conditionally-idempotent",
+};
 
 function makeAdapter(provider: string, operations: string[] = ["op_a", "op_b"]): IntegrationAdapter {
   return {
@@ -94,7 +114,7 @@ describe("IntegrationRegistry", () => {
   });
 
   describe("getCapabilities()", () => {
-    it("returns capabilities for operations with annotations", () => {
+    it("returns capabilities for operations with effect envelopes", () => {
       const registry = new IntegrationRegistry();
       const adapter: IntegrationAdapter = {
         provider: "stripe",
@@ -104,13 +124,13 @@ describe("IntegrationRegistry", () => {
             name: "create_link",
             description: "Create payment link",
             inputSchema: { type: "object" },
-            annotations: { readOnly: false, destructive: false, idempotent: true },
+            effectEnvelope: EXTERNAL_MUTATE_EFFECT,
           },
           {
             name: "list_payments",
             description: "List payments",
             inputSchema: { type: "object" },
-            annotations: { readOnly: true },
+            effectEnvelope: EXTERNAL_OBSERVE_EFFECT,
           },
         ],
         execute: async () => ({ data: {} }),
@@ -119,12 +139,12 @@ describe("IntegrationRegistry", () => {
 
       const caps = registry.getCapabilities("stripe");
       expect(caps.size).toBe(2);
-      expect(caps.get("stripe_create_link")!.annotations).toEqual({ readOnly: false, destructive: false, idempotent: true });
-      expect(caps.get("stripe_list_payments")!.annotations).toEqual({ readOnly: true });
+      expect(caps.get("stripe_create_link")!.effectEnvelope).toEqual(EXTERNAL_MUTATE_EFFECT);
+      expect(caps.get("stripe_list_payments")!.effectEnvelope).toEqual(EXTERNAL_OBSERVE_EFFECT);
       expect(caps.get("stripe_create_link")!.tags).toEqual(["integration", "stripe"]);
     });
 
-    it("skips operations without annotations", () => {
+    it("skips operations without effect envelopes", () => {
       const registry = new IntegrationRegistry();
       registry.register(makeAdapter("cal", ["op_a"]));
       const caps = registry.getCapabilities("cal");
@@ -137,8 +157,8 @@ describe("IntegrationRegistry", () => {
         provider: "cal",
         version: "1.0.0",
         operations: [
-          { name: "read", description: "Read", inputSchema: {}, annotations: { readOnly: true } },
-          { name: "write", description: "Write", inputSchema: {}, annotations: { destructive: true } },
+          { name: "read", description: "Read", inputSchema: {}, effectEnvelope: EXTERNAL_OBSERVE_EFFECT },
+          { name: "write", description: "Write", inputSchema: {}, effectEnvelope: EXTERNAL_MUTATE_EFFECT },
         ],
         execute: async () => ({ data: {} }),
       };

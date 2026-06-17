@@ -55,7 +55,6 @@ export class BashTool implements DevTool {
   readonly name = "bash";
   readonly description = TOOL_SCHEMAS.bash.description;
   readonly inputSchema = TOOL_SCHEMAS.bash.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.bash.annotations;
 
   private readonly commandRunner?: BashCommandRunner;
   private readonly processRunner: BashProcessRunner;

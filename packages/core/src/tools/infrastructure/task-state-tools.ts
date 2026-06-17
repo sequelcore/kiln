@@ -122,7 +122,6 @@ export class TaskListTool implements DevTool {
   readonly name = "task_list";
   readonly description = TOOL_SCHEMAS.task_list.description;
   readonly inputSchema = TOOL_SCHEMAS.task_list.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.task_list.annotations;
   private readonly store: TaskStateStore;
 
   constructor(options: { readonly store: TaskStateStore }) {
@@ -158,7 +157,6 @@ export class TaskUpdateTool implements DevTool {
   readonly name = "task_update";
   readonly description = TOOL_SCHEMAS.task_update.description;
   readonly inputSchema = TOOL_SCHEMAS.task_update.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.task_update.annotations;
   private readonly store: TaskStateStore;
 
   constructor(options: { readonly store: TaskStateStore }) {

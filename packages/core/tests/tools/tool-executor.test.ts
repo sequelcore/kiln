@@ -1,14 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
-import { AnnotationAuthorizer } from "../../src/security/annotation-authorizer.js";
+import { ActionEffectAuthorizer } from "../../src/security/action-effect-authorizer.js";
+import type { ActionEffectEnvelope } from "../../src/engine/domain/action-effect.js";
 import { KilnError } from "../../src/engine/errors.js";
 import { DevToolRegistry } from "../../src/tools/domain/tool-registry.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../../src/tools/domain/tool.js";
 import { DevToolExecutionBridge } from "../../src/tools/tool-executor.js";
 
+const READ_ONLY_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["process", "workspace"],
+  reversibility: "reversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: [],
+  idempotency: "idempotent",
+};
+
+const WORKSPACE_MUTATION_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process", "workspace"],
+  reversibility: "irreversible",
+  dataEgress: "none",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
+
 function makeTool(
   name: string,
   executeFn: (input: ToolInput) => Promise<ToolResult>,
-  annotations?: DevTool["annotations"],
+  effectEnvelope: ActionEffectEnvelope = READ_ONLY_EFFECT,
   inputSchema: DevTool["inputSchema"] = {
     type: "object",
     properties: {},
@@ -19,7 +40,7 @@ function makeTool(
     name,
     description: `${name} tool`,
     inputSchema,
-    annotations,
+    effectEnvelope,
     execute: executeFn,
   };
 }
@@ -38,7 +59,7 @@ describe("DevToolExecutionBridge", () => {
     const decision = bridge.authorizeRequest("echo");
 
     expect(decision.toolName).toBe("echo");
-    expect(decision.level).toBe(2);
+    expect(decision.level).toBe(1);
     expect(decision.allowed).toBe(true);
     expect(decision.requiresApproval).toBe(false);
     expect(decision.reason.length).toBeGreaterThan(0);
@@ -53,13 +74,13 @@ describe("DevToolExecutionBridge", () => {
           output: "ok",
           isError: false,
         }),
-        { destructive: true },
+        WORKSPACE_MUTATION_EFFECT,
       ),
     );
 
     const bridge = new DevToolExecutionBridge({
       registry,
-      authorizer: new AnnotationAuthorizer(),
+      authorizer: new ActionEffectAuthorizer(),
     });
     const decision = bridge.authorizeRequest("write");
 
@@ -129,13 +150,13 @@ describe("DevToolExecutionBridge", () => {
           output: "ok",
           isError: false,
         }),
-        { destructive: true },
+        WORKSPACE_MUTATION_EFFECT,
       ),
     );
 
     const bridge = new DevToolExecutionBridge({
       registry,
-      authorizer: new AnnotationAuthorizer(),
+      authorizer: new ActionEffectAuthorizer(),
     });
 
     await expect(
@@ -157,13 +178,13 @@ describe("DevToolExecutionBridge", () => {
           output: "ok",
           isError: false,
         }),
-        { destructive: true },
+        WORKSPACE_MUTATION_EFFECT,
       ),
     );
 
     const bridge = new DevToolExecutionBridge({
       registry,
-      authorizer: new AnnotationAuthorizer(),
+      authorizer: new ActionEffectAuthorizer(),
     });
 
     const result = await bridge.execute({
@@ -337,5 +358,49 @@ describe("DevToolExecutionBridge", () => {
     expect(result.result.output).toBe("from fallback");
     expect(result.attempts).toBe(1);
     expect(result.fallbackUsed).toBe(true);
+  });
+
+  it("reauthorizes fallback tools with their own resolved effect", async () => {
+    const registry = new DevToolRegistry();
+    registry.register(
+      makeTool("primary", async () => {
+        throw new Error("HTTP 503 Service Unavailable");
+      }),
+    );
+    registry.register(
+      makeTool(
+        "fallback",
+        async () => ({
+          output: "must not execute",
+          isError: false,
+        }),
+        WORKSPACE_MUTATION_EFFECT,
+      ),
+    );
+
+    const bridge = new DevToolExecutionBridge({ registry });
+
+    await expect(
+      bridge.execute({
+        name: "primary",
+        input: {},
+        authority: {
+          level: 1,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Primary tool only",
+        },
+        retry: {
+          onTransientError: "exponential",
+          maxAttempts: 1,
+          fallback: "fallback",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "TOOL_AUTHORIZATION_DENIED",
+      context: {
+        toolName: "fallback",
+      },
+    } satisfies Partial<KilnError>);
   });
 });

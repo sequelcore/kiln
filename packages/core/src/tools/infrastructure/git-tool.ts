@@ -62,7 +62,6 @@ export class GitTool implements DevTool {
   readonly name = "git";
   readonly description = TOOL_SCHEMAS.git.description;
   readonly inputSchema = TOOL_SCHEMAS.git.inputSchema;
-  readonly annotations = TOOL_SCHEMAS.git.annotations;
 
   private readonly commandRunner: GitCommandRunner;
 

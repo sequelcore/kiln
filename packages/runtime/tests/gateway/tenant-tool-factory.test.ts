@@ -1,7 +1,37 @@
 import { describe, it, expect, afterEach } from "vitest";
-import type { TenantConfig, IntegrationAdapter, CredentialResolver } from "@kilnai/core";
+import type { ActionEffectEnvelope, TenantConfig, IntegrationAdapter, CredentialResolver } from "@kilnai/core";
 import { buildTenantToolContext, clearIntegrationDeps, configureIntegrationDeps } from "../../src/gateway/tenant-tool-factory.js";
 import { IntegrationRegistry } from "../../src/gateway/integration-registry.js";
+
+const READ_ONLY_EFFECT: ActionEffectEnvelope = {
+  operation: "observe",
+  boundaries: ["external-system"],
+  reversibility: "reversible",
+  dataEgress: "metadata",
+  identityUse: "authenticated",
+  consequences: [],
+  idempotency: "conditionally-idempotent",
+};
+
+const IDEMPOTENT_EFFECT: ActionEffectEnvelope = {
+  ...READ_ONLY_EFFECT,
+  idempotency: "idempotent",
+};
+
+const AUDITED_EFFECT: ActionEffectEnvelope = {
+  ...READ_ONLY_EFFECT,
+  dataEgress: "project-data",
+};
+
+const DESTRUCTIVE_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["external-system"],
+  reversibility: "irreversible",
+  dataEgress: "project-data",
+  identityUse: "authenticated",
+  consequences: ["external-state"],
+  idempotency: "non-idempotent",
+};
 
 function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   return {
@@ -267,7 +297,7 @@ describe("buildTenantToolContext", () => {
     expect(ctx.toolDefinitions).toHaveLength(1);
   });
 
-  it("derives canonical tool authority from integration capability annotations", () => {
+  it("derives canonical tool authority from integration capability effect envelopes", () => {
     const registry = new IntegrationRegistry();
     const resolver: CredentialResolver = {
       resolve: async () => ({ type: "bearer", value: "token" }),
@@ -282,13 +312,13 @@ describe("buildTenantToolContext", () => {
           name: "list_customers",
           description: "List customers",
           inputSchema: {},
-          annotations: { readOnly: true },
+          effectEnvelope: IDEMPOTENT_EFFECT,
         },
         {
           name: "delete_customer",
           description: "Delete customer",
           inputSchema: {},
-          annotations: { destructive: true },
+          effectEnvelope: DESTRUCTIVE_EFFECT,
         },
       ],
       execute: async () => ({ data: {} }),
@@ -308,10 +338,10 @@ describe("buildTenantToolContext", () => {
     const ctx = buildTenantToolContext(tenant);
 
 expect(ctx.toolAuthority.get("stripe_list_customers")).toEqual({
-      level: 1,
+      level: 2,
       allowed: true,
       requiresApproval: false,
-      reason: "Read-only observation, auto-execute",
+      reason: "Observation with external access, audited execution",
     });
     expect(ctx.toolAuthority.get("stripe_delete_customer")).toEqual({
       level: 4,
@@ -321,7 +351,7 @@ expect(ctx.toolAuthority.get("stripe_list_customers")).toEqual({
     });
   });
 
-  it("derives tool authority classification precedence from integration capability annotations", () => {
+  it("derives tool authority classification precedence from integration capability effects", () => {
     const registry = new IntegrationRegistry();
     const resolver: CredentialResolver = {
       resolve: async () => ({ type: "bearer", value: "token" }),
@@ -333,28 +363,28 @@ expect(ctx.toolAuthority.get("stripe_list_customers")).toEqual({
       version: "1.0.0",
       operations: [
         {
-          name: "readonly_but_destructive",
-          description: "Conflicting flags to test precedence",
+          name: "idempotent_read_op",
+          description: "Idempotent read operation",
           inputSchema: {},
-          annotations: { destructive: true, readOnly: true, idempotent: true },
+          effectEnvelope: IDEMPOTENT_EFFECT,
         },
         {
           name: "read_only_op",
           description: "Read operation",
           inputSchema: {},
-          annotations: { readOnly: true },
+          effectEnvelope: READ_ONLY_EFFECT,
         },
         {
-          name: "idempotent_op",
-          description: "Idempotent operation",
+          name: "destructive_op",
+          description: "Destructive operation",
           inputSchema: {},
-          annotations: { idempotent: true },
+          effectEnvelope: DESTRUCTIVE_EFFECT,
         },
         {
           name: "audited_default_op",
-          description: "No annotations means audited classification",
+          description: "Project-data observation means audited classification",
           inputSchema: {},
-          annotations: {},
+          effectEnvelope: AUDITED_EFFECT,
         },
       ],
       execute: async () => ({ data: {} }),
@@ -373,10 +403,10 @@ expect(ctx.toolAuthority.get("stripe_list_customers")).toEqual({
 
     const ctx = buildTenantToolContext(tenant);
 
-expect(ctx.toolAuthorityClassification.get("ops_readonly_but_destructive")).toBe("idempotent");
-    expect(ctx.toolAuthorityClassification.get("ops_read_only_op")).toBe("read_only");
-    expect(ctx.toolAuthorityClassification.get("ops_idempotent_op")).toBe("destructive");
-    expect(ctx.toolAuthorityClassification.get("ops_audited_default_op")).toBe("destructive");
+expect(ctx.toolAuthorityClassification.get("ops_idempotent_read_op")).toBe("idempotent");
+    expect(ctx.toolAuthorityClassification.get("ops_read_only_op")).toBe("audited");
+    expect(ctx.toolAuthorityClassification.get("ops_destructive_op")).toBe("destructive");
+    expect(ctx.toolAuthorityClassification.get("ops_audited_default_op")).toBe("audited");
   });
 
   it("keeps classification precedence consistent with toolAuthority for the same tool", () => {
@@ -391,10 +421,10 @@ expect(ctx.toolAuthorityClassification.get("ops_readonly_but_destructive")).toBe
       version: "1.0.0",
       operations: [
         {
-          name: "destructive_over_readonly",
-          description: "Conflicting flags to verify precedence consistency",
+          name: "audited_observe",
+          description: "Audited observation to verify classification consistency",
           inputSchema: {},
-          annotations: { destructive: true, readOnly: true },
+          effectEnvelope: AUDITED_EFFECT,
         },
       ],
       execute: async () => ({ data: {} }),
@@ -412,7 +442,7 @@ expect(ctx.toolAuthorityClassification.get("ops_readonly_but_destructive")).toBe
     });
 
     const ctx = buildTenantToolContext(tenant);
-const toolName = "consistency_destructive_over_readonly";
+const toolName = "consistency_audited_observe";
 
     expect(ctx.toolAuthorityClassification.get(toolName)).toBe("audited");
     expect(ctx.toolAuthority.get(toolName)).toEqual({
@@ -438,7 +468,7 @@ const toolName = "consistency_destructive_over_readonly";
           name: "list",
           description: "Read-only operation",
           inputSchema: {},
-          annotations: { readOnly: true },
+          effectEnvelope: READ_ONLY_EFFECT,
         },
       ],
       execute: async () => ({ data: {} }),
@@ -452,13 +482,13 @@ const toolName = "consistency_destructive_over_readonly";
           name: "get",
           description: "Read operation",
           inputSchema: {},
-          annotations: { readOnly: true },
+          effectEnvelope: READ_ONLY_EFFECT,
         },
         {
           name: "upsert",
           description: "Idempotent operation",
           inputSchema: {},
-          annotations: { idempotent: true },
+          effectEnvelope: IDEMPOTENT_EFFECT,
         },
       ],
       execute: async () => ({ data: {} }),
@@ -470,9 +500,9 @@ const toolName = "consistency_destructive_over_readonly";
       operations: [
         {
           name: "default_policy",
-          description: "Annotated but defaults to audited classification",
+          description: "Project-data observation defaults to audited classification",
           inputSchema: {},
-          annotations: {},
+          effectEnvelope: AUDITED_EFFECT,
         },
       ],
       execute: async () => ({ data: {} }),
@@ -486,13 +516,13 @@ const toolName = "consistency_destructive_over_readonly";
           name: "delete",
           description: "Destructive operation",
           inputSchema: {},
-          annotations: { destructive: true },
+          effectEnvelope: DESTRUCTIVE_EFFECT,
         },
         {
           name: "list",
           description: "Read-only companion operation",
           inputSchema: {},
-          annotations: { readOnly: true },
+          effectEnvelope: READ_ONLY_EFFECT,
         },
       ],
       execute: async () => ({ data: {} }),
@@ -511,9 +541,9 @@ const toolName = "consistency_destructive_over_readonly";
 
     const ctx = buildTenantToolContext(tenant);
 
-expect(ctx.integrationAuthorityRollup.get("ro")).toBe("read_only");
-    expect(ctx.integrationAuthorityRollup.get("idem")).toBe("destructive");
-    expect(ctx.integrationAuthorityRollup.get("audit")).toBe("destructive");
+expect(ctx.integrationAuthorityRollup.get("ro")).toBe("audited");
+    expect(ctx.integrationAuthorityRollup.get("idem")).toBe("audited");
+    expect(ctx.integrationAuthorityRollup.get("audit")).toBe("audited");
     expect(ctx.integrationAuthorityRollup.get("dest")).toBe("destructive");
   });
 
