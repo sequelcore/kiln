@@ -149,9 +149,11 @@ export interface WorkItem {
   sessionId?: string;
   turnId?: string;
   id: string;
+  resourceUri?: string;
   summary: string;
   status: string;
   workflowProfile: string;
+  authorityProfile?: string;
   assignedAgentProfile?: string;
   expectedEvidence: string[];
   providedEvidence: string[];

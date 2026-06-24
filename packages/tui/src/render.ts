@@ -268,7 +268,21 @@ function fmtWorkItem(item: WorkItem, index: number): string {
   const paused = item.pendingPauseRequirementCount && item.pendingPauseRequirementCount > 0
     ? ` pause:${item.pendingPauseRequirementCount}`
     : "";
-  return `${prefix}${agent}${item.status} ${evidence}${attempt}${paused} ${summary}`;
+  const missing = [
+    ...(item.missingEvidence ?? []),
+    ...(item.missingResidualRisk ? ["residual-risk"] : []),
+  ];
+  const lines = [`${prefix}${agent}${item.status} ${evidence}${attempt}${paused} ${summary}`];
+  if (item.authorityProfile) {
+    lines.push(`  auth:${item.authorityProfile}`);
+  }
+  if (missing.length > 0) {
+    lines.push(`  missing:${missing.join(",")}`);
+  }
+  if (item.resourceUri) {
+    lines.push(`  res:${item.resourceUri}`);
+  }
+  return lines.join("\n");
 }
 
 /**

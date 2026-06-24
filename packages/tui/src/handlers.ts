@@ -413,9 +413,11 @@ function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkIt
     sessionId,
     turnId,
     id,
+    resourceUri: readText(record.resourceUri) ?? `kiln://session/work-items/${encodeURIComponent(id)}`,
     summary,
     status,
     workflowProfile,
+    authorityProfile: readText(record.authorityProfile),
     ...(agentIdentity ? { assignedAgentProfile: agentIdentity.label } : {}),
     expectedEvidence: readTextArray(record.expectedEvidence),
     providedEvidence: readTextArray(record.providedEvidence),
@@ -423,6 +425,8 @@ function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkIt
     latestAttemptMode: readText(record.latestAttemptMode),
     latestManagedInvocationId: readText(record.latestManagedInvocationId),
     pendingPauseRequirementCount: readPendingPauseRequirementCount(record.pauseRequirements),
+    missingEvidence: readTextArray(record.missingEvidence),
+    missingResidualRisk: record.missingResidualRisk === true,
     updatedAt: readDate(record.updatedAt) ?? new Date(),
   };
 }

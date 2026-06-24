@@ -44,6 +44,64 @@ function handlerContext(renderSidebarManagedAgents = vi.fn()): HandlerContext {
 }
 
 describe("TUI handler managed-agent projection", () => {
+  it("projects authority and resource identity for governed work items", () => {
+    const ctx = handlerContext();
+    const workUpdated = sessionEvent("evt-work-updated", 1, "work_item_updated", {
+      workItem: {
+        id: "work-visible",
+        summary: "Audit TUI work item visibility.",
+        status: "blocked",
+        workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
+        assignedAgentProfile: "foundation-readonly-plan",
+        expectedEvidence: ["surface-map", "tests"],
+        providedEvidence: ["surface-map"],
+        missingEvidence: ["tests"],
+        missingResidualRisk: true,
+        pauseRequirements: [
+          {
+            id: "capability-1",
+            kind: "capability",
+            summary: "Route unavailable",
+            status: "pending",
+          },
+        ],
+        updatedAt: "2026-06-24T10:00:00.000Z",
+      },
+    });
+
+    handleActivity(
+      ctx,
+      "work_item_updated",
+      undefined,
+      undefined,
+      "blocked",
+      undefined,
+      (workUpdated.payload as { readonly workItem: unknown }).workItem,
+      undefined,
+      undefined,
+      vi.fn(),
+      undefined,
+      {
+        sessionId: "session-1",
+        turnId: "session-1:turn:live",
+        sessionEvent: workUpdated,
+      },
+    );
+
+    expect(ctx.state.workItems).toEqual([
+      expect.objectContaining({
+        id: "work-visible",
+        resourceUri: "kiln://session/work-items/work-visible",
+        authorityProfile: "authority:foundation-readonly-plan",
+        assignedAgentProfile: "foundation-readonly-plan",
+        missingEvidence: ["tests"],
+        missingResidualRisk: true,
+        pendingPauseRequirementCount: 1,
+      }),
+    ]);
+  });
+
   it("feeds work-item adoption-gate session events into the live managed-agent cockpit state", () => {
     const renderSidebarManagedAgents = vi.fn();
     const ctx = handlerContext(renderSidebarManagedAgents);

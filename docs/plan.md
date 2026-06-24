@@ -75,6 +75,17 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    surface now shows authority metadata, evidence gaps, and an inspectable
    canonical work-item resource action backed by the gateway resource plane.
 
+5. TUI work-item parity follow-up
+   - Preserve canonical work-item resource URI, authority profile, missing
+     evidence, and residual-risk state in the TUI work-item projection.
+   - Render those fields in the Work sidebar so terminal operators can answer
+     why work is allowed and what evidence/risk is still missing.
+
+   Status: completed on 2026-06-24 for TUI work-item inspectability. The TUI
+   sidebar now surfaces authority, missing evidence, residual-risk, and
+   `kiln://session/work-items/{id}` resource identity from canonical work-item
+   events.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -91,6 +102,7 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/gui test tests/work-items-panel.test.tsx`
 - Passed: `bun run --cwd packages/gui test tests/session-store.test.ts`
 - Passed: `bun run --cwd packages/gui test tests/app-shell-sidebar-modes.test.tsx`
+- Passed: `bun run --cwd packages/tui test tests/handlers-managed-agent.test.ts tests/render-work-items.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice
