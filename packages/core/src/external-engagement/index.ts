@@ -104,6 +104,33 @@ export interface FeatureCandidateReport {
   readonly candidates: readonly FeatureCandidate[];
 }
 
+export type FeatureCandidateDecisionKind = "accept" | "defer" | "reject" | "narrow";
+
+export interface FeatureCandidateDecisionInput {
+  readonly candidateId: string;
+  readonly decision: FeatureCandidateDecisionKind;
+  readonly evidenceArtifactIds: readonly string[];
+  readonly reason?: string;
+  readonly narrowedScope?: string;
+}
+
+export interface FeatureCandidateDecisionRecord {
+  readonly candidateId: string;
+  readonly candidateTitle: string;
+  readonly decision: FeatureCandidateDecisionKind;
+  readonly sourceThemes: readonly CommunitySignalTheme[];
+  readonly evidenceArtifactIds: readonly string[];
+  readonly reason?: string;
+  readonly narrowedScope?: string;
+}
+
+export interface FeatureCandidateDecisionReport {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly sourceCandidateReportId: string;
+  readonly decisions: readonly FeatureCandidateDecisionRecord[];
+}
+
 export interface ExternalEngagementReviewItem {
   readonly candidateId: string;
   readonly title: string;
@@ -370,6 +397,61 @@ export function buildExternalEngagementReviewReport(input: {
   });
 }
 
+export function buildFeatureCandidateDecisionReport(input: {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly candidateReport: FeatureCandidateReport;
+  readonly decisions: readonly FeatureCandidateDecisionInput[];
+}): FeatureCandidateDecisionReport {
+  const candidatesById = new Map(input.candidateReport.candidates.map((candidate) => [candidate.id, candidate]));
+  const seenCandidateIds = new Set<string>();
+  const decisions = input.decisions.map((decisionInput): FeatureCandidateDecisionRecord => {
+    const candidateId = requireNonEmpty(decisionInput.candidateId, "candidateId");
+    if (seenCandidateIds.has(candidateId)) {
+      throw new Error(`Duplicate decision for candidate ${candidateId}`);
+    }
+    seenCandidateIds.add(candidateId);
+    const candidate = candidatesById.get(candidateId);
+    if (!candidate) {
+      throw new Error(`Decision references unknown candidate ${candidateId}`);
+    }
+    const decision = requireDecisionKind(decisionInput.decision);
+    const evidenceArtifactIds = unique(decisionInput.evidenceArtifactIds.map((artifactId) =>
+      requireNonEmpty(artifactId, "evidenceArtifactId")));
+    if (evidenceArtifactIds.length === 0) {
+      throw new Error(`Decision for candidate ${candidateId} requires at least one evidence artifact id`);
+    }
+    for (const artifactId of evidenceArtifactIds) {
+      if (!candidate.evidenceArtifactIds.includes(artifactId)) {
+        throw new Error(`Evidence artifact ${artifactId} is not part of candidate ${candidateId}`);
+      }
+    }
+    const reason = optionalNonEmpty(decisionInput.reason, "reason");
+    if ((decision === "accept" || decision === "reject" || decision === "narrow") && !reason) {
+      throw new Error(`Decision ${decision} for candidate ${candidateId} requires a reason`);
+    }
+    const narrowedScope = optionalNonEmpty(decisionInput.narrowedScope, "narrowedScope");
+    if (decision === "narrow" && !narrowedScope) {
+      throw new Error(`Decision narrow for candidate ${candidateId} requires narrowedScope`);
+    }
+    return Object.freeze({
+      candidateId,
+      candidateTitle: candidate.title,
+      decision,
+      sourceThemes: Object.freeze([...candidate.sourceThemes]),
+      evidenceArtifactIds,
+      ...(reason ? { reason } : {}),
+      ...(narrowedScope ? { narrowedScope } : {}),
+    });
+  });
+  return Object.freeze({
+    reportId: requireNonEmpty(input.reportId, "reportId"),
+    generatedAt: requireNonEmpty(input.generatedAt, "generatedAt"),
+    sourceCandidateReportId: input.candidateReport.reportId,
+    decisions: Object.freeze(decisions),
+  });
+}
+
 function parseXPostReference(value: string): XPostReference {
   const urlMatch = value.match(X_POST_URL_PATTERN);
   if (urlMatch?.[1]) {
@@ -606,4 +688,18 @@ function requireNonEmpty(value: string, field: string): string {
     throw new Error(`${field} must be non-empty`);
   }
   return trimmed;
+}
+
+function optionalNonEmpty(value: string | undefined, field: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return requireNonEmpty(value, field);
+}
+
+function requireDecisionKind(value: FeatureCandidateDecisionKind): FeatureCandidateDecisionKind {
+  if (value === "accept" || value === "defer" || value === "reject" || value === "narrow") {
+    return value;
+  }
+  throw new Error(`Unsupported feature candidate decision: ${String(value)}`);
 }

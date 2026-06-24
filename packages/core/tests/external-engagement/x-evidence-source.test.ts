@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_EVIDENCE_READ_EFFECT,
+  buildFeatureCandidateDecisionReport,
   buildExternalEngagementReviewReport,
   buildExternalEvidenceReport,
   buildFeatureCandidateReport,
@@ -363,6 +364,90 @@ describe("X evidence source", () => {
       ].join("\n"),
     });
     expect(review.markdown).not.toContain("Evidence reports agent failures.");
+  });
+
+  it("builds governed feature candidate decisions without copying source text", () => {
+    const candidateReport = buildFeatureCandidateReport({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "evidence-report-1",
+      signals: [{
+        kind: "workflow_pattern",
+        theme: "workflow_controls",
+        summary: "Evidence asks for review gates and cached evidence workflows.",
+        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+        recommendation: "adopt",
+        confidence: "medium",
+      }],
+    });
+
+    const report = buildFeatureCandidateDecisionReport({
+      reportId: "decision-report-1",
+      generatedAt: "2026-06-24T00:10:00.000Z",
+      candidateReport,
+      decisions: [{
+        candidateId: "candidate-workflow-controls",
+        decision: "narrow",
+        evidenceArtifactIds: ["1000000000000000001"],
+        reason: "Useful public workflow, but the first implementation should only cover offline intake.",
+        narrowedScope: "Offline candidate intake only; no write-capable provider actions.",
+      }],
+    });
+
+    expect(report).toEqual({
+      reportId: "decision-report-1",
+      generatedAt: "2026-06-24T00:10:00.000Z",
+      sourceCandidateReportId: "candidate-report-1",
+      decisions: [{
+        candidateId: "candidate-workflow-controls",
+        candidateTitle: "Governed workflow pattern support",
+        decision: "narrow",
+        sourceThemes: ["workflow_controls"],
+        evidenceArtifactIds: ["1000000000000000001"],
+        reason: "Useful public workflow, but the first implementation should only cover offline intake.",
+        narrowedScope: "Offline candidate intake only; no write-capable provider actions.",
+      }],
+    });
+    expect(JSON.stringify(report)).not.toContain("Evidence asks for review gates");
+  });
+
+  it("rejects candidate decisions that are not grounded in the source candidate report", () => {
+    const candidateReport = buildFeatureCandidateReport({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "evidence-report-1",
+      signals: [{
+        kind: "pain_point",
+        theme: "agent_quality",
+        summary: "Evidence reports agent failures.",
+        evidenceArtifactIds: ["1000000000000000001"],
+        recommendation: "adapt",
+        confidence: "low",
+      }],
+    });
+
+    expect(() => buildFeatureCandidateDecisionReport({
+      reportId: "decision-report-1",
+      generatedAt: "2026-06-24T00:10:00.000Z",
+      candidateReport,
+      decisions: [{
+        candidateId: "candidate-agent-quality",
+        decision: "accept",
+        evidenceArtifactIds: ["1000000000000000002"],
+        reason: "Grounded enough for intake.",
+      }],
+    })).toThrow(/not part of candidate candidate-agent-quality/u);
+
+    expect(() => buildFeatureCandidateDecisionReport({
+      reportId: "decision-report-1",
+      generatedAt: "2026-06-24T00:10:00.000Z",
+      candidateReport,
+      decisions: [{
+        candidateId: "candidate-agent-quality",
+        decision: "accept",
+        evidenceArtifactIds: ["1000000000000000001"],
+      }],
+    })).toThrow(/requires a reason/u);
   });
 });
 

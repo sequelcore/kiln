@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import {
   buildExternalEngagementReviewReport,
   buildExternalEvidenceReport,
+  buildFeatureCandidateDecisionReport,
   buildFeatureCandidateReport,
   createXOAuth2ClientIdRef,
   createXOAuth2ClientSecretRef,
@@ -15,6 +16,8 @@ import {
   type ExternalEvidenceArtifact,
   type ExternalEvidenceMetrics,
   type ExternalEvidenceReport,
+  type FeatureCandidateDecisionInput,
+  type FeatureCandidateDecisionReport,
   type FeatureCandidateReport,
   type SecretRef,
   type SecretResolver,
@@ -152,6 +155,12 @@ interface XReviewFlags {
   readonly outputPath?: string;
 }
 
+interface XDecideFlags {
+  readonly candidatesPath?: string;
+  readonly decisionsPath?: string;
+  readonly outputPath?: string;
+}
+
 interface XRateLimitSnapshot {
   readonly limit?: number;
   readonly remaining?: number;
@@ -168,8 +177,8 @@ export async function externalEngagementCommand(
     printHelp();
     return;
   }
-  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh" && subcommand !== "x-candidates" && subcommand !== "x-review") {
-    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, x-refresh, x-candidates, or x-review.`);
+  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh" && subcommand !== "x-candidates" && subcommand !== "x-review" && subcommand !== "x-decide") {
+    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, x-refresh, x-candidates, x-review, or x-decide.`);
   }
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -189,6 +198,10 @@ export async function externalEngagementCommand(
   }
   if (subcommand === "x-review") {
     await runXReview(parseXReviewFlags(args), dependencies);
+    return;
+  }
+  if (subcommand === "x-decide") {
+    await runXDecide(parseXDecideFlags(args), dependencies);
     return;
   }
   await runXReport(parseXReportFlags(args), dependencies);
@@ -390,6 +403,29 @@ async function runXReview(
     candidateReport,
   });
   printOrWriteReviewMarkdown(review.markdown, flags.outputPath);
+}
+
+async function runXDecide(
+  flags: XDecideFlags,
+  dependencies: ExternalEngagementCommandDependencies,
+): Promise<void> {
+  if (!flags.candidatesPath) {
+    throw new Error("external-engagement x-decide requires --candidates.");
+  }
+  if (!flags.decisionsPath) {
+    throw new Error("external-engagement x-decide requires --decisions.");
+  }
+  const candidateReport = parseFeatureCandidateReport(readJsonFile(flags.candidatesPath), flags.candidatesPath);
+  const decisions = parseFeatureCandidateDecisionInputs(readJsonFile(flags.decisionsPath), flags.decisionsPath);
+  const generatedAt = (dependencies.now?.() ?? new Date()).toISOString();
+  const reportId = dependencies.reportId?.() ?? `external-engagement-decisions-${generatedAt.replace(/[:.]/gu, "-")}`;
+  const decisionReport = buildFeatureCandidateDecisionReport({
+    reportId,
+    generatedAt,
+    candidateReport,
+    decisions,
+  });
+  printOrWriteFeatureCandidateDecisionReport(decisionReport, flags.outputPath);
 }
 
 async function resolveAccessToken(
@@ -654,6 +690,34 @@ function parseXReviewFlags(args: readonly string[]): XReviewFlags {
   };
 }
 
+function parseXDecideFlags(args: readonly string[]): XDecideFlags {
+  let candidatesPath: string | undefined;
+  let decisionsPath: string | undefined;
+  let outputPath: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--candidates") {
+      candidatesPath = readRequiredArg(args, index, "--candidates");
+      index += 1;
+    } else if (arg === "--decisions") {
+      decisionsPath = readRequiredArg(args, index, "--decisions");
+      index += 1;
+    } else if (arg === "--output") {
+      outputPath = readRequiredArg(args, index, "--output");
+      index += 1;
+    } else {
+      throw new Error(`Unknown external-engagement x-decide option '${arg}'.`);
+    }
+  }
+
+  return {
+    candidatesPath,
+    decisionsPath,
+    outputPath,
+  };
+}
+
 function readInputReferences(inputPath: string | undefined): readonly string[] {
   if (!inputPath) {
     return [];
@@ -698,6 +762,19 @@ function printOrWriteReviewMarkdown(markdown: string, outputPath: string | undef
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${markdown}\n`, "utf-8");
   console.log(`External engagement review written: ${outputPath}`);
+}
+
+function printOrWriteFeatureCandidateDecisionReport(
+  report: FeatureCandidateDecisionReport,
+  outputPath: string | undefined,
+): void {
+  if (!outputPath) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
+  console.log(`External engagement candidate decisions written: ${outputPath}`);
 }
 
 function writeSecretJson(outputPath: string, value: unknown): void {
@@ -884,6 +961,37 @@ function parseFeatureCandidateReport(payload: unknown, path: string): FeatureCan
   return record as FeatureCandidateReport;
 }
 
+function parseFeatureCandidateDecisionInputs(payload: unknown, path: string): readonly FeatureCandidateDecisionInput[] {
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Feature candidate decisions must be an object: ${path}`);
+  }
+  const record = payload as { readonly decisions?: unknown };
+  if (!Array.isArray(record.decisions)) {
+    throw new Error(`Feature candidate decisions must include decisions array: ${path}`);
+  }
+  return Object.freeze(record.decisions.map((decision, index): FeatureCandidateDecisionInput => {
+    if (!decision || typeof decision !== "object") {
+      throw new Error(`Feature candidate decision must be an object at index ${index}: ${path}`);
+    }
+    const item = decision as Record<string, unknown>;
+    if (
+      typeof item.candidateId !== "string"
+      || typeof item.decision !== "string"
+      || !Array.isArray(item.evidenceArtifactIds)
+      || !item.evidenceArtifactIds.every((artifactId) => typeof artifactId === "string")
+    ) {
+      throw new Error(`Invalid feature candidate decision at index ${index}: ${path}`);
+    }
+    return {
+      candidateId: item.candidateId,
+      decision: item.decision as FeatureCandidateDecisionInput["decision"],
+      evidenceArtifactIds: Object.freeze([...item.evidenceArtifactIds]) as readonly string[],
+      ...(typeof item.reason === "string" ? { reason: item.reason } : {}),
+      ...(typeof item.narrowedScope === "string" ? { narrowedScope: item.narrowedScope } : {}),
+    };
+  }));
+}
+
 function parseScopeList(value: unknown): readonly string[] | undefined {
   if (typeof value !== "string" || value.trim().length === 0) {
     return undefined;
@@ -1013,6 +1121,7 @@ function printHelp(): void {
     "  kiln external-engagement x-refresh --allow-live --secret-output <path> [options]",
     "  kiln external-engagement x-candidates --report <path> [options]",
     "  kiln external-engagement x-review --candidates <path> [options]",
+    "  kiln external-engagement x-decide --candidates <path> --decisions <path> [options]",
     "",
     "Options:",
     "  --max-replies N          Maximum replies to fetch per root post (default: 25)",
@@ -1026,6 +1135,7 @@ function printHelp(): void {
     "  --output PATH            Write report JSON to PATH",
     "  --report PATH            Read an existing x-report JSON for x-candidates",
     "  --candidates PATH        Read an existing x-candidates JSON for x-review",
+    "  --decisions PATH         Read operator candidate decisions for x-decide",
     "  --access-token-env NAME  Env var containing OAuth2 access token (default: KILN_X_OAUTH2_ACCESS_TOKEN)",
     "  --refresh-token-env NAME Env var containing OAuth2 refresh token (default: KILN_X_OAUTH2_REFRESH_TOKEN)",
     "  --client-id-env NAME     Env var containing OAuth2 client id (default: KILN_X_CLIENT_ID)",

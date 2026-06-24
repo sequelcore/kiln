@@ -796,6 +796,76 @@ describe("external engagement command", () => {
     expect(markdown).not.toContain("Do not expose this source-derived summary");
     expect(log.mock.calls[0]?.[0]).toBe(`External engagement review written: ${outputPath}`);
   });
+
+  it("builds a governed candidate decision report offline", async () => {
+    const root = tempRoot();
+    const candidatesPath = join(root, "x-candidates.json");
+    const decisionsPath = join(root, "x-decisions-input.json");
+    const outputPath = join(root, "x-decisions.json");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    writeFileSync(candidatesPath, JSON.stringify({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "source-report-1",
+      candidates: [{
+        id: "candidate-workflow-controls",
+        title: "Governed workflow pattern support",
+        summary: "Do not copy this source-derived summary.",
+        sourceSignalKinds: ["workflow_pattern"],
+        sourceThemes: ["workflow_controls"],
+        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+        recommendation: "adopt",
+        confidence: "medium",
+        standardsAssessment: {
+          publicValue: "community-grounded",
+          architectureFit: "core-domain-first",
+          implementationRisk: "medium",
+          notes: [],
+        },
+      }],
+    }, null, 2), "utf-8");
+    writeFileSync(decisionsPath, JSON.stringify({
+      decisions: [{
+        candidateId: "candidate-workflow-controls",
+        decision: "narrow",
+        evidenceArtifactIds: ["1000000000000000001"],
+        reason: "Useful public workflow, but the first implementation should only cover offline intake.",
+        narrowedScope: "Offline intake only.",
+      }],
+    }, null, 2), "utf-8");
+
+    await externalEngagementCommand({} as never, "x-decide", [
+      "--candidates",
+      candidatesPath,
+      "--decisions",
+      decisionsPath,
+      "--output",
+      outputPath,
+    ], {
+      now: () => new Date("2026-06-24T01:00:00.000Z"),
+      reportId: () => "decision-report-1",
+      fetcher: { fetchEvidence: vi.fn() },
+      credentialResolver: { resolve: vi.fn() },
+    });
+
+    const decisions = JSON.parse(readFileSync(outputPath, "utf-8")) as Record<string, unknown>;
+    expect(decisions).toEqual({
+      reportId: "decision-report-1",
+      generatedAt: "2026-06-24T01:00:00.000Z",
+      sourceCandidateReportId: "candidate-report-1",
+      decisions: [{
+        candidateId: "candidate-workflow-controls",
+        candidateTitle: "Governed workflow pattern support",
+        decision: "narrow",
+        sourceThemes: ["workflow_controls"],
+        evidenceArtifactIds: ["1000000000000000001"],
+        reason: "Useful public workflow, but the first implementation should only cover offline intake.",
+        narrowedScope: "Offline intake only.",
+      }],
+    });
+    expect(JSON.stringify(decisions)).not.toContain("Do not copy this source-derived summary.");
+    expect(log.mock.calls[0]?.[0]).toBe(`External engagement candidate decisions written: ${outputPath}`);
+  });
 });
 
 function tempRoot(): string {

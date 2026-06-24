@@ -133,6 +133,38 @@ prompts. It does not include full artifact text by default, so private source
 details stay in the underlying evidence report unless the operator explicitly
 chooses to disclose them.
 
+Record operator decisions against reviewed candidates:
+
+```bash
+kiln external-engagement x-decide \
+  --candidates ./.kiln/external-engagement/x-candidates.json \
+  --decisions ./.kiln/external-engagement/x-decisions-input.json \
+  --output ./.kiln/external-engagement/x-decisions.json
+```
+
+The decisions input is JSON:
+
+```json
+{
+  "decisions": [
+    {
+      "candidateId": "candidate-workflow-controls",
+      "decision": "narrow",
+      "evidenceArtifactIds": ["1000000000000000001"],
+      "reason": "Useful public workflow, but the first implementation should only cover offline intake.",
+      "narrowedScope": "Offline intake only."
+    }
+  ]
+}
+```
+
+`x-decide` is offline and provider-neutral. It validates that every decision
+references an existing candidate and only evidence artifact ids already present
+on that candidate. `accept`, `reject`, and `narrow` decisions require a reason;
+`narrow` also requires `narrowedScope`. The resulting decision report stores
+candidate ids, titles, themes, evidence artifact ids, and operator reasoning.
+It does not copy full source text, author handles, or source URLs.
+
 Input files are newline-delimited and may contain X URLs or post ids:
 
 ```text
@@ -226,6 +258,8 @@ Use `x-candidates` for repeated analysis of an existing report because it is
 offline and does not consume X API credits.
 Use `x-review` when discussing candidates with operators or maintainers because
 it is review-oriented and avoids copying full source text by default.
+Use `x-decide` after review to preserve the operator decision without another
+provider call.
 
 ## Architecture Boundary
 
@@ -236,8 +270,8 @@ Current ownership:
 
 - `@kilnai/core`: source-neutral evidence contracts, read-only effect envelope,
   URL/id normalization, request-budget estimation, report construction,
-  conservative signal extraction, feature-candidate reporting, and
-  provider-agnostic credential references.
+  conservative signal extraction, feature-candidate reporting, candidate
+  decision reporting, and provider-agnostic credential references.
 - `@kilnai/cli`: first operator surface, env-backed credential resolver, and X
   REST fetch boundary.
 - `@kilnai/runtime`: not touched in phase 1. A runtime channel or write-capable

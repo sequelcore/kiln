@@ -1,3 +1,63 @@
+# X Candidate Decision Report Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Move the X pilot from review-only analysis to governed product intake by
+recording operator decisions against feature candidates without copying private
+source evidence into the decision artifact.
+
+## Non-Goals
+
+- No additional X API calls.
+- No write-capable engagement.
+- No roadmap/proposal persistence yet.
+- No full source text, handles, URLs, or real source ids in public docs/tests.
+- No LLM-dependent decision making.
+
+## Scout Map
+
+- `packages/core/src/external-engagement/index.ts` owns pure decision report
+  construction and validation against a feature candidate report.
+- `packages/cli/src/commands/external-engagement.ts` owns `x-decide` as an
+  offline JSON transformation.
+- `docs/guides/external-engagement.md` owns operator guidance for the
+  review-to-decision workflow.
+
+## Implementation Slices
+
+1. Core decision model
+   - Add `accept`, `defer`, `reject`, and `narrow` decision states.
+   - Store decisions against candidate ids and evidence artifact ids.
+   - Reject unknown candidates, duplicate candidate decisions, empty evidence,
+     and evidence ids not present on the candidate.
+
+2. Decision validation
+   - Require reasons for `accept`, `reject`, and `narrow`.
+   - Require `narrowedScope` for `narrow`.
+   - Exclude source-derived summaries and full artifact text from the decision
+     report.
+
+3. CLI surface
+   - Add `x-decide --candidates --decisions --output`.
+   - Keep the command offline, credential-free, and network-free.
+
+## Verification
+
+- Passed: `bun run --cwd packages/core test tests/external-engagement/x-evidence-source.test.ts`
+- Passed: `bun run --cwd packages/core build`
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run --filter @kilnai/core test`
+- Passed: `bun run --filter @kilnai/cli test`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+- Passed: privacy grep for the private X source handles and real post ids.
+
+---
+
 # X Signal Quality And Review Report Plan
 
 Date: 2026-06-24
