@@ -362,6 +362,7 @@ describe("operator event presentation", () => {
       managedInvocationEvidence: {
         lifecycle: {
           routeSource: "explicit-managed-route",
+          sourceResourceUris: ["kiln://managed-agents/invocations/inv-1/content"],
           resourceLease: {
             leaseId: "inv-1:resource-lease",
             createdAt: "2026-05-07T08:00:00.000Z",
@@ -406,6 +407,7 @@ describe("operator event presentation", () => {
       { label: "Lease cleanup", value: "completed" },
       { label: "Lease resources", value: "kiln://resources/context.md" },
       { label: "Lease diagnostics", value: "kiln://artifacts/inv-1/lease-diagnostics" },
+      { label: "Source resources", value: "kiln://managed-agents/invocations/inv-1/content" },
       { label: "Child identity", value: "Piama" },
       { label: "Invocation ID", value: "inv-1" },
       { label: "Parent turn", value: "session-1:turn:2" },

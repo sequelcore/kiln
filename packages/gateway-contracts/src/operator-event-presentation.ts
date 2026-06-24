@@ -1028,6 +1028,7 @@ function addManagedCapabilitySnapshotDetails(
   addItem(details, "Lease cleanup", resourceLease?.cleanupStatus);
   addItem(details, "Lease resources", formatStringList(resourceLease?.resourceUris));
   addItem(details, "Lease diagnostics", formatStringList(resourceLease?.diagnosticUris));
+  addItem(details, "Source resources", formatStringList(lifecycle?.sourceResourceUris));
   const worktreeReview = asRecord(resourceLease?.worktreeReview);
   const worktreeReviewStatus = readString(worktreeReview?.status);
   const worktreeReviewReason = readString(worktreeReview?.reason);

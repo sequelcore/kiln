@@ -174,6 +174,19 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    invocation source context now survives core lifecycle evidence, runtime
    session events, and gateway replay normalization.
 
+13. Operator event presentation source-resource closeout
+   - Preserve managed invocation lifecycle `sourceResourceUris` in shared
+     operator event details.
+   - Render source resources beside lease resources and diagnostics so
+     conversation, activity, inspector, replay, remote, IDE, and SDK consumers
+     that rely on shared presentation can inspect admitted context without
+     local inference.
+
+   Status: completed on 2026-06-24 for shared operator event presentation.
+   Managed invocation events now expose source resource rows through the same
+   canonical presentation path used for route, lease, diagnostic, and child
+   identity evidence.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
