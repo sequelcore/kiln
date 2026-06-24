@@ -6,7 +6,7 @@ import type { AuthorityStateStore } from "../infrastructure/authority-state-stor
 import type { PlanStateStore } from "../infrastructure/plan-state-store.js";
 import type { SpecificationStateStore } from "../infrastructure/specification-state-store.js";
 import type { TaskStateStore } from "../infrastructure/task-state-tools.js";
-import type { GoalRunStore, WorkItemStore } from "../../work-governance/index.js";
+import type { GoalRunStore, WorkItem, WorkItemStore } from "../../work-governance/index.js";
 import { createHash } from "node:crypto";
 
 const JSON_MIME_TYPE = "application/json";
@@ -449,7 +449,11 @@ export class ToolResourceRegistry {
     }
 
     if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "work-items" && this.workItemStore) {
-      return jsonResource(uri, this.workItemStore.snapshot());
+      const snapshot = this.workItemStore.snapshot();
+      return jsonResource(uri, {
+        ...snapshot,
+        items: snapshot.items.map(projectWorkItemResource),
+      });
     }
 
     if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "goals" && this.goalRunStore) {
@@ -462,7 +466,7 @@ export class ToolResourceRegistry {
       if (!item) {
         throw resourceNotFound(uri);
       }
-      return jsonResource(uri, item);
+      return jsonResource(uri, projectWorkItemResource(item));
     }
 
     if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "goals" && this.goalRunStore) {
@@ -776,6 +780,26 @@ function jsonResource(uri: string, value: unknown): ToolResourceReadResult {
       mimeType: JSON_MIME_TYPE,
       text: JSON.stringify(value, null, 2),
     }],
+  };
+}
+
+function projectWorkItemResource(item: WorkItem): WorkItem & {
+  readonly resourceUri: string;
+  readonly missingEvidence: readonly string[];
+} {
+  const missingEvidence = item.expectedEvidence.filter((evidence) => {
+    if (item.providedEvidence.includes(evidence)) {
+      return false;
+    }
+    if (evidence === "residual-risk" && item.residualRisk?.trim()) {
+      return false;
+    }
+    return true;
+  });
+  return {
+    ...item,
+    resourceUri: `kiln://session/work-items/${encodeURIComponent(item.id)}`,
+    missingEvidence,
   };
 }
 

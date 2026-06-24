@@ -1612,13 +1612,11 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   const summary = readString(item?.summary) ?? "Governed work item updated";
   const status = readString(item?.status) ?? "unknown";
   const operation = readString(payload.operation) ?? "update";
-  const missingEvidence = Array.isArray(payload.missingEvidence)
-    ? payload.missingEvidence.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
-    : [];
+  const missingEvidence = workItemMissingEvidence(payload, item);
   const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
   const missingVerificationGates = readStringList(payload.missingVerificationGates);
   const failedVerificationGates = readStringList(payload.failedVerificationGates);
-  const missingResidualRisk = payload.missingResidualRisk === true;
+  const missingResidualRisk = payload.missingResidualRisk === true || item?.missingResidualRisk === true;
   const hasMissingCloseout = missingEvidence.length > 0
     || missingGoalEvidence.length > 0
     || missingVerificationGates.length > 0
@@ -1626,6 +1624,7 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
     || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Work item", item?.id);
+  addItem(details, "Resource", workItemResourceUri(readString(item?.id)));
   addItem(details, "Status", status);
   addItem(details, "Workflow", item?.workflowProfile);
   addItem(details, "Risk", item?.risk);
@@ -1666,11 +1665,11 @@ function workItemExecutionPresentation(
   const summary = readString(item?.summary) ?? "Governed work item execution";
   const status = readString(attempt?.status) ?? readString(item?.status) ?? "unknown";
   const executionMode = readString(attempt?.executionMode) ?? "unknown";
-  const missingEvidence = readStringList(payload.missingEvidence);
+  const missingEvidence = workItemMissingEvidence(payload, item);
   const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
   const missingVerificationGates = readStringList(payload.missingVerificationGates);
   const failedVerificationGates = readStringList(payload.failedVerificationGates);
-  const missingResidualRisk = payload.missingResidualRisk === true;
+  const missingResidualRisk = payload.missingResidualRisk === true || item?.missingResidualRisk === true;
   const hasMissingCloseout = missingEvidence.length > 0
     || missingGoalEvidence.length > 0
     || missingVerificationGates.length > 0
@@ -1678,10 +1677,12 @@ function workItemExecutionPresentation(
     || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Work item", item?.id);
+  addItem(details, "Resource", workItemResourceUri(readString(item?.id)));
   addItem(details, "Attempt", attempt?.id);
   addItem(details, "Status", status);
   addItem(details, "Execution mode", executionMode);
   addItem(details, "Managed invocation", attempt?.managedInvocationId);
+  addItem(details, "Authority", item?.authorityProfile);
   addItem(details, "Reference roots", readStringList(item?.referenceRoots).join(", "));
   addItem(details, "Started", attempt?.startedAt);
   addItem(details, "Completed", attempt?.completedAt);
@@ -1713,6 +1714,24 @@ function workItemExecutionPresentation(
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
   };
+}
+
+function workItemResourceUri(id: string | null): string | undefined {
+  return id ? `kiln://session/work-items/${encodeURIComponent(id)}` : undefined;
+}
+
+function workItemMissingEvidence(
+  payload: Record<string, unknown>,
+  item: Record<string, unknown> | null,
+): readonly string[] {
+  const provided = readStringList(item?.providedEvidence);
+  const derived = readStringList(item?.expectedEvidence).filter((evidence) => !provided.includes(evidence));
+  return [...new Set([
+    ...readStringList(payload.missingEvidence),
+    ...readStringList(item?.missingEvidence),
+    ...derived,
+    ...(payload.missingResidualRisk === true || item?.missingResidualRisk === true ? ["residual-risk"] : []),
+  ])];
 }
 
 function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string, unknown>): OperatorEventPresentation {

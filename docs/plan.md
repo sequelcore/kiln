@@ -110,6 +110,21 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    native operator surface now derives governed work-item visibility from the
    same canonical event stream used by the managed-agent cockpit.
 
+8. Shared presentation and resource-plane follow-up
+   - Add canonical work-item resource URI rows to shared operator event
+     presentation for work-item update and execution events.
+   - Derive missing evidence from the work item itself when presentation
+     payloads omit top-level closeout fields.
+   - Enrich `kiln://session/work-items` and
+     `kiln://session/work-items/{id}` resource reads with canonical
+     `resourceUri` and derived `missingEvidence` fields without mutating the
+     work-item store.
+
+   Status: completed on 2026-06-24 for upstream inspectable-work contracts.
+   New and existing surfaces can now consume the shared presentation/resource
+   plane for work-item resource identity and evidence gaps instead of
+   re-deriving them locally.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -129,6 +144,8 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/tui test tests/handlers-managed-agent.test.ts tests/render-work-items.test.ts`
 - Passed: `bun run --cwd packages/cli test src/commands/goal.test.ts`
 - Passed: `bun run --cwd packages/native test tests/native-boundary.test.ts tests/work-items-panel.test.tsx`
+- Passed: `bun run --cwd packages/gateway-contracts test tests/operator-event-presentation.test.ts`
+- Passed: `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice

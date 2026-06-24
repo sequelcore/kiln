@@ -224,7 +224,9 @@ describe("ToolResourceRegistry", () => {
       items: [
         {
           id: item.id,
+          resourceUri: `kiln://session/work-items/${item.id}`,
           summary: "Verify runtime work evidence",
+          missingEvidence: ["typecheck"],
           providedEvidence: ["tests"],
           planId: "plan-1",
           goalRunId: "goal-1",
@@ -250,7 +252,9 @@ describe("ToolResourceRegistry", () => {
     const single = await surface.resources.read(`kiln://session/work-items/${item.id}`);
     expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
       id: item.id,
+      resourceUri: `kiln://session/work-items/${item.id}`,
       expectedEvidence: ["tests", "typecheck"],
+      missingEvidence: ["typecheck"],
       planHash: "sha256:plan",
       executionAttempts: [
         expect.objectContaining({

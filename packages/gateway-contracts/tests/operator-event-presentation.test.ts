@@ -208,12 +208,26 @@ describe("operator event presentation", () => {
   });
 
   it("presents work-item execution attempts as operator-visible checkpoints", () => {
+    const updated = presentOperatorEventPayload("work_item_updated", {
+      operation: "update",
+      workItem: {
+        id: "work-1",
+        summary: "Run Slice 9 verification",
+        status: "blocked",
+        workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
+        expectedEvidence: ["surface-map", "tests"],
+        providedEvidence: ["surface-map"],
+        missingResidualRisk: true,
+      },
+    });
     const started = presentOperatorEventPayload("work_item_execution_started", {
       workItem: {
         id: "work-1",
         summary: "Run Slice 9 verification",
         status: "in_progress",
         workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
       },
       attempt: {
         id: "goal-1:work-1:attempt:1",
@@ -251,6 +265,10 @@ describe("operator event presentation", () => {
       summary: "started · managed_delegation · Run Slice 9 verification",
       tone: "running",
     });
+    expect(updated.details).toContainEqual({ label: "Resource", value: "kiln://session/work-items/work-1" });
+    expect(updated.details).toContainEqual({ label: "Missing evidence", value: "tests, residual-risk" });
+    expect(started.details).toContainEqual({ label: "Resource", value: "kiln://session/work-items/work-1" });
+    expect(started.details).toContainEqual({ label: "Authority", value: "authority:foundation-readonly-plan" });
     expect(started.details).toContainEqual({ label: "Attempt", value: "goal-1:work-1:attempt:1" });
     expect(started.details).toContainEqual({ label: "Managed invocation", value: "invocation-1" });
     expect(finished).toMatchObject({
