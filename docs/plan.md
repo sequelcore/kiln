@@ -187,6 +187,17 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    canonical presentation path used for route, lease, diagnostic, and child
    identity evidence.
 
+14. CLI managed-agent source-resource closeout
+   - Preserve the source/evidence distinction in `kiln managed-agent status`
+     and `kiln managed-agent resources`.
+   - Read source resources from the shared managed invocation projection and
+     avoid duplicating those URIs under produced evidence resources.
+
+   Status: completed on 2026-06-24 for CLI managed-agent inspection. Terminal
+   operators can now distinguish admitted source context from child-produced
+   handoff and diagnostic resources without using `--json` or parsing raw
+   event payloads.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.

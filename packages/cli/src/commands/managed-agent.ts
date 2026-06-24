@@ -417,6 +417,7 @@ function formatManagedAgentStatus(
     `Provider: ${invocation.providerRoute ?? "unknown"}`,
     `Events: ${invocation.eventCount}`,
     `Resources: ${item.resourceUris.length}`,
+    invocation.sourceResourceUris.length > 0 ? `Source resources: ${invocation.sourceResourceUris.join(", ")}` : undefined,
     `Cancel: ${item.cancelControl.status} · ${item.cancelControl.reason}`,
     invocation.resourceLease ? `Lease: ${invocation.resourceLease.leaseId}` : undefined,
     invocation.resourceLease ? `Worktree: ${invocation.resourceLease.workingDirectoryPath}` : undefined,
@@ -512,7 +513,10 @@ function formatManagedAgentResources(
   invocation: OperatorCockpitInvocationProjection,
 ): string {
   const { managedInvocationId } = invocation;
-  if (item.resourceUris.length === 0) {
+  const sourceResourceUris = invocation.sourceResourceUris;
+  const sourceResourceUriSet = new Set(sourceResourceUris);
+  const evidenceResourceUris = item.resourceUris.filter((uri) => !sourceResourceUriSet.has(uri));
+  if (sourceResourceUris.length === 0 && evidenceResourceUris.length === 0) {
     return [
       `No resource pointers found for managed child ${managedInvocationId}.`,
       ...formatManagedAgentWorktreeReviewLines(invocation),
@@ -522,11 +526,18 @@ function formatManagedAgentResources(
   }
   return [
     `Resources for managed child ${managedInvocationId}:`,
-    ...item.resourceUris.map((uri) => `- ${uri}`),
+    ...formatManagedAgentResourceSection("Source resources", sourceResourceUris),
+    ...formatManagedAgentResourceSection("Evidence resources", evidenceResourceUris),
     ...formatManagedAgentWorktreeReviewLines(invocation),
     ...formatManagedAgentWorktreeConflictLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].join("\n");
+}
+
+function formatManagedAgentResourceSection(label: string, resourceUris: readonly string[]): readonly string[] {
+  return resourceUris.length > 0
+    ? [label + ":", ...resourceUris.map((uri) => `- ${uri}`)]
+    : [];
 }
 
 function formatManagedAgentCancelResult(result: GuiManagedAgentControlResultFrame): string {
