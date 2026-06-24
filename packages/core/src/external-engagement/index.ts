@@ -1,4 +1,5 @@
 import type { ActionEffectEnvelope } from "../engine/domain/action-effect.js";
+import { createSecretRef, type SecretRef } from "../credentials/index.js";
 
 export type ExternalEvidenceSource = "x";
 
@@ -91,6 +92,13 @@ export interface ExternalEvidenceReport {
   readonly signals: readonly CommunitySignal[];
 }
 
+export interface XReadAccessTokenRefInput {
+  readonly envName?: string;
+  readonly expiresAt?: string;
+  readonly refreshSecretRefId?: string;
+  readonly nextRefreshAt?: string;
+}
+
 export const EXTERNAL_EVIDENCE_READ_EFFECT: ActionEffectEnvelope = Object.freeze({
   operation: "observe",
   boundaries: Object.freeze(["network", "external-system"] as const),
@@ -114,6 +122,26 @@ export const EXTERNAL_ENGAGEMENT_PHASE_ONE_PROHIBITED_ACTIONS: readonly External
 const X_POST_URL_PATTERN = /^https:\/\/(?:x|twitter)\.com\/[^/?#]+\/status\/(\d+)(?:[/?#].*)?$/u;
 const X_POST_ID_PATTERN = /^\d{5,}$/u;
 const X_ID_BATCH_SIZE = 100;
+const DEFAULT_X_ACCESS_TOKEN_ENV = "KILN_X_OAUTH2_ACCESS_TOKEN";
+
+export function createXReadAccessTokenRef(input: XReadAccessTokenRefInput = {}): SecretRef {
+  return createSecretRef({
+    id: "x-oauth2-access-token",
+    purpose: "external-engagement:x:read",
+    scopes: ["x:post.read", "x:user.read"],
+    source: { kind: "env", name: input.envName ?? DEFAULT_X_ACCESS_TOKEN_ENV },
+    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+    ...(input.refreshSecretRefId || input.nextRefreshAt
+      ? {
+          refresh: {
+            kind: "oauth2-refresh-token",
+            ...(input.refreshSecretRefId ? { refreshSecretRefId: input.refreshSecretRefId } : {}),
+            ...(input.nextRefreshAt ? { nextRefreshAt: input.nextRefreshAt } : {}),
+          },
+        }
+      : {}),
+  });
+}
 
 export function normalizeXPostReferences(input: readonly string[]): readonly XPostReference[] {
   const references: XPostReference[] = [];

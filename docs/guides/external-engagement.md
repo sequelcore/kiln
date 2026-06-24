@@ -60,8 +60,10 @@ https://x.com/example_author/status/1000000000000000001
 ## Credentials
 
 The CLI resolves credentials through Kiln's provider-agnostic `SecretRef`
-boundary. The current X report adapter uses an env-backed secret source for an
-OAuth 2.0 access token:
+boundary. X read access is declared by a reusable `x-oauth2-access-token`
+reference with purpose `external-engagement:x:read` and scopes `x:post.read`
+and `x:user.read`. The current X report adapter resolves that reference through
+an env-backed secret source for an OAuth 2.0 access token:
 
 ```text
 KILN_X_OAUTH2_ACCESS_TOKEN
@@ -79,8 +81,13 @@ Do not commit tokens, refresh tokens, API keys, API secrets, screenshots of
 credentials, or real operator research source lists.
 
 Credential diagnostics are secret-free. They may show the reference id, purpose,
-scopes, source env var name, and availability status, but never the resolved
-token value.
+scopes, source env var name, availability status, and lifecycle status, but
+never the resolved token value.
+
+If credential lifecycle metadata says the access token is expired, refresh-due,
+or rotation-due, the command fails before X network access. Refresh execution is
+not part of the read-only report command; it belongs behind a resolver or
+runtime adapter.
 
 Teams may populate env vars through their preferred secret manager or runtime
 platform. Doppler-style env injection is one internal Sequel example, not a

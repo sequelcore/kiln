@@ -118,6 +118,12 @@ runtime adapters.
 `@kilnai/cli` currently owns `EnvSecretResolver`, the small adapter that reads
 env-backed references for CLI commands.
 
+External engagement owns its platform-specific credential declarations in core.
+For X, `createXReadAccessTokenRef` returns the reusable `SecretRef` for
+read-only evidence access. CLI commands consume that declaration and fail before
+network access when diagnostics report a non-usable lifecycle state such as
+`refresh-due`, `rotation-due`, or `expired`.
+
 Runtime credential pools remain runtime-owned for provider route rotation,
 cooldown, health persistence, and cross-process reload. Core now has a
 `credential-pool` source handle so integrations can depend on the credential

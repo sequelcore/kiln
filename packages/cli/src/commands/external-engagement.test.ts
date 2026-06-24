@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildExternalEvidenceReport, type SecretResolver } from "@kilnai/core";
+import { buildExternalEvidenceReport, type ResolvedSecret, type SecretResolver } from "@kilnai/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { externalEngagementCommand, type XEvidenceFetcher } from "./external-engagement.js";
 
@@ -177,6 +177,41 @@ describe("external engagement command", () => {
       fetcher: { fetchEvidence: vi.fn() },
       env: {},
     })).rejects.toThrow(/requires KILN_X_OAUTH2_ACCESS_TOKEN/u);
+  });
+
+  it("fails closed before X network access when credential lifecycle is not usable", async () => {
+    const fetcher: XEvidenceFetcher = {
+      fetchEvidence: vi.fn(),
+    };
+    const credentialResolver: SecretResolver = {
+      resolve: vi.fn<SecretResolver["resolve"]>(async (ref): Promise<ResolvedSecret> => ({
+        ref,
+        value: "synthetic-token-value",
+        diagnostic: {
+          refId: ref.id,
+          purpose: ref.purpose,
+          scopes: ref.scopes,
+          source: ref.source,
+          status: "available",
+          resolvedAt: "2026-06-24T00:00:00.000Z",
+          lifecycle: {
+            status: "refresh-due",
+            reason: "credential refresh is due",
+            dueAt: "2026-06-23T23:50:00.000Z",
+          },
+        },
+      })),
+    };
+
+    await expect(externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+    ], {
+      fetcher,
+      credentialResolver,
+    })).rejects.toThrow(/x-oauth2-access-token.*refresh-due/u);
+
+    expect(fetcher.fetchEvidence).not.toHaveBeenCalled();
   });
 
   it("rejects reply limits that exceed the X recent-search request limit", async () => {

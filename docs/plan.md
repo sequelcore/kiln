@@ -1,3 +1,72 @@
+# X SecretRef Integration Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Finish the next narrow governed external-engagement slice by making X-specific
+credential declarations consume the provider-agnostic `SecretRef` boundary
+directly. The command must fail before X network access when credential
+lifecycle diagnostics are not usable, without adding OAuth refresh execution or
+secret-manager-specific dependencies.
+
+## Non-Goals
+
+- No Doppler runtime dependency.
+- No direct integration with Vault, 1Password, Doppler, or cloud
+  secret-manager APIs.
+- No OAuth token refresh execution.
+- No migration of runtime provider credential pools.
+- No write-capable X or external-engagement actions.
+- No real credentials, real research URLs, or secret screenshots in tests/docs.
+
+## Scout Map
+
+- `packages/core/src/credentials/index.ts` owns IO-free `SecretRef`, lifecycle
+  metadata, validation, resolver contract, and secret-free diagnostics.
+- `packages/core/src/external-engagement/index.ts` owns source-neutral evidence
+  contracts and should own X's reusable read-token declaration.
+- `packages/cli/src/credentials/env-secret-resolver.ts` owns the first
+  env-backed adapter.
+- `packages/cli/src/commands/external-engagement.ts` is the only X command path
+  changed; it should consume the core X token declaration and stop before the X
+  fetcher receives a token when lifecycle diagnostics are not usable.
+- `packages/runtime` remains untouched. Runtime credential pools still own
+  managed provider route rotation and health persistence.
+
+## Implementation Slices
+
+1. Core X credential declaration
+   - Add a reusable `createXReadAccessTokenRef` factory in external engagement
+     core.
+   - Preserve provider-agnostic `SecretRef` semantics and env-backed defaults.
+   - Tests: default source, override env name, and lifecycle metadata.
+
+2. CLI lifecycle gate
+   - Refactor `external-engagement x-report` to consume the core X
+     access-token declaration.
+   - Fail before X network access when diagnostics report `refresh-due`,
+     `rotation-due`, or `expired`.
+   - Preserve the existing `--access-token-env` operator surface.
+
+3. Documentation
+   - Update external engagement and credential governance docs with the X
+     declaration boundary and lifecycle gate.
+
+## Verification
+
+- Passed: `bun run --cwd packages/core test tests/external-engagement/x-evidence-source.test.ts`
+- Passed: `bun run --cwd packages/core build`
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+
+---
+
+# Earlier Historical Plans
+
 # Credential Governance Foundation Plan
 
 Date: 2026-06-24

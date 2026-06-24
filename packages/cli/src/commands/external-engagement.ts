@@ -2,12 +2,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   buildExternalEvidenceReport,
-  createSecretRef,
+  createXReadAccessTokenRef,
   estimateXEvidenceRequestBudget,
   normalizeXPostReferences,
   type ExternalEvidenceArtifact,
   type ExternalEvidenceMetrics,
   type ExternalEvidenceReport,
+  type SecretRef,
   type SecretResolver,
   type XEvidenceRequestBudget,
   type XPostReference,
@@ -98,12 +99,7 @@ async function runXReport(
     }), flags.outputPath);
     return;
   }
-  const accessTokenRef = createSecretRef({
-    id: "x-oauth2-access-token",
-    purpose: "external-engagement:x:read",
-    scopes: ["x:post.read", "x:user.read"],
-    source: { kind: "env", name: flags.accessTokenEnv },
-  });
+  const accessTokenRef = createXReadAccessTokenRef({ envName: flags.accessTokenEnv });
   const credentialResolver = dependencies.credentialResolver ?? new EnvSecretResolver({
     env: dependencies.env,
     now: dependencies.now,
@@ -123,11 +119,17 @@ async function runXReport(
 
 async function resolveAccessToken(
   credentialResolver: SecretResolver,
-  ref: ReturnType<typeof createSecretRef>,
+  ref: SecretRef,
   envName: string,
 ): Promise<string> {
   try {
-    return (await credentialResolver.resolve(ref)).value;
+    const resolved = await credentialResolver.resolve(ref);
+    if (resolved.diagnostic.lifecycle && resolved.diagnostic.lifecycle.status !== "usable") {
+      throw new Error(
+        `Secret '${resolved.diagnostic.refId}' is not usable: ${resolved.diagnostic.lifecycle.status}.`,
+      );
+    }
+    return resolved.value;
   } catch (error) {
     if (error instanceof EnvSecretResolverError && error.diagnostic.status === "missing") {
       throw new Error(`external-engagement x-report requires ${envName} or --dry-run.`);

@@ -2,12 +2,42 @@ import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_EVIDENCE_READ_EFFECT,
   buildExternalEvidenceReport,
+  createXReadAccessTokenRef,
   estimateXEvidenceRequestBudget,
   normalizeXPostReferences,
 } from "../../src/external-engagement/index.js";
 import { deriveAuthorityFromEffect } from "../../src/engine/domain/action-effect.js";
 
 describe("X evidence source", () => {
+  it("declares the X read credential as a provider-agnostic secret reference", () => {
+    expect(createXReadAccessTokenRef({ envName: "MY_X_ACCESS_TOKEN" })).toEqual({
+      id: "x-oauth2-access-token",
+      purpose: "external-engagement:x:read",
+      scopes: ["x:post.read", "x:user.read"],
+      source: { kind: "env", name: "MY_X_ACCESS_TOKEN" },
+    });
+  });
+
+  it("supports lifecycle metadata on the X read credential declaration", () => {
+    expect(createXReadAccessTokenRef({
+      envName: "KILN_X_OAUTH2_ACCESS_TOKEN",
+      expiresAt: "2026-06-24T02:00:00.000Z",
+      refreshSecretRefId: "x-oauth2-refresh-token",
+      nextRefreshAt: "2026-06-24T01:30:00.000Z",
+    })).toEqual({
+      id: "x-oauth2-access-token",
+      purpose: "external-engagement:x:read",
+      scopes: ["x:post.read", "x:user.read"],
+      source: { kind: "env", name: "KILN_X_OAUTH2_ACCESS_TOKEN" },
+      expiresAt: "2026-06-24T02:00:00.000Z",
+      refresh: {
+        kind: "oauth2-refresh-token",
+        refreshSecretRefId: "x-oauth2-refresh-token",
+        nextRefreshAt: "2026-06-24T01:30:00.000Z",
+      },
+    });
+  });
+
   it("normalizes X and Twitter post URLs into unique ordered references", () => {
     const references = normalizeXPostReferences([
       "https://x.com/example_author/status/1000000000000000001",
