@@ -1,7 +1,7 @@
 # Inspectable Agent Work Plan
 
 Date: 2026-06-24
-Status: Documentation slice completed on 2026-06-24
+Status: completed on 2026-06-24
 
 ## Objective
 
@@ -53,6 +53,13 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
      4. What is missing, failed, risky, or unavailable?
      5. What governed action can happen next?
    - Add code only where a projection or surface cannot answer those questions.
+
+   Status: completed on 2026-06-24. The implemented GUI, native, TUI, CLI,
+   SDK, gateway-contracts, runtime, replay, and shared resource/presentation
+   paths now answer the five operator questions from canonical state. Studio
+   remains a dev timeline/playground surface and does not yet consume cockpit
+   or work-governance projections, so it is not treated as an implemented
+   operator cockpit surface for this memo problem.
 
 3. Surface follow-up
    - Audit GUI, native, and TUI managed-agent cockpit panels for parity with
@@ -226,6 +233,7 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/core test tests/managed-agent/invocation-contracts.test.ts`
 - Passed: `bun run --cwd packages/runtime test tests/session/managed-invocation-session-events.test.ts`
 - Passed: `bun run --cwd packages/gateway-contracts test tests/operator-cockpit-projection.test.ts`
+- Passed: `bun run --cwd packages/cli test src/commands/managed-agent.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice
