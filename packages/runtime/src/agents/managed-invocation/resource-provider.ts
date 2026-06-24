@@ -177,6 +177,7 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
     if (parsed.section === "resources") {
       return jsonResource(uri, {
         invocationId: snapshot.invocationId,
+        sourceResourceUris: sourceResourceUrisForInvocation(snapshot),
         resourceUris: resourceUrisForInvocation(snapshot),
       });
     }
@@ -277,6 +278,7 @@ function projectInvocationSummary(snapshot: ManagedAgentRuntimeInvocationSnapsho
     ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
     ...(snapshot.record?.transcript?.uri ? { transcriptUri: snapshot.record.transcript.uri } : {}),
     ...(snapshot.record?.resultHandoff?.summary ? { resultSummary: snapshot.record.resultHandoff.summary } : {}),
+    sourceResourceUris: sourceResourceUrisForInvocation(snapshot),
     handoffResourceUris: snapshot.record?.resultHandoff?.resourceUris ?? [],
     writeEvidenceResourceUris: writeEvidenceUrisForInvocation(snapshot),
     diagnosticResourceUris: diagnosticUrisForInvocation(snapshot),
@@ -368,6 +370,7 @@ function replayResourceForUri(
 
 function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly string[] {
   return uniqueStrings([
+    ...sourceResourceUrisForInvocation(snapshot),
     ...(snapshot.record?.transcript?.uri ? [snapshot.record.transcript.uri] : []),
     ...(snapshot.record?.resultHandoff?.resourceUris ?? []),
     ...(snapshot.record?.resultHandoff?.memoryWriteProposalUris ?? []),
@@ -376,6 +379,14 @@ function resourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapsh
     ...resourceUrisForLease(snapshot.record?.resourceLease),
     ...resourceUrisForLease(snapshot.record?.capabilitySnapshot.resourceLease),
     ...resourceUrisForLease(snapshot.decision.capabilitySnapshot.resourceLease),
+  ]);
+}
+
+function sourceResourceUrisForInvocation(snapshot: ManagedAgentRuntimeInvocationSnapshot): readonly string[] {
+  return uniqueStrings([
+    ...(snapshot.request.input.resourceUris ?? []),
+    ...(snapshot.decision.capabilitySnapshot.resourcePlane.resourceUris ?? []),
+    ...(snapshot.record?.capabilitySnapshot.resourcePlane.resourceUris ?? []),
   ]);
 }
 

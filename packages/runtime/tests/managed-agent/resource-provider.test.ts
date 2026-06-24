@@ -57,7 +57,9 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(aggregatePayload.invocations[0]).toMatchObject({
       transcriptUri: canonicalTranscriptUri,
       handoffResourceUris: [canonicalTranscriptUri, canonicalSiblingHandoffUri],
+      sourceResourceUris: expect.arrayContaining([canonicalContextUri, canonicalSiblingHandoffUri]),
       resourceUris: expect.arrayContaining([
+        canonicalContextUri,
         canonicalTranscriptUri,
         canonicalSiblingHandoffUri,
         canonicalAdmissionLeaseUri,
@@ -82,6 +84,8 @@ describe("createManagedAgentInvocationResourceProvider", () => {
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
     const resourcePayload = JSON.parse(resources!.contents[0]!.text);
+    expect(resourcePayload.sourceResourceUris).toContain(canonicalContextUri);
+    expect(resourcePayload.resourceUris).toContain(canonicalContextUri);
     expect(resourcePayload.resourceUris).toContain(canonicalTranscriptUri);
     expect(JSON.stringify(resourcePayload)).not.toContain("kiln://managed-invocations/");
 
@@ -271,7 +275,9 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
     expect(JSON.parse(resources!.contents[0]!.text)).toEqual({
       invocationId: "child-1",
+      sourceResourceUris: ["kiln://session/work-items/work-1"],
       resourceUris: [
+        "kiln://session/work-items/work-1",
         "kiln://artifacts/child-1/transcript",
         "kiln://artifacts/child-1/handoff",
         "kiln://artifacts/child-1/worktree",

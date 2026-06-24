@@ -138,6 +138,19 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    consumers can now type resource-enriched work-item reads without creating
    local parallel models, while the widget remains scoped to chat frames.
 
+10. Managed invocation resource-bundle closeout
+   - Include admitted source resource URIs in managed invocation aggregate and
+     resource-bundle reads, not only child-produced transcript, handoff, write,
+     diagnostic, and lease resources.
+   - Preserve the existing canonical resource projection while adding an
+     explicit `sourceResourceUris` field for replay, remote, IDE, and SDK
+     consumers that need to trace which governed resources the child received.
+
+   Status: completed on 2026-06-24 for managed invocation resource bundles.
+   Consumers following `kiln://managed-agents/invocations/{id}/resources` can
+   now see both admitted source context and produced evidence from one
+   canonical bundle.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -161,6 +174,7 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts`
 - Passed: `bun x tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --jsx react-jsx --skipLibCheck packages/sdk/tests/resource-exports.test.ts`
 - Passed: `bun run --cwd packages/sdk test tests/resource-exports.test.ts`
+- Passed: `bun run --cwd packages/runtime test tests/managed-agent/resource-provider.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice
