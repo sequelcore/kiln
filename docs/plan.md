@@ -1,3 +1,95 @@
+# Governed External Engagement Plan
+
+Date: 2026-06-24
+Status: Active
+
+## Objective
+
+Add the first public Kiln slice for governed external engagement: a read-only X
+evidence ingestion path that lets an operator provide post URLs or ids, fetches
+bounded public evidence, and produces a structured report for community-signal
+analysis. The long-term feature is external engagement governance, not social
+posting automation.
+
+## Non-Goals
+
+- No posting, replies, likes, reposts, follows, DMs, or write-capable platform
+  actions in this slice.
+- No channel adapter yet. X is an external evidence source first, not a runtime
+  conversation channel.
+- No browser/cookie scraping.
+- No unbounded API loops or hidden retries.
+- No test dependency on live X API calls.
+- No Sequel-only framing in public package contracts.
+
+## Scout Map
+
+- `packages/core` owns domain contracts, action-effect governance, and
+  source-neutral primitives.
+- `packages/cli` owns the first operator-facing experimental command surface.
+- `packages/runtime` owns gateway/channel adapters and should not be touched for
+  this first read-only CLI slice.
+- Existing action-effect contracts in
+  `packages/core/src/engine/domain/action-effect.ts` already model external,
+  authenticated, read-only effects.
+- Existing integration contracts in
+  `packages/core/src/engine/domain/integration.ts` provide an adapter shape but
+  do not model evidence reports or budgeted external source ingestion.
+
+## Implementation Slices
+
+1. Core domain contract and pure behavior
+   - Add source-neutral external engagement/evidence types.
+   - Add X URL/id normalization as pure parsing.
+   - Add request-budget planning for root posts and bounded replies.
+   - Add evidence report construction with source provenance.
+   - Tests: parser, duplicate handling, invalid URLs, budget estimates, and
+     read-only action-effect classification.
+
+2. CLI command surface
+   - Add `kiln external-engagement x-report`.
+   - Inputs: `--url`, `--input`, `--max-replies`, `--output`,
+     `--dry-run`, `--access-token-env`.
+   - Default to dry-run unless an access token env var is present and
+     `--dry-run` is not supplied.
+   - Emit JSON by default to keep the first surface scriptable.
+   - Tests: argument parsing and command output with an injected fetcher.
+
+3. X API adapter boundary
+   - Implement a small CLI-local X fetcher using the official REST API.
+   - Use OAuth bearer access token from environment only.
+   - Enforce max ids and max replies before network calls.
+   - Return rate/cost metadata when headers or request planning allow it.
+   - Tests use fixtures and mock fetch only.
+
+4. Documentation
+   - Add public docs for governed external engagement and the X pilot.
+   - Document secrets as env vars only, no values.
+   - Document cost controls, caching expectations, and no-write phase-1 scope.
+
+## Verification
+
+- `bun run --cwd packages/core test tests/external-engagement`
+- `bun run --cwd packages/core build`
+- `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- `bun run --filter @kilnai/core test`
+- `bun run --filter @kilnai/cli test`
+- `bun run typecheck`
+- `git diff --check`
+
+## Residual Risks To Review
+
+- X API pricing and rate limits can change; the first implementation must keep
+  cost estimates advisory and fail closed when limits are exceeded.
+- OAuth refresh-token handling is intentionally excluded. Token refresh belongs
+  to a later credential-governance slice.
+- Publishing/replying requires a separate action-proposal and approval workflow
+  before any write-capable adapter is added.
+
+---
+
+# Historical Plans
+
 # Managed-Agent Core Reliability Plan
 
 Date: 2026-06-05

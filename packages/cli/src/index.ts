@@ -66,6 +66,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     "managed-agent": "Inspect managed child invocations from canonical session transcripts",
     feedback: "Create local-only redacted session feedback bundles and issue drafts",
     benchmark: "Inspect benchmark-facing profiles, external tracks, and readiness baselines",
+    "external-engagement": "Inspect and report governed external evidence sources",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
@@ -293,6 +294,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     const { benchmarkCommand } = await import("./commands/benchmark.js");
     await benchmarkCommand(config, args[1], args.slice(2));
     process.exit(0);
+    return;
+  }
+
+  if (command === "external-engagement") {
+    const { externalEngagementCommand } = await import("./commands/external-engagement.js");
+    await externalEngagementCommand(config, args[1], args.slice(2));
     return;
   }
 

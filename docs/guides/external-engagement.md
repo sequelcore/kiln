@@ -1,0 +1,115 @@
+# Governed External Engagement
+
+Governed external engagement is the Kiln surface for working with external
+platforms without giving agents uncontrolled authority. The first supported
+slice is read-only X evidence reporting through the CLI.
+
+This is not social posting automation. Read, draft, approval, and execution are
+separate phases with separate authority.
+
+## Phase 1 Scope
+
+The phase 1 X path can:
+
+- accept X post URLs or post ids from the operator;
+- deduplicate root post references;
+- estimate the maximum read budget before network access;
+- fetch root posts and a bounded number of replies;
+- write a structured JSON evidence report;
+- preserve source URLs, platform ids, author metadata, metrics, and retrieval
+  evidence when available.
+
+The phase 1 X path cannot:
+
+- publish posts;
+- reply;
+- like;
+- repost;
+- follow accounts;
+- read or send DMs;
+- refresh OAuth tokens;
+- run unbounded timeline, search, or reply loops.
+
+## CLI
+
+Dry-run a report plan without touching the network:
+
+```bash
+kiln external-engagement x-report \
+  --url https://x.com/example_author/status/1000000000000000001 \
+  --max-replies 10 \
+  --dry-run
+```
+
+Fetch a bounded report:
+
+```bash
+kiln external-engagement x-report \
+  --input ./x-sources.txt \
+  --max-replies 25 \
+  --output ./.kiln/external-engagement/x-report.json
+```
+
+Input files are newline-delimited and may contain X URLs or post ids:
+
+```text
+https://x.com/example_author/status/1000000000000000001
+1000000000000000002
+```
+
+## Credentials
+
+The CLI reads an OAuth 2.0 access token from:
+
+```text
+KILN_X_OAUTH2_ACCESS_TOKEN
+```
+
+Override the variable name when needed:
+
+```bash
+kiln external-engagement x-report \
+  --input ./x-sources.txt \
+  --access-token-env MY_X_ACCESS_TOKEN
+```
+
+Do not commit tokens, refresh tokens, API keys, API secrets, screenshots of
+credentials, or real operator research source lists.
+
+## Cost Controls
+
+X API reads are metered. Treat external platform API access as a paid external
+resource.
+
+The report budget is computed before network access from:
+
+- root post count;
+- maximum replies per root post;
+- author metadata reads;
+- expected request batches.
+
+Keep early runs small. Use `--dry-run` first and keep `--max-replies` explicit.
+Tests must use synthetic fixtures or mocked fetchers, not live X calls.
+
+## Architecture Boundary
+
+The public feature is governed external engagement. X is only the first
+provider.
+
+Current ownership:
+
+- `@kilnai/core`: source-neutral evidence contracts, read-only effect envelope,
+  URL/id normalization, request-budget estimation, and report construction.
+- `@kilnai/cli`: first operator surface and X REST fetch boundary.
+- `@kilnai/runtime`: not touched in phase 1. A runtime channel or write-capable
+  adapter requires a later action-proposal and approval workflow.
+
+Write-capable engagement must use a separate future contract:
+
+1. external evidence ingestion;
+2. action proposal;
+3. human approval;
+4. external action execution;
+5. audit record.
+
+Do not merge read authority and write authority into one adapter.
