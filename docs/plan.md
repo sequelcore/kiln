@@ -86,6 +86,19 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    `kiln://session/work-items/{id}` resource identity from canonical work-item
    events.
 
+6. CLI goal work-item parity follow-up
+   - Load linked governed work items during `kiln goal inspect` so the CLI
+     plain-text view shows more than goal-level IDs.
+   - Render canonical work-item resource URI, authority profile, route/agent
+     assignment, evidence counts, and missing evidence during goal inspection.
+   - Render the next work item's resource URI, authority profile, and missing
+     evidence during `kiln goal resume`.
+
+   Status: completed on 2026-06-24 for CLI goal work-item inspectability.
+   `kiln goal inspect` and `kiln goal resume` now expose linked work-item
+   authority, evidence gaps, and `kiln://session/work-items/{id}` identity
+   from canonical session events.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -103,6 +116,7 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/gui test tests/session-store.test.ts`
 - Passed: `bun run --cwd packages/gui test tests/app-shell-sidebar-modes.test.tsx`
 - Passed: `bun run --cwd packages/tui test tests/handlers-managed-agent.test.ts tests/render-work-items.test.ts`
+- Passed: `bun run --cwd packages/cli test src/commands/goal.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice

@@ -35,6 +35,7 @@ describe("goal command", () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     await appendGoalCreated(transcriptStore, "session-1", makeGoal({ id: "goal-1" }));
+    await appendWorkItemUpdated(transcriptStore, "session-1", makeWorkItem({ id: "work-1" }));
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     await goalCommand({ createRegistry: (() => undefined) as never }, "list", ["--session", "session-1"], { projectPath: root });
@@ -44,6 +45,10 @@ describe("goal command", () => {
     expect(log.mock.calls[0]?.[0]).toContain("active");
     expect(log.mock.calls[1]?.[0]).toContain("Objective: Finish Slice 10 CLI goal commands.");
     expect(log.mock.calls[1]?.[0]).toContain("Authority: audited");
+    expect(log.mock.calls[1]?.[0]).toContain("Work item work-1: pending - Implement CLI goal resume.");
+    expect(log.mock.calls[1]?.[0]).toContain("Work item resource: kiln://session/work-items/work-1");
+    expect(log.mock.calls[1]?.[0]).toContain("Work item authority: foundation-propose-writes");
+    expect(log.mock.calls[1]?.[0]).toContain("Work item missing evidence: tests, residual-risk");
   });
 
   it("cancels an active goal by appending a canonical cancellation event", async () => {
@@ -85,7 +90,10 @@ describe("goal command", () => {
     expect(log.mock.calls[0]?.[0]).toContain("Goal goal-1 is ready to resume.");
     expect(log.mock.calls[0]?.[0]).toContain("Next work item: work-1");
     expect(log.mock.calls[0]?.[0]).toContain("Execution mode: managed_delegation");
-    expect(log.mock.calls[0]?.[0]).toContain("Required evidence: tests");
+    expect(log.mock.calls[0]?.[0]).toContain("Required evidence: tests, residual-risk");
+    expect(log.mock.calls[0]?.[0]).toContain("Resource: kiln://session/work-items/work-1");
+    expect(log.mock.calls[0]?.[0]).toContain("Authority profile: foundation-propose-writes");
+    expect(log.mock.calls[0]?.[0]).toContain("Missing evidence: tests, residual-risk");
   });
 
   it("approves a submitted plan by appending a canonical plan approval event", async () => {
@@ -335,7 +343,7 @@ function makeWorkItem(input: { readonly id: string }): WorkItem {
     assignedAgentProfile: "coder",
     routeId: "codex",
     authorityProfile: "foundation-propose-writes",
-    expectedEvidence: ["tests"],
+    expectedEvidence: ["tests", "residual-risk"],
     providedEvidence: [],
     verificationGates: ["bun run --filter @kilnai/cli test"],
     skippedVerificationGates: [],

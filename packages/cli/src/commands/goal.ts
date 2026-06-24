@@ -7,6 +7,7 @@ import type {
   GoalRunStatus,
   PlanSubmissionInput,
   SessionPlan,
+  WorkItem,
   WorkItemSnapshot,
   WorkflowProfile,
 } from "@kilnai/core";
@@ -61,7 +62,8 @@ export async function goalCommand(
       if (!goal) {
         throw new Error(`Goal not found: ${goalId}`);
       }
-      console.log(args.includes("--json") ? JSON.stringify({ sessionId, goal }, null, 2) : formatGoalInspect(sessionId, goal));
+      const workItemSnapshot = await loadWorkItemSnapshotFromTranscript(transcriptStore, sessionId);
+      console.log(args.includes("--json") ? JSON.stringify({ sessionId, goal }, null, 2) : formatGoalInspect(sessionId, goal, workItemSnapshot.items));
       return;
     }
     case "cancel": {
@@ -332,7 +334,11 @@ function formatGoalList(sessionId: string, goals: readonly GoalRun[]): string {
   ].join("\n");
 }
 
-function formatGoalInspect(sessionId: string, goal: GoalRun): string {
+function formatGoalInspect(sessionId: string, goal: GoalRun, workItems: readonly WorkItem[] = []): string {
+  const linkedWorkItems = goal.workItemIds.flatMap((id) => {
+    const item = workItems.find((candidate) => candidate.id === id);
+    return item ? [item] : [];
+  });
   return [
     `Goal: ${goal.id}`,
     `Session: ${sessionId}`,
@@ -347,6 +353,7 @@ function formatGoalInspect(sessionId: string, goal: GoalRun): string {
     goal.routePolicy.managedAgentProfile ? `Managed profile: ${goal.routePolicy.managedAgentProfile}` : undefined,
     goal.currentPhase ? `Current phase: ${goal.currentPhase}` : undefined,
     goal.terminalReason ? `Terminal reason: ${goal.terminalReason}` : undefined,
+    ...linkedWorkItems.flatMap(formatInspectableWorkItem),
   ].filter((line): line is string => line !== undefined).join("\n");
 }
 
@@ -359,8 +366,11 @@ function formatGoalResume(goal: GoalRun, step: GoalExecutionStep): string {
       `Execution mode: ${step.executionMode}`,
       `Reason: ${step.reason}`,
       `Required evidence: ${step.requiredEvidence.join(", ") || "none"}`,
+      `Resource: ${workItemResourceUri(step.workItem.id)}`,
       step.workItem.routeId ? `Route: ${step.workItem.routeId}` : undefined,
       step.workItem.assignedAgentProfile ? `Agent profile: ${step.workItem.assignedAgentProfile}` : undefined,
+      step.workItem.authorityProfile ? `Authority profile: ${step.workItem.authorityProfile}` : undefined,
+      `Missing evidence: ${missingWorkItemEvidence(step.workItem).join(", ") || "none"}`,
     ].filter((line): line is string => line !== undefined).join("\n");
   }
   if (step.status === "complete") {
@@ -380,6 +390,34 @@ function formatGoalResume(goal: GoalRun, step: GoalExecutionStep): string {
       ? `Pending pause requirements: ${step.pendingPauseRequirements.map((requirement) => requirement.id).join(", ")}`
       : undefined,
   ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatInspectableWorkItem(item: WorkItem): readonly string[] {
+  return [
+    `Work item ${item.id}: ${item.status} - ${item.summary}`,
+    `Work item resource: ${workItemResourceUri(item.id)}`,
+    item.authorityProfile ? `Work item authority: ${item.authorityProfile}` : undefined,
+    item.routeId ? `Work item route: ${item.routeId}` : undefined,
+    item.assignedAgentProfile ? `Work item agent profile: ${item.assignedAgentProfile}` : undefined,
+    `Work item evidence: ${item.providedEvidence.length}/${item.expectedEvidence.length}`,
+    `Work item missing evidence: ${missingWorkItemEvidence(item).join(", ") || "none"}`,
+  ].filter((line): line is string => line !== undefined);
+}
+
+function workItemResourceUri(id: string): string {
+  return `kiln://session/work-items/${encodeURIComponent(id)}`;
+}
+
+function missingWorkItemEvidence(item: WorkItem): readonly string[] {
+  return item.expectedEvidence.filter((evidence) => {
+    if (item.providedEvidence.includes(evidence)) {
+      return false;
+    }
+    if (evidence === "residual-risk" && item.residualRisk?.trim()) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function planSubmissionInputFromPayload(payload: Record<string, unknown>): PlanSubmissionInput {
