@@ -35,7 +35,12 @@ export type WorkItemExecutionFailureReason =
   | "timed_out"
   | "cancelled"
   | "skipped";
-export type WorkItemPauseRequirementKind = "operator_input" | "credentials" | "approval" | "authority_elevation";
+export type WorkItemPauseRequirementKind =
+  | "operator_input"
+  | "credentials"
+  | "approval"
+  | "authority_elevation"
+  | "capability";
 export type WorkItemPauseRequirementStatus = "pending" | "resolved";
 export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
 

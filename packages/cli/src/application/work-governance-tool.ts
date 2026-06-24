@@ -111,6 +111,7 @@ const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[]
   "credentials",
   "approval",
   "authority_elevation",
+  "capability",
 ];
 const WORK_ITEM_PAUSE_REQUIREMENT_STATUSES: readonly WorkItemPauseRequirementStatus[] = ["pending", "resolved"];
 const MANAGED_INVOCATION_PROFILES = [

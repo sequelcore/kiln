@@ -418,6 +418,8 @@ function renderRepoShimBody(input: {
           ? `- Evidence before done: ${kilnYaml.workGovernance.requiredEvidence.join(", ")}`
           : undefined,
       ].filter((line): line is string => line !== undefined),
+      "- Projection is not authority: if required delegation, review, approval, or tool capability is unavailable in this harness, do not simulate it or create project memory workarounds.",
+      "- Record missing harness/tool/route capability as a `capability` pause requirement, continue locally only when the required evidence gates can still be satisfied, or ask the operator for explicit authorization.",
       "",
     );
   }

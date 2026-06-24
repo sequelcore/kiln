@@ -105,6 +105,43 @@ TUI, and benchmark sessions. Repo shims also include the resolved policy so
 standalone native harness usage sees the same posture. Projection is not the
 authority boundary; managed invocations, tools, approvals, and verification
 gates still enforce the actual authority.
+Because repo shims are generated from resolved global and project Kiln config,
+this projection rule is not local to one repository. Any project that enables
+work governance receives the same cross-harness authority posture after it
+syncs repo shims with a Kiln version that includes this contract.
+
+## Cross-Harness Authority Degradation
+
+Repo shims and native harness instructions may require orchestration, delegated
+review, or subagent execution. Those requirements are valid workflow policy,
+but they are not proof that the active harness can actually perform the
+required action in the current turn.
+
+Kiln therefore treats harness capability as an admitted runtime fact. When a
+required delegation, approval, write, review, memory, or tool route is not
+available, the parent must not simulate compliance with prose, create transient
+project memory files, or pretend a native subagent ran. It must choose one of
+these governed outcomes:
+
+- use an admitted Kiln managed invocation route that satisfies the required
+  profile, authority, tools, and evidence contract;
+- continue locally only when the work item can still satisfy the configured
+  evidence gates through available local verification;
+- record an explicit pause requirement that names the missing capability,
+  required authority, and operator action needed to proceed.
+
+This rule applies equally when Kiln is the active surface and when Kiln policy
+is projected into Claude Code, Codex, OpenCode, or another native harness.
+Native harness agents, slash commands, hooks, permission modes, and config
+files are projection or adapter mechanisms. They do not replace the canonical
+work item, managed invocation, approval, authority, or closeout contracts.
+
+If a projected instruction requires a delegated review but no admitted route is
+available, the correct closeout is a blocked work item or residual-risk note,
+not an invented review. If the operator explicitly authorizes a native harness
+subagent outside Kiln's managed invocation service, the result is external
+evidence until it is attached to the session through the same work-item evidence
+plane as any other artifact.
 
 The same resolved policy is exposed through CLI-owned builtin tools in runtime
 surfaces:

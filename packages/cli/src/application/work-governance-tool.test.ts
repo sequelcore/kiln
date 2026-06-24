@@ -1977,6 +1977,69 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("accepts missing harness capability as a typed pause requirement", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-missing-capability",
+        summary: "Run managed review after a capable harness route is available.",
+        workflowProfile: "managed-agent-change",
+        triggers: ["managed-agents"],
+        expectedEvidence: ["managed-agent-review"],
+        pauseRequirements: [
+          {
+            id: "missing-review-route",
+            kind: "capability",
+            summary: "No admitted route can perform the managed review in this harness.",
+            status: "pending",
+          },
+        ],
+      },
+    });
+    expect(created?.isError).toBe(false);
+    expect(workItemStore.get("work-missing-capability")?.pauseRequirements).toEqual([
+      {
+        id: "missing-review-route",
+        kind: "capability",
+        summary: "No admitted route can perform the managed review in this harness.",
+        status: "pending",
+      },
+    ]);
+
+    goalRunStore.create({
+      id: "goal-missing-capability",
+      objective: "Execute governed work.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: ["work-missing-capability"],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+
+    const paused = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: "goal-missing-capability",
+      },
+    });
+
+    expect(paused?.isError).toBe(true);
+    expect(paused?.output).toContain("pause_requirements_unresolved");
+    expect(paused?.output).toContain("missing-review-route");
+    expect(paused?.output).toContain("capability");
+  });
+
   it("requires a managed invocation id before starting managed-delegation execution", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

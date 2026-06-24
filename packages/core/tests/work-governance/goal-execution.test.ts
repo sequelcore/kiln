@@ -326,6 +326,58 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("represents missing harness capability as an unresolved pause requirement", () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-needs-harness-capability",
+      summary: "Run delegated review only after a capable route is admitted.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: ["managed-agent review"],
+      pauseRequirements: [
+        {
+          id: "missing-managed-review-route",
+          kind: "capability",
+          summary: "No admitted managed route can perform delegated review in the active harness.",
+          status: "pending",
+        },
+      ],
+    });
+    const goal = new GoalRunStore({ now: fixedNow }).create({
+      id: "goal-needs-harness-capability",
+      objective: "Execute governed review.",
+      ownerSessionId: "session-1",
+      planId: "plan-1",
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+
+    const paused = selectNextGoalExecutionStep({
+      goalRun: goal,
+      workItems: workItemStore.snapshot().items,
+    });
+
+    expect(paused).toMatchObject({
+      status: "paused",
+      reasonCode: "pause_requirements_unresolved",
+      blockingWorkItemIds: [item.id],
+      pendingPauseRequirements: [
+        {
+          id: "missing-managed-review-route",
+          kind: "capability",
+          status: "pending",
+        },
+      ],
+    });
+  });
+
   it("records execution attempts and blocks completion until required evidence and residual risk are present", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

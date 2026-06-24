@@ -1,92 +1,85 @@
-# External Engagement Completion Plan
+# Cross-Harness Governance Plan
 
 Date: 2026-06-24
 Status: Completed on 2026-06-24
 
 ## Objective
 
-Finish governed external engagement as a public Kiln feature by adding bounded
-X discovery, provider-neutral action proposal contracts, public-safe docs, and
-verification before merging `architecture/governance-action-effects` into
-`main`.
+Resolve the first memo problem: repo-level work governance can require
+delegation, review, or authority that the active harness cannot actually
+provide. Kiln must make the correct behavior native, cross-surface, and
+cross-harness.
 
-## Non-Goals
+## Problem
 
-- No public write execution to X or any external platform.
-- No unbounded browser or timeline exploration.
-- No real X handles, tweet ids, URLs, source lists, credentials, or private
-  workflow details in committed artifacts.
-- No UI placeholder if the shared GUI/TUI/runtime surface is not ready to own
-  this workflow.
-- No secret-manager-specific public dependency.
+Projected instructions are not runtime authority. Claude Code, Codex, OpenCode,
+Kiln GUI, Kiln TUI, and direct-provider routes expose different subagent,
+approval, tool, memory, and config capabilities. When repo policy requires a
+capability that is unavailable in the current harness, agents can stall,
+narrate the conflict, invent review evidence, or write transient project memory
+files.
 
-## Scout Map
+## Decision
 
-- `packages/core/src/external-engagement/index.ts` owns provider-neutral
-  external engagement contracts, X query normalization, budgets, evidence
-  reports, candidate decisions, feature intake, and future action authority
-  models.
-- `packages/core/tests/external-engagement/x-evidence-source.test.ts` owns
-  core behavior coverage.
-- `packages/cli/src/commands/external-engagement.ts` owns the first operator
-  surface, X REST adapter, credential resolution, and bounded live calls.
-- `packages/cli/src/commands/external-engagement.test.ts` owns CLI behavior
-  coverage with injected fetchers and synthetic fixtures.
-- `packages/cli/src/commands/x-evidence-report-cache.ts` owns local evidence
-  report cache serialization.
-- `docs/guides/external-engagement.md` owns public operator guidance.
-- `docs/research/` owns source-grounded rationale, not architecture contracts.
+Kiln treats missing harness capability as governed evidence. The parent must
+use an admitted managed invocation route, continue locally only when the
+configured evidence gates remain satisfiable, or pause with a typed
+missing-capability requirement. Native harness subagents, hooks, slash commands,
+permission modes, and config files are adapter/projection mechanisms, not
+canonical work-governance authority.
+
+This is a global/resolved-config behavior, not a one-off repo note. The core
+work-item contract is shared across Kiln surfaces, and repo shims project the
+rule from resolved global plus project config whenever work governance is
+enabled.
+
+## Canonical Documentation
+
+- `docs/architecture/work-governance.md` owns the normative cross-harness
+  degradation rule.
+- `docs/research/13-work-governance-and-verification.md` owns the external
+  research basis.
+- `docs/architecture/harness-integration-capabilities.md` owns specific harness
+  projection mechanisms and capability proof.
 
 ## Implementation Slices
 
-1. Core discovery and authority contracts
-   - Add provider-neutral bounded discovery scope concepts.
-   - Add X search query normalization and budget estimation.
-   - Add action proposal, approval, and execution records with explicit actor
-     authority and proposer/approver separation.
+1. Documentation baseline
+   - Add cross-harness authority degradation to work governance.
+   - Refresh research basis with official OpenAI, MCP, NIST, Claude Code, and
+     OpenCode evidence.
+   - Update the private memo with the solved design status.
 
-2. CLI bounded X search
-   - Add `kiln external-engagement x-search --query ...`.
-   - Support `--max-posts`, `--max-replies`, `--dry-run`, cache controls,
-     bounded time/search scope, and request-budget confirmation.
-   - Compose output as `ExternalEvidenceReport` so candidates, review,
-     decisions, and intake work unchanged.
+2. Contract follow-up
+   - Audit whether `work_governance.assess`, work items, and managed invocation
+     pause requirements can represent `missing-harness-capability` explicitly.
+   - Add or tighten tests only if the current contract cannot express it.
 
-3. Documentation and research
-   - Update the guide with discovery, budget/cache/sampling limitations,
-     conversational UX contract, cross-surface contract, credentials, and
-     future action authority.
-   - Add public-safe research notes with official X docs, MCP/community demand
-     signals, mixed-initiative/Human-AI guidance, and social-listening limits.
-   - Keep `docs/plan.md` current and remove stale scratch history.
+   Status: completed on 2026-06-24. Work item pause requirements now support a
+   typed `capability` kind for missing harness/tool/route capability blocks.
 
-4. Verification and review
-   - Run focused tests first, then core/CLI package tests, typecheck, and
-     `git diff --check`.
-   - Run DDD/Clean Architecture, security/privacy, UX/product, and dead-code
-     reviews before committing.
-   - Grep for private X sources, token-like secrets, and private workflow
-     leakage.
+3. Projection follow-up
+   - Ensure generated repo shims tell standalone harnesses to degrade through
+     available local verification or typed pause evidence instead of creating
+     scratch memory workarounds.
+
+   Status: completed on 2026-06-24. Repo-shim generation now projects the
+   cross-harness authority rule into generated `AGENTS.md` and `CLAUDE.md`
+   files, and this repository's shims were regenerated from the local source
+   entrypoint.
+
+## Verification Criteria
+
+- Public docs contain no private X source list, handles, tweet ids, or secrets.
+- `git diff --check` passes.
+- If code changes become necessary, run focused package tests and
+  `bun run typecheck` before closeout.
 
 ## Verification
 
-- Passed: `bun run --cwd packages/core test tests/external-engagement/x-evidence-source.test.ts`
-- Passed: `bun run --cwd packages/core build`
-- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
-- Passed: `bun run --cwd packages/cli build`
-- Passed: `bun run --filter @kilnai/core test`
-- Passed: `bun run --filter @kilnai/cli test`
+- Passed: `bun run --cwd packages/core test tests/work-governance/goal-execution.test.ts`
+- Passed: `bun run --cwd packages/cli test src/application/work-governance-tool.test.ts`
+- Passed: `bun run --cwd packages/cli test tests/application/repo-shim-projection.test.ts`
+- Passed: `bun packages/cli/src/index.ts sync --repo-shims --project C:\Proyectos\Sequel\kiln`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
-- Passed: changed-file privacy grep for token-shaped secrets.
-- Passed: changed-file X URL/handle grep; committed X URLs are synthetic
-  examples or generated `x.com/i/status` fixture URLs.
-- Passed: review gates for DDD/Clean Architecture, security/privacy,
-  UX/product, and dead-code/redundancy.
-
-## Closeout
-
-Implemented bounded X search discovery as a cache-aware CLI report source,
-provider-neutral discovery scope and future action authority contracts in core,
-public-safe architecture/guide/research docs, and no GUI/TUI placeholders.
-Write-capable X execution remains intentionally unbuilt.
