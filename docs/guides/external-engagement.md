@@ -59,7 +59,9 @@ https://x.com/example_author/status/1000000000000000001
 
 ## Credentials
 
-The CLI reads an OAuth 2.0 access token from:
+The CLI resolves credentials through Kiln's provider-agnostic `SecretRef`
+boundary. The current X report adapter uses an env-backed secret source for an
+OAuth 2.0 access token:
 
 ```text
 KILN_X_OAUTH2_ACCESS_TOKEN
@@ -75,6 +77,19 @@ kiln external-engagement x-report \
 
 Do not commit tokens, refresh tokens, API keys, API secrets, screenshots of
 credentials, or real operator research source lists.
+
+Credential diagnostics are secret-free. They may show the reference id, purpose,
+scopes, source env var name, and availability status, but never the resolved
+token value.
+
+Teams may populate env vars through their preferred secret manager or runtime
+platform. Doppler-style env injection is one internal Sequel example, not a
+public Kiln assumption or dependency.
+
+The underlying `SecretRef` contract also supports provider-neutral managed
+secret-manager references and runtime credential-pool references for future
+integrations. The X pilot keeps the CLI surface env-backed because that is the
+smallest explicit operator-controlled source for read-only evidence reports.
 
 ## Cost Controls
 
@@ -99,8 +114,10 @@ provider.
 Current ownership:
 
 - `@kilnai/core`: source-neutral evidence contracts, read-only effect envelope,
-  URL/id normalization, request-budget estimation, and report construction.
-- `@kilnai/cli`: first operator surface and X REST fetch boundary.
+  URL/id normalization, request-budget estimation, report construction, and
+  provider-agnostic credential references.
+- `@kilnai/cli`: first operator surface, env-backed credential resolver, and X
+  REST fetch boundary.
 - `@kilnai/runtime`: not touched in phase 1. A runtime channel or write-capable
   adapter requires a later action-proposal and approval workflow.
 

@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildExternalEvidenceReport } from "@kilnai/core";
+import { buildExternalEvidenceReport, type SecretResolver } from "@kilnai/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { externalEngagementCommand, type XEvidenceFetcher } from "./external-engagement.js";
 
@@ -115,6 +115,58 @@ describe("external engagement command", () => {
       artifacts: [{ text: "Synthetic root post" }],
     });
     expect(log.mock.calls[0]?.[0]).toBe(`External engagement report written: ${outputPath}`);
+  });
+
+  it("resolves the X access token through a governed secret reference", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const fetcher: XEvidenceFetcher = {
+      fetchEvidence: vi.fn(async ({ references, maxRepliesPerPost, generatedAt, reportId, budget }) =>
+        buildExternalEvidenceReport({
+          reportId,
+          generatedAt,
+          source: "x",
+          query: { references, maxRepliesPerPost },
+          budget,
+          artifacts: [],
+          signals: [],
+        })),
+    };
+    const resolve = vi.fn<SecretResolver["resolve"]>(async (ref) => ({
+      ref,
+      value: "synthetic-token-value",
+      diagnostic: {
+        refId: ref.id,
+        purpose: ref.purpose,
+        scopes: ref.scopes,
+        source: ref.source,
+        status: "available",
+        resolvedAt: "2026-06-24T00:00:00.000Z",
+      },
+    }));
+    const credentialResolver: SecretResolver = { resolve };
+
+    await externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+      "--access-token-env",
+      "MY_X_ACCESS_TOKEN",
+    ], {
+      fetcher,
+      credentialResolver,
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      reportId: () => "report-test",
+    });
+
+    expect(resolve).toHaveBeenCalledWith({
+      id: "x-oauth2-access-token",
+      purpose: "external-engagement:x:read",
+      scopes: ["x:post.read", "x:user.read"],
+      source: { kind: "env", name: "MY_X_ACCESS_TOKEN" },
+    });
+    expect(fetcher.fetchEvidence).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: "synthetic-token-value",
+    }));
+    expect(JSON.stringify(resolve.mock.calls[0])).not.toContain("synthetic-token-value");
   });
 
   it("fails closed when a live run has no access token", async () => {

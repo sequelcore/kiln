@@ -1,7 +1,86 @@
+# Credential Governance Foundation Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Add the minimal long-term credential-governance foundation needed before
+expanding governed external engagement. The slice introduces provider-agnostic
+secret references, env-backed resolution as the first adapter, safe diagnostics,
+and documentation that avoids making Sequel infrastructure a public Kiln
+assumption.
+
+## Non-Goals
+
+- No Doppler runtime dependency.
+- No direct integration with Vault, 1Password, or cloud secret-manager APIs.
+- No OAuth token refresh execution.
+- No migration of runtime provider credential pools.
+- No write-capable X or external-engagement actions.
+- No real credentials, real research URLs, or secret screenshots in tests/docs.
+
+## Scout Map
+
+- `packages/core/src/credentials/index.ts` owns IO-free `SecretRef`, lifecycle
+  metadata, validation, resolver contract, and secret-free diagnostics.
+- `packages/cli/src/credentials/env-secret-resolver.ts` owns the first
+  env-backed adapter.
+- `packages/cli/src/commands/external-engagement.ts` is the only X command path
+  changed; it now resolves the access token through a `SecretRef` before the X
+  fetcher receives the raw token.
+- `packages/runtime` remains untouched. Runtime credential pools still own
+  managed provider route rotation and health persistence.
+
+## Implementation Slices
+
+1. Core credential contract and pure diagnostics
+   - Add provider-agnostic `SecretRef`, env source, managed secret-manager
+     source, runtime credential-pool source, purpose/scope metadata, expiry,
+     rotation, refresh metadata, lifecycle decisions, and safe diagnostic
+     statuses.
+   - Tests: validation, diagnostic redaction, expiry fail-closed behavior.
+
+2. CLI env resolver and X command boundary
+   - Add `EnvSecretResolver` implementing the core resolver contract.
+   - Refactor `external-engagement x-report` to build a governed X access-token
+     reference and resolve it before calling the X REST fetcher.
+   - Preserve the existing `--access-token-env` operator surface.
+
+3. Documentation
+   - Add architecture documentation for the `SecretRef` boundary.
+   - Update external engagement docs to describe provider-agnostic credential
+     resolution and env injection without treating Doppler as a public default.
+
+## Verification
+
+- Passed: `bun run --cwd packages/core test tests/credentials/secret-ref.test.ts`
+- Passed: `bun run --cwd packages/core build`
+- Passed: `bun run --cwd packages/cli test src/credentials/env-secret-resolver.test.ts src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+
+## Credential Governance Closeout
+
+- Managed secret-manager sources are modelled as provider-neutral references.
+  Provider-specific adapters can implement `SecretResolver` without changing
+  external-engagement contracts.
+- OAuth refresh and rotation metadata now has pure lifecycle evaluation.
+  Provider-specific refresh execution remains an adapter responsibility, not a
+  core dependency.
+- Runtime credential pools have a core `credential-pool` source handle, so
+  future integration work can bridge to runtime-owned pool resolution without
+  importing runtime into core.
+
+---
+
+# Historical Plans
+
 # Governed External Engagement Plan
 
 Date: 2026-06-24
-Status: Active
+Status: Superseded by credential governance foundation on 2026-06-24
 
 ## Objective
 
@@ -85,10 +164,6 @@ posting automation.
   to a later credential-governance slice.
 - Publishing/replying requires a separate action-proposal and approval workflow
   before any write-capable adapter is added.
-
----
-
-# Historical Plans
 
 # Managed-Agent Core Reliability Plan
 

@@ -2,15 +2,18 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   buildExternalEvidenceReport,
+  createSecretRef,
   estimateXEvidenceRequestBudget,
   normalizeXPostReferences,
   type ExternalEvidenceArtifact,
   type ExternalEvidenceMetrics,
   type ExternalEvidenceReport,
+  type SecretResolver,
   type XEvidenceRequestBudget,
   type XPostReference,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
+import { EnvSecretResolver, EnvSecretResolverError } from "../credentials/env-secret-resolver.js";
 
 const X_POST_LOOKUP_LIMIT = 100;
 const X_RECENT_SEARCH_MAX_RESULTS_LIMIT = 100;
@@ -30,6 +33,7 @@ export interface XEvidenceFetcher {
 
 export interface ExternalEngagementCommandDependencies {
   readonly fetcher?: XEvidenceFetcher;
+  readonly credentialResolver?: SecretResolver;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
   readonly reportId?: () => string;
@@ -94,11 +98,17 @@ async function runXReport(
     }), flags.outputPath);
     return;
   }
-  const env = dependencies.env ?? process.env;
-  const accessToken = env[flags.accessTokenEnv]?.trim();
-  if (!accessToken) {
-    throw new Error(`external-engagement x-report requires ${flags.accessTokenEnv} or --dry-run.`);
-  }
+  const accessTokenRef = createSecretRef({
+    id: "x-oauth2-access-token",
+    purpose: "external-engagement:x:read",
+    scopes: ["x:post.read", "x:user.read"],
+    source: { kind: "env", name: flags.accessTokenEnv },
+  });
+  const credentialResolver = dependencies.credentialResolver ?? new EnvSecretResolver({
+    env: dependencies.env,
+    now: dependencies.now,
+  });
+  const accessToken = await resolveAccessToken(credentialResolver, accessTokenRef, flags.accessTokenEnv);
   const fetcher = dependencies.fetcher ?? new XApiEvidenceFetcher();
   const report = await fetcher.fetchEvidence({
     accessToken,
@@ -109,6 +119,21 @@ async function runXReport(
     budget,
   });
   printOrWrite(report, flags.outputPath);
+}
+
+async function resolveAccessToken(
+  credentialResolver: SecretResolver,
+  ref: ReturnType<typeof createSecretRef>,
+  envName: string,
+): Promise<string> {
+  try {
+    return (await credentialResolver.resolve(ref)).value;
+  } catch (error) {
+    if (error instanceof EnvSecretResolverError && error.diagnostic.status === "missing") {
+      throw new Error(`external-engagement x-report requires ${envName} or --dry-run.`);
+    }
+    throw error;
+  }
 }
 
 export class XApiEvidenceFetcher implements XEvidenceFetcher {

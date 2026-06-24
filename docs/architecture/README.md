@@ -112,6 +112,10 @@ is documented by concern, not as a single monolith.
   Provider credential rotation, cooldown, runtime credential sources,
   cross-process reload, health snapshots, and secret-free observability.
 
+- `credential-governance.md`
+  Provider-agnostic `SecretRef` boundary, env-backed source contract,
+  rotation/refresh metadata, and secret-free diagnostics.
+
 - `runtime-surfaces.md`
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
   CLI, GUI, native, TUI, SDK/widget, and MCP boundaries.
