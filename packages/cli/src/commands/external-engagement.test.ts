@@ -9,6 +9,7 @@ import {
   type XLiveSmokeResult,
   type XLiveSmokeTester,
 } from "./external-engagement.js";
+import type { XEvidenceReportCache } from "./x-evidence-report-cache.js";
 
 const tempRoots: string[] = [];
 
@@ -98,6 +99,7 @@ describe("external engagement command", () => {
       inputPath,
       "--max-replies",
       "2",
+      "--no-cache",
       "--output",
       outputPath,
     ], {
@@ -120,6 +122,180 @@ describe("external engagement command", () => {
       artifacts: [{ text: "Synthetic root post" }],
     });
     expect(log.mock.calls[0]?.[0]).toBe(`External engagement report written: ${outputPath}`);
+  });
+
+  it("serves cached X reports before credential resolution or network access", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const cachedReport = buildExternalEvidenceReport({
+      reportId: "cached-report",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      source: "x",
+      query: {
+        references: [{
+          platform: "x",
+          postId: "1000000000000000001",
+          sourceUrl: "https://x.com/example_author/status/1000000000000000001",
+        }],
+        maxRepliesPerPost: 0,
+      },
+      budget: {
+        rootPostReads: 1,
+        replySearches: 0,
+        maxReplyReads: 0,
+        userReads: 1,
+        maxPostReads: 1,
+        estimatedRequests: 2,
+      },
+      artifacts: [],
+      signals: [],
+    });
+    const reportCache: XEvidenceReportCache = {
+      read: vi.fn(() => cachedReport),
+      write: vi.fn(),
+    };
+    const credentialResolver: SecretResolver = { resolve: vi.fn() };
+    const fetcher: XEvidenceFetcher = { fetchEvidence: vi.fn() };
+
+    await externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+      "--max-replies",
+      "0",
+    ], {
+      credentialResolver,
+      fetcher,
+      reportCache,
+    });
+
+    expect(reportCache.read).toHaveBeenCalledWith(cachedReport.query);
+    expect(credentialResolver.resolve).not.toHaveBeenCalled();
+    expect(fetcher.fetchEvidence).not.toHaveBeenCalled();
+    expect(reportCache.write).not.toHaveBeenCalled();
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({ reportId: "cached-report" });
+  });
+
+  it("persists x-report cache files and reuses them without credentials", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const cacheDir = join(tempRoot(), "x-report-cache");
+    const fetcher: XEvidenceFetcher = {
+      fetchEvidence: vi.fn(async ({ references, maxRepliesPerPost, generatedAt, reportId, budget }) =>
+        buildExternalEvidenceReport({
+          reportId,
+          generatedAt,
+          source: "x",
+          query: { references, maxRepliesPerPost },
+          budget,
+          artifacts: [{
+            platform: "x",
+            artifactId: references[0]!.postId,
+            kind: "post",
+            sourceUrl: references[0]!.sourceUrl,
+            text: "Cached root post",
+            retrievedAt: generatedAt,
+          }],
+          signals: [],
+        })),
+    };
+
+    await externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+      "--max-replies",
+      "0",
+    ], {
+      fetcher,
+      defaultCacheDir: cacheDir,
+      env: { KILN_X_OAUTH2_ACCESS_TOKEN: "token" },
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      reportId: () => "fresh-cache-report",
+    });
+
+    await externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+      "--max-replies",
+      "0",
+    ], {
+      fetcher: { fetchEvidence: vi.fn() },
+      defaultCacheDir: cacheDir,
+      env: {},
+    });
+
+    expect(fetcher.fetchEvidence).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[1]?.[0]))).toMatchObject({
+      reportId: "fresh-cache-report",
+      artifacts: [{ text: "Cached root post" }],
+    });
+  });
+
+  it("refreshes cache when requested", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const reportCache: XEvidenceReportCache = {
+      read: vi.fn(),
+      write: vi.fn(),
+    };
+    const fetcher: XEvidenceFetcher = {
+      fetchEvidence: vi.fn(async ({ references, maxRepliesPerPost, generatedAt, reportId, budget }) =>
+        buildExternalEvidenceReport({
+          reportId,
+          generatedAt,
+          source: "x",
+          query: { references, maxRepliesPerPost },
+          budget,
+          artifacts: [],
+          signals: [],
+        })),
+    };
+
+    await externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+      "--refresh-cache",
+    ], {
+      fetcher,
+      reportCache,
+      env: { KILN_X_OAUTH2_ACCESS_TOKEN: "token" },
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      reportId: () => "fresh-report",
+    });
+
+    expect(reportCache.read).not.toHaveBeenCalled();
+    expect(fetcher.fetchEvidence).toHaveBeenCalled();
+    expect(reportCache.write).toHaveBeenCalledWith(expect.objectContaining({ reportId: "fresh-report" }));
+  });
+
+  it("disables cache reads and writes when requested", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const reportCache: XEvidenceReportCache = {
+      read: vi.fn(),
+      write: vi.fn(),
+    };
+    const fetcher: XEvidenceFetcher = {
+      fetchEvidence: vi.fn(async ({ references, maxRepliesPerPost, generatedAt, reportId, budget }) =>
+        buildExternalEvidenceReport({
+          reportId,
+          generatedAt,
+          source: "x",
+          query: { references, maxRepliesPerPost },
+          budget,
+          artifacts: [],
+          signals: [],
+        })),
+    };
+
+    await externalEngagementCommand({} as never, "x-report", [
+      "--url",
+      "https://x.com/example_author/status/1000000000000000001",
+      "--no-cache",
+    ], {
+      fetcher,
+      reportCache,
+      env: { KILN_X_OAUTH2_ACCESS_TOKEN: "token" },
+    });
+
+    expect(reportCache.read).not.toHaveBeenCalled();
+    expect(reportCache.write).not.toHaveBeenCalled();
+    expect(fetcher.fetchEvidence).toHaveBeenCalled();
   });
 
   it("resolves the X access token through a governed secret reference", async () => {
@@ -153,6 +329,7 @@ describe("external engagement command", () => {
     await externalEngagementCommand({} as never, "x-report", [
       "--url",
       "https://x.com/example_author/status/1000000000000000001",
+      "--no-cache",
       "--access-token-env",
       "MY_X_ACCESS_TOKEN",
     ], {
@@ -178,6 +355,7 @@ describe("external engagement command", () => {
     await expect(externalEngagementCommand({} as never, "x-report", [
       "--url",
       "https://x.com/example_author/status/1000000000000000001",
+      "--no-cache",
     ], {
       fetcher: { fetchEvidence: vi.fn() },
       env: {},
@@ -211,6 +389,7 @@ describe("external engagement command", () => {
     await expect(externalEngagementCommand({} as never, "x-report", [
       "--url",
       "https://x.com/example_author/status/1000000000000000001",
+      "--no-cache",
     ], {
       fetcher,
       credentialResolver,

@@ -50,6 +50,21 @@ kiln external-engagement x-report \
   --output ./.kiln/external-engagement/x-report.json
 ```
 
+`x-report` caches successful reports by default under:
+
+```text
+.kiln/cache/external-engagement/x-report
+```
+
+The cache key is based on X post ids and `--max-replies`, not raw source URLs.
+Use these flags when needed:
+
+```bash
+kiln external-engagement x-report --input ./x-sources.txt --no-cache
+kiln external-engagement x-report --input ./x-sources.txt --refresh-cache
+kiln external-engagement x-report --input ./x-sources.txt --cache-dir C:/tmp/kiln-x-cache
+```
+
 Run a live read-only credential smoke check:
 
 ```bash
@@ -125,6 +140,8 @@ The report budget is computed before network access from:
 - expected request batches.
 
 Keep early runs small. Use `--dry-run` first and keep `--max-replies` explicit.
+Leave cache enabled for repeated exploration. Use `--refresh-cache` only when
+you intentionally want to spend fresh X requests for the same query.
 Tests must use synthetic fixtures or mocked fetchers, not live X calls.
 Use `x-smoke --allow-live` only when intentionally validating a real X
 credential; it is bounded to one request.

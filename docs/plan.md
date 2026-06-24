@@ -1,3 +1,63 @@
+# X Evidence Report Cache Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Add a local cache for read-only X evidence reports so repeated exploration of
+the same bounded query does not spend additional X API requests. Cache use must
+be deterministic, operator-controllable, and local-only.
+
+## Non-Goals
+
+- No shared remote cache.
+- No caching of secrets or authorization headers.
+- No hidden live calls on cache hits.
+- No cache keys containing raw X source URLs or operator workflow handles.
+- No write-capable external engagement.
+
+## Scout Map
+
+- `packages/cli/src/commands/external-engagement.ts` owns `x-report` execution
+  and can check cache before credential resolution.
+- `packages/cli/src/commands/x-evidence-report-cache.ts` owns file cache
+  serialization and validation.
+- `.kiln/cache` is ignored by git, matching existing local cache conventions.
+- `docs/guides/external-engagement.md` owns operator cache guidance.
+
+## Implementation Slices
+
+1. File cache adapter
+   - Add a versioned local JSON cache for `ExternalEvidenceReport`.
+   - Key by X post ids and `maxRepliesPerPost`, not raw URLs.
+   - Ignore malformed cache files fail-open by refetching.
+
+2. CLI integration
+   - Read cache before credential resolution and network access.
+   - Write successful reports after fetch.
+   - Add `--cache-dir`, `--no-cache`, and `--refresh-cache`.
+
+3. Tests and docs
+   - Prove cache hits skip credential resolution and fetch.
+   - Prove file cache reuse with a temp directory.
+   - Prove refresh and no-cache modes.
+   - Document cache location and controls.
+
+## Verification
+
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run typecheck`
+- Passed: `bun run --filter @kilnai/cli test`
+- Passed: `git diff --check`
+- Passed: manual cache refresh using `KILN_X_BEARER_TOKEN` with `--max-replies 0`
+- Passed: manual cache hit without Doppler or token using the same cache dir
+
+---
+
+# Earlier Historical Plans
+
 # X Live Smoke Plan
 
 Date: 2026-06-24

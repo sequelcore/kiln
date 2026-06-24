@@ -15,9 +15,11 @@ import {
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import { EnvSecretResolver, EnvSecretResolverError } from "../credentials/env-secret-resolver.js";
+import { FileXEvidenceReportCache, type XEvidenceReportCache } from "./x-evidence-report-cache.js";
 
 const X_POST_LOOKUP_LIMIT = 100;
 const X_RECENT_SEARCH_MAX_RESULTS_LIMIT = 100;
+const DEFAULT_X_REPORT_CACHE_DIR = ".kiln/cache/external-engagement/x-report";
 
 export interface XEvidenceFetchInput {
   readonly accessToken: string;
@@ -60,10 +62,12 @@ export interface XLiveSmokeTester {
 export interface ExternalEngagementCommandDependencies {
   readonly fetcher?: XEvidenceFetcher;
   readonly smokeTester?: XLiveSmokeTester;
+  readonly reportCache?: XEvidenceReportCache;
   readonly credentialResolver?: SecretResolver;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
   readonly reportId?: () => string;
+  readonly defaultCacheDir?: string;
 }
 
 interface XReportFlags {
@@ -73,6 +77,8 @@ interface XReportFlags {
   readonly maxRepliesPerPost: number;
   readonly dryRun: boolean;
   readonly accessTokenEnv: string;
+  readonly cacheDir?: string;
+  readonly cacheMode: "read-write" | "disabled" | "refresh";
 }
 
 interface XSmokeFlags {
@@ -129,17 +135,30 @@ async function runXReport(
     maxRepliesPerPost: flags.maxRepliesPerPost,
     includeAuthors: true,
   });
+  const query = { references, maxRepliesPerPost: flags.maxRepliesPerPost };
   if (flags.dryRun) {
     printOrWrite(buildExternalEvidenceReport({
       reportId,
       generatedAt,
       source: "x",
-      query: { references, maxRepliesPerPost: flags.maxRepliesPerPost },
+      query,
       budget,
       artifacts: [],
       signals: [],
     }), flags.outputPath);
     return;
+  }
+  const cache = flags.cacheMode === "disabled"
+    ? undefined
+    : dependencies.reportCache ?? new FileXEvidenceReportCache(
+      flags.cacheDir ?? dependencies.defaultCacheDir ?? DEFAULT_X_REPORT_CACHE_DIR,
+    );
+  if (cache && flags.cacheMode !== "refresh") {
+    const cached = cache.read(query);
+    if (cached) {
+      printOrWrite(cached, flags.outputPath);
+      return;
+    }
   }
   const accessTokenRef = createXReadAccessTokenRef({ envName: flags.accessTokenEnv });
   const credentialResolver = dependencies.credentialResolver ?? new EnvSecretResolver({
@@ -156,6 +175,7 @@ async function runXReport(
     reportId,
     budget,
   });
+  cache?.write(report);
   printOrWrite(report, flags.outputPath);
 }
 
@@ -248,6 +268,8 @@ function parseXReportFlags(args: readonly string[]): XReportFlags {
   let maxRepliesPerPost = 25;
   let dryRun = false;
   let accessTokenEnv = "KILN_X_OAUTH2_ACCESS_TOKEN";
+  let cacheDir: string | undefined;
+  let cacheMode: XReportFlags["cacheMode"] = "read-write";
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
@@ -269,6 +291,13 @@ function parseXReportFlags(args: readonly string[]): XReportFlags {
     } else if (arg === "--access-token-env") {
       accessTokenEnv = readRequiredArg(args, index, "--access-token-env");
       index += 1;
+    } else if (arg === "--cache-dir") {
+      cacheDir = readRequiredArg(args, index, "--cache-dir");
+      index += 1;
+    } else if (arg === "--no-cache") {
+      cacheMode = "disabled";
+    } else if (arg === "--refresh-cache") {
+      cacheMode = "refresh";
     } else if (arg === "--dry-run") {
       dryRun = true;
     } else {
@@ -283,6 +312,8 @@ function parseXReportFlags(args: readonly string[]): XReportFlags {
     maxRepliesPerPost,
     dryRun,
     accessTokenEnv,
+    cacheDir,
+    cacheMode,
   };
 }
 
@@ -590,6 +621,9 @@ function printHelp(): void {
     "  --max-replies N          Maximum replies to fetch per root post (default: 25)",
     "  --dry-run                Print the planned bounded report without network access",
     "  --allow-live             Required for x-smoke live network access",
+    "  --cache-dir PATH         Cache x-report JSON under PATH (default: .kiln/cache/external-engagement/x-report)",
+    "  --no-cache               Disable x-report cache reads and writes",
+    "  --refresh-cache          Bypass cache reads and replace the cached x-report",
     "  --output PATH            Write report JSON to PATH",
     "  --access-token-env NAME  Env var containing OAuth2 access token (default: KILN_X_OAUTH2_ACCESS_TOKEN)",
   ].join("\n"));
