@@ -125,6 +125,19 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    plane for work-item resource identity and evidence gaps instead of
    re-deriving them locally.
 
+9. SDK consumer closeout
+   - Export a typed SDK resource shape for `kiln://session/work-items` reads
+     that includes canonical work-item data plus projection-only
+     `resourceUri` and `missingEvidence` fields.
+   - Verify the React SDK package (`@kilnai/react`) exposes the enriched
+     contract for Studio and external consumers.
+   - Keep the embeddable widget unchanged because it is a chat transport
+     surface and does not consume the session resource plane directly.
+
+   Status: completed on 2026-06-24 for SDK consumer inspectability. SDK
+   consumers can now type resource-enriched work-item reads without creating
+   local parallel models, while the widget remains scoped to chat frames.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -146,6 +159,8 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/native test tests/native-boundary.test.ts tests/work-items-panel.test.tsx`
 - Passed: `bun run --cwd packages/gateway-contracts test tests/operator-event-presentation.test.ts`
 - Passed: `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts`
+- Passed: `bun x tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --jsx react-jsx --skipLibCheck packages/sdk/tests/resource-exports.test.ts`
+- Passed: `bun run --cwd packages/sdk test tests/resource-exports.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice

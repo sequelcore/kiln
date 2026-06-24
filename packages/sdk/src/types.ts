@@ -1,4 +1,4 @@
-import type { ContentPart } from "@kilnai/core";
+import type { ContentPart, WorkItem, WorkItemSnapshot } from "@kilnai/core";
 import type {
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
@@ -73,6 +73,15 @@ export interface KilnEventData {
   readonly timestamp: string;
   readonly data: Record<string, unknown>;
 }
+
+export type InspectableWorkItemResource = WorkItem & {
+  readonly resourceUri: string;
+  readonly missingEvidence: readonly string[];
+};
+
+export type InspectableWorkItemSnapshotResource = Omit<WorkItemSnapshot, "items"> & {
+  readonly items: readonly InspectableWorkItemResource[];
+};
 
 export type {
   KilnConfigSetupAction,

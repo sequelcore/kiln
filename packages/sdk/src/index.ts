@@ -26,6 +26,8 @@ export type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
+  InspectableWorkItemResource,
+  InspectableWorkItemSnapshotResource,
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
   OperatorTurnRequestedAuthority,
