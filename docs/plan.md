@@ -162,6 +162,18 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    invocation view state now carries source work-item/context resources through
    the same read-only projection used by operator surfaces.
 
+12. Replay and session-event source-resource closeout
+   - Add source resource URIs to canonical managed invocation lifecycle
+     evidence.
+   - Persist source resources in runtime managed invocation terminal events so
+     replayed sessions do not need to infer them from transient request state.
+   - Verify replay normalization preserves source resources from persisted
+     managed-agent tool evidence.
+
+   Status: completed on 2026-06-24 for replay/session persistence. Managed
+   invocation source context now survives core lifecycle evidence, runtime
+   session events, and gateway replay normalization.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -187,6 +199,9 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/sdk test tests/resource-exports.test.ts`
 - Passed: `bun run --cwd packages/runtime test tests/managed-agent/resource-provider.test.ts`
 - Passed: `bun run --cwd packages/gateway-contracts test tests/operator-cockpit-projection.test.ts tests/operator-cockpit-view-state.test.ts`
+- Passed: `bun run --cwd packages/core test tests/managed-agent/invocation-contracts.test.ts`
+- Passed: `bun run --cwd packages/runtime test tests/session/managed-invocation-session-events.test.ts`
+- Passed: `bun run --cwd packages/gateway-contracts test tests/operator-cockpit-projection.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice

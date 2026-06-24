@@ -416,9 +416,19 @@ describe("appendManagedInvocationSessionEvents", () => {
 
   it("maps requested/started/completed with transcript, usage unknowns, handoff evidence and child lineage", () => {
     const session = makeSession();
-    const request = makeRequest(session.id, `${session.id}:turn:1`);
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(session.id, `${session.id}:turn:1`),
+      input: {
+        summary: "Inspect invocation contract",
+        context: { mode: "resources" },
+        resourceUris: ["kiln://session/work-items/work-source"],
+      },
+    });
     const record = defineManagedAgentInvocationRecord({
       ...makeRecord("completed"),
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      capabilitySnapshot: makeCapabilitySnapshot(request),
       replayResources: [{
         uri: "kiln://artifacts/invocation-1/result-full",
         title: "Managed invocation final result",
@@ -501,8 +511,9 @@ describe("appendManagedInvocationSessionEvents", () => {
         routeSource: "explicit-managed-route",
         providerId: "opencode",
         model: "sonic",
-        contextMode: "isolated",
+        contextMode: "resources",
         authorityProfileId: "foundation-readonly",
+        sourceResourceUris: ["kiln://session/work-items/work-source"],
         resourceLease: {
           leaseId: "invocation-1:resource-lease",
           createdAt: "2026-05-07T08:00:00.000Z",
@@ -510,7 +521,7 @@ describe("appendManagedInvocationSessionEvents", () => {
           cleanupStatus: "not-required",
           workingDirectoryPath: "C:/workspace/kiln",
           workingDirectoryMode: "read-only",
-          resourceUris: [],
+          resourceUris: ["kiln://session/work-items/work-source"],
           diagnosticUris: [],
         },
         transcriptUri: "kiln://artifacts/invocation-1/transcript",

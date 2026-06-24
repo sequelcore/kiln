@@ -1247,6 +1247,7 @@ describe("operator cockpit read-only projection", () => {
             resourceUris: ["kiln://managed-agents/invocations/replay%3Achild%3A2/handoff"],
             memoryWriteProposalUris: [],
           },
+          sourceResourceUris: ["kiln://session/work-items/replay-work"],
         },
       },
     }];
@@ -1284,6 +1285,11 @@ describe("operator cockpit read-only projection", () => {
         resourceUris: ["kiln://managed-agents/invocations/replay%3Achild%3A2/handoff"],
         memoryWriteProposalUris: [],
       },
+      sourceResourceUris: ["kiln://session/work-items/replay-work"],
+      evidenceResourceUris: [
+        "kiln://managed-agents/invocations/replay%3Achild%3A2/handoff",
+        "kiln://session/work-items/replay-work",
+      ],
     });
   });
 

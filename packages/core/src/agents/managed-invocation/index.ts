@@ -381,6 +381,7 @@ export interface ManagedAgentLifecycleEvidence {
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly authorityProfileId: string;
   readonly resourceLease: ManagedAgentResourceLeaseEvidence;
+  readonly sourceResourceUris: readonly string[];
   readonly transcriptUri?: string;
   readonly heartbeatAt?: string;
   readonly resultSummary?: string;
@@ -875,6 +876,7 @@ export function buildManagedAgentLifecycleEvidence(
     contextMode: record.capabilitySnapshot.contextMode,
     authorityProfileId: record.authority.authorityProfileId,
     resourceLease: record.resourceLease ?? record.capabilitySnapshot.resourceLease,
+    sourceResourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
     ...(record.transcript?.uri !== undefined ? { transcriptUri: record.transcript.uri } : {}),
     ...(input.heartbeatAt !== undefined ? { heartbeatAt: requireIsoTimestamp(input.heartbeatAt, "Managed invocation heartbeat timestamp is required") } : {}),
     ...(record.resultHandoff?.summary !== undefined ? { resultSummary: record.resultHandoff.summary } : {}),

@@ -477,6 +477,10 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     writeEvidence?: SessionAgentInvocationEvidence["writeEvidence"];
   } = {};
   evidence.lifecycle = buildManagedAgentLifecycleEvidence(record);
+  evidence.lifecycle = {
+    ...evidence.lifecycle,
+    sourceResourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
+  };
   if (record.childSessionId) {
     evidence.childSessionId = record.childSessionId;
   }
@@ -532,6 +536,7 @@ function collectDeniedEvidence(
       contextMode: request.input.context?.mode ?? "isolated",
       authorityProfileId: request.authority.authorityProfileId,
       resourceLease,
+      sourceResourceUris: request.input.resourceUris ?? [],
       diagnosticUris: resourceLease.diagnosticUris,
       handoffResourceUris: [],
     };

@@ -360,6 +360,13 @@ describe("managed agent invocation contracts", () => {
   it("preserves full replay resources without adding unbounded content to lifecycle evidence", () => {
     const record = defineManagedAgentInvocationRecord({
       ...makeCompletedRecordInput(),
+      capabilitySnapshot: defineManagedAgentCapabilitySnapshot({
+        ...makeCompletedRecordInput().capabilitySnapshot,
+        resourcePlane: {
+          available: true,
+          resourceUris: ["kiln://session/work-items/work-source"],
+        },
+      }),
       resultHandoff: {
         summary: "Bounded review summary.",
         resourceUris: ["kiln://managed-agents/invocations/invocation-1/resources/result/final"],
@@ -381,6 +388,7 @@ describe("managed agent invocation contracts", () => {
       text: "Full child result with actionable finding tail.",
     }]);
     expect(lifecycleEvidence).toMatchObject({
+      sourceResourceUris: ["kiln://session/work-items/work-source"],
       resultSummary: "Bounded review summary.",
       handoffResourceUris: ["kiln://managed-agents/invocations/invocation-1/resources/result/final"],
     });
