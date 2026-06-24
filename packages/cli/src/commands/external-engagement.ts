@@ -1,7 +1,11 @@
+import { Buffer } from "node:buffer";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   buildExternalEvidenceReport,
+  createXOAuth2ClientIdRef,
+  createXOAuth2ClientSecretRef,
+  createXOAuth2RefreshTokenRef,
   createXReadAccessTokenRef,
   estimateXEvidenceRequestBudget,
   normalizeXPostReferences,
@@ -59,9 +63,47 @@ export interface XLiveSmokeTester {
   smoke(input: XLiveSmokeInput): Promise<XLiveSmokeResult>;
 }
 
+export interface XOAuth2RefreshInput {
+  readonly refreshToken: string;
+  readonly clientId: string;
+  readonly clientSecret?: string;
+  readonly generatedAt: string;
+}
+
+export interface XOAuth2RefreshResult {
+  readonly generatedAt: string;
+  readonly tokenType?: string;
+  readonly expiresInSeconds?: number;
+  readonly scopes?: readonly string[];
+  readonly accessToken: string;
+  readonly refreshToken?: string;
+}
+
+export interface XOAuth2RefreshSummary {
+  readonly source: "x";
+  readonly operation: "oauth2-refresh";
+  readonly status: "ok";
+  readonly generatedAt: string;
+  readonly secretOutputPath: string;
+  readonly accessTokenReceived: true;
+  readonly refreshTokenReceived: boolean;
+  readonly expiresInSeconds?: number;
+  readonly scopes?: readonly string[];
+  readonly credentialRefIds: {
+    readonly refreshToken: string;
+    readonly clientId: string;
+    readonly clientSecret?: string;
+  };
+}
+
+export interface XOAuth2TokenRefresher {
+  refresh(input: XOAuth2RefreshInput): Promise<XOAuth2RefreshResult>;
+}
+
 export interface ExternalEngagementCommandDependencies {
   readonly fetcher?: XEvidenceFetcher;
   readonly smokeTester?: XLiveSmokeTester;
+  readonly tokenRefresher?: XOAuth2TokenRefresher;
   readonly reportCache?: XEvidenceReportCache;
   readonly credentialResolver?: SecretResolver;
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -87,6 +129,15 @@ interface XSmokeFlags {
   readonly accessTokenEnv: string;
 }
 
+interface XRefreshFlags {
+  readonly allowLive: boolean;
+  readonly secretOutputPath?: string;
+  readonly publicClient: boolean;
+  readonly refreshTokenEnv: string;
+  readonly clientIdEnv: string;
+  readonly clientSecretEnv: string;
+}
+
 interface XRateLimitSnapshot {
   readonly limit?: number;
   readonly remaining?: number;
@@ -103,8 +154,8 @@ export async function externalEngagementCommand(
     printHelp();
     return;
   }
-  if (subcommand !== "x-report" && subcommand !== "x-smoke") {
-    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report or x-smoke.`);
+  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh") {
+    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, or x-refresh.`);
   }
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -112,6 +163,10 @@ export async function externalEngagementCommand(
   }
   if (subcommand === "x-smoke") {
     await runXSmoke(parseXSmokeFlags(args), dependencies);
+    return;
+  }
+  if (subcommand === "x-refresh") {
+    await runXRefresh(parseXRefreshFlags(args), dependencies);
     return;
   }
   await runXReport(parseXReportFlags(args), dependencies);
@@ -202,10 +257,91 @@ async function runXSmoke(
   printOrWriteJson(result, flags.outputPath);
 }
 
+async function runXRefresh(
+  flags: XRefreshFlags,
+  dependencies: ExternalEngagementCommandDependencies,
+): Promise<void> {
+  if (!flags.allowLive) {
+    throw new Error("external-engagement x-refresh requires --allow-live.");
+  }
+  if (!flags.secretOutputPath) {
+    throw new Error("external-engagement x-refresh requires --secret-output.");
+  }
+  const generatedAt = (dependencies.now?.() ?? new Date()).toISOString();
+  const refreshTokenRef = createXOAuth2RefreshTokenRef({ envName: flags.refreshTokenEnv });
+  const clientIdRef = createXOAuth2ClientIdRef({ envName: flags.clientIdEnv });
+  const clientSecretRef = flags.publicClient
+    ? undefined
+    : createXOAuth2ClientSecretRef({ envName: flags.clientSecretEnv });
+  const credentialResolver = dependencies.credentialResolver ?? new EnvSecretResolver({
+    env: dependencies.env,
+    now: dependencies.now,
+  });
+  const refreshToken = await resolveUsableSecret(
+    credentialResolver,
+    refreshTokenRef,
+    `external-engagement x-refresh requires ${flags.refreshTokenEnv}.`,
+  );
+  const clientId = await resolveUsableSecret(
+    credentialResolver,
+    clientIdRef,
+    `external-engagement x-refresh requires ${flags.clientIdEnv}.`,
+  );
+  const clientSecret = clientSecretRef
+    ? await resolveUsableSecret(
+      credentialResolver,
+      clientSecretRef,
+      `external-engagement x-refresh requires ${flags.clientSecretEnv}.`,
+    )
+    : undefined;
+  const tokenRefresher = dependencies.tokenRefresher ?? new XApiOAuth2TokenRefresher();
+  const result = await tokenRefresher.refresh({
+    refreshToken,
+    clientId,
+    ...(clientSecret ? { clientSecret } : {}),
+    generatedAt,
+  });
+  writeSecretJson(flags.secretOutputPath, {
+    source: "x",
+    operation: "oauth2-refresh",
+    generatedAt: result.generatedAt,
+    ...(result.tokenType ? { tokenType: result.tokenType } : {}),
+    ...(typeof result.expiresInSeconds === "number" ? { expiresInSeconds: result.expiresInSeconds } : {}),
+    ...(result.scopes ? { scopes: result.scopes } : {}),
+    accessToken: result.accessToken,
+    ...(result.refreshToken ? { refreshToken: result.refreshToken } : {}),
+  });
+  const summary: XOAuth2RefreshSummary = {
+    source: "x",
+    operation: "oauth2-refresh",
+    status: "ok",
+    generatedAt: result.generatedAt,
+    secretOutputPath: flags.secretOutputPath,
+    accessTokenReceived: true,
+    refreshTokenReceived: Boolean(result.refreshToken),
+    ...(typeof result.expiresInSeconds === "number" ? { expiresInSeconds: result.expiresInSeconds } : {}),
+    ...(result.scopes ? { scopes: result.scopes } : {}),
+    credentialRefIds: {
+      refreshToken: refreshTokenRef.id,
+      clientId: clientIdRef.id,
+      ...(clientSecretRef ? { clientSecret: clientSecretRef.id } : {}),
+    },
+  };
+  printOrWriteJson(summary, undefined);
+}
+
 async function resolveAccessToken(
   credentialResolver: SecretResolver,
   ref: SecretRef,
   envName: string,
+): Promise<string> {
+  return resolveUsableSecret(credentialResolver, ref, `external-engagement x-report requires ${envName} or --dry-run.`);
+}
+
+async function resolveUsableSecret(
+  credentialResolver: SecretResolver,
+  ref: SecretRef,
+  missingMessage: string,
 ): Promise<string> {
   try {
     const resolved = await credentialResolver.resolve(ref);
@@ -217,7 +353,7 @@ async function resolveAccessToken(
     return resolved.value;
   } catch (error) {
     if (error instanceof EnvSecretResolverError && error.diagnostic.status === "missing") {
-      throw new Error(`external-engagement x-report requires ${envName} or --dry-run.`);
+      throw new Error(missingMessage);
     }
     throw error;
   }
@@ -258,6 +394,31 @@ export class XApiLiveSmokeTester implements XLiveSmokeTester {
       authenticatedUser: user,
       ...(response.rateLimit ? { rateLimit: response.rateLimit } : {}),
     };
+  }
+}
+
+export class XApiOAuth2TokenRefresher implements XOAuth2TokenRefresher {
+  async refresh(input: XOAuth2RefreshInput): Promise<XOAuth2RefreshResult> {
+    const body = new URLSearchParams();
+    body.set("grant_type", "refresh_token");
+    body.set("refresh_token", input.refreshToken);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+    };
+    if (input.clientSecret) {
+      headers.Authorization = `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString("base64")}`;
+    } else {
+      body.set("client_id", input.clientId);
+    }
+    const response = await fetch("https://api.x.com/2/oauth2/token", {
+      method: "POST",
+      headers,
+      body,
+    });
+    if (!response.ok) {
+      throw new Error(`X OAuth2 refresh failed (${response.status}).`);
+    }
+    return parseOAuth2RefreshResult(await response.json(), input.generatedAt);
   }
 }
 
@@ -344,6 +505,47 @@ function parseXSmokeFlags(args: readonly string[]): XSmokeFlags {
   };
 }
 
+function parseXRefreshFlags(args: readonly string[]): XRefreshFlags {
+  let allowLive = false;
+  let secretOutputPath: string | undefined;
+  let publicClient = false;
+  let refreshTokenEnv = "KILN_X_OAUTH2_REFRESH_TOKEN";
+  let clientIdEnv = "KILN_X_CLIENT_ID";
+  let clientSecretEnv = "KILN_X_CLIENT_SECRET";
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--allow-live") {
+      allowLive = true;
+    } else if (arg === "--public-client") {
+      publicClient = true;
+    } else if (arg === "--secret-output") {
+      secretOutputPath = readRequiredArg(args, index, "--secret-output");
+      index += 1;
+    } else if (arg === "--refresh-token-env") {
+      refreshTokenEnv = readRequiredArg(args, index, "--refresh-token-env");
+      index += 1;
+    } else if (arg === "--client-id-env") {
+      clientIdEnv = readRequiredArg(args, index, "--client-id-env");
+      index += 1;
+    } else if (arg === "--client-secret-env") {
+      clientSecretEnv = readRequiredArg(args, index, "--client-secret-env");
+      index += 1;
+    } else {
+      throw new Error(`Unknown external-engagement x-refresh option '${arg}'.`);
+    }
+  }
+
+  return {
+    allowLive,
+    secretOutputPath,
+    publicClient,
+    refreshTokenEnv,
+    clientIdEnv,
+    clientSecretEnv,
+  };
+}
+
 function readInputReferences(inputPath: string | undefined): readonly string[] {
   if (!inputPath) {
     return [];
@@ -368,6 +570,11 @@ function printOrWriteJson(value: unknown, outputPath: string | undefined): void 
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, body, "utf-8");
   console.log(`External engagement report written: ${outputPath}`);
+}
+
+function writeSecretJson(outputPath: string, value: unknown): void {
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
 async function fetchTweetsByIds(accessToken: string, ids: readonly string[]): Promise<readonly ExternalEvidenceArtifact[]> {
@@ -497,6 +704,28 @@ function parseAuthenticatedUser(payload: unknown): XLiveSmokeResult["authenticat
   };
 }
 
+function parseOAuth2RefreshResult(payload: unknown, generatedAt: string): XOAuth2RefreshResult {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("X OAuth2 refresh payload must be an object.");
+  }
+  const record = payload as Record<string, unknown>;
+  return {
+    generatedAt,
+    accessToken: requireString(record.access_token, "oauth2.access_token"),
+    tokenType: optionalString(record.token_type),
+    expiresInSeconds: optionalNumber(record.expires_in),
+    scopes: parseScopeList(record.scope),
+    refreshToken: optionalString(record.refresh_token),
+  };
+}
+
+function parseScopeList(value: unknown): readonly string[] | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return undefined;
+  }
+  return Object.freeze(value.split(/\s+/u).filter((scope) => scope.length > 0));
+}
+
 function parseRateLimitHeaders(headers: Headers): { readonly rateLimit?: XRateLimitSnapshot } {
   const limit = optionalHeaderNumber(headers.get("x-rate-limit-limit"));
   const remaining = optionalHeaderNumber(headers.get("x-rate-limit-remaining"));
@@ -616,15 +845,21 @@ function printHelp(): void {
     "  kiln external-engagement x-report --url <x-url-or-id> [--url <x-url-or-id>...] [options]",
     "  kiln external-engagement x-report --input <path> [options]",
     "  kiln external-engagement x-smoke --allow-live [options]",
+    "  kiln external-engagement x-refresh --allow-live --secret-output <path> [options]",
     "",
     "Options:",
     "  --max-replies N          Maximum replies to fetch per root post (default: 25)",
     "  --dry-run                Print the planned bounded report without network access",
     "  --allow-live             Required for x-smoke live network access",
+    "  --secret-output PATH     Write refreshed OAuth2 tokens to PATH for x-refresh",
+    "  --public-client          Refresh without a client secret for OAuth2 public clients",
     "  --cache-dir PATH         Cache x-report JSON under PATH (default: .kiln/cache/external-engagement/x-report)",
     "  --no-cache               Disable x-report cache reads and writes",
     "  --refresh-cache          Bypass cache reads and replace the cached x-report",
     "  --output PATH            Write report JSON to PATH",
     "  --access-token-env NAME  Env var containing OAuth2 access token (default: KILN_X_OAUTH2_ACCESS_TOKEN)",
+    "  --refresh-token-env NAME Env var containing OAuth2 refresh token (default: KILN_X_OAUTH2_REFRESH_TOKEN)",
+    "  --client-id-env NAME     Env var containing OAuth2 client id (default: KILN_X_CLIENT_ID)",
+    "  --client-secret-env NAME Env var containing OAuth2 client secret (default: KILN_X_CLIENT_SECRET)",
   ].join("\n"));
 }

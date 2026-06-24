@@ -1,3 +1,75 @@
+# X OAuth2 Refresh Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Add an explicitly gated X OAuth 2.0 refresh command so operators can rotate
+short-lived user access tokens without printing token values or tying Kiln to a
+specific secret manager. The command must use `SecretRef` declarations,
+separate refresh from evidence reads, and support both confidential and public
+OAuth 2.0 clients.
+
+## Non-Goals
+
+- No automatic secret-manager persistence.
+- No Doppler-specific adapter or public assumption.
+- No automatic refresh during `x-report`.
+- No write-capable X engagement.
+- No real operator source URLs, handles, ids, or credentials in docs/tests.
+
+## Scout Map
+
+- `packages/core/src/external-engagement/index.ts` owns reusable X credential
+  declarations and stays IO-free.
+- `packages/cli/src/commands/external-engagement.ts` owns the first live X
+  refresh adapter and must keep live execution behind `--allow-live`.
+- `packages/cli/src/commands/external-engagement.test.ts` owns command
+  behavior coverage with injected refreshers and synthetic token values.
+- `docs/guides/external-engagement.md` owns public operator guidance and must
+  describe secret output without assuming Sequel infrastructure.
+
+## Implementation Slices
+
+1. Core credential declarations
+   - Add `SecretRef` factories for X OAuth2 refresh token, client id, and
+     client secret.
+   - Keep values outside diagnostics and tests.
+
+2. CLI refresh command
+   - Add `kiln external-engagement x-refresh --allow-live --secret-output`.
+   - Resolve refresh credentials through `SecretResolver`.
+   - POST to X's OAuth2 token endpoint through a narrow refresher adapter.
+   - Write refreshed tokens only to the explicit secret output path.
+   - Print only a secret-free JSON summary.
+
+3. Tests and docs
+   - Prove missing `--allow-live` and missing `--secret-output` fail before
+     credential resolution.
+   - Prove confidential-client refresh resolves all three refs and does not
+     expose token values in stdout.
+   - Prove public-client refresh skips client-secret resolution.
+   - Document manual persistence to the operator's selected secret manager.
+
+## Verification
+
+- Passed: `bun run --cwd packages/core test tests/external-engagement/x-evidence-source.test.ts`
+- Passed: `bun run --cwd packages/core build`
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run --filter @kilnai/cli test`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+- Passed: privacy grep for the operator-provided X handles and post ids
+- Not run: live `x-refresh --allow-live`, because X may rotate real refresh
+  tokens and the operator did not explicitly request a live credential
+  rotation during verification.
+
+---
+
+# Earlier Historical Plans
+
 # X Evidence Report Cache Plan
 
 Date: 2026-06-24

@@ -8,6 +8,8 @@ import {
   type XEvidenceFetcher,
   type XLiveSmokeResult,
   type XLiveSmokeTester,
+  type XOAuth2RefreshResult,
+  type XOAuth2TokenRefresher,
 } from "./external-engagement.js";
 import type { XEvidenceReportCache } from "./x-evidence-report-cache.js";
 
@@ -502,6 +504,191 @@ describe("external engagement command", () => {
       rateLimit: { remaining: 74 },
     });
     expect(output).not.toContain("synthetic-token-value");
+  });
+
+  it("requires explicit live approval before X OAuth refresh credential resolution", async () => {
+    const credentialResolver: SecretResolver = {
+      resolve: vi.fn(),
+    };
+    const tokenRefresher: XOAuth2TokenRefresher = {
+      refresh: vi.fn(),
+    };
+
+    await expect(externalEngagementCommand({} as never, "x-refresh", [
+      "--secret-output",
+      join(tempRoot(), "x-oauth2-tokens.json"),
+    ], {
+      credentialResolver,
+      tokenRefresher,
+    })).rejects.toThrow(/x-refresh requires --allow-live/u);
+
+    expect(credentialResolver.resolve).not.toHaveBeenCalled();
+    expect(tokenRefresher.refresh).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit secret output path before X OAuth refresh credential resolution", async () => {
+    const credentialResolver: SecretResolver = {
+      resolve: vi.fn(),
+    };
+    const tokenRefresher: XOAuth2TokenRefresher = {
+      refresh: vi.fn(),
+    };
+
+    await expect(externalEngagementCommand({} as never, "x-refresh", [
+      "--allow-live",
+    ], {
+      credentialResolver,
+      tokenRefresher,
+    })).rejects.toThrow(/x-refresh requires --secret-output/u);
+
+    expect(credentialResolver.resolve).not.toHaveBeenCalled();
+    expect(tokenRefresher.refresh).not.toHaveBeenCalled();
+  });
+
+  it("refreshes X OAuth tokens through secret refs and writes secrets only to the requested file", async () => {
+    const root = tempRoot();
+    const secretOutputPath = join(root, "private", "x-oauth2-tokens.json");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const credentialResolver: SecretResolver = {
+      resolve: vi.fn<SecretResolver["resolve"]>(async (ref): Promise<ResolvedSecret> => ({
+        ref,
+        value: `${ref.id}-value`,
+        diagnostic: {
+          refId: ref.id,
+          purpose: ref.purpose,
+          scopes: ref.scopes,
+          source: ref.source,
+          status: "available",
+          resolvedAt: "2026-06-24T00:00:00.000Z",
+          lifecycle: { status: "usable" },
+        },
+      })),
+    };
+    const tokenRefresher: XOAuth2TokenRefresher = {
+      refresh: vi.fn(async ({ generatedAt }): Promise<XOAuth2RefreshResult> => ({
+        generatedAt,
+        tokenType: "bearer",
+        expiresInSeconds: 7200,
+        scopes: ["tweet.read", "users.read", "offline.access"],
+        accessToken: "new-access-token",
+        refreshToken: "new-refresh-token",
+      })),
+    };
+
+    await externalEngagementCommand({} as never, "x-refresh", [
+      "--allow-live",
+      "--secret-output",
+      secretOutputPath,
+      "--refresh-token-env",
+      "MY_X_REFRESH_TOKEN",
+      "--client-id-env",
+      "MY_X_CLIENT_ID",
+      "--client-secret-env",
+      "MY_X_CLIENT_SECRET",
+    ], {
+      credentialResolver,
+      tokenRefresher,
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+    });
+
+    expect(credentialResolver.resolve).toHaveBeenCalledWith({
+      id: "x-oauth2-refresh-token",
+      purpose: "external-engagement:x:oauth2-refresh",
+      scopes: ["x:oauth2.refresh"],
+      source: { kind: "env", name: "MY_X_REFRESH_TOKEN" },
+    });
+    expect(credentialResolver.resolve).toHaveBeenCalledWith({
+      id: "x-oauth2-client-id",
+      purpose: "external-engagement:x:oauth2-client",
+      scopes: ["x:oauth2.token"],
+      source: { kind: "env", name: "MY_X_CLIENT_ID" },
+    });
+    expect(credentialResolver.resolve).toHaveBeenCalledWith({
+      id: "x-oauth2-client-secret",
+      purpose: "external-engagement:x:oauth2-client",
+      scopes: ["x:oauth2.token"],
+      source: { kind: "env", name: "MY_X_CLIENT_SECRET" },
+    });
+    expect(tokenRefresher.refresh).toHaveBeenCalledWith({
+      refreshToken: "x-oauth2-refresh-token-value",
+      clientId: "x-oauth2-client-id-value",
+      clientSecret: "x-oauth2-client-secret-value",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+    });
+    expect(JSON.parse(readFileSync(secretOutputPath, "utf-8"))).toEqual({
+      source: "x",
+      operation: "oauth2-refresh",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      tokenType: "bearer",
+      expiresInSeconds: 7200,
+      scopes: ["tweet.read", "users.read", "offline.access"],
+      accessToken: "new-access-token",
+      refreshToken: "new-refresh-token",
+    });
+    const output = String(log.mock.calls[0]?.[0]);
+    expect(JSON.parse(output)).toMatchObject({
+      source: "x",
+      operation: "oauth2-refresh",
+      status: "ok",
+      secretOutputPath,
+      accessTokenReceived: true,
+      refreshTokenReceived: true,
+      credentialRefIds: {
+        refreshToken: "x-oauth2-refresh-token",
+        clientId: "x-oauth2-client-id",
+        clientSecret: "x-oauth2-client-secret",
+      },
+    });
+    expect(output).not.toContain("new-access-token");
+    expect(output).not.toContain("new-refresh-token");
+    expect(output).not.toContain("x-oauth2-refresh-token-value");
+  });
+
+  it("refreshes X OAuth tokens for public clients without resolving a client secret", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const secretOutputPath = join(tempRoot(), "x-oauth2-public-client.json");
+    const credentialResolver: SecretResolver = {
+      resolve: vi.fn<SecretResolver["resolve"]>(async (ref): Promise<ResolvedSecret> => ({
+        ref,
+        value: `${ref.id}-value`,
+        diagnostic: {
+          refId: ref.id,
+          purpose: ref.purpose,
+          scopes: ref.scopes,
+          source: ref.source,
+          status: "available",
+          resolvedAt: "2026-06-24T00:00:00.000Z",
+          lifecycle: { status: "usable" },
+        },
+      })),
+    };
+    const tokenRefresher: XOAuth2TokenRefresher = {
+      refresh: vi.fn(async ({ generatedAt }): Promise<XOAuth2RefreshResult> => ({
+        generatedAt,
+        accessToken: "new-public-client-access-token",
+      })),
+    };
+
+    await externalEngagementCommand({} as never, "x-refresh", [
+      "--allow-live",
+      "--public-client",
+      "--secret-output",
+      secretOutputPath,
+    ], {
+      credentialResolver,
+      tokenRefresher,
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+    });
+
+    expect(credentialResolver.resolve).toHaveBeenCalledTimes(2);
+    expect(credentialResolver.resolve).not.toHaveBeenCalledWith(expect.objectContaining({
+      id: "x-oauth2-client-secret",
+    }));
+    expect(tokenRefresher.refresh).toHaveBeenCalledWith({
+      refreshToken: "x-oauth2-refresh-token-value",
+      clientId: "x-oauth2-client-id-value",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+    });
   });
 });
 

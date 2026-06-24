@@ -27,7 +27,6 @@ The phase 1 X path cannot:
 - repost;
 - follow accounts;
 - read or send DMs;
-- refresh OAuth tokens;
 - run unbounded timeline, search, or reply loops.
 
 ## CLI
@@ -79,6 +78,31 @@ publishes, replies, likes, reposts, follows, reads DMs, or refreshes tokens.
 The `--allow-live` flag is mandatory so live paid API access cannot happen by
 accident.
 
+Refresh an OAuth 2.0 user access token:
+
+```bash
+kiln external-engagement x-refresh \
+  --allow-live \
+  --secret-output C:/tmp/kiln-x-oauth2-tokens.json
+```
+
+`x-refresh` is a credential maintenance command, not an evidence report. It
+requires explicit live approval and an explicit secret-bearing output path. The
+command writes the refreshed access token, and the refresh token when X returns
+one, only to `--secret-output`. Standard output contains a secret-free summary
+with credential reference ids, scope metadata, expiry metadata, and booleans
+indicating which token classes were received.
+
+For OAuth 2.0 confidential clients, `x-refresh` resolves the refresh token,
+client id, and client secret. For OAuth 2.0 public clients, use:
+
+```bash
+kiln external-engagement x-refresh \
+  --allow-live \
+  --public-client \
+  --secret-output C:/tmp/kiln-x-oauth2-tokens.json
+```
+
 Input files are newline-delimited and may contain X URLs or post ids:
 
 ```text
@@ -98,6 +122,25 @@ an env-backed secret source for an OAuth 2.0 access token:
 KILN_X_OAUTH2_ACCESS_TOKEN
 ```
 
+The X OAuth 2.0 refresh command resolves these additional default references:
+
+```text
+KILN_X_OAUTH2_REFRESH_TOKEN
+KILN_X_CLIENT_ID
+KILN_X_CLIENT_SECRET
+```
+
+Override the refresh variable names when needed:
+
+```bash
+kiln external-engagement x-refresh \
+  --allow-live \
+  --secret-output C:/tmp/kiln-x-oauth2-tokens.json \
+  --refresh-token-env MY_X_REFRESH_TOKEN \
+  --client-id-env MY_X_CLIENT_ID \
+  --client-secret-env MY_X_CLIENT_SECRET
+```
+
 Override the variable name when needed:
 
 ```bash
@@ -115,8 +158,10 @@ never the resolved token value.
 
 If credential lifecycle metadata says the access token is expired, refresh-due,
 or rotation-due, the command fails before X network access. Refresh execution is
-not part of the read-only report command; it belongs behind a resolver or
-runtime adapter.
+not part of the read-only report command. It is a separate operator-approved
+command because refresh tokens can rotate; operators must persist the returned
+token bundle to their selected secret manager after reviewing the secret output
+file.
 
 Teams may populate env vars through their preferred secret manager or runtime
 platform. Doppler-style env injection is one internal Sequel example, not a
@@ -145,6 +190,8 @@ you intentionally want to spend fresh X requests for the same query.
 Tests must use synthetic fixtures or mocked fetchers, not live X calls.
 Use `x-smoke --allow-live` only when intentionally validating a real X
 credential; it is bounded to one request.
+Use `x-refresh --allow-live` only when intentionally rotating real OAuth 2.0
+credentials; refresh tokens may be replaced by the provider response.
 
 ## Architecture Boundary
 

@@ -99,6 +99,10 @@ export interface XReadAccessTokenRefInput {
   readonly nextRefreshAt?: string;
 }
 
+export interface XOAuth2CredentialRefInput {
+  readonly envName?: string;
+}
+
 export const EXTERNAL_EVIDENCE_READ_EFFECT: ActionEffectEnvelope = Object.freeze({
   operation: "observe",
   boundaries: Object.freeze(["network", "external-system"] as const),
@@ -123,6 +127,9 @@ const X_POST_URL_PATTERN = /^https:\/\/(?:x|twitter)\.com\/[^/?#]+\/status\/(\d+
 const X_POST_ID_PATTERN = /^\d{5,}$/u;
 const X_ID_BATCH_SIZE = 100;
 const DEFAULT_X_ACCESS_TOKEN_ENV = "KILN_X_OAUTH2_ACCESS_TOKEN";
+const DEFAULT_X_REFRESH_TOKEN_ENV = "KILN_X_OAUTH2_REFRESH_TOKEN";
+const DEFAULT_X_CLIENT_ID_ENV = "KILN_X_CLIENT_ID";
+const DEFAULT_X_CLIENT_SECRET_ENV = "KILN_X_CLIENT_SECRET";
 
 export function createXReadAccessTokenRef(input: XReadAccessTokenRefInput = {}): SecretRef {
   return createSecretRef({
@@ -140,6 +147,33 @@ export function createXReadAccessTokenRef(input: XReadAccessTokenRefInput = {}):
           },
         }
       : {}),
+  });
+}
+
+export function createXOAuth2RefreshTokenRef(input: XOAuth2CredentialRefInput = {}): SecretRef {
+  return createSecretRef({
+    id: "x-oauth2-refresh-token",
+    purpose: "external-engagement:x:oauth2-refresh",
+    scopes: ["x:oauth2.refresh"],
+    source: { kind: "env", name: input.envName ?? DEFAULT_X_REFRESH_TOKEN_ENV },
+  });
+}
+
+export function createXOAuth2ClientIdRef(input: XOAuth2CredentialRefInput = {}): SecretRef {
+  return createSecretRef({
+    id: "x-oauth2-client-id",
+    purpose: "external-engagement:x:oauth2-client",
+    scopes: ["x:oauth2.token"],
+    source: { kind: "env", name: input.envName ?? DEFAULT_X_CLIENT_ID_ENV },
+  });
+}
+
+export function createXOAuth2ClientSecretRef(input: XOAuth2CredentialRefInput = {}): SecretRef {
+  return createSecretRef({
+    id: "x-oauth2-client-secret",
+    purpose: "external-engagement:x:oauth2-client",
+    scopes: ["x:oauth2.token"],
+    source: { kind: "env", name: input.envName ?? DEFAULT_X_CLIENT_SECRET_ENV },
   });
 }
 

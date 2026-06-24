@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_EVIDENCE_READ_EFFECT,
   buildExternalEvidenceReport,
+  createXOAuth2ClientIdRef,
+  createXOAuth2ClientSecretRef,
+  createXOAuth2RefreshTokenRef,
   createXReadAccessTokenRef,
   estimateXEvidenceRequestBudget,
   normalizeXPostReferences,
@@ -35,6 +38,27 @@ describe("X evidence source", () => {
         refreshSecretRefId: "x-oauth2-refresh-token",
         nextRefreshAt: "2026-06-24T01:30:00.000Z",
       },
+    });
+  });
+
+  it("declares X OAuth refresh credentials as provider-agnostic secret references", () => {
+    expect(createXOAuth2RefreshTokenRef({ envName: "MY_X_REFRESH_TOKEN" })).toEqual({
+      id: "x-oauth2-refresh-token",
+      purpose: "external-engagement:x:oauth2-refresh",
+      scopes: ["x:oauth2.refresh"],
+      source: { kind: "env", name: "MY_X_REFRESH_TOKEN" },
+    });
+    expect(createXOAuth2ClientIdRef({ envName: "MY_X_CLIENT_ID" })).toEqual({
+      id: "x-oauth2-client-id",
+      purpose: "external-engagement:x:oauth2-client",
+      scopes: ["x:oauth2.token"],
+      source: { kind: "env", name: "MY_X_CLIENT_ID" },
+    });
+    expect(createXOAuth2ClientSecretRef({ envName: "MY_X_CLIENT_SECRET" })).toEqual({
+      id: "x-oauth2-client-secret",
+      purpose: "external-engagement:x:oauth2-client",
+      scopes: ["x:oauth2.token"],
+      source: { kind: "env", name: "MY_X_CLIENT_SECRET" },
     });
   });
 
