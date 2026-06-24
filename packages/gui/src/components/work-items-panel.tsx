@@ -2,11 +2,14 @@ import { projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
 import type { WorkItemEntry } from "../lib/session-store.js";
 import { OperatorAvatar } from "./operator-avatar.js";
 import type { OperatorAvatarState } from "./operator-avatar.js";
+import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface WorkItemsPanelProps {
   readonly items: readonly WorkItemEntry[];
+  readonly onOpenResource?: (uri: string) => void;
 }
 
 function statusTone(status: string): string {
@@ -88,11 +91,27 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
                     {item.id} / {item.workflowProfile}
                     {item.surface ? ` / ${item.surface}` : ""}
                     {item.assignedAgentProfile ? ` / ${item.assignedAgentProfile}` : ""}
+                    {item.authorityProfile ? ` / ${item.authorityProfile}` : ""}
                   </p>
                 </div>
-                <Badge variant="outline" className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                  {evidenceLabel(item)}
-                </Badge>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
+                    {evidenceLabel(item)}
+                  </Badge>
+                  {item.resourceUri ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-xs"
+                      disabled={!props.onOpenResource}
+                      aria-label={`Open work item ${item.id} resource`}
+                      title={item.resourceUri}
+                      onClick={() => props.onOpenResource?.(item.resourceUri!)}
+                    >
+                      <ExternalLink aria-hidden="true" />
+                    </Button>
+                  ) : null}
+                </div>
               </div>
               {item.verificationGates.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-1.5">

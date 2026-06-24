@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { WorkItemsPanel } from "../src/components/work-items-panel.js";
 import type { WorkItemEntry } from "../src/lib/session-store.js";
 
@@ -64,5 +64,34 @@ describe("WorkItemsPanel", () => {
     expect(screen.getByText("credentials: Provide test service credentials")).toBeInTheDocument();
     expect(screen.getByText("managed delegation / started")).toBeInTheDocument();
     expect(screen.getByText("invocation-1")).toBeInTheDocument();
+  });
+
+  it("renders authority and opens the canonical work item resource", () => {
+    const onOpenResource = vi.fn();
+    const items: WorkItemEntry[] = [
+      {
+        id: "work-inspectable",
+        summary: "Audit work item inspectability",
+        status: "blocked",
+        workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
+        expectedEvidence: ["surface-map", "tests"],
+        providedEvidence: ["surface-map"],
+        verificationGates: ["bun run typecheck"],
+        missingEvidence: ["tests"],
+        missingResidualRisk: true,
+        resourceUri: "kiln://session/work-items/work-inspectable",
+        updatedAt: "2026-06-24T10:00:00.000Z",
+      },
+    ];
+
+    render(<WorkItemsPanel items={items} onOpenResource={onOpenResource} />);
+
+    expect(screen.getByLabelText("Work items")).toHaveTextContent("authority:foundation-readonly-plan");
+    expect(screen.getByLabelText("Work items")).toHaveTextContent("Missing: tests, residual-risk");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open work item work-inspectable resource" }));
+
+    expect(onOpenResource).toHaveBeenCalledWith("kiln://session/work-items/work-inspectable");
   });
 });

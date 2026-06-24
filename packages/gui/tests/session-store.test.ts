@@ -1548,6 +1548,7 @@ describe("session-store", () => {
     expect(items).toEqual([
       expect.objectContaining({
         id: "work-1",
+        resourceUri: "kiln://session/work-items/work-1",
         status: "completed",
         pauseRequirements: [
           expect.objectContaining({

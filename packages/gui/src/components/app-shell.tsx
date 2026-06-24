@@ -1385,21 +1385,21 @@ export function AppShell() {
       setActiveSurface("chat");
     }
   };
-  const openManagedAgentResource = async (uri: string): Promise<void> => {
+  const openResource = async (uri: string): Promise<void> => {
     const resourceWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
     if (!resourceWindow) {
-      setErrorBanner("Browser blocked the managed child resource window.");
+      setErrorBanner("Browser blocked the resource window.");
       return;
     }
     try {
       const dataUrl = await gatewayClient.loadResourceDataUrl(uri);
       if (!dataUrl) {
-        throw new Error("Managed child resource is not available.");
+        throw new Error("Resource is not available.");
       }
       resourceWindow.location.href = dataUrl;
     } catch (error) {
       resourceWindow.close();
-      setErrorBanner(error instanceof Error ? error.message : "Could not open managed child resource.");
+      setErrorBanner(error instanceof Error ? error.message : "Could not open resource.");
     }
   };
   const cancelManagedAgent = (input: { readonly sessionId: string; readonly invocationId: string }): void => {
@@ -1844,14 +1844,14 @@ export function AppShell() {
                 <WorkflowOverviewPanel entries={timelineEntries} />
               </div>
               <div className="min-h-0 overflow-hidden">
-                <WorkItemsPanel items={workItems} />
+                <WorkItemsPanel items={workItems} onOpenResource={(uri) => void openResource(uri)} />
               </div>
             </div>
           ) : workbenchSurface === "agents" ? (
             <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
               <ManagedAgentCockpitPanel
                 viewState={managedAgentCockpitView}
-                onOpenResource={(uri) => void openManagedAgentResource(uri)}
+                onOpenResource={(uri) => void openResource(uri)}
                 onCancel={cancelManagedAgent}
                 onPrompt={promptManagedAgent}
               />

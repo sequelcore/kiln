@@ -477,6 +477,58 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
+  it("opens canonical work item resources from the work surface", async () => {
+    const openedWindow = {
+      location: { href: "" },
+      close: vi.fn(),
+    };
+    vi.spyOn(window, "open").mockImplementation(() => openedWindow as unknown as Window);
+    useSessionStore.setState({
+      timelineEntries: [
+        ...useSessionStore.getState().timelineEntries,
+        {
+          id: "timeline:evt-work-update",
+          type: "event",
+          eventKind: "work_item_updated",
+          createdAt: "2026-06-24T10:00:00.000Z",
+          sequence: 3,
+          title: "Work item updated",
+          summary: "Inspect work item resource",
+          tone: "warning",
+          details: {
+            operation: "update",
+            workItem: {
+              id: "work-shell-resource",
+              summary: "Inspect work item resource",
+              status: "blocked",
+              workflowProfile: "verification-heavy",
+              authorityProfile: "authority:foundation-readonly-plan",
+              expectedEvidence: ["surface-map"],
+              providedEvidence: [],
+              verificationGates: ["bun test"],
+              updatedAt: "2026-06-24T10:00:00.000Z",
+            },
+          },
+        },
+      ],
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open work item work-shell-resource resource" }));
+
+    await waitFor(() => {
+      expect(loadResourceDataUrlMock).toHaveBeenCalledWith("kiln://session/work-items/work-shell-resource");
+    });
+    expect(openedWindow.location.href).toBe("data:text/plain;base64,b2s=");
+    expect(openedWindow.close).not.toHaveBeenCalled();
+  });
+
   it("opens managed agents as a main workbench surface and opens resources from the click gesture", async () => {
     const callOrder: string[] = [];
     const openedWindow = {

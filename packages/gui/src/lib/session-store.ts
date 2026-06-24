@@ -66,6 +66,7 @@ export interface ChangedFileEntry {
 
 export interface WorkItemEntry {
   readonly id: string;
+  readonly resourceUri?: string;
   readonly summary: string;
   readonly status: string;
   readonly workflowProfile: string;
@@ -407,6 +408,7 @@ function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | 
   const referenceRoots = readStringArray(item.referenceRoots);
   return {
     id,
+    resourceUri: `kiln://session/work-items/${encodeURIComponent(id)}`,
     summary,
     status,
     workflowProfile,

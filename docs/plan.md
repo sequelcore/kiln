@@ -64,6 +64,17 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    governed next tool chain, work item id, reason, evidence labels, required
    tools, and source resources from shared cockpit view state.
 
+4. Work-item visibility follow-up
+   - Make GUI work items expose their canonical resource URI from session event
+     state.
+   - Render the authority profile alongside workflow and surface metadata.
+   - Wire the Work surface to the shared resource opener so operators can open
+     `kiln://session/work-items/{id}` from the app, not only from tests.
+
+   Status: completed on 2026-06-24 for GUI work-item inspectability. The Work
+   surface now shows authority metadata, evidence gaps, and an inspectable
+   canonical work-item resource action backed by the gateway resource plane.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -77,6 +88,9 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/gui test tests/managed-agent-cockpit-panel.test.tsx`
 - Passed: `bun run --cwd packages/native test tests/managed-agent-cockpit-panel.test.tsx`
 - Passed: `bun run --cwd packages/tui test tests/managed-agent-cockpit.test.ts`
+- Passed: `bun run --cwd packages/gui test tests/work-items-panel.test.tsx`
+- Passed: `bun run --cwd packages/gui test tests/session-store.test.ts`
+- Passed: `bun run --cwd packages/gui test tests/app-shell-sidebar-modes.test.tsx`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice
