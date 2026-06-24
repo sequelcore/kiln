@@ -547,6 +547,10 @@ describe("operator cockpit read-only projection", () => {
             recordedAt: "2026-05-23T12:00:05.000Z",
           }],
           lifecycle: {
+            sourceResourceUris: [
+              "kiln://session/work-items/work-source",
+              "kiln://managed-invocations/evidence-child-1/context",
+            ],
             resourceLease: {
               leaseId: "evidence:child:1:resource-lease",
               createdAt: "2026-05-23T12:00:00.000Z",
@@ -596,8 +600,13 @@ describe("operator cockpit read-only projection", () => {
         uri: "kiln://managed-invocations/evidence-child-1/diagnostics",
         kind: "adapter",
       }],
+      sourceResourceUris: [
+        "kiln://managed-invocations/evidence-child-1/context",
+        "kiln://session/work-items/work-source",
+      ],
       evidenceResourceUris: [
         "kiln://managed-invocations/evidence-child-1/cleanup-diagnostic",
+        "kiln://managed-invocations/evidence-child-1/context",
         "kiln://managed-invocations/evidence-child-1/diagnostics",
         "kiln://managed-invocations/evidence-child-1/handoff",
         "kiln://managed-invocations/evidence-child-1/memory-proposal",
@@ -606,6 +615,7 @@ describe("operator cockpit read-only projection", () => {
         "kiln://managed-invocations/evidence-child-1/worktree-review",
         "kiln://managed-invocations/evidence-child-1/worktree-review-diagnostic",
         "kiln://managed-invocations/evidence-child-1/write-attempts/1",
+        "kiln://session/work-items/work-source",
       ],
     });
   });

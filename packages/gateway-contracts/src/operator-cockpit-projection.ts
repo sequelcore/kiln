@@ -171,6 +171,7 @@ export interface OperatorCockpitInvocationProjection {
   readonly promptAdmissionCount: number;
   readonly latestPromptAdmission?: OperatorCockpitInvocationPromptAdmissionProjection;
   readonly diagnosticPointers: readonly OperatorCockpitInvocationDiagnosticPointerProjection[];
+  readonly sourceResourceUris: readonly string[];
   readonly evidenceResourceUris: readonly string[];
   readonly eventCount: number;
   readonly latestEventId: string;
@@ -361,6 +362,7 @@ interface InvocationAccumulator {
   readonly sessionId: string;
   readonly target: OperatorCockpitActionTarget;
   readonly diagnosticPointers: Map<string, OperatorCockpitInvocationDiagnosticPointerProjection>;
+  readonly sourceResourceUris: Set<string>;
   readonly evidenceResourceUris: Set<string>;
   status: OperatorCockpitInvocationStatus;
   lifecycleState?: string;
@@ -746,6 +748,7 @@ function getOrCreateInvocation(
     sessionId: input.sessionId,
     target: input.target,
     diagnosticPointers: new Map<string, OperatorCockpitInvocationDiagnosticPointerProjection>(),
+    sourceResourceUris: new Set<string>(),
     evidenceResourceUris: new Set<string>(),
     promptAdmissions: new Map<string, OperatorCockpitInvocationPromptAdmissionProjection>(),
     status: "unknown",
@@ -846,6 +849,7 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     promptAdmissionCount: input.promptAdmissions.size,
     ...(latestAdmission !== undefined ? { latestPromptAdmission: latestAdmission } : {}),
     diagnosticPointers: Array.from(input.diagnosticPointers.values()).sort(compareDiagnosticPointers),
+    sourceResourceUris: Array.from(input.sourceResourceUris).sort(),
     evidenceResourceUris: Array.from(input.evidenceResourceUris).sort(),
     eventCount: input.eventCount,
     latestEventId: input.latestEventId,
@@ -1164,6 +1168,11 @@ function applyManagedInvocationEvidence(
     return;
   }
 
+  const lifecycle = asRecord(evidence.lifecycle);
+  const sourceResourceUris = readOptionalStringList(lifecycle.sourceResourceUris);
+  addSourceResourceUris(invocation, sourceResourceUris);
+  addEvidenceResourceUris(invocation, sourceResourceUris);
+
   const transcript = readInvocationTranscript(evidence.transcript);
   if (transcript) {
     invocation.transcript = transcript;
@@ -1466,6 +1475,17 @@ function addEvidenceResourceUris(
   for (const uri of resourceUris) {
     if (uri.trim().length > 0) {
       invocation.evidenceResourceUris.add(uri);
+    }
+  }
+}
+
+function addSourceResourceUris(
+  invocation: InvocationAccumulator,
+  resourceUris: readonly string[],
+): void {
+  for (const uri of resourceUris) {
+    if (uri.trim().length > 0) {
+      invocation.sourceResourceUris.add(uri);
     }
   }
 }
@@ -1833,6 +1853,7 @@ function managedToolMetadataPayload(
       timeoutMs,
       timeoutSource,
       resourceLease: Object.keys(resourceLease).length > 0 ? resourceLease : undefined,
+      sourceResourceUris: readStringArray(metadata.sourceResourceUris),
       diagnosticUris: readStringArray(metadata.diagnosticUris),
       handoffResourceUris: readStringArray(resultHandoff.resourceUris),
     }),

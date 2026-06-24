@@ -271,6 +271,7 @@ describe("operator cockpit read-only view state", () => {
                 memoryWriteProposalUris: [],
               },
               lifecycle: {
+                sourceResourceUris: ["kiln://session/work-items/managed-view-work"],
                 resourceLease: {
                   leaseId: "managed-view:child:review:lease",
                   createdAt: "2026-05-23T12:00:00.000Z",
@@ -314,6 +315,7 @@ describe("operator cockpit read-only view state", () => {
           "kiln://managed-invocations/managed-view-child-review/review-diagnostic",
           "kiln://managed-invocations/managed-view-child-review/transcript",
           "kiln://managed-invocations/managed-view-child-review/worktree",
+          "kiln://session/work-items/managed-view-work",
         ],
         lifecycleTimeline: [
           expect.objectContaining({

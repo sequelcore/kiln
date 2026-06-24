@@ -151,6 +151,17 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    now see both admitted source context and produced evidence from one
    canonical bundle.
 
+11. Operator cockpit source-resource closeout
+   - Preserve admitted source resource URIs in the shared managed invocation
+     cockpit projection.
+   - Include those source resources in UI-facing managed-agent resource lists
+     so GUI, native, TUI, replay, remote, IDE, and SDK consumers inherit the
+     same source/evidence visibility from gateway contracts.
+
+   Status: completed on 2026-06-24 for shared cockpit projection. Managed
+   invocation view state now carries source work-item/context resources through
+   the same read-only projection used by operator surfaces.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -175,6 +186,7 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun x tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --jsx react-jsx --skipLibCheck packages/sdk/tests/resource-exports.test.ts`
 - Passed: `bun run --cwd packages/sdk test tests/resource-exports.test.ts`
 - Passed: `bun run --cwd packages/runtime test tests/managed-agent/resource-provider.test.ts`
+- Passed: `bun run --cwd packages/gateway-contracts test tests/operator-cockpit-projection.test.ts tests/operator-cockpit-view-state.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice
