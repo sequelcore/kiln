@@ -50,6 +50,20 @@ kiln external-engagement x-report \
   --output ./.kiln/external-engagement/x-report.json
 ```
 
+Run a live read-only credential smoke check:
+
+```bash
+kiln external-engagement x-smoke \
+  --allow-live
+```
+
+`x-smoke` performs exactly one X API request to the authenticated user lookup
+endpoint and returns JSON with the credential reference id, authenticated user
+identity, request count, and rate-limit headers when X returns them. It never
+publishes, replies, likes, reposts, follows, reads DMs, or refreshes tokens.
+The `--allow-live` flag is mandatory so live paid API access cannot happen by
+accident.
+
 Input files are newline-delimited and may contain X URLs or post ids:
 
 ```text
@@ -112,6 +126,8 @@ The report budget is computed before network access from:
 
 Keep early runs small. Use `--dry-run` first and keep `--max-replies` explicit.
 Tests must use synthetic fixtures or mocked fetchers, not live X calls.
+Use `x-smoke --allow-live` only when intentionally validating a real X
+credential; it is bounded to one request.
 
 ## Architecture Boundary
 

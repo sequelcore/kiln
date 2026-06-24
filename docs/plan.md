@@ -1,3 +1,65 @@
+# X Live Smoke Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Add an explicitly gated, read-only X live smoke command that validates the
+configured X credential through the existing `SecretRef` resolver before
+continuing with broader external-engagement work. The smoke path must be
+bounded to one request, opt-in, scriptable, and secret-free.
+
+## Non-Goals
+
+- No live execution from default tests.
+- No posting, replying, liking, reposting, following, DMs, or write-capable
+  platform action.
+- No OAuth refresh execution.
+- No new secret-manager adapter.
+- No real operator research source URLs in docs or tests.
+
+## Scout Map
+
+- `packages/cli/src/commands/external-engagement.ts` owns the CLI surface and
+  X REST boundary.
+- `packages/cli/src/commands/external-engagement.test.ts` owns mocked command
+  coverage; live network calls must stay injected or manually invoked.
+- `docs/guides/external-engagement.md` owns operator guidance for the X pilot.
+- X official docs identify `/2/users/me` as the authenticated user lookup
+  endpoint and document rate-limit headers. The smoke should use that endpoint
+  because it proves token validity without inspecting conversations or writing.
+
+## Implementation Slices
+
+1. CLI command path
+   - Add `kiln external-engagement x-smoke --allow-live`.
+   - Reuse `createXReadAccessTokenRef` and `EnvSecretResolver`.
+   - Fail before credential resolution unless `--allow-live` is present.
+   - Return bounded JSON with request count, authenticated user identity, and
+     rate-limit metadata when present.
+
+2. Tests
+   - Prove `x-smoke` requires explicit live approval before credential
+     resolution.
+   - Prove approved smoke uses `SecretRef`, injects the smoke tester, and does
+     not expose token values.
+
+3. Documentation
+   - Document `x-smoke --allow-live` as manual live validation only.
+   - Keep public docs provider-neutral and read-only.
+
+## Verification
+
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+
+---
+
+# Earlier Historical Plans
+
 # X SecretRef Integration Plan
 
 Date: 2026-06-24

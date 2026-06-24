@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildExternalEvidenceReport, type ResolvedSecret, type SecretResolver } from "@kilnai/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { externalEngagementCommand, type XEvidenceFetcher } from "./external-engagement.js";
+import {
+  externalEngagementCommand,
+  type XEvidenceFetcher,
+  type XLiveSmokeResult,
+  type XLiveSmokeTester,
+} from "./external-engagement.js";
 
 const tempRoots: string[] = [];
 
@@ -230,6 +235,94 @@ describe("external engagement command", () => {
       writeSyntheticSourceList(101),
       "--dry-run",
     ])).rejects.toThrow(/supports at most 100 root X posts/u);
+  });
+
+  it("requires explicit live approval before X smoke credential resolution", async () => {
+    const credentialResolver: SecretResolver = {
+      resolve: vi.fn(),
+    };
+    const smokeTester: XLiveSmokeTester = {
+      smoke: vi.fn(),
+    };
+
+    await expect(externalEngagementCommand({} as never, "x-smoke", [], {
+      credentialResolver,
+      smokeTester,
+    })).rejects.toThrow(/x-smoke requires --allow-live/u);
+
+    expect(credentialResolver.resolve).not.toHaveBeenCalled();
+    expect(smokeTester.smoke).not.toHaveBeenCalled();
+  });
+
+  it("runs an explicitly approved X smoke check through secret refs without exposing token values", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const credentialResolver: SecretResolver = {
+      resolve: vi.fn<SecretResolver["resolve"]>(async (ref): Promise<ResolvedSecret> => ({
+        ref,
+        value: "synthetic-token-value",
+        diagnostic: {
+          refId: ref.id,
+          purpose: ref.purpose,
+          scopes: ref.scopes,
+          source: ref.source,
+          status: "available",
+          resolvedAt: "2026-06-24T00:00:00.000Z",
+          lifecycle: { status: "usable" },
+        },
+      })),
+    };
+    const smokeTester: XLiveSmokeTester = {
+      smoke: vi.fn(async ({ generatedAt, credentialRefId }): Promise<XLiveSmokeResult> => ({
+        source: "x",
+        operation: "credential-smoke",
+        status: "ok",
+        generatedAt,
+        credentialRefId,
+        requestCount: 1,
+        authenticatedUser: {
+          id: "1000000000000000000",
+          username: "example_author",
+          displayName: "Example Author",
+        },
+        rateLimit: {
+          limit: 75,
+          remaining: 74,
+          resetAt: "2026-06-24T00:15:00.000Z",
+        },
+      })),
+    };
+
+    await externalEngagementCommand({} as never, "x-smoke", [
+      "--allow-live",
+      "--access-token-env",
+      "MY_X_ACCESS_TOKEN",
+    ], {
+      credentialResolver,
+      smokeTester,
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+    });
+
+    expect(credentialResolver.resolve).toHaveBeenCalledWith({
+      id: "x-oauth2-access-token",
+      purpose: "external-engagement:x:read",
+      scopes: ["x:post.read", "x:user.read"],
+      source: { kind: "env", name: "MY_X_ACCESS_TOKEN" },
+    });
+    expect(smokeTester.smoke).toHaveBeenCalledWith({
+      accessToken: "synthetic-token-value",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      credentialRefId: "x-oauth2-access-token",
+    });
+    const output = String(log.mock.calls[0]?.[0]);
+    expect(JSON.parse(output)).toMatchObject({
+      source: "x",
+      operation: "credential-smoke",
+      status: "ok",
+      requestCount: 1,
+      authenticatedUser: { username: "example_author" },
+      rateLimit: { remaining: 74 },
+    });
+    expect(output).not.toContain("synthetic-token-value");
   });
 });
 

@@ -32,8 +32,34 @@ export interface XEvidenceFetcher {
   fetchEvidence(input: XEvidenceFetchInput): Promise<ExternalEvidenceReport>;
 }
 
+export interface XLiveSmokeInput {
+  readonly accessToken: string;
+  readonly generatedAt: string;
+  readonly credentialRefId: string;
+}
+
+export interface XLiveSmokeResult {
+  readonly source: "x";
+  readonly operation: "credential-smoke";
+  readonly status: "ok";
+  readonly generatedAt: string;
+  readonly credentialRefId: string;
+  readonly requestCount: 1;
+  readonly authenticatedUser: {
+    readonly id: string;
+    readonly username?: string;
+    readonly displayName?: string;
+  };
+  readonly rateLimit?: XRateLimitSnapshot;
+}
+
+export interface XLiveSmokeTester {
+  smoke(input: XLiveSmokeInput): Promise<XLiveSmokeResult>;
+}
+
 export interface ExternalEngagementCommandDependencies {
   readonly fetcher?: XEvidenceFetcher;
+  readonly smokeTester?: XLiveSmokeTester;
   readonly credentialResolver?: SecretResolver;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
@@ -49,6 +75,18 @@ interface XReportFlags {
   readonly accessTokenEnv: string;
 }
 
+interface XSmokeFlags {
+  readonly outputPath?: string;
+  readonly allowLive: boolean;
+  readonly accessTokenEnv: string;
+}
+
+interface XRateLimitSnapshot {
+  readonly limit?: number;
+  readonly remaining?: number;
+  readonly resetAt?: string;
+}
+
 export async function externalEngagementCommand(
   _config: KilnAppConfig,
   subcommand: string | undefined,
@@ -59,11 +97,15 @@ export async function externalEngagementCommand(
     printHelp();
     return;
   }
-  if (subcommand !== "x-report") {
-    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report.`);
+  if (subcommand !== "x-report" && subcommand !== "x-smoke") {
+    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report or x-smoke.`);
   }
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
+    return;
+  }
+  if (subcommand === "x-smoke") {
+    await runXSmoke(parseXSmokeFlags(args), dependencies);
     return;
   }
   await runXReport(parseXReportFlags(args), dependencies);
@@ -117,6 +159,29 @@ async function runXReport(
   printOrWrite(report, flags.outputPath);
 }
 
+async function runXSmoke(
+  flags: XSmokeFlags,
+  dependencies: ExternalEngagementCommandDependencies,
+): Promise<void> {
+  if (!flags.allowLive) {
+    throw new Error("external-engagement x-smoke requires --allow-live.");
+  }
+  const generatedAt = (dependencies.now?.() ?? new Date()).toISOString();
+  const accessTokenRef = createXReadAccessTokenRef({ envName: flags.accessTokenEnv });
+  const credentialResolver = dependencies.credentialResolver ?? new EnvSecretResolver({
+    env: dependencies.env,
+    now: dependencies.now,
+  });
+  const accessToken = await resolveAccessToken(credentialResolver, accessTokenRef, flags.accessTokenEnv);
+  const smokeTester = dependencies.smokeTester ?? new XApiLiveSmokeTester();
+  const result = await smokeTester.smoke({
+    accessToken,
+    generatedAt,
+    credentialRefId: accessTokenRef.id,
+  });
+  printOrWriteJson(result, flags.outputPath);
+}
+
 async function resolveAccessToken(
   credentialResolver: SecretResolver,
   ref: SecretRef,
@@ -154,6 +219,25 @@ export class XApiEvidenceFetcher implements XEvidenceFetcher {
       artifacts: [...rootPosts, ...replies],
       signals: [],
     });
+  }
+}
+
+export class XApiLiveSmokeTester implements XLiveSmokeTester {
+  async smoke(input: XLiveSmokeInput): Promise<XLiveSmokeResult> {
+    const response = await xGetWithRateLimit(input.accessToken, "https://api.x.com/2/users/me", {
+      "user.fields": "id,username,name",
+    });
+    const user = parseAuthenticatedUser(response.payload);
+    return {
+      source: "x",
+      operation: "credential-smoke",
+      status: "ok",
+      generatedAt: input.generatedAt,
+      credentialRefId: input.credentialRefId,
+      requestCount: 1,
+      authenticatedUser: user,
+      ...(response.rateLimit ? { rateLimit: response.rateLimit } : {}),
+    };
   }
 }
 
@@ -202,6 +286,33 @@ function parseXReportFlags(args: readonly string[]): XReportFlags {
   };
 }
 
+function parseXSmokeFlags(args: readonly string[]): XSmokeFlags {
+  let outputPath: string | undefined;
+  let allowLive = false;
+  let accessTokenEnv = "KILN_X_OAUTH2_ACCESS_TOKEN";
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--output") {
+      outputPath = readRequiredArg(args, index, "--output");
+      index += 1;
+    } else if (arg === "--access-token-env") {
+      accessTokenEnv = readRequiredArg(args, index, "--access-token-env");
+      index += 1;
+    } else if (arg === "--allow-live") {
+      allowLive = true;
+    } else {
+      throw new Error(`Unknown external-engagement x-smoke option '${arg}'.`);
+    }
+  }
+
+  return {
+    outputPath,
+    allowLive,
+    accessTokenEnv,
+  };
+}
+
 function readInputReferences(inputPath: string | undefined): readonly string[] {
   if (!inputPath) {
     return [];
@@ -214,7 +325,11 @@ function readInputReferences(inputPath: string | undefined): readonly string[] {
 }
 
 function printOrWrite(report: ExternalEvidenceReport, outputPath: string | undefined): void {
-  const body = `${JSON.stringify(report, null, 2)}\n`;
+  printOrWriteJson(report, outputPath);
+}
+
+function printOrWriteJson(value: unknown, outputPath: string | undefined): void {
+  const body = `${JSON.stringify(value, null, 2)}\n`;
   if (!outputPath) {
     console.log(body.trimEnd());
     return;
@@ -262,6 +377,14 @@ async function xGet(
   endpoint: string,
   params: Readonly<Record<string, string>>,
 ): Promise<unknown> {
+  return (await xGetWithRateLimit(accessToken, endpoint, params)).payload;
+}
+
+async function xGetWithRateLimit(
+  accessToken: string,
+  endpoint: string,
+  params: Readonly<Record<string, string>>,
+): Promise<{ readonly payload: unknown; readonly rateLimit?: XRateLimitSnapshot }> {
   const url = new URL(endpoint);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
@@ -275,7 +398,10 @@ async function xGet(
     const text = await response.text();
     throw new Error(`X API request failed (${response.status}): ${text}`);
   }
-  return response.json();
+  return {
+    payload: await response.json(),
+    ...parseRateLimitHeaders(response.headers),
+  };
 }
 
 function parseTweetArtifacts(
@@ -321,6 +447,38 @@ function parseTweetArtifact(
       : {}),
     metrics: parseMetrics(record.public_metrics),
     retrievedAt: new Date().toISOString(),
+  };
+}
+
+function parseAuthenticatedUser(payload: unknown): XLiveSmokeResult["authenticatedUser"] {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("X API authenticated user payload must be an object.");
+  }
+  const data = (payload as { readonly data?: unknown }).data;
+  if (!data || typeof data !== "object") {
+    throw new Error("X API authenticated user payload must include data.");
+  }
+  const record = data as Record<string, unknown>;
+  return {
+    id: requireString(record.id, "user.id"),
+    username: optionalString(record.username),
+    displayName: optionalString(record.name),
+  };
+}
+
+function parseRateLimitHeaders(headers: Headers): { readonly rateLimit?: XRateLimitSnapshot } {
+  const limit = optionalHeaderNumber(headers.get("x-rate-limit-limit"));
+  const remaining = optionalHeaderNumber(headers.get("x-rate-limit-remaining"));
+  const reset = optionalHeaderNumber(headers.get("x-rate-limit-reset"));
+  if (typeof limit !== "number" && typeof remaining !== "number" && typeof reset !== "number") {
+    return {};
+  }
+  return {
+    rateLimit: {
+      ...(typeof limit === "number" ? { limit } : {}),
+      ...(typeof remaining === "number" ? { remaining } : {}),
+      ...(typeof reset === "number" ? { resetAt: new Date(reset * 1000).toISOString() } : {}),
+    },
   };
 }
 
@@ -413,15 +571,25 @@ function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function optionalHeaderNumber(value: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
+}
+
 function printHelp(): void {
   console.log([
     "Usage:",
     "  kiln external-engagement x-report --url <x-url-or-id> [--url <x-url-or-id>...] [options]",
     "  kiln external-engagement x-report --input <path> [options]",
+    "  kiln external-engagement x-smoke --allow-live [options]",
     "",
     "Options:",
     "  --max-replies N          Maximum replies to fetch per root post (default: 25)",
     "  --dry-run                Print the planned bounded report without network access",
+    "  --allow-live             Required for x-smoke live network access",
     "  --output PATH            Write report JSON to PATH",
     "  --access-token-env NAME  Env var containing OAuth2 access token (default: KILN_X_OAUTH2_ACCESS_TOKEN)",
   ].join("\n"));
