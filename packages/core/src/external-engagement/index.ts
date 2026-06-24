@@ -24,6 +24,13 @@ export type CommunitySignalRecommendation = "adopt" | "adapt" | "reject" | "late
 
 export type CommunitySignalConfidence = "low" | "medium" | "high";
 
+export type CommunitySignalTheme =
+  | "agent_quality"
+  | "workflow_controls"
+  | "cost_control"
+  | "adoption_risk"
+  | "useful_outcome";
+
 export interface XPostReference {
   readonly platform: "x";
   readonly postId: string;
@@ -60,6 +67,7 @@ export interface ExternalEvidenceArtifact {
 
 export interface CommunitySignal {
   readonly kind: CommunitySignalKind;
+  readonly theme: CommunitySignalTheme;
   readonly summary: string;
   readonly evidenceArtifactIds: readonly string[];
   readonly recommendation: CommunitySignalRecommendation;
@@ -82,6 +90,7 @@ export interface FeatureCandidate {
   readonly title: string;
   readonly summary: string;
   readonly sourceSignalKinds: readonly CommunitySignalKind[];
+  readonly sourceThemes: readonly CommunitySignalTheme[];
   readonly evidenceArtifactIds: readonly string[];
   readonly recommendation: CommunitySignalRecommendation;
   readonly confidence: CommunitySignalConfidence;
@@ -93,6 +102,23 @@ export interface FeatureCandidateReport {
   readonly generatedAt: string;
   readonly sourceReportId: string;
   readonly candidates: readonly FeatureCandidate[];
+}
+
+export interface ExternalEngagementReviewItem {
+  readonly candidateId: string;
+  readonly title: string;
+  readonly recommendation: CommunitySignalRecommendation;
+  readonly confidence: CommunitySignalConfidence;
+  readonly evidenceArtifactIds: readonly string[];
+  readonly reviewPrompts: readonly string[];
+}
+
+export interface ExternalEngagementReviewReport {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly sourceCandidateReportId: string;
+  readonly items: readonly ExternalEngagementReviewItem[];
+  readonly markdown: string;
 }
 
 export interface XEvidenceRequestBudget {
@@ -275,28 +301,31 @@ export function buildExternalEvidenceReport(input: {
 export function extractCommunitySignalsFromEvidence(input: {
   readonly artifacts: readonly ExternalEvidenceArtifact[];
 }): readonly CommunitySignal[] {
-  const evidenceByKind = new Map<CommunitySignalKind, string[]>();
+  const evidenceByDefinitionId = new Map<string, string[]>();
   for (const artifact of input.artifacts) {
     const text = artifact.text.toLowerCase();
-    for (const definition of COMMUNITY_SIGNAL_DEFINITIONS) {
-      if (!definition.patterns.some((pattern) => pattern.test(text))) {
-        continue;
-      }
-      const existing = evidenceByKind.get(definition.kind) ?? [];
+    const matches = COMMUNITY_SIGNAL_DEFINITIONS
+      .filter((definition) => definition.patterns.some((pattern) => pattern.test(text)))
+      .sort((left, right) =>
+        left.selectionPriority - right.selectionPriority || left.selectionRank - right.selectionRank)
+      .slice(0, MAX_SIGNALS_PER_ARTIFACT);
+    for (const definition of matches) {
+      const existing = evidenceByDefinitionId.get(definition.id) ?? [];
       if (!existing.includes(artifact.artifactId)) {
         existing.push(artifact.artifactId);
       }
-      evidenceByKind.set(definition.kind, existing);
+      evidenceByDefinitionId.set(definition.id, existing);
     }
   }
 
   return Object.freeze(COMMUNITY_SIGNAL_DEFINITIONS.flatMap((definition): CommunitySignal[] => {
-    const evidenceArtifactIds = evidenceByKind.get(definition.kind) ?? [];
+    const evidenceArtifactIds = evidenceByDefinitionId.get(definition.id) ?? [];
     if (evidenceArtifactIds.length === 0) {
       return [];
     }
     return [{
       kind: definition.kind,
+      theme: definition.theme,
       summary: definition.summary,
       evidenceArtifactIds: Object.freeze([...evidenceArtifactIds]),
       recommendation: definition.recommendation,
@@ -315,7 +344,29 @@ export function buildFeatureCandidateReport(input: {
     reportId: requireNonEmpty(input.reportId, "reportId"),
     generatedAt: requireNonEmpty(input.generatedAt, "generatedAt"),
     sourceReportId: requireNonEmpty(input.sourceReportId, "sourceReportId"),
-    candidates: Object.freeze(input.signals.map((signal) => buildFeatureCandidate(signal))),
+    candidates: Object.freeze(groupSignalsByTheme(input.signals).map((signals) => buildFeatureCandidate(signals))),
+  });
+}
+
+export function buildExternalEngagementReviewReport(input: {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly candidateReport: FeatureCandidateReport;
+}): ExternalEngagementReviewReport {
+  const items = input.candidateReport.candidates.map((candidate): ExternalEngagementReviewItem => ({
+    candidateId: candidate.id,
+    title: candidate.title,
+    recommendation: candidate.recommendation,
+    confidence: candidate.confidence,
+    evidenceArtifactIds: Object.freeze([...candidate.evidenceArtifactIds]),
+    reviewPrompts: REVIEW_PROMPTS,
+  }));
+  return Object.freeze({
+    reportId: requireNonEmpty(input.reportId, "reportId"),
+    generatedAt: requireNonEmpty(input.generatedAt, "generatedAt"),
+    sourceCandidateReportId: input.candidateReport.reportId,
+    items: Object.freeze(items),
+    markdown: renderExternalEngagementReviewMarkdown(input.candidateReport, items),
   });
 }
 
@@ -339,48 +390,102 @@ function parseXPostReference(value: string): XPostReference {
 }
 
 const COMMUNITY_SIGNAL_DEFINITIONS: readonly {
+  readonly id: string;
   readonly kind: CommunitySignalKind;
+  readonly theme: CommunitySignalTheme;
   readonly summary: string;
   readonly recommendation: CommunitySignalRecommendation;
   readonly patterns: readonly RegExp[];
+  readonly selectionPriority: number;
+  readonly selectionRank: number;
 }[] = Object.freeze([
   {
+    id: "agent-quality-pain",
     kind: "pain_point",
-    summary: "Evidence reports agent or workflow failure, friction, cost, or low-quality output.",
+    theme: "agent_quality",
+    summary: "Evidence reports agent or workflow failure, friction, or low-quality output.",
     recommendation: "adapt",
-    patterns: [/fail/u, /friction/u, /cost/u, /paid/u, /risk/u, /risky/u, /slop/u, /useless/u, /confusing/u, /slow/u],
+    patterns: [/fail/u, /friction/u, /slop/u, /useless/u, /confusing/u, /slow/u],
+    selectionPriority: 10,
+    selectionRank: 10,
   },
   {
-    kind: "feature_request",
-    summary: "Evidence asks for an added capability, support path, or product workflow.",
-    recommendation: "adapt",
-    patterns: [/\bneed\b/u, /\bneeds\b/u, /\bwant\b/u, /\bwish\b/u, /\bshould\b/u, /\bcould\b/u, /\bwould\b/u, /\badd\b/u, /\bsupport\b/u],
+    id: "workflow-controls-pattern",
+    kind: "workflow_pattern",
+    theme: "workflow_controls",
+    summary: "Evidence describes repeatable process controls such as plans, review gates, tests, guardrails, or loops.",
+    recommendation: "adopt",
+    patterns: [/\bprocess\b/u, /\breview\b/u, /\bgate\b/u, /\btest\b/u, /\bguardrail/u, /\bplan/u, /\bplanning\b/u, /\bloop\b/u],
+    selectionPriority: 20,
+    selectionRank: 30,
   },
   {
+    id: "cost-control-pain",
+    kind: "pain_point",
+    theme: "cost_control",
+    summary: "Evidence highlights cost, paid API, cache, budget, or spend-control pressure.",
+    recommendation: "adapt",
+    patterns: [/\bcost\b/u, /\bpaid\b/u, /\bbudget\b/u, /\bspend\b/u, /\brisky\b/u],
+    selectionPriority: 10,
+    selectionRank: 20,
+  },
+  {
+    id: "cost-control-workflow",
+    kind: "workflow_pattern",
+    theme: "cost_control",
+    summary: "Evidence describes cache or budget controls as part of repeatable research workflow.",
+    recommendation: "adopt",
+    patterns: [/\bcache\b/u, /\bcached\b/u, /\bbudget\b/u, /\bpaid\b/u],
+    selectionPriority: 20,
+    selectionRank: 20,
+  },
+  {
+    id: "adoption-risk-objection",
     kind: "objection",
+    theme: "adoption_risk",
     summary: "Evidence raises concerns, tradeoffs, objections, or reasons not to adopt blindly.",
     recommendation: "later",
     patterns: [/\bbut\b/u, /\bhowever\b/u, /\bconcern/u, /\bwhy\b/u, /\bworst\b/u, /\boverengineer/u, /\btradeoff/u],
+    selectionPriority: 30,
+    selectionRank: 40,
   },
   {
-    kind: "workflow_pattern",
-    summary: "Evidence describes repeatable process controls such as plans, review gates, tests, guardrails, or caches.",
-    recommendation: "adopt",
-    patterns: [/\bworkflow\b/u, /\bprocess\b/u, /\breview\b/u, /\bgate\b/u, /\btest\b/u, /\bguardrail/u, /\bplan/u, /\bloop\b/u, /\bcache/u, /\bcached\b/u],
-  },
-  {
+    id: "useful-outcome-validation",
     kind: "validation_evidence",
+    theme: "useful_outcome",
     summary: "Evidence reports useful outcomes, found issues, shipped work, or practical validation.",
     recommendation: "adapt",
     patterns: [/\buseful\b/u, /\bfound\b/u, /\bfixed\b/u, /\bshipped\b/u, /\bworks\b/u, /\bvalidated\b/u],
+    selectionPriority: 30,
+    selectionRank: 50,
+  },
+  {
+    id: "feature-request",
+    kind: "feature_request",
+    theme: "workflow_controls",
+    summary: "Evidence asks for an added capability, support path, or product workflow.",
+    recommendation: "adapt",
+    patterns: [/\bneed\b/u, /\bneeds\b/u, /\bwant\b/u, /\bwish\b/u, /\bshould\b/u, /\bcould\b/u, /\bwould\b/u, /\badd\b/u, /\bsupport\b/u],
+    selectionPriority: 40,
+    selectionRank: 60,
   },
 ]);
 
-function buildFeatureCandidate(signal: CommunitySignal): FeatureCandidate {
+const MAX_SIGNALS_PER_ARTIFACT = 2;
+
+const REVIEW_PROMPTS: readonly string[] = Object.freeze([
+  "Does this candidate solve a public Kiln user need, not only an internal Sequel workflow?",
+  "Can this be implemented through core domain contracts before provider adapters?",
+  "What would make this safe to reject, defer, or narrow?",
+]);
+
+function buildFeatureCandidate(signals: readonly CommunitySignal[]): FeatureCandidate {
+  const primary = signals[0]!;
+  const evidenceArtifactIds = unique(signals.flatMap((signal) => signal.evidenceArtifactIds));
   const standardsAssessment: FeatureCandidateStandardsAssessment = {
-    publicValue: signal.evidenceArtifactIds.length > 0 ? "community-grounded" : "unclear",
+    publicValue: evidenceArtifactIds.length > 0 ? "community-grounded" : "unclear",
     architectureFit: "core-domain-first",
-    implementationRisk: signal.kind === "objection" ? "high" : "medium",
+    implementationRisk: signals.some((signal) => signal.kind === "objection") ? "high" : "medium",
     notes: Object.freeze([
       "Keep source evidence separate from write-capable actions.",
       "Prefer pure domain contracts before provider adapters.",
@@ -388,31 +493,93 @@ function buildFeatureCandidate(signal: CommunitySignal): FeatureCandidate {
     ]),
   };
   return Object.freeze({
-    id: `candidate-${signal.kind.replaceAll("_", "-")}`,
-    title: featureCandidateTitle(signal.kind),
-    summary: signal.summary,
-    sourceSignalKinds: Object.freeze([signal.kind]),
-    evidenceArtifactIds: Object.freeze([...signal.evidenceArtifactIds]),
-    recommendation: signal.recommendation,
-    confidence: signal.confidence,
+    id: `candidate-${primary.theme.replaceAll("_", "-")}`,
+    title: featureCandidateTitle(primary.theme),
+    summary: primary.summary,
+    sourceSignalKinds: unique(signals.map((signal) => signal.kind)),
+    sourceThemes: Object.freeze([primary.theme]),
+    evidenceArtifactIds,
+    recommendation: strongestRecommendation(signals.map((signal) => signal.recommendation)),
+    confidence: strongestConfidence([...signals.map((signal) => signal.confidence), evidenceArtifactIds.length >= 2 ? "medium" : "low"]),
     standardsAssessment,
   });
 }
 
-function featureCandidateTitle(kind: CommunitySignalKind): string {
-  if (kind === "pain_point") {
-    return "Governed pain point support";
+function groupSignalsByTheme(signals: readonly CommunitySignal[]): readonly (readonly CommunitySignal[])[] {
+  const byTheme = new Map<CommunitySignalTheme, CommunitySignal[]>();
+  for (const signal of signals) {
+    byTheme.set(signal.theme, [...(byTheme.get(signal.theme) ?? []), signal]);
   }
-  if (kind === "feature_request") {
-    return "Evidence-backed feature request support";
+  return Object.freeze([...byTheme.values()].map((group) => Object.freeze([...group])));
+}
+
+function unique<T>(values: readonly T[]): readonly T[] {
+  return Object.freeze([...new Set(values)]);
+}
+
+function strongestRecommendation(
+  recommendations: readonly CommunitySignalRecommendation[],
+): CommunitySignalRecommendation {
+  for (const recommendation of ["adopt", "adapt", "later", "reject"] as const) {
+    if (recommendations.includes(recommendation)) {
+      return recommendation;
+    }
   }
-  if (kind === "objection") {
-    return "Objection and risk review support";
+  return "later";
+}
+
+function strongestConfidence(confidences: readonly CommunitySignalConfidence[]): CommunitySignalConfidence {
+  if (confidences.includes("high")) {
+    return "high";
   }
-  if (kind === "workflow_pattern") {
+  if (confidences.includes("medium")) {
+    return "medium";
+  }
+  return "low";
+}
+
+function featureCandidateTitle(theme: CommunitySignalTheme): string {
+  if (theme === "agent_quality") {
+    return "Agent quality and reliability support";
+  }
+  if (theme === "workflow_controls") {
     return "Governed workflow pattern support";
   }
+  if (theme === "cost_control") {
+    return "Cost-aware evidence workflow support";
+  }
+  if (theme === "adoption_risk") {
+    return "Objection and risk review support";
+  }
   return "Validation evidence support";
+}
+
+function renderExternalEngagementReviewMarkdown(
+  candidateReport: FeatureCandidateReport,
+  items: readonly ExternalEngagementReviewItem[],
+): string {
+  const lines = [
+    "# External Engagement Review",
+    "",
+    `Source candidate report: ${candidateReport.reportId}`,
+  ];
+  for (const item of items) {
+    const candidate = candidateReport.candidates.find((entry) => entry.id === item.candidateId);
+    lines.push(
+      "",
+      `## ${item.title}`,
+      "",
+      `- Candidate: ${item.candidateId}`,
+      `- Recommendation: ${item.recommendation}`,
+      `- Confidence: ${item.confidence}`,
+      `- Evidence artifacts: ${item.evidenceArtifactIds.join(", ")}`,
+      `- Themes: ${(candidate?.sourceThemes ?? []).join(", ")}`,
+      "",
+      "Review prompts:",
+      ...item.reviewPrompts.map((prompt) => `- ${prompt}`),
+    );
+  }
+  return lines.join("\n");
 }
 
 function batchCount(count: number, batchSize: number): number {

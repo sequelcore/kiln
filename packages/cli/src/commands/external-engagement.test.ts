@@ -745,11 +745,56 @@ describe("external engagement command", () => {
       sourceReportId: "source-report-1",
     });
     expect(candidates.candidates).toEqual(expect.arrayContaining([expect.objectContaining({
-        id: "candidate-pain-point",
+        id: "candidate-agent-quality",
         recommendation: "adapt",
         evidenceArtifactIds: ["1000000000000000001"],
     })]));
     expect(log.mock.calls[0]?.[0]).toBe(`External engagement feature candidates written: ${outputPath}`);
+  });
+
+  it("builds an operator review report from existing candidates without exposing source text", async () => {
+    const root = tempRoot();
+    const candidatesPath = join(root, "x-candidates.json");
+    const outputPath = join(root, "x-review.md");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    writeFileSync(candidatesPath, JSON.stringify({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "source-report-1",
+      candidates: [{
+        id: "candidate-agent-quality",
+        title: "Agent quality and reliability support",
+        summary: "Do not expose this source-derived summary in the default review.",
+        sourceSignalKinds: ["pain_point"],
+        sourceThemes: ["agent_quality"],
+        evidenceArtifactIds: ["1000000000000000001"],
+        recommendation: "adapt",
+        confidence: "low",
+        standardsAssessment: {
+          publicValue: "community-grounded",
+          architectureFit: "core-domain-first",
+          implementationRisk: "medium",
+          notes: [],
+        },
+      }],
+    }, null, 2), "utf-8");
+
+    await externalEngagementCommand({} as never, "x-review", [
+      "--candidates",
+      candidatesPath,
+      "--output",
+      outputPath,
+    ], {
+      now: () => new Date("2026-06-24T01:00:00.000Z"),
+      reportId: () => "review-report-1",
+    });
+
+    const markdown = readFileSync(outputPath, "utf-8");
+    expect(markdown).toContain("# External Engagement Review");
+    expect(markdown).toContain("candidate-agent-quality");
+    expect(markdown).toContain("1000000000000000001");
+    expect(markdown).not.toContain("Do not expose this source-derived summary");
+    expect(log.mock.calls[0]?.[0]).toBe(`External engagement review written: ${outputPath}`);
   });
 });
 

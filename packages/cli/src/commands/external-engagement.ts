@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  buildExternalEngagementReviewReport,
   buildExternalEvidenceReport,
   buildFeatureCandidateReport,
   createXOAuth2ClientIdRef,
@@ -146,6 +147,11 @@ interface XCandidatesFlags {
   readonly outputPath?: string;
 }
 
+interface XReviewFlags {
+  readonly candidatesPath?: string;
+  readonly outputPath?: string;
+}
+
 interface XRateLimitSnapshot {
   readonly limit?: number;
   readonly remaining?: number;
@@ -162,8 +168,8 @@ export async function externalEngagementCommand(
     printHelp();
     return;
   }
-  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh" && subcommand !== "x-candidates") {
-    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, x-refresh, or x-candidates.`);
+  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh" && subcommand !== "x-candidates" && subcommand !== "x-review") {
+    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, x-refresh, x-candidates, or x-review.`);
   }
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -179,6 +185,10 @@ export async function externalEngagementCommand(
   }
   if (subcommand === "x-candidates") {
     await runXCandidates(parseXCandidatesFlags(args), dependencies);
+    return;
+  }
+  if (subcommand === "x-review") {
+    await runXReview(parseXReviewFlags(args), dependencies);
     return;
   }
   await runXReport(parseXReportFlags(args), dependencies);
@@ -362,6 +372,24 @@ async function runXCandidates(
     signals,
   });
   printOrWriteFeatureCandidateReport(candidateReport, flags.outputPath);
+}
+
+async function runXReview(
+  flags: XReviewFlags,
+  dependencies: ExternalEngagementCommandDependencies,
+): Promise<void> {
+  if (!flags.candidatesPath) {
+    throw new Error("external-engagement x-review requires --candidates.");
+  }
+  const candidateReport = parseFeatureCandidateReport(readJsonFile(flags.candidatesPath), flags.candidatesPath);
+  const generatedAt = (dependencies.now?.() ?? new Date()).toISOString();
+  const reportId = dependencies.reportId?.() ?? `external-engagement-review-${generatedAt.replace(/[:.]/gu, "-")}`;
+  const review = buildExternalEngagementReviewReport({
+    reportId,
+    generatedAt,
+    candidateReport,
+  });
+  printOrWriteReviewMarkdown(review.markdown, flags.outputPath);
 }
 
 async function resolveAccessToken(
@@ -603,6 +631,29 @@ function parseXCandidatesFlags(args: readonly string[]): XCandidatesFlags {
   };
 }
 
+function parseXReviewFlags(args: readonly string[]): XReviewFlags {
+  let candidatesPath: string | undefined;
+  let outputPath: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--candidates") {
+      candidatesPath = readRequiredArg(args, index, "--candidates");
+      index += 1;
+    } else if (arg === "--output") {
+      outputPath = readRequiredArg(args, index, "--output");
+      index += 1;
+    } else {
+      throw new Error(`Unknown external-engagement x-review option '${arg}'.`);
+    }
+  }
+
+  return {
+    candidatesPath,
+    outputPath,
+  };
+}
+
 function readInputReferences(inputPath: string | undefined): readonly string[] {
   if (!inputPath) {
     return [];
@@ -637,6 +688,16 @@ function printOrWriteFeatureCandidateReport(report: FeatureCandidateReport, outp
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
   console.log(`External engagement feature candidates written: ${outputPath}`);
+}
+
+function printOrWriteReviewMarkdown(markdown: string, outputPath: string | undefined): void {
+  if (!outputPath) {
+    console.log(markdown);
+    return;
+  }
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${markdown}\n`, "utf-8");
+  console.log(`External engagement review written: ${outputPath}`);
 }
 
 function writeSecretJson(outputPath: string, value: unknown): void {
@@ -808,6 +869,21 @@ function parseExternalEvidenceReport(payload: unknown, path: string): ExternalEv
   return record as ExternalEvidenceReport;
 }
 
+function parseFeatureCandidateReport(payload: unknown, path: string): FeatureCandidateReport {
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Feature candidate report must be an object: ${path}`);
+  }
+  const record = payload as Partial<FeatureCandidateReport>;
+  if (
+    typeof record.reportId !== "string"
+    || typeof record.sourceReportId !== "string"
+    || !Array.isArray(record.candidates)
+  ) {
+    throw new Error(`Invalid feature candidate report: ${path}`);
+  }
+  return record as FeatureCandidateReport;
+}
+
 function parseScopeList(value: unknown): readonly string[] | undefined {
   if (typeof value !== "string" || value.trim().length === 0) {
     return undefined;
@@ -936,6 +1012,7 @@ function printHelp(): void {
     "  kiln external-engagement x-smoke --allow-live [options]",
     "  kiln external-engagement x-refresh --allow-live --secret-output <path> [options]",
     "  kiln external-engagement x-candidates --report <path> [options]",
+    "  kiln external-engagement x-review --candidates <path> [options]",
     "",
     "Options:",
     "  --max-replies N          Maximum replies to fetch per root post (default: 25)",
@@ -948,6 +1025,7 @@ function printHelp(): void {
     "  --refresh-cache          Bypass cache reads and replace the cached x-report",
     "  --output PATH            Write report JSON to PATH",
     "  --report PATH            Read an existing x-report JSON for x-candidates",
+    "  --candidates PATH        Read an existing x-candidates JSON for x-review",
     "  --access-token-env NAME  Env var containing OAuth2 access token (default: KILN_X_OAUTH2_ACCESS_TOKEN)",
     "  --refresh-token-env NAME Env var containing OAuth2 refresh token (default: KILN_X_OAUTH2_REFRESH_TOKEN)",
     "  --client-id-env NAME     Env var containing OAuth2 client id (default: KILN_X_CLIENT_ID)",

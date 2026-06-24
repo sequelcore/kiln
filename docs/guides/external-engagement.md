@@ -114,8 +114,24 @@ kiln external-engagement x-candidates \
 `x-candidates` is an offline transformation. It reads a prior `x-report`,
 extracts conservative community signals when the report does not already
 contain signals, and produces feature candidates with source signal kinds,
-evidence artifact ids, recommendation, confidence, and engineering-standards
-assessment. It does not resolve credentials or call external APIs.
+themes, evidence artifact ids, recommendation, confidence, and
+engineering-standards assessment. Signals are grouped by theme and each
+evidence artifact contributes to at most two signal groups to avoid noisy
+candidate fan-out. It does not resolve credentials or call external APIs.
+
+Build a review-friendly Markdown report from candidates:
+
+```bash
+kiln external-engagement x-review \
+  --candidates ./.kiln/external-engagement/x-candidates.json \
+  --output ./.kiln/external-engagement/x-review.md
+```
+
+`x-review` is also offline. The default Markdown review includes candidate
+title, recommendation, confidence, evidence artifact ids, themes, and review
+prompts. It does not include full artifact text by default, so private source
+details stay in the underlying evidence report unless the operator explicitly
+chooses to disclose them.
 
 Input files are newline-delimited and may contain X URLs or post ids:
 
@@ -208,6 +224,8 @@ Use `x-refresh --allow-live` only when intentionally rotating real OAuth 2.0
 credentials; refresh tokens may be replaced by the provider response.
 Use `x-candidates` for repeated analysis of an existing report because it is
 offline and does not consume X API credits.
+Use `x-review` when discussing candidates with operators or maintainers because
+it is review-oriented and avoids copying full source text by default.
 
 ## Architecture Boundary
 

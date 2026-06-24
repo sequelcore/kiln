@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_EVIDENCE_READ_EFFECT,
+  buildExternalEngagementReviewReport,
   buildExternalEvidenceReport,
   buildFeatureCandidateReport,
   createXOAuth2ClientIdRef,
@@ -170,27 +171,39 @@ describe("X evidence source", () => {
     expect(signals).toEqual([
       {
         kind: "pain_point",
-        summary: "Evidence reports agent or workflow failure, friction, cost, or low-quality output.",
-        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+        theme: "agent_quality",
+        summary: "Evidence reports agent or workflow failure, friction, or low-quality output.",
+        evidenceArtifactIds: ["1000000000000000001"],
         recommendation: "adapt",
-        confidence: "medium",
-      },
-      {
-        kind: "feature_request",
-        summary: "Evidence asks for an added capability, support path, or product workflow.",
-        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
-        recommendation: "adapt",
-        confidence: "medium",
+        confidence: "low",
       },
       {
         kind: "workflow_pattern",
-        summary: "Evidence describes repeatable process controls such as plans, review gates, tests, guardrails, or caches.",
-        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002", "1000000000000000003"],
+        theme: "workflow_controls",
+        summary: "Evidence describes repeatable process controls such as plans, review gates, tests, guardrails, or loops.",
+        evidenceArtifactIds: ["1000000000000000001", "1000000000000000003"],
         recommendation: "adopt",
         confidence: "medium",
       },
       {
+        kind: "pain_point",
+        theme: "cost_control",
+        summary: "Evidence highlights cost, paid API, cache, budget, or spend-control pressure.",
+        evidenceArtifactIds: ["1000000000000000002"],
+        recommendation: "adapt",
+        confidence: "low",
+      },
+      {
+        kind: "workflow_pattern",
+        theme: "cost_control",
+        summary: "Evidence describes cache or budget controls as part of repeatable research workflow.",
+        evidenceArtifactIds: ["1000000000000000002"],
+        recommendation: "adopt",
+        confidence: "low",
+      },
+      {
         kind: "validation_evidence",
+        theme: "useful_outcome",
         summary: "Evidence reports useful outcomes, found issues, shipped work, or practical validation.",
         evidenceArtifactIds: ["1000000000000000003"],
         recommendation: "adapt",
@@ -202,6 +215,7 @@ describe("X evidence source", () => {
   it("builds feature candidates from signals against long-term engineering standards", () => {
     const signal = {
       kind: "workflow_pattern" as const,
+      theme: "workflow_controls" as const,
       summary: "Evidence asks for review gates and cached evidence workflows.",
       evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
       recommendation: "adopt" as const,
@@ -220,10 +234,11 @@ describe("X evidence source", () => {
       generatedAt: "2026-06-24T00:00:00.000Z",
       sourceReportId: "evidence-report-1",
       candidates: [{
-        id: "candidate-workflow-pattern",
+        id: "candidate-workflow-controls",
         title: "Governed workflow pattern support",
         summary: "Evidence asks for review gates and cached evidence workflows.",
         sourceSignalKinds: ["workflow_pattern"],
+        sourceThemes: ["workflow_controls"],
         evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
         recommendation: "adopt",
         confidence: "medium",
@@ -239,6 +254,115 @@ describe("X evidence source", () => {
         },
       }],
     });
+  });
+
+  it("merges multiple signals for the same theme into one feature candidate", () => {
+    const report = buildFeatureCandidateReport({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "evidence-report-1",
+      signals: [
+        {
+          kind: "workflow_pattern",
+          theme: "workflow_controls",
+          summary: "Evidence asks for review gates.",
+          evidenceArtifactIds: ["1000000000000000001"],
+          recommendation: "adopt",
+          confidence: "low",
+        },
+        {
+          kind: "feature_request",
+          theme: "workflow_controls",
+          summary: "Evidence asks for product support.",
+          evidenceArtifactIds: ["1000000000000000002"],
+          recommendation: "adapt",
+          confidence: "low",
+        },
+      ],
+    });
+
+    expect(report.candidates).toEqual([expect.objectContaining({
+      id: "candidate-workflow-controls",
+      summary: "Evidence asks for review gates.",
+      sourceSignalKinds: ["workflow_pattern", "feature_request"],
+      sourceThemes: ["workflow_controls"],
+      evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+      recommendation: "adopt",
+      confidence: "medium",
+    })]);
+  });
+
+  it("limits noisy artifact fan-out when evidence matches many signal keywords", () => {
+    const signals = extractCommunitySignalsFromEvidence({
+      artifacts: [
+        syntheticArtifact(
+          "1000000000000000001",
+          "We need a review gate because the loop failed and maybe should add support.",
+        ),
+      ],
+    });
+
+    expect(signals.flatMap((signal) => signal.evidenceArtifactIds)).toHaveLength(2);
+    expect(signals.map((signal) => signal.theme)).toEqual(["agent_quality", "workflow_controls"]);
+  });
+
+  it("builds a review report without exposing full artifact text by default", () => {
+    const candidateReport = buildFeatureCandidateReport({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "evidence-report-1",
+      signals: [{
+        kind: "pain_point",
+        theme: "agent_quality",
+        summary: "Evidence reports agent failures.",
+        evidenceArtifactIds: ["1000000000000000001"],
+        recommendation: "adapt",
+        confidence: "low",
+      }],
+    });
+
+    const review = buildExternalEngagementReviewReport({
+      reportId: "review-report-1",
+      generatedAt: "2026-06-24T00:05:00.000Z",
+      candidateReport,
+    });
+
+    expect(review).toEqual({
+      reportId: "review-report-1",
+      generatedAt: "2026-06-24T00:05:00.000Z",
+      sourceCandidateReportId: "candidate-report-1",
+      items: [{
+        candidateId: "candidate-agent-quality",
+        title: "Agent quality and reliability support",
+        recommendation: "adapt",
+        confidence: "low",
+        evidenceArtifactIds: ["1000000000000000001"],
+        reviewPrompts: [
+          "Does this candidate solve a public Kiln user need, not only an internal Sequel workflow?",
+          "Can this be implemented through core domain contracts before provider adapters?",
+          "What would make this safe to reject, defer, or narrow?",
+        ],
+      }],
+      markdown: [
+        "# External Engagement Review",
+        "",
+        "Source candidate report: candidate-report-1",
+        "",
+        "## Agent quality and reliability support",
+        "",
+        "- Candidate: candidate-agent-quality",
+        "- Recommendation: adapt",
+        "- Confidence: low",
+        "- Evidence artifacts: 1000000000000000001",
+        "- Themes: agent_quality",
+        "",
+        "Review prompts:",
+        "- Does this candidate solve a public Kiln user need, not only an internal Sequel workflow?",
+        "- Can this be implemented through core domain contracts before provider adapters?",
+        "- What would make this safe to reject, defer, or narrow?",
+      ].join("\n"),
+    });
+    expect(review.markdown).not.toContain("Evidence reports agent failures.");
   });
 });
 

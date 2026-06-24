@@ -1,3 +1,67 @@
+# X Signal Quality And Review Report Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Improve the X pilot's product usefulness after the first candidate report by
+reducing noisy signal fan-out, grouping candidates by durable themes, and
+adding an offline operator review report that is safe to discuss without
+copying full source text.
+
+## Non-Goals
+
+- No additional X API calls.
+- No LLM-dependent extraction.
+- No real source URLs, handles, ids, or artifact text in public docs/tests.
+- No operator decision persistence yet.
+- No write-capable engagement.
+
+## Scout Map
+
+- `packages/core/src/external-engagement/index.ts` owns signal grouping,
+  candidate consolidation, and review report construction.
+- `packages/cli/src/commands/external-engagement.ts` owns `x-review` as an
+  offline transformation from candidate JSON to Markdown.
+- `docs/guides/external-engagement.md` owns public operator guidance for the
+  offline analysis/review workflow.
+
+## Implementation Slices
+
+1. Signal quality
+   - Add stable signal themes.
+   - Limit each evidence artifact to at most two signal groups.
+   - Preserve evidence ids while avoiding repeated candidates from one noisy
+     artifact.
+
+2. Candidate consolidation
+   - Merge multiple signals for the same theme into one candidate.
+   - Preserve source signal kinds and unique evidence artifact ids.
+
+3. Review report
+   - Add a core review report model and Markdown rendering.
+   - Add `x-review --candidates --output` as an offline CLI command.
+   - Exclude full artifact text from the default review output.
+
+## Verification
+
+- Passed: `bun run --cwd packages/core test tests/external-engagement/x-evidence-source.test.ts`
+- Passed: `bun run --cwd packages/core build`
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run --filter @kilnai/core test`
+- Passed: `bun run --filter @kilnai/cli test`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+- Passed: private `x-candidates` rerun against the live cached report; summary:
+  5 candidates with unique themes.
+- Passed: private `x-review` generation to Markdown outside the repo.
+
+---
+
+# Earlier Historical Plans
+
 # X Live Validation And Candidate Report Plan
 
 Date: 2026-06-24
