@@ -41,6 +41,7 @@ import {
   reduceNativeGatewayCockpitFrame,
   resolveNativeGatewayCockpitWebSocketUrl,
   selectNativeManagedAgentDrilldownTarget,
+  selectNativeWorkItems,
 } from "../src/renderer/native-gateway-cockpit.js";
 
 describe("native operator surface foundation", () => {
@@ -628,6 +629,58 @@ describe("native operator surface foundation", () => {
       managedInvocationId: "child-3",
       replayEventId: "event-work-adoption",
     });
+  });
+
+  it("projects governed work item visibility from canonical session events", () => {
+    const events: OperatorSessionEvent[] = [
+      {
+        eventId: "event-work-visible",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-06-24T10:00:00.000Z",
+        kind: "work_item_updated",
+        payload: {
+          workItem: {
+            id: "work-visible",
+            summary: "Audit native work item visibility.",
+            status: "blocked",
+            workflowProfile: "verification-heavy",
+            authorityProfile: "authority:foundation-readonly-plan",
+            assignedAgentProfile: "foundation-readonly-plan",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+            missingEvidence: ["tests"],
+            missingResidualRisk: true,
+            pauseRequirements: [
+              {
+                id: "capability-1",
+                kind: "capability",
+                summary: "Route unavailable",
+                status: "pending",
+              },
+            ],
+            updatedAt: "2026-06-24T10:00:00.000Z",
+          },
+        },
+      },
+    ];
+
+    expect(selectNativeWorkItems(events)).toEqual([
+      {
+        id: "work-visible",
+        resourceUri: "kiln://session/work-items/work-visible",
+        summary: "Audit native work item visibility.",
+        status: "blocked",
+        workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
+        assignedAgentProfile: "foundation-readonly-plan",
+        expectedEvidence: ["surface-map", "tests"],
+        providedEvidence: ["surface-map"],
+        missingEvidence: ["tests", "residual-risk"],
+        pendingPauseRequirementCount: 1,
+        updatedAt: "2026-06-24T10:00:00.000Z",
+      },
+    ]);
   });
 
   it("marks native gateway cockpit attach as closed without dropping read-only event state", () => {

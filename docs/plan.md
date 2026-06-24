@@ -99,6 +99,17 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
    authority, evidence gaps, and `kiln://session/work-items/{id}` identity
    from canonical session events.
 
+7. Native work-item parity follow-up
+   - Project governed work items from native gateway cockpit session events
+     without introducing native-owned work state.
+   - Render a native Work Items panel with status, summary, authority profile,
+     agent assignment, evidence count, missing evidence, pause count, and
+     `kiln://session/work-items/{id}` resource identity.
+
+   Status: completed on 2026-06-24 for native work-item inspectability. The
+   native operator surface now derives governed work-item visibility from the
+   same canonical event stream used by the managed-agent cockpit.
+
 ## Verification Criteria
 
 - Architecture docs define a cross-surface and cross-harness contract.
@@ -117,6 +128,7 @@ Kiln treats inspectable agent work as a session evidence-plane contract:
 - Passed: `bun run --cwd packages/gui test tests/app-shell-sidebar-modes.test.tsx`
 - Passed: `bun run --cwd packages/tui test tests/handlers-managed-agent.test.ts tests/render-work-items.test.ts`
 - Passed: `bun run --cwd packages/cli test src/commands/goal.test.ts`
+- Passed: `bun run --cwd packages/native test tests/native-boundary.test.ts tests/work-items-panel.test.tsx`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
 - Passed: public leakage scan for files changed in this slice
