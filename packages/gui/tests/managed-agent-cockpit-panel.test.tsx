@@ -190,6 +190,52 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-blocked/conflict-diagnostic");
   });
 
+  it("renders managed invocation recovery as an actionable next work-item step", () => {
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 0,
+      attentionCount: 1,
+      items: [
+        {
+          managedInvocationId: "child-recovery",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "failed",
+          lifecycleState: "timed_out",
+          attentionState: "needs_review",
+          dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: false,
+          managedInvocationRecovery: {
+            status: "phase_evidence_required",
+            reason: "Child produced partial research evidence before timeout.",
+            nextTool: "work_item.update",
+            thenTool: "work_item.execution.start",
+            workItemId: "work-42",
+            evidenceToRecord: ["source-map", "risk-hypothesis"],
+            requiredToolNames: ["resource_read"],
+            sourceResourceUris: ["kiln://managed-agents/child-recovery/resources/handoff"],
+          },
+          resourceUris: ["kiln://managed-agents/child-recovery/resources/handoff"],
+          latestEventId: "event-recovery",
+          lifecycleTimeline: [],
+          cancelControl: {
+            status: "unavailable",
+            reason: "Managed invocation is not active.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} />);
+
+    expect(screen.getByText("Next governed action")).toBeVisible();
+    expect(screen.getByText("work_item.update -> work_item.execution.start")).toBeVisible();
+    expect(screen.getByText("work work-42")).toBeVisible();
+    expect(screen.getByText("Child produced partial research evidence before timeout.")).toBeVisible();
+    expect(screen.getByText("evidence source-map, risk-hypothesis")).toBeVisible();
+    expect(screen.getByText("tools resource_read")).toBeVisible();
+    expect(screen.getByText("source kiln://managed-agents/child-recovery/resources/handoff")).toBeVisible();
+  });
+
   it("renders timed-out managed children as distinct attention", () => {
     const viewState: OperatorCockpitManagedAgentViewState = {
       activeCount: 0,

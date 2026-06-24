@@ -1,85 +1,82 @@
-# Cross-Harness Governance Plan
+# Inspectable Agent Work Plan
 
 Date: 2026-06-24
-Status: Completed on 2026-06-24
+Status: Documentation slice completed on 2026-06-24
 
 ## Objective
 
-Resolve the first memo problem: repo-level work governance can require
-delegation, review, or authority that the active harness cannot actually
-provide. Kiln must make the correct behavior native, cross-surface, and
-cross-harness.
+Resolve the next memo problem: operators need inspectable agent work, not only
+final text. Kiln must solve this natively across surfaces and harnesses so
+Claude Code, Codex, OpenCode, GUI, native, TUI, CLI, SDK/widget, IDE, remote,
+and direct-provider routes converge on one evidence contract.
 
 ## Problem
 
-Projected instructions are not runtime authority. Claude Code, Codex, OpenCode,
-Kiln GUI, Kiln TUI, and direct-provider routes expose different subagent,
-approval, tool, memory, and config capabilities. When repo policy requires a
-capability that is unavailable in the current harness, agents can stall,
-narrate the conflict, invent review evidence, or write transient project memory
-files.
+Agent work becomes hard to trust when the only artifact is a final assistant
+message or an unstructured raw transcript. Long-running work, delegated child
+work, background execution, external tools, verification gates, and residual
+risk all require inspectable structured state. If every surface invents its own
+dashboard rows, task badges, terminal summaries, or hook logs, the operator
+cannot reliably tell what happened or what is still unsafe to claim.
 
 ## Decision
 
-Kiln treats missing harness capability as governed evidence. The parent must
-use an admitted managed invocation route, continue locally only when the
-configured evidence gates remain satisfiable, or pause with a typed
-missing-capability requirement. Native harness subagents, hooks, slash commands,
-permission modes, and config files are adapter/projection mechanisms, not
-canonical work-governance authority.
+Kiln treats inspectable agent work as a session evidence-plane contract:
 
-This is a global/resolved-config behavior, not a one-off repo note. The core
-work-item contract is shared across Kiln surfaces, and repo shims project the
-rule from resolved global plus project config whenever work governance is
-enabled.
-
-## Canonical Documentation
-
-- `docs/architecture/work-governance.md` owns the normative cross-harness
-  degradation rule.
-- `docs/research/13-work-governance-and-verification.md` owns the external
-  research basis.
-- `docs/architecture/harness-integration-capabilities.md` owns specific harness
-  projection mechanisms and capability proof.
+- canonical session events are the replay source
+- work items carry expected/provided evidence, attempts, verification gates,
+  pauses, and residual risk
+- managed invocations carry route, provider/model proof, authority,
+  capability snapshots, handoffs, diagnostics, transcripts, resources, and
+  write evidence
+- gateway contracts project shared event presentation and cockpit state
+- resource links carry large artifacts instead of inline transcript dumps
+- external traces, hooks, and provider logs are adapter inputs, not the
+  canonical source of truth
 
 ## Implementation Slices
 
 1. Documentation baseline
-   - Add cross-harness authority degradation to work governance.
-   - Refresh research basis with official OpenAI, MCP, NIST, Claude Code, and
-     OpenCode evidence.
-   - Update the private memo with the solved design status.
+   - Add `docs/architecture/inspectable-agent-work.md`.
+   - Add research basis in `docs/research/17-inspectable-agent-work.md`.
+   - Link both documents from their canonical README files.
+   - Update the private memo with the decision and remaining follow-up.
 
-2. Contract follow-up
-   - Audit whether `work_governance.assess`, work items, and managed invocation
-     pause requirements can represent `missing-harness-capability` explicitly.
-   - Add or tighten tests only if the current contract cannot express it.
+   Status: completed on 2026-06-24.
 
-   Status: completed on 2026-06-24. Work item pause requirements now support a
-   typed `capability` kind for missing harness/tool/route capability blocks.
+2. Contract audit follow-up
+   - For each surface, verify it can answer the five operator questions from
+     canonical state:
+     1. What is this agent doing?
+     2. Why is it allowed to do that?
+     3. What evidence has it produced?
+     4. What is missing, failed, risky, or unavailable?
+     5. What governed action can happen next?
+   - Add code only where a projection or surface cannot answer those questions.
 
-3. Projection follow-up
-   - Ensure generated repo shims tell standalone harnesses to degrade through
-     available local verification or typed pause evidence instead of creating
-     scratch memory workarounds.
+3. Surface follow-up
+   - Audit GUI, native, and TUI managed-agent cockpit panels for parity with
+     the named inspectable-work contract.
+   - Add focused tests before changing behavior.
 
-   Status: completed on 2026-06-24. Repo-shim generation now projects the
-   cross-harness authority rule into generated `AGENTS.md` and `CLAUDE.md`
-   files, and this repository's shims were regenerated from the local source
-   entrypoint.
+   Status: completed on 2026-06-24 for managed invocation recovery and phase
+   completion next-action visibility. GUI, native, and TUI now render the
+   governed next tool chain, work item id, reason, evidence labels, required
+   tools, and source resources from shared cockpit view state.
 
 ## Verification Criteria
 
+- Architecture docs define a cross-surface and cross-harness contract.
+- Research docs cite external observability, tracing, hook, and human-AI
+  interaction sources.
 - Public docs contain no private X source list, handles, tweet ids, or secrets.
 - `git diff --check` passes.
-- If code changes become necessary, run focused package tests and
-  `bun run typecheck` before closeout.
 
 ## Verification
 
-- Passed: `bun run --cwd packages/core test tests/work-governance/goal-execution.test.ts`
-- Passed: `bun run --cwd packages/cli test src/application/work-governance-tool.test.ts`
-- Passed: `bun run --cwd packages/cli test tests/application/repo-shim-projection.test.ts`
-- Passed: `bun packages/cli/src/index.ts sync --repo-shims --project C:\Proyectos\Sequel\kiln`
+- Passed: `bun run --cwd packages/gui test tests/managed-agent-cockpit-panel.test.tsx`
+- Passed: `bun run --cwd packages/native test tests/managed-agent-cockpit-panel.test.tsx`
+- Passed: `bun run --cwd packages/tui test tests/managed-agent-cockpit.test.ts`
 - Passed: `bun run typecheck`
 - Passed: `git diff --check`
+- Passed: public leakage scan for files changed in this slice

@@ -140,6 +140,11 @@ is documented by concern, not as a single monolith.
   supervision evidence, embedded browser host boundaries, and surface ownership
   rules.
 
+- `inspectable-agent-work.md`
+  Canonical cross-surface and cross-harness inspectability contract for agent
+  work: work identity, authority, lifecycle, evidence, resources, attention
+  state, long-running visibility, and external observability normalization.
+
 - `native-operator-surface.md`
   Contract-only architecture for native operator surface projection:
   precondition gates, explicit instance/session targets, benchmark fixtures,

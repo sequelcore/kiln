@@ -82,6 +82,10 @@ define the active architecture contract. For doctrine, use
   Official X platform, MCP/community demand, mixed-initiative UX, and
   social-listening limitation research for governed external engagement.
 
+- `17-inspectable-agent-work.md`
+  External tracing, hooks, observability, review, and human-AI interaction
+  research supporting Kiln's cross-surface inspectable agent work contract.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -107,3 +111,4 @@ define the active architecture contract. For doctrine, use
 14. `14-live-browser-operator-surface.md`
 15. `15-background-parallel-agent-surface.md`
 16. `16-external-engagement.md`
+17. `17-inspectable-agent-work.md`

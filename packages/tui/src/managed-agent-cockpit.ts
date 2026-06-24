@@ -175,6 +175,7 @@ function formatManagedAgentItemLines(item: OperatorCockpitManagedAgentViewItem):
     lines.push(`  tx ${item.transcriptUri}`);
   }
   lines.push(...formatManagedAgentWorktreeConflictLines(item));
+  lines.push(...formatManagedAgentNextActionLines(item));
   for (const uri of formatManagedAgentGenericResourceUris(item).slice(0, 2)) {
     lines.push(`  res ${uri}`);
   }
@@ -195,6 +196,7 @@ function formatManagedAgentDrilldownLines(
     `  replay ${drilldown.replay.entry.eventId}`,
     `  prev ${drilldown.replay.previousEventId ?? "--"} next ${drilldown.replay.nextEventId ?? "--"}`,
     ...formatManagedAgentWorktreeConflictLines(item),
+    ...formatManagedAgentNextActionLines(item),
     ...formatManagedAgentAdoptionGateLines(item),
     "  timeline:",
     ...item.lifecycleTimeline.map((entry) => (
@@ -234,6 +236,21 @@ function formatManagedAgentGenericResourceUris(item: OperatorCockpitManagedAgent
     ...conflict.diagnosticUris,
   ]);
   return item.resourceUris.filter((uri) => !conflictUris.has(uri));
+}
+
+function formatManagedAgentNextActionLines(item: OperatorCockpitManagedAgentViewItem): readonly string[] {
+  const action = item.managedInvocationRecovery ?? item.managedInvocationPhaseCompletion;
+  if (!action?.nextTool) {
+    return [];
+  }
+  const toolChain = action.thenTool ? `${action.nextTool} -> ${action.thenTool}` : action.nextTool;
+  return [
+    `  next ${toolChain}${action.workItemId ? ` work:${action.workItemId}` : ""}`,
+    ...(action.reason ? [`  reason ${action.reason}`] : []),
+    ...(action.evidenceToRecord.length > 0 ? [`  evidence ${action.evidenceToRecord.join(",")}`] : []),
+    ...(action.requiredToolNames.length > 0 ? [`  tools ${action.requiredToolNames.join(",")}`] : []),
+    ...action.sourceResourceUris.map((uri) => `  source ${uri}`),
+  ];
 }
 
 function formatManagedAgentAdoptionGateLines(item: OperatorCockpitManagedAgentViewItem): readonly string[] {

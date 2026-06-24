@@ -304,6 +304,36 @@ describe("TUI managed-agent cockpit projection", () => {
     ]));
   });
 
+  it("formats managed invocation recovery as an actionable next work-item step", () => {
+    const failed = event("evt-recovery", 1, "agent_invocation_failed", {
+      invocationId: "child-recovery",
+      lifecycleState: "timed_out",
+      managedInvocationRecovery: {
+        status: "phase_evidence_required",
+        reason: "Child produced partial research evidence before timeout.",
+        nextTool: "work_item.update",
+        thenTool: "work_item.execution.start",
+        workItemId: "work-42",
+        evidenceToRecord: ["source-map", "risk-hypothesis"],
+        requiredToolNames: ["resource_read"],
+        sourceResourceUris: ["kiln://managed-agent/child-recovery/handoff"],
+      },
+    });
+
+    const lines = formatManagedAgentCockpitLines(projectTuiManagedAgentViewState(
+      appendManagedAgentSessionEvent([], failed),
+    ));
+
+    expect(lines).toEqual(expect.arrayContaining([
+      "! child-recovery needs_review failed events:1 resources:1",
+      "  next work_item.update -> work_item.execution.start work:work-42",
+      "  reason Child produced partial research evidence before timeout.",
+      "  evidence source-map,risk-hypothesis",
+      "  tools resource_read",
+      "  source kiln://managed-agent/child-recovery/handoff",
+    ]));
+  });
+
   it("formats stale heartbeat recovery from shared stale attention", () => {
     const failed = event("evt-stale", 1, "agent_invocation_failed", {
       invocationId: "child-stale",

@@ -195,6 +195,55 @@ function ManagedAgentPromptControl(props: {
   );
 }
 
+function ManagedAgentNextAction(props: { readonly item: OperatorCockpitManagedAgentViewItem }) {
+  const action = props.item.managedInvocationRecovery ?? props.item.managedInvocationPhaseCompletion;
+  if (!action?.nextTool) {
+    return null;
+  }
+  const toolChain = action.thenTool ? `${action.nextTool} -> ${action.thenTool}` : action.nextTool;
+  return (
+    <section className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <p className="font-medium">Next governed action</p>
+      <dl className="mt-2 grid gap-1 font-mono text-[10.5px] text-destructive/80 sm:grid-cols-2">
+        <div className="min-w-0">
+          <dt className="sr-only">Tool chain</dt>
+          <dd className="truncate">{toolChain}</dd>
+        </div>
+        {action.workItemId ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Work item</dt>
+            <dd className="truncate">work {action.workItemId}</dd>
+          </div>
+        ) : null}
+        {action.reason ? (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Reason</dt>
+            <dd className="truncate">{action.reason}</dd>
+          </div>
+        ) : null}
+        {action.evidenceToRecord.length > 0 ? (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Evidence to record</dt>
+            <dd className="truncate">evidence {action.evidenceToRecord.join(", ")}</dd>
+          </div>
+        ) : null}
+        {action.requiredToolNames.length > 0 ? (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Required tools</dt>
+            <dd className="truncate">tools {action.requiredToolNames.join(", ")}</dd>
+          </div>
+        ) : null}
+        {action.sourceResourceUris.map((uri) => (
+          <div key={uri} className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Source resource</dt>
+            <dd className="truncate">source {uri}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitManagedAgentViewItem }) {
   const conflict = props.item.worktreeConflict;
   if (!props.item.worktreeConflictBlocked || !conflict) {
@@ -341,6 +390,7 @@ function ManagedAgentItem(props: {
         </div>
       ) : null}
       <ManagedAgentWorktreeConflict item={item} />
+      <ManagedAgentNextAction item={item} />
       <ManagedAgentResources item={item} onOpenResource={props.onOpenResource} />
       <ManagedAgentPromptControl item={item} onPrompt={props.onPrompt} />
       <ManagedAgentTimeline entries={item.lifecycleTimeline} />
