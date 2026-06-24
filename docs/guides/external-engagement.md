@@ -165,6 +165,25 @@ on that candidate. `accept`, `reject`, and `narrow` decisions require a reason;
 candidate ids, titles, themes, evidence artifact ids, and operator reasoning.
 It does not copy full source text, author handles, or source URLs.
 
+Promote accepted or narrowed decisions into provider-neutral feature intake:
+
+```bash
+kiln external-engagement x-promote \
+  --decisions ./.kiln/external-engagement/x-decisions.json
+```
+
+Without `--output`, `x-promote` writes to
+`.kiln/external-engagement/feature-intake.json` under the current workspace.
+Use `--workspace-dir` when running from another directory, or `--output` for an
+explicit destination.
+
+`x-promote` only promotes `accept` and `narrow` decisions. `defer` and `reject`
+remain in the decision report but do not become feature-intake proposals. The
+intake report contains candidate ids, titles, themes, evidence artifact ids,
+operator reason, scope, and the architecture boundary. It is the handoff point
+for implementation planning; it still does not grant write-capable engagement
+authority.
+
 Input files are newline-delimited and may contain X URLs or post ids:
 
 ```text
@@ -260,6 +279,8 @@ Use `x-review` when discussing candidates with operators or maintainers because
 it is review-oriented and avoids copying full source text by default.
 Use `x-decide` after review to preserve the operator decision without another
 provider call.
+Use `x-promote` to produce the provider-neutral feature-intake handoff without
+another provider call.
 
 ## Architecture Boundary
 
@@ -276,6 +297,14 @@ Current ownership:
   REST fetch boundary.
 - `@kilnai/runtime`: not touched in phase 1. A runtime channel or write-capable
   adapter requires a later action-proposal and approval workflow.
+
+This completes the read-only X pilot lifecycle:
+
+1. external evidence ingestion;
+2. candidate extraction;
+3. operator review;
+4. operator decision;
+5. provider-neutral feature intake.
 
 Write-capable engagement must use a separate future contract:
 

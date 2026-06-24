@@ -1,3 +1,62 @@
+# X Feature Intake Completion Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Complete the read-only X pilot as a long-term external-engagement feature by
+turning accepted or narrowed operator decisions into provider-neutral feature
+intake proposals with stable workspace storage.
+
+## Non-Goals
+
+- No write-capable X actions.
+- No runtime/GUI surface in this slice.
+- No provider expansion beyond X.
+- No full source text, handles, source URLs, or real private post ids in public
+  docs/tests.
+- No roadmap mutation or automatic implementation planning.
+
+## Scout Map
+
+- `packages/core/src/external-engagement/index.ts` owns provider-neutral intake
+  report construction from decision reports.
+- `packages/cli/src/commands/external-engagement.ts` owns the `x-promote`
+  operator surface and default `.kiln/external-engagement/feature-intake.json`
+  workspace output.
+- `docs/guides/external-engagement.md` owns the public end-to-end lifecycle.
+
+## Implementation Slices
+
+1. Intake domain model
+   - Add feature-intake proposals and reports.
+   - Promote only `accept` and `narrow` decisions.
+   - Keep `defer` and `reject` as decision history only.
+
+2. CLI promotion
+   - Add `x-promote --decisions`.
+   - Write to `.kiln/external-engagement/feature-intake.json` by default.
+   - Keep the command offline, credential-free, and network-free.
+
+3. Documentation and cleanup
+   - Document the full read-only lifecycle.
+   - Keep write-capable engagement documented as a separate future contract.
+
+## Verification
+
+- Passed: `bun run --cwd packages/core test tests/external-engagement/x-evidence-source.test.ts`
+- Passed: `bun run --cwd packages/core build`
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run --filter @kilnai/core test`
+- Passed: `bun run --filter @kilnai/cli test`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+- Passed: privacy grep for the private X source handles and real post ids.
+
+---
+
 # X Candidate Decision Report Plan
 
 Date: 2026-06-24

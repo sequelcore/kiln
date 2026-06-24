@@ -866,6 +866,63 @@ describe("external engagement command", () => {
     expect(JSON.stringify(decisions)).not.toContain("Do not copy this source-derived summary.");
     expect(log.mock.calls[0]?.[0]).toBe(`External engagement candidate decisions written: ${outputPath}`);
   });
+
+  it("promotes candidate decisions into default workspace feature intake storage", async () => {
+    const root = tempRoot();
+    const decisionsPath = join(root, "x-decisions.json");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    writeFileSync(decisionsPath, JSON.stringify({
+      reportId: "decision-report-1",
+      generatedAt: "2026-06-24T01:00:00.000Z",
+      sourceCandidateReportId: "candidate-report-1",
+      decisions: [{
+        candidateId: "candidate-workflow-controls",
+        candidateTitle: "Governed workflow pattern support",
+        decision: "narrow",
+        sourceThemes: ["workflow_controls"],
+        evidenceArtifactIds: ["1000000000000000001"],
+        reason: "Public workflow value is clear.",
+        narrowedScope: "Offline intake only.",
+      }, {
+        candidateId: "candidate-adoption-risk",
+        candidateTitle: "Objection and risk review support",
+        decision: "defer",
+        sourceThemes: ["adoption_risk"],
+        evidenceArtifactIds: ["1000000000000000002"],
+      }],
+    }, null, 2), "utf-8");
+
+    await externalEngagementCommand({} as never, "x-promote", [
+      "--decisions",
+      decisionsPath,
+      "--workspace-dir",
+      root,
+    ], {
+      now: () => new Date("2026-06-24T02:00:00.000Z"),
+      reportId: () => "intake-report-1",
+    });
+
+    const outputPath = join(root, ".kiln", "external-engagement", "feature-intake.json");
+    const intake = JSON.parse(readFileSync(outputPath, "utf-8")) as Record<string, unknown>;
+    expect(intake).toEqual({
+      reportId: "intake-report-1",
+      generatedAt: "2026-06-24T02:00:00.000Z",
+      sourceDecisionReportId: "decision-report-1",
+      proposals: [{
+        proposalId: "feature-intake-candidate-workflow-controls",
+        candidateId: "candidate-workflow-controls",
+        title: "Governed workflow pattern support",
+        decision: "narrow",
+        sourceThemes: ["workflow_controls"],
+        evidenceArtifactIds: ["1000000000000000001"],
+        problemStatement: "Public workflow value is clear.",
+        scope: "Offline intake only.",
+        architectureBoundary: "core-domain-first",
+        nextAction: "Create an implementation plan from this provider-neutral feature intake proposal.",
+      }],
+    });
+    expect(log.mock.calls[0]?.[0]).toBe(`External engagement feature intake written: ${outputPath}`);
+  });
 });
 
 function tempRoot(): string {

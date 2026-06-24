@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_EVIDENCE_READ_EFFECT,
   buildFeatureCandidateDecisionReport,
+  buildFeatureIntakeReport,
   buildExternalEngagementReviewReport,
   buildExternalEvidenceReport,
   buildFeatureCandidateReport,
@@ -448,6 +449,95 @@ describe("X evidence source", () => {
         evidenceArtifactIds: ["1000000000000000001"],
       }],
     })).toThrow(/requires a reason/u);
+  });
+
+  it("promotes accepted and narrowed decisions into provider-neutral feature intake", () => {
+    const candidateReport = buildFeatureCandidateReport({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "evidence-report-1",
+      signals: [
+        {
+          kind: "workflow_pattern",
+          theme: "workflow_controls",
+          summary: "Do not copy source-derived workflow summary.",
+          evidenceArtifactIds: ["1000000000000000001"],
+          recommendation: "adopt",
+          confidence: "low",
+        },
+        {
+          kind: "objection",
+          theme: "adoption_risk",
+          summary: "Do not copy source-derived objection summary.",
+          evidenceArtifactIds: ["1000000000000000002"],
+          recommendation: "later",
+          confidence: "low",
+        },
+      ],
+    });
+    const decisionReport = buildFeatureCandidateDecisionReport({
+      reportId: "decision-report-1",
+      generatedAt: "2026-06-24T00:10:00.000Z",
+      candidateReport,
+      decisions: [
+        {
+          candidateId: "candidate-workflow-controls",
+          decision: "narrow",
+          evidenceArtifactIds: ["1000000000000000001"],
+          reason: "Public workflow value is clear.",
+          narrowedScope: "Offline intake only.",
+        },
+        {
+          candidateId: "candidate-adoption-risk",
+          decision: "defer",
+          evidenceArtifactIds: ["1000000000000000002"],
+        },
+      ],
+    });
+
+    const intake = buildFeatureIntakeReport({
+      reportId: "intake-report-1",
+      generatedAt: "2026-06-24T00:20:00.000Z",
+      decisionReport,
+    });
+
+    expect(intake).toEqual({
+      reportId: "intake-report-1",
+      generatedAt: "2026-06-24T00:20:00.000Z",
+      sourceDecisionReportId: "decision-report-1",
+      proposals: [{
+        proposalId: "feature-intake-candidate-workflow-controls",
+        candidateId: "candidate-workflow-controls",
+        title: "Governed workflow pattern support",
+        decision: "narrow",
+        sourceThemes: ["workflow_controls"],
+        evidenceArtifactIds: ["1000000000000000001"],
+        problemStatement: "Public workflow value is clear.",
+        scope: "Offline intake only.",
+        architectureBoundary: "core-domain-first",
+        nextAction: "Create an implementation plan from this provider-neutral feature intake proposal.",
+      }],
+    });
+    expect(JSON.stringify(intake)).not.toContain("Do not copy source-derived");
+  });
+
+  it("fails closed when feature intake promotion receives an incomplete promotable decision", () => {
+    expect(() => buildFeatureIntakeReport({
+      reportId: "intake-report-1",
+      generatedAt: "2026-06-24T00:20:00.000Z",
+      decisionReport: {
+        reportId: "decision-report-1",
+        generatedAt: "2026-06-24T00:10:00.000Z",
+        sourceCandidateReportId: "candidate-report-1",
+        decisions: [{
+          candidateId: "candidate-workflow-controls",
+          candidateTitle: "Governed workflow pattern support",
+          decision: "accept",
+          sourceThemes: ["workflow_controls"],
+          evidenceArtifactIds: ["1000000000000000001"],
+        }],
+      },
+    })).toThrow(/reason must be non-empty/u);
   });
 });
 

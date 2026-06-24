@@ -131,6 +131,26 @@ export interface FeatureCandidateDecisionReport {
   readonly decisions: readonly FeatureCandidateDecisionRecord[];
 }
 
+export interface FeatureIntakeProposal {
+  readonly proposalId: string;
+  readonly candidateId: string;
+  readonly title: string;
+  readonly decision: Extract<FeatureCandidateDecisionKind, "accept" | "narrow">;
+  readonly sourceThemes: readonly CommunitySignalTheme[];
+  readonly evidenceArtifactIds: readonly string[];
+  readonly problemStatement: string;
+  readonly scope: string;
+  readonly architectureBoundary: FeatureCandidateArchitectureFit;
+  readonly nextAction: string;
+}
+
+export interface FeatureIntakeReport {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly sourceDecisionReportId: string;
+  readonly proposals: readonly FeatureIntakeProposal[];
+}
+
 export interface ExternalEngagementReviewItem {
   readonly candidateId: string;
   readonly title: string;
@@ -452,6 +472,21 @@ export function buildFeatureCandidateDecisionReport(input: {
   });
 }
 
+export function buildFeatureIntakeReport(input: {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly decisionReport: FeatureCandidateDecisionReport;
+}): FeatureIntakeReport {
+  return Object.freeze({
+    reportId: requireNonEmpty(input.reportId, "reportId"),
+    generatedAt: requireNonEmpty(input.generatedAt, "generatedAt"),
+    sourceDecisionReportId: input.decisionReport.reportId,
+    proposals: Object.freeze(input.decisionReport.decisions
+      .filter(isPromotableDecision)
+      .map((decision) => buildFeatureIntakeProposal(decision))),
+  });
+}
+
 function parseXPostReference(value: string): XPostReference {
   const urlMatch = value.match(X_POST_URL_PATTERN);
   if (urlMatch?.[1]) {
@@ -662,6 +697,35 @@ function renderExternalEngagementReviewMarkdown(
     );
   }
   return lines.join("\n");
+}
+
+function isPromotableDecision(
+  decision: FeatureCandidateDecisionRecord,
+): decision is FeatureCandidateDecisionRecord & {
+  readonly decision: "accept" | "narrow";
+} {
+  return decision.decision === "accept" || decision.decision === "narrow";
+}
+
+function buildFeatureIntakeProposal(
+  decision: FeatureCandidateDecisionRecord & {
+    readonly decision: "accept" | "narrow";
+  },
+): FeatureIntakeProposal {
+  return Object.freeze({
+    proposalId: `feature-intake-${decision.candidateId}`,
+    candidateId: decision.candidateId,
+    title: decision.candidateTitle,
+    decision: decision.decision,
+    sourceThemes: Object.freeze([...decision.sourceThemes]),
+    evidenceArtifactIds: Object.freeze([...decision.evidenceArtifactIds]),
+    problemStatement: requireNonEmpty(decision.reason ?? "", "reason"),
+    scope: decision.decision === "narrow"
+      ? requireNonEmpty(decision.narrowedScope ?? "", "narrowedScope")
+      : "Full candidate scope accepted for implementation planning.",
+    architectureBoundary: "core-domain-first",
+    nextAction: "Create an implementation plan from this provider-neutral feature intake proposal.",
+  });
 }
 
 function batchCount(count: number, batchSize: number): number {
