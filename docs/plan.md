@@ -1,3 +1,79 @@
+# X Live Validation And Candidate Report Plan
+
+Date: 2026-06-24
+Status: Completed on 2026-06-24
+
+## Objective
+
+Complete the next X pilot slice end to end: intentionally validate OAuth2
+refresh, run a bounded cached report against the operator's private source
+list, add conservative evidence-to-signal extraction, and produce feature
+candidates from an existing report without further X API spend.
+
+## Non-Goals
+
+- No public repo copy of the operator's real X source list.
+- No token values in logs, docs, tests, or reports committed to git.
+- No write-capable X engagement.
+- No hidden live calls during candidate generation.
+- No LLM-dependent signal extraction in this slice.
+
+## Scout Map
+
+- `packages/core/src/external-engagement/index.ts` owns pure signal extraction
+  and feature-candidate report construction.
+- `packages/cli/src/commands/external-engagement.ts` owns the offline
+  `x-candidates` transformation.
+- `C:/tmp` owns private live outputs and temporary scripts for this validation;
+  those files are not part of the public repo.
+- The private research memo owns the real source list and process notes.
+
+## Implementation Slices
+
+1. Live credential validation
+   - Run `x-refresh --allow-live` with secret output outside the repo.
+   - Update Doppler with the new access and refresh tokens through stdin,
+     without printing values.
+
+2. Live bounded report
+   - Build a private source input from the private memo.
+   - Run `x-report` with `--max-replies 5`, explicit cache dir, and output
+     outside the repo.
+   - Confirm a second run uses cache without credentials.
+
+3. Core signal extraction
+   - Add deterministic, conservative signal extraction from evidence artifacts.
+   - Keep extraction source-grounded and low/medium confidence only.
+
+4. Feature-candidate report
+   - Add a pure candidate report model with recommendation, confidence,
+     evidence ids, and engineering-standards assessment.
+   - Add `x-candidates --report --output` as an offline CLI command.
+
+## Verification
+
+- Passed: live `x-refresh --allow-live` on 2026-06-24; stdout summary was
+  secret-free and reported access plus refresh token receipt.
+- Passed: Doppler update for `KILN_X_OAUTH2_ACCESS_TOKEN` and
+  `KILN_X_OAUTH2_REFRESH_TOKEN` via stdin without printing token values.
+- Passed: live `x-report` on the private 18-reference source list with
+  `--max-replies 5`; report summary: 98 artifacts, 21 estimated requests.
+- Passed: cache-hit `x-report` rerun without Doppler credentials.
+- Passed: live `x-candidates` against the private report; summary: 5
+  candidates, with 3 `adapt`, 1 `later`, and 1 `adopt` recommendation.
+- Passed: `bun run --cwd packages/core test tests/external-engagement/x-evidence-source.test.ts`
+- Passed: `bun run --cwd packages/core build`
+- Passed: `bun run --cwd packages/cli test src/commands/external-engagement.test.ts`
+- Passed: `bun run --cwd packages/cli build`
+- Passed: `bun run --filter @kilnai/core test`
+- Passed: `bun run --filter @kilnai/cli test`
+- Passed: `bun run typecheck`
+- Passed: `git diff --check`
+
+---
+
+# Earlier Historical Plans
+
 # X OAuth2 Refresh Plan
 
 Date: 2026-06-24

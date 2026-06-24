@@ -103,6 +103,20 @@ kiln external-engagement x-refresh \
   --secret-output C:/tmp/kiln-x-oauth2-tokens.json
 ```
 
+Build feature candidates from an existing evidence report without touching X:
+
+```bash
+kiln external-engagement x-candidates \
+  --report ./.kiln/external-engagement/x-report.json \
+  --output ./.kiln/external-engagement/x-candidates.json
+```
+
+`x-candidates` is an offline transformation. It reads a prior `x-report`,
+extracts conservative community signals when the report does not already
+contain signals, and produces feature candidates with source signal kinds,
+evidence artifact ids, recommendation, confidence, and engineering-standards
+assessment. It does not resolve credentials or call external APIs.
+
 Input files are newline-delimited and may contain X URLs or post ids:
 
 ```text
@@ -192,6 +206,8 @@ Use `x-smoke --allow-live` only when intentionally validating a real X
 credential; it is bounded to one request.
 Use `x-refresh --allow-live` only when intentionally rotating real OAuth 2.0
 credentials; refresh tokens may be replaced by the provider response.
+Use `x-candidates` for repeated analysis of an existing report because it is
+offline and does not consume X API credits.
 
 ## Architecture Boundary
 
@@ -201,7 +217,8 @@ provider.
 Current ownership:
 
 - `@kilnai/core`: source-neutral evidence contracts, read-only effect envelope,
-  URL/id normalization, request-budget estimation, report construction, and
+  URL/id normalization, request-budget estimation, report construction,
+  conservative signal extraction, feature-candidate reporting, and
   provider-agnostic credential references.
 - `@kilnai/cli`: first operator surface, env-backed credential resolver, and X
   REST fetch boundary.

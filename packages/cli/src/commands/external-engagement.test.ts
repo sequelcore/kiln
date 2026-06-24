@@ -690,6 +690,67 @@ describe("external engagement command", () => {
       generatedAt: "2026-06-24T00:00:00.000Z",
     });
   });
+
+  it("builds feature candidates from an existing X evidence report without network access", async () => {
+    const root = tempRoot();
+    const reportPath = join(root, "x-report.json");
+    const outputPath = join(root, "x-candidates.json");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    writeFileSync(reportPath, JSON.stringify(buildExternalEvidenceReport({
+      reportId: "source-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      source: "x",
+      query: {
+        references: [{
+          platform: "x",
+          postId: "1000000000000000001",
+          sourceUrl: "https://x.com/example_author/status/1000000000000000001",
+        }],
+        maxRepliesPerPost: 2,
+      },
+      budget: {
+        rootPostReads: 1,
+        replySearches: 1,
+        maxReplyReads: 2,
+        userReads: 3,
+        maxPostReads: 3,
+        estimatedRequests: 3,
+      },
+      artifacts: [{
+        platform: "x",
+        artifactId: "1000000000000000001",
+        kind: "post",
+        sourceUrl: "https://x.com/example_author/status/1000000000000000001",
+        text: "We need review gates because agent loops keep failing on real work.",
+        retrievedAt: "2026-06-24T00:00:00.000Z",
+      }],
+      signals: [],
+    }), null, 2), "utf-8");
+
+    await externalEngagementCommand({} as never, "x-candidates", [
+      "--report",
+      reportPath,
+      "--output",
+      outputPath,
+    ], {
+      now: () => new Date("2026-06-24T01:00:00.000Z"),
+      reportId: () => "candidate-report-1",
+      fetcher: { fetchEvidence: vi.fn() },
+      credentialResolver: { resolve: vi.fn() },
+    });
+
+    const candidates = JSON.parse(readFileSync(outputPath, "utf-8")) as Record<string, unknown>;
+    expect(candidates).toMatchObject({
+      reportId: "candidate-report-1",
+      sourceReportId: "source-report-1",
+    });
+    expect(candidates.candidates).toEqual(expect.arrayContaining([expect.objectContaining({
+        id: "candidate-pain-point",
+        recommendation: "adapt",
+        evidenceArtifactIds: ["1000000000000000001"],
+    })]));
+    expect(log.mock.calls[0]?.[0]).toBe(`External engagement feature candidates written: ${outputPath}`);
+  });
 });
 
 function tempRoot(): string {

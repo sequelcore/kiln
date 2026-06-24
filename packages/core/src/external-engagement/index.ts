@@ -66,6 +66,35 @@ export interface CommunitySignal {
   readonly confidence: CommunitySignalConfidence;
 }
 
+export type FeatureCandidatePublicValue = "community-grounded" | "unclear";
+export type FeatureCandidateArchitectureFit = "core-domain-first";
+export type FeatureCandidateImplementationRisk = "medium" | "high";
+
+export interface FeatureCandidateStandardsAssessment {
+  readonly publicValue: FeatureCandidatePublicValue;
+  readonly architectureFit: FeatureCandidateArchitectureFit;
+  readonly implementationRisk: FeatureCandidateImplementationRisk;
+  readonly notes: readonly string[];
+}
+
+export interface FeatureCandidate {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly sourceSignalKinds: readonly CommunitySignalKind[];
+  readonly evidenceArtifactIds: readonly string[];
+  readonly recommendation: CommunitySignalRecommendation;
+  readonly confidence: CommunitySignalConfidence;
+  readonly standardsAssessment: FeatureCandidateStandardsAssessment;
+}
+
+export interface FeatureCandidateReport {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly sourceReportId: string;
+  readonly candidates: readonly FeatureCandidate[];
+}
+
 export interface XEvidenceRequestBudget {
   readonly rootPostReads: number;
   readonly replySearches: number;
@@ -243,6 +272,53 @@ export function buildExternalEvidenceReport(input: {
   });
 }
 
+export function extractCommunitySignalsFromEvidence(input: {
+  readonly artifacts: readonly ExternalEvidenceArtifact[];
+}): readonly CommunitySignal[] {
+  const evidenceByKind = new Map<CommunitySignalKind, string[]>();
+  for (const artifact of input.artifacts) {
+    const text = artifact.text.toLowerCase();
+    for (const definition of COMMUNITY_SIGNAL_DEFINITIONS) {
+      if (!definition.patterns.some((pattern) => pattern.test(text))) {
+        continue;
+      }
+      const existing = evidenceByKind.get(definition.kind) ?? [];
+      if (!existing.includes(artifact.artifactId)) {
+        existing.push(artifact.artifactId);
+      }
+      evidenceByKind.set(definition.kind, existing);
+    }
+  }
+
+  return Object.freeze(COMMUNITY_SIGNAL_DEFINITIONS.flatMap((definition): CommunitySignal[] => {
+    const evidenceArtifactIds = evidenceByKind.get(definition.kind) ?? [];
+    if (evidenceArtifactIds.length === 0) {
+      return [];
+    }
+    return [{
+      kind: definition.kind,
+      summary: definition.summary,
+      evidenceArtifactIds: Object.freeze([...evidenceArtifactIds]),
+      recommendation: definition.recommendation,
+      confidence: evidenceArtifactIds.length >= 2 ? "medium" : "low",
+    }];
+  }));
+}
+
+export function buildFeatureCandidateReport(input: {
+  readonly reportId: string;
+  readonly generatedAt: string;
+  readonly sourceReportId: string;
+  readonly signals: readonly CommunitySignal[];
+}): FeatureCandidateReport {
+  return Object.freeze({
+    reportId: requireNonEmpty(input.reportId, "reportId"),
+    generatedAt: requireNonEmpty(input.generatedAt, "generatedAt"),
+    sourceReportId: requireNonEmpty(input.sourceReportId, "sourceReportId"),
+    candidates: Object.freeze(input.signals.map((signal) => buildFeatureCandidate(signal))),
+  });
+}
+
 function parseXPostReference(value: string): XPostReference {
   const urlMatch = value.match(X_POST_URL_PATTERN);
   if (urlMatch?.[1]) {
@@ -260,6 +336,83 @@ function parseXPostReference(value: string): XPostReference {
     };
   }
   throw new Error(`Unsupported X post reference: ${value}`);
+}
+
+const COMMUNITY_SIGNAL_DEFINITIONS: readonly {
+  readonly kind: CommunitySignalKind;
+  readonly summary: string;
+  readonly recommendation: CommunitySignalRecommendation;
+  readonly patterns: readonly RegExp[];
+}[] = Object.freeze([
+  {
+    kind: "pain_point",
+    summary: "Evidence reports agent or workflow failure, friction, cost, or low-quality output.",
+    recommendation: "adapt",
+    patterns: [/fail/u, /friction/u, /cost/u, /paid/u, /risk/u, /risky/u, /slop/u, /useless/u, /confusing/u, /slow/u],
+  },
+  {
+    kind: "feature_request",
+    summary: "Evidence asks for an added capability, support path, or product workflow.",
+    recommendation: "adapt",
+    patterns: [/\bneed\b/u, /\bneeds\b/u, /\bwant\b/u, /\bwish\b/u, /\bshould\b/u, /\bcould\b/u, /\bwould\b/u, /\badd\b/u, /\bsupport\b/u],
+  },
+  {
+    kind: "objection",
+    summary: "Evidence raises concerns, tradeoffs, objections, or reasons not to adopt blindly.",
+    recommendation: "later",
+    patterns: [/\bbut\b/u, /\bhowever\b/u, /\bconcern/u, /\bwhy\b/u, /\bworst\b/u, /\boverengineer/u, /\btradeoff/u],
+  },
+  {
+    kind: "workflow_pattern",
+    summary: "Evidence describes repeatable process controls such as plans, review gates, tests, guardrails, or caches.",
+    recommendation: "adopt",
+    patterns: [/\bworkflow\b/u, /\bprocess\b/u, /\breview\b/u, /\bgate\b/u, /\btest\b/u, /\bguardrail/u, /\bplan/u, /\bloop\b/u, /\bcache/u, /\bcached\b/u],
+  },
+  {
+    kind: "validation_evidence",
+    summary: "Evidence reports useful outcomes, found issues, shipped work, or practical validation.",
+    recommendation: "adapt",
+    patterns: [/\buseful\b/u, /\bfound\b/u, /\bfixed\b/u, /\bshipped\b/u, /\bworks\b/u, /\bvalidated\b/u],
+  },
+]);
+
+function buildFeatureCandidate(signal: CommunitySignal): FeatureCandidate {
+  const standardsAssessment: FeatureCandidateStandardsAssessment = {
+    publicValue: signal.evidenceArtifactIds.length > 0 ? "community-grounded" : "unclear",
+    architectureFit: "core-domain-first",
+    implementationRisk: signal.kind === "objection" ? "high" : "medium",
+    notes: Object.freeze([
+      "Keep source evidence separate from write-capable actions.",
+      "Prefer pure domain contracts before provider adapters.",
+      "Avoid compatibility shims, generated boilerplate, and hidden side effects.",
+    ]),
+  };
+  return Object.freeze({
+    id: `candidate-${signal.kind.replaceAll("_", "-")}`,
+    title: featureCandidateTitle(signal.kind),
+    summary: signal.summary,
+    sourceSignalKinds: Object.freeze([signal.kind]),
+    evidenceArtifactIds: Object.freeze([...signal.evidenceArtifactIds]),
+    recommendation: signal.recommendation,
+    confidence: signal.confidence,
+    standardsAssessment,
+  });
+}
+
+function featureCandidateTitle(kind: CommunitySignalKind): string {
+  if (kind === "pain_point") {
+    return "Governed pain point support";
+  }
+  if (kind === "feature_request") {
+    return "Evidence-backed feature request support";
+  }
+  if (kind === "objection") {
+    return "Objection and risk review support";
+  }
+  if (kind === "workflow_pattern") {
+    return "Governed workflow pattern support";
+  }
+  return "Validation evidence support";
 }
 
 function batchCount(count: number, batchSize: number): number {

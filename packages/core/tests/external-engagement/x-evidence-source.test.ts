@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_EVIDENCE_READ_EFFECT,
   buildExternalEvidenceReport,
+  buildFeatureCandidateReport,
   createXOAuth2ClientIdRef,
   createXOAuth2ClientSecretRef,
   createXOAuth2RefreshTokenRef,
   createXReadAccessTokenRef,
   estimateXEvidenceRequestBudget,
+  extractCommunitySignalsFromEvidence,
   normalizeXPostReferences,
 } from "../../src/external-engagement/index.js";
 import { deriveAuthorityFromEffect } from "../../src/engine/domain/action-effect.js";
@@ -155,4 +157,98 @@ describe("X evidence source", () => {
     expect(report.prohibitedActions).toContain("publish_post");
     expect(report.signals[0]!.recommendation).toBe("adapt");
   });
+
+  it("extracts conservative community signals from evidence artifacts", () => {
+    const signals = extractCommunitySignalsFromEvidence({
+      artifacts: [
+        syntheticArtifact("1000000000000000001", "The agent loop failed again; I need a review gate before it edits files."),
+        syntheticArtifact("1000000000000000002", "A cached evidence workflow would make paid API research less risky."),
+        syntheticArtifact("1000000000000000003", "This found real bugs and the output was useful for planning."),
+      ],
+    });
+
+    expect(signals).toEqual([
+      {
+        kind: "pain_point",
+        summary: "Evidence reports agent or workflow failure, friction, cost, or low-quality output.",
+        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+        recommendation: "adapt",
+        confidence: "medium",
+      },
+      {
+        kind: "feature_request",
+        summary: "Evidence asks for an added capability, support path, or product workflow.",
+        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+        recommendation: "adapt",
+        confidence: "medium",
+      },
+      {
+        kind: "workflow_pattern",
+        summary: "Evidence describes repeatable process controls such as plans, review gates, tests, guardrails, or caches.",
+        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002", "1000000000000000003"],
+        recommendation: "adopt",
+        confidence: "medium",
+      },
+      {
+        kind: "validation_evidence",
+        summary: "Evidence reports useful outcomes, found issues, shipped work, or practical validation.",
+        evidenceArtifactIds: ["1000000000000000003"],
+        recommendation: "adapt",
+        confidence: "low",
+      },
+    ]);
+  });
+
+  it("builds feature candidates from signals against long-term engineering standards", () => {
+    const signal = {
+      kind: "workflow_pattern" as const,
+      summary: "Evidence asks for review gates and cached evidence workflows.",
+      evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+      recommendation: "adopt" as const,
+      confidence: "medium" as const,
+    };
+
+    const report = buildFeatureCandidateReport({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "evidence-report-1",
+      signals: [signal],
+    });
+
+    expect(report).toEqual({
+      reportId: "candidate-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      sourceReportId: "evidence-report-1",
+      candidates: [{
+        id: "candidate-workflow-pattern",
+        title: "Governed workflow pattern support",
+        summary: "Evidence asks for review gates and cached evidence workflows.",
+        sourceSignalKinds: ["workflow_pattern"],
+        evidenceArtifactIds: ["1000000000000000001", "1000000000000000002"],
+        recommendation: "adopt",
+        confidence: "medium",
+        standardsAssessment: {
+          publicValue: "community-grounded",
+          architectureFit: "core-domain-first",
+          implementationRisk: "medium",
+          notes: [
+            "Keep source evidence separate from write-capable actions.",
+            "Prefer pure domain contracts before provider adapters.",
+            "Avoid compatibility shims, generated boilerplate, and hidden side effects.",
+          ],
+        },
+      }],
+    });
+  });
 });
+
+function syntheticArtifact(artifactId: string, text: string) {
+  return {
+    platform: "x" as const,
+    artifactId,
+    kind: "post" as const,
+    sourceUrl: `https://x.com/example_author/status/${artifactId}`,
+    text,
+    retrievedAt: "2026-06-24T00:00:00.000Z",
+  };
+}

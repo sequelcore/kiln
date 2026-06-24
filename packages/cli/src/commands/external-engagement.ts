@@ -3,15 +3,18 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   buildExternalEvidenceReport,
+  buildFeatureCandidateReport,
   createXOAuth2ClientIdRef,
   createXOAuth2ClientSecretRef,
   createXOAuth2RefreshTokenRef,
   createXReadAccessTokenRef,
   estimateXEvidenceRequestBudget,
+  extractCommunitySignalsFromEvidence,
   normalizeXPostReferences,
   type ExternalEvidenceArtifact,
   type ExternalEvidenceMetrics,
   type ExternalEvidenceReport,
+  type FeatureCandidateReport,
   type SecretRef,
   type SecretResolver,
   type XEvidenceRequestBudget,
@@ -138,6 +141,11 @@ interface XRefreshFlags {
   readonly clientSecretEnv: string;
 }
 
+interface XCandidatesFlags {
+  readonly reportPath?: string;
+  readonly outputPath?: string;
+}
+
 interface XRateLimitSnapshot {
   readonly limit?: number;
   readonly remaining?: number;
@@ -154,8 +162,8 @@ export async function externalEngagementCommand(
     printHelp();
     return;
   }
-  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh") {
-    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, or x-refresh.`);
+  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh" && subcommand !== "x-candidates") {
+    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, x-refresh, or x-candidates.`);
   }
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -167,6 +175,10 @@ export async function externalEngagementCommand(
   }
   if (subcommand === "x-refresh") {
     await runXRefresh(parseXRefreshFlags(args), dependencies);
+    return;
+  }
+  if (subcommand === "x-candidates") {
+    await runXCandidates(parseXCandidatesFlags(args), dependencies);
     return;
   }
   await runXReport(parseXReportFlags(args), dependencies);
@@ -328,6 +340,28 @@ async function runXRefresh(
     },
   };
   printOrWriteJson(summary, undefined);
+}
+
+async function runXCandidates(
+  flags: XCandidatesFlags,
+  dependencies: ExternalEngagementCommandDependencies,
+): Promise<void> {
+  if (!flags.reportPath) {
+    throw new Error("external-engagement x-candidates requires --report.");
+  }
+  const sourceReport = parseExternalEvidenceReport(readJsonFile(flags.reportPath), flags.reportPath);
+  const signals = sourceReport.signals.length > 0
+    ? sourceReport.signals
+    : extractCommunitySignalsFromEvidence({ artifacts: sourceReport.artifacts });
+  const generatedAt = (dependencies.now?.() ?? new Date()).toISOString();
+  const reportId = dependencies.reportId?.() ?? `external-engagement-candidates-${generatedAt.replace(/[:.]/gu, "-")}`;
+  const candidateReport = buildFeatureCandidateReport({
+    reportId,
+    generatedAt,
+    sourceReportId: sourceReport.reportId,
+    signals,
+  });
+  printOrWriteFeatureCandidateReport(candidateReport, flags.outputPath);
 }
 
 async function resolveAccessToken(
@@ -546,6 +580,29 @@ function parseXRefreshFlags(args: readonly string[]): XRefreshFlags {
   };
 }
 
+function parseXCandidatesFlags(args: readonly string[]): XCandidatesFlags {
+  let reportPath: string | undefined;
+  let outputPath: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--report") {
+      reportPath = readRequiredArg(args, index, "--report");
+      index += 1;
+    } else if (arg === "--output") {
+      outputPath = readRequiredArg(args, index, "--output");
+      index += 1;
+    } else {
+      throw new Error(`Unknown external-engagement x-candidates option '${arg}'.`);
+    }
+  }
+
+  return {
+    reportPath,
+    outputPath,
+  };
+}
+
 function readInputReferences(inputPath: string | undefined): readonly string[] {
   if (!inputPath) {
     return [];
@@ -572,9 +629,23 @@ function printOrWriteJson(value: unknown, outputPath: string | undefined): void 
   console.log(`External engagement report written: ${outputPath}`);
 }
 
+function printOrWriteFeatureCandidateReport(report: FeatureCandidateReport, outputPath: string | undefined): void {
+  if (!outputPath) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf-8");
+  console.log(`External engagement feature candidates written: ${outputPath}`);
+}
+
 function writeSecretJson(outputPath: string, value: unknown): void {
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
+}
+
+function readJsonFile(path: string): unknown {
+  return JSON.parse(readFileSync(path, "utf-8"));
 }
 
 async function fetchTweetsByIds(accessToken: string, ids: readonly string[]): Promise<readonly ExternalEvidenceArtifact[]> {
@@ -719,6 +790,24 @@ function parseOAuth2RefreshResult(payload: unknown, generatedAt: string): XOAuth
   };
 }
 
+function parseExternalEvidenceReport(payload: unknown, path: string): ExternalEvidenceReport {
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`External evidence report must be an object: ${path}`);
+  }
+  const record = payload as Partial<ExternalEvidenceReport>;
+  if (
+    typeof record.reportId !== "string"
+    || record.source !== "x"
+    || !record.query
+    || !record.budget
+    || !Array.isArray(record.artifacts)
+    || !Array.isArray(record.signals)
+  ) {
+    throw new Error(`Invalid external evidence report: ${path}`);
+  }
+  return record as ExternalEvidenceReport;
+}
+
 function parseScopeList(value: unknown): readonly string[] | undefined {
   if (typeof value !== "string" || value.trim().length === 0) {
     return undefined;
@@ -846,6 +935,7 @@ function printHelp(): void {
     "  kiln external-engagement x-report --input <path> [options]",
     "  kiln external-engagement x-smoke --allow-live [options]",
     "  kiln external-engagement x-refresh --allow-live --secret-output <path> [options]",
+    "  kiln external-engagement x-candidates --report <path> [options]",
     "",
     "Options:",
     "  --max-replies N          Maximum replies to fetch per root post (default: 25)",
@@ -857,6 +947,7 @@ function printHelp(): void {
     "  --no-cache               Disable x-report cache reads and writes",
     "  --refresh-cache          Bypass cache reads and replace the cached x-report",
     "  --output PATH            Write report JSON to PATH",
+    "  --report PATH            Read an existing x-report JSON for x-candidates",
     "  --access-token-env NAME  Env var containing OAuth2 access token (default: KILN_X_OAUTH2_ACCESS_TOKEN)",
     "  --refresh-token-env NAME Env var containing OAuth2 refresh token (default: KILN_X_OAUTH2_REFRESH_TOKEN)",
     "  --client-id-env NAME     Env var containing OAuth2 client id (default: KILN_X_CLIENT_ID)",
