@@ -55,6 +55,7 @@ function buildXEvidenceReportCacheKey(query: XEvidenceQuery): string {
     version: X_EVIDENCE_REPORT_CACHE_VERSION,
     maxRepliesPerPost: query.maxRepliesPerPost,
     postIds: query.references.map((reference) => reference.postId),
+    discoveryScope: query.discoveryScope,
   });
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
 }

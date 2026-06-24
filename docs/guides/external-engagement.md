@@ -1,25 +1,43 @@
 # Governed External Engagement
 
-Governed external engagement is the Kiln surface for working with external
-platforms without giving agents uncontrolled authority. The first supported
-slice is read-only X evidence reporting through the CLI.
+Governed external engagement is the Kiln surface for discovering, reading, and
+turning external community evidence into governed product intake without giving
+agents uncontrolled platform authority. X is the first adapter.
 
-This is not social posting automation. Read, draft, approval, and execution are
-separate phases with separate authority.
+This is not an X bot, a scraping browser agent, or social posting automation.
+Discovery, read evidence, signal extraction, review, decision, promotion,
+action proposal, approval authority, and execution are separate phases with
+separate contracts.
 
-## Phase 1 Scope
+## Product Flow
 
-The phase 1 X path can:
+The long-term flow is:
 
+```text
+Discover -> Read Evidence -> Extract Signals -> Review -> Decide -> Promote -> Propose Action -> Approve Authority -> Execute
+```
+
+The current public implementation completes the discovery, read, signal,
+review, decision, and promotion side. It also defines provider-neutral action
+proposal and approval contracts for future write-capable adapters, but it does
+not execute public writes.
+
+## Current Scope
+
+The current X path can:
+
+- run bounded X recent-search discovery by query or hashtag;
 - accept X post URLs or post ids from the operator;
 - deduplicate root post references;
 - estimate the maximum read budget before network access;
 - fetch root posts and a bounded number of replies;
 - write a structured JSON evidence report;
 - preserve source URLs, platform ids, author metadata, metrics, and retrieval
-  evidence when available.
+  evidence when available;
+- transform reports into candidate, review, decision, and feature-intake
+  artifacts without additional provider calls.
 
-The phase 1 X path cannot:
+The current X path cannot:
 
 - publish posts;
 - reply;
@@ -27,9 +45,39 @@ The phase 1 X path cannot:
 - repost;
 - follow accounts;
 - read or send DMs;
-- run unbounded timeline, search, or reply loops.
+- run unbounded timeline, search, reply, or browser loops;
+- approve its own proposed public action.
 
 ## CLI
+
+Preview a bounded search plan without touching the network:
+
+```bash
+kiln external-engagement x-search \
+  --query "#mcp" \
+  --max-posts 25 \
+  --max-replies 3 \
+  --max-requests 30 \
+  --dry-run
+```
+
+Fetch a bounded search report:
+
+```bash
+kiln external-engagement x-search \
+  --query "#mcp" \
+  --max-posts 25 \
+  --max-replies 3 \
+  --max-requests 30 \
+  --output ./.kiln/external-engagement/x-search-report.json
+```
+
+`x-search` uses X recent search and records the discovery scope in the evidence
+report. Scope fields include query, search scope, maximum root posts, maximum
+replies per root post, optional `--since` / `--until` ISO timestamps, optional
+`--max-requests`, and sampling limitations. The command fails before credential
+resolution or network access if the estimated request count exceeds
+`--max-requests`.
 
 Dry-run a report plan without touching the network:
 
@@ -49,19 +97,21 @@ kiln external-engagement x-report \
   --output ./.kiln/external-engagement/x-report.json
 ```
 
-`x-report` caches successful reports by default under:
+`x-search` and `x-report` cache successful reports by default under:
 
 ```text
 .kiln/cache/external-engagement/x-report
 ```
 
-The cache key is based on X post ids and `--max-replies`, not raw source URLs.
-Use these flags when needed:
+For `x-report`, the cache key is based on X post ids and `--max-replies`, not
+raw source URLs. For `x-search`, the cache key includes the bounded discovery
+scope, not credentials or raw operator files. Use these flags when needed:
 
 ```bash
 kiln external-engagement x-report --input ./x-sources.txt --no-cache
 kiln external-engagement x-report --input ./x-sources.txt --refresh-cache
 kiln external-engagement x-report --input ./x-sources.txt --cache-dir C:/tmp/kiln-x-cache
+kiln external-engagement x-search --query "#mcp" --no-cache
 ```
 
 Run a live read-only credential smoke check:
@@ -194,10 +244,10 @@ https://x.com/example_author/status/1000000000000000001
 ## Credentials
 
 The CLI resolves credentials through Kiln's provider-agnostic `SecretRef`
-boundary. X read access is declared by a reusable `x-oauth2-access-token`
-reference with purpose `external-engagement:x:read` and scopes `x:post.read`
-and `x:user.read`. The current X report adapter resolves that reference through
-an env-backed secret source for an OAuth 2.0 access token:
+boundary. X search and report reads use the same reusable
+`x-oauth2-access-token` reference with purpose `external-engagement:x:read` and
+scopes `x:post.read` and `x:user.read`. The current CLI adapter resolves that
+reference through an env-backed secret source for an OAuth 2.0 access token:
 
 ```text
 KILN_X_OAUTH2_ACCESS_TOKEN
@@ -230,6 +280,14 @@ kiln external-engagement x-report \
   --access-token-env MY_X_ACCESS_TOKEN
 ```
 
+The same override works for search:
+
+```bash
+kiln external-engagement x-search \
+  --query "#mcp" \
+  --access-token-env MY_X_ACCESS_TOKEN
+```
+
 Do not commit tokens, refresh tokens, API keys, API secrets, screenshots of
 credentials, or real operator research source lists.
 
@@ -255,8 +313,8 @@ smallest explicit operator-controlled source for read-only evidence reports.
 
 ## Cost Controls
 
-X API reads are metered. Treat external platform API access as a paid external
-resource.
+X API reads are metered through X's pay-per-use credit model. Treat external
+platform API access as a paid external resource.
 
 The report budget is computed before network access from:
 
@@ -264,6 +322,15 @@ The report budget is computed before network access from:
 - maximum replies per root post;
 - author metadata reads;
 - expected request batches.
+
+The search budget is computed before credential resolution from:
+
+- one bounded recent-search request;
+- maximum discovered root posts;
+- maximum reply searches, capped by root posts and `--max-replies`;
+- maximum reply reads;
+- author metadata reads;
+- optional `--max-requests`.
 
 Keep early runs small. Use `--dry-run` first and keep `--max-replies` explicit.
 Leave cache enabled for repeated exploration. Use `--refresh-cache` only when
@@ -282,6 +349,38 @@ provider call.
 Use `x-promote` to produce the provider-neutral feature-intake handoff without
 another provider call.
 
+## Sampling Limits
+
+External community evidence is useful product input, not a representative
+market study by itself. X search samples visible public posts that match the
+query and the authenticated account's access. It may overrepresent frequent
+posters, highly active threads, emotionally intense comments, platform-native
+communities, and people who choose to discuss the topic publicly.
+
+Every search report records sampling limitations so downstream review can
+treat the artifact as directional evidence. Use review and decision reports to
+separate "this is a real observed signal" from "this represents the whole
+market." Validate high-impact product decisions with additional evidence such
+as user interviews, support data, usage analytics, direct customer feedback,
+or formal research.
+
+## Conversational UX Contract
+
+Users should be able to ask Kiln to explore X posts, a hashtag, or a topic.
+The governed translation is a bounded plan, not free browsing:
+
+```text
+User request: Explore X posts about #mcp.
+Kiln plan: x-search query="#mcp", maxPosts=25, maxReplies=3,
+maxRequests=30, scope=recent, cache=enabled.
+Operator checkpoint: review budget, sampling limits, credentials, and output
+artifact path before live provider access.
+```
+
+The model reasons over the resulting evidence, candidate, review, decision, and
+intake artifacts. It must not browse X freely or hide raw browsing state inside
+the conversation.
+
 ## Architecture Boundary
 
 The public feature is governed external engagement. X is only the first
@@ -290,28 +389,37 @@ provider.
 Current ownership:
 
 - `@kilnai/core`: source-neutral evidence contracts, read-only effect envelope,
-  URL/id normalization, request-budget estimation, report construction,
-  conservative signal extraction, feature-candidate reporting, candidate
-  decision reporting, and provider-agnostic credential references.
+  bounded discovery scopes, URL/id normalization, request-budget estimation,
+  report construction, conservative signal extraction, feature-candidate
+  reporting, candidate decision reporting, provider-neutral feature intake,
+  future action proposal/approval/execution contracts, and provider-agnostic
+  credential references.
 - `@kilnai/cli`: first operator surface, env-backed credential resolver, and X
-  REST fetch boundary.
-- `@kilnai/runtime`: not touched in phase 1. A runtime channel or write-capable
-  adapter requires a later action-proposal and approval workflow.
+  REST fetch/search boundary.
+- GUI/TUI/SDK: should consume the same provider-neutral reports and future
+  runtime events. This slice does not add placeholder UI because the shared
+  runtime channel for external-engagement artifacts is not yet the owning
+  surface.
+- `@kilnai/runtime`: not touched in this slice. A runtime channel or
+  write-capable adapter requires a later action-proposal and approval workflow.
 
-This completes the read-only X pilot lifecycle:
+This completes the read-only X lifecycle:
 
-1. external evidence ingestion;
-2. candidate extraction;
-3. operator review;
-4. operator decision;
-5. provider-neutral feature intake.
+1. bounded discovery;
+2. external evidence ingestion;
+3. candidate extraction;
+4. operator review;
+5. operator decision;
+6. provider-neutral feature intake.
 
-Write-capable engagement must use a separate future contract:
+Write-capable engagement uses a separate future contract:
 
 1. external evidence ingestion;
 2. action proposal;
-3. human approval;
+3. approval authority from a human, designated agent, or policy;
 4. external action execution;
 5. audit record.
 
-Do not merge read authority and write authority into one adapter.
+Approval authority must be explicit and separately modeled. The proposer must
+not approve its own external action. Do not merge read authority and write
+authority into one adapter.

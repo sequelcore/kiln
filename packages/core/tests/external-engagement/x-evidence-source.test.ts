@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   EXTERNAL_EVIDENCE_READ_EFFECT,
+  buildExternalActionApproval,
+  buildExternalActionExecution,
+  buildExternalActionProposal,
   buildFeatureCandidateDecisionReport,
   buildFeatureIntakeReport,
   buildExternalEngagementReviewReport,
@@ -10,8 +13,10 @@ import {
   createXOAuth2ClientSecretRef,
   createXOAuth2RefreshTokenRef,
   createXReadAccessTokenRef,
+  estimateXSearchDiscoveryBudget,
   estimateXEvidenceRequestBudget,
   extractCommunitySignalsFromEvidence,
+  normalizeXSearchDiscoveryScope,
   normalizeXPostReferences,
 } from "../../src/external-engagement/index.js";
 import { deriveAuthorityFromEffect } from "../../src/engine/domain/action-effect.js";
@@ -112,6 +117,83 @@ describe("X evidence source", () => {
     });
   });
 
+  it("normalizes bounded X discovery scopes with sampling limitations", () => {
+    const scope = normalizeXSearchDiscoveryScope({
+      query: " #mcp ",
+      maxPosts: 25,
+      maxRepliesPerPost: 3,
+      searchScope: "recent",
+      since: "2026-06-17T00:00:00.000Z",
+      until: "2026-06-24T00:00:00.000Z",
+      maxRequests: 30,
+    });
+
+    expect(scope).toEqual({
+      provider: "x",
+      method: "search",
+      query: "#mcp",
+      maxPosts: 25,
+      maxRepliesPerPost: 3,
+      searchScope: "recent",
+      since: "2026-06-17T00:00:00.000Z",
+      until: "2026-06-24T00:00:00.000Z",
+      maxRequests: 30,
+      samplingLimitations: [
+        "X recent search only covers the provider's recent-search window for the configured account.",
+        "Hashtag and keyword search samples visible public posts matching the query, not the whole market.",
+        "Replies are capped per discovered root post and may overrepresent highly active threads.",
+        "Results are provider-ranked or reverse chronological depending on the X endpoint response.",
+      ],
+    });
+  });
+
+  it("estimates bounded X search discovery budgets before paid API use", () => {
+    const budget = estimateXSearchDiscoveryBudget({
+      maxPosts: 25,
+      maxRepliesPerPost: 3,
+      includeAuthors: true,
+    });
+
+    expect(budget).toEqual({
+      rootPostReads: 25,
+      replySearches: 25,
+      maxReplyReads: 75,
+      userReads: 100,
+      maxPostReads: 100,
+      estimatedRequests: 27,
+      discoverySearches: 1,
+    });
+  });
+
+  it("builds external evidence reports with provider-neutral discovery scope", () => {
+    const discoveryScope = normalizeXSearchDiscoveryScope({
+      query: "#mcp",
+      maxPosts: 10,
+      maxRepliesPerPost: 0,
+      searchScope: "recent",
+    });
+    const report = buildExternalEvidenceReport({
+      reportId: "search-report-1",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      source: "x",
+      query: {
+        references: [],
+        maxRepliesPerPost: 0,
+        discoveryScope,
+      },
+      budget: estimateXSearchDiscoveryBudget({
+        maxPosts: 10,
+        maxRepliesPerPost: 0,
+        includeAuthors: true,
+      }),
+      artifacts: [],
+      signals: [],
+    });
+
+    expect(report.query.discoveryScope).toEqual(discoveryScope);
+    expect(JSON.stringify(report)).toContain("Hashtag and keyword search samples visible public posts");
+  });
+
   it("classifies X evidence reads as audited external observation", () => {
     const decision = deriveAuthorityFromEffect(EXTERNAL_EVIDENCE_READ_EFFECT);
 
@@ -121,6 +203,80 @@ describe("X evidence source", () => {
       requiresApproval: false,
       reason: "Observation with external access, audited execution",
     });
+  });
+
+  it("models future external actions as proposed, approved, and audited execution records", () => {
+    const proposal = buildExternalActionProposal({
+      proposalId: "external-action-proposal-1",
+      proposedAt: "2026-06-24T00:00:00.000Z",
+      provider: "x",
+      actionKind: "reply",
+      target: { artifactId: "1000000000000000001" },
+      summary: "Draft a public reply that asks a clarifying product-research question.",
+      rationale: "Evidence suggests a public workflow question worth answering.",
+      proposerActorId: "agent:researcher",
+      evidenceArtifactIds: ["1000000000000000001"],
+    });
+    const approval = buildExternalActionApproval({
+      approvalId: "external-action-approval-1",
+      proposal,
+      approvedAt: "2026-06-24T00:05:00.000Z",
+      actor: { kind: "designated_agent", actorId: "agent:operator-delegate" },
+      authorityRef: "policy:external-engagement:x-reply-delegate",
+    });
+    const execution = buildExternalActionExecution({
+      executionId: "external-action-execution-1",
+      approval,
+      executedAt: "2026-06-24T00:06:00.000Z",
+      status: "skipped",
+      auditTrail: ["No provider adapter execution is implemented in this slice."],
+    });
+
+    expect(proposal.status).toBe("proposed");
+    expect(approval.status).toBe("approved");
+    expect(execution).toEqual(expect.objectContaining({
+      proposalId: "external-action-proposal-1",
+      approvalId: "external-action-approval-1",
+      provider: "x",
+      actionKind: "reply",
+      status: "skipped",
+    }));
+  });
+
+  it("rejects external action approvals where the proposer approves itself", () => {
+    const proposal = buildExternalActionProposal({
+      proposalId: "external-action-proposal-1",
+      proposedAt: "2026-06-24T00:00:00.000Z",
+      provider: "x",
+      actionKind: "publish_post",
+      target: { accountRef: "project/external-engagement/x/account" },
+      summary: "Draft a public post.",
+      rationale: "Evidence suggests a public announcement.",
+      proposerActorId: "agent:researcher",
+      evidenceArtifactIds: ["1000000000000000001"],
+    });
+
+    expect(() => buildExternalActionApproval({
+      approvalId: "external-action-approval-1",
+      proposal,
+      approvedAt: "2026-06-24T00:05:00.000Z",
+      actor: { kind: "designated_agent", actorId: "agent:researcher" },
+      authorityRef: "policy:external-engagement:x-post-delegate",
+    })).toThrow(/proposer must not approve its own external action/u);
+  });
+
+  it("rejects external action proposals without an explicit target", () => {
+    expect(() => buildExternalActionProposal({
+      proposalId: "external-action-proposal-1",
+      proposedAt: "2026-06-24T00:00:00.000Z",
+      provider: "x",
+      actionKind: "reply",
+      target: {},
+      summary: "Draft a public reply.",
+      rationale: "Evidence suggests a public response.",
+      proposerActorId: "agent:researcher",
+      evidenceArtifactIds: ["1000000000000000001"],
+    })).toThrow(/external action proposal requires an explicit target/u);
   });
 
   it("builds source-grounded reports without inventing action authority", () => {

@@ -169,6 +169,7 @@ export interface ExternalEngagementReviewReport {
 }
 
 export interface XEvidenceRequestBudget {
+  readonly discoverySearches?: number;
   readonly rootPostReads: number;
   readonly replySearches: number;
   readonly maxReplyReads: number;
@@ -177,9 +178,27 @@ export interface XEvidenceRequestBudget {
   readonly estimatedRequests: number;
 }
 
+export type ExternalDiscoveryProvider = "x";
+export type ExternalDiscoveryMethod = "search";
+export type ExternalDiscoverySearchScope = "recent";
+
+export interface ExternalDiscoveryScope {
+  readonly provider: ExternalDiscoveryProvider;
+  readonly method: ExternalDiscoveryMethod;
+  readonly query: string;
+  readonly maxPosts: number;
+  readonly maxRepliesPerPost: number;
+  readonly searchScope: ExternalDiscoverySearchScope;
+  readonly since?: string;
+  readonly until?: string;
+  readonly maxRequests?: number;
+  readonly samplingLimitations: readonly string[];
+}
+
 export interface XEvidenceQuery {
   readonly references: readonly XPostReference[];
   readonly maxRepliesPerPost: number;
+  readonly discoveryScope?: ExternalDiscoveryScope;
 }
 
 export interface ExternalEvidenceReport {
@@ -203,6 +222,57 @@ export interface XReadAccessTokenRefInput {
 
 export interface XOAuth2CredentialRefInput {
   readonly envName?: string;
+}
+
+export type ExternalActionKind = ExternalEngagementProhibitedAction;
+
+export interface ExternalActionTarget {
+  readonly artifactId?: string;
+  readonly accountRef?: string;
+}
+
+export interface ExternalActionProposal {
+  readonly proposalId: string;
+  readonly proposedAt: string;
+  readonly provider: ExternalEvidenceSource;
+  readonly actionKind: ExternalActionKind;
+  readonly target: ExternalActionTarget;
+  readonly summary: string;
+  readonly rationale: string;
+  readonly proposerActorId: string;
+  readonly evidenceArtifactIds: readonly string[];
+  readonly status: "proposed";
+}
+
+export type ApprovalActorKind = "human" | "designated_agent" | "policy";
+
+export interface ApprovalActor {
+  readonly kind: ApprovalActorKind;
+  readonly actorId: string;
+}
+
+export interface ExternalActionApproval {
+  readonly approvalId: string;
+  readonly proposalId: string;
+  readonly approvedAt: string;
+  readonly provider: ExternalEvidenceSource;
+  readonly actionKind: ExternalActionKind;
+  readonly actor: ApprovalActor;
+  readonly authorityRef: string;
+  readonly evidenceArtifactIds: readonly string[];
+  readonly status: "approved";
+}
+
+export interface ExternalActionExecution {
+  readonly executionId: string;
+  readonly proposalId: string;
+  readonly approvalId: string;
+  readonly executedAt: string;
+  readonly provider: ExternalEvidenceSource;
+  readonly actionKind: ExternalActionKind;
+  readonly status: "executed" | "failed" | "skipped";
+  readonly externalReference?: string;
+  readonly auditTrail: readonly string[];
 }
 
 export const EXTERNAL_EVIDENCE_READ_EFFECT: ActionEffectEnvelope = Object.freeze({
@@ -232,6 +302,12 @@ const DEFAULT_X_ACCESS_TOKEN_ENV = "KILN_X_OAUTH2_ACCESS_TOKEN";
 const DEFAULT_X_REFRESH_TOKEN_ENV = "KILN_X_OAUTH2_REFRESH_TOKEN";
 const DEFAULT_X_CLIENT_ID_ENV = "KILN_X_CLIENT_ID";
 const DEFAULT_X_CLIENT_SECRET_ENV = "KILN_X_CLIENT_SECRET";
+const X_DISCOVERY_SAMPLING_LIMITATIONS: readonly string[] = Object.freeze([
+  "X recent search only covers the provider's recent-search window for the configured account.",
+  "Hashtag and keyword search samples visible public posts matching the query, not the whole market.",
+  "Replies are capped per discovered root post and may overrepresent highly active threads.",
+  "Results are provider-ranked or reverse chronological depending on the X endpoint response.",
+]);
 
 export function createXReadAccessTokenRef(input: XReadAccessTokenRefInput = {}): SecretRef {
   return createSecretRef({
@@ -320,6 +396,61 @@ export function estimateXEvidenceRequestBudget(input: {
     userReads,
     maxPostReads,
     estimatedRequests,
+  };
+}
+
+export function normalizeXSearchDiscoveryScope(input: {
+  readonly query: string;
+  readonly maxPosts: number;
+  readonly maxRepliesPerPost: number;
+  readonly searchScope?: ExternalDiscoverySearchScope;
+  readonly since?: string;
+  readonly until?: string;
+  readonly maxRequests?: number;
+}): ExternalDiscoveryScope {
+  const query = requireNonEmpty(input.query, "query");
+  const maxPosts = positiveInteger(input.maxPosts, "maxPosts");
+  const maxRepliesPerPost = nonNegativeInteger(input.maxRepliesPerPost, "maxRepliesPerPost");
+  const searchScope = input.searchScope ?? "recent";
+  if (searchScope !== "recent") {
+    throw new Error(`Unsupported X discovery search scope: ${String(searchScope)}`);
+  }
+  const maxRequests = input.maxRequests === undefined
+    ? undefined
+    : positiveInteger(input.maxRequests, "maxRequests");
+  return Object.freeze({
+    provider: "x",
+    method: "search",
+    query,
+    maxPosts,
+    maxRepliesPerPost,
+    searchScope,
+    ...(input.since ? { since: requireNonEmpty(input.since, "since") } : {}),
+    ...(input.until ? { until: requireNonEmpty(input.until, "until") } : {}),
+    ...(maxRequests ? { maxRequests } : {}),
+    samplingLimitations: X_DISCOVERY_SAMPLING_LIMITATIONS,
+  });
+}
+
+export function estimateXSearchDiscoveryBudget(input: {
+  readonly maxPosts: number;
+  readonly maxRepliesPerPost: number;
+  readonly includeAuthors: boolean;
+}): XEvidenceRequestBudget {
+  const maxPosts = positiveInteger(input.maxPosts, "maxPosts");
+  const maxRepliesPerPost = nonNegativeInteger(input.maxRepliesPerPost, "maxRepliesPerPost");
+  const replySearches = maxRepliesPerPost > 0 ? maxPosts : 0;
+  const maxReplyReads = maxPosts * maxRepliesPerPost;
+  const maxPostReads = maxPosts + maxReplyReads;
+  const userReads = input.includeAuthors ? maxPostReads : 0;
+  return {
+    discoverySearches: 1,
+    rootPostReads: maxPosts,
+    replySearches,
+    maxReplyReads,
+    userReads,
+    maxPostReads,
+    estimatedRequests: 1 + replySearches + (input.includeAuthors ? batchCount(userReads, X_ID_BATCH_SIZE) : 0),
   };
 }
 
@@ -484,6 +615,98 @@ export function buildFeatureIntakeReport(input: {
     proposals: Object.freeze(input.decisionReport.decisions
       .filter(isPromotableDecision)
       .map((decision) => buildFeatureIntakeProposal(decision))),
+  });
+}
+
+export function buildExternalActionProposal(input: {
+  readonly proposalId: string;
+  readonly proposedAt: string;
+  readonly provider: ExternalEvidenceSource;
+  readonly actionKind: ExternalActionKind;
+  readonly target: ExternalActionTarget;
+  readonly summary: string;
+  readonly rationale: string;
+  readonly proposerActorId: string;
+  readonly evidenceArtifactIds: readonly string[];
+}): ExternalActionProposal {
+  const evidenceArtifactIds = unique(input.evidenceArtifactIds.map((artifactId) =>
+    requireNonEmpty(artifactId, "evidenceArtifactId")));
+  if (evidenceArtifactIds.length === 0) {
+    throw new Error("external action proposal requires at least one evidence artifact id");
+  }
+  const target = {
+    ...(input.target.artifactId ? { artifactId: requireNonEmpty(input.target.artifactId, "target.artifactId") } : {}),
+    ...(input.target.accountRef ? { accountRef: requireNonEmpty(input.target.accountRef, "target.accountRef") } : {}),
+  };
+  if (!target.artifactId && !target.accountRef) {
+    throw new Error("external action proposal requires an explicit target");
+  }
+  return Object.freeze({
+    proposalId: requireNonEmpty(input.proposalId, "proposalId"),
+    proposedAt: requireNonEmpty(input.proposedAt, "proposedAt"),
+    provider: input.provider,
+    actionKind: requireExternalActionKind(input.actionKind),
+    target: Object.freeze(target),
+    summary: requireNonEmpty(input.summary, "summary"),
+    rationale: requireNonEmpty(input.rationale, "rationale"),
+    proposerActorId: requireNonEmpty(input.proposerActorId, "proposerActorId"),
+    evidenceArtifactIds,
+    status: "proposed",
+  });
+}
+
+export function buildExternalActionApproval(input: {
+  readonly approvalId: string;
+  readonly proposal: ExternalActionProposal;
+  readonly approvedAt: string;
+  readonly actor: ApprovalActor;
+  readonly authorityRef: string;
+}): ExternalActionApproval {
+  const actor = {
+    kind: requireApprovalActorKind(input.actor.kind),
+    actorId: requireNonEmpty(input.actor.actorId, "actor.actorId"),
+  };
+  if (actor.actorId === input.proposal.proposerActorId) {
+    throw new Error("External action proposer must not approve its own external action");
+  }
+  return Object.freeze({
+    approvalId: requireNonEmpty(input.approvalId, "approvalId"),
+    proposalId: input.proposal.proposalId,
+    approvedAt: requireNonEmpty(input.approvedAt, "approvedAt"),
+    provider: input.proposal.provider,
+    actionKind: input.proposal.actionKind,
+    actor: Object.freeze(actor),
+    authorityRef: requireNonEmpty(input.authorityRef, "authorityRef"),
+    evidenceArtifactIds: Object.freeze([...input.proposal.evidenceArtifactIds]),
+    status: "approved",
+  });
+}
+
+export function buildExternalActionExecution(input: {
+  readonly executionId: string;
+  readonly approval: ExternalActionApproval;
+  readonly executedAt: string;
+  readonly status: ExternalActionExecution["status"];
+  readonly externalReference?: string;
+  readonly auditTrail: readonly string[];
+}): ExternalActionExecution {
+  if (input.status !== "executed" && input.status !== "failed" && input.status !== "skipped") {
+    throw new Error(`Unsupported external action execution status: ${String(input.status)}`);
+  }
+  const auditTrail = input.auditTrail.map((entry) => requireNonEmpty(entry, "auditTrail"));
+  if (auditTrail.length === 0) {
+    throw new Error("external action execution requires audit trail entries");
+  }
+  return Object.freeze({
+    executionId: requireNonEmpty(input.executionId, "executionId"),
+    proposalId: input.approval.proposalId,
+    approvalId: input.approval.approvalId,
+    executedAt: requireNonEmpty(input.executedAt, "executedAt"),
+    provider: input.approval.provider,
+    actionKind: input.approval.actionKind,
+    status: input.status,
+    ...(input.externalReference ? { externalReference: requireNonEmpty(input.externalReference, "externalReference") } : {}),
+    auditTrail: Object.freeze(auditTrail),
   });
 }
 
@@ -766,4 +989,18 @@ function requireDecisionKind(value: FeatureCandidateDecisionKind): FeatureCandid
     return value;
   }
   throw new Error(`Unsupported feature candidate decision: ${String(value)}`);
+}
+
+function requireExternalActionKind(value: ExternalActionKind): ExternalActionKind {
+  if (EXTERNAL_ENGAGEMENT_PHASE_ONE_PROHIBITED_ACTIONS.includes(value)) {
+    return value;
+  }
+  throw new Error(`Unsupported external action kind: ${String(value)}`);
+}
+
+function requireApprovalActorKind(value: ApprovalActorKind): ApprovalActorKind {
+  if (value === "human" || value === "designated_agent" || value === "policy") {
+    return value;
+  }
+  throw new Error(`Unsupported approval actor kind: ${String(value)}`);
 }

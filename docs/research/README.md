@@ -78,6 +78,10 @@ define the active architecture contract. For doctrine, use
   children, parallel worktree/session isolation, timeout recovery, and the
   future Kiln nonblocking managed-agent lifecycle.
 
+- `16-external-engagement.md`
+  Official X platform, MCP/community demand, mixed-initiative UX, and
+  social-listening limitation research for governed external engagement.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -102,3 +106,4 @@ define the active architecture contract. For doctrine, use
 13. `13-work-governance-and-verification.md`
 14. `14-live-browser-operator-surface.md`
 15. `15-background-parallel-agent-surface.md`
+16. `16-external-engagement.md`

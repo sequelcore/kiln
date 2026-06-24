@@ -41,6 +41,8 @@ Use this repo today if you want to:
 - run workspace verification from source
 - work on the CLI, GUI, TUI, runtime, gateway contracts, or native surface
 - evaluate Kiln's governance model before integrating a published package
+- try governed external engagement workflows that turn bounded X community
+  evidence into provider-neutral feature intake
 
 ## First Path
 
@@ -142,6 +144,10 @@ Most important architecture documents:
 - [Memory](docs/architecture/memory.md)
 - [Context Governance](docs/architecture/context-governance.md)
 - [Adaptation](docs/architecture/adaptation.md)
+
+Operator guides:
+
+- [Governed External Engagement](docs/guides/external-engagement.md)
 
 Most important research documents:
 

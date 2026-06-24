@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   externalEngagementCommand,
   type XEvidenceFetcher,
+  type XSearchFetcher,
   type XLiveSmokeResult,
   type XLiveSmokeTester,
   type XOAuth2RefreshResult,
@@ -63,6 +64,219 @@ describe("external engagement command", () => {
       artifacts: [],
       signals: [],
     });
+  });
+
+  it("prints a dry-run bounded X search plan without credential resolution or network access", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const searchFetcher: XSearchFetcher = {
+      fetchSearch: vi.fn(),
+    };
+    const credentialResolver: SecretResolver = { resolve: vi.fn() };
+
+    await externalEngagementCommand({} as never, "x-search", [
+      "--query",
+      "#mcp",
+      "--max-posts",
+      "25",
+      "--max-replies",
+      "3",
+      "--max-requests",
+      "30",
+      "--dry-run",
+    ], {
+      searchFetcher,
+      credentialResolver,
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      reportId: () => "search-plan-1",
+    });
+
+    expect(searchFetcher.fetchSearch).not.toHaveBeenCalled();
+    expect(credentialResolver.resolve).not.toHaveBeenCalled();
+    const output = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(output).toMatchObject({
+      reportId: "search-plan-1",
+      source: "x",
+      query: {
+        references: [],
+        maxRepliesPerPost: 3,
+        discoveryScope: {
+          provider: "x",
+          method: "search",
+          query: "#mcp",
+          maxPosts: 25,
+          maxRepliesPerPost: 3,
+          searchScope: "recent",
+          maxRequests: 30,
+        },
+      },
+      budget: {
+        rootPostReads: 25,
+        replySearches: 25,
+        maxReplyReads: 75,
+        userReads: 100,
+        maxPostReads: 100,
+        estimatedRequests: 27,
+        discoverySearches: 1,
+      },
+      artifacts: [],
+      signals: [],
+    });
+    expect(JSON.stringify(output)).toContain("Hashtag and keyword search samples visible public posts");
+  });
+
+  it("runs bounded X search through secret refs and writes a composable evidence report", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const outputPath = join(tempRoot(), "x-search.json");
+    const searchFetcher: XSearchFetcher = {
+      fetchSearch: vi.fn(async ({ discoveryScope, generatedAt, reportId, budget }) =>
+        buildExternalEvidenceReport({
+          reportId,
+          generatedAt,
+          source: "x",
+          query: {
+            references: [],
+            maxRepliesPerPost: discoveryScope.maxRepliesPerPost,
+            discoveryScope,
+          },
+          budget,
+          artifacts: [{
+            platform: "x",
+            artifactId: "1000000000000000001",
+            kind: "post",
+            sourceUrl: "https://x.com/i/status/1000000000000000001",
+            text: "Synthetic search result asking for MCP workflow controls.",
+            retrievedAt: generatedAt,
+          }],
+          signals: [],
+        })),
+    };
+
+    await externalEngagementCommand({} as never, "x-search", [
+      "--query",
+      "#mcp",
+      "--max-posts",
+      "10",
+      "--max-replies",
+      "0",
+      "--max-requests",
+      "3",
+      "--no-cache",
+      "--output",
+      outputPath,
+    ], {
+      searchFetcher,
+      env: { KILN_X_OAUTH2_ACCESS_TOKEN: "token" },
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+      reportId: () => "search-report-1",
+    });
+
+    expect(searchFetcher.fetchSearch).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: "token",
+      discoveryScope: expect.objectContaining({
+        query: "#mcp",
+        maxPosts: 10,
+        maxRepliesPerPost: 0,
+        maxRequests: 3,
+      }),
+      budget: expect.objectContaining({
+        discoverySearches: 1,
+        estimatedRequests: 2,
+      }),
+    }));
+    expect(JSON.parse(readFileSync(outputPath, "utf-8"))).toMatchObject({
+      reportId: "search-report-1",
+      query: { discoveryScope: { query: "#mcp" } },
+      artifacts: [{ text: "Synthetic search result asking for MCP workflow controls." }],
+    });
+    expect(log.mock.calls[0]?.[0]).toBe(`External engagement report written: ${outputPath}`);
+  });
+
+  it("rejects X search plans that exceed the configured request budget before credentials", async () => {
+    const credentialResolver: SecretResolver = { resolve: vi.fn() };
+    const searchFetcher: XSearchFetcher = { fetchSearch: vi.fn() };
+
+    await expect(externalEngagementCommand({} as never, "x-search", [
+      "--query",
+      "#mcp",
+      "--max-posts",
+      "25",
+      "--max-replies",
+      "3",
+      "--max-requests",
+      "10",
+    ], {
+      credentialResolver,
+      searchFetcher,
+    })).rejects.toThrow(/estimated X search requests 27 exceed --max-requests 10/u);
+
+    expect(credentialResolver.resolve).not.toHaveBeenCalled();
+    expect(searchFetcher.fetchSearch).not.toHaveBeenCalled();
+  });
+
+  it("serves cached X search reports before credential resolution or network access", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const cachedReport = buildExternalEvidenceReport({
+      reportId: "cached-search-report",
+      generatedAt: "2026-06-24T00:00:00.000Z",
+      source: "x",
+      query: {
+        references: [],
+        maxRepliesPerPost: 0,
+        discoveryScope: {
+          provider: "x",
+          method: "search",
+          query: "#mcp",
+          maxPosts: 10,
+          maxRepliesPerPost: 0,
+          searchScope: "recent",
+          maxRequests: 3,
+          samplingLimitations: [
+            "X recent search only covers the provider's recent-search window for the configured account.",
+            "Hashtag and keyword search samples visible public posts matching the query, not the whole market.",
+            "Replies are capped per discovered root post and may overrepresent highly active threads.",
+            "Results are provider-ranked or reverse chronological depending on the X endpoint response.",
+          ],
+        },
+      },
+      budget: {
+        discoverySearches: 1,
+        rootPostReads: 10,
+        replySearches: 0,
+        maxReplyReads: 0,
+        userReads: 10,
+        maxPostReads: 10,
+        estimatedRequests: 2,
+      },
+      artifacts: [],
+      signals: [],
+    });
+    const reportCache: XEvidenceReportCache = {
+      read: vi.fn(() => cachedReport),
+      write: vi.fn(),
+    };
+    const credentialResolver: SecretResolver = { resolve: vi.fn() };
+    const searchFetcher: XSearchFetcher = { fetchSearch: vi.fn() };
+
+    await externalEngagementCommand({} as never, "x-search", [
+      "--query",
+      "#mcp",
+      "--max-posts",
+      "10",
+      "--max-replies",
+      "0",
+      "--max-requests",
+      "3",
+    ], {
+      credentialResolver,
+      searchFetcher,
+      reportCache,
+    });
+
+    expect(reportCache.read).toHaveBeenCalledWith(cachedReport.query);
+    expect(credentialResolver.resolve).not.toHaveBeenCalled();
+    expect(searchFetcher.fetchSearch).not.toHaveBeenCalled();
+    expect(reportCache.write).not.toHaveBeenCalled();
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({ reportId: "cached-search-report" });
   });
 
   it("reads URLs from an input file, deduplicates them, and writes fetched reports", async () => {

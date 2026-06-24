@@ -11,9 +11,12 @@ import {
   createXOAuth2ClientSecretRef,
   createXOAuth2RefreshTokenRef,
   createXReadAccessTokenRef,
+  estimateXSearchDiscoveryBudget,
   estimateXEvidenceRequestBudget,
   extractCommunitySignalsFromEvidence,
+  normalizeXSearchDiscoveryScope,
   normalizeXPostReferences,
+  type ExternalDiscoveryScope,
   type ExternalEvidenceArtifact,
   type ExternalEvidenceMetrics,
   type ExternalEvidenceReport,
@@ -47,6 +50,18 @@ export interface XEvidenceFetchInput {
 
 export interface XEvidenceFetcher {
   fetchEvidence(input: XEvidenceFetchInput): Promise<ExternalEvidenceReport>;
+}
+
+export interface XSearchFetchInput {
+  readonly accessToken: string;
+  readonly discoveryScope: ExternalDiscoveryScope;
+  readonly generatedAt: string;
+  readonly reportId: string;
+  readonly budget: XEvidenceRequestBudget;
+}
+
+export interface XSearchFetcher {
+  fetchSearch(input: XSearchFetchInput): Promise<ExternalEvidenceReport>;
 }
 
 export interface XLiveSmokeInput {
@@ -113,6 +128,7 @@ export interface XOAuth2TokenRefresher {
 
 export interface ExternalEngagementCommandDependencies {
   readonly fetcher?: XEvidenceFetcher;
+  readonly searchFetcher?: XSearchFetcher;
   readonly smokeTester?: XLiveSmokeTester;
   readonly tokenRefresher?: XOAuth2TokenRefresher;
   readonly reportCache?: XEvidenceReportCache;
@@ -128,6 +144,21 @@ interface XReportFlags {
   readonly inputPath?: string;
   readonly outputPath?: string;
   readonly maxRepliesPerPost: number;
+  readonly dryRun: boolean;
+  readonly accessTokenEnv: string;
+  readonly cacheDir?: string;
+  readonly cacheMode: "read-write" | "disabled" | "refresh";
+}
+
+interface XSearchFlags {
+  readonly query?: string;
+  readonly outputPath?: string;
+  readonly maxPosts: number;
+  readonly maxRepliesPerPost: number;
+  readonly maxRequests?: number;
+  readonly searchScope: "recent";
+  readonly since?: string;
+  readonly until?: string;
   readonly dryRun: boolean;
   readonly accessTokenEnv: string;
   readonly cacheDir?: string;
@@ -187,8 +218,8 @@ export async function externalEngagementCommand(
     printHelp();
     return;
   }
-  if (subcommand !== "x-report" && subcommand !== "x-smoke" && subcommand !== "x-refresh" && subcommand !== "x-candidates" && subcommand !== "x-review" && subcommand !== "x-decide" && subcommand !== "x-promote") {
-    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-smoke, x-refresh, x-candidates, x-review, x-decide, or x-promote.`);
+  if (subcommand !== "x-report" && subcommand !== "x-search" && subcommand !== "x-smoke" && subcommand !== "x-refresh" && subcommand !== "x-candidates" && subcommand !== "x-review" && subcommand !== "x-decide" && subcommand !== "x-promote") {
+    throw new Error(`Unknown external-engagement command '${subcommand}'. Use x-report, x-search, x-smoke, x-refresh, x-candidates, x-review, x-decide, or x-promote.`);
   }
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -196,6 +227,10 @@ export async function externalEngagementCommand(
   }
   if (subcommand === "x-smoke") {
     await runXSmoke(parseXSmokeFlags(args), dependencies);
+    return;
+  }
+  if (subcommand === "x-search") {
+    await runXSearch(parseXSearchFlags(args), dependencies);
     return;
   }
   if (subcommand === "x-refresh") {
@@ -275,6 +310,86 @@ async function runXReport(
     accessToken,
     references,
     maxRepliesPerPost: flags.maxRepliesPerPost,
+    generatedAt,
+    reportId,
+    budget,
+  });
+  cache?.write(report);
+  printOrWrite(report, flags.outputPath);
+}
+
+async function runXSearch(
+  flags: XSearchFlags,
+  dependencies: ExternalEngagementCommandDependencies,
+): Promise<void> {
+  if (!flags.query) {
+    throw new Error("external-engagement x-search requires --query.");
+  }
+  const generatedAt = (dependencies.now?.() ?? new Date()).toISOString();
+  const reportId = dependencies.reportId?.() ?? `external-engagement-search-${generatedAt.replace(/[:.]/gu, "-")}`;
+  const discoveryScope = normalizeXSearchDiscoveryScope({
+    query: flags.query,
+    maxPosts: flags.maxPosts,
+    maxRepliesPerPost: flags.maxRepliesPerPost,
+    searchScope: flags.searchScope,
+    ...(flags.since ? { since: flags.since } : {}),
+    ...(flags.until ? { until: flags.until } : {}),
+    ...(flags.maxRequests ? { maxRequests: flags.maxRequests } : {}),
+  });
+  const budget = estimateXSearchDiscoveryBudget({
+    maxPosts: discoveryScope.maxPosts,
+    maxRepliesPerPost: discoveryScope.maxRepliesPerPost,
+    includeAuthors: true,
+  });
+  if (discoveryScope.maxRequests && budget.estimatedRequests > discoveryScope.maxRequests) {
+    throw new Error(
+      `estimated X search requests ${budget.estimatedRequests} exceed --max-requests ${discoveryScope.maxRequests}.`,
+    );
+  }
+  const query = {
+    references: [],
+    maxRepliesPerPost: discoveryScope.maxRepliesPerPost,
+    discoveryScope,
+  };
+  if (flags.dryRun) {
+    printOrWrite(buildExternalEvidenceReport({
+      reportId,
+      generatedAt,
+      source: "x",
+      query,
+      budget,
+      artifacts: [],
+      signals: [],
+    }), flags.outputPath);
+    return;
+  }
+  const cache = flags.cacheMode === "disabled"
+    ? undefined
+    : dependencies.reportCache ?? new FileXEvidenceReportCache(
+      flags.cacheDir ?? dependencies.defaultCacheDir ?? DEFAULT_X_REPORT_CACHE_DIR,
+    );
+  if (cache && flags.cacheMode !== "refresh") {
+    const cached = cache.read(query);
+    if (cached) {
+      printOrWrite(cached, flags.outputPath);
+      return;
+    }
+  }
+  const accessTokenRef = createXReadAccessTokenRef({ envName: flags.accessTokenEnv });
+  const credentialResolver = dependencies.credentialResolver ?? new EnvSecretResolver({
+    env: dependencies.env,
+    now: dependencies.now,
+  });
+  const accessToken = await resolveAccessToken(
+    credentialResolver,
+    accessTokenRef,
+    flags.accessTokenEnv,
+    "x-search",
+  );
+  const searchFetcher = dependencies.searchFetcher ?? new XApiSearchFetcher();
+  const report = await searchFetcher.fetchSearch({
+    accessToken,
+    discoveryScope,
     generatedAt,
     reportId,
     budget,
@@ -464,8 +579,9 @@ async function resolveAccessToken(
   credentialResolver: SecretResolver,
   ref: SecretRef,
   envName: string,
+  operation = "x-report",
 ): Promise<string> {
-  return resolveUsableSecret(credentialResolver, ref, `external-engagement x-report requires ${envName} or --dry-run.`);
+  return resolveUsableSecret(credentialResolver, ref, `external-engagement ${operation} requires ${envName} or --dry-run.`);
 }
 
 async function resolveUsableSecret(
@@ -500,6 +616,52 @@ export class XApiEvidenceFetcher implements XEvidenceFetcher {
       query: {
         references: input.references,
         maxRepliesPerPost: input.maxRepliesPerPost,
+      },
+      budget: input.budget,
+      artifacts: [...rootPosts, ...replies],
+      signals: [],
+    });
+  }
+}
+
+export class XApiSearchFetcher implements XSearchFetcher {
+  async fetchSearch(input: XSearchFetchInput): Promise<ExternalEvidenceReport> {
+    const searchParams: Record<string, string> = {
+      query: `${input.discoveryScope.query} -is:reply`,
+      max_results: String(Math.max(10, input.discoveryScope.maxPosts)),
+      "tweet.fields": "created_at,author_id,conversation_id,public_metrics,referenced_tweets,lang",
+      expansions: "author_id",
+      "user.fields": "username,name,verified,public_metrics",
+    };
+    if (input.discoveryScope.since) {
+      searchParams.start_time = input.discoveryScope.since;
+    }
+    if (input.discoveryScope.until) {
+      searchParams.end_time = input.discoveryScope.until;
+    }
+    const response = await xGet(input.accessToken, "https://api.x.com/2/tweets/search/recent", searchParams);
+    const rootPosts = parseTweetArtifacts(response, new Map(), "post").slice(0, input.discoveryScope.maxPosts);
+    const references = rootPosts.map((artifact) => ({
+      platform: "x" as const,
+      postId: artifact.artifactId,
+      sourceUrl: artifact.sourceUrl,
+    }));
+    const replies = await fetchReplies({
+      accessToken: input.accessToken,
+      references,
+      maxRepliesPerPost: input.discoveryScope.maxRepliesPerPost,
+      generatedAt: input.generatedAt,
+      reportId: input.reportId,
+      budget: input.budget,
+    });
+    return buildExternalEvidenceReport({
+      reportId: input.reportId,
+      generatedAt: input.generatedAt,
+      source: "x",
+      query: {
+        references: [],
+        maxRepliesPerPost: input.discoveryScope.maxRepliesPerPost,
+        discoveryScope: input.discoveryScope,
       },
       budget: input.budget,
       artifacts: [...rootPosts, ...replies],
@@ -601,6 +763,89 @@ function parseXReportFlags(args: readonly string[]): XReportFlags {
     inputPath,
     outputPath,
     maxRepliesPerPost,
+    dryRun,
+    accessTokenEnv,
+    cacheDir,
+    cacheMode,
+  };
+}
+
+function parseXSearchFlags(args: readonly string[]): XSearchFlags {
+  let query: string | undefined;
+  let outputPath: string | undefined;
+  let maxPosts = 25;
+  let maxRepliesPerPost = 3;
+  let maxRequests: number | undefined;
+  let searchScope: XSearchFlags["searchScope"] = "recent";
+  let since: string | undefined;
+  let until: string | undefined;
+  let dryRun = false;
+  let accessTokenEnv = "KILN_X_OAUTH2_ACCESS_TOKEN";
+  let cacheDir: string | undefined;
+  let cacheMode: XSearchFlags["cacheMode"] = "read-write";
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--query") {
+      query = readRequiredArg(args, index, "--query");
+      index += 1;
+    } else if (arg === "--output") {
+      outputPath = readRequiredArg(args, index, "--output");
+      index += 1;
+    } else if (arg === "--max-posts") {
+      maxPosts = parsePositiveInteger(readRequiredArg(args, index, "--max-posts"), "--max-posts");
+      if (maxPosts > X_RECENT_SEARCH_MAX_RESULTS_LIMIT) {
+        throw new Error(`--max-posts must be less than or equal to ${X_RECENT_SEARCH_MAX_RESULTS_LIMIT}.`);
+      }
+      index += 1;
+    } else if (arg === "--max-replies") {
+      maxRepliesPerPost = parseNonNegativeInteger(readRequiredArg(args, index, "--max-replies"), "--max-replies");
+      if (maxRepliesPerPost > X_RECENT_SEARCH_MAX_RESULTS_LIMIT) {
+        throw new Error(`--max-replies must be less than or equal to ${X_RECENT_SEARCH_MAX_RESULTS_LIMIT}.`);
+      }
+      index += 1;
+    } else if (arg === "--max-requests") {
+      maxRequests = parsePositiveInteger(readRequiredArg(args, index, "--max-requests"), "--max-requests");
+      index += 1;
+    } else if (arg === "--scope") {
+      const value = readRequiredArg(args, index, "--scope");
+      if (value !== "recent") {
+        throw new Error("external-engagement x-search currently supports only --scope recent.");
+      }
+      searchScope = value;
+      index += 1;
+    } else if (arg === "--since") {
+      since = readRequiredArg(args, index, "--since");
+      index += 1;
+    } else if (arg === "--until") {
+      until = readRequiredArg(args, index, "--until");
+      index += 1;
+    } else if (arg === "--access-token-env") {
+      accessTokenEnv = readRequiredArg(args, index, "--access-token-env");
+      index += 1;
+    } else if (arg === "--cache-dir") {
+      cacheDir = readRequiredArg(args, index, "--cache-dir");
+      index += 1;
+    } else if (arg === "--no-cache") {
+      cacheMode = "disabled";
+    } else if (arg === "--refresh-cache") {
+      cacheMode = "refresh";
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else {
+      throw new Error(`Unknown external-engagement x-search option '${arg}'.`);
+    }
+  }
+
+  return {
+    query,
+    outputPath,
+    maxPosts,
+    maxRepliesPerPost,
+    maxRequests,
+    searchScope,
+    since,
+    until,
     dryRun,
     accessTokenEnv,
     cacheDir,
@@ -1174,6 +1419,14 @@ function parseNonNegativeInteger(value: string, flag: string): number {
   return parsed;
 }
 
+function parsePositiveInteger(value: string, flag: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${flag} must be a positive integer.`);
+  }
+  return parsed;
+}
+
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${field} must be a non-empty string.`);
@@ -1202,6 +1455,7 @@ function printHelp(): void {
     "Usage:",
     "  kiln external-engagement x-report --url <x-url-or-id> [--url <x-url-or-id>...] [options]",
     "  kiln external-engagement x-report --input <path> [options]",
+    "  kiln external-engagement x-search --query <query-or-hashtag> [options]",
     "  kiln external-engagement x-smoke --allow-live [options]",
     "  kiln external-engagement x-refresh --allow-live --secret-output <path> [options]",
     "  kiln external-engagement x-candidates --report <path> [options]",
@@ -1210,7 +1464,13 @@ function printHelp(): void {
     "  kiln external-engagement x-promote --decisions <path> [options]",
     "",
     "Options:",
-    "  --max-replies N          Maximum replies to fetch per root post (default: 25)",
+    "  --query QUERY           Bounded X search query for x-search",
+    "  --max-posts N           Maximum root posts to discover for x-search (default: 25)",
+    "  --max-replies N          Maximum replies per root post (x-report default: 25; x-search default: 3)",
+    "  --max-requests N         Fail before credentials/network when estimated requests exceed N",
+    "  --scope recent           X search scope; only recent is currently supported",
+    "  --since ISO              Optional recent-search start time",
+    "  --until ISO              Optional recent-search end time",
     "  --dry-run                Print the planned bounded report without network access",
     "  --allow-live             Required for x-smoke live network access",
     "  --secret-output PATH     Write refreshed OAuth2 tokens to PATH for x-refresh",

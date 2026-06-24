@@ -116,6 +116,11 @@ is documented by concern, not as a single monolith.
   Provider-agnostic `SecretRef` boundary, env-backed source contract,
   rotation/refresh metadata, and secret-free diagnostics.
 
+- `external-engagement.md`
+  Governed external community-signal boundary, bounded discovery, evidence
+  intake, future action proposal/approval/execution authority, and X as the
+  first adapter.
+
 - `runtime-surfaces.md`
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
   CLI, GUI, native, TUI, SDK/widget, and MCP boundaries.
