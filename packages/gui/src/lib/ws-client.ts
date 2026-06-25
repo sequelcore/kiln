@@ -53,7 +53,11 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     appliedTheme: z.string().optional(),
     error: z.string().optional(),
   }),
-  z.object({ type: z.literal("continue"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("continue"),
+    sessionId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
+  }),
   z.object({
     type: z.literal("browser_session_control"),
     action: z.enum(["takeover", "release"]),
@@ -533,7 +537,11 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     model: z.string().trim().min(1).optional(),
     requestId: z.string().trim().min(1),
   }),
-  z.object({ type: z.literal("continuation_selected"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("continuation_selected"),
+    sessionId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
+  }),
 ]);
 
 /** Connection lifecycle states for the GUI WebSocket client. */

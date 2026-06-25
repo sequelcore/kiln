@@ -95,6 +95,8 @@ Approval approve/reject actions carry the selected `gatewayTargetId` when the
 workspace has an explicit target selection.
 Plan/execute mode transitions also carry the selected `gatewayTargetId` when
 the workspace has an explicit target selection.
+Explicit continuation selection also carries `gatewayTargetId`; the gateway
+acknowledgement preserves that identity.
 
 Do not infer authority from a label, selected port, or visible app name. The
 runtime target must be represented by shared target identity.

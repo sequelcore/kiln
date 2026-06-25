@@ -104,10 +104,17 @@ export class GuiSessionClient {
     });
   }
 
-  selectContinuationSession(sessionId: string): Promise<{ sessionId: string }> {
+  selectContinuationSession(
+    sessionId: string,
+    options: { readonly gatewayTargetId?: string } = {},
+  ): Promise<{ sessionId: string }> {
     if (this.pendingContinuationSelection) throw new Error("Resume selection already in flight");
     if (!sessionId.trim()) throw new Error("Resume selection requires sessionId");
-    this.send({ type: "continue", sessionId });
+    this.send({
+      type: "continue",
+      sessionId,
+      ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+    });
     return new Promise<{ sessionId: string }>((resolve, reject) => {
       const timerId = window.setTimeout(() => {
         this.pendingContinuationSelection = null;

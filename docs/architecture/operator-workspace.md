@@ -98,6 +98,8 @@ Approval approve/reject frames carry the selected `gatewayTargetId` from GUI
 approval surfaces when an explicit target is selected.
 Plan/execute mode transition frames carry the selected `gatewayTargetId` from
 GUI controls when an explicit target is selected.
+Explicit continuation selection frames carry `gatewayTargetId`, and gateway
+acknowledgements preserve it in `continuation_selected`.
 
 Every operator action that crosses a gateway/app/session boundary must carry a
 target identity. Surfaces must not infer target authority from labels, selected

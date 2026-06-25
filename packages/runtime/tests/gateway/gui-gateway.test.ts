@@ -1861,6 +1861,61 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("preserves gateway target identity when selecting a continuation session", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const onContinueSession = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          onContinueSession,
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen?.(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "continue",
+            sessionId: "session-123",
+            gatewayTargetId: "gateway:local-app",
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(onContinueSession).toHaveBeenCalledWith("session-123", undefined);
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "continuation_selected",
+        sessionId: "session-123",
+        gatewayTargetId: "gateway:local-app",
+      }));
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses cached provider models before admitting a turn", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

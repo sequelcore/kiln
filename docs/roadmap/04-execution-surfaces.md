@@ -85,12 +85,15 @@ Approval approve/reject frames now carry the selected `gatewayTargetId` from
 GUI approval surfaces when the target switcher has an explicit selection.
 Plan/execute mode transition frames now carry the selected `gatewayTargetId`
 from GUI controls when the target switcher has an explicit selection.
+Explicit continuation selection frames now carry `gatewayTargetId` and gateway
+ACKs preserve it in `continuation_selected`.
 
 Next fields and behavior:
 
 - local Operator Gateway target
 - local App Gateway target beyond composer, managed-agent control routing,
-  browser session controls, approval responses, and execution-mode transitions
+  browser session controls, approval responses, execution-mode transitions, and
+  explicit continuation selection
 - remote App Gateway target
 - simulated target
 - app and tenant target identity across all operator actions

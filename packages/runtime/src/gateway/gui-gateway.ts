@@ -1071,6 +1071,7 @@ function wireOperatorTransport(
               ws.send(JSON.stringify({
                 type: "continuation_selected",
                 sessionId,
+                ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
               } satisfies GuiInboundFrame));
               return;
             }

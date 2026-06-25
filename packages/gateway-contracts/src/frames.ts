@@ -789,7 +789,7 @@ export type GuiOutboundFrame =
     }
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | OperatorThemeSetResultFrame
-  | { type: "continue"; sessionId: string }
+  | { type: "continue"; sessionId: string; gatewayTargetId?: string }
   | GuiBrowserSessionControlFrame
   | GuiManagedAgentControlFrame
   | GuiBrowserOperatorInputFrame
@@ -887,7 +887,7 @@ export type GuiInboundFrame =
       providers: readonly GuiProviderDescriptor[];
     }
     | { type: "provider_changed"; provider: string; model?: string; requestId: string }
-    | { type: "continuation_selected"; sessionId: string };
+    | { type: "continuation_selected"; sessionId: string; gatewayTargetId?: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */
 export type GuiSessionConnectionState = "connecting" | "connected" | "reconnecting" | "disconnected";
