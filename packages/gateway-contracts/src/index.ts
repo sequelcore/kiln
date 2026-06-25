@@ -24,6 +24,21 @@ export {
 } from "./operator-commands.js";
 
 export type {
+  OperatorResourceContentKind,
+  OperatorResourceProviderReadResult,
+  OperatorResourceReadContent,
+  OperatorResourceReadRequest,
+  OperatorResourceReadResult,
+} from "./resource-inspector.js";
+export {
+  OPERATOR_RESOURCE_CONTENT_KINDS,
+  OperatorResourceReadContentSchema,
+  OperatorResourceReadRequestSchema,
+  OperatorResourceReadResultSchema,
+  projectOperatorResourceReadResult,
+} from "./resource-inspector.js";
+
+export type {
   KilnConfigProjectSnapshot,
   KilnConfigReadResult,
   KilnConfigReadView,

@@ -52,6 +52,59 @@ describe("GuiGatewayClient", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it("reads resources through the canonical resource endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      uri: "kiln://session/work-items/work-1",
+      contents: [
+        {
+          kind: "text",
+          uri: "kiln://session/work-items/work-1",
+          mimeType: "text/markdown",
+          text: "# Work item",
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const result = await client.readResource(" kiln://session/work-items/work-1 ");
+
+    expect(result?.contents[0]).toMatchObject({
+      kind: "text",
+      mimeType: "text/markdown",
+      text: "# Work item",
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/resources/read");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("uri=kiln%3A%2F%2Fsession%2Fwork-items%2Fwork-1");
+  });
+
+  it("keeps data URL conversion as GUI presentation behavior", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      uri: "kiln://artifacts/capture",
+      contents: [
+        {
+          kind: "blob",
+          uri: "kiln://artifacts/capture",
+          mimeType: "image/png",
+          blob: "iVBORw0KGgo=",
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+
+    await expect(client.loadResourceDataUrl("kiln://artifacts/capture")).resolves.toBe(
+      "data:image/png;base64,iVBORw0KGgo=",
+    );
+  });
+
   it("loads app and tenant descriptors from the dashboard", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       providers: [],

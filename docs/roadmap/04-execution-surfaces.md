@@ -111,12 +111,15 @@ Completion gate:
 
 Status: active.
 
-Current surfaces can open some `kiln://` resources, but there is no complete
-first-party resource inspector contract.
+Current surfaces can open some `kiln://` resources. The shared
+`OperatorResourceReadResult` contract now defines the first canonical
+resource-read result shape, and the GUI gateway reads resources through
+`/gui/api/resources/read` instead of a GUI-only data URL payload.
 
 Next behavior:
 
-- shared resource summary/open model
+- target-aware resource open requests on every surface
+- shared resource summary model
 - session work-item and goal resources
 - managed invocation resources
 - transcripts, diagnostics, diffs, source bundles, memory graph resources, and

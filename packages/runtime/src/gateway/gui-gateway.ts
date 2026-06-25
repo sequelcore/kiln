@@ -67,6 +67,7 @@ import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-fram
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
+  projectOperatorResourceReadResult,
   isGuiProviderModeless,
   isOperatorThemeName,
   type GuiDashboardSnapshot,
@@ -793,29 +794,20 @@ function wireOperatorTransport(
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
   });
 
-  app.get("/gui/api/resources/content", async (c) => {
+  app.get("/gui/api/resources/read", async (c) => {
     const uri = c.req.query("uri");
     if (!uri) {
       return c.json({ error: "resource_uri_required" }, 400);
     }
     for (const surface of resourceSurfaces) {
       const result = await surface.readResource(uri).catch(() => undefined);
-      const content = result?.contents[0];
-      if (!content) {
+      if (!result?.contents[0]) {
         continue;
       }
-      if ("blob" in content) {
-        return c.json({
-          uri: content.uri,
-          mimeType: content.mimeType,
-          dataUrl: `data:${content.mimeType ?? "application/octet-stream"};base64,${content.blob}`,
-        });
-      }
-      return c.json({
-        uri: content.uri,
-        mimeType: content.mimeType,
-        text: content.text,
-      });
+      return c.json(projectOperatorResourceReadResult({
+        uri,
+        readResult: result,
+      }));
     }
     return c.json({ error: "resource_not_found" }, 404);
   });

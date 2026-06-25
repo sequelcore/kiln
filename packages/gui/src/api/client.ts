@@ -17,6 +17,8 @@ import type {
   OperatorWorkspaceFileSnapshot,
   OperatorWorkspaceVcsState,
   OperatorWorkspaceVcsStatus,
+  OperatorResourceReadContent,
+  OperatorResourceReadResult,
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import {
@@ -24,6 +26,7 @@ import {
   KilnConfigSetupSnapshotSchema,
   GuiMemoryLatticeGraphRequestSchema,
   GuiMemoryLatticeGraphResponseSchema,
+  OperatorResourceReadResultSchema,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
 
@@ -38,6 +41,7 @@ export type {
   KilnConfigSetupSnapshot,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
+  OperatorResourceReadResult,
 };
 
 export class GuiGatewayClient {
@@ -352,14 +356,14 @@ export class GuiGatewayClient {
     );
   }
 
-  async loadResourceDataUrl(uri: string): Promise<string | null> {
+  async readResource(uri: string): Promise<OperatorResourceReadResult | null> {
     const normalizedUri = uri.trim();
     if (!normalizedUri) {
       return null;
     }
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
     for (const candidateBaseUrl of candidateBaseUrls) {
-      const url = new URL("/gui/api/resources/content", candidateBaseUrl);
+      const url = new URL("/gui/api/resources/read", candidateBaseUrl);
       url.searchParams.set("uri", normalizedUri);
       try {
         const response = await fetch(url, {
@@ -368,16 +372,20 @@ export class GuiGatewayClient {
         if (!response.ok) {
           continue;
         }
-        const payload = await response.json() as { dataUrl?: unknown };
-        if (typeof payload.dataUrl === "string" && payload.dataUrl.startsWith("data:")) {
-          this.resolvedBaseUrl = candidateBaseUrl;
-          return payload.dataUrl;
-        }
+        const payload = OperatorResourceReadResultSchema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
       } catch {
         continue;
       }
     }
     return null;
+  }
+
+  async loadResourceDataUrl(uri: string): Promise<string | null> {
+    const result = await this.readResource(uri);
+    const content = result?.contents[0];
+    return content ? resourceContentDataUrl(content) : null;
   }
 
   notifyWindowClosed(): void {
@@ -693,6 +701,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
+}
+
+function resourceContentDataUrl(content: OperatorResourceReadContent): string {
+  if (content.kind === "blob") {
+    return `data:${content.mimeType ?? "application/octet-stream"};base64,${content.blob}`;
+  }
+  return `data:${content.mimeType ?? "text/plain"};charset=utf-8;base64,${base64EncodeUtf8(content.text)}`;
+}
+
+function base64EncodeUtf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 function isTelemetrySnapshot(value: unknown): value is GuiTelemetrySnapshot {

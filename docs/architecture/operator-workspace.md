@@ -116,6 +116,11 @@ source message rather than a selected app/tenant runtime target.
 The resource inspector is the first-party way to open `kiln://` resources from
 any surface.
 
+The shared read contract is `OperatorResourceReadResult`: surfaces receive the
+same URI, optional target, content kind, MIME type, text/blob payload, metadata,
+and cursor fields. GUI may convert a result into a data URL for previews, but
+data URLs are presentation details, not the shared protocol.
+
 It should consume shared resource summaries and resource-read contracts for:
 
 - session work items and goals
