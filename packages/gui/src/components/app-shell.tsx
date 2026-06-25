@@ -18,6 +18,7 @@ import {
   type KilnConfigSetupAction,
   type OperatorTurnRequestedAuthority,
   type OperatorWorkspaceFileSnapshot,
+  type OperatorWorkspaceGatewayTargetSummary,
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
   type OperatorCommandDefinition,
@@ -552,68 +553,59 @@ function TurnAuthorityControl(props: {
 
 function AppGatewayTargetSelector(props: {
   readonly apps: readonly GuiAppDescriptor[];
-  readonly selectedAppName: string | null;
-  readonly selectedTenantId: string | null;
-  readonly onSelectApp: (appName: string) => void;
-  readonly onSelectTenant: (tenantId: string) => void;
+  readonly targets: readonly OperatorWorkspaceGatewayTargetSummary[];
+  readonly selectedGatewayTargetId: string | null;
+  readonly onSelectGatewayTarget: (targetId: string) => void;
 }) {
   if (props.apps.length === 0) {
     return null;
   }
 
-  const selectedApp = props.apps.find((app) => app.name === props.selectedAppName) ?? props.apps[0] ?? null;
-  const tenantOptions = selectedApp?.runtime === "tenant"
-    ? selectedApp.tenants?.filter((tenant) => tenant.enabled) ?? []
-    : [];
+  const targetOptions = props.targets.filter((target) => {
+    const appId = target.gatewayTarget.appId;
+    if (!appId) return false;
+    return props.apps.some((app) => app.name === appId && app.runtimeCapable);
+  });
+  if (targetOptions.length === 0) {
+    return null;
+  }
 
   return (
     <div className="flex min-w-0 items-center gap-2">
       <Select
-        value={props.selectedAppName ?? selectedApp?.name ?? ""}
+        value={props.selectedGatewayTargetId ?? targetOptions[0]?.gatewayTarget.targetId ?? ""}
         onValueChange={(value) => {
           if (value) {
-            props.onSelectApp(value);
+            props.onSelectGatewayTarget(value);
           }
         }}
       >
-        <SelectTrigger size="sm" aria-label="App" className="min-w-32 max-w-48">
+        <SelectTrigger size="sm" aria-label="Gateway target" className="min-w-36 max-w-60">
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">
           <SelectGroup>
-            {props.apps.map((app) => (
-              <SelectItem key={app.name} value={app.name}>
-                {app.name}
+            {targetOptions.map((target) => (
+              <SelectItem key={target.gatewayTarget.targetId} value={target.gatewayTarget.targetId}>
+                {formatGatewayTargetLabel(target)}
               </SelectItem>
             ))}
           </SelectGroup>
         </SelectContent>
       </Select>
-      {tenantOptions.length > 0 ? (
-        <Select
-          value={props.selectedTenantId ?? tenantOptions[0]?.tenantId ?? ""}
-          onValueChange={(value) => {
-            if (value) {
-              props.onSelectTenant(value);
-            }
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Tenant" className="min-w-32 max-w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectGroup>
-              {tenantOptions.map((tenant) => (
-                <SelectItem key={tenant.tenantId} value={tenant.tenantId}>
-                  {tenant.label ?? tenant.tenantId}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      ) : null}
     </div>
   );
+}
+
+function formatGatewayTargetLabel(target: OperatorWorkspaceGatewayTargetSummary): string {
+  const gatewayTarget = target.gatewayTarget;
+  if (gatewayTarget.tenantId) {
+    return `${target.label} · ${gatewayTarget.tenantId}`;
+  }
+  if (gatewayTarget.appId) {
+    return target.label;
+  }
+  return gatewayTarget.label ?? target.label;
 }
 
 export function AppShell() {
@@ -636,8 +628,7 @@ export function AppShell() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
   const [requestedAuthority, setRequestedAuthority] = useState<RequestableTurnAuthority>("auto");
-  const [selectedAppName, setSelectedAppName] = useState<string | null>(null);
-  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+  const [selectedGatewayTargetId, setSelectedGatewayTargetId] = useState<string | null>(null);
   const [workspaceDocuments, setWorkspaceDocuments] = useState<readonly OperatorWorkspaceFileSnapshot[]>([]);
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
   const [workspaceDocumentLoadingPath, setWorkspaceDocumentLoadingPath] = useState<string | null>(null);
@@ -1203,55 +1194,52 @@ export function AppShell() {
     () => appDescriptors.filter((app) => app.runtimeCapable),
     [appDescriptors],
   );
+  const runtimeGatewayTargets = useMemo(
+    () => operatorWorkspaceHome.gatewayTargets.filter((target) => {
+      const appId = target.gatewayTarget.appId;
+      if (!appId) return false;
+      return runtimeAppDescriptors.some((app) => app.name === appId);
+    }),
+    [operatorWorkspaceHome.gatewayTargets, runtimeAppDescriptors],
+  );
+  const selectedGatewayTarget = runtimeGatewayTargets.find(
+    (target) => target.gatewayTarget.targetId === selectedGatewayTargetId,
+  ) ?? null;
+  const selectedAppName = selectedGatewayTarget?.gatewayTarget.appId ?? null;
+  const selectedTenantId = selectedGatewayTarget?.gatewayTarget.tenantId ?? null;
   const selectedRuntimeApp = runtimeAppDescriptors.find((app) => app.name === selectedAppName) ?? null;
 
   useEffect(() => {
-    if (runtimeAppDescriptors.length === 0) {
-      if (selectedAppName !== null) {
-        setSelectedAppName(null);
-      }
-      if (selectedTenantId !== null) {
-        setSelectedTenantId(null);
+    if (runtimeGatewayTargets.length === 0) {
+      if (selectedGatewayTargetId !== null) {
+        setSelectedGatewayTargetId(null);
       }
       return;
     }
 
     const dashboardAppName = dashboardData?.activeAppName;
-    const nextAppName = selectedAppName && runtimeAppDescriptors.some((app) => app.name === selectedAppName)
-      ? selectedAppName
-      : dashboardAppName && runtimeAppDescriptors.some((app) => app.name === dashboardAppName)
-        ? dashboardAppName
-        : runtimeAppDescriptors[0]!.name;
-
-    if (selectedAppName !== nextAppName) {
-      setSelectedAppName(nextAppName);
-    }
-
-    const nextApp = runtimeAppDescriptors.find((app) => app.name === nextAppName);
-    if (nextApp?.runtime !== "tenant") {
-      if (selectedTenantId !== null) {
-        setSelectedTenantId(null);
-      }
-      return;
-    }
-
-    const enabledTenants = nextApp.tenants?.filter((tenant) => tenant.enabled) ?? [];
     const dashboardTenantId = dashboardData?.activeTenantId;
-    const nextTenantId = selectedTenantId && enabledTenants.some((tenant) => tenant.tenantId === selectedTenantId)
-      ? selectedTenantId
-      : dashboardTenantId && enabledTenants.some((tenant) => tenant.tenantId === dashboardTenantId)
-        ? dashboardTenantId
-        : enabledTenants[0]?.tenantId ?? null;
+    const existing = selectedGatewayTargetId
+      ? runtimeGatewayTargets.find((target) => target.gatewayTarget.targetId === selectedGatewayTargetId)
+      : null;
+    const dashboardTarget = runtimeGatewayTargets.find((target) => {
+      const gatewayTarget = target.gatewayTarget;
+      if (dashboardAppName && gatewayTarget.appId !== dashboardAppName) return false;
+      if (dashboardTenantId) return gatewayTarget.tenantId === dashboardTenantId;
+      return !gatewayTarget.tenantId;
+    });
+    const firstTenantTarget = runtimeGatewayTargets.find((target) => target.gatewayTarget.tenantId);
+    const nextTarget = existing ?? dashboardTarget ?? firstTenantTarget ?? runtimeGatewayTargets[0] ?? null;
+    const nextTargetId = nextTarget?.gatewayTarget.targetId ?? null;
 
-    if (selectedTenantId !== nextTenantId) {
-      setSelectedTenantId(nextTenantId);
+    if (selectedGatewayTargetId !== nextTargetId) {
+      setSelectedGatewayTargetId(nextTargetId);
     }
   }, [
     dashboardData?.activeAppName,
     dashboardData?.activeTenantId,
-    runtimeAppDescriptors,
-    selectedAppName,
-    selectedTenantId,
+    runtimeGatewayTargets,
+    selectedGatewayTargetId,
   ]);
 
   const persistThemePreference = (theme: OperatorThemeName) => {
@@ -1633,13 +1621,9 @@ export function AppShell() {
               <div className="ml-auto" />
               <AppGatewayTargetSelector
                 apps={runtimeAppDescriptors}
-                selectedAppName={selectedAppName}
-                selectedTenantId={selectedTenantId}
-                onSelectApp={(appName) => {
-                  setSelectedAppName(appName);
-                  setSelectedTenantId(null);
-                }}
-                onSelectTenant={setSelectedTenantId}
+                targets={runtimeGatewayTargets}
+                selectedGatewayTargetId={selectedGatewayTargetId}
+                onSelectGatewayTarget={setSelectedGatewayTargetId}
               />
             </header>
           ) : null}
@@ -1690,13 +1674,9 @@ export function AppShell() {
               </div>
               <AppGatewayTargetSelector
                 apps={runtimeAppDescriptors}
-                selectedAppName={selectedAppName}
-                selectedTenantId={selectedTenantId}
-                onSelectApp={(appName) => {
-                  setSelectedAppName(appName);
-                  setSelectedTenantId(null);
-                }}
-                onSelectTenant={setSelectedTenantId}
+                targets={runtimeGatewayTargets}
+                selectedGatewayTargetId={selectedGatewayTargetId}
+                onSelectGatewayTarget={setSelectedGatewayTargetId}
               />
             </header>
           ) : null}
@@ -1787,13 +1767,9 @@ export function AppShell() {
                 {!isNarrow ? (
                   <AppGatewayTargetSelector
                     apps={runtimeAppDescriptors}
-                    selectedAppName={selectedAppName}
-                    selectedTenantId={selectedTenantId}
-                    onSelectApp={(appName) => {
-                      setSelectedAppName(appName);
-                      setSelectedTenantId(null);
-                    }}
-                    onSelectTenant={setSelectedTenantId}
+                    targets={runtimeGatewayTargets}
+                    selectedGatewayTargetId={selectedGatewayTargetId}
+                    onSelectGatewayTarget={setSelectedGatewayTargetId}
                   />
                 ) : null}
               </div>
@@ -1816,6 +1792,7 @@ export function AppShell() {
               sendMessage(text, {
                 ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
                 requestedAuthority,
+                ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
                 ...(selectedAppName ? { appName: selectedAppName } : {}),
                 ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
               });
@@ -1826,6 +1803,7 @@ export function AppShell() {
                 displayContent,
                 ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
                 requestedAuthority,
+                ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
                 ...(selectedAppName ? { appName: selectedAppName } : {}),
                 ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
               });

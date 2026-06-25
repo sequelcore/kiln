@@ -714,24 +714,52 @@ function buildAppGatewayOperatorWorkspaceHome(
 function buildAppGatewayOperatorWorkspaceAttachTargets(
   config: GatewayServerConfig,
 ): readonly OperatorCockpitAttachTarget[] {
-  return config.apps.map((loadedApp) => ({
-    instanceId: appGatewayOperatorWorkspaceInstanceId(loadedApp.name),
-    label: loadedApp.name,
-    kind: "remote",
-    gatewayUrl: "http://localhost",
-    gatewayTarget: {
-      targetId: `app-gateway:${loadedApp.name}`,
-      kind: "local-app-gateway",
-      trust: "local",
+  return config.apps.flatMap((loadedApp) => {
+    const appTarget: OperatorCockpitAttachTarget = {
+      instanceId: appGatewayOperatorWorkspaceInstanceId(loadedApp.name),
       label: loadedApp.name,
+      kind: "remote",
       gatewayUrl: "http://localhost",
-      appId: loadedApp.name,
-    },
-  }));
+      gatewayTarget: {
+        targetId: `app-gateway:${loadedApp.name}`,
+        kind: "local-app-gateway",
+        trust: "local",
+        label: loadedApp.name,
+        gatewayUrl: "http://localhost",
+        appId: loadedApp.name,
+      },
+    };
+
+    const tenantTargets = loadedApp.tenantRuntime
+      ? loadedApp.tenantRuntime.tenantRegistry.list(loadedApp.name)
+        .filter((tenant) => tenant.enabled)
+        .map((tenant): OperatorCockpitAttachTarget => ({
+          instanceId: appGatewayOperatorWorkspaceTenantInstanceId(loadedApp.name, tenant.tenantId),
+          label: tenant.businessName ?? tenant.name,
+          kind: "remote",
+          gatewayUrl: "http://localhost",
+          gatewayTarget: {
+            targetId: `app-gateway:${loadedApp.name}:tenant:${tenant.tenantId}`,
+            kind: "local-app-gateway",
+            trust: "local",
+            label: tenant.businessName ?? tenant.name,
+            gatewayUrl: "http://localhost",
+            appId: loadedApp.name,
+            tenantId: tenant.tenantId,
+          },
+        }))
+      : [];
+
+    return [appTarget, ...tenantTargets];
+  });
 }
 
 function appGatewayOperatorWorkspaceInstanceId(appName: string): string {
   return `app-gateway:${appName}`;
+}
+
+function appGatewayOperatorWorkspaceTenantInstanceId(appName: string, tenantId: string): string {
+  return `app-gateway:${appName}:tenant:${tenantId}`;
 }
 
 function appGatewaySessionSummaryEvent(

@@ -80,6 +80,12 @@ It must present explicit `OperatorGatewayTargetIdentity` values for:
 - simulated or fixture-backed gateway
 - app and tenant targets when applicable
 
+The first implemented slice publishes App Gateway app and tenant targets through
+`operatorWorkspaceHome.gatewayTargets`. GUI attach mode selects a
+`targetId` from that list and sends composer messages with `gatewayTargetId`;
+app and tenant fields are derived from the selected target for the current App
+Gateway runtime handler.
+
 Every operator action that crosses a gateway/app/session boundary must carry a
 target identity. Surfaces must not infer target authority from labels, selected
 ports, or local instance strings.

@@ -22,6 +22,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     continuationSessionId: z.string().optional(),
     sessionIntent: z.literal("fresh").optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+    gatewayTargetId: z.string().optional(),
     appName: z.string().optional(),
     tenantId: z.string().optional(),
   }),

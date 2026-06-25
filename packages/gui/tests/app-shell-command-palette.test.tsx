@@ -172,10 +172,21 @@ vi.mock("../src/components/transcript.js", () => ({
 }));
 
 vi.mock("../src/components/composer.js", () => ({
-  Composer: ({ commandMenu }: { commandMenu: { onOpenChange: (open: boolean) => void } }) => (
-    <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
-      Open composer commands
-    </button>
+  Composer: ({
+    commandMenu,
+    onSubmit,
+  }: {
+    commandMenu: { onOpenChange: (open: boolean) => void };
+    onSubmit: (text: string) => void;
+  }) => (
+    <div>
+      <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
+        Open composer commands
+      </button>
+      <button type="button" onClick={() => onSubmit("hello target")}>
+        Send test message
+      </button>
+    </div>
   ),
 }));
 
@@ -503,6 +514,84 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Agents" })).toHaveTextContent("7");
+    });
+  });
+
+  it("sends composer messages with the selected gateway target identity", async () => {
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        apps: [
+          {
+            name: "support",
+            runtime: "tenant" as const,
+            channels: ["api"],
+            runtimeCapable: true,
+            tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+          },
+        ],
+        activeAppName: "support",
+        activeTenantId: "acme",
+        operatorWorkspaceHome: {
+          ...dashboardOperatorWorkspaceHome,
+          gatewayTargets: [
+            {
+              instanceId: "app-gateway:support",
+              label: "support",
+              gatewayTarget: {
+                targetId: "app-gateway:support",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+            {
+              instanceId: "app-gateway:support:tenant:acme",
+              label: "ACME",
+              gatewayTarget: {
+                targetId: "app-gateway:support:tenant:acme",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+                tenantId: "acme",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+          ],
+        },
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Send test message" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send test message" }));
+
+    await waitFor(() => {
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+        type: "message",
+        content: "hello target",
+        gatewayTargetId: "app-gateway:support:tenant:acme",
+        appName: "support",
+        tenantId: "acme",
+      }));
     });
   });
 

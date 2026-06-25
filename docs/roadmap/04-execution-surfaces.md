@@ -67,19 +67,20 @@ Completion gate:
 
 ### 3. Gateway Target Switcher
 
-Status: active.
+Status: active; first App Gateway target-identity slice implemented.
 
-Current GUI has app/tenant selectors for App Gateway attach mode. The long-term
-target switcher must operate over explicit `OperatorGatewayTargetIdentity`
-values.
+Current GUI consumes `operatorWorkspaceHome.gatewayTargets` for App Gateway
+attach mode, selects by `OperatorGatewayTargetIdentity.targetId`, and sends
+composer messages with explicit `gatewayTargetId` plus derived app/tenant
+fields for the current runtime handler.
 
 Next fields and behavior:
 
 - local Operator Gateway target
-- local App Gateway target
+- local App Gateway target beyond app/tenant message routing
 - remote App Gateway target
 - simulated target
-- app and tenant target identity
+- app and tenant target identity across all operator actions
 - trust label and connection state
 
 Completion gate:

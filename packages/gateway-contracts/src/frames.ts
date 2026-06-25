@@ -764,6 +764,7 @@ export type GuiOutboundFrame =
       sessionIntent?: "fresh";
       continuationSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
+      gatewayTargetId?: string;
       appName?: string;
       tenantId?: string;
     }
