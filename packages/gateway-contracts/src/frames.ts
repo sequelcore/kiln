@@ -793,8 +793,8 @@ export type GuiOutboundFrame =
   | GuiBrowserSessionControlFrame
   | GuiManagedAgentControlFrame
   | GuiBrowserOperatorInputFrame
-  | { type: "approve"; approvalId: string }
-  | { type: "reject"; reason: string; approvalId: string }
+  | { type: "approve"; approvalId: string; gatewayTargetId?: string }
+  | { type: "reject"; reason: string; approvalId: string; gatewayTargetId?: string }
   | {
       type: "execution_mode_transition";
       toMode: OperatorExecutionMode;

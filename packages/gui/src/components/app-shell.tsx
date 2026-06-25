@@ -1208,6 +1208,13 @@ export function AppShell() {
   const selectedAppName = selectedGatewayTarget?.gatewayTarget.appId ?? null;
   const selectedTenantId = selectedGatewayTarget?.gatewayTarget.tenantId ?? null;
   const selectedRuntimeApp = runtimeAppDescriptors.find((app) => app.name === selectedAppName) ?? null;
+  const sendTargetedApprovalResponse = (
+    approved: boolean,
+    reason: string | undefined,
+    approvalId: string,
+  ): boolean => sendApprovalResponse(approved, reason, approvalId, {
+    ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
+  });
 
   useEffect(() => {
     if (runtimeGatewayTargets.length === 0) {
@@ -1482,8 +1489,8 @@ export function AppShell() {
       : (
         <ApprovalsPanel
           approvals={pendingApprovals}
-          onApprove={(approvalId) => sendApprovalResponse(true, undefined, approvalId)}
-          onDeny={(approvalId) => sendApprovalResponse(false, undefined, approvalId)}
+          onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
+          onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
         />
       );
 
@@ -1691,8 +1698,8 @@ export function AppShell() {
             <ChatWorkbench
               pendingApprovals={pendingApprovals}
               selectedSessionId={selectedSessionId}
-              onApprove={(approvalId) => sendApprovalResponse(true, undefined, approvalId)}
-              onDeny={(approvalId) => sendApprovalResponse(false, undefined, approvalId)}
+              onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
+              onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
               onOpenApprovals={() => {
                 setInspectorMode("approvals");
                 setInspectorOpen(true);
@@ -1740,8 +1747,8 @@ export function AppShell() {
                 activityToolName={activity?.toolName}
                 activityDetails={activity?.details}
                 loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri)}
-                onApprove={(approvalId) => sendApprovalResponse(true, undefined, approvalId)}
-                onDeny={(approvalId) => sendApprovalResponse(false, undefined, approvalId)}
+                onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
+                onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
               />
             )}
             memoryContent={(

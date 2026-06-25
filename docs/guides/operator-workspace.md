@@ -91,6 +91,8 @@ Browser session takeover/release controls and brokered browser operator input
 also carry the projected `gatewayTargetId` when the browser session includes
 one. Runtime browser evidence includes that target identity for audit and
 inspection.
+Approval approve/reject actions carry the selected `gatewayTargetId` when the
+workspace has an explicit target selection.
 
 Do not infer authority from a label, selected port, or visible app name. The
 runtime target must be represented by shared target identity.

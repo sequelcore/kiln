@@ -2655,6 +2655,30 @@ describe("session-store", () => {
     });
   });
 
+  it("sends approval responses with explicit gateway target identity when provided", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({ outboundSend });
+
+    expect(useSessionStore.getState().sendApprovalResponse(true, undefined, "approval-1", {
+      gatewayTargetId: "gateway:local-app",
+    })).toBe(true);
+    expect(useSessionStore.getState().sendApprovalResponse(false, "Scope changed.", "approval-2", {
+      gatewayTargetId: "gateway:local-app",
+    })).toBe(true);
+
+    expect(outboundSend).toHaveBeenNthCalledWith(1, {
+      type: "approve",
+      approvalId: "approval-1",
+      gatewayTargetId: "gateway:local-app",
+    });
+    expect(outboundSend).toHaveBeenNthCalledWith(2, {
+      type: "reject",
+      approvalId: "approval-2",
+      reason: "Scope changed.",
+      gatewayTargetId: "gateway:local-app",
+    });
+  });
+
   it("ignores browser session lifecycle updates for another visible session", () => {
     useSessionStore.setState({
       status: "running",

@@ -1753,7 +1753,12 @@ interface SessionStoreActions {
     options?: { readonly gatewayTargetId?: string; readonly sessionId?: string; readonly reason?: string },
   ) => boolean;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
-  sendApprovalResponse: (approved: boolean, reason: string | undefined, approvalId: string) => boolean;
+  sendApprovalResponse: (
+    approved: boolean,
+    reason: string | undefined,
+    approvalId: string,
+    options?: { readonly gatewayTargetId?: string },
+  ) => boolean;
 }
 
 export type SessionStore = SessionStoreState & SessionStoreActions;
@@ -3488,14 +3493,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
-  sendApprovalResponse: (approved, reason, approvalId) => {
+  sendApprovalResponse: (approved, reason, approvalId, options = {}) => {
     const state = get();
     const outboundSend = state.outboundSend;
     if (!outboundSend) return false;
     if (approved) {
-      outboundSend({ type: "approve", approvalId });
+      outboundSend({
+        type: "approve",
+        approvalId,
+        ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+      });
     } else {
-      outboundSend({ type: "reject", reason: reason ?? "rejected by user", approvalId });
+      outboundSend({
+        type: "reject",
+        reason: reason ?? "rejected by user",
+        approvalId,
+        ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+      });
     }
     return true;
   },

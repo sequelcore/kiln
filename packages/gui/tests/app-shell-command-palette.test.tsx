@@ -595,6 +595,89 @@ describe("AppShell command palette and telemetry regressions", () => {
     });
   });
 
+  it("sends approval responses with the selected gateway target identity", async () => {
+    useSessionStore.setState({
+      timelineEntries: [
+        {
+          id: "event:approval-1",
+          type: "event",
+          eventKind: "approval_requested",
+          createdAt: "2026-06-25T12:03:00.000Z",
+          title: "Approval requested",
+          summary: "Apply bounded write",
+          tone: "warning",
+          details: {
+            approvalId: "approval-1",
+            action: "Apply bounded write",
+          },
+          sessionId: "session-1",
+        },
+      ],
+    });
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        apps: [
+          {
+            name: "support",
+            runtime: "tenant" as const,
+            channels: ["api"],
+            runtimeCapable: true,
+            tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+          },
+        ],
+        activeAppName: "support",
+        activeTenantId: "acme",
+        operatorWorkspaceHome: {
+          ...dashboardOperatorWorkspaceHome,
+          gatewayTargets: [
+            {
+              instanceId: "app-gateway:support:tenant:acme",
+              label: "ACME",
+              gatewayTarget: {
+                targetId: "app-gateway:support:tenant:acme",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+                tenantId: "acme",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+          ],
+        },
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+    expect(sendMock).toHaveBeenCalledWith({
+      type: "approve",
+      approvalId: "approval-1",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+    });
+    expect(sendMock).toHaveBeenCalledWith({
+      type: "reject",
+      approvalId: "approval-1",
+      reason: "rejected by user",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+    });
+  });
+
   it("wraps the app in a runtime bootstrap gate until provider discovery settles", async () => {
     dashboardQueryResult = {
       data: null,
