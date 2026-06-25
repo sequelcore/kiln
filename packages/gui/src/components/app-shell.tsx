@@ -743,8 +743,11 @@ export function AppShell() {
     () => buildComposerContinuityHint(sessionContinuity),
     [sessionContinuity],
   );
-  const operatorWorkspaceState = useMemo(() => {
+  const localOperatorWorkspaceState = useMemo(() => {
     const projectedAt = new Date().toISOString();
+    const operatorEvents = normalizeManagedAgentOperatorEvents(sessionEvents, {
+      defaultInstanceId: GUI_COCKPIT_INSTANCE_ID,
+    });
     const cockpitProjection = projectOperatorCockpitReadOnlyView({
       projectedAt,
       attachTargets: [{
@@ -753,9 +756,7 @@ export function AppShell() {
         kind: "local",
         gatewayUrl: resolveGatewayHttpBaseUrl(),
       }],
-      events: normalizeManagedAgentOperatorEvents(sessionEvents, {
-        defaultInstanceId: GUI_COCKPIT_INSTANCE_ID,
-      }),
+      events: operatorEvents,
     });
     const cockpitView = createOperatorCockpitReadOnlyViewState({
       projection: cockpitProjection,
@@ -766,11 +767,11 @@ export function AppShell() {
       home: createOperatorWorkspaceHomeProjection({
         projectedAt,
         cockpitView,
+        events: operatorEvents,
       }),
     };
   }, [sessionEvents]);
-  const managedAgentCockpitView = operatorWorkspaceState.cockpitView.managedAgents;
-  const managedAgentAttentionCount = operatorWorkspaceState.home.managedAgents.attentionCount;
+  const managedAgentCockpitView = localOperatorWorkspaceState.cockpitView.managedAgents;
   const approvalCount = pendingApprovals.length;
   const activeModelCapabilities = activeProvider && activeModel
     ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]
@@ -1193,6 +1194,8 @@ export function AppShell() {
   }, [memoryLatticeQuery.data?.snapshot?.nodes, selectedMemoryRecordId]);
 
   const dashboardData = dashboardQuery.error ? undefined : dashboardQuery.data;
+  const operatorWorkspaceHome = dashboardData?.operatorWorkspaceHome ?? localOperatorWorkspaceState.home;
+  const managedAgentAttentionCount = operatorWorkspaceHome.managedAgents.attentionCount;
   const workingDirectory = dashboardData?.workingDirectory;
   const domainLabel = dashboardData?.domainLabel;
   const appDescriptors = dashboardData?.apps ?? EMPTY_APP_DESCRIPTORS;

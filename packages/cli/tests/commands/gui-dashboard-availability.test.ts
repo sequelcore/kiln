@@ -5,7 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const gatewayHarness = vi.hoisted(() => ({
-  snapshot: null as { providers?: Array<{ id: string; available: boolean }> } | null,
+  snapshot: null as {
+    providers?: Array<{ id: string; available: boolean }>;
+    operatorWorkspaceHome?: {
+      configHealth?: {
+        status: string;
+        issueCount: number;
+        items: Array<{ id: string; status: string; recommendation?: string }>;
+      };
+    };
+    workingDirectory?: string;
+  } | null,
   operatorModels: {} as Record<string, string[]>,
   lastOptions: null as { builtinToolOptions?: unknown } | null,
   shutdown: vi.fn(),
@@ -18,7 +28,17 @@ const gatewayHarness = vi.hoisted(() => ({
     gatewayHarness.lastOptions = options;
     gatewayHarness.snapshot = await options.getSnapshot({
       operatorModels: gatewayHarness.operatorModels,
-    }) as { providers?: Array<{ id: string; available: boolean }> };
+    }) as {
+      providers?: Array<{ id: string; available: boolean }>;
+      operatorWorkspaceHome?: {
+        configHealth?: {
+          status: string;
+          issueCount: number;
+          items: Array<{ id: string; status: string; recommendation?: string }>;
+        };
+      };
+      workingDirectory?: string;
+    };
     return {
       port: 4810,
       apiUrl: "http://localhost:4810/gui/api/dashboard",
@@ -98,6 +118,7 @@ const configMocks = vi.hoisted(() => ({
     return provider.length > 0 ? provider : undefined;
   }),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
+  resolveGlobalConfigPath: vi.fn(() => "C:/Users/R3XED/.kiln/config.yaml"),
   resolveGlobalUiTheme: vi.fn((config: { ui?: { theme?: string } } | null) => config?.ui?.theme),
   resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
     const normalize = (value?: string) => {
@@ -202,6 +223,7 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 vi.mock("../../src/config/global-config.js", () => ({
   defaultGlobalConfig: configMocks.defaultGlobalConfig,
   readGlobalConfig: configMocks.readGlobalConfig,
+  resolveGlobalConfigPath: configMocks.resolveGlobalConfigPath,
   resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
   resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
   resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
@@ -367,6 +389,39 @@ describe("GUI dashboard provider availability", () => {
     });
     expect(getProjectContextArtifactCache).toHaveBeenCalledWith(tmpDir);
     expect(existsSync(join(packageCliPath, ".kiln", "continuation-targets.json"))).toBe(true);
+  });
+
+  it("publishes setup diagnostics through operator workspace config health", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.snapshot?.operatorWorkspaceHome?.configHealth).toMatchObject({
+      status: "degraded",
+      issueCount: 3,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "project-context",
+          status: "degraded",
+          recommendation: "adopt-project-context",
+        }),
+        expect.objectContaining({
+          id: "repo-shim:agents",
+          status: "degraded",
+          recommendation: "sync-repo-shims",
+        }),
+        expect.objectContaining({
+          id: "repo-shim:claude",
+          status: "degraded",
+          recommendation: "sync-repo-shims",
+        }),
+      ]),
+    });
   });
 
   afterEach(() => {

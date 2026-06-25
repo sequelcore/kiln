@@ -103,6 +103,7 @@ export function projectTuiOperatorWorkspaceState(
     home: createOperatorWorkspaceHomeProjection({
       projectedAt,
       cockpitView,
+      events,
     }),
   };
 }

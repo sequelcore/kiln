@@ -1,0 +1,137 @@
+# Execution Surfaces Roadmap
+
+Started: 2026-06-25
+
+## Scope
+
+This roadmap tracks the remaining implementation work that turns the execution
+surfaces strategy into product behavior.
+
+Stable doctrine lives in:
+
+- `docs/architecture/execution-surfaces.md`
+- `docs/architecture/operator-workspace.md`
+- `docs/architecture/app-gateway-runtime.md`
+- `docs/guides/gateway-app-runtime.md`
+
+Research basis:
+
+- `docs/research/18-execution-surfaces-strategy.md`
+
+## Principles
+
+- Contract first. Promote shared state into `@kilnai/gateway-contracts`,
+  core, or runtime before rich surfaces depend on it.
+- No parallel models. GUI, TUI, CLI, native, SDK/widget, IDE, and remote
+  clients consume shared projections or explicitly remain deferred.
+- Gateway owns runtime truth. Surfaces own layout and local interaction state
+  only.
+- No compatibility shims without real consumers.
+- Every completed slice needs focused tests, typecheck, and documentation
+  updates.
+
+## Active Slices
+
+### 1. GUI Consumes Gateway Home Projection
+
+Status: implemented.
+
+The GUI dashboard parser preserves `operatorWorkspaceHome`, and `AppShell`
+prefers the gateway-published home projection for managed-agent attention count
+before falling back to local reconstruction.
+
+Remaining follow-up:
+
+- Continue replacing GUI-local summary reductions as the shared home projection
+  gains first-class route, config, provider, and gateway health fields.
+
+### 2. Operator Workspace Home Expansion
+
+Status: implemented for shared contract projection.
+
+Current home projection summarizes gateway targets, sessions, managed agents,
+resources, managed-agent attention seed, governed work/goals, approvals, route
+health, provider/model readiness, gateway/app health, and config health.
+
+Remaining follow-up:
+
+- Extend setup/doctor diagnostics beyond local GUI producers where needed.
+  Producers without setup/doctor evidence correctly project config health as
+  `unknown`.
+
+Completion gate:
+
+- GUI, TUI, CLI, native, and SDK consumers can answer "what needs attention?"
+  and "what work is active?" from shared contracts without parsing transcript
+  prose or surface-local stores.
+
+### 3. Gateway Target Switcher
+
+Status: active.
+
+Current GUI has app/tenant selectors for App Gateway attach mode. The long-term
+target switcher must operate over explicit `OperatorGatewayTargetIdentity`
+values.
+
+Next fields and behavior:
+
+- local Operator Gateway target
+- local App Gateway target
+- remote App Gateway target
+- simulated target
+- app and tenant target identity
+- trust label and connection state
+
+Completion gate:
+
+- operator actions carry target identity without inferring authority from
+  labels, selected ports, or local instance strings.
+
+### 4. Resource Inspector
+
+Status: active.
+
+Current surfaces can open some `kiln://` resources, but there is no complete
+first-party resource inspector contract.
+
+Next behavior:
+
+- shared resource summary/open model
+- session work-item and goal resources
+- managed invocation resources
+- transcripts, diagnostics, diffs, source bundles, memory graph resources, and
+  external evidence bundles
+- consistent rich, terminal, and JSON presentations
+
+Completion gate:
+
+- opening the same `kiln://` URI from GUI, TUI, CLI, native, or SDK resolves
+  through the same resource-read contract and target identity.
+
+### 5. Documentation Closeout
+
+Status: active.
+
+Docs created or updated:
+
+- `docs/architecture/operator-workspace.md`
+- `docs/architecture/app-gateway-runtime.md`
+- `docs/architecture/execution-surfaces.md`
+- `docs/roadmap/04-execution-surfaces.md`
+
+Remaining docs:
+
+- update `docs/guides/gui.md` as surface behavior lands
+- update `docs/research/18-execution-surfaces-strategy.md` from diagnosis-only
+  to accepted research basis after the first full home/switcher/inspector
+  closeout
+- update `docs/research/README.md` and `docs/roadmap/README.md` when this
+  roadmap moves from active to completed
+
+## Out Of Scope
+
+- IDE extension implementation before gateway resource/target contracts are
+  stable.
+- Native-only runtime state.
+- Remote Operator Gateway exposure as if it were a hardened App Gateway.
+- Harness feature cloning.

@@ -101,21 +101,22 @@ Execution-surface work must proceed contract-first:
    sidebars differently, but they must consume shared attention reasons instead
    of inventing private severity models.
 3. **Operator Workspace projection.** Promote a shared home projection that
-   summarizes active work, active sessions, managed children, gateway targets,
-   resources, config health, route health, and attention queue. The first
-   shared home contract is `OperatorWorkspaceHomeProjection` in
-   `@kilnai/gateway-contracts`; it is derived from cockpit view-state and
-   shared attention state so surfaces do not rebuild home summaries from raw
-   events.
+   summarizes governed work/goals, active sessions, managed children, pending
+   approvals, gateway targets, resources, config health, route health, and
+   attention queue. The shared home contract is `OperatorWorkspaceHomeProjection` in
+   `@kilnai/gateway-contracts`; gateway dashboard snapshots publish it as
+   `operatorWorkspaceHome` so surfaces do not rebuild home summaries from raw
+   events when a live gateway projection is available.
 4. **Surface convergence.** GUI, TUI, CLI, native, SDK/widget, IDE, and remote
    surfaces consume shared projections. They do not reconstruct private models.
    GUI is the first consumer of the shared Operator Workspace home projection:
-   it derives the managed-agent cockpit and attention count from the same
-   gateway-contract home/view-state path rather than a surface-private summary.
-   TUI stores the same home projection beside its managed-agent sidebar state,
-   CLI exposes the home projection in `kiln managed-agent list --json`, and the
-   native cockpit contract returns the shared home projection with its read-only
-   view-state wrapper.
+   it consumes dashboard `operatorWorkspaceHome` for workspace summary and
+   managed-agent attention count. The managed-agent cockpit panel still consumes
+   read-only cockpit view state until the home projection carries enough detail
+   to replace that panel input. TUI stores the same home projection beside its
+   managed-agent sidebar state, CLI exposes the home projection in
+   `kiln managed-agent list --json`, and the native cockpit contract returns
+   the shared home projection with its read-only view-state wrapper.
 5. **Resource inspector.** `kiln://` resources become first-class inspectable
    objects across rich and terminal surfaces. `OperatorWorkspaceResourceItem`
    is the shared home/resource-inspector seed: it deduplicates resource links
@@ -153,3 +154,38 @@ Execution-surface work must proceed contract-first:
   authority.
 - Every cross-surface behavior must be represented by a shared contract or
   explicitly remain deferred.
+
+## Implementation Status
+
+Accepted and implemented foundation:
+
+- `OperatorGatewayTargetIdentity`, attach targets, and read-only cockpit
+  projections carry gateway target identity.
+- `OperatorAttentionSummary` centralizes managed-agent attention and seeds
+  broader work/config/route attention.
+- `OperatorWorkspaceHomeProjection` is exported from gateway contracts and now
+  includes governed work/goals, approval summaries, config health, route
+  health, provider/model readiness, gateway/app health, gateway targets,
+  sessions, managed-agent attention, resources, and shared attention.
+- App Gateway and local GUI dashboard snapshots publish `operatorWorkspaceHome`.
+- GUI dashboard parsing preserves `operatorWorkspaceHome`, and `AppShell`
+  prefers the gateway-published home projection before falling back to local
+  reconstruction.
+- Runtime, CLI, GUI fallback, TUI, and native cockpit projections pass the
+  normalized operator event stream into the shared home projector instead of
+  deriving work or approval summaries inside a surface.
+- Route health and provider/model readiness are projected from managed-agent
+  capability snapshots. Gateway/app health is projected from explicit gateway
+  target identity. Config health is part of the contract; local GUI setup
+  diagnostics feed it, and producers without setup/doctor evidence project
+  `unknown`.
+
+Remaining contract work:
+
+- Extend setup/doctor diagnostics coverage beyond local GUI producers where
+  needed so surfaces can show actionable config state without calling
+  setup-specific endpoints.
+- Promote the app/tenant selector into a full gateway target switcher over
+  explicit `OperatorGatewayTargetIdentity` values.
+- Add a first-party resource inspector over shared `kiln://` resource-read
+  contracts.

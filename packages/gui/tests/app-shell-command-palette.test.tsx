@@ -23,6 +23,74 @@ const dashboardData = {
   workingDirectory: "C:/workspace/kiln",
   domainLabel: "Kiln",
 };
+
+const dashboardOperatorWorkspaceHome = {
+  mode: "read-only" as const,
+  projectedAt: "2026-06-25T12:00:00.000Z",
+  gatewayTargets: [],
+  sessions: [],
+  work: {
+    totalCount: 0,
+    activeCount: 0,
+    blockedCount: 0,
+    missingEvidenceCount: 0,
+    goalCount: 0,
+    activeGoalCount: 0,
+    items: [],
+  },
+  managedAgents: {
+    totalCount: 9,
+    activeCount: 8,
+    attentionCount: 7,
+  },
+  approvals: {
+    pendingCount: 0,
+    resolvedCount: 0,
+    items: [],
+  },
+  configHealth: {
+    status: "unknown" as const,
+    issueCount: 0,
+    items: [],
+  },
+  routeHealth: {
+    totalCount: 0,
+    healthyCount: 0,
+    degradedCount: 0,
+    blockedCount: 0,
+    unknownCount: 0,
+    items: [],
+  },
+  providerReadiness: {
+    totalCount: 0,
+    liveProvenCount: 0,
+    configuredCount: 0,
+    unprovenCount: 0,
+    unknownCount: 0,
+    items: [],
+  },
+  gatewayHealth: {
+    status: "unknown" as const,
+    targetCount: 0,
+    localCount: 0,
+    remoteCount: 0,
+    appTargetCount: 0,
+    tenantTargetCount: 0,
+    items: [],
+  },
+  resources: {
+    totalCount: 0,
+    linkedResourceCount: 0,
+    items: [],
+  },
+  attention: {
+    items: [],
+    totalCount: 7,
+    actionRequiredCount: 7,
+    blockedCount: 0,
+    failedCount: 0,
+  },
+};
 let dashboardQueryResult: {
   data: typeof dashboardData | null;
   error: Error | null;
@@ -417,6 +485,24 @@ describe("AppShell command palette and telemetry regressions", () => {
           models: ["gpt-5.4"],
         }),
       ]);
+    });
+  });
+
+  it("uses the dashboard operator workspace home for managed-agent attention", async () => {
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        operatorWorkspaceHome: dashboardOperatorWorkspaceHome,
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Agents" })).toHaveTextContent("7");
     });
   });
 

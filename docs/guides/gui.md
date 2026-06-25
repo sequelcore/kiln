@@ -64,9 +64,12 @@ shut down the App Gateway when the GUI window closes.
 Implementation status: attach mode opens the App Gateway GUI URL, the App
 Gateway exposes the GUI dashboard/session-list contract, and `/gui/ws` routes
 messages to the selected runtime-capable YAML app. The dashboard publishes
-runtime-capable apps plus enabled tenants; the GUI renders compact app/tenant
-selectors and includes `appName` and `tenantId` in message frames. Provider
-switching and full operator controls remain future operator-contract work.
+runtime-capable apps, enabled tenants, active app/tenant selection, and
+`operatorWorkspaceHome`; the GUI renders compact app/tenant selectors, includes
+`appName` and `tenantId` in message frames, and prefers the gateway-published
+Operator Workspace home projection for workspace summary/attention state before
+falling back to local reconstruction. Provider switching and the full gateway
+target switcher remain future operator-contract work.
 
 ## Flags
 
@@ -181,6 +184,11 @@ Activity details must be projections of the canonical session timeline. Do not
 maintain separate GUI-only caches for changed files, continuity, approval
 state, cost, or routing when the same facts already exist in `session_event`
 history.
+
+Operator Workspace summary follows the same rule. When the dashboard publishes
+`operatorWorkspaceHome`, the GUI must consume that shared projection before
+deriving local summaries from raw session events. Local reconstruction is only
+an availability fallback for older or unavailable gateway projections.
 
 Live runtime progress follows the same rule. The GUI accepts `session_event`
 frames for durable operational evidence and `activity_phase` frames for

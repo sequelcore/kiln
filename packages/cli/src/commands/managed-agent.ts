@@ -61,6 +61,11 @@ export interface ManagedAgentJoinControlResult {
   readonly terminalEvent?: OperatorSessionEvent;
 }
 
+export interface ManagedAgentCockpitTranscriptProjection {
+  readonly projection: OperatorCockpitReadOnlyProjection;
+  readonly events: readonly OperatorSessionEvent[];
+}
+
 const DEFAULT_MANAGED_AGENT_GATEWAY_URL = "http://localhost:4810";
 const DEFAULT_MANAGED_AGENT_CONTROL_TIMEOUT_MS = 10_000;
 const CLI_MANAGED_AGENT_OPERATOR_ID = "cli-operator";
@@ -85,7 +90,8 @@ export async function managedAgentCommand(
   }
 
   const projectedAt = options.projectedAt?.() ?? new Date().toISOString();
-  const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, sessionId, { projectedAt });
+  const cockpit = await loadManagedAgentCockpitTranscriptProjection(transcriptStore, sessionId, { projectedAt });
+  const { projection, events } = cockpit;
   const cockpitView = createOperatorCockpitReadOnlyViewState({
     projection,
     viewState: {},
@@ -94,6 +100,7 @@ export async function managedAgentCommand(
   const workspaceHome = createOperatorWorkspaceHomeProjection({
     projectedAt,
     cockpitView,
+    events,
   });
 
   switch (subcommand) {
@@ -338,18 +345,29 @@ export async function loadManagedAgentCockpitFromTranscript(
   sessionId: string,
   input: { readonly projectedAt: string },
 ): Promise<OperatorCockpitReadOnlyProjection> {
+  return (await loadManagedAgentCockpitTranscriptProjection(transcriptStore, sessionId, input)).projection;
+}
+
+export async function loadManagedAgentCockpitTranscriptProjection(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  input: { readonly projectedAt: string },
+): Promise<ManagedAgentCockpitTranscriptProjection> {
   const transcriptEvents = await transcriptStore.readTranscript(sessionId);
   const events = normalizeManagedAgentOperatorReplayEvents(transcriptEvents, { defaultInstanceId: "local" });
-  return projectOperatorCockpitReadOnlyView({
-    projectedAt: input.projectedAt,
-    attachTargets: [{
-      instanceId: "local",
-      label: "Local CLI",
-      kind: "local",
-      gatewayUrl: "http://localhost",
-    }],
+  return {
+    projection: projectOperatorCockpitReadOnlyView({
+      projectedAt: input.projectedAt,
+      attachTargets: [{
+        instanceId: "local",
+        label: "Local CLI",
+        kind: "local",
+        gatewayUrl: "http://localhost",
+      }],
+      events,
+    }),
     events,
-  });
+  };
 }
 
 function findInvocation(

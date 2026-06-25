@@ -2,8 +2,12 @@
 
 Date: 2026-06-25
 
-Status: diagnosis only. This document recommends product and architecture
-direction. It does not authorize implementation work.
+Status: accepted research basis. The product/architecture direction has been
+promoted into `docs/architecture/execution-surfaces.md`,
+`docs/architecture/operator-workspace.md`,
+`docs/architecture/app-gateway-runtime.md`, and
+`docs/roadmap/04-execution-surfaces.md`. Implementation proceeds in small
+contract-first slices.
 
 ## Thesis
 
@@ -529,6 +533,12 @@ Workspace pollution:
    Move more of GUI/TUI/native/CLI work-item, managed-agent, resource, approval,
    and session summary reduction into `@kilnai/gateway-contracts`. Surface code
    should format and interact, not infer.
+   Current progress: `OperatorWorkspaceHomeProjection` carries gateway targets,
+   sessions, governed work/goals, managed-agent attention, approvals, route
+   health, provider/model readiness, gateway/app health, linked resources, and
+   shared attention across runtime, CLI, GUI, TUI, and native producers.
+   Config health is part of the contract; local GUI setup diagnostics feed it,
+   and producers without setup/doctor evidence project `unknown`.
 
 3. Define gateway target identity.
    Make App Gateway, Operator Gateway, local simulated target, remote target,
@@ -556,6 +566,11 @@ Workspace pollution:
    First screen should show active work, active sessions, managed children,
    gateways, config health, and attention queue. It should not be a marketing
    page or a raw chat transcript.
+   Current progress: the shared home contract has active work/goals, sessions,
+   managed children, approvals, gateways, route health, provider/model
+   readiness, gateway/app health, resources, config health, and attention.
+   Remaining work is to extend actionable setup/doctor diagnostics coverage
+   beyond the local GUI producer.
 
 2. Make work the organizing object.
    Sessions, children, resources, diffs, approvals, and diagnostics should be
@@ -628,25 +643,28 @@ Workspace pollution:
 8. Should harness import/migration be a product feature or stay diagnostic/admin
    tooling?
 
-## Docs To Create Or Update Later
+## Docs Promotion Status
 
 - `docs/architecture/execution-surfaces.md`
-  Canonical product/architecture contract for Kiln Operator Workspace and Kiln
-  Gateway ownership.
+  Created. Canonical product/architecture contract for Kiln Operator Workspace
+  and Kiln Gateway ownership.
 - `docs/architecture/operator-workspace.md`
-  GUI/TUI/native/CLI/IDE view-state ownership, attention model, and action
-  target contract.
+  Created. GUI/TUI/native/CLI/IDE view-state ownership, attention model,
+  gateway target switcher, and resource inspector boundary.
 - `docs/architecture/app-gateway-runtime.md`
-  App Gateway as app AI runtime, with tenant/app/session/tool/MCP ownership.
-- `docs/guides/operator-workspace.md`
-  User-facing workflow guide: open Kiln, attach target, start work, supervise,
-  approve, inspect, close out.
-- `docs/guides/gateway-app-runtime.md`
-  Developer guide for powering apps with governed agents through Kiln Gateway.
+  Created. App Gateway as app AI runtime, with tenant/app/session/tool/MCP
+  ownership.
 - `docs/roadmap/04-execution-surfaces.md`
-  Sequenced roadmap with short/medium/long-term gates.
+  Created. Active implementation roadmap for shared home expansion, target
+  switcher, resource inspector, and documentation closeout.
+- `docs/guides/operator-workspace.md`
+  Created. User-facing workflow guide: open Kiln, attach target, start work,
+  supervise, approve, inspect, close out.
+- `docs/guides/gateway-app-runtime.md`
+  Created before this closeout and remains the developer guide for powering
+  apps with governed agents through Kiln Gateway.
 - Update `docs/research/README.md` to include this document after Ricardo
-  accepts it as part of the canonical research set.
+  Completed.
 
 ## Recommendation
 

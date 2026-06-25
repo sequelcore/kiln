@@ -265,15 +265,29 @@ export {
 
 export type {
   OperatorWorkspaceGatewayTargetSummary,
+  OperatorWorkspaceApprovalItem,
+  OperatorWorkspaceApprovalSummary,
+  OperatorWorkspaceConfigHealthItem,
+  OperatorWorkspaceConfigHealthSummary,
+  OperatorWorkspaceGatewayHealthItem,
+  OperatorWorkspaceGatewayHealthSummary,
+  OperatorWorkspaceHealthStatus,
   OperatorWorkspaceHomeEmptyProjectionInput,
   OperatorWorkspaceHomeProjection,
   OperatorWorkspaceHomeProjectionInput,
   OperatorWorkspaceManagedAgentSummary,
+  OperatorWorkspaceProviderReadinessItem,
+  OperatorWorkspaceProviderReadinessSummary,
   OperatorWorkspaceResourceItem,
   OperatorWorkspaceResourceSummary,
+  OperatorWorkspaceRouteHealthItem,
+  OperatorWorkspaceRouteHealthSummary,
   OperatorWorkspaceSessionSummary,
+  OperatorWorkspaceWorkItemSummary,
+  OperatorWorkspaceWorkSummary,
 } from "./operator-workspace-home.js";
 export {
+  createOperatorWorkspaceConfigHealthSummary,
   createEmptyOperatorWorkspaceHomeProjection,
   createOperatorWorkspaceHomeProjection,
 } from "./operator-workspace-home.js";

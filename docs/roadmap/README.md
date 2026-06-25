@@ -65,6 +65,10 @@ Use these documents as the stable source of truth before starting roadmap work:
    executable identity, competing PATH aliases, version/auth/config evidence,
    and model readiness probes shared across CLI, GUI, TUI, SDK/widget, and
    model-callable status surfaces.
+4. [Execution Surfaces](./04-execution-surfaces.md)
+   Active on 2026-06-25. Scope is Kiln Operator Workspace and Gateway product
+   convergence: shared home projection expansion, gateway target switcher,
+   resource inspector, and cross-surface documentation closeout.
 
 Completed background and parallel managed-agent work is canonicalized in
 `docs/architecture/managed-agents.md`, `docs/architecture/context-resource-plane.md`,

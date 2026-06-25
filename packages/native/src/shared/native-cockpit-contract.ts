@@ -14,6 +14,7 @@ import type {
   OperatorCockpitReadOnlyViewStateInput,
   OperatorCockpitReadOnlyActionIntent,
   OperatorCockpitReadOnlyActionIntentInput,
+  OperatorSessionEvent,
   OperatorWorkspaceHomeProjection,
 } from "@kilnai/gateway-contracts";
 import {
@@ -174,6 +175,7 @@ export type NativeCockpitReadOnlyViewStateView = OperatorCockpitReadOnlyViewStat
 
 export interface NativeCockpitReadOnlyViewStateInput extends OperatorCockpitReadOnlyViewStateInput {
   readonly surfaceId: string;
+  readonly events?: readonly OperatorSessionEvent[];
 }
 
 export interface NativeCockpitReadOnlyViewState {
@@ -199,6 +201,7 @@ export function createNativeCockpitReadOnlyViewState(
     workspaceHome: createOperatorWorkspaceHomeProjection({
       projectedAt: input.projection.projectedAt,
       cockpitView: view,
+      events: input.events,
     }),
   };
 }

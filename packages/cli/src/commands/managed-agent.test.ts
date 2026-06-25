@@ -493,10 +493,41 @@ describe("managed-agent command", () => {
     expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
       sessionId: "session-1",
       workspaceHome: {
+        work: {
+          totalCount: 0,
+          activeCount: 0,
+          blockedCount: 0,
+          missingEvidenceCount: 0,
+          goalCount: 0,
+          activeGoalCount: 0,
+          items: [],
+        },
         managedAgents: {
           totalCount: 1,
           activeCount: 0,
           attentionCount: 1,
+        },
+        approvals: { pendingCount: 0, resolvedCount: 0, items: [] },
+        configHealth: { status: "unknown", issueCount: 0, items: [] },
+        routeHealth: {
+          totalCount: 0,
+          healthyCount: 0,
+          degradedCount: 0,
+          blockedCount: 0,
+          unknownCount: 0,
+          items: [],
+        },
+        providerReadiness: {
+          totalCount: 1,
+          liveProvenCount: 0,
+          configuredCount: 0,
+          unprovenCount: 0,
+          unknownCount: 1,
+          items: [{
+            providerId: "codex",
+            model: "gpt-5.5",
+            status: "unknown",
+          }],
         },
         gatewayTargets: [{
           gatewayTarget: {
@@ -505,6 +536,14 @@ describe("managed-agent command", () => {
             trust: "local",
           },
         }],
+        gatewayHealth: {
+          status: "healthy",
+          targetCount: 1,
+          localCount: 1,
+          remoteCount: 0,
+          appTargetCount: 0,
+          tenantTargetCount: 0,
+        },
       },
       invocations: [{
         managedInvocationId: "child-1",

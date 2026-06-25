@@ -707,6 +707,7 @@ function buildAppGatewayOperatorWorkspaceHome(
   return createOperatorWorkspaceHomeProjection({
     projectedAt,
     cockpitView,
+    events,
   });
 }
 

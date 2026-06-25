@@ -130,6 +130,14 @@ is documented by concern, not as a single monolith.
   Kiln Gateway as app AI runtime, harnesses as adapters, and contract-first
   surface convergence.
 
+- `operator-workspace.md`
+  Canonical human workspace contract: shared home projection ownership, target
+  switcher rules, resource inspector boundary, and surface parity rules.
+
+- `app-gateway-runtime.md`
+  Canonical App Gateway runtime contract for app/tenant/session/tool/MCP
+  ownership and operator attachment.
+
   Guide projection: `../guides/gateway-app-runtime.md`.
 
 - `config-projection.md`

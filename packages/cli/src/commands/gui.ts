@@ -61,11 +61,13 @@ import {
 } from "../application/operator-provider-preferences.js";
 import {
   createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceConfigHealthSummary,
   createOperatorWorkspaceHomeProjection,
   isGuiProviderModeless,
   projectOperatorCockpitReadOnlyView,
   type GuiProviderDiscoveryResult,
   type OperatorSessionEvent,
+  type OperatorWorkspaceConfigHealthSummary,
   type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
 
@@ -412,10 +414,12 @@ async function buildDashboardSnapshot(
     )),
   );
   const workspaceTree = await workspaceExplorer.listDirectory().catch(() => undefined);
+  const configHealth = await readLocalGuiConfigHealth(workingDirectory);
   const operatorWorkspaceHome = await buildLocalGuiOperatorWorkspaceHome({
     projectedAt: new Date().toISOString(),
     sessions,
     transcriptStore,
+    configHealth,
   });
 
   return {
@@ -434,6 +438,7 @@ async function buildLocalGuiOperatorWorkspaceHome(input: {
   readonly projectedAt: string;
   readonly sessions: GuiDashboardSnapshot["sessions"];
   readonly transcriptStore: TranscriptStore;
+  readonly configHealth: OperatorWorkspaceConfigHealthSummary;
 }): Promise<NonNullable<GuiDashboardSnapshot["operatorWorkspaceHome"]>> {
   const eventGroups = await Promise.all(input.sessions.map(async (session) => {
     const detail = await loadSessionDetail(input.transcriptStore, session.id).catch(() => null);
@@ -447,6 +452,7 @@ async function buildLocalGuiOperatorWorkspaceHome(input: {
         title: session.title ?? session.taskSummary ?? session.id,
       })];
   }));
+  const events = eventGroups.flat();
   const cockpitProjection = projectOperatorCockpitReadOnlyView({
     projectedAt: input.projectedAt,
     attachTargets: [{
@@ -455,7 +461,7 @@ async function buildLocalGuiOperatorWorkspaceHome(input: {
       kind: "local",
       gatewayUrl: "http://localhost",
     }],
-    events: eventGroups.flat(),
+    events,
   });
   const cockpitView = createOperatorCockpitReadOnlyViewState({
     projection: cockpitProjection,
@@ -464,7 +470,27 @@ async function buildLocalGuiOperatorWorkspaceHome(input: {
   return createOperatorWorkspaceHomeProjection({
     projectedAt: input.projectedAt,
     cockpitView,
+    events,
+    configHealth: input.configHealth,
   });
+}
+
+async function readLocalGuiConfigHealth(projectPath: string): Promise<OperatorWorkspaceConfigHealthSummary> {
+  try {
+    return createOperatorWorkspaceConfigHealthSummary((await readConfigStatusSnapshot({ projectPath })).setup);
+  } catch (error) {
+    return {
+      status: "blocked",
+      issueCount: 1,
+      items: [{
+        id: "config-status",
+        status: "blocked",
+        summary: error instanceof Error ? error.message : String(error),
+        source: projectPath,
+        recommendation: "review-project-context",
+      }],
+    };
+  }
 }
 
 function operatorWorkspaceSessionSummaryEvent(input: {
