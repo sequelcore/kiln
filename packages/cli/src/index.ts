@@ -55,6 +55,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     plan: planCommand?.description ?? "Start a planning session before execution (3-phase workflow)",
     project: "Scout or adopt canonical repo context for generated project shims",
     status: "Show current phase, tasks, and costs",
+    doctor: "Diagnose local harness installation, path, version, auth, and model readiness",
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
     "mcp-config": "Generate MCP client configuration JSON",
@@ -196,6 +197,14 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       console.log("Migrated .kiln/config.json → kiln.yaml");
     }
     statusCommand(config);
+    return;
+  }
+
+  if (command === "doctor") {
+    const { doctorCommand } = await import("./commands/doctor.js");
+    await doctorCommand(config, {
+      json: args.includes("--json"),
+    });
     return;
   }
 

@@ -30,6 +30,7 @@ export type GuiProviderDiscoveryStatus =
   | "endpoint_timeout"
   | "endpoint_error"
   | "empty_model_list"
+  | "model_version_unsupported"
   | "daemon_unreachable"
   | "model_selection_not_required"
   | "stale";

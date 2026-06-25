@@ -14,6 +14,7 @@ export {
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
   markGuiProviderDiscoveryStale,
+  probeCodexCliModelReadiness,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,

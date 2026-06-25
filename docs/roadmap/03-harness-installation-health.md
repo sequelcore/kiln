@@ -64,7 +64,7 @@ Verification:
 
 ### Slice 2 - Model Readiness Probe
 
-Status: Pending
+Status: Completed on 2026-06-24
 
 Deliverables:
 
@@ -79,19 +79,36 @@ Deliverables:
 
 Verification:
 
-- Unit tests for supported, unsupported, version-gated, and timeout probe
-  results.
-- CLI status/read tests showing the same readiness reason used for admission.
-- Live Codex probe gated behind explicit operator action.
+- `bun run --cwd packages/runtime test -- tests/gateway/gui-gateway.test.ts`
+- `bun run --cwd packages/cli test -- tests/wrapper/codex-session.test.ts`
+- `bun run --cwd packages/cli test -- tests/commands/run-builtin-tools.test.ts`
+- `bun run --cwd packages/gateway-contracts typecheck`
+- `bun run --cwd packages/runtime typecheck`
+- `bun run --cwd packages/cli typecheck`
+- Live source `kiln run` comparison against native `codex exec` on
+  `gpt-5.5` with medium reasoning.
+
+Progress:
+
+- Codex CLI discovery and wrapper execution now classify "model requires a
+  newer version of Codex" as `model_version_unsupported` /
+  `CODEX_MODEL_VERSION_UNSUPPORTED` instead of generic endpoint or turn
+  failure.
+- `kiln run` now validates explicit Codex/OpenCode wrapper models through
+  shared CLI discovery before session execution, while preserving native
+  harness defaults when no explicit wrapper model is selected.
+- Live Codex source execution and native Codex execution both proved
+  `gpt-5.5` runnable on 2026-06-24; the globally installed `kiln` command was
+  observed to point at an older Bun shim and is intentionally tracked as
+  installation-health work rather than hidden wrapper fallback.
 
 ### Slice 3 - Harness Doctor
 
-Status: Pending
+Status: Completed on 2026-06-24
 
 Deliverables:
 
-- Add a `kiln doctor` or setup-status view for local harness installation
-  health.
+- Add a read-only `kiln doctor` view for local harness installation health.
 - Report resolved executable path, all competing PATH entries, detected
   versions, auth state, config projection state, and supported model probe
   evidence.
@@ -99,14 +116,29 @@ Deliverables:
   first, not as execution failures.
 - Reuse shared config/status read models; do not make a CLI-only diagnostic
   path.
+- Treat global `kiln` drift as release/install evidence. Do not update the
+  global command during local development; it will move when a release installs
+  a new build.
 
 Verification:
 
-- Deterministic fixtures for Windows-style npm shims, app/winget aliases, and
-  missing executables.
-- Cross-surface projection tests for CLI plus at least one operator surface.
-- No mutation in doctor by default; repair actions require explicit operator
-  approval through the existing config/setup action boundary.
+- `bun run --cwd packages/cli test -- tests/application/harness-doctor.test.ts tests/commands/doctor.test.ts`
+- `bun run --cwd packages/cli typecheck`
+- `bun run --cwd packages/runtime typecheck`
+- `bun run --cwd packages/runtime build`
+- `bun run --cwd packages/cli build`
+- Live source `kiln doctor`
+- Live source `kiln doctor --json`
+
+Progress:
+
+- `kiln doctor` now reports local Kiln, Codex, and OpenCode executable
+  resolution, versions, PATH competitors, provider discovery status, auth
+  state, model evidence, and config projection state.
+- The command is read-only. It exposes `repairActions: []` in JSON and does not
+  mutate PATH, native config, package installs, or global shims.
+- Global `kiln` drift is reported as release/install evidence. The global
+  command remains unchanged until a release installs a new build.
 
 ## Gates
 

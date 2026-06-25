@@ -87,6 +87,27 @@ Current status:
 | Codex | Supported | Provider, model, approval, and sandbox map cleanly |
 | OpenCode | Supported | Provider, model, and default permission map cleanly |
 
+## Harness Doctor
+
+Harness doctor is the read-only installation health view for local harnesses.
+It reports evidence; it does not repair PATH, install packages, uninstall
+aliases, rewrite native files, or select hidden fallback binaries.
+
+The canonical report includes:
+
+- resolved executable path and version for Kiln, Codex, and OpenCode;
+- all matching executable entries discovered on PATH;
+- competing executable warnings when command resolution may drift;
+- auth state, discovery status, and model evidence from shared provider model
+  discovery;
+- zero automatic repair actions.
+
+Global `kiln` drift is expected during local development. The global command
+may point at the last installed release while source runs use the working tree.
+Doctor should report that as release/install evidence, not mutate the
+developer environment. The global command updates only when a new release is
+installed.
+
 ## MCP And Hooks
 
 MCP and hooks are complementary integration mechanisms.

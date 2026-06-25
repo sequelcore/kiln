@@ -36,6 +36,7 @@ Common statuses include:
 - `endpoint_timeout`
 - `endpoint_error`
 - `empty_model_list`
+- `model_version_unsupported`
 - `daemon_unreachable`
 - `model_selection_not_required`
 - `stale`
@@ -43,6 +44,12 @@ Common statuses include:
 The same discovery result gates execution and drives operator diagnostics.
 Surfaces may abbreviate the human-facing reason, but they must not derive
 availability from a different source.
+
+`model_version_unsupported` means the harness or provider is installed and
+authenticated enough to answer, but the selected or requested model requires a
+newer provider binary, app channel, or compatible model surface. Surfaces must
+present this as a model readiness/version action, not as a generic endpoint
+failure or missing auth state.
 
 ## Runtime Caching
 
@@ -89,12 +96,17 @@ managed invocation route admission, and prompt execution must wait for or
 require fresh runtime discovery. Static provider display metadata and stale
 cache entries are diagnostics, not permission.
 
-`kiln run --provider <direct-provider>` performs the same fail-closed model
-admission before creating a provider session. The selected model must be present
-in live runtime discovery for that provider; stale static IDs and typos are
-rejected before the chat/completions request. Command-line `--api-key` values
-participate in discovery for that process only, the same way they participate
-in execution.
+`kiln run --provider <provider> --model <model>` performs the same
+fail-closed model admission before creating a provider session when runtime
+discovery can validate that provider. Direct API providers require an explicit
+selected model that is present in live runtime discovery. CLI wrapper providers
+such as Codex and OpenCode may still run without an explicit model so their
+native harness default remains authoritative, but an explicitly selected model
+must be advertised by shared CLI discovery or pass a provider-owned live
+readiness probe before execution starts. Stale static IDs and typos are
+rejected before the chat/completions or wrapper request. Command-line
+`--api-key` values participate in discovery for that process only, the same way
+they participate in execution.
 
 ## Model Capabilities
 

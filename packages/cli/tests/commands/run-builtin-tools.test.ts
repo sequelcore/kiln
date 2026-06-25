@@ -42,6 +42,30 @@ const runWiringMocks = vi.hoisted(() => {
     capturedRunSessionInputs: [] as unknown[],
     evaluateRouteHealth: vi.fn().mockResolvedValue({ healthy: true }),
     recordRouteOutcome: vi.fn().mockResolvedValue(undefined),
+    discoverGuiCliOperatorModels: vi.fn().mockResolvedValue({
+      codexModels: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+      codexDiscovery: {
+        models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+        status: "available",
+        reason: "Codex models discovered.",
+        authState: "authenticated",
+      },
+      opencodeModels: ["opencode/minimax-m2.5-free"],
+      opencodeDiscovery: {
+        models: ["opencode/minimax-m2.5-free"],
+        status: "available",
+        reason: "OpenCode models discovered.",
+        authState: "authenticated",
+      },
+    }),
+    probeCodexCliModelReadiness: vi.fn().mockResolvedValue({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: true,
+      status: "available",
+      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
+      authState: "authenticated",
+    }),
   };
 });
 
@@ -98,6 +122,8 @@ vi.mock("@kilnai/runtime", () => ({
       authState: "authenticated",
     },
   }),
+  discoverGuiCliOperatorModels: runWiringMocks.discoverGuiCliOperatorModels,
+  probeCodexCliModelReadiness: runWiringMocks.probeCodexCliModelReadiness,
   discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
     models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
     status: "available",
@@ -376,6 +402,30 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.capturedRunSessionInputs.length = 0;
     runWiringMocks.evaluateRouteHealth.mockResolvedValue({ healthy: true });
     runWiringMocks.recordRouteOutcome.mockResolvedValue(undefined);
+    runWiringMocks.discoverGuiCliOperatorModels.mockResolvedValue({
+      codexModels: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+      codexDiscovery: {
+        models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+        status: "available",
+        reason: "Codex models discovered.",
+        authState: "authenticated",
+      },
+      opencodeModels: ["opencode/minimax-m2.5-free"],
+      opencodeDiscovery: {
+        models: ["opencode/minimax-m2.5-free"],
+        status: "available",
+        reason: "OpenCode models discovered.",
+        authState: "authenticated",
+      },
+    });
+    runWiringMocks.probeCodexCliModelReadiness.mockResolvedValue({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: true,
+      status: "available",
+      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
+      authState: "authenticated",
+    });
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
     runWiringMocks.cleanupRegistryRunAll.mockResolvedValue(undefined);
     runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({ id: "managed-agent-resource-provider" });
@@ -1231,6 +1281,90 @@ describe("run command builtin tool wiring", () => {
         },
       },
     })).toEqual({ ok: true });
+  });
+
+  it("fails wrapper admission when discovery does not advertise an explicit model", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "codex",
+      model: "gpt-5.5",
+      discovery: {
+        codex: {
+          models: ["gpt-5.4-mini"],
+          status: "available",
+          reason: "Codex models discovered.",
+        },
+      },
+    })).toEqual({
+      ok: false,
+      error: "Provider 'codex' does not advertise model 'gpt-5.5'",
+    });
+  });
+
+  it("allows wrapper admission without an explicit model so the native harness default can run", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "codex",
+      model: undefined,
+      discovery: {},
+    })).toEqual({ ok: true });
+  });
+
+  it("admits wrapper execution for discovered explicit model ids", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      discovery: {
+        codex: {
+          models: ["gpt-5.4-mini"],
+          status: "available",
+          reason: "Codex models discovered.",
+        },
+      },
+    })).toEqual({ ok: true });
+  });
+
+  it("blocks wrapper execution before runSession when explicit model readiness fails", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
+    runWiringMocks.probeCodexCliModelReadiness.mockResolvedValueOnce({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: false,
+      status: "model_version_unsupported",
+      reason: "Codex CLI model support is out of date: The 'gpt-5.5' model requires a newer version of Codex.",
+      authState: "authenticated",
+    });
+
+    await expect(runCommand(APP_CONFIG, "ship it", {
+      provider: "codex",
+      model: "gpt-5.5",
+    })).rejects.toThrow("process.exit");
+
+    expect(runWiringMocks.discoverGuiCliOperatorModels).toHaveBeenCalledWith(expect.objectContaining({
+      codex: true,
+      opencode: false,
+    }));
+    expect(runWiringMocks.probeCodexCliModelReadiness).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-5.5",
+    }));
+    expect(runWiringMocks.runSession).not.toHaveBeenCalled();
+    exit.mockRestore();
+  });
+
+  it("admits wrapper execution when explicit missing model passes live readiness probe", async () => {
+    await runCommand(APP_CONFIG, "ship it", {
+      provider: "codex",
+      model: "gpt-5.5",
+    });
+
+    expect(runWiringMocks.probeCodexCliModelReadiness).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-5.5",
+    }));
+    expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
+      routeCandidates: [
+        { provider: "codex", model: "gpt-5.5" },
+      ],
+    });
   });
 
   it("checks route health before direct provider execution and records success", async () => {

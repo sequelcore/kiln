@@ -427,7 +427,7 @@ export class CodexSession implements IKilnSession {
               lastError = item.message ?? "Unknown item error";
               yield {
                 type: "error",
-                code: "CODEX_ITEM_ERROR",
+                code: codexErrorCodeForMessage(lastError, "CODEX_ITEM_ERROR"),
                 message: lastError,
                 isRetryable: false,
               };
@@ -534,10 +534,10 @@ export class CodexSession implements IKilnSession {
           const errorType = line.error?.type;
           const isRetryable =
             errorType === "Stream" || errorType === "Timeout" || errorType === "ConnectionFailed";
-          lastError = line.message ?? "Unknown error";
+          lastError = line.message ?? line.error?.message ?? "Unknown error";
           yield {
             type: "error",
-            code: "CODEX_TURN_ERROR",
+            code: codexErrorCodeForMessage(lastError, "CODEX_TURN_ERROR"),
             message: lastError,
             isRetryable,
           };
@@ -551,7 +551,7 @@ export class CodexSession implements IKilnSession {
           lastError = line.error?.message ?? "Turn failed";
           yield {
             type: "error",
-            code: "CODEX_TURN_FAILED",
+            code: codexErrorCodeForMessage(lastError, "CODEX_TURN_FAILED"),
             message: lastError,
             isRetryable,
           };
@@ -598,7 +598,7 @@ export class CodexSession implements IKilnSession {
       const msg = lastError ?? (stderrText.length > 0 ? stderrText : `codex exited with code ${exitCode}`);
       yield {
         type: "error",
-        code: "CODEX_EXIT_ERROR",
+        code: codexErrorCodeForMessage(msg, "CODEX_EXIT_ERROR"),
         message: msg,
         isRetryable: false,
       };
@@ -722,4 +722,14 @@ function summarizeCodexFileChange(item: NonNullable<CodexJsonlLine["item"]>): st
 
 function isBenignCodexItemError(message: string | undefined): boolean {
   return message?.startsWith("Skill descriptions were shortened to fit the 2% skills context budget.") ?? false;
+}
+
+function codexErrorCodeForMessage(message: string | undefined, fallback: string): string {
+  return isCodexModelVersionUnsupportedMessage(message)
+    ? "CODEX_MODEL_VERSION_UNSUPPORTED"
+    : fallback;
+}
+
+function isCodexModelVersionUnsupportedMessage(message: string | undefined): boolean {
+  return /model requires a newer version of Codex/i.test(message ?? "");
 }

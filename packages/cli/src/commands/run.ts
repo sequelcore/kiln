@@ -96,8 +96,10 @@ import {
 } from "@kilnai/core";
 import {
   ProviderModelRouteHealthStore,
+  discoverGuiCliOperatorModels,
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
+  probeCodexCliModelReadiness,
   runManagedAgentFanOutLifecycle,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
@@ -245,6 +247,7 @@ interface RunProviderModelDiscovery {
   readonly models: readonly string[];
   readonly status: string;
   readonly reason: string;
+  readonly modelReadinessFailures?: Readonly<Record<string, string>>;
 }
 
 export type RunProviderModelAdmission =
@@ -256,7 +259,12 @@ export function resolveRunProviderModelAdmission(input: {
   readonly model: string | undefined;
   readonly discovery: Readonly<Record<string, RunProviderModelDiscovery | undefined>>;
 }): RunProviderModelAdmission {
-  if (!isDirectApiProvider(input.provider)) {
+  if (!modelDiscoveryCanValidateProvider(input.provider)) {
+    return { ok: true };
+  }
+
+  const model = input.model?.trim() ?? "";
+  if (!isDirectApiProvider(input.provider) && model.length === 0) {
     return { ok: true };
   }
 
@@ -274,11 +282,17 @@ export function resolveRunProviderModelAdmission(input: {
     };
   }
 
-  const model = input.model?.trim() ?? "";
   if (model.length === 0) {
     return {
       ok: false,
       error: `Provider '${input.provider}' requires a selected model.`,
+    };
+  }
+  const modelReadinessFailure = discovery.modelReadinessFailures?.[model];
+  if (modelReadinessFailure) {
+    return {
+      ok: false,
+      error: modelReadinessFailure,
     };
   }
   if (!discovery.models.includes(model)) {
@@ -289,6 +303,17 @@ export function resolveRunProviderModelAdmission(input: {
   }
 
   return { ok: true };
+}
+
+function modelDiscoveryCanValidateProvider(provider: ProviderId | undefined): provider is ProviderId {
+  return provider === "codex" || provider === "opencode" || isDirectApiProvider(provider);
+}
+
+function requiresCliWrapperModelDiscovery(candidate: RunSessionRouteCandidate): boolean {
+  return (
+    (candidate.provider === "codex" || candidate.provider === "opencode")
+    && (candidate.model?.trim().length ?? 0) > 0
+  );
 }
 
 function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
@@ -307,6 +332,7 @@ interface AdmittedRunRouteCandidate extends RunSessionRouteCandidate {
 async function resolveAdmittedRunRouteCandidates(input: {
   readonly candidates: readonly RunSessionRouteCandidate[];
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
+  readonly cwd: string;
   readonly env: Record<string, string>;
   readonly routeHealthStore: ProviderModelRouteHealthStore;
 }): Promise<{
@@ -325,19 +351,39 @@ async function resolveAdmittedRunRouteCandidates(input: {
         ...input.env,
       })
     : {};
+  const wrapperCandidates = input.candidates.filter(requiresCliWrapperModelDiscovery);
+  const cliDiscovery = wrapperCandidates.length > 0
+    ? await discoverGuiCliOperatorModels({
+        ...getRuntimeProviderAvailability(input.registry),
+        codex: wrapperCandidates.some((candidate) => candidate.provider === "codex"),
+        opencode: wrapperCandidates.some((candidate) => candidate.provider === "opencode"),
+      })
+    : undefined;
+  const codexDiscovery = cliDiscovery
+    ? await extendCodexDiscoveryWithReadinessProbes({
+        discovery: cliDiscovery.codexDiscovery,
+        candidates: wrapperCandidates.filter((candidate) => candidate.provider === "codex"),
+        cwd: input.cwd,
+        env: input.env,
+      })
+    : undefined;
+  const providerDiscovery: Record<string, RunProviderModelDiscovery | undefined> = {
+    ...directDiscovery,
+    ...(cliDiscovery
+      ? {
+          codex: codexDiscovery,
+          opencode: cliDiscovery.opencodeDiscovery,
+        }
+      : {}),
+  };
 
   const admitted: AdmittedRunRouteCandidate[] = [];
   const routeCapabilities = new Map<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>();
   for (const candidate of input.candidates) {
-    if (!isDirectApiProvider(candidate.provider)) {
-      admitted.push(candidate as AdmittedRunRouteCandidate);
-      continue;
-    }
-
     const admission = resolveRunProviderModelAdmission({
       provider: candidate.provider,
       model: candidate.model,
-      discovery: directDiscovery,
+      discovery: providerDiscovery,
     });
     if (!admission.ok) {
       rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${admission.error}`);
@@ -363,6 +409,44 @@ async function resolveAdmittedRunRouteCandidates(input: {
   }
 
   return { candidates: admitted, rejectedReasons, routeCapabilities };
+}
+
+async function extendCodexDiscoveryWithReadinessProbes(input: {
+  readonly discovery: RunProviderModelDiscovery;
+  readonly candidates: readonly RunSessionRouteCandidate[];
+  readonly cwd: string;
+  readonly env: Record<string, string>;
+}): Promise<RunProviderModelDiscovery> {
+  let discovery = input.discovery;
+  for (const candidate of input.candidates) {
+    const model = candidate.model?.trim();
+    if (!model || discovery.models.includes(model)) {
+      continue;
+    }
+    const readiness = await probeCodexCliModelReadiness({
+      model,
+      reasoningEffort: candidate.reasoningEffort,
+      cwd: input.cwd,
+      env: input.env,
+    });
+    if (!readiness.runnable) {
+      discovery = {
+        ...discovery,
+        modelReadinessFailures: {
+          ...(discovery.modelReadinessFailures ?? {}),
+          [model]: readiness.reason,
+        },
+      };
+      continue;
+    }
+    discovery = {
+      ...discovery,
+      status: "available",
+      reason: readiness.reason,
+      models: [...discovery.models, model],
+    };
+  }
+  return discovery;
 }
 
 function routeKey(provider: string, model: string): string {
@@ -904,6 +988,7 @@ export async function runCommand(
     ? await resolveAdmittedRunRouteCandidates({
         candidates: configuredRouteCandidates,
         registry,
+        cwd,
         env,
         routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore(),
       })

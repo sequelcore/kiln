@@ -31,6 +31,7 @@ import {
   discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
+  probeCodexCliModelReadiness,
   projectGuiOperatorModels,
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
@@ -5568,6 +5569,50 @@ describe("discoverCodexCliModelDiscovery", () => {
     });
   });
 
+  it("diagnoses Codex model version gates separately from endpoint failures", async () => {
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn((payload: string) => {
+          const message = JSON.parse(payload.trim()) as Record<string, unknown>;
+          if (message.method === "initialize") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({ id: message.id, result: {} }) + "\n"));
+            });
+          }
+          if (message.method === "model/list") {
+            queueMicrotask(() => {
+              proc.stdout.emit("data", Buffer.from(JSON.stringify({
+                id: message.id,
+                error: {
+                  code: -32603,
+                  message: "The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+                },
+              }) + "\n"));
+            });
+          }
+          return true;
+        }),
+      };
+      proc.kill = vi.fn(() => {
+        proc.emit("close");
+      });
+      return proc as never;
+    });
+
+    await expect(discoverCodexCliModelDiscovery()).resolves.toMatchObject({
+      models: [],
+      status: "model_version_unsupported",
+      reason: "Codex CLI model support is out of date: The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+      authState: "authenticated",
+    });
+  });
+
   it("diagnoses an empty Codex app-server model list", async () => {
     vi.mocked(spawn).mockImplementationOnce(() => {
       const proc = new EventEmitter() as EventEmitter & {
@@ -5606,6 +5651,97 @@ describe("discoverCodexCliModelDiscovery", () => {
       status: "empty_model_list",
       reason: "Codex app-server returned an empty model list.",
       authState: "unknown",
+    });
+  });
+
+  it("proves explicit Codex model readiness through a live exec probe", async () => {
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn(() => true),
+        end: vi.fn(() => {
+          queueMicrotask(() => {
+            proc.emit("close", 0);
+          });
+        }),
+      };
+      proc.kill = vi.fn();
+      return proc as never;
+    });
+
+    await expect(probeCodexCliModelReadiness({
+      model: "gpt-5.5",
+      reasoningEffort: "medium",
+      cwd: "C:/repo",
+      env: { KILN_TEST: "1" },
+    })).resolves.toMatchObject({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: true,
+      status: "available",
+      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
+      authState: "authenticated",
+    });
+    expect(spawn).toHaveBeenCalledWith(expect.any(String), [
+      "exec",
+      "--json",
+      "-m",
+      "gpt-5.5",
+      "-c",
+      "model_reasoning_effort=medium",
+      "--ephemeral",
+      "--skip-git-repo-check",
+      "-",
+    ], expect.objectContaining({
+      cwd: "C:/repo",
+      stdio: ["pipe", "pipe", "pipe"],
+    }));
+  });
+
+  it("diagnoses Codex model readiness version gates", async () => {
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn(() => true),
+        end: vi.fn(() => {
+          queueMicrotask(() => {
+            proc.stdout.emit("data", Buffer.from(JSON.stringify({
+              type: "error",
+              error: {
+                message: "The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+              },
+            }) + "\n"));
+            proc.emit("close", 1);
+          });
+        }),
+      };
+      proc.kill = vi.fn();
+      return proc as never;
+    });
+
+    await expect(probeCodexCliModelReadiness({
+      model: "gpt-5.5",
+    })).resolves.toMatchObject({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: false,
+      status: "model_version_unsupported",
+      reason: "Codex CLI model support is out of date: The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.",
+      authState: "authenticated",
     });
   });
 });

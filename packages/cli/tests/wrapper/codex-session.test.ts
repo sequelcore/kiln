@@ -754,6 +754,36 @@ describe("CodexSession.run() JSONL parsing", () => {
     });
   });
 
+  it("run() yields a model-version error code for Codex model version gates", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.142.0"));
+
+    const session = new CodexSession(baseConfig({ model: "gpt-5.5" }));
+    const collectPromise = collectEvents(session.run({ prompt: "test" }));
+    const message = "The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.";
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({
+      type: "error",
+      status: 400,
+      error: {
+        type: "invalid_request_error",
+        message,
+      },
+    });
+    resolveExit(1);
+
+    const events = await collectPromise;
+    expect(events).toContainEqual({
+      type: "error",
+      code: "CODEX_MODEL_VERSION_UNSUPPORTED",
+      message,
+      isRetryable: false,
+    });
+  });
+
   it("ignores the skills context budget notice from Codex", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
