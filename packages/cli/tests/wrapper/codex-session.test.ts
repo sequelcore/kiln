@@ -200,6 +200,35 @@ describe("CodexSession implements IKilnSession", () => {
     await session.dispose();
     await expect(session.dispose()).resolves.toBeUndefined();
   });
+
+  it("prefers the npm codex.cmd shim before PATH resolution", async () => {
+    const { proc, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockImplementation((command: string) => {
+      if (command.includes("AppData\\Roaming\\npm\\codex.cmd")) {
+        return Buffer.from("codex-cli 0.142.0");
+      }
+      if (command.includes(".codex\\.sandbox-bin\\codex.exe")) {
+        return Buffer.from("codex-cli 0.142.0");
+      }
+      return Buffer.from("codex-cli 0.142.0");
+    });
+
+    const session = new CodexSession(baseConfig());
+    const run = session.run({ prompt: "test" });
+    const next = run.next();
+    const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      `${homedir}\\AppData\\Roaming\\npm\\codex.cmd`,
+      expect.arrayContaining(["exec"]),
+      expect.objectContaining({ cwd: baseConfig().cwd }),
+    );
+
+    resolveExit(0);
+    await next.catch(() => undefined);
+    await session.dispose();
+  });
 });
 
 describe("CodexSession.run() JSONL parsing", () => {
@@ -723,6 +752,31 @@ describe("CodexSession.run() JSONL parsing", () => {
       message: "Tool failed",
       isRetryable: false,
     });
+  });
+
+  it("ignores the skills context budget notice from Codex", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
+
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({ prompt: "test" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({
+      type: "item.completed",
+      item: {
+        id: "i8",
+        type: "error",
+        message: "Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter.",
+      },
+    });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 20 } });
+    resolveExit(0);
+
+    const events = await collectPromise;
+    expect(events.some((event) => event.type === "error")).toBe(false);
   });
 });
 

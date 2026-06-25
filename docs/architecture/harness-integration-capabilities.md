@@ -53,6 +53,14 @@ passes process-scoped startup overrides for model, approval, sandbox, and
 related execution flags. This is not a claim that standalone Codex reads Kiln
 global config directly.
 
+Codex runtime output can include non-fatal native diagnostics that are not turn
+failures. The wrapper must classify those diagnostics at the adapter boundary
+and keep the canonical session stream focused on real failures, completed
+work, cost, file changes, and tool evidence. This is a compatibility boundary
+for the Codex CLI stream, not durable product doctrine; if Codex exposes
+structured diagnostic severities, Kiln should consume that structure instead
+of matching message text.
+
 ## Native Projection
 
 Native projection remains valid, but it is an artifact strategy, not the

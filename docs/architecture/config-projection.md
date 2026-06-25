@@ -5,6 +5,15 @@ operator and harness configuration. Project `kiln.yaml` may override it for a
 workspace, but native harness files are projected artifacts, not source state.
 
 Supported native projection targets are Claude Code, Codex, and OpenCode.
+
+Codex projection preserves native settings only when Kiln can keep them valid
+for the target harness. Provider-specific values outside Codex native contract
+are removed during sync instead of being carried forward as compatibility
+baggage. For example, service_tier is preserved only for supported Codex tiers
+(fast and flex); unsupported values such as default are backed up with the
+previous file and omitted from the projected config. This keeps standalone
+Codex and Kiln-launched Codex on the same valid configuration surface.
+
 Harness integration strategy is capability-driven; see
 `harness-integration-capabilities.md` for runtime config injection, plugin,
 MCP, hook, and proof rules. Additional harnesses require a new roadmap slice

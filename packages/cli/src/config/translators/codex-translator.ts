@@ -13,18 +13,28 @@ export function translateCodexPermissionProjection(input: {
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "codex");
   const cfg = translated.config as { approvalMode: string; sandboxMode: string };
+  const existingDocument = sanitizeCodexConfigDocument(input.existingDocument);
 
   return {
     targetId: PERMISSION_PROJECTION_TARGET_IDS.codex,
     managedFields: ["approval_policy", "sandbox_mode", "kiln.permission_sync"],
     document: {
-      ...input.existingDocument,
+      ...existingDocument,
       approval_policy: cfg.approvalMode,
       sandbox_mode: cfg.sandboxMode,
       kiln: {
-        ...asRecord(input.existingDocument.kiln),
+        ...asRecord(existingDocument.kiln),
         permission_sync: toPermissionSyncMetadata(translated),
       },
     },
   };
+}
+
+function sanitizeCodexConfigDocument(document: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...document };
+  const serviceTier = next.service_tier;
+  if (serviceTier !== "fast" && serviceTier !== "flex") {
+    delete next.service_tier;
+  }
+  return next;
 }

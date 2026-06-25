@@ -117,13 +117,14 @@ describe("syncNativePermissionProjections", () => {
     expect((metadata.constraintInstructions as string[]).length).toBeGreaterThan(0);
   });
 
-  it("merges Codex TOML and writes kiln.permission_sync metadata section", async () => {
+  it("merges Codex TOML, removes unsupported service tier values, and writes kiln.permission_sync metadata section", async () => {
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
     mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
     writeFileSync(
       codexConfigPath,
       [
         "model = \"gpt-5.4\"",
+        "service_tier = \"default\"",
         "",
         "[projects]",
         "default = \"kiln\"",
@@ -141,9 +142,10 @@ describe("syncNativePermissionProjections", () => {
     const backupDir = join(paths.projectPath, ".kiln", "backups", "codex-config");
     const backupFiles = readdirSync(backupDir);
     expect(backupFiles).toHaveLength(1);
-    expect(readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("model = \"gpt-5.4\"");
+    expect(readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("service_tier = \"default\"");
     const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(config.model).toBe("gpt-5.4");
+    expect(config.service_tier).toBeUndefined();
     expect(config.approval_policy).toBe("on-request");
     expect(config.sandbox_mode).toBe("workspace-write");
 

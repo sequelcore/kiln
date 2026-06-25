@@ -57,6 +57,11 @@ Use these documents as the stable source of truth before starting roadmap work:
    as measured module hot paths or native helpers behind TypeScript-owned ports
    that consume shared contracts. This is separate from the native surface
    roadmap.
+3. [Harness Installation Health](./03-harness-installation-health.md)
+   Active on 2026-06-24. Scope is cross-harness local readiness: canonical
+   executable identity, competing PATH aliases, version/auth/config evidence,
+   and model readiness probes shared across CLI, GUI, TUI, SDK/widget, and
+   model-callable status surfaces.
 
 Completed background and parallel managed-agent work is canonicalized in
 `docs/architecture/managed-agents.md`, `docs/architecture/context-resource-plane.md`,

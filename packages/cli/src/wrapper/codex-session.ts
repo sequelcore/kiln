@@ -421,6 +421,9 @@ export class CodexSession implements IKilnSession {
             }
 
             case "error":
+              if (isBenignCodexItemError(item.message)) {
+                break;
+              }
               lastError = item.message ?? "Unknown item error";
               yield {
                 type: "error",
@@ -639,7 +642,9 @@ export class CodexSession implements IKilnSession {
       `${homedir}\\.codex\\.sandbox-bin\\codex.exe`,
     ];
 
-    const candidates = ["codex", ...fallbackPaths];
+    const candidates = [fallbackPaths[0], "codex", fallbackPaths[1]].filter(
+      (candidate): candidate is string => candidate !== undefined,
+    );
 
     for (const candidate of candidates) {
       try {
@@ -713,4 +718,8 @@ function summarizeCodexFileChange(item: NonNullable<CodexJsonlLine["item"]>): st
     return `File changes ${item.status ?? "completed"}: ${changes}`;
   }
   return `File ${item.path ?? "unknown"}: ${item.change_type ?? "modified"}`;
+}
+
+function isBenignCodexItemError(message: string | undefined): boolean {
+  return message?.startsWith("Skill descriptions were shortened to fit the 2% skills context budget.") ?? false;
 }
