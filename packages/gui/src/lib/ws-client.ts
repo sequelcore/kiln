@@ -128,6 +128,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     planId: z.string().trim().min(1).optional(),
     residualRiskAcknowledged: z.boolean().optional(),
     residualRiskAcknowledgement: z.string().optional(),
+    gatewayTargetId: z.string().trim().min(1).optional(),
   }),
 ]);
 

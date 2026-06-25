@@ -1215,6 +1215,11 @@ export function AppShell() {
   ): boolean => sendApprovalResponse(approved, reason, approvalId, {
     ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
   });
+  const setTargetedPlanMode = (enabled: boolean): void => {
+    setPlanMode(enabled, {
+      ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
+    });
+  };
 
   useEffect(() => {
     if (runtimeGatewayTargets.length === 0) {
@@ -1333,12 +1338,12 @@ export function AppShell() {
         closePalette();
         return;
       case "plan":
-        setPlanMode(true);
+        setTargetedPlanMode(true);
         setWorkbenchSurface("chat");
         closePalette();
         return;
       case "exec":
-        setPlanMode(false);
+        setTargetedPlanMode(false);
         setWorkbenchSurface("chat");
         closePalette();
         return;
@@ -1822,7 +1827,7 @@ export function AppShell() {
                 ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
               });
             }}
-            onTogglePlanMode={setPlanMode}
+            onTogglePlanMode={setTargetedPlanMode}
             commandMenu={{
               open: composerCommandOpen,
               query: composerCommandQuery,

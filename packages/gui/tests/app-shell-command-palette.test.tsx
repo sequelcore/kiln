@@ -175,9 +175,11 @@ vi.mock("../src/components/composer.js", () => ({
   Composer: ({
     commandMenu,
     onSubmit,
+    onTogglePlanMode,
   }: {
     commandMenu: { onOpenChange: (open: boolean) => void };
     onSubmit: (text: string) => void;
+    onTogglePlanMode: (enabled: boolean) => void;
   }) => (
     <div>
       <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
@@ -185,6 +187,9 @@ vi.mock("../src/components/composer.js", () => ({
       </button>
       <button type="button" onClick={() => onSubmit("hello target")}>
         Send test message
+      </button>
+      <button type="button" onClick={() => onTogglePlanMode(false)}>
+        Switch to execute
       </button>
     </div>
   ),
@@ -674,6 +679,65 @@ describe("AppShell command palette and telemetry regressions", () => {
       type: "reject",
       approvalId: "approval-1",
       reason: "rejected by user",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+    });
+  });
+
+  it("sends execution mode transitions with the selected gateway target identity", async () => {
+    useSessionStore.setState({ planMode: true });
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        apps: [
+          {
+            name: "support",
+            runtime: "tenant" as const,
+            channels: ["api"],
+            runtimeCapable: true,
+            tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+          },
+        ],
+        activeAppName: "support",
+        activeTenantId: "acme",
+        operatorWorkspaceHome: {
+          ...dashboardOperatorWorkspaceHome,
+          gatewayTargets: [
+            {
+              instanceId: "app-gateway:support:tenant:acme",
+              label: "ACME",
+              gatewayTarget: {
+                targetId: "app-gateway:support:tenant:acme",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+                tenantId: "acme",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+          ],
+        },
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Switch to execute" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to execute" }));
+
+    expect(sendMock).toHaveBeenCalledWith({
+      type: "execution_mode_transition",
+      toMode: "execute",
       gatewayTargetId: "app-gateway:support:tenant:acme",
     });
   });

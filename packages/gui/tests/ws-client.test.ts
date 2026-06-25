@@ -447,7 +447,7 @@ describe("GuiWsClient", () => {
         },
         { type: "approve", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
         { type: "reject", reason: "not approved", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
-        { type: "execution_mode_transition", toMode: "execute" },
+        { type: "execution_mode_transition", toMode: "execute", gatewayTargetId: "gateway:local-app" },
       ];
 
       for (const frame of frames) {

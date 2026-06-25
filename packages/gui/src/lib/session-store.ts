@@ -1734,7 +1734,7 @@ interface SessionStoreActions {
   ) => boolean;
   requestVoiceSynthesis: (messageId: string) => boolean;
   sendClear: () => boolean;
-  setPlanMode: (enabled: boolean) => void;
+  setPlanMode: (enabled: boolean, options?: { readonly gatewayTargetId?: string }) => void;
   setContinuation: (sessionId: string | null) => void;
   disconnect: () => void;
   onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
@@ -3346,7 +3346,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return true;
   },
 
-  setPlanMode: (enabled) => {
+  setPlanMode: (enabled, options = {}) => {
     const state = get();
     if (enabled) {
       persistPlanMode(true);
@@ -3354,7 +3354,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return;
     }
     if (state.planMode && state.outboundSend) {
-      state.outboundSend({ type: "execution_mode_transition", toMode: "execute" });
+      state.outboundSend({
+        type: "execution_mode_transition",
+        toMode: "execute",
+        ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+      });
       return;
     }
     persistPlanMode(false);

@@ -1930,8 +1930,12 @@ describe("session-store", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({ planMode: true });
-    useSessionStore.getState().setPlanMode(false);
-    expect(send).toHaveBeenCalledWith({ type: "execution_mode_transition", toMode: "execute" });
+    useSessionStore.getState().setPlanMode(false, { gatewayTargetId: "gateway:local-app" });
+    expect(send).toHaveBeenCalledWith({
+      type: "execution_mode_transition",
+      toMode: "execute",
+      gatewayTargetId: "gateway:local-app",
+    });
   });
 
   it("persists planMode but does not silently restore continuation target on welcome", () => {

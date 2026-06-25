@@ -83,12 +83,14 @@ identity, and the runtime GUI gateway forwards that identity through browser
 provider requests and browser-operator evidence.
 Approval approve/reject frames now carry the selected `gatewayTargetId` from
 GUI approval surfaces when the target switcher has an explicit selection.
+Plan/execute mode transition frames now carry the selected `gatewayTargetId`
+from GUI controls when the target switcher has an explicit selection.
 
 Next fields and behavior:
 
 - local Operator Gateway target
 - local App Gateway target beyond composer, managed-agent control routing,
-  browser session controls, and approval responses
+  browser session controls, approval responses, and execution-mode transitions
 - remote App Gateway target
 - simulated target
 - app and tenant target identity across all operator actions

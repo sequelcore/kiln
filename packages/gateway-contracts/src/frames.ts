@@ -801,6 +801,7 @@ export type GuiOutboundFrame =
       planId?: string;
       residualRiskAcknowledged?: boolean;
       residualRiskAcknowledgement?: string;
+      gatewayTargetId?: string;
     };
 
 /** Frames sent by the gateway to the browser (operator). */
