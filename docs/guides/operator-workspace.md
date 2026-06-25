@@ -101,6 +101,11 @@ acknowledgement preserves that identity.
 Do not infer authority from a label, selected port, or visible app name. The
 runtime target must be represented by shared target identity.
 
+Do not add target identity to global control-plane actions unless they become
+target-bound. Provider refresh, provider authentication, provider switching,
+clear, operator-theme results, and voice synthesis are surface/catalog/message
+controls rather than selected app/tenant runtime actions.
+
 ## Resource Inspection
 
 `kiln://` resource URIs are durable inspection handles. Use resource links

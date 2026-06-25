@@ -67,7 +67,7 @@ Completion gate:
 
 ### 3. Gateway Target Switcher
 
-Status: active; first App Gateway target-identity slice implemented.
+Status: implemented for current GUI target-bound operator actions.
 
 Current GUI consumes `operatorWorkspaceHome.gatewayTargets` for App Gateway
 attach mode, selects by `OperatorGatewayTargetIdentity.targetId`, and sends
@@ -88,15 +88,18 @@ from GUI controls when the target switcher has an explicit selection.
 Explicit continuation selection frames now carry `gatewayTargetId` and gateway
 ACKs preserve it in `continuation_selected`.
 
+Current global control-plane frames remain intentionally targetless:
+`clear`, `refresh_providers`, `provider_auth`, provider switching,
+operator-theme results, and voice-synthesis requests. They operate on the
+connected operator surface, provider catalog, UI preference, or source message,
+not on an app/tenant runtime target.
+
 Next fields and behavior:
 
 - local Operator Gateway target
-- local App Gateway target beyond composer, managed-agent control routing,
-  browser session controls, approval responses, execution-mode transitions, and
-  explicit continuation selection
 - remote App Gateway target
 - simulated target
-- app and tenant target identity across all operator actions
+- app and tenant target identity for future target-bound operator actions
 - trust label and connection state
 
 Completion gate:

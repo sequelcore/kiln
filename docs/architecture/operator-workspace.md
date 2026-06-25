@@ -105,6 +105,12 @@ Every operator action that crosses a gateway/app/session boundary must carry a
 target identity. Surfaces must not infer target authority from labels, selected
 ports, or local instance strings.
 
+Global control-plane frames do not carry gateway target identity unless they
+become target-bound actions. Provider discovery, provider authentication,
+provider switching, clear, operator-theme results, and voice-synthesis requests
+operate on the connected operator surface, provider catalog, UI preference, or
+source message rather than a selected app/tenant runtime target.
+
 ## Resource Inspector
 
 The resource inspector is the first-party way to open `kiln://` resources from
