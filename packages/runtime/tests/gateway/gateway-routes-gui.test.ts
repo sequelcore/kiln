@@ -22,6 +22,20 @@ describe("App Gateway GUI routes", () => {
         entropy: 0,
       },
       continuationInfoByProvider: {},
+      operatorWorkspaceHome: {
+        mode: "read-only",
+        gatewayTargets: [],
+        sessions: [],
+        managedAgents: { totalCount: 0, activeCount: 0, attentionCount: 0 },
+        resources: { totalCount: 0, linkedResourceCount: 0, items: [] },
+        attention: {
+          items: [],
+          totalCount: 0,
+          actionRequiredCount: 0,
+          blockedCount: 0,
+          failedCount: 0,
+        },
+      },
       domainLabel: "app-gateway",
     });
   });
@@ -71,6 +85,30 @@ describe("App Gateway GUI routes", () => {
       activeAppName: "support",
       activeTenantId: "acme",
       domainLabel: "support",
+      operatorWorkspaceHome: {
+        mode: "read-only",
+        gatewayTargets: [
+          {
+            instanceId: "app-gateway:support",
+            label: "support",
+            gatewayTarget: {
+              targetId: "app-gateway:support",
+              kind: "local-app-gateway",
+              trust: "local",
+              appId: "support",
+            },
+            sessionCount: 0,
+            eventCount: 0,
+            managedInvocationCount: 0,
+            toolCallCount: 0,
+            resourceLinkCount: 0,
+            totalCostUsd: 0,
+          },
+        ],
+        sessions: [],
+        managedAgents: { totalCount: 0, activeCount: 0, attentionCount: 0 },
+        resources: { totalCount: 0, linkedResourceCount: 0, items: [] },
+      },
     });
   });
 

@@ -56,7 +56,15 @@ import type {
   GuiAppDescriptor,
   GuiSessionDetail,
   GuiSessionSummary,
+  OperatorCockpitAttachTarget,
+  OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+} from "@kilnai/gateway-contracts";
+import {
+  createEmptyOperatorWorkspaceHomeProjection,
+  createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
+  projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
 import {
   appendCoordinationProviderFailureAudit,
@@ -67,6 +75,7 @@ import {
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { verifySignedArtifactMediaRequest } from "./public-media-delivery.js";
 import type { RuntimeSession } from "../session/runtime-session.js";
+import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -568,9 +577,11 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
 async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise<GuiDashboardSnapshot> {
   const selectedRuntime = resolveAppGatewayGuiRuntime(config);
+  const projectedAt = new Date().toISOString();
+  const runtimeSessions = await collectAppGatewayRuntimeSessions(config);
   return {
     providers: [],
-    sessions: await listAppGatewayGuiSessions(config),
+    sessions: projectAppGatewayGuiSessions(runtimeSessions),
     telemetry: {
       status: "stable",
       dominantRegions: config.apps.map((app) => app.name).slice(0, 3),
@@ -578,6 +589,7 @@ async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise
       entropy: 0,
     },
     continuationInfoByProvider: {},
+    operatorWorkspaceHome: buildAppGatewayOperatorWorkspaceHome(config, projectedAt, runtimeSessions),
     apps: buildAppGatewayGuiApps(config),
     ...(selectedRuntime ? { activeAppName: selectedRuntime.loadedApp.name } : {}),
     ...(selectedRuntime ? { activeTenantId: selectedRuntime.tenantId } : {}),
@@ -609,7 +621,10 @@ function buildAppGatewayGuiApps(config: GatewayServerConfig): readonly GuiAppDes
 }
 
 async function listAppGatewayGuiSessions(config: GatewayServerConfig): Promise<readonly GuiSessionSummary[]> {
-  const sessions = await collectAppGatewayRuntimeSessions(config);
+  return projectAppGatewayGuiSessions(await collectAppGatewayRuntimeSessions(config));
+}
+
+function projectAppGatewayGuiSessions(sessions: readonly RuntimeSession[]): readonly GuiSessionSummary[] {
   return sessions.map((session) => {
     const firstUserMessage = session.conversationHistory.find((message) => message.role === "user");
     const taskSummary = firstUserMessage ? extractText(firstUserMessage.parts) : `${session.appName} session`;
@@ -658,6 +673,87 @@ async function getAppGatewayGuiSessionDetail(
       exactArtifacts: session.exactArtifacts,
     },
     events: [],
+  };
+}
+
+function buildAppGatewayOperatorWorkspaceHome(
+  config: GatewayServerConfig,
+  projectedAt: string,
+  sessions: readonly RuntimeSession[],
+): NonNullable<GuiDashboardSnapshot["operatorWorkspaceHome"]> {
+  const attachTargets = buildAppGatewayOperatorWorkspaceAttachTargets(config);
+  if (attachTargets.length === 0) {
+    return createEmptyOperatorWorkspaceHomeProjection({ projectedAt });
+  }
+  const events = sessions.flatMap((session) => {
+    const instanceId = appGatewayOperatorWorkspaceInstanceId(session.appName);
+    return session.sessionEvents.length > 0
+      ? session.sessionEvents.map((event, index) => toOperatorSessionEventFrame(event, {
+        eventId: event.eventId,
+        sequence: index + 1,
+        instanceId,
+      }).event)
+      : [appGatewaySessionSummaryEvent(session, instanceId)];
+  });
+  const cockpitProjection = projectOperatorCockpitReadOnlyView({
+    projectedAt,
+    attachTargets,
+    events,
+  });
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
+    projection: cockpitProjection,
+    viewState: {},
+  });
+  return createOperatorWorkspaceHomeProjection({
+    projectedAt,
+    cockpitView,
+  });
+}
+
+function buildAppGatewayOperatorWorkspaceAttachTargets(
+  config: GatewayServerConfig,
+): readonly OperatorCockpitAttachTarget[] {
+  return config.apps.map((loadedApp) => ({
+    instanceId: appGatewayOperatorWorkspaceInstanceId(loadedApp.name),
+    label: loadedApp.name,
+    kind: "remote",
+    gatewayUrl: "http://localhost",
+    gatewayTarget: {
+      targetId: `app-gateway:${loadedApp.name}`,
+      kind: "local-app-gateway",
+      trust: "local",
+      label: loadedApp.name,
+      gatewayUrl: "http://localhost",
+      appId: loadedApp.name,
+    },
+  }));
+}
+
+function appGatewayOperatorWorkspaceInstanceId(appName: string): string {
+  return `app-gateway:${appName}`;
+}
+
+function appGatewaySessionSummaryEvent(
+  session: RuntimeSession,
+  instanceId: string,
+): OperatorSessionEvent {
+  return {
+    eventId: `${session.id}:operator-workspace-summary`,
+    kilnSessionId: session.id,
+    sequence: 0,
+    timestamp: session.lastActivityAt.toISOString(),
+    kind: "turn_started",
+    source: {
+      actor: "runtime",
+      surface: "gui",
+      component: "app-gateway-dashboard",
+    },
+    payload: {
+      instanceId,
+      sessionId: session.id,
+      appId: session.appName,
+      tenantId: session.tenantId,
+    },
   };
 }
 

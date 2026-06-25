@@ -265,6 +265,7 @@ export {
 
 export type {
   OperatorWorkspaceGatewayTargetSummary,
+  OperatorWorkspaceHomeEmptyProjectionInput,
   OperatorWorkspaceHomeProjection,
   OperatorWorkspaceHomeProjectionInput,
   OperatorWorkspaceManagedAgentSummary,
@@ -273,6 +274,7 @@ export type {
   OperatorWorkspaceSessionSummary,
 } from "./operator-workspace-home.js";
 export {
+  createEmptyOperatorWorkspaceHomeProjection,
   createOperatorWorkspaceHomeProjection,
 } from "./operator-workspace-home.js";
 

@@ -524,6 +524,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
     sessions: snapshot.sessions,
     telemetry: snapshot.telemetry,
     continuationInfoByProvider: snapshot.continuationInfoByProvider as Record<string, GuiContinuationInfo>,
+    ...(isRecord(snapshot.operatorWorkspaceHome) ? { operatorWorkspaceHome: snapshot.operatorWorkspaceHome } : {}),
     ...(apps ? { apps } : {}),
     ...(typeof snapshot.activeAppName === "string" ? { activeAppName: snapshot.activeAppName } : {}),
     ...(typeof snapshot.activeTenantId === "string" ? { activeTenantId: snapshot.activeTenantId } : {}),

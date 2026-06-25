@@ -71,6 +71,38 @@ export interface OperatorWorkspaceHomeProjectionInput {
   readonly cockpitView: OperatorCockpitReadOnlyViewState;
 }
 
+export interface OperatorWorkspaceHomeEmptyProjectionInput {
+  readonly projectedAt: string;
+}
+
+export function createEmptyOperatorWorkspaceHomeProjection(
+  input: OperatorWorkspaceHomeEmptyProjectionInput,
+): OperatorWorkspaceHomeProjection {
+  return {
+    mode: "read-only",
+    projectedAt: input.projectedAt,
+    gatewayTargets: [],
+    sessions: [],
+    managedAgents: {
+      totalCount: 0,
+      activeCount: 0,
+      attentionCount: 0,
+    },
+    resources: {
+      totalCount: 0,
+      linkedResourceCount: 0,
+      items: [],
+    },
+    attention: {
+      items: [],
+      totalCount: 0,
+      actionRequiredCount: 0,
+      blockedCount: 0,
+      failedCount: 0,
+    },
+  };
+}
+
 export function createOperatorWorkspaceHomeProjection(
   input: OperatorWorkspaceHomeProjectionInput,
 ): OperatorWorkspaceHomeProjection {

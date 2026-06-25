@@ -6,6 +6,7 @@
  */
 
 import type { OperatorSurfaceKind } from "./operator-surface-capability.js";
+import type { OperatorWorkspaceHomeProjection } from "./operator-workspace-home.js";
 
 // --- Dashboard / HTTP response shapes ---
 
@@ -260,6 +261,7 @@ export interface GuiDashboardSnapshot {
   readonly sessions: readonly GuiSessionSummary[];
   readonly telemetry: GuiTelemetrySnapshot;
   readonly continuationInfoByProvider: Readonly<Record<string, GuiContinuationInfo>>;
+  readonly operatorWorkspaceHome?: OperatorWorkspaceHomeProjection;
   readonly apps?: readonly GuiAppDescriptor[];
   readonly activeAppName?: string;
   readonly activeTenantId?: string;

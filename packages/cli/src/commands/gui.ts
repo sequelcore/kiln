@@ -59,8 +59,15 @@ import {
   persistGuiProviderSelectionPreference,
   resolveGuiProviderSelectionPreference,
 } from "../application/operator-provider-preferences.js";
-import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
-import type { OperatorWorkspaceExplorer } from "@kilnai/gateway-contracts";
+import {
+  createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
+  isGuiProviderModeless,
+  projectOperatorCockpitReadOnlyView,
+  type GuiProviderDiscoveryResult,
+  type OperatorSessionEvent,
+  type OperatorWorkspaceExplorer,
+} from "@kilnai/gateway-contracts";
 
 export interface GuiFlags {
   readonly port?: number;
@@ -405,15 +412,84 @@ async function buildDashboardSnapshot(
     )),
   );
   const workspaceTree = await workspaceExplorer.listDirectory().catch(() => undefined);
+  const operatorWorkspaceHome = await buildLocalGuiOperatorWorkspaceHome({
+    projectedAt: new Date().toISOString(),
+    sessions,
+    transcriptStore,
+  });
 
   return {
     providers: providerDescriptors,
     sessions,
     telemetry,
     continuationInfoByProvider,
+    operatorWorkspaceHome,
     workingDirectory,
     domainLabel,
     workspaceTree,
+  };
+}
+
+async function buildLocalGuiOperatorWorkspaceHome(input: {
+  readonly projectedAt: string;
+  readonly sessions: GuiDashboardSnapshot["sessions"];
+  readonly transcriptStore: TranscriptStore;
+}): Promise<NonNullable<GuiDashboardSnapshot["operatorWorkspaceHome"]>> {
+  const eventGroups = await Promise.all(input.sessions.map(async (session) => {
+    const detail = await loadSessionDetail(input.transcriptStore, session.id).catch(() => null);
+    return detail?.events.length
+      ? detail.events
+      : [operatorWorkspaceSessionSummaryEvent({
+        instanceId: "local-gui",
+        sessionId: session.id,
+        sequence: 0,
+        timestamp: session.completedAt,
+        title: session.title ?? session.taskSummary ?? session.id,
+      })];
+  }));
+  const cockpitProjection = projectOperatorCockpitReadOnlyView({
+    projectedAt: input.projectedAt,
+    attachTargets: [{
+      instanceId: "local-gui",
+      label: "Local GUI",
+      kind: "local",
+      gatewayUrl: "http://localhost",
+    }],
+    events: eventGroups.flat(),
+  });
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
+    projection: cockpitProjection,
+    viewState: {},
+  });
+  return createOperatorWorkspaceHomeProjection({
+    projectedAt: input.projectedAt,
+    cockpitView,
+  });
+}
+
+function operatorWorkspaceSessionSummaryEvent(input: {
+  readonly instanceId: string;
+  readonly sessionId: string;
+  readonly sequence: number;
+  readonly timestamp: string;
+  readonly title: string;
+}): OperatorSessionEvent {
+  return {
+    eventId: `${input.sessionId}:operator-workspace-summary`,
+    kilnSessionId: input.sessionId,
+    sequence: input.sequence,
+    timestamp: input.timestamp,
+    kind: "turn_started",
+    source: {
+      actor: "runtime",
+      surface: "gui",
+      component: "operator-workspace-dashboard",
+    },
+    payload: {
+      instanceId: input.instanceId,
+      sessionId: input.sessionId,
+      title: input.title,
+    },
   };
 }
 

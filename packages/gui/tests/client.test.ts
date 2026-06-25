@@ -63,6 +63,39 @@ describe("GuiGatewayClient", () => {
         entropy: 0,
       },
       continuationInfoByProvider: {},
+      operatorWorkspaceHome: {
+        mode: "read-only",
+        projectedAt: "2026-06-25T12:00:00.000Z",
+        gatewayTargets: [
+          {
+            instanceId: "app-gateway:support",
+            label: "support",
+            gatewayTarget: {
+              targetId: "app-gateway:support",
+              kind: "local-app-gateway",
+              trust: "local",
+              label: "support",
+              appId: "support",
+            },
+            sessionCount: 0,
+            eventCount: 0,
+            managedInvocationCount: 0,
+            toolCallCount: 0,
+            resourceLinkCount: 0,
+            totalCostUsd: 0,
+          },
+        ],
+        sessions: [],
+        managedAgents: { totalCount: 0, activeCount: 0, attentionCount: 0 },
+        resources: { totalCount: 0, linkedResourceCount: 0, items: [] },
+        attention: {
+          items: [],
+          totalCount: 0,
+          actionRequiredCount: 0,
+          blockedCount: 0,
+          failedCount: 0,
+        },
+      },
       apps: [
         {
           name: "support",
@@ -92,6 +125,15 @@ describe("GuiGatewayClient", () => {
       runtime: "tenant",
       runtimeCapable: true,
       tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+    });
+    expect(snapshot.operatorWorkspaceHome?.gatewayTargets[0]).toMatchObject({
+      instanceId: "app-gateway:support",
+      gatewayTarget: {
+        targetId: "app-gateway:support",
+        kind: "local-app-gateway",
+        trust: "local",
+        appId: "support",
+      },
     });
   });
 
