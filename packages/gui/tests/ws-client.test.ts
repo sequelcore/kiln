@@ -392,6 +392,7 @@ describe("GuiWsClient", () => {
         {
           type: "browser_session_control",
           action: "takeover",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "browser-1",
           reason: "Inspect before continuing.",
           requestId: "browser-control-1",
@@ -399,6 +400,7 @@ describe("GuiWsClient", () => {
         {
           type: "browser_session_control",
           action: "release",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "browser-1",
           requestId: "browser-control-2",
         },
@@ -433,6 +435,7 @@ describe("GuiWsClient", () => {
         {
           type: "browser_operator_input",
           requestId: "browser-input-1",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "browser-1",
           input: {
             kind: "wheel",
@@ -700,6 +703,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",
@@ -714,6 +718,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",
@@ -741,6 +746,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",
@@ -755,6 +761,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",

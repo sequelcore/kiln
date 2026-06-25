@@ -2521,6 +2521,7 @@ describe("session-store", () => {
 
     const result = useSessionStore.getState().requestBrowserSessionControl("takeover", {
       sessionId: "browser-1",
+      gatewayTargetId: "gateway:browser-app",
       reason: "Inspect before continuing.",
     });
 
@@ -2529,6 +2530,7 @@ describe("session-store", () => {
       type: "browser_session_control",
       action: "takeover",
       sessionId: "browser-1",
+      gatewayTargetId: "gateway:browser-app",
       reason: "Inspect before continuing.",
     });
   });
@@ -2618,6 +2620,7 @@ describe("session-store", () => {
 
     const sent = useSessionStore.getState().sendBrowserOperatorInput({
       sessionId: "browser-1",
+      gatewayTargetId: "gateway:browser-app",
       input: {
         kind: "text",
         text: "hello",
@@ -2629,6 +2632,7 @@ describe("session-store", () => {
       type: "browser_operator_input",
       requestId: expect.stringMatching(/^browser-input:/),
       sessionId: "browser-1",
+      gatewayTargetId: "gateway:browser-app",
       input: {
         kind: "text",
         text: "hello",

@@ -24,8 +24,15 @@ interface OperatorSurfaceTabsProps {
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame?: GuiBrowserLiveViewportFrame | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
-  readonly onBrowserSessionControl?: (action: "takeover" | "release", options?: { readonly sessionId?: string; readonly reason?: string }) => void;
-  readonly onBrowserOperatorInput?: (request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput }) => void;
+  readonly onBrowserSessionControl?: (
+    action: "takeover" | "release",
+    options?: { readonly sessionId?: string; readonly gatewayTargetId?: string; readonly reason?: string },
+  ) => void;
+  readonly onBrowserOperatorInput?: (request: {
+    readonly sessionId: string;
+    readonly gatewayTargetId?: string;
+    readonly input: GuiBrowserOperatorInput;
+  }) => void;
   readonly memoryContent: ReactNode;
   readonly memoryOpen: boolean;
   readonly files: readonly OperatorWorkspaceFileSnapshot[];
@@ -221,8 +228,15 @@ function BrowserUsePanel(props: {
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame?: GuiBrowserLiveViewportFrame | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
-  readonly onBrowserSessionControl?: (action: "takeover" | "release", options?: { readonly sessionId?: string; readonly reason?: string }) => void;
-  readonly onBrowserOperatorInput?: (request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput }) => void;
+  readonly onBrowserSessionControl?: (
+    action: "takeover" | "release",
+    options?: { readonly gatewayTargetId?: string; readonly sessionId?: string; readonly reason?: string },
+  ) => void;
+  readonly onBrowserOperatorInput?: (request: {
+    readonly sessionId: string;
+    readonly gatewayTargetId?: string;
+    readonly input: GuiBrowserOperatorInput;
+  }) => void;
 }) {
   const snapshot = props.snapshot;
   const loadResourceDataUrl = props.loadResourceDataUrl;
@@ -254,7 +268,11 @@ function BrowserUsePanel(props: {
     if (!operatorOwnsBrowser || !browserSessionId || !props.onBrowserOperatorInput) {
       return;
     }
-    props.onBrowserOperatorInput({ sessionId: browserSessionId, input });
+    props.onBrowserOperatorInput({
+      sessionId: browserSessionId,
+      ...(props.browserSession?.gatewayTargetId ? { gatewayTargetId: props.browserSession.gatewayTargetId } : {}),
+      input,
+    });
   }
 
   function viewportPoint(event: MouseEvent<HTMLElement> | WheelEvent<HTMLElement>): { readonly x: number; readonly y: number } | null {
@@ -414,6 +432,7 @@ function BrowserUsePanel(props: {
                 operatorOwnsBrowser ? "release" : "takeover",
                 {
                   ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+                  ...(props.browserSession?.gatewayTargetId ? { gatewayTargetId: props.browserSession.gatewayTargetId } : {}),
                   reason: operatorOwnsBrowser ? "Operator released browser control." : "Operator took browser control.",
                 },
               );

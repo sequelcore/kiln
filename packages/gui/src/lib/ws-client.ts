@@ -57,6 +57,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("browser_session_control"),
     action: z.enum(["takeover", "release"]),
+    gatewayTargetId: z.string().trim().min(1).optional(),
     sessionId: z.string().trim().min(1).optional(),
     reason: z.string().optional(),
     requestId: z.string().trim().min(1).optional(),
@@ -76,6 +77,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("browser_operator_input"),
     requestId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
     sessionId: z.string().trim().min(1),
     input: z.discriminatedUnion("kind", [
       z.object({
@@ -259,6 +261,7 @@ const GuiInteractiveUseSnapshotSchema = z.object({
   toolCallId: z.string().optional(),
   toolName: z.string().optional(),
   provider: z.string().optional(),
+  gatewayTargetId: z.string().trim().min(1).optional(),
   sessionId: z.string().optional(),
   operation: z.string().optional(),
   url: z.string().optional(),
@@ -281,6 +284,7 @@ const GuiBrowserSessionStateSchema = z.object({
   toolCallId: z.string().optional(),
   toolName: z.string().optional(),
   provider: z.string().optional(),
+  gatewayTargetId: z.string().trim().min(1).optional(),
   sessionId: z.string().optional(),
   operation: z.string().optional(),
   url: z.string().optional(),

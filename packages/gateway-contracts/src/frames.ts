@@ -593,6 +593,7 @@ export interface GuiInteractiveUseSnapshot {
   readonly toolCallId?: string;
   readonly toolName?: string;
   readonly provider?: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly operation?: string;
   readonly url?: string;
@@ -631,6 +632,7 @@ export interface GuiBrowserSessionState {
   readonly toolCallId?: string;
   readonly toolName?: string;
   readonly provider?: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly operation?: string;
   readonly url?: string;
@@ -658,6 +660,7 @@ export interface GuiBrowserSessionUpdatedFrame {
 export interface GuiBrowserSessionControlFrame {
   readonly type: "browser_session_control";
   readonly action: GuiBrowserSessionControlAction;
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly reason?: string;
   readonly requestId?: string;
@@ -741,6 +744,7 @@ export type GuiBrowserOperatorInput =
 export interface GuiBrowserOperatorInputFrame {
   readonly type: "browser_operator_input";
   readonly requestId: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId: string;
   readonly input: GuiBrowserOperatorInput;
 }

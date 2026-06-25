@@ -77,11 +77,15 @@ fields. The App Gateway GUI message handler resolves and validates
 targets without falling back to label or port inference.
 Managed-agent cancel/prompt controls now carry projected `gatewayTargetId`
 through GUI and native frames when cockpit state provides target identity.
+Browser session takeover/release controls and brokered browser operator input
+now carry projected `gatewayTargetId` when browser session state provides target
+identity.
 
 Next fields and behavior:
 
 - local Operator Gateway target
-- local App Gateway target beyond composer and managed-agent control routing
+- local App Gateway target beyond composer, managed-agent control routing, and
+  browser session controls
 - remote App Gateway target
 - simulated target
 - app and tenant target identity across all operator actions

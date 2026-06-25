@@ -1742,11 +1742,15 @@ interface SessionStoreActions {
   onBrowserLiveViewportFrame: (frame: Extract<GuiInboundFrame, { type: "browser_live_viewport_frame" }>) => void;
   onBrowserOperatorInputAck: (frame: Extract<GuiInboundFrame, { type: "browser_operator_input_ack" }>) => void;
   sendBrowserOperatorInput: (
-    request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput },
+    request: {
+      readonly sessionId: string;
+      readonly gatewayTargetId?: string;
+      readonly input: GuiBrowserOperatorInput;
+    },
   ) => boolean;
   requestBrowserSessionControl: (
     action: "takeover" | "release",
-    options?: { readonly sessionId?: string; readonly reason?: string },
+    options?: { readonly gatewayTargetId?: string; readonly sessionId?: string; readonly reason?: string },
   ) => boolean;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
   sendApprovalResponse: (approved: boolean, reason: string | undefined, approvalId: string) => boolean;
@@ -3443,6 +3447,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     outboundSend({
       type: "browser_operator_input",
       requestId: nextBrowserInputRequestId(),
+      ...(request.gatewayTargetId ? { gatewayTargetId: request.gatewayTargetId } : {}),
       sessionId: request.sessionId,
       input: request.input,
     });
@@ -3458,6 +3463,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     outboundSend({
       type: "browser_session_control",
       action,
+      ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       ...(options.reason ? { reason: options.reason } : {}),
     });

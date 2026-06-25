@@ -89,6 +89,9 @@ rejects conflicting app/tenant fields.
 Managed-agent cancel and prompt controls also carry projected `gatewayTargetId`
 from cockpit state through GUI and native control frames when the invocation
 projection has target identity.
+Browser session takeover/release controls and brokered browser operator input
+carry projected `gatewayTargetId` when browser session state includes target
+identity.
 
 Every operator action that crosses a gateway/app/session boundary must carry a
 target identity. Surfaces must not infer target authority from labels, selected
