@@ -1,4 +1,4 @@
-import { projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
+import { projectAgentProfileIdentity, type OperatorCockpitActionTarget } from "@kilnai/gateway-contracts";
 import type { WorkItemEntry } from "../lib/session-store.js";
 import { OperatorAvatar } from "./operator-avatar.js";
 import type { OperatorAvatarState } from "./operator-avatar.js";
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 interface WorkItemsPanelProps {
   readonly items: readonly WorkItemEntry[];
-  readonly onOpenResource?: (uri: string) => void;
+  readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
 }
 
 function statusTone(status: string): string {
@@ -106,7 +106,10 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
                       disabled={!props.onOpenResource}
                       aria-label={`Open work item ${item.id} resource`}
                       title={item.resourceUri}
-                      onClick={() => props.onOpenResource?.(item.resourceUri!)}
+                      onClick={() => props.onOpenResource?.(item.resourceUri!, {
+                        resourceUri: item.resourceUri!,
+                        workItemId: item.id,
+                      })}
                     >
                       <ExternalLink aria-hidden="true" />
                     </Button>

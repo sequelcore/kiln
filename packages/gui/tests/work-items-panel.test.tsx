@@ -92,6 +92,9 @@ describe("WorkItemsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open work item work-inspectable resource" }));
 
-    expect(onOpenResource).toHaveBeenCalledWith("kiln://session/work-items/work-inspectable");
+    expect(onOpenResource).toHaveBeenCalledWith("kiln://session/work-items/work-inspectable", {
+      resourceUri: "kiln://session/work-items/work-inspectable",
+      workItemId: "work-inspectable",
+    });
   });
 });

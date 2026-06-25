@@ -101,8 +101,18 @@ describe("ManagedAgentCockpitPanel", () => {
     fireEvent.click(screen.getByText("Transcript"));
     fireEvent.click(screen.getByText("handoff"));
 
-    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-review/transcript");
-    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-review/handoff");
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-review/transcript", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-review",
+      resourceUri: "kiln://managed-agents/child-review/transcript",
+    });
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-review/handoff", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-review",
+      resourceUri: "kiln://managed-agents/child-review/handoff",
+    });
   });
 
   it("renders an empty read-only state without controls", () => {
@@ -187,8 +197,18 @@ describe("ManagedAgentCockpitPanel", () => {
     fireEvent.click(screen.getByText("conflict resource"));
     fireEvent.click(screen.getByText("conflict diagnostic"));
 
-    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-blocked/conflict-resource");
-    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-blocked/conflict-diagnostic");
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-blocked/conflict-resource", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-blocked",
+      resourceUri: "kiln://managed-agents/child-blocked/conflict-resource",
+    });
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-blocked/conflict-diagnostic", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-blocked",
+      resourceUri: "kiln://managed-agents/child-blocked/conflict-diagnostic",
+    });
   });
 
   it("renders managed invocation recovery as an actionable next work-item step", () => {
@@ -417,8 +437,18 @@ describe("ManagedAgentCockpitPanel", () => {
     fireEvent.click(screen.getByText("failure"));
     fireEvent.click(screen.getByText("handoff"));
 
-    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-failed/failure");
-    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-failed/handoff");
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-failed/failure", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-failed",
+      resourceUri: "kiln://managed-agents/child-failed/failure",
+    });
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-failed/handoff", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-failed",
+      resourceUri: "kiln://managed-agents/child-failed/handoff",
+    });
   });
 
   it("dispatches live cancel when a control channel callback is present", () => {

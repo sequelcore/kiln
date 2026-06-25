@@ -22,6 +22,7 @@ import {
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
   type OperatorCommandDefinition,
+  type OperatorCockpitActionTarget,
 } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
@@ -1398,14 +1399,23 @@ export function AppShell() {
       setActiveSurface("chat");
     }
   };
-  const openResource = async (uri: string): Promise<void> => {
+  const resourceTarget = (uri: string, target?: OperatorCockpitActionTarget): OperatorCockpitActionTarget => ({
+    ...(selectedGatewayTarget ? {
+      gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId,
+      instanceId: selectedGatewayTarget.instanceId,
+    } : {}),
+    ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
+    ...(target ?? {}),
+    resourceUri: target?.resourceUri ?? uri,
+  });
+  const openResource = async (uri: string, target?: OperatorCockpitActionTarget): Promise<void> => {
     const resourceWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
     if (!resourceWindow) {
       setErrorBanner("Browser blocked the resource window.");
       return;
     }
     try {
-      const dataUrl = await gatewayClient.loadResourceDataUrl(uri);
+      const dataUrl = await gatewayClient.loadResourceDataUrl(uri, resourceTarget(uri, target));
       if (!dataUrl) {
         throw new Error("Resource is not available.");
       }
@@ -1854,14 +1864,14 @@ export function AppShell() {
                 <WorkflowOverviewPanel entries={timelineEntries} />
               </div>
               <div className="min-h-0 overflow-hidden">
-                <WorkItemsPanel items={workItems} onOpenResource={(uri) => void openResource(uri)} />
+                <WorkItemsPanel items={workItems} onOpenResource={(uri, target) => void openResource(uri, target)} />
               </div>
             </div>
           ) : workbenchSurface === "agents" ? (
             <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
               <ManagedAgentCockpitPanel
                 viewState={managedAgentCockpitView}
-                onOpenResource={(uri) => void openResource(uri)}
+                onOpenResource={(uri, target) => void openResource(uri, target)}
                 onCancel={cancelManagedAgent}
                 onPrompt={promptManagedAgent}
               />

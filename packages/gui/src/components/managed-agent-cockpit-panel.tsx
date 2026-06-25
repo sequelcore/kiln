@@ -3,6 +3,7 @@ import type {
   OperatorCockpitManagedAgentViewItem,
   OperatorCockpitManagedAgentViewState,
   OperatorCockpitTimelineEntry,
+  OperatorCockpitActionTarget,
 } from "@kilnai/gateway-contracts";
 import { useState } from "react";
 import { AlertTriangle, Bot, ExternalLink, Send, ShieldAlert } from "lucide-react";
@@ -15,7 +16,7 @@ type ManagedAgentPromptDeliveryMode = "steer" | "queue";
 
 interface ManagedAgentCockpitPanelProps {
   readonly viewState: OperatorCockpitManagedAgentViewState;
-  readonly onOpenResource?: (uri: string) => void;
+  readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
   readonly onCancel?: (input: {
     readonly sessionId: string;
     readonly invocationId: string;
@@ -96,8 +97,15 @@ function ManagedAgentTimeline(props: { readonly entries: readonly OperatorCockpi
 
 function ManagedAgentResources(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
-  readonly onOpenResource?: (uri: string) => void;
+  readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
 }) {
+  const resourceTarget = (uri: string): OperatorCockpitActionTarget => ({
+    instanceId: props.item.instanceId,
+    sessionId: props.item.sessionId,
+    managedInvocationId: props.item.managedInvocationId,
+    resourceUri: uri,
+    ...(props.item.gatewayTargetId ? { gatewayTargetId: props.item.gatewayTargetId } : {}),
+  });
   const resources = [
     ...(props.item.transcriptUri ? [{ uri: props.item.transcriptUri, label: "Transcript" }] : []),
     ...props.item.resourceUris
@@ -117,7 +125,7 @@ function ManagedAgentResources(props: {
           size="xs"
           disabled={!props.onOpenResource}
           title={resource.uri}
-          onClick={() => props.onOpenResource?.(resource.uri)}
+          onClick={() => props.onOpenResource?.(resource.uri, resourceTarget(resource.uri))}
         >
           <ExternalLink data-icon="inline-start" aria-hidden="true" />
           {resource.label}
@@ -288,7 +296,7 @@ function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitMan
 
 function ManagedAgentItem(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
-  readonly onOpenResource?: (uri: string) => void;
+  readonly onOpenResource?: ManagedAgentCockpitPanelProps["onOpenResource"];
   readonly onCancel?: ManagedAgentCockpitPanelProps["onCancel"];
   readonly onPrompt?: ManagedAgentCockpitPanelProps["onPrompt"];
 }) {
