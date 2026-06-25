@@ -35,6 +35,10 @@ Keep runtime and operator-local state out of the repo:
 - `memory/**`
 - `.claude/**`
 
+Mutable CLI memory is stored under Kiln user app state, keyed by project
+identity. A project-local `.kiln/memory.db` is not a canonical repository file
+or a supported runtime contract; remove it from the workspace.
+
 Lessons, personal reminders, and agent self-improvement notes are operator
 state. Store them in global Kiln context, global instruction profiles, or the
 native harness memory location, not in repo-root `memory/` files.

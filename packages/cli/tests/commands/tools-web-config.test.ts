@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const toolsMocks = vi.hoisted(() => ({
@@ -16,6 +19,9 @@ vi.mock("@kilnai/core", async (importOriginal) => {
       toolsMocks.surfaceOptions = options;
       return { bridge: {}, tools: [], resources: { marker: "resources" } };
     }),
+    SqliteMemoryRepository: class MockSqliteMemoryRepository {
+      constructor(readonly options: { readonly dbPath: string }) {}
+    },
     DevToolsMcpServer: class {
       constructor(options: unknown) {
         toolsMocks.serverOptions = options;
@@ -58,29 +64,44 @@ const APP_CONFIG: KilnAppConfig = {
 
 describe("tools command web config", () => {
   it("creates the MCP tools surface from configured web options", async () => {
-    await toolsCommand(APP_CONFIG, { mcp: true });
+    const originalCwd = process.cwd();
+    const tempDir = mkdtempSync(join(tmpdir(), "kiln-tools-memory-"));
+    process.chdir(tempDir);
 
-    expect(toolsMocks.surfaceOptions).toMatchObject({
-      workspaceResources: { rootPath: process.cwd() },
-      webFetch: expect.any(Object),
-      webSearch: expect.any(Object),
-      webExtract: expect.any(Object),
-      memoryResources: {
-        authority: {
-          caller: { kind: "operator_surface", id: "tools-mcp" },
+    try {
+      await toolsCommand(APP_CONFIG, { mcp: true });
+
+      expect(toolsMocks.surfaceOptions).toMatchObject({
+        workspaceResources: { rootPath: tempDir },
+        webFetch: expect.any(Object),
+        webSearch: expect.any(Object),
+        webExtract: expect.any(Object),
+        memoryResources: {
+          authority: {
+            caller: { kind: "operator_surface", id: "tools-mcp" },
+          },
         },
-      },
-      memoryMutations: {
-        callerContext: {
-          actorType: "operator_surface",
-          actorId: "tools-mcp",
+        memoryMutations: {
+          callerContext: {
+            actorType: "operator_surface",
+            actorId: "tools-mcp",
+          },
         },
-      },
-    });
-    expect(toolsMocks.serverOptions).toMatchObject({
-      resources: { marker: "resources" },
-    });
-    expect(toolsMocks.initialized).toBe(true);
-    expect(toolsMocks.connected).toBe(true);
+      });
+      expect(toolsMocks.serverOptions).toMatchObject({
+        resources: { marker: "resources" },
+      });
+      const repository = (toolsMocks.surfaceOptions as {
+        readonly memoryResources?: { readonly repository?: { readonly options?: { readonly dbPath?: string } } };
+      }).memoryResources?.repository;
+      expect(repository?.options?.dbPath).toContain(join("Kiln", "memory", "projects"));
+      expect(repository?.options?.dbPath).not.toBe(join(tempDir, ".kiln", "memory.db"));
+      expect(existsSync(join(tempDir, ".kiln"))).toBe(false);
+      expect(toolsMocks.initialized).toBe(true);
+      expect(toolsMocks.connected).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

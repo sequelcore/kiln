@@ -20,7 +20,7 @@ import {
   type MemoryScope,
 } from "@kilnai/core";
 import { existsSync, mkdirSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { loadKilnConfig } from "./config-merger.js";
 import { KilnYamlError } from "../kiln-yaml.js";
@@ -37,6 +37,7 @@ import type {
   KilnYamlWebSearchProvider,
 } from "../kiln-yaml-types.js";
 import type { KilnGlobalWebConfig } from "./global-config.js";
+import { resolveCliMemoryStorage } from "../application/cli-memory-storage.js";
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type SurfaceMemoryRepository = NonNullable<DefaultBuiltinToolRegistryOptions["memoryResources"]>["repository"];
@@ -260,10 +261,10 @@ function createProjectMemoryResources(
     return undefined;
   }
 
-  const kilnDir = join(projectPath, ".kiln");
-  mkdirSync(kilnDir, { recursive: true });
+  const memoryStorage = resolveCliMemoryStorage(projectPath);
+  mkdirSync(memoryStorage.stateDir, { recursive: true });
   return {
-    repository: new SqliteMemoryRepository({ dbPath: join(kilnDir, "memory.db") }),
+    repository: new SqliteMemoryRepository({ dbPath: memoryStorage.memoryDbPath }),
     ...(authority ? { authority } : {}),
   };
 }

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, appendFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DomainRegistry } from "@kilnai/core";
@@ -161,25 +161,6 @@ export async function initCommand(
   mks(join(appDir, "memory"), { recursive: true });
   wfs(join(appDir, "app.yaml"), generateAppYaml(initOptions));
   wfs(join(appDir, "gateway.yaml"), generateGatewayYaml(initOptions));
-
-  const gitignorePath = join(root, ".gitignore");
-  let existing = "";
-  if (existsSync(gitignorePath)) {
-    existing = readFileSync(gitignorePath, "utf-8");
-  }
-
-  const gitignoreEntries = [`.kiln/memory.db`] as const;
-  const toAppend: string[] = [];
-  for (const entry of gitignoreEntries) {
-    if (!existing.includes(entry)) {
-      toAppend.push(entry);
-    }
-  }
-
-  if (toAppend.length > 0) {
-    const suffix = existing.endsWith("\n") || existing === "" ? "" : "\n";
-    appendFileSync(gitignorePath, suffix + toAppend.join("\n") + "\n");
-  }
 
   console.log(`Domain:   ${chosenDomainConfig?.displayName ?? chosenDomainName}`);
   if (qualityGates.length > 0) {

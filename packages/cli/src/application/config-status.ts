@@ -37,6 +37,7 @@ import {
   readWorkflowSnapshotManifestStatus,
 } from "./repo-shim-projection.js";
 import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
+import { resolveCliMemoryStorage } from "./cli-memory-storage.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
@@ -303,12 +304,14 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
       return readSkillIndexes(snapshot.project.rootPath);
     case "permissions":
       return config?.permissions ?? null;
-    case "memory":
+    case "memory": {
+      const memoryStorage = resolveCliMemoryStorage(snapshot.project.rootPath);
       return {
         permissions: config?.permissions?.memory ?? null,
-        memoryDbPath: join(snapshot.project.rootPath, ".kiln", "memory.db"),
-        memoryDbPresent: existsSync(join(snapshot.project.rootPath, ".kiln", "memory.db")),
+        memoryDbPath: memoryStorage.memoryDbPath,
+        memoryDbPresent: existsSync(memoryStorage.memoryDbPath),
       };
+    }
     case "projections":
       return snapshot.projections;
     case "setup":

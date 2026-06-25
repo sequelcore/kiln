@@ -130,6 +130,22 @@ describe("config-status", () => {
     expect(setup.value).toEqual(snapshot.setup);
   });
 
+  it("reports only the global CLI memory path", async () => {
+    writeProjectConfig(tempDir);
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const memory = await readConfigStatusView(snapshot, "memory");
+
+    expect(memory.value).toMatchObject({
+      permissions: null,
+      memoryDbPresent: expect.any(Boolean),
+    });
+    expect(JSON.stringify(memory.value)).toContain("memory.db");
+    expect((memory.value as { memoryDbPath: string }).memoryDbPath).not.toBe(join(tempDir, ".kiln", "memory.db"));
+    expect(JSON.stringify(memory.value)).not.toContain("legacy");
+    expect(JSON.stringify(memory.value)).not.toContain("migration");
+  });
+
   it("reports invalid project context without blocking effective config", async () => {
     writeProjectConfig(tempDir);
     writeFileSync(join(tempDir, ".kiln", "project-context.md"), "# invalid", "utf-8");

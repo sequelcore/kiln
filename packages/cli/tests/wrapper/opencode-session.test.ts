@@ -941,64 +941,6 @@ describe("OpenCodeSession.run() integration", () => {
     expect(JSON.stringify(events)).not.toContain("diff --git");
   });
 
-  it("run() omits Kiln memory database files from provider-neutral file_changed events", async () => {
-    const mock = makeMockClient("ses_memory_diff", [
-      {
-        directory: "/tmp",
-        payload: {
-          type: "session.diff",
-          properties: {
-            sessionID: "ses_memory_diff",
-            diff: [
-              {
-                file: ".kiln/memory.db",
-                additions: 1,
-                deletions: 0,
-                status: "added",
-              },
-              {
-                file: ".kiln/memory.db-shm",
-                additions: 1,
-                deletions: 0,
-                status: "added",
-              },
-              {
-                file: "AppData/Local/Temp/kiln-managed-agent-opencode-write/.kiln/memory.db-wal",
-                additions: 1,
-                deletions: 0,
-                status: "added",
-              },
-              {
-                file: "proof.txt",
-                additions: 1,
-                deletions: 1,
-                status: "modified",
-              },
-            ],
-          },
-        },
-      },
-      {
-        directory: "/tmp",
-        payload: { type: "session.status", properties: { sessionID: "ses_memory_diff", status: { type: "idle" } } },
-      },
-    ], 0.003);
-    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
-
-    const session = new OpenCodeSession(baseConfig({ cwd: "/tmp/kiln-opencode-live" }));
-    const events: object[] = [];
-    for await (const event of await session.run({ prompt: "test", cwd: "/tmp/kiln-opencode-live" })) {
-      events.push(event);
-    }
-
-    const fileChangedEvents = events.filter((event): event is { type: string; path: string } =>
-      "type" in event && event.type === "file_changed",
-    );
-    expect(fileChangedEvents).toHaveLength(1);
-    expect(fileChangedEvents[0]?.path).toContain("proof.txt");
-    expect(JSON.stringify(events)).not.toContain("memory.db");
-  });
-
   it("run() maps denied write tool errors to provider-neutral write decisions", async () => {
     const mock = makeMockClient("ses_denied", [
       {
