@@ -407,6 +407,7 @@ describe("GuiWsClient", () => {
           action: "cancel",
           sessionId: "session-1",
           invocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           reason: "Operator stopped duplicate work.",
           requestId: "managed-agent-control-1",
         },
@@ -415,6 +416,7 @@ describe("GuiWsClient", () => {
           action: "join",
           sessionId: "session-1",
           invocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           requestId: "managed-agent-control-2",
         },
         {
@@ -422,6 +424,7 @@ describe("GuiWsClient", () => {
           action: "prompt",
           sessionId: "session-1",
           invocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           prompt: "Use the latest runtime ledger evidence before continuing.",
           deliveryMode: "steer",
           wakeRequested: true,

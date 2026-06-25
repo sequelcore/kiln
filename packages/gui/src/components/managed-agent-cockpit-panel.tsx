@@ -16,10 +16,15 @@ type ManagedAgentPromptDeliveryMode = "steer" | "queue";
 interface ManagedAgentCockpitPanelProps {
   readonly viewState: OperatorCockpitManagedAgentViewState;
   readonly onOpenResource?: (uri: string) => void;
-  readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onCancel?: (input: {
+    readonly sessionId: string;
+    readonly invocationId: string;
+    readonly gatewayTargetId?: string;
+  }) => void;
   readonly onPrompt?: (input: {
     readonly sessionId: string;
     readonly invocationId: string;
+    readonly gatewayTargetId?: string;
     readonly prompt: string;
     readonly deliveryMode: ManagedAgentPromptDeliveryMode;
     readonly wakeRequested: boolean;
@@ -142,6 +147,7 @@ function ManagedAgentPromptControl(props: {
     props.onPrompt?.({
       sessionId: props.item.sessionId,
       invocationId,
+      ...(props.item.gatewayTargetId ? { gatewayTargetId: props.item.gatewayTargetId } : {}),
       prompt: trimmedPrompt,
       deliveryMode,
       wakeRequested: deliveryMode === "steer",
@@ -283,7 +289,7 @@ function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitMan
 function ManagedAgentItem(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
   readonly onOpenResource?: (uri: string) => void;
-  readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onCancel?: ManagedAgentCockpitPanelProps["onCancel"];
   readonly onPrompt?: ManagedAgentCockpitPanelProps["onPrompt"];
 }) {
   const item = props.item;
@@ -372,10 +378,11 @@ function ManagedAgentItem(props: {
           aria-label={canCancel ? `Cancel managed child ${item.managedInvocationId}` : undefined}
           title={item.cancelControl.reason}
           className="shrink-0"
-          onClick={() => props.onCancel?.({
-            sessionId: item.sessionId,
-            invocationId: item.managedInvocationId,
-          })}
+        onClick={() => props.onCancel?.({
+          sessionId: item.sessionId,
+          invocationId: item.managedInvocationId,
+          ...(item.gatewayTargetId ? { gatewayTargetId: item.gatewayTargetId } : {}),
+        })}
         >
           <AlertTriangle data-icon="inline-start" aria-hidden="true" />
           {canCancel ? "Cancel" : item.cancelControl.status === "requires-control-channel" ? "Cancel requires control channel" : "Cancel unavailable"}

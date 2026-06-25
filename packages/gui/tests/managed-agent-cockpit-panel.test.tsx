@@ -51,6 +51,7 @@ describe("ManagedAgentCockpitPanel", () => {
         },
         {
           managedInvocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           instanceId: "local",
           sessionId: "session-1",
           status: "running",
@@ -428,6 +429,7 @@ describe("ManagedAgentCockpitPanel", () => {
       items: [
         {
           managedInvocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           instanceId: "local",
           sessionId: "session-1",
           status: "running",
@@ -452,6 +454,7 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(onCancel).toHaveBeenCalledWith({
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:local-app",
     });
   });
 
@@ -463,6 +466,7 @@ describe("ManagedAgentCockpitPanel", () => {
       items: [
         {
           managedInvocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           instanceId: "local",
           sessionId: "session-1",
           status: "running",
@@ -491,6 +495,7 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(onPrompt).toHaveBeenCalledWith({
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:local-app",
       prompt: "Continue from the latest runtime ledger evidence.",
       deliveryMode: "queue",
       wakeRequested: false,

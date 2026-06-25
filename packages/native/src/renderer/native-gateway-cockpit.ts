@@ -132,6 +132,7 @@ export function selectNativeWorkItems(events: readonly OperatorSessionEvent[]): 
 export function createNativeManagedAgentCancelControlFrame(input: {
   readonly sessionId: string;
   readonly invocationId: string;
+  readonly gatewayTargetId?: string;
   readonly requestId?: string;
   readonly reason?: string;
 }): Extract<GuiOutboundFrame, { readonly type: "managed_agent_control" }> {
@@ -145,6 +146,7 @@ export function createNativeManagedAgentCancelControlFrame(input: {
   return {
     type: "managed_agent_control",
     action: "cancel",
+    ...(input.gatewayTargetId?.trim() ? { gatewayTargetId: input.gatewayTargetId.trim() } : {}),
     sessionId,
     invocationId,
     ...(requestId ? { requestId } : {}),

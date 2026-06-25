@@ -513,6 +513,7 @@ describe("native operator surface foundation", () => {
     expect(createNativeManagedAgentCancelControlFrame({
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:native-app",
       requestId: "native-managed-agent-cancel-1",
       reason: "Operator cancelled the managed child from the native cockpit.",
     })).toEqual({
@@ -520,6 +521,7 @@ describe("native operator surface foundation", () => {
       action: "cancel",
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:native-app",
       requestId: "native-managed-agent-cancel-1",
       reason: "Operator cancelled the managed child from the native cockpit.",
     });

@@ -589,6 +589,43 @@ describe("AppShell sidebar modes", () => {
     expect(openedWindow.close).not.toHaveBeenCalled();
   });
 
+  it("sends managed-agent controls with the projected gateway target identity", async () => {
+    useSessionStore.setState({
+      sessionEvents: [
+        {
+          eventId: "event-agent-started",
+          kilnSessionId: "session-1",
+          sequence: 3,
+          timestamp: "2026-05-23T12:03:00.000Z",
+          kind: "agent_invocation_started",
+          payload: {
+            instanceId: "local-gui",
+            sessionId: "session-1",
+            managedInvocationId: "child-gui",
+            lifecycleState: "running",
+          },
+        },
+      ],
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel managed child child-gui" }));
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: "managed_agent_control",
+      action: "cancel",
+      sessionId: "session-1",
+      invocationId: "child-gui",
+      gatewayTargetId: "local-gui",
+    }));
+  });
+
   it("surfaces managed-agent cancel acknowledgement failures and clears them on acceptance", async () => {
     render(<AppShell />);
 

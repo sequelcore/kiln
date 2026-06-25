@@ -85,6 +85,8 @@ In App Gateway attach mode, GUI target selection is backed by
 `operatorWorkspaceHome.gatewayTargets`. Composer messages carry the selected
 `gatewayTargetId`; app and tenant message fields are derived from that target,
 and the runtime validates the target identity before routing.
+Managed-agent cancel and prompt controls carry the projected `gatewayTargetId`
+when the cockpit item includes one.
 
 Do not infer authority from a label, selected port, or visible app name. The
 runtime target must be represented by shared target identity.

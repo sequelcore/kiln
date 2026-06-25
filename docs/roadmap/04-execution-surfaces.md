@@ -75,11 +75,13 @@ composer messages with explicit `gatewayTargetId` plus derived app/tenant
 fields. The App Gateway GUI message handler resolves and validates
 `gatewayTargetId`, rejects conflicting app/tenant fields, and routes tenant
 targets without falling back to label or port inference.
+Managed-agent cancel/prompt controls now carry projected `gatewayTargetId`
+through GUI and native frames when cockpit state provides target identity.
 
 Next fields and behavior:
 
 - local Operator Gateway target
-- local App Gateway target beyond composer message routing
+- local App Gateway target beyond composer and managed-agent control routing
 - remote App Gateway target
 - simulated target
 - app and tenant target identity across all operator actions

@@ -1403,7 +1403,11 @@ export function AppShell() {
       setErrorBanner(error instanceof Error ? error.message : "Could not open resource.");
     }
   };
-  const cancelManagedAgent = (input: { readonly sessionId: string; readonly invocationId: string }): void => {
+  const cancelManagedAgent = (input: {
+    readonly sessionId: string;
+    readonly invocationId: string;
+    readonly gatewayTargetId?: string;
+  }): void => {
     const sendFrame = sendRef.current;
     if (!sendFrame) {
       setErrorBanner("Managed agent control is unavailable until the gateway connection is open.");
@@ -1412,6 +1416,7 @@ export function AppShell() {
     sendFrame({
       type: "managed_agent_control",
       action: "cancel",
+      ...(input.gatewayTargetId ? { gatewayTargetId: input.gatewayTargetId } : {}),
       sessionId: input.sessionId,
       invocationId: input.invocationId,
       reason: "Operator cancelled the managed child from the GUI cockpit.",
@@ -1420,6 +1425,7 @@ export function AppShell() {
   const promptManagedAgent = (input: {
     readonly sessionId: string;
     readonly invocationId: string;
+    readonly gatewayTargetId?: string;
     readonly prompt: string;
     readonly deliveryMode: "steer" | "queue";
     readonly wakeRequested: boolean;
@@ -1432,6 +1438,7 @@ export function AppShell() {
     sendFrame({
       type: "managed_agent_control",
       action: "prompt",
+      ...(input.gatewayTargetId ? { gatewayTargetId: input.gatewayTargetId } : {}),
       sessionId: input.sessionId,
       invocationId: input.invocationId,
       prompt: input.prompt,

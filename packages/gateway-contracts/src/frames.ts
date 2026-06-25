@@ -670,6 +670,7 @@ export type GuiManagedAgentControlResultStatus = "accepted" | "failed";
 export interface GuiManagedAgentControlFrame {
   readonly type: "managed_agent_control";
   readonly action: GuiManagedAgentControlAction;
+  readonly gatewayTargetId?: string;
   readonly sessionId: string;
   readonly invocationId: string;
   readonly prompt?: string;

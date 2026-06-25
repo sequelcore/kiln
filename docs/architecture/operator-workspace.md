@@ -86,6 +86,9 @@ The first implemented slice publishes App Gateway app and tenant targets through
 app and tenant fields are derived from the selected target. The App Gateway GUI
 message handler resolves and validates `gatewayTargetId` before routing and
 rejects conflicting app/tenant fields.
+Managed-agent cancel and prompt controls also carry projected `gatewayTargetId`
+from cockpit state through GUI and native control frames when the invocation
+projection has target identity.
 
 Every operator action that crosses a gateway/app/session boundary must carry a
 target identity. Surfaces must not infer target authority from labels, selected

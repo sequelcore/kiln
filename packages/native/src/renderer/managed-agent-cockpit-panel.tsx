@@ -10,7 +10,11 @@ import type {
 
 export interface ManagedAgentCockpitPanelProps {
   readonly cockpit: NativeCockpitReadOnlyViewState;
-  readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onCancel?: (input: {
+    readonly sessionId: string;
+    readonly invocationId: string;
+    readonly gatewayTargetId?: string;
+  }) => void;
   readonly selectedManagedInvocationId?: string;
 }
 
@@ -178,10 +182,11 @@ export function ManagedAgentCockpitPanel({
                 <button
                   type="button"
                   title={item.cancelControl.reason}
-                  onClick={() => onCancel({
-                    sessionId: item.sessionId,
-                    invocationId: item.managedInvocationId,
-                  })}
+                        onClick={() => onCancel({
+                          sessionId: item.sessionId,
+                          invocationId: item.managedInvocationId,
+                          ...(item.gatewayTargetId ? { gatewayTargetId: item.gatewayTargetId } : {}),
+                        })}
                 >
                   Cancel
                 </button>

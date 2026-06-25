@@ -64,6 +64,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("managed_agent_control"),
     action: z.enum(["cancel", "join", "prompt"]),
+    gatewayTargetId: z.string().trim().min(1).optional(),
     sessionId: z.string().trim().min(1),
     invocationId: z.string().trim().min(1),
     prompt: z.string().trim().min(1).optional(),
