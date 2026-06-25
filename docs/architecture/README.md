@@ -125,6 +125,13 @@ is documented by concern, not as a single monolith.
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
   CLI, GUI, native, TUI, SDK/widget, and MCP boundaries.
 
+- `execution-surfaces.md`
+  Canonical product and architecture contract for Kiln Operator Workspace,
+  Kiln Gateway as app AI runtime, harnesses as adapters, and contract-first
+  surface convergence.
+
+  Guide projection: `../guides/gateway-app-runtime.md`.
+
 - `config-projection.md`
   Canonical global config, native harness projection, install-state, drift detection,
   sync/uninstall/import-native behavior, engine enablement removal, and

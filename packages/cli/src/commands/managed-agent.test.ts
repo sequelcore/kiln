@@ -492,6 +492,20 @@ describe("managed-agent command", () => {
 
     expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
       sessionId: "session-1",
+      workspaceHome: {
+        managedAgents: {
+          totalCount: 1,
+          activeCount: 0,
+          attentionCount: 1,
+        },
+        gatewayTargets: [{
+          gatewayTarget: {
+            targetId: "local",
+            kind: "local-operator-gateway",
+            trust: "local",
+          },
+        }],
+      },
       invocations: [{
         managedInvocationId: "child-1",
         status: "completed",

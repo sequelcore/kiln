@@ -1,12 +1,50 @@
 import { describe, expect, it } from "vitest";
 import {
   OperatorCockpitCancellationRequestSchema,
+  OperatorCockpitActionTargetSchema,
+  OperatorGatewayTargetIdentitySchema,
   createOperatorCockpitCancellationRequest,
   createOperatorCockpitReadOnlyActionIntent,
   operatorCockpitActionAllowed,
 } from "../src/operator-cockpit-target.js";
 
 describe("operator cockpit target contract", () => {
+  it("accepts explicit gateway, app, and tenant target identity", () => {
+    expect(OperatorGatewayTargetIdentitySchema.parse({
+      targetId: "gateway:local-app",
+      kind: "local-app-gateway",
+      trust: "local",
+      label: "Local app gateway",
+      gatewayUrl: "http://127.0.0.1:3800",
+      appId: "crm",
+      tenantId: "demo",
+    })).toEqual({
+      targetId: "gateway:local-app",
+      kind: "local-app-gateway",
+      trust: "local",
+      label: "Local app gateway",
+      gatewayUrl: "http://127.0.0.1:3800",
+      appId: "crm",
+      tenantId: "demo",
+    });
+
+    expect(OperatorCockpitActionTargetSchema.parse({
+      gatewayTargetId: "gateway:local-app",
+      instanceId: "local-app:instance",
+      appId: "crm",
+      tenantId: "demo",
+      sessionId: "session-1",
+      workItemId: "work-1",
+    })).toEqual({
+      gatewayTargetId: "gateway:local-app",
+      instanceId: "local-app:instance",
+      appId: "crm",
+      tenantId: "demo",
+      sessionId: "session-1",
+      workItemId: "work-1",
+    });
+  });
+
   it("requires explicit instance and session targets before admitting cockpit actions", () => {
     expect(operatorCockpitActionAllowed({
       action: "inspect",

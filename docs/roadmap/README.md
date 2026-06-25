@@ -21,6 +21,9 @@ Use these documents as the stable source of truth before starting roadmap work:
   cross-surface parity, native acceleration boundaries, and verification rules.
 - `docs/architecture/operator-surfaces.md` for GUI, TUI, CLI, native, IDE,
   desktop, and remote operator surfaces.
+- `docs/architecture/execution-surfaces.md` for Kiln Operator Workspace as the
+  primary human work surface, Kiln Gateway as the app AI runtime, and
+  contract-first surface convergence.
 - `docs/architecture/provider-model-discovery.md` for provider/model
   discovery, stale startup projections, cache behavior, and fail-closed
   execution admission.

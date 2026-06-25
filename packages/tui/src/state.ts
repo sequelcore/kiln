@@ -7,8 +7,12 @@ import type {
   OperatorCockpitManagedAgentViewState,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+  OperatorWorkspaceHomeProjection,
 } from "@kilnai/gateway-contracts";
-import { EMPTY_TUI_MANAGED_AGENT_VIEW_STATE } from "./managed-agent-cockpit.js";
+import {
+  EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+  EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
+} from "./managed-agent-cockpit.js";
 import type { MessageRole } from "./types.js";
 
 /** Message structure for TUI chat history. */
@@ -80,6 +84,8 @@ export interface ReactiveState {
   managedAgentSessionEvents: readonly OperatorSessionEvent[];
   /** Shared cockpit projection for managed children visible in the TUI sidebar. */
   managedAgents: OperatorCockpitManagedAgentViewState;
+  /** Shared Operator Workspace home projection for cross-surface summaries. */
+  operatorWorkspaceHome: OperatorWorkspaceHomeProjection;
   /** Whether plan mode is active (read-only planning). */
   planMode: boolean;
   /** Available slash commands for command palette. */
@@ -227,6 +233,7 @@ export function createReactiveState(): ReactiveState {
     workItems: [],
     managedAgentSessionEvents: [],
     managedAgents: EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+    operatorWorkspaceHome: EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
     planMode: false,
     slashCommands: [],
     slashCommandIndex: -1,

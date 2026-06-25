@@ -4,6 +4,7 @@ import {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
   createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
   isOperatorThemeName,
   listOperatorCommands,
   normalizeManagedAgentOperatorEvents,
@@ -742,9 +743,10 @@ export function AppShell() {
     () => buildComposerContinuityHint(sessionContinuity),
     [sessionContinuity],
   );
-  const managedAgentCockpitView = useMemo(() => {
-    const projection = projectOperatorCockpitReadOnlyView({
-      projectedAt: new Date().toISOString(),
+  const operatorWorkspaceState = useMemo(() => {
+    const projectedAt = new Date().toISOString();
+    const cockpitProjection = projectOperatorCockpitReadOnlyView({
+      projectedAt,
       attachTargets: [{
         instanceId: GUI_COCKPIT_INSTANCE_ID,
         label: "Local GUI",
@@ -755,12 +757,20 @@ export function AppShell() {
         defaultInstanceId: GUI_COCKPIT_INSTANCE_ID,
       }),
     });
-    return createOperatorCockpitReadOnlyViewState({
-      projection,
+    const cockpitView = createOperatorCockpitReadOnlyViewState({
+      projection: cockpitProjection,
       viewState: {},
-    }).managedAgents;
+    });
+    return {
+      cockpitView,
+      home: createOperatorWorkspaceHomeProjection({
+        projectedAt,
+        cockpitView,
+      }),
+    };
   }, [sessionEvents]);
-  const managedAgentAttentionCount = managedAgentCockpitView.attentionCount;
+  const managedAgentCockpitView = operatorWorkspaceState.cockpitView.managedAgents;
+  const managedAgentAttentionCount = operatorWorkspaceState.home.managedAgents.attentionCount;
   const approvalCount = pendingApprovals.length;
   const activeModelCapabilities = activeProvider && activeModel
     ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]

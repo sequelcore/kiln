@@ -10,6 +10,7 @@ import type {
 } from "@kilnai/gateway-contracts";
 import {
   createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
@@ -85,15 +86,20 @@ export async function managedAgentCommand(
 
   const projectedAt = options.projectedAt?.() ?? new Date().toISOString();
   const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, sessionId, { projectedAt });
-  const managedAgents = createOperatorCockpitReadOnlyViewState({
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
     projection,
     viewState: {},
-  }).managedAgents;
+  });
+  const managedAgents = cockpitView.managedAgents;
+  const workspaceHome = createOperatorWorkspaceHomeProjection({
+    projectedAt,
+    cockpitView,
+  });
 
   switch (subcommand) {
     case "list": {
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, managedAgents, invocations: projection.invocations }, null, 2)
+        ? JSON.stringify({ sessionId, managedAgents, workspaceHome, invocations: projection.invocations }, null, 2)
         : formatManagedAgentList(sessionId, managedAgents));
       return;
     }

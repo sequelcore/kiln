@@ -252,10 +252,38 @@ export {
 } from "./operator-cockpit-view-state.js";
 
 export type {
+  OperatorAttentionItem,
+  OperatorAttentionReason,
+  OperatorAttentionSeverity,
+  OperatorAttentionSummary,
+} from "./operator-attention.js";
+export {
+  OPERATOR_ATTENTION_REASONS,
+  OPERATOR_ATTENTION_SEVERITIES,
+  createOperatorAttentionSummary,
+} from "./operator-attention.js";
+
+export type {
+  OperatorWorkspaceGatewayTargetSummary,
+  OperatorWorkspaceHomeProjection,
+  OperatorWorkspaceHomeProjectionInput,
+  OperatorWorkspaceManagedAgentSummary,
+  OperatorWorkspaceResourceItem,
+  OperatorWorkspaceResourceSummary,
+  OperatorWorkspaceSessionSummary,
+} from "./operator-workspace-home.js";
+export {
+  createOperatorWorkspaceHomeProjection,
+} from "./operator-workspace-home.js";
+
+export type {
   OperatorCockpitAction,
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,
   OperatorCockpitCancellationRequest,
+  OperatorGatewayTargetIdentity,
+  OperatorGatewayTargetKind,
+  OperatorGatewayTargetTrust,
   OperatorCockpitReadOnlyAction,
   OperatorCockpitReadOnlyActionIntent,
   OperatorCockpitReadOnlyActionIntentInput,
@@ -263,8 +291,11 @@ export type {
 export {
   OPERATOR_COCKPIT_ACTIONS,
   OPERATOR_COCKPIT_READ_ONLY_ACTIONS,
+  OPERATOR_GATEWAY_TARGET_KINDS,
+  OPERATOR_GATEWAY_TARGET_TRUST,
   OperatorCockpitActionTargetSchema,
   OperatorCockpitCancellationRequestSchema,
+  OperatorGatewayTargetIdentitySchema,
   createOperatorCockpitCancellationRequest,
   createOperatorCockpitReadOnlyActionIntent,
   operatorCockpitActionAllowed,

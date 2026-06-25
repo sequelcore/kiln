@@ -25,8 +25,9 @@ import type { ReactiveState, Message, ContinuationSidebarInfo, PendingApproval, 
 import { update, createMessage } from "./state.js";
 import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+  EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
   appendManagedAgentSessionEvent,
-  projectTuiManagedAgentViewState,
+  projectTuiOperatorWorkspaceState,
   selectTuiManagedAgentDrilldownTarget,
 } from "./managed-agent-cockpit.js";
 import type { KilnTheme } from "./theme.js";
@@ -390,9 +391,11 @@ function appendManagedAgentProjectionEvent(
     return;
   }
   update(ctx.state, "managedAgentSessionEvents", managedAgentSessionEvents);
-  update(ctx.state, "managedAgents", projectTuiManagedAgentViewState(managedAgentSessionEvents, {
+  const operatorWorkspaceState = projectTuiOperatorWorkspaceState(managedAgentSessionEvents, {
     drilldownTarget: selectTuiManagedAgentDrilldownTarget(managedAgentSessionEvents),
-  }));
+  });
+  update(ctx.state, "managedAgents", operatorWorkspaceState.cockpitView.managedAgents);
+  update(ctx.state, "operatorWorkspaceHome", operatorWorkspaceState.home);
   ctx.renderSidebarManagedAgents?.();
 }
 
@@ -615,6 +618,7 @@ export async function sendMessage(
   update(ctx.state, "currentTurnId", undefined);
   update(ctx.state, "managedAgentSessionEvents", []);
   update(ctx.state, "managedAgents", EMPTY_TUI_MANAGED_AGENT_VIEW_STATE);
+  update(ctx.state, "operatorWorkspaceHome", EMPTY_TUI_OPERATOR_WORKSPACE_HOME);
   update(ctx.state, "thinking", "");
   update(ctx.state, "thinkingVisible", false);
   renderSidebarCost();

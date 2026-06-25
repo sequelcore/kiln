@@ -189,19 +189,39 @@ describe("operator cockpit read-only projection", () => {
           kind: "simulated-remote",
           gatewayUrl: "https://example.invalid",
         },
+        {
+          instanceId: "attach-plan:local-app",
+          label: "Local app",
+          kind: "local",
+          gatewayUrl: "http://127.0.0.1:3800",
+          gatewayTarget: {
+            targetId: "gateway:local-app",
+            kind: "local-app-gateway",
+            trust: "local",
+            appId: "crm",
+            tenantId: "demo",
+          },
+        },
       ],
     });
 
     expect(plan).toEqual({
       mode: "read-only",
       plannedAt: "2026-05-14T12:04:00.000Z",
-      targetCount: 2,
+      targetCount: 3,
       mutationDispatch: "disabled",
       targets: [
         {
           instanceId: "attach-plan:local",
           label: "Local / kiln",
           kind: "local",
+          gatewayTarget: {
+            targetId: "attach-plan:local",
+            kind: "local-operator-gateway",
+            trust: "local",
+            label: "Local / kiln",
+            gatewayUrl: "http://127.0.0.1:4810",
+          },
           gatewayUrl: "http://127.0.0.1:4810",
           connectionKind: "operator-gateway",
           transport: "http-ws",
@@ -212,9 +232,35 @@ describe("operator cockpit read-only projection", () => {
           instanceId: "attach-plan:remote",
           label: "Simulated remote",
           kind: "simulated-remote",
+          gatewayTarget: {
+            targetId: "attach-plan:remote",
+            kind: "simulated-app-gateway",
+            trust: "simulated",
+            label: "Simulated remote",
+            gatewayUrl: "https://example.invalid",
+          },
           gatewayUrl: "https://example.invalid",
           connectionKind: "simulated-app-gateway",
           transport: "simulated-http-ws",
+          connectionState: "planned",
+          mutationDispatch: "disabled",
+        },
+        {
+          instanceId: "attach-plan:local-app",
+          label: "Local app",
+          kind: "local",
+          gatewayTarget: {
+            targetId: "gateway:local-app",
+            kind: "local-app-gateway",
+            trust: "local",
+            label: "Local app",
+            gatewayUrl: "http://127.0.0.1:3800",
+            appId: "crm",
+            tenantId: "demo",
+          },
+          gatewayUrl: "http://127.0.0.1:3800",
+          connectionKind: "app-gateway",
+          transport: "http-ws",
           connectionState: "planned",
           mutationDispatch: "disabled",
         },
@@ -1746,6 +1792,7 @@ describe("operator cockpit read-only projection", () => {
         mimeType: "application/json",
         relation: "full_output",
         target: {
+          gatewayTargetId: "resource-links:instance:1",
           instanceId: "resource-links:instance:1",
           sessionId: "resource-links:session:1",
           eventId: "resource-links:event:2",
@@ -1758,6 +1805,7 @@ describe("operator cockpit read-only projection", () => {
         title: "Read Many Summary",
         relation: "summary",
         target: {
+          gatewayTargetId: "resource-links:instance:1",
           instanceId: "resource-links:instance:1",
           sessionId: "resource-links:session:1",
           eventId: "resource-links:event:2",
@@ -1772,6 +1820,7 @@ describe("operator cockpit read-only projection", () => {
         expect.objectContaining({
           uri: "kiln://artifacts/read-many/content",
           target: {
+            gatewayTargetId: "resource-links:instance:1",
             instanceId: "resource-links:instance:1",
             sessionId: "resource-links:session:1",
             eventId: "resource-links:event:2",

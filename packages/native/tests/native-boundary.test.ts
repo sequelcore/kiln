@@ -808,6 +808,18 @@ describe("native operator surface foundation", () => {
     expect(viewState.mutationDispatch).toBe("disabled");
     expect(viewState.view.mode).toBe("read-only");
     expect(viewState.view.dispatch).toBe("not-dispatched");
+    expect(viewState.workspaceHome.mode).toBe("read-only");
+    expect(viewState.workspaceHome.projectedAt).toBe(projection.view.projectedAt);
+    expect(viewState.workspaceHome.managedAgents).toEqual({
+      totalCount: viewState.view.managedAgents.items.length,
+      activeCount: viewState.view.managedAgents.activeCount,
+      attentionCount: viewState.view.managedAgents.attentionCount,
+    });
+    expect(viewState.workspaceHome.gatewayTargets[0]?.gatewayTarget).toMatchObject({
+      targetId: "native-view-state:instance:1",
+      kind: "local-operator-gateway",
+      trust: "local",
+    });
     expect(viewState.view.focus.resolved).toBe(true);
     expect(viewState.view.replay.resolved).toBe(true);
     expect(viewState.view.replay.entry?.eventId).toBe(cursorEvent.eventId);

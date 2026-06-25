@@ -12,6 +12,10 @@ import {
 } from "./operator-event-presentation.js";
 import type {
   OperatorCockpitActionTarget,
+  OperatorGatewayTargetIdentity,
+} from "./operator-cockpit-target.js";
+import {
+  OperatorGatewayTargetIdentitySchema,
 } from "./operator-cockpit-target.js";
 
 export const OPERATOR_COCKPIT_ATTACH_TARGET_KINDS = [
@@ -30,6 +34,7 @@ export interface OperatorCockpitAttachTarget {
   readonly label: string;
   readonly kind: OperatorCockpitAttachTargetKind;
   readonly gatewayUrl?: string;
+  readonly gatewayTarget?: OperatorGatewayTargetIdentity;
 }
 
 export type OperatorCockpitAttachConnectionKind =
@@ -50,6 +55,7 @@ export interface OperatorCockpitReadOnlyAttachPlanTarget {
   readonly instanceId: string;
   readonly label: string;
   readonly kind: OperatorCockpitAttachTargetKind;
+  readonly gatewayTarget: OperatorGatewayTargetIdentity;
   readonly gatewayUrl: string;
   readonly connectionKind: OperatorCockpitAttachConnectionKind;
   readonly transport: OperatorCockpitAttachTransport;
@@ -91,6 +97,7 @@ export interface OperatorCockpitInstanceProjection {
   readonly instanceId: string;
   readonly label: string;
   readonly kind: OperatorCockpitAttachTargetKind;
+  readonly gatewayTarget: OperatorGatewayTargetIdentity;
   readonly gatewayUrl?: string;
   readonly sessionCount: number;
   readonly eventCount: number;
@@ -417,6 +424,7 @@ export function createOperatorCockpitReadOnlyAttachPlan(
     instanceId: target.instanceId,
     label: target.label,
     kind: target.kind,
+    gatewayTarget: normalizeGatewayTargetIdentity(target),
     gatewayUrl: readAttachGatewayUrl(target),
     connectionKind: connectionKindForAttachTarget(target),
     transport: target.kind === "simulated-remote" ? "simulated-http-ws" : "http-ws",
@@ -474,7 +482,9 @@ export function projectOperatorCockpitReadOnlyView(
     const managedInvocationId = readString(payload.managedInvocationId);
     const toolCallId = readString(payload.toolCallId);
     const toolName = readString(payload.toolName);
+    const gatewayTarget = normalizeGatewayTargetIdentity(instance.target);
     const target: OperatorCockpitActionTarget = {
+      gatewayTargetId: gatewayTarget.targetId,
       instanceId,
       sessionId,
       eventId: event.eventId,
@@ -522,6 +532,7 @@ export function projectOperatorCockpitReadOnlyView(
       const managedInvocationKey = projectionKey(sessionId, managedInvocationId);
       const adoptionKey = projectionKey(instanceId, sessionId, managedInvocationId);
       const invocationTarget: OperatorCockpitActionTarget = {
+        gatewayTargetId: gatewayTarget.targetId,
         instanceId,
         sessionId,
         eventId: event.eventId,
@@ -580,6 +591,7 @@ export function projectOperatorCockpitReadOnlyView(
 
     if (toolCallId && toolName) {
       const toolTarget: OperatorCockpitActionTarget = {
+        gatewayTargetId: gatewayTarget.targetId,
         instanceId,
         sessionId,
         eventId: event.eventId,
@@ -695,9 +707,50 @@ function parseGatewayUrl(value: string, instanceId: string): URL {
 function connectionKindForAttachTarget(
   target: OperatorCockpitAttachTarget,
 ): OperatorCockpitAttachConnectionKind {
-  if (target.kind === "local") return "operator-gateway";
-  if (target.kind === "simulated-remote") return "simulated-app-gateway";
+  const gatewayTarget = normalizeGatewayTargetIdentity(target);
+  if (gatewayTarget.kind === "local-operator-gateway") return "operator-gateway";
+  if (gatewayTarget.kind === "simulated-app-gateway") return "simulated-app-gateway";
   return "app-gateway";
+}
+
+function normalizeGatewayTargetIdentity(
+  target: OperatorCockpitAttachTarget,
+): OperatorGatewayTargetIdentity {
+  if (target.gatewayTarget) {
+    return OperatorGatewayTargetIdentitySchema.parse({
+      ...target.gatewayTarget,
+      label: target.gatewayTarget.label ?? target.label,
+      gatewayUrl: target.gatewayTarget.gatewayUrl ?? target.gatewayUrl,
+    });
+  }
+
+  if (target.kind === "local") {
+    return {
+      targetId: target.instanceId,
+      kind: "local-operator-gateway",
+      trust: "local",
+      label: target.label,
+      gatewayUrl: target.gatewayUrl,
+    };
+  }
+
+  if (target.kind === "simulated-remote") {
+    return {
+      targetId: target.instanceId,
+      kind: "simulated-app-gateway",
+      trust: "simulated",
+      label: target.label,
+      gatewayUrl: target.gatewayUrl,
+    };
+  }
+
+  return {
+    targetId: target.instanceId,
+    kind: "remote-app-gateway",
+    trust: "remote",
+    label: target.label,
+    gatewayUrl: target.gatewayUrl,
+  };
 }
 
 function getOrCreateSession(
@@ -794,6 +847,7 @@ function projectInstance(input: InstanceAccumulator): OperatorCockpitInstancePro
     instanceId: input.target.instanceId,
     label: input.target.label,
     kind: input.target.kind,
+    gatewayTarget: normalizeGatewayTargetIdentity(input.target),
     gatewayUrl: input.target.gatewayUrl,
     sessionCount: input.sessions.size,
     eventCount: input.eventCount,

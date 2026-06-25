@@ -86,6 +86,11 @@ define the active architecture contract. For doctrine, use
   External tracing, hooks, observability, review, and human-AI interaction
   research supporting Kiln's cross-surface inspectable agent work contract.
 
+- `18-execution-surfaces-strategy.md`
+  External docs, cloned-repo comparison, community signal, and local architecture
+  diagnosis supporting Kiln Operator Workspace, Kiln Gateway as app AI runtime,
+  and contract-first execution-surface convergence.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -112,3 +117,4 @@ define the active architecture contract. For doctrine, use
 15. `15-background-parallel-agent-surface.md`
 16. `16-external-engagement.md`
 17. `17-inspectable-agent-work.md`
+18. `18-execution-surfaces-strategy.md`

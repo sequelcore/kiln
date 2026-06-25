@@ -5,12 +5,15 @@
 
 import {
   createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
   projectOperatorCockpitReadOnlyView,
   type OperatorCockpitAttachTarget,
   type OperatorCockpitManagedAgentDrilldownTarget,
   type OperatorCockpitManagedAgentViewItem,
   type OperatorCockpitManagedAgentViewState,
+  type OperatorCockpitReadOnlyViewState,
   type OperatorSessionEvent,
+  type OperatorWorkspaceHomeProjection,
 } from "@kilnai/gateway-contracts";
 
 const TUI_COCKPIT_ATTACH_TARGET: OperatorCockpitAttachTarget = {
@@ -28,6 +31,11 @@ export const EMPTY_TUI_MANAGED_AGENT_VIEW_STATE: OperatorCockpitManagedAgentView
 
 export interface TuiManagedAgentProjectionOptions {
   readonly drilldownTarget?: OperatorCockpitManagedAgentDrilldownTarget;
+}
+
+export interface TuiOperatorWorkspaceState {
+  readonly cockpitView: OperatorCockpitReadOnlyViewState;
+  readonly home: OperatorWorkspaceHomeProjection;
 }
 
 export function appendManagedAgentSessionEvent(
@@ -71,27 +79,35 @@ export function projectTuiManagedAgentViewState(
   events: readonly OperatorSessionEvent[],
   options: TuiManagedAgentProjectionOptions = {},
 ): OperatorCockpitManagedAgentViewState {
-  if (events.length === 0) {
-    return {
-      ...EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
-      ...(options.drilldownTarget
-        ? { drilldown: { resolved: false, reason: "managed-invocation-not-found" } as const }
-        : {}),
-    };
-  }
+  return projectTuiOperatorWorkspaceState(events, options).cockpitView.managedAgents;
+}
 
+export function projectTuiOperatorWorkspaceState(
+  events: readonly OperatorSessionEvent[],
+  options: TuiManagedAgentProjectionOptions = {},
+): TuiOperatorWorkspaceState {
+  const projectedAt = new Date().toISOString();
   const projection = projectOperatorCockpitReadOnlyView({
-    projectedAt: new Date().toISOString(),
+    projectedAt,
     attachTargets: [TUI_COCKPIT_ATTACH_TARGET],
     events,
   });
-  return createOperatorCockpitReadOnlyViewState({
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
     projection,
     viewState: {
       ...(options.drilldownTarget ? { managedAgentDrilldownTarget: options.drilldownTarget } : {}),
     },
-  }).managedAgents;
+  });
+  return {
+    cockpitView,
+    home: createOperatorWorkspaceHomeProjection({
+      projectedAt,
+      cockpitView,
+    }),
+  };
 }
+
+export const EMPTY_TUI_OPERATOR_WORKSPACE_HOME = projectTuiOperatorWorkspaceState([]).home;
 
 export function formatManagedAgentCockpitLines(
   viewState: OperatorCockpitManagedAgentViewState,

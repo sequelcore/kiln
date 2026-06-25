@@ -118,7 +118,9 @@ Core subsystems:
 | Studio | Internal/private | Development inspection and topology views |
 
 See [Operator Surfaces](docs/guides/operator-surfaces.md) for when to use GUI,
-native, TUI, CLI, IDE, or gateway integrations.
+native, TUI, CLI, IDE, or gateway integrations. See
+[Gateway App Runtime](docs/guides/gateway-app-runtime.md) when Kiln should power
+AI behavior inside an app.
 
 ## Documentation
 
