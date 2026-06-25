@@ -120,6 +120,9 @@ The shared read contract is `OperatorResourceReadResult`: surfaces receive the
 same URI, optional target, content kind, MIME type, text/blob payload, metadata,
 and cursor fields. GUI may convert a result into a data URL for previews, but
 data URLs are presentation details, not the shared protocol.
+HTTP surfaces send `OperatorResourceReadRequest` as JSON so target identity,
+pagination cursors, and limits travel as typed fields rather than encoded query
+fragments.
 
 It should consume shared resource summaries and resource-read contracts for:
 

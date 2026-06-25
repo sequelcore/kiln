@@ -14,6 +14,7 @@ import {
   type ManagedAgentInvocationRequest,
   type OpenCodeAuthFile,
   type OpenCodeTier,
+  type ToolResourceProvider,
 } from "@kilnai/core";
 import {
   createOperatorCockpitReadOnlyViewState,
@@ -1040,6 +1041,101 @@ describe("startGuiGateway static mount", () => {
         status: "applied",
       });
       expect(executeSetupAction).toHaveBeenCalledWith("sync-repo-shims");
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads resources through target-aware operator resource requests", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    let appFetch: ((request: Request) => Promise<Response>) | undefined;
+    const resourceProvider: ToolResourceProvider = {
+      listResources: () => [{
+        uri: "kiln://test/resources/work-1",
+        name: "work_item_1",
+        title: "Work item 1",
+        mimeType: "text/markdown",
+      }],
+      listTemplates: () => [],
+      read: vi.fn(async (uri, options) => ({
+        contents: [{
+          uri,
+          mimeType: "text/markdown",
+          text: `# ${options?.cursor ?? "start"}`,
+        }],
+        nextCursor: "line:125",
+      })),
+    };
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port, fetch }: { port?: number; fetch: typeof appFetch }) => {
+        appFetch = fetch;
+        return {
+          port: port ?? 4810,
+          stop,
+        };
+      }),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+        builtinToolOptions: {
+          resourceProviders: [resourceProvider],
+        },
+      });
+
+      const response = await appFetch!(new Request("http://localhost/gui/api/resources/read", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          uri: "kiln://test/resources/work-1",
+          target: {
+            gatewayTargetId: "gateway:local-app",
+            instanceId: "local-app:instance",
+            sessionId: "session-1",
+            resourceUri: "kiln://test/resources/work-1",
+          },
+          cursor: "line:100",
+          limit: 25,
+        }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        uri: "kiln://test/resources/work-1",
+        target: {
+          gatewayTargetId: "gateway:local-app",
+          instanceId: "local-app:instance",
+          sessionId: "session-1",
+          resourceUri: "kiln://test/resources/work-1",
+        },
+        contents: [{
+          kind: "text",
+          uri: "kiln://test/resources/work-1",
+          mimeType: "text/markdown",
+          text: "# line:100",
+        }],
+        nextCursor: "line:125",
+      });
+      expect(resourceProvider.read).toHaveBeenCalledWith("kiln://test/resources/work-1", {
+        cursor: "line:100",
+        limit: 25,
+      });
     } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });

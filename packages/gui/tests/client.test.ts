@@ -55,6 +55,12 @@ describe("GuiGatewayClient", () => {
   it("reads resources through the canonical resource endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       uri: "kiln://session/work-items/work-1",
+      target: {
+        gatewayTargetId: "gateway:local-app",
+        instanceId: "local-app:instance",
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items/work-1",
+      },
       contents: [
         {
           kind: "text",
@@ -70,15 +76,48 @@ describe("GuiGatewayClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new GuiGatewayClient("http://localhost:4810");
-    const result = await client.readResource(" kiln://session/work-items/work-1 ");
+    const result = await client.readResource({
+      uri: " kiln://session/work-items/work-1 ",
+      target: {
+        gatewayTargetId: "gateway:local-app",
+        instanceId: "local-app:instance",
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items/work-1",
+      },
+      cursor: "line:100",
+      limit: 25,
+    });
 
+    expect(result?.target).toMatchObject({
+      gatewayTargetId: "gateway:local-app",
+      instanceId: "local-app:instance",
+      sessionId: "session-1",
+      resourceUri: "kiln://session/work-items/work-1",
+    });
     expect(result?.contents[0]).toMatchObject({
       kind: "text",
       mimeType: "text/markdown",
       text: "# Work item",
     });
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/resources/read");
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("uri=kiln%3A%2F%2Fsession%2Fwork-items%2Fwork-1");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        uri: "kiln://session/work-items/work-1",
+        target: {
+          gatewayTargetId: "gateway:local-app",
+          instanceId: "local-app:instance",
+          sessionId: "session-1",
+          resourceUri: "kiln://session/work-items/work-1",
+        },
+        cursor: "line:100",
+        limit: 25,
+      }),
+    });
   });
 
   it("keeps data URL conversion as GUI presentation behavior", async () => {

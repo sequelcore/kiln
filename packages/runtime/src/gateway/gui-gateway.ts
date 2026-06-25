@@ -67,6 +67,7 @@ import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-fram
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
+  OperatorResourceReadRequestSchema,
   projectOperatorResourceReadResult,
   isGuiProviderModeless,
   isOperatorThemeName,
@@ -794,18 +795,22 @@ function wireOperatorTransport(
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
   });
 
-  app.get("/gui/api/resources/read", async (c) => {
-    const uri = c.req.query("uri");
-    if (!uri) {
-      return c.json({ error: "resource_uri_required" }, 400);
+  app.post("/gui/api/resources/read", async (c) => {
+    const request = OperatorResourceReadRequestSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!request.success) {
+      return c.json({ error: "resource_read_request_invalid" }, 400);
     }
     for (const surface of resourceSurfaces) {
-      const result = await surface.readResource(uri).catch(() => undefined);
+      const result = await surface.readResource(request.data.uri, {
+        ...(request.data.cursor ? { cursor: request.data.cursor } : {}),
+        ...(request.data.limit ? { limit: request.data.limit } : {}),
+      }).catch(() => undefined);
       if (!result?.contents[0]) {
         continue;
       }
       return c.json(projectOperatorResourceReadResult({
-        uri,
+        uri: request.data.uri,
+        ...(request.data.target ? { target: request.data.target } : {}),
         readResult: result,
       }));
     }

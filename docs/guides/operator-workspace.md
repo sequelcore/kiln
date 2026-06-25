@@ -123,10 +123,10 @@ Important resource families include:
 The same URI should resolve through the same resource-read contract whether it
 is opened from GUI, TUI, CLI, native, SDK, or another future client.
 
-GUI gateway reads use `/gui/api/resources/read` and return
-`OperatorResourceReadResult`. A surface may adapt the first content item into a
-preview or download, but should not treat that preview representation as the
-canonical resource payload.
+GUI gateway reads use `POST /gui/api/resources/read` with an
+`OperatorResourceReadRequest` body and return `OperatorResourceReadResult`. A
+surface may adapt the first content item into a preview or download, but should
+not treat that preview representation as the canonical resource payload.
 
 ## Operator Rules
 

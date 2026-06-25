@@ -18,6 +18,7 @@ import type {
   OperatorWorkspaceVcsState,
   OperatorWorkspaceVcsStatus,
   OperatorResourceReadContent,
+  OperatorResourceReadRequest,
   OperatorResourceReadResult,
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
@@ -26,6 +27,7 @@ import {
   KilnConfigSetupSnapshotSchema,
   GuiMemoryLatticeGraphRequestSchema,
   GuiMemoryLatticeGraphResponseSchema,
+  OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
@@ -41,6 +43,7 @@ export type {
   KilnConfigSetupSnapshot,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
+  OperatorResourceReadRequest,
   OperatorResourceReadResult,
 };
 
@@ -356,18 +359,26 @@ export class GuiGatewayClient {
     );
   }
 
-  async readResource(uri: string): Promise<OperatorResourceReadResult | null> {
-    const normalizedUri = uri.trim();
-    if (!normalizedUri) {
+  async readResource(request: OperatorResourceReadRequest): Promise<OperatorResourceReadResult | null> {
+    const uri = request.uri.trim();
+    if (!uri) {
       return null;
     }
+    const normalizedRequest = OperatorResourceReadRequestSchema.parse({
+      ...request,
+      uri,
+    });
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
     for (const candidateBaseUrl of candidateBaseUrls) {
       const url = new URL("/gui/api/resources/read", candidateBaseUrl);
-      url.searchParams.set("uri", normalizedUri);
       try {
         const response = await fetch(url, {
-          headers: { accept: "application/json" },
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(normalizedRequest),
         });
         if (!response.ok) {
           continue;
@@ -382,8 +393,11 @@ export class GuiGatewayClient {
     return null;
   }
 
-  async loadResourceDataUrl(uri: string): Promise<string | null> {
-    const result = await this.readResource(uri);
+  async loadResourceDataUrl(uri: string, target?: OperatorResourceReadRequest["target"]): Promise<string | null> {
+    const result = await this.readResource({
+      uri,
+      ...(target ? { target } : {}),
+    });
     const content = result?.contents[0];
     return content ? resourceContentDataUrl(content) : null;
   }
