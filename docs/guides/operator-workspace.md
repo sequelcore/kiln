@@ -83,7 +83,8 @@ target switcher will expose:
 
 In App Gateway attach mode, GUI target selection is backed by
 `operatorWorkspaceHome.gatewayTargets`. Composer messages carry the selected
-`gatewayTargetId`; app and tenant message fields are derived from that target.
+`gatewayTargetId`; app and tenant message fields are derived from that target,
+and the runtime validates the target identity before routing.
 
 Do not infer authority from a label, selected port, or visible app name. The
 runtime target must be represented by shared target identity.

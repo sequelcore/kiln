@@ -412,6 +412,155 @@ describe("App Gateway GUI routes", () => {
     ]));
   });
 
+  it("resolves App Gateway GUI messages from explicit tenant gateway target identity", async () => {
+    vi.resetModules();
+    const processAdmittedTurnMock = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        parts: [{ type: "text", text: "mock response" }],
+        inputTokens: 3,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        sessionId: "session-gui",
+        sessionMode: "ai_active",
+        traceId: "trace-gui",
+        effectiveTurnAuthority: {
+          executionMode: "execute",
+          requestedAuthority: "auto",
+          admittedAuthority: "fail_closed",
+          sourcePolicy: "runtime_surface_projection",
+          reason: "test",
+          completeness: "authoritative",
+          toolCount: 0,
+          deniedToolCount: 1,
+        },
+      },
+    });
+    vi.doMock("../../src/gateway/message-pipeline.js", async () => {
+      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>("../../src/gateway/message-pipeline.js");
+      return {
+        ...actual,
+        processAdmittedTurn: processAdmittedTurnMock,
+      };
+    });
+    const { createGatewayApp: createGatewayAppWithMocks } = await import("../../src/gateway/gateway-routes.js");
+    let handlers: {
+      onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
+      onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
+    } | undefined;
+    const app = createGatewayAppWithMocks({
+      port: 3800,
+      apps: [
+        {
+          name: "support",
+          app: {} as never,
+          binding: { channels: [{ type: "api", path: "/api/support" }] },
+          registry: {} as never,
+          tenantRuntime: {
+            appName: "support",
+            orchestrator: {} as never,
+            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]) } as never,
+            tenantRegistry: {
+              get: vi.fn().mockReturnValue({
+                tenantId: "acme",
+                appName: "support",
+                name: "ACME",
+                enabled: true,
+              }),
+              list: vi.fn().mockReturnValue([]),
+            } as never,
+          },
+        } as never,
+      ],
+      upgradeWebSocket: ((factory: (c: unknown) => typeof handlers) => {
+        return (c: { text: (value: string) => Response }) => {
+          handlers = factory(c);
+          return c.text("upgraded");
+        };
+      }) as never,
+    });
+
+    const response = await app.request("http://localhost/gui/ws?userId=gui-test");
+    expect(response.status).toBe(200);
+    const send = vi.fn();
+    await handlers?.onOpen?.(new Event("open"), { send });
+    await handlers?.onMessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "hello",
+          gatewayTargetId: "app-gateway:support:tenant:acme",
+        }),
+      }),
+      { send },
+    );
+
+    expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
+    expect(processAdmittedTurnMock.mock.calls[0]![0]).toMatchObject({
+      appName: "support",
+      tenantId: "acme",
+    });
+
+    vi.doUnmock("../../src/gateway/message-pipeline.js");
+    vi.resetModules();
+  });
+
+  it("rejects App Gateway GUI messages with conflicting target identity fields", async () => {
+    let handlers: {
+      onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
+      onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
+    } | undefined;
+    const app = createGatewayApp({
+      port: 3800,
+      apps: [
+        {
+          name: "support",
+          app: {} as never,
+          binding: { channels: [{ type: "api", path: "/api/support" }] },
+          registry: {} as never,
+          providerAdapterRuntime: {
+            appName: "support",
+            orchestrator: {} as never,
+            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]) } as never,
+            systemPrompt: "System prompt",
+          },
+        } as never,
+      ],
+      upgradeWebSocket: ((factory: (c: unknown) => typeof handlers) => {
+        return (c: { text: (value: string) => Response }) => {
+          handlers = factory(c);
+          return c.text("upgraded");
+        };
+      }) as never,
+    });
+
+    const response = await app.request("http://localhost/gui/ws?userId=gui-test");
+    expect(response.status).toBe(200);
+    const send = vi.fn();
+    await handlers?.onOpen?.(new Event("open"), { send });
+    await handlers?.onMessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "hello",
+          gatewayTargetId: "app-gateway:support",
+          appName: "billing",
+        }),
+      }),
+      { send },
+    );
+
+    const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; code?: string });
+    expect(sentFrames).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "error",
+        code: "APP_GATEWAY_CONFLICTING_TARGET_IDENTITY",
+      }),
+    ]));
+  });
+
   it("forwards destructive requestedAuthority to App Gateway GUI processing", async () => {
     vi.resetModules();
     const processAdmittedTurnMock = vi.fn().mockResolvedValue({
