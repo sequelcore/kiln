@@ -168,6 +168,31 @@ describe("tools command", () => {
     expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
   });
 
+  it("prints non-text resource reads with the shared operator resource contract", async () => {
+    coreMocks.resources.read.mockResolvedValueOnce({
+      contents: [{
+        uri: "kiln://artifacts/capture",
+        mimeType: "image/png",
+        blob: "iVBORw0KGgo=",
+      }],
+      nextCursor: "byte:1024",
+    });
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, { resource: "kiln://artifacts/capture" });
+
+    expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify({
+      uri: "kiln://artifacts/capture",
+      contents: [{
+        kind: "blob",
+        uri: "kiln://artifacts/capture",
+        mimeType: "image/png",
+        blob: "iVBORw0KGgo=",
+      }],
+      nextCursor: "byte:1024",
+    }, null, 2));
+  });
+
   it("shows the tools command in CLI help output", async () => {
     process.argv = ["bun", "kiln", "--help"];
     const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});

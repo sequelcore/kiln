@@ -432,7 +432,8 @@ Both commands use the same core builtin surface as `kiln tools --mcp`.
 `--resources` prints compact display descriptors with URI, title, MIME type,
 size, relation, and truncation state when available. `--resource <uri>` reads
 the resource through the shared registry and prints text content directly when
-the resource has a single text payload.
+the resource has a single text payload. Non-text and multi-content reads print
+the shared `OperatorResourceReadResult` shape used by operator surfaces.
 
 Runtime-attached consumers use the same projection through
 `AttachedRuntimeBuiltinToolSurface.listResources()`,
