@@ -38,6 +38,7 @@ interface WireResponse {
 interface BrowserSessionControlRequest {
   readonly operation: "browser_session_control";
   readonly action: "takeover" | "release";
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly operatorId?: string;
   readonly reason?: string;
@@ -73,6 +74,7 @@ type BrowserOperatorInput =
 interface BrowserOperatorInputRequest {
   readonly operation: "browser_operator_input";
   readonly requestId: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId: string;
   readonly operatorId?: string;
   readonly input: BrowserOperatorInput;

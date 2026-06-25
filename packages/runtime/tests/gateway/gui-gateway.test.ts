@@ -3355,6 +3355,7 @@ describe("startGuiGateway static mount", () => {
           data: JSON.stringify({
             type: "browser_session_control",
             action: "takeover",
+            gatewayTargetId: "gateway:browser-app",
             sessionId: "browser-live",
             reason: "Inspect before continuing.",
             requestId: "browser-control-1",
@@ -3365,6 +3366,7 @@ describe("startGuiGateway static mount", () => {
 
       expect(requestBrowserSessionControl).toHaveBeenCalledWith({
         action: "takeover",
+        gatewayTargetId: "gateway:browser-app",
         sessionId: "browser-live",
         operatorId: "operator-1",
         reason: "Inspect before continuing.",
@@ -4754,6 +4756,7 @@ describe("startGuiGateway static mount", () => {
           data: JSON.stringify({
             type: "browser_operator_input",
             requestId: "browser-input-1",
+            gatewayTargetId: "gateway:browser-app",
             sessionId: "browser-live",
             input: {
               kind: "pointer",
@@ -4769,6 +4772,7 @@ describe("startGuiGateway static mount", () => {
 
       expect(requestBrowserOperatorInput).toHaveBeenCalledWith({
         requestId: "browser-input-1",
+        gatewayTargetId: "gateway:browser-app",
         sessionId: "browser-live",
         operatorId: "operator-1",
         input: {
@@ -4801,6 +4805,7 @@ describe("startGuiGateway static mount", () => {
         kind: "browser_operator_evidence",
         payload: {
           action: "operator_input",
+          gatewayTargetId: "gateway:browser-app",
           browserSessionId: "browser-live",
           input: {
             kind: "pointer",

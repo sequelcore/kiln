@@ -79,7 +79,8 @@ Managed-agent cancel/prompt controls now carry projected `gatewayTargetId`
 through GUI and native frames when cockpit state provides target identity.
 Browser session takeover/release controls and brokered browser operator input
 now carry projected `gatewayTargetId` when browser session state provides target
-identity.
+identity, and the runtime GUI gateway forwards that identity through browser
+provider requests and browser-operator evidence.
 
 Next fields and behavior:
 

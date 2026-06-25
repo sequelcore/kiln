@@ -168,6 +168,7 @@ interface BrowserSessionUpdateHandlerConsumer {
 interface BrowserSessionControlConsumer {
   requestBrowserSessionControl(request: {
     readonly action: "takeover" | "release";
+    readonly gatewayTargetId?: string;
     readonly sessionId?: string;
     readonly operatorId?: string;
     readonly reason?: string;
@@ -177,6 +178,7 @@ interface BrowserSessionControlConsumer {
 interface BrowserOperatorInputConsumer {
   requestBrowserOperatorInput(request: {
     readonly requestId: string;
+    readonly gatewayTargetId?: string;
     readonly sessionId: string;
     readonly operatorId?: string;
     readonly input: GuiBrowserOperatorInput;
@@ -1293,12 +1295,14 @@ function wireOperatorTransport(
               try {
                 const state = await provider.requestBrowserSessionControl({
                   action,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   ...(typeof frame.sessionId === "string" ? { sessionId: frame.sessionId } : {}),
                   operatorId: userId,
                   ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
                 });
                 activityStreamer.recordBrowserOperatorEvidence({
                   action,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   browserSessionId: state.sessionId,
                   status: "accepted",
                   ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
@@ -1306,6 +1310,7 @@ function wireOperatorTransport(
               } catch (error) {
                 activityStreamer.recordBrowserOperatorEvidence({
                   action,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   ...(typeof frame.sessionId === "string" ? { browserSessionId: frame.sessionId } : {}),
                   status: "failed",
                   reason: error instanceof Error ? error.message : "Browser session control failed.",
@@ -1337,12 +1342,14 @@ function wireOperatorTransport(
               try {
                 const ack = await provider.requestBrowserOperatorInput({
                   requestId,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   sessionId,
                   operatorId: userId,
                   input: operatorInput,
                 });
                 activityStreamer.recordBrowserOperatorEvidence({
                   action: "operator_input",
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   browserSessionId: ack.sessionId ?? sessionId,
                   input: operatorInput,
                   acknowledgement: ack,
@@ -1354,6 +1361,7 @@ function wireOperatorTransport(
               } catch (error) {
                 activityStreamer.recordBrowserOperatorEvidence({
                   action: "operator_input",
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   browserSessionId: sessionId,
                   input: operatorInput,
                   acknowledgement: {
@@ -2296,6 +2304,7 @@ class GuiActivityStreamer {
 
   recordBrowserOperatorEvidence(input: {
     readonly action: "takeover" | "release" | "operator_input";
+    readonly gatewayTargetId?: string;
     readonly browserSessionId?: string;
     readonly input?: GuiBrowserOperatorInput;
     readonly acknowledgement?: Pick<GuiBrowserOperatorInputAckFrame, "status" | "reason" | "handledAt">;
@@ -2322,6 +2331,7 @@ class GuiActivityStreamer {
         },
         payload: {
           action: input.action,
+          ...(input.gatewayTargetId ? { gatewayTargetId: input.gatewayTargetId } : {}),
           ...(input.browserSessionId ? { browserSessionId: input.browserSessionId } : {}),
           ...(input.reason ? { reason: input.reason } : {}),
           ...(input.status ? { status: input.status } : {}),
