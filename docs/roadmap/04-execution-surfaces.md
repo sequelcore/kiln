@@ -115,6 +115,9 @@ Current surfaces can open some `kiln://` resources. The shared
 `OperatorResourceReadResult` contract now defines the first canonical
 resource-read result shape, and the GUI gateway reads resources through
 `/gui/api/resources/read` instead of a GUI-only data URL payload.
+Configured builtin tool surfaces now also expose workspace external-engagement
+artifacts from `.kiln/external-engagement` through the shared resource plane,
+including artifact indexes and evidence-id reads for source-grounded review.
 
 Next behavior:
 
@@ -123,7 +126,7 @@ Next behavior:
 - session work-item and goal resources
 - managed invocation resources
 - transcripts, diagnostics, diffs, source bundles, memory graph resources, and
-  external evidence bundles
+  richer external evidence bundle summaries
 - consistent rich, terminal, and JSON presentations
 
 Completion gate:

@@ -5,6 +5,7 @@ import {
   type LoadConfiguredWebToolSurfaceOptionsInput,
 } from "./web-tools-config.js";
 import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-use-config.js";
+import { ExternalEngagementResourceProvider } from "./external-engagement-resource-provider.js";
 
 export async function loadConfiguredBuiltinToolSurfaceOptions(
   appConfig: KilnAppConfig,
@@ -17,9 +18,14 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     loadConfiguredInteractiveUseToolSurfaceOptions(appConfig, projectPath, { artifactStore }),
   ]);
   const merged = mergeBuiltinToolSurfaceOptions(webOptions, interactiveOptions);
+  const resourceProviders = [
+    ...(merged.resourceProviders ?? []),
+    new ExternalEngagementResourceProvider(projectPath),
+  ];
   return {
     ...merged,
     artifactResources: merged.artifactResources ?? { store: artifactStore },
+    resourceProviders,
   };
 }
 
@@ -31,10 +37,15 @@ export function mergeBuiltinToolSurfaceOptions(
     ...(left.additionalTools ?? []),
     ...(right.additionalTools ?? []),
   ];
+  const resourceProviders = [
+    ...(left.resourceProviders ?? []),
+    ...(right.resourceProviders ?? []),
+  ];
 
   return {
     ...left,
     ...right,
     ...(additionalTools.length > 0 ? { additionalTools } : {}),
+    ...(resourceProviders.length > 0 ? { resourceProviders } : {}),
   };
 }

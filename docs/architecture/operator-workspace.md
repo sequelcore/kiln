@@ -133,5 +133,13 @@ It should consume shared resource summaries and resource-read contracts for:
 - memory graph resources
 - external evidence bundles
 
+Configured builtin tool surfaces expose workspace external-engagement artifacts
+under `kiln://external-engagement/...` when `.kiln/external-engagement`
+contains generated reports. The first resource set includes an artifact index,
+file-backed artifact reads, and evidence-artifact reads by provider artifact
+id. This keeps source-grounded review on the shared resource plane instead of
+requiring GUI, TUI, CLI, native, or SDK consumers to parse local files through
+surface-owned models.
+
 Surfaces may choose rich, terminal, or JSON presentation, but the URI, target,
 authorization, and read result must come from the shared resource plane.
