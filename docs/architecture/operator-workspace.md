@@ -137,9 +137,14 @@ Configured builtin tool surfaces expose workspace external-engagement artifacts
 under `kiln://external-engagement/...` when `.kiln/external-engagement`
 contains generated reports. The first resource set includes an artifact index,
 file-backed artifact reads, and evidence-artifact reads by provider artifact
-id. This keeps source-grounded review on the shared resource plane instead of
-requiring GUI, TUI, CLI, native, or SDK consumers to parse local files through
-surface-owned models.
+id. The artifact index derives report kind from content when possible and
+projects aggregate evidence, signal, candidate, review, decision, and proposal
+counts through `OperatorResourceReadResult.summary`. This keeps source-grounded
+review on the shared resource plane instead of requiring GUI, TUI, CLI, native,
+or SDK consumers to parse local files through surface-owned models.
+CLI resource reads and GUI resource preview data URLs preserve summarized reads
+as `OperatorResourceReadResult` JSON so terminal and browser presentations do
+not drop the typed counts and facets.
 
 Surfaces may choose rich, terminal, or JSON presentation, but the URI, target,
 authorization, and read result must come from the shared resource plane.

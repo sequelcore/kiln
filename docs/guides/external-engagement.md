@@ -169,6 +169,19 @@ engineering-standards assessment. Signals are grouped by theme and each
 evidence artifact contributes to at most two signal groups to avoid noisy
 candidate fan-out. It does not resolve credentials or call external APIs.
 
+Inspect generated artifacts through the shared resource plane:
+
+```bash
+kiln tools --resources
+kiln tools --resource kiln://external-engagement/artifacts
+kiln tools --resource kiln://external-engagement/artifacts/x-candidates.json
+```
+
+The artifact index reports aggregate evidence, signal, candidate, review,
+decision, and proposal counts through `OperatorResourceReadResult.summary`.
+CLI and GUI resource presentation preserve that shared read contract for
+summarized resources instead of collapsing the result to raw text.
+
 Build a review-friendly Markdown report from candidates:
 
 ```bash
@@ -244,10 +257,13 @@ kiln tools --resource kiln://external-engagement/evidence/1000000000000000001
 
 The resource provider reads only workspace artifacts under
 `.kiln/external-engagement`. Artifact resources expose generated evidence,
-candidate, review, decision, and intake files. Evidence resources resolve a
-provider artifact id from existing evidence reports and include the source
-report resource URI. They do not call X, refresh credentials, broaden platform
-access, or grant write authority.
+candidate, review, decision, and intake files. The artifact index derives each
+artifact kind from file content when possible and reports aggregate counts for
+evidence artifacts, signals, candidates, review items, decisions, and feature
+intake proposals through the shared `OperatorResourceReadResult.summary`
+contract. Evidence resources resolve a provider artifact id from existing
+evidence reports and include the source report resource URI. They do not call
+X, refresh credentials, broaden platform access, or grant write authority.
 
 Input files are newline-delimited and may contain X URLs or post ids:
 

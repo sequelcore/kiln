@@ -73,7 +73,7 @@ function formatResourceReadResult(
   uri: string,
   result: OperatorResourceProviderReadResult,
 ): string {
-  if (result.contents.length === 1 && "text" in result.contents[0]! && typeof result.contents[0]!.text === "string") {
+  if (!result.summary && result.contents.length === 1 && "text" in result.contents[0]! && typeof result.contents[0]!.text === "string") {
     return result.contents[0]!.text;
   }
   return JSON.stringify(projectOperatorResourceReadResult({

@@ -398,6 +398,9 @@ export class GuiGatewayClient {
       uri,
       ...(target ? { target } : {}),
     });
+    if (result?.summary) {
+      return summarizedResourceDataUrl(result);
+    }
     const content = result?.contents[0];
     return content ? resourceContentDataUrl(content) : null;
   }
@@ -722,6 +725,10 @@ function resourceContentDataUrl(content: OperatorResourceReadContent): string {
     return `data:${content.mimeType ?? "application/octet-stream"};base64,${content.blob}`;
   }
   return `data:${content.mimeType ?? "text/plain"};charset=utf-8;base64,${base64EncodeUtf8(content.text)}`;
+}
+
+function summarizedResourceDataUrl(result: OperatorResourceReadResult): string {
+  return `data:application/json;charset=utf-8;base64,${base64EncodeUtf8(JSON.stringify(result, null, 2))}`;
 }
 
 function base64EncodeUtf8(value: string): string {

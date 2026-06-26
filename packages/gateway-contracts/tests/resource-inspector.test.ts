@@ -90,4 +90,46 @@ describe("resource inspector contract", () => {
     ]);
     expect(JSON.stringify(result)).not.toContain("data:image/png");
   });
+
+  it("projects provider resource summaries into the shared read result", () => {
+    const result = projectOperatorResourceReadResult({
+      uri: "kiln://external-engagement/artifacts",
+      readResult: {
+        summary: {
+          kind: "external-engagement",
+          totalCount: 3,
+          counts: {
+            artifact: 3,
+            evidenceReport: 1,
+            featureIntake: 1,
+            reviewReport: 1,
+          },
+          facets: {
+            artifactKinds: ["evidence-report", "feature-intake", "review-report"],
+          },
+        },
+        contents: [
+          {
+            uri: "kiln://external-engagement/artifacts",
+            mimeType: "application/json",
+            text: "{\"summary\":{\"artifactCount\":3}}",
+          },
+        ],
+      },
+    });
+
+    expect(OperatorResourceReadResultSchema.parse(result).summary).toEqual({
+      kind: "external-engagement",
+      totalCount: 3,
+      counts: {
+        artifact: 3,
+        evidenceReport: 1,
+        featureIntake: 1,
+        reviewReport: 1,
+      },
+      facets: {
+        artifactKinds: ["evidence-report", "feature-intake", "review-report"],
+      },
+    });
+  });
 });

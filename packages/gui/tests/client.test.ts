@@ -144,6 +144,61 @@ describe("GuiGatewayClient", () => {
     );
   });
 
+  it("preserves summarized text resources as shared operator resource JSON", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      uri: "kiln://external-engagement/artifacts",
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      contents: [
+        {
+          kind: "text",
+          uri: "kiln://external-engagement/artifacts",
+          mimeType: "application/json",
+          text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+
+    const dataUrl = await client.loadResourceDataUrl("kiln://external-engagement/artifacts");
+    expect(dataUrl).toMatch(/^data:application\/json;charset=utf-8;base64,/u);
+    const payload = JSON.parse(atob(dataUrl!.slice(dataUrl!.indexOf(",") + 1)));
+    expect(payload).toEqual({
+      uri: "kiln://external-engagement/artifacts",
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      contents: [{
+        kind: "text",
+        uri: "kiln://external-engagement/artifacts",
+        mimeType: "application/json",
+        text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+      }],
+    });
+  });
+
   it("loads app and tenant descriptors from the dashboard", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       providers: [],

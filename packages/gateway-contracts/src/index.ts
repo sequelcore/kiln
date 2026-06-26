@@ -29,12 +29,14 @@ export type {
   OperatorResourceReadContent,
   OperatorResourceReadRequest,
   OperatorResourceReadResult,
+  OperatorResourceReadSummary,
 } from "./resource-inspector.js";
 export {
   OPERATOR_RESOURCE_CONTENT_KINDS,
   OperatorResourceReadContentSchema,
   OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
+  OperatorResourceReadSummarySchema,
   projectOperatorResourceReadResult,
 } from "./resource-inspector.js";
 

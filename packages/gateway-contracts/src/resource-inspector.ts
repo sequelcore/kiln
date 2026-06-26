@@ -39,9 +39,20 @@ export const OperatorResourceReadContentSchema = z.discriminatedUnion("kind", [
 
 export type OperatorResourceReadContent = z.infer<typeof OperatorResourceReadContentSchema>;
 
+export const OperatorResourceReadSummarySchema = z.object({
+  kind: z.string().min(1),
+  totalCount: z.number().int().nonnegative().optional(),
+  counts: z.record(z.number().int().nonnegative()).optional(),
+  facets: z.record(z.array(z.string())).optional(),
+  meta: z.record(z.unknown()).optional(),
+});
+
+export type OperatorResourceReadSummary = z.infer<typeof OperatorResourceReadSummarySchema>;
+
 export const OperatorResourceReadResultSchema = z.object({
   uri: z.string().min(1),
   target: OperatorCockpitActionTargetSchema.optional(),
+  summary: OperatorResourceReadSummarySchema.optional(),
   contents: z.array(OperatorResourceReadContentSchema),
   nextCursor: z.string().min(1).optional(),
 });
@@ -49,6 +60,7 @@ export const OperatorResourceReadResultSchema = z.object({
 export type OperatorResourceReadResult = z.infer<typeof OperatorResourceReadResultSchema>;
 
 export type OperatorResourceProviderReadResult = {
+  readonly summary?: OperatorResourceReadSummary;
   readonly contents: readonly (
     | {
       readonly uri: string;
@@ -74,6 +86,7 @@ export function projectOperatorResourceReadResult(input: {
   return OperatorResourceReadResultSchema.parse({
     uri: input.uri,
     ...(input.target ? { target: input.target } : {}),
+    ...(input.readResult.summary ? { summary: input.readResult.summary } : {}),
     contents: input.readResult.contents.map(projectOperatorResourceContent),
     ...(input.readResult.nextCursor ? { nextCursor: input.readResult.nextCursor } : {}),
   });

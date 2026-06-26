@@ -52,7 +52,16 @@ export type ToolResourceContent =
     readonly _meta?: Record<string, unknown>;
   };
 
+export interface ToolResourceReadSummary {
+  readonly kind: string;
+  readonly totalCount?: number;
+  readonly counts?: Record<string, number>;
+  readonly facets?: Record<string, string[]>;
+  readonly meta?: Record<string, unknown>;
+}
+
 export interface ToolResourceReadResult {
+  readonly summary?: ToolResourceReadSummary;
   readonly contents: readonly ToolResourceContent[];
   readonly nextCursor?: string;
 }

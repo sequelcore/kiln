@@ -159,6 +159,7 @@ export type {
   ToolResourceReadRange,
   ToolResourceReadRangeUnit,
   ToolResourceReadResult,
+  ToolResourceReadSummary,
   ToolResourceRegistryOptions,
   ToolResourceTemplateDescriptor,
 } from "./domain/tool-resource-registry.js";

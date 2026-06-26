@@ -168,6 +168,51 @@ describe("tools command", () => {
     expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
   });
 
+  it("prints summarized text resources with the shared operator resource contract", async () => {
+    coreMocks.resources.read.mockResolvedValueOnce({
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      contents: [{
+        uri: "kiln://external-engagement/artifacts",
+        mimeType: "application/json",
+        text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+      }],
+    });
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, { resource: "kiln://external-engagement/artifacts" });
+
+    expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify({
+      uri: "kiln://external-engagement/artifacts",
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      contents: [{
+        kind: "text",
+        uri: "kiln://external-engagement/artifacts",
+        mimeType: "application/json",
+        text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+      }],
+    }, null, 2));
+  });
+
   it("prints non-text resource reads with the shared operator resource contract", async () => {
     coreMocks.resources.read.mockResolvedValueOnce({
       contents: [{

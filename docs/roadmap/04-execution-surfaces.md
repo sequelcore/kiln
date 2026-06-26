@@ -117,17 +117,23 @@ resource-read result shape, and the GUI gateway reads resources through
 `/gui/api/resources/read` instead of a GUI-only data URL payload.
 Configured builtin tool surfaces now also expose workspace external-engagement
 artifacts from `.kiln/external-engagement` through the shared resource plane,
-including artifact indexes and evidence-id reads for source-grounded review.
+including content-derived artifact indexes, aggregate evidence/candidate/review
+counts in `OperatorResourceReadResult.summary`, and evidence-id reads for
+source-grounded review.
+CLI resource reads and GUI preview data URLs now preserve summarized resources
+as shared `OperatorResourceReadResult` JSON instead of collapsing them to raw
+text.
 
 Next behavior:
 
 - target-aware resource open requests on every surface
-- shared resource summary model
+- shared resource summary producers across additional resource families
 - session work-item and goal resources
 - managed invocation resources
 - transcripts, diagnostics, diffs, source bundles, memory graph resources, and
-  richer external evidence bundle summaries
-- consistent rich, terminal, and JSON presentations
+  typed summary contracts for additional resource families
+- richer inspector layouts after each resource family has a shared summary
+  producer
 
 Completion gate:
 

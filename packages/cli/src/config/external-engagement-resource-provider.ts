@@ -16,6 +16,43 @@ const JSON_MIME_TYPE = "application/json";
 const MARKDOWN_MIME_TYPE = "text/markdown";
 const TEXT_MIME_TYPE = "text/plain";
 
+type ExternalEngagementArtifactKind =
+  | "evidence-report"
+  | "candidate-report"
+  | "review-report"
+  | "decision-report"
+  | "feature-intake"
+  | "artifact";
+
+interface ExternalEngagementArtifactMetadata {
+  readonly fileName: string;
+  readonly resourceUri: string;
+  readonly mimeType: string;
+  readonly kind: ExternalEngagementArtifactKind;
+  readonly evidenceArtifactCount?: number;
+  readonly signalCount?: number;
+  readonly candidateCount?: number;
+  readonly reviewItemCount?: number;
+  readonly decisionCount?: number;
+  readonly proposalCount?: number;
+}
+
+interface ExternalEngagementArtifactSummary {
+  readonly artifactCount: number;
+  readonly evidenceReportCount: number;
+  readonly candidateReportCount: number;
+  readonly reviewReportCount: number;
+  readonly decisionReportCount: number;
+  readonly featureIntakeCount: number;
+  readonly evidenceArtifactCount: number;
+  readonly signalCount: number;
+  readonly candidateCount: number;
+  readonly reviewItemCount: number;
+  readonly decisionCount: number;
+  readonly proposalCount: number;
+  readonly kinds: readonly ExternalEngagementArtifactKind[];
+}
+
 export class ExternalEngagementResourceProvider implements ToolResourceProvider {
   private readonly workspaceDir: string;
 
@@ -24,6 +61,8 @@ export class ExternalEngagementResourceProvider implements ToolResourceProvider 
   }
 
   listResources(): readonly ToolResourceDescriptor[] {
+    const artifacts = this.listArtifactMetadata();
+    const summary = summarizeArtifacts(artifacts);
     return [
       {
         uri: `${EXTERNAL_ENGAGEMENT_RESOURCE_ROOT}/artifacts`,
@@ -31,15 +70,15 @@ export class ExternalEngagementResourceProvider implements ToolResourceProvider 
         title: "External Engagement Artifacts",
         description: "Read-only index of governed external engagement evidence, candidate, review, decision, and intake artifacts in this workspace.",
         mimeType: JSON_MIME_TYPE,
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: true, ...summary },
       },
-      ...this.listArtifactFiles().map((fileName) => ({
-        uri: artifactResourceUri(fileName),
-        name: `external_engagement_${resourceNameToken(fileName)}`,
-        title: externalEngagementArtifactTitle(fileName),
+      ...artifacts.map((artifact) => ({
+        uri: artifact.resourceUri,
+        name: `external_engagement_${resourceNameToken(artifact.fileName)}`,
+        title: externalEngagementArtifactTitle(artifact),
         description: "Read one governed external engagement artifact from the workspace resource plane.",
-        mimeType: mimeTypeForFile(fileName),
-        annotations: { readOnlyHint: true },
+        mimeType: artifact.mimeType,
+        annotations: { readOnlyHint: true, ...artifactResourceAnnotations(artifact) },
       })),
     ];
   }
@@ -71,16 +110,14 @@ export class ExternalEngagementResourceProvider implements ToolResourceProvider 
       return undefined;
     }
     if (parsed.kind === "artifact-index") {
+      const artifacts = this.listArtifactMetadata();
+      const summary = summarizeArtifacts(artifacts);
       return jsonResource(uri, {
         artifactRoot: this.artifactRoot(),
-        artifacts: this.listArtifactFiles().map((fileName) => ({
-          fileName,
-          resourceUri: artifactResourceUri(fileName),
-          mimeType: mimeTypeForFile(fileName),
-          kind: classifyArtifactFile(fileName),
-        })),
+        summary,
+        artifacts,
         evidenceTemplate: `${EXTERNAL_ENGAGEMENT_RESOURCE_ROOT}/evidence/{artifactId}`,
-      });
+      }, projectResourceReadSummary(summary));
     }
     if (parsed.kind === "artifact-file") {
       const fileName = sanitizeArtifactFileName(parsed.fileName);
@@ -95,7 +132,7 @@ export class ExternalEngagementResourceProvider implements ToolResourceProvider 
           text: readFileSync(path, "utf-8"),
           _meta: {
             fileName,
-            artifactKind: classifyArtifactFile(fileName),
+            artifactKind: this.readArtifactMetadata(fileName).kind,
           },
         }],
       };
@@ -126,9 +163,18 @@ export class ExternalEngagementResourceProvider implements ToolResourceProvider 
       .sort();
   }
 
+  private listArtifactMetadata(): readonly ExternalEngagementArtifactMetadata[] {
+    return this.listArtifactFiles().map((fileName) => this.readArtifactMetadata(fileName));
+  }
+
+  private readArtifactMetadata(fileName: string): ExternalEngagementArtifactMetadata {
+    const path = join(this.artifactRoot(), fileName);
+    return buildArtifactMetadata(fileName, path);
+  }
+
   private findEvidenceArtifact(artifactId: string): (ExternalEvidenceArtifact & { readonly reportResourceUri: string }) | undefined {
     for (const fileName of this.listArtifactFiles()) {
-      if (classifyArtifactFile(fileName) !== "evidence-report") {
+      if (this.readArtifactMetadata(fileName).kind !== "evidence-report") {
         continue;
       }
       const report = parseEvidenceReportFile(join(this.artifactRoot(), fileName));
@@ -198,7 +244,130 @@ function mimeTypeForFile(fileName: string): string {
   return TEXT_MIME_TYPE;
 }
 
-function classifyArtifactFile(fileName: string): string {
+function buildArtifactMetadata(fileName: string, path: string): ExternalEngagementArtifactMetadata {
+  const base = {
+    fileName,
+    resourceUri: artifactResourceUri(fileName),
+    mimeType: mimeTypeForFile(fileName),
+  };
+  const contentMetadata = readContentMetadata(path, fileName);
+  return {
+    ...base,
+    ...contentMetadata,
+  };
+}
+
+function readContentMetadata(
+  path: string,
+  fileName: string,
+): Omit<ExternalEngagementArtifactMetadata, "fileName" | "resourceUri" | "mimeType"> {
+  const extension = extname(fileName).toLowerCase();
+  if (extension === ".md") {
+    return { kind: "review-report" };
+  }
+  if (extension !== ".json") {
+    return { kind: "artifact" };
+  }
+  try {
+    const payload = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+    return classifyJsonArtifact(payload, fileName);
+  } catch {
+    return { kind: classifyArtifactFileName(fileName) };
+  }
+}
+
+function classifyJsonArtifact(
+  payload: Record<string, unknown>,
+  fileName: string,
+): Omit<ExternalEngagementArtifactMetadata, "fileName" | "resourceUri" | "mimeType"> {
+  if (payload.source === "x" && Array.isArray(payload.artifacts) && Array.isArray(payload.signals)) {
+    return {
+      kind: "evidence-report",
+      evidenceArtifactCount: payload.artifacts.length,
+      signalCount: payload.signals.length,
+    };
+  }
+  if (typeof payload.sourceReportId === "string" && Array.isArray(payload.candidates)) {
+    return {
+      kind: "candidate-report",
+      candidateCount: payload.candidates.length,
+    };
+  }
+  if (typeof payload.sourceCandidateReportId === "string" && Array.isArray(payload.items) && typeof payload.markdown === "string") {
+    return {
+      kind: "review-report",
+      reviewItemCount: payload.items.length,
+    };
+  }
+  if (typeof payload.sourceCandidateReportId === "string" && Array.isArray(payload.decisions)) {
+    return {
+      kind: "decision-report",
+      decisionCount: payload.decisions.length,
+    };
+  }
+  if (typeof payload.sourceDecisionReportId === "string" && Array.isArray(payload.proposals)) {
+    return {
+      kind: "feature-intake",
+      proposalCount: payload.proposals.length,
+    };
+  }
+  return { kind: classifyArtifactFileName(fileName) };
+}
+
+function summarizeArtifacts(
+  artifacts: readonly ExternalEngagementArtifactMetadata[],
+): ExternalEngagementArtifactSummary {
+  return {
+    artifactCount: artifacts.length,
+    evidenceReportCount: countKind(artifacts, "evidence-report"),
+    candidateReportCount: countKind(artifacts, "candidate-report"),
+    reviewReportCount: countKind(artifacts, "review-report"),
+    decisionReportCount: countKind(artifacts, "decision-report"),
+    featureIntakeCount: countKind(artifacts, "feature-intake"),
+    evidenceArtifactCount: sumMetadata(artifacts, "evidenceArtifactCount"),
+    signalCount: sumMetadata(artifacts, "signalCount"),
+    candidateCount: sumMetadata(artifacts, "candidateCount"),
+    reviewItemCount: sumMetadata(artifacts, "reviewItemCount"),
+    decisionCount: sumMetadata(artifacts, "decisionCount"),
+    proposalCount: sumMetadata(artifacts, "proposalCount"),
+    kinds: [...new Set(artifacts.map((artifact) => artifact.kind))].sort(),
+  };
+}
+
+function artifactResourceAnnotations(
+  artifact: ExternalEngagementArtifactMetadata,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries({
+      artifactKind: artifact.kind,
+      evidenceArtifactCount: artifact.evidenceArtifactCount,
+      signalCount: artifact.signalCount,
+      candidateCount: artifact.candidateCount,
+      reviewItemCount: artifact.reviewItemCount,
+      decisionCount: artifact.decisionCount,
+      proposalCount: artifact.proposalCount,
+    }).filter((entry) => entry[1] !== undefined),
+  );
+}
+
+function countKind(
+  artifacts: readonly ExternalEngagementArtifactMetadata[],
+  kind: ExternalEngagementArtifactKind,
+): number {
+  return artifacts.filter((artifact) => artifact.kind === kind).length;
+}
+
+function sumMetadata(
+  artifacts: readonly ExternalEngagementArtifactMetadata[],
+  key: keyof Pick<
+    ExternalEngagementArtifactMetadata,
+    "candidateCount" | "decisionCount" | "evidenceArtifactCount" | "proposalCount" | "reviewItemCount" | "signalCount"
+  >,
+): number {
+  return artifacts.reduce((total, artifact) => total + (artifact[key] ?? 0), 0);
+}
+
+function classifyArtifactFileName(fileName: string): ExternalEngagementArtifactKind {
   const lower = fileName.toLowerCase();
   if (lower.includes("candidate")) {
     return "candidate-report";
@@ -234,8 +403,39 @@ function parseEvidenceReportFile(path: string): ExternalEvidenceReport | undefin
   }
 }
 
-function jsonResource(uri: string, payload: unknown): ToolResourceReadResult {
+function projectResourceReadSummary(
+  summary: ExternalEngagementArtifactSummary,
+): ToolResourceReadResult["summary"] {
   return {
+    kind: "external-engagement",
+    totalCount: summary.artifactCount,
+    counts: {
+      artifact: summary.artifactCount,
+      evidenceReport: summary.evidenceReportCount,
+      candidateReport: summary.candidateReportCount,
+      reviewReport: summary.reviewReportCount,
+      decisionReport: summary.decisionReportCount,
+      featureIntake: summary.featureIntakeCount,
+      evidenceArtifact: summary.evidenceArtifactCount,
+      signal: summary.signalCount,
+      candidate: summary.candidateCount,
+      reviewItem: summary.reviewItemCount,
+      decision: summary.decisionCount,
+      proposal: summary.proposalCount,
+    },
+    facets: {
+      artifactKinds: [...summary.kinds],
+    },
+  };
+}
+
+function jsonResource(
+  uri: string,
+  payload: unknown,
+  summary?: ToolResourceReadResult["summary"],
+): ToolResourceReadResult {
+  return {
+    ...(summary ? { summary } : {}),
     contents: [{
       uri,
       mimeType: JSON_MIME_TYPE,
@@ -248,6 +448,6 @@ function resourceNameToken(fileName: string): string {
   return fileName.toLowerCase().replace(/[^a-z0-9]+/gu, "_").replace(/^_+|_+$/gu, "");
 }
 
-function externalEngagementArtifactTitle(fileName: string): string {
-  return `External Engagement ${classifyArtifactFile(fileName).replaceAll("-", " ")}: ${fileName}`;
+function externalEngagementArtifactTitle(artifact: ExternalEngagementArtifactMetadata): string {
+  return `External Engagement ${artifact.kind.replaceAll("-", " ")}: ${artifact.fileName}`;
 }
