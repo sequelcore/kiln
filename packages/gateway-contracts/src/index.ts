@@ -26,6 +26,10 @@ export {
 export type {
   OperatorResourceContentKind,
   OperatorResourceProviderReadResult,
+  OperatorResourceReadPresentation,
+  OperatorResourceReadPresentationList,
+  OperatorResourceReadPresentationMeta,
+  OperatorResourceReadPresentationRow,
   OperatorResourceReadContent,
   OperatorResourceReadRequest,
   OperatorResourceReadResult,
@@ -37,6 +41,7 @@ export {
   OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
   OperatorResourceReadSummarySchema,
+  projectOperatorResourceReadPresentation,
   projectOperatorResourceReadResult,
 } from "./resource-inspector.js";
 

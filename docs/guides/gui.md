@@ -277,15 +277,16 @@ remain outside this read-only workspace slice.
 
 GUI resource previews read through the shared `OperatorResourceReadResult`
 contract. When a resource result includes `summary`, the GUI preserves the
-whole read result as JSON in the preview data URL so browser presentation does
-not drop provider-owned counts or facets.
+whole read result as JSON in the preview data URL and includes the shared
+`projectOperatorResourceReadPresentation` projection so browser presentation
+can render provider-owned counts, facets, metadata, and content state without
+reparsing payload text.
 
 Current summarized aggregate reads include the tool catalog, session work
 items, session goals, workspace trees, artifact namespaces, memory graph
 snapshots, managed-agent invocation indexes, and external-engagement artifact
-indexes. GUI-specific inspector layouts may render these summaries more richly,
-but they must consume the shared summary contract instead of reparsing payload
-text.
+indexes. GUI-specific inspector layouts consume the shared presentation
+projection; provider summaries remain the source of truth.
 
 ## Commands and Composer
 

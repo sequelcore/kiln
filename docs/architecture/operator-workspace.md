@@ -154,7 +154,9 @@ presented as running work.
 
 CLI resource reads and GUI resource preview data URLs preserve summarized reads
 as `OperatorResourceReadResult` JSON so terminal and browser presentations do
-not drop the typed counts and facets.
+not drop the typed counts and facets. Shared presentation rows come from
+`projectOperatorResourceReadPresentation`; surfaces render those rows rather
+than reparsing resource payload text.
 
 Surfaces may choose rich, terminal, or JSON presentation, but the URI, target,
 authorization, and read result must come from the shared resource plane.

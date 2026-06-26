@@ -210,6 +210,21 @@ describe("tools command", () => {
         mimeType: "application/json",
         text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
       }],
+      presentation: {
+        uri: "kiln://external-engagement/artifacts",
+        title: "external-engagement",
+        total: { label: "total", value: 2 },
+        counts: [
+          { label: "artifact", value: 2 },
+          { label: "candidate", value: 3 },
+        ],
+        facets: [
+          { label: "artifactKinds", values: ["candidate-report", "evidence-report"] },
+        ],
+        meta: [],
+        contentCount: 1,
+        hasMore: false,
+      },
     }, null, 2));
   });
 

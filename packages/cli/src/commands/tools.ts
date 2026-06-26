@@ -5,6 +5,7 @@ import {
   projectToolResourceDescriptor,
 } from "@kilnai/core";
 import {
+  projectOperatorResourceReadPresentation,
   projectOperatorResourceReadResult,
   type OperatorResourceProviderReadResult,
 } from "@kilnai/gateway-contracts";
@@ -76,8 +77,12 @@ function formatResourceReadResult(
   if (!result.summary && result.contents.length === 1 && "text" in result.contents[0]! && typeof result.contents[0]!.text === "string") {
     return result.contents[0]!.text;
   }
-  return JSON.stringify(projectOperatorResourceReadResult({
+  const projected = projectOperatorResourceReadResult({
     uri,
     readResult: result,
-  }), null, 2);
+  });
+  return JSON.stringify({
+    ...projected,
+    ...(projected.summary ? { presentation: projectOperatorResourceReadPresentation(projected) } : {}),
+  }, null, 2);
 }

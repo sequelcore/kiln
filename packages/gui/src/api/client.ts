@@ -29,6 +29,7 @@ import {
   GuiMemoryLatticeGraphResponseSchema,
   OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
+  projectOperatorResourceReadPresentation,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
 
@@ -728,7 +729,10 @@ function resourceContentDataUrl(content: OperatorResourceReadContent): string {
 }
 
 function summarizedResourceDataUrl(result: OperatorResourceReadResult): string {
-  return `data:application/json;charset=utf-8;base64,${base64EncodeUtf8(JSON.stringify(result, null, 2))}`;
+  return `data:application/json;charset=utf-8;base64,${base64EncodeUtf8(JSON.stringify({
+    ...result,
+    presentation: projectOperatorResourceReadPresentation(result),
+  }, null, 2))}`;
 }
 
 function base64EncodeUtf8(value: string): string {

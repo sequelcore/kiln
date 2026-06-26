@@ -76,6 +76,16 @@ broader X access, write authority, GUI-local parsing, or compatibility shims.
 
    Status: completed.
 
+7. Shared summary presentation
+   - Add `projectOperatorResourceReadPresentation` to the shared
+     `@kilnai/gateway-contracts` resource inspector contract.
+   - Project summarized reads into deterministic count, facet, metadata, and
+     content rows for terminal and browser presentation.
+   - Wire CLI summarized resource reads and GUI preview data URLs to include
+     the shared presentation projection instead of surface-local parsing.
+
+   Status: completed.
+
 ## Verification
 
 - Passed: `bun run --cwd packages/gateway-contracts test tests/resource-inspector.test.ts`
@@ -98,15 +108,22 @@ broader X access, write authority, GUI-local parsing, or compatibility shims.
   `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts tests/tools/domain/artifact-resource-store.test.ts tests/tools/default-tool-surface.test.ts`
 - Passed:
   `bun run --cwd packages/runtime test tests/managed-agent/resource-provider.test.ts`
+- Passed: `bun run --cwd packages/gateway-contracts test tests/resource-inspector.test.ts`
+- Passed: `bun run --cwd packages/cli test tests/tools-command.test.ts`
+- Passed: `bun run --cwd packages/gui test:run tests/client.test.ts`
+- Passed: `bun run --cwd packages/gateway-contracts test`
+- Passed: `bun run --cwd packages/cli test -- --reporter dot`
+- Passed: `bun run --cwd packages/gui test:run -- --reporter dot`
 - Passed: `bun run --cwd packages/core test -- --reporter dot`
 - Passed: `bun run --cwd packages/runtime test -- --reporter dot`
 - Passed: terminal managed-agent lifecycle regression test for cancelled, stale,
   and recovered summary counts
+- Passed: `bun run typecheck`
+- Passed: `bun run build`
+- Passed: `git diff --check`
 - Passed: touched-file authorization/private-token scan
 
 ## Remaining Work
 
 - Add summary producers for future aggregate resource families when those
   families are introduced.
-- Add richer surface-specific inspector layouts only as presentation on top of
-  `OperatorResourceReadResult.summary`.

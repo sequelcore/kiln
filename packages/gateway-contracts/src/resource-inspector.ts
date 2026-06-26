@@ -59,6 +59,32 @@ export const OperatorResourceReadResultSchema = z.object({
 
 export type OperatorResourceReadResult = z.infer<typeof OperatorResourceReadResultSchema>;
 
+export interface OperatorResourceReadPresentationRow {
+  readonly label: string;
+  readonly value: number;
+}
+
+export interface OperatorResourceReadPresentationList {
+  readonly label: string;
+  readonly values: readonly string[];
+}
+
+export interface OperatorResourceReadPresentationMeta {
+  readonly label: string;
+  readonly value: unknown;
+}
+
+export interface OperatorResourceReadPresentation {
+  readonly uri: string;
+  readonly title: string;
+  readonly total?: OperatorResourceReadPresentationRow;
+  readonly counts: readonly OperatorResourceReadPresentationRow[];
+  readonly facets: readonly OperatorResourceReadPresentationList[];
+  readonly meta: readonly OperatorResourceReadPresentationMeta[];
+  readonly contentCount: number;
+  readonly hasMore: boolean;
+}
+
 export type OperatorResourceProviderReadResult = {
   readonly summary?: OperatorResourceReadSummary;
   readonly contents: readonly (
@@ -92,6 +118,26 @@ export function projectOperatorResourceReadResult(input: {
   });
 }
 
+export function projectOperatorResourceReadPresentation(
+  result: OperatorResourceReadResult,
+): OperatorResourceReadPresentation | undefined {
+  if (!result.summary) {
+    return undefined;
+  }
+  return {
+    uri: result.uri,
+    title: result.summary.kind,
+    ...(result.summary.totalCount !== undefined
+      ? { total: { label: "total", value: result.summary.totalCount } }
+      : {}),
+    counts: sortedEntries(result.summary.counts ?? {}).map(([label, value]) => ({ label, value })),
+    facets: sortedEntries(result.summary.facets ?? {}).map(([label, values]) => ({ label, values })),
+    meta: sortedEntries(result.summary.meta ?? {}).map(([label, value]) => ({ label, value })),
+    contentCount: result.contents.length,
+    hasMore: result.nextCursor !== undefined,
+  };
+}
+
 function projectOperatorResourceContent(
   content: OperatorResourceProviderReadResult["contents"][number],
 ): OperatorResourceReadContent {
@@ -111,4 +157,8 @@ function projectOperatorResourceContent(
     text: content.text,
     ...(content._meta ? { meta: content._meta } : {}),
   };
+}
+
+function sortedEntries<T>(value: Record<string, T>): Array<[string, T]> {
+  return Object.entries(value).sort(([left], [right]) => left.localeCompare(right, "en"));
 }

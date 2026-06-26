@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OperatorResourceReadResultSchema,
+  projectOperatorResourceReadPresentation,
   projectOperatorResourceReadResult,
 } from "../src/resource-inspector.js";
 
@@ -130,6 +131,61 @@ describe("resource inspector contract", () => {
       facets: {
         artifactKinds: ["evidence-report", "feature-intake", "review-report"],
       },
+    });
+  });
+
+  it("projects resource summaries into shared presentation rows", () => {
+    const result = projectOperatorResourceReadResult({
+      uri: "kiln://managed-agents/invocations",
+      readResult: {
+        summary: {
+          kind: "managed-agent-invocations",
+          totalCount: 3,
+          counts: {
+            invocation: 3,
+            completed: 1,
+            cancelled: 1,
+            stale: 1,
+            running: 0,
+          },
+          facets: {
+            agentIds: ["reviewer", "tester"],
+            profiles: ["foundation-apply-approved-writes"],
+          },
+          meta: {
+            limit: 25,
+            includeFiles: true,
+          },
+        },
+        contents: [{
+          uri: "kiln://managed-agents/invocations",
+          mimeType: "application/json",
+          text: "{\"total\":3}",
+        }],
+      },
+    });
+
+    expect(projectOperatorResourceReadPresentation(result)).toEqual({
+      uri: "kiln://managed-agents/invocations",
+      title: "managed-agent-invocations",
+      total: { label: "total", value: 3 },
+      counts: [
+        { label: "cancelled", value: 1 },
+        { label: "completed", value: 1 },
+        { label: "invocation", value: 3 },
+        { label: "running", value: 0 },
+        { label: "stale", value: 1 },
+      ],
+      facets: [
+        { label: "agentIds", values: ["reviewer", "tester"] },
+        { label: "profiles", values: ["foundation-apply-approved-writes"] },
+      ],
+      meta: [
+        { label: "includeFiles", value: true },
+        { label: "limit", value: 25 },
+      ],
+      contentCount: 1,
+      hasMore: false,
     });
   });
 });

@@ -122,7 +122,10 @@ counts in `OperatorResourceReadResult.summary`, and evidence-id reads for
 source-grounded review.
 CLI resource reads and GUI preview data URLs now preserve summarized resources
 as shared `OperatorResourceReadResult` JSON instead of collapsing them to raw
-text.
+text. Summarized reads also project through
+`projectOperatorResourceReadPresentation`, giving terminal and browser
+presentations deterministic rows for counts, facets, metadata, content count,
+and cursor state without owning separate resource models.
 Shared summary producers now cover the implemented aggregate resource
 families: tool catalog, session work items, session goals, workspace trees,
 artifact namespaces, memory graph snapshots, managed-agent invocation indexes,
@@ -133,8 +136,6 @@ Next behavior:
 - target-aware resource open requests on every surface
 - add summary producers for newly introduced aggregate resource families as
   they land
-- richer inspector layouts can render the shared counts and facets without
-  owning separate resource models
 
 Completion gate:
 
