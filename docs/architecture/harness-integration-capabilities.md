@@ -93,6 +93,13 @@ Harness doctor is the read-only installation health view for local harnesses.
 It reports evidence; it does not repair PATH, install packages, uninstall
 aliases, rewrite native files, or select hidden fallback binaries.
 
+Harness health is a shared product capability, not a wrapper-local fallback.
+Each executable surface has one resolved identity, and admission evidence must
+show the command path, version, auth or discovery state, config projection
+state, and model readiness when the selected provider requires explicit model
+proof. Competing aliases are diagnostics unless they change the resolved
+command.
+
 The canonical report includes:
 
 - resolved executable path and version for Kiln, Codex, and OpenCode;
@@ -129,3 +136,8 @@ MCP and hooks are complementary integration mechanisms.
   projection strategy with ownership, drift detection, and removal semantics.
 - GUI, TUI, CLI, MCP, and runtime surfaces consume resolved integration
   capabilities; they do not infer harness behavior independently.
+- No wrapper may silently fall back to another executable after admission.
+- Provider and model readiness must come from shared discovery/status
+  contracts, not surface-local readiness logic.
+- Doctor never mutates PATH, installs or uninstalls packages, rewrites native
+  config, or chooses app-vs-CLI preference outside the health contract.

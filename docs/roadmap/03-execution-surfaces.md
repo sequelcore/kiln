@@ -1,4 +1,4 @@
-# Execution Surfaces Roadmap
+# 03 - Execution Surfaces
 
 Started: 2026-06-25
 
@@ -151,7 +151,7 @@ Docs created or updated:
 - `docs/architecture/operator-workspace.md`
 - `docs/architecture/app-gateway-runtime.md`
 - `docs/architecture/execution-surfaces.md`
-- `docs/roadmap/04-execution-surfaces.md`
+- `docs/roadmap/03-execution-surfaces.md`
 
 Remaining docs:
 

@@ -6,7 +6,7 @@ Status: accepted research basis. The product/architecture direction has been
 promoted into `docs/architecture/execution-surfaces.md`,
 `docs/architecture/operator-workspace.md`,
 `docs/architecture/app-gateway-runtime.md`, and
-`docs/roadmap/04-execution-surfaces.md`. Implementation proceeds in small
+`docs/roadmap/03-execution-surfaces.md`. Implementation proceeds in small
 contract-first slices.
 
 ## Thesis
@@ -654,7 +654,7 @@ Workspace pollution:
 - `docs/architecture/app-gateway-runtime.md`
   Created. App Gateway as app AI runtime, with tenant/app/session/tool/MCP
   ownership.
-- `docs/roadmap/04-execution-surfaces.md`
+- `docs/roadmap/03-execution-surfaces.md`
   Created. Active implementation roadmap for shared home expansion, target
   switcher, resource inspector, and documentation closeout.
 - `docs/guides/operator-workspace.md`
