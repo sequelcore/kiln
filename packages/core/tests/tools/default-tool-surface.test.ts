@@ -379,6 +379,24 @@ describe("default builtin tool surface", () => {
       expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain(
         "kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}",
       );
+      const graph = await surface.resources.read("kiln://memory/graph?query=root&limit=5");
+      expect(graph.summary).toEqual({
+        kind: "memory-graph",
+        totalCount: 1,
+        counts: {
+          node: 1,
+          edge: 0,
+          truncated: 0,
+        },
+        facets: {
+          layers: ["semantic"],
+          scopeKinds: ["project"],
+        },
+        meta: {
+          depth: 0,
+          limit: 5,
+        },
+      });
       await expect(surface.bridge.execute({
         name: "resource_read",
         input: { uri: "kiln://memory/graph?query=root&limit=5" },

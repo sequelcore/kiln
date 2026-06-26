@@ -66,6 +66,16 @@ broader X access, write authority, GUI-local parsing, or compatibility shims.
 
    Status: completed.
 
+6. Cross-family summary producers
+   - Populate `OperatorResourceReadResult.summary` through the owning providers
+     for tool catalog, session work items, session goals, workspace tree,
+     artifact namespace, memory graph, managed-agent invocation, and
+     external-engagement artifact aggregate reads.
+   - Keep summary counts and facets provider-owned so GUI, TUI, CLI, native,
+     SDK, and MCP consumers do not parse local payloads differently.
+
+   Status: completed.
+
 ## Verification
 
 - Passed: `bun run --cwd packages/gateway-contracts test tests/resource-inspector.test.ts`
@@ -84,10 +94,19 @@ broader X access, write authority, GUI-local parsing, or compatibility shims.
 - Passed: `bun run build`
 - Passed: `git diff --check`
 - Passed: touched-file private source and secret leakage scan
+- Passed:
+  `bun run --cwd packages/core test tests/tools/domain/tool-resource-registry.test.ts tests/tools/domain/artifact-resource-store.test.ts tests/tools/default-tool-surface.test.ts`
+- Passed:
+  `bun run --cwd packages/runtime test tests/managed-agent/resource-provider.test.ts`
+- Passed: `bun run --cwd packages/core test -- --reporter dot`
+- Passed: `bun run --cwd packages/runtime test -- --reporter dot`
+- Passed: terminal managed-agent lifecycle regression test for cancelled, stale,
+  and recovered summary counts
+- Passed: touched-file authorization/private-token scan
 
 ## Remaining Work
 
-- Add typed summary producers for other resource families when they need rich
-  operator presentation.
-- Add richer GUI/TUI/native inspector layouts after each resource family has a
-  shared runtime summary producer.
+- Add summary producers for future aggregate resource families when those
+  families are introduced.
+- Add richer surface-specific inspector layouts only as presentation on top of
+  `OperatorResourceReadResult.summary`.

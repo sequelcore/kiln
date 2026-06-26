@@ -15,6 +15,7 @@ import {
   type ToolResourceProvider,
   type ToolResourceReadOptions,
   type ToolResourceReadResult,
+  type ToolResourceReadSummary,
   type ToolResourceTemplateDescriptor,
 } from "../domain/tool-resource-registry.js";
 import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
@@ -292,7 +293,7 @@ export class ArtifactResourceProvider implements ToolResourceProvider {
         namespace,
         relation: "namespace",
         artifactCount: artifacts.length,
-      });
+      }, summarizeArtifactNamespace(namespace, artifacts, this.store));
     }
     if (parsed.path.length === 2) {
       rejectResourceReadCursor(uri, options);
@@ -337,8 +338,14 @@ function contentResource(
   return createTextResourceReadResult(uri, text, artifact.mimeType, options, meta);
 }
 
-function jsonContent(uri: string, value: unknown, meta: Record<string, unknown>): ToolResourceReadResult {
+function jsonContent(
+  uri: string,
+  value: unknown,
+  meta: Record<string, unknown>,
+  summary?: ToolResourceReadSummary,
+): ToolResourceReadResult {
   return {
+    ...(summary ? { summary } : {}),
     contents: [{
       uri,
       mimeType: JSON_MIME_TYPE,
@@ -346,6 +353,34 @@ function jsonContent(uri: string, value: unknown, meta: Record<string, unknown>)
       _meta: meta,
     }],
   };
+}
+
+function summarizeArtifactNamespace(
+  namespace: string,
+  artifacts: readonly ArtifactResourceMetadata[],
+  store: ArtifactResourceStore,
+): ToolResourceReadSummary {
+  const contentTypes = artifacts.map((artifact) => store.get(namespace, artifact.id)?.content.type);
+  const modalities = artifacts.flatMap((artifact) => artifact.multimodal ? [artifact.multimodal.modality] : []);
+  return {
+    kind: "artifacts",
+    totalCount: artifacts.length,
+    counts: {
+      artifact: artifacts.length,
+      json: contentTypes.filter((type) => type === "json").length,
+      text: contentTypes.filter((type) => type === "text").length,
+      blob: contentTypes.filter((type) => type === "blob").length,
+    },
+    facets: {
+      namespaces: [namespace],
+      producerKinds: uniqueSorted(artifacts.map((artifact) => artifact.producer.kind)),
+      modalities: uniqueSorted(modalities),
+    },
+  };
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
 }
 
 function parseArtifactUri(uri: string): { readonly path: readonly string[] } | undefined {

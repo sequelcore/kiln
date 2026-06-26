@@ -53,6 +53,32 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
+    expect(aggregate!.summary).toEqual({
+      kind: "managed-agent-invocations",
+      totalCount: 1,
+      counts: {
+        invocation: 1,
+        completed: 1,
+        failed: 0,
+        timedOut: 0,
+        cancelled: 0,
+        stale: 0,
+        recovered: 0,
+        running: 0,
+        transcript: 1,
+        handoff: 1,
+        sourceResource: 3,
+        resource: 12,
+        diagnostic: 0,
+        writeEvidence: 0,
+      },
+      facets: {
+        agentIds: ["agent-reviewer"],
+        profiles: ["foundation-apply-approved-writes"],
+        adapterKinds: ["harness"],
+        providerIds: ["codex"],
+      },
+    });
     const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
     expect(aggregatePayload.invocations[0]).toMatchObject({
       transcriptUri: canonicalTranscriptUri,
@@ -97,6 +123,31 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(transcript!.contents[0]!.text).toContain("# Managed Invocation Transcript");
     expect(transcript!.contents[0]!.text).toContain("Invocation ID: child-1");
     expect(transcript!.contents[0]!.text).not.toContain("kiln://managed-invocations/");
+  });
+
+  it("does not summarize cancelled stale or recovered invocations as running", async () => {
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [
+          managedInvocationWithLifecycleState("cancelled"),
+          managedInvocationWithLifecycleState("stale"),
+          managedInvocationWithLifecycleState("recovered"),
+        ],
+      },
+    });
+
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+
+    expect(aggregate!.summary?.counts).toMatchObject({
+      invocation: 3,
+      completed: 0,
+      failed: 0,
+      timedOut: 0,
+      cancelled: 1,
+      stale: 1,
+      recovered: 1,
+      running: 0,
+    });
   });
 
   it("serves full child result resources through public managed-agent resource URIs", async () => {
@@ -674,6 +725,28 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
         },
       },
     } as ManagedAgentRuntimeInvocationSnapshot["record"],
+  };
+}
+
+function managedInvocationWithLifecycleState(
+  lifecycleState: "cancelled" | "stale" | "recovered",
+): ManagedAgentRuntimeInvocationSnapshot {
+  const snapshot = managedInvocationSnapshot();
+  return {
+    ...snapshot,
+    invocationId: `child-${lifecycleState}`,
+    lifecycleState,
+    finishedAt: "2026-05-22T00:00:06.000Z",
+    record: {
+      ...snapshot.record!,
+      invocationId: `child-${lifecycleState}`,
+      lifecycleState,
+      resultHandoff: {
+        summary: `Child ${lifecycleState}.`,
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+    },
   };
 }
 

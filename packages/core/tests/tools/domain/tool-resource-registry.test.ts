@@ -143,6 +143,13 @@ describe("ToolResourceRegistry", () => {
 
     const result = await surface.resources.read("kiln://tools/catalog");
 
+    expect(result.summary).toEqual({
+      kind: "tool-catalog",
+      totalCount: 45,
+      counts: {
+        tool: 45,
+      },
+    });
     expect(result.contents).toHaveLength(1);
     expect(result.contents[0]).toMatchObject({
       uri: "kiln://tools/catalog",
@@ -219,6 +226,26 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/work-items/{id}");
 
     const snapshot = await surface.resources.read("kiln://session/work-items");
+    expect(snapshot.summary).toEqual({
+      kind: "session-work-items",
+      totalCount: 1,
+      counts: {
+        workItem: 1,
+        pending: 0,
+        inProgress: 1,
+        paused: 0,
+        completed: 0,
+        blocked: 0,
+        cancelled: 0,
+        executionAttempt: 1,
+        pauseRequirement: 1,
+        missingEvidence: 1,
+      },
+      facets: {
+        workflowProfiles: ["verification-heavy"],
+        goalRunIds: ["goal-1"],
+      },
+    });
     expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
       sequence: started.item.sequence,
       items: [
@@ -293,6 +320,22 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/goals/{id}");
 
     const snapshot = await surface.resources.read("kiln://session/goals");
+    expect(snapshot.summary).toEqual({
+      kind: "session-goals",
+      totalCount: 1,
+      counts: {
+        goal: 1,
+        active: 1,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+        workItem: 1,
+        evidenceRequirement: 1,
+      },
+      facets: {
+        workflowProfiles: ["architecture-change"],
+      },
+    });
     expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
       sequence: goal.sequence,
       goals: [
@@ -313,6 +356,47 @@ describe("ToolResourceRegistry", () => {
         escalationPolicy: "approval_required",
       },
     });
+  });
+
+  it("summarizes workspace tree resources without requiring surface-local parsing", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "docs"), { recursive: true });
+      await writeFile(join(tempDir, "README.md"), "# Project\n", "utf8");
+      await writeFile(join(tempDir, "docs", "plan.md"), "# Plan\n", "utf8");
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      const tree = await surface.resources.read("kiln://workspace/tree?depth=2");
+
+      expect(tree.summary).toEqual({
+        kind: "workspace-tree",
+        totalCount: 3,
+        counts: {
+          entry: 3,
+          directory: 1,
+          file: 2,
+          symlink: 0,
+          other: 0,
+          truncated: 0,
+        },
+        facets: {
+          roots: ["."],
+        },
+        meta: {
+          depth: 2,
+          includeFiles: true,
+        },
+      });
+      expect(JSON.parse(tree.contents[0]!.text)).toMatchObject({
+        root: ".",
+        entryCount: 3,
+        truncated: false,
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
   });
 
   it("exposes effective authority snapshots when a session authority store is attached", async () => {

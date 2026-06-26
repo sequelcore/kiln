@@ -123,17 +123,18 @@ source-grounded review.
 CLI resource reads and GUI preview data URLs now preserve summarized resources
 as shared `OperatorResourceReadResult` JSON instead of collapsing them to raw
 text.
+Shared summary producers now cover the implemented aggregate resource
+families: tool catalog, session work items, session goals, workspace trees,
+artifact namespaces, memory graph snapshots, managed-agent invocation indexes,
+and external-engagement artifact indexes.
 
 Next behavior:
 
 - target-aware resource open requests on every surface
-- shared resource summary producers across additional resource families
-- session work-item and goal resources
-- managed invocation resources
-- transcripts, diagnostics, diffs, source bundles, memory graph resources, and
-  typed summary contracts for additional resource families
-- richer inspector layouts after each resource family has a shared summary
-  producer
+- add summary producers for newly introduced aggregate resource families as
+  they land
+- richer inspector layouts can render the shared counts and facets without
+  owning separate resource models
 
 Completion gate:
 

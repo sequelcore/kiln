@@ -9,6 +9,7 @@ import {
   type ToolResourceProvider,
   type ToolResourceReadOptions,
   type ToolResourceReadResult,
+  type ToolResourceReadSummary,
   type ToolResourceTemplateDescriptor,
 } from "@kilnai/core";
 import type { ManagedAgentRuntimeInvocationSnapshot } from "./index.js";
@@ -129,10 +130,11 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
     }
     rejectResourceReadCursor(uri, options);
     if (!parsed.invocationId) {
+      const invocations = this.sortedInvocations();
       return jsonResource(uri, {
-        total: this.sortedInvocations().length,
-        invocations: this.sortedInvocations().map(projectInvocationSummary),
-      });
+        total: invocations.length,
+        invocations: invocations.map(projectInvocationSummary),
+      }, summarizeManagedInvocations(invocations));
     }
 
     const rawSnapshot = this.sortedRawInvocations().find((candidate) => candidate.invocationId === parsed.invocationId);
@@ -486,14 +488,67 @@ function decodeResourcePath(segments: readonly string[]): string | undefined {
   return decoded.join("/");
 }
 
-function jsonResource(uri: string, value: unknown): ToolResourceReadResult {
+function jsonResource(
+  uri: string,
+  value: unknown,
+  summary?: ToolResourceReadSummary,
+): ToolResourceReadResult {
   return {
+    ...(summary ? { summary } : {}),
     contents: [{
       uri,
       mimeType: JSON_MIME_TYPE,
       text: JSON.stringify(value, null, 2),
     }],
   };
+}
+
+function summarizeManagedInvocations(
+  snapshots: readonly ManagedAgentRuntimeInvocationSnapshot[],
+): ToolResourceReadSummary {
+  return {
+    kind: "managed-agent-invocations",
+    totalCount: snapshots.length,
+    counts: {
+      invocation: snapshots.length,
+      completed: countWhere(snapshots, (snapshot) => snapshot.lifecycleState === "completed"),
+      failed: countWhere(snapshots, (snapshot) => snapshot.lifecycleState === "failed"),
+      timedOut: countWhere(snapshots, (snapshot) => snapshot.lifecycleState === "timed_out"),
+      cancelled: countWhere(snapshots, (snapshot) => snapshot.lifecycleState === "cancelled"),
+      stale: countWhere(snapshots, (snapshot) => snapshot.lifecycleState === "stale"),
+      recovered: countWhere(snapshots, (snapshot) => snapshot.lifecycleState === "recovered"),
+      running: countWhere(snapshots, (snapshot) => !isTerminalLifecycleState(snapshot.lifecycleState)),
+      transcript: countWhere(snapshots, (snapshot) => !!snapshot.record?.transcript),
+      handoff: countWhere(snapshots, (snapshot) => !!snapshot.record?.resultHandoff),
+      sourceResource: sum(snapshots, (snapshot) => sourceResourceUrisForInvocation(snapshot).length),
+      resource: sum(snapshots, (snapshot) => resourceUrisForInvocation(snapshot).length),
+      diagnostic: sum(snapshots, (snapshot) => diagnosticUrisForInvocation(snapshot).length),
+      writeEvidence: sum(snapshots, (snapshot) => writeEvidenceUrisForInvocation(snapshot).length),
+    },
+    facets: {
+      agentIds: uniqueSorted(snapshots.map((snapshot) => snapshot.agentId)),
+      profiles: uniqueSorted(snapshots.map((snapshot) => snapshot.profile)),
+      adapterKinds: uniqueSorted(snapshots.map((snapshot) => snapshot.adapterKind)),
+      providerIds: uniqueSorted(snapshots.map((snapshot) => snapshot.providerRoute.providerId)),
+    },
+  };
+}
+
+function isTerminalLifecycleState(lifecycleState: ManagedAgentRuntimeInvocationSnapshot["lifecycleState"]): boolean {
+  return lifecycleState === "completed"
+    || lifecycleState === "failed"
+    || lifecycleState === "timed_out"
+    || lifecycleState === "cancelled"
+    || lifecycleState === "stale"
+    || lifecycleState === "recovered";
+}
+
+function countWhere<T>(items: readonly T[], predicate: (item: T) => boolean): number {
+  return items.filter(predicate).length;
+}
+
+function sum<T>(items: readonly T[], selector: (item: T) => number): number {
+  return items.reduce((total, item) => total + selector(item), 0);
 }
 
 function textResource(uri: string, mimeType: string, text: string): ToolResourceReadResult {
@@ -513,4 +568,8 @@ function safeResourceName(value: string): string {
 
 function uniqueStrings(values: readonly string[]): readonly string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
 }

@@ -188,6 +188,21 @@ describe("ArtifactResourceProvider", () => {
     const metadata = await provider.read(`kiln://artifacts/plans/${artifact.id}`);
     const content = await provider.read(`kiln://artifacts/plans/${artifact.id}/content`);
 
+    expect(namespace!.summary).toEqual({
+      kind: "artifacts",
+      totalCount: 1,
+      counts: {
+        artifact: 1,
+        json: 0,
+        text: 1,
+        blob: 0,
+      },
+      facets: {
+        namespaces: ["plans"],
+        producerKinds: ["tool"],
+        modalities: [],
+      },
+    });
     expect(JSON.parse(namespace!.contents[0]!.text)).toMatchObject({
       namespace: "plans",
       artifactCount: 1,

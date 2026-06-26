@@ -8,6 +8,7 @@ import {
   type ToolResourceProvider,
   type ToolResourceReadOptions,
   type ToolResourceReadResult,
+  type ToolResourceReadSummary,
   type ToolResourceTemplateDescriptor,
 } from "../domain/tool-resource-registry.js";
 import { inferFileMimeType, looksBinaryFilePath } from "./file-content-helpers.js";
@@ -176,7 +177,7 @@ export class WorkspaceResourceProvider implements ToolResourceProvider {
       entryCount: state.entryCount,
       truncated: state.truncated,
       ignoredDirectories: Array.from(IGNORED_DIRECTORIES),
-    });
+    }, summarizeWorkspaceTree(root.relativePath, depth, includeFiles, state));
   }
 
   private async appendTreeEntries(
@@ -367,8 +368,14 @@ function parseWorkspaceUri(uri: string): ParsedWorkspaceUri | undefined {
   };
 }
 
-function jsonContent(uri: string, value: unknown, meta: Record<string, unknown>): ToolResourceReadResult {
+function jsonContent(
+  uri: string,
+  value: unknown,
+  meta: Record<string, unknown>,
+  summary?: ToolResourceReadSummary,
+): ToolResourceReadResult {
   return {
+    ...(summary ? { summary } : {}),
     contents: [{
       uri,
       mimeType: JSON_MIME_TYPE,
@@ -376,6 +383,37 @@ function jsonContent(uri: string, value: unknown, meta: Record<string, unknown>)
       _meta: meta,
     }],
   };
+}
+
+function summarizeWorkspaceTree(
+  root: string,
+  depth: number,
+  includeFiles: boolean,
+  state: TreeState,
+): ToolResourceReadSummary {
+  return {
+    kind: "workspace-tree",
+    totalCount: state.entryCount,
+    counts: {
+      entry: state.entryCount,
+      directory: countTreeEntries(state.entries, "directory"),
+      file: countTreeEntries(state.entries, "file"),
+      symlink: countTreeEntries(state.entries, "symlink"),
+      other: countTreeEntries(state.entries, "other"),
+      truncated: state.truncated ? 1 : 0,
+    },
+    facets: {
+      roots: [root],
+    },
+    meta: {
+      depth,
+      includeFiles,
+    },
+  };
+}
+
+function countTreeEntries(entries: readonly TreeEntry[], type: TreeEntry["type"]): number {
+  return entries.filter((entry) => entry.type === type).length;
 }
 
 async function readPrefix(path: string, limit: number): Promise<{ readonly buffer: Buffer; readonly truncated: boolean }> {

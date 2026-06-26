@@ -3,6 +3,7 @@ import type {
   ToolResourceDescriptor,
   ToolResourceProvider,
   ToolResourceReadResult,
+  ToolResourceReadSummary,
   ToolResourceTemplateDescriptor,
 } from "../../tools/domain/tool-resource-registry.js";
 import {
@@ -208,7 +209,7 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
         ...(query ? { query } : {}),
         depth,
       },
-    });
+    }, summarizeMemoryGraph(boundedSnapshot, depth, limit));
   }
 
   private readNode(parsed: ParsedMemoryUri, recordId: string): ToolResourceReadResult {
@@ -533,7 +534,7 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
     };
   }
 
-  private json(uri: string, value: unknown): ToolResourceReadResult {
+  private json(uri: string, value: unknown, summary?: ToolResourceReadSummary): ToolResourceReadResult {
     const text = JSON.stringify(value, null, 2);
     if (Buffer.byteLength(text, "utf8") > this.maxPayloadBytes) {
       throw memoryResourceError("Memory resource payload exceeds configured byte limit", {
@@ -542,6 +543,7 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
       });
     }
     return {
+      ...(summary ? { summary } : {}),
       contents: [{
         uri,
         mimeType: JSON_MIME_TYPE,
@@ -549,6 +551,30 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
       }],
     };
   }
+}
+
+function summarizeMemoryGraph(
+  snapshot: ReturnType<MemoryGraphProjector["project"]>,
+  depth: number,
+  limit: number,
+): ToolResourceReadSummary {
+  return {
+    kind: "memory-graph",
+    totalCount: snapshot.nodes.length,
+    counts: {
+      node: snapshot.nodes.length,
+      edge: snapshot.edges.length,
+      truncated: snapshot.truncated ? 1 : 0,
+    },
+    facets: {
+      layers: uniqueSorted(snapshot.nodes.map((node) => node.layer)),
+      scopeKinds: uniqueSorted(snapshot.nodes.map((node) => node.scope.kind)),
+    },
+    meta: {
+      depth,
+      limit,
+    },
+  };
 }
 
 function parseMemoryUri(uri: string): ParsedMemoryUri | undefined {
@@ -685,6 +711,10 @@ function compareByCreatedAtThenIdDesc(left: { readonly createdAt: string; readon
 
 function scopeEquals(left: MemoryScope, right: MemoryScope): boolean {
   return left.kind === right.kind && left.id === right.id;
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
 }
 
 function memoryResourceError(message: string, context: Record<string, unknown>): KilnError {

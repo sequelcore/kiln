@@ -273,6 +273,20 @@ session, provider route, approval state, changed-file events, or working tree.
 Editing, save semantics, structured diff viewing, and provider tool invocation
 remain outside this read-only workspace slice.
 
+## Resource Reads
+
+GUI resource previews read through the shared `OperatorResourceReadResult`
+contract. When a resource result includes `summary`, the GUI preserves the
+whole read result as JSON in the preview data URL so browser presentation does
+not drop provider-owned counts or facets.
+
+Current summarized aggregate reads include the tool catalog, session work
+items, session goals, workspace trees, artifact namespaces, memory graph
+snapshots, managed-agent invocation indexes, and external-engagement artifact
+indexes. GUI-specific inspector layouts may render these summaries more richly,
+but they must consume the shared summary contract instead of reparsing payload
+text.
+
 ## Commands and Composer
 
 `Ctrl+K` or `Cmd+K` opens the global command palette as a centered dialog.

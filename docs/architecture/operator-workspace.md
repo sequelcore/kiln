@@ -142,6 +142,16 @@ projects aggregate evidence, signal, candidate, review, decision, and proposal
 counts through `OperatorResourceReadResult.summary`. This keeps source-grounded
 review on the shared resource plane instead of requiring GUI, TUI, CLI, native,
 or SDK consumers to parse local files through surface-owned models.
+
+The same summary contract is populated by the current aggregate resource
+families: tool catalog, session work items, session goals, workspace trees,
+artifact namespaces, memory graph snapshots, managed-agent invocation indexes,
+and external-engagement artifact indexes. Summary counts and facets are
+derived at the owning provider/registry boundary before any surface-specific
+presentation runs. Managed-agent invocation summaries include terminal
+lifecycle counters so cancelled, stale, and recovered child invocations are not
+presented as running work.
+
 CLI resource reads and GUI resource preview data URLs preserve summarized reads
 as `OperatorResourceReadResult` JSON so terminal and browser presentations do
 not drop the typed counts and facets.
