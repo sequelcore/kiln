@@ -111,7 +111,7 @@ describe("createEmailWebhookRoutes", () => {
         toolAuthority: mockedToolAuthority,
         toolAllowlist: undefined,
         rateLimiter: undefined,
-        maxToolRounds: undefined,
+        executionEnvelope: undefined,
       },
       isHandoff: false,
     });

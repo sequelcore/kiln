@@ -39,13 +39,26 @@ Use this skill when a task asks for project context adoption, repo instruction
 generation, or review of generated AGENTS.md / CLAUDE.md shims.
 
 Workflow:
-1. Inspect deterministic repository evidence before accepting generated context.
-2. Compare .kiln/project-context.md against package metadata, scripts, workspace layout, and canonical docs.
+1. Inspect deterministic repository evidence before accepting generated context:
+   - kiln project scout --json
+   - package.json
+   - canonical docs listed by the scout output
+2. Compare .kiln/project-context.md against that evidence, including package metadata, scripts, workspace layout, and canonical docs.
 3. Report only durable repo facts. Do not encode personal workflow preferences as project facts.
 4. Recommend concrete changes to .kiln/project-context.md when evidence is missing or misleading.
-5. Do not edit generated repo shims directly. They are projections from canonical Kiln config.
+5. Do not edit generated AGENTS.md or CLAUDE.md shims directly. They are projections from canonical Kiln config.
 
-Output status: valid, needs_changes, or blocked.
+Review Criteria:
+- Project name, package manager, scripts, workspaces, and canonical docs match the repository.
+- Guidance points to canonical architecture/docs instead of duplicating them.
+- No local absolute paths, secrets, machine-specific state, or legacy provider instructions are introduced.
+- Any proposed addition is backed by a file path, script, or architecture doc.
+
+Output:
+- status: valid, needs_changes, or blocked.
+- evidence: concise file/script references.
+- recommendedChanges: concrete edits for .kiln/project-context.md.
+- projectionImpact: whether kiln sync --repo-shims should be rerun.
 `,
   }),
   defineBuiltinSkill({

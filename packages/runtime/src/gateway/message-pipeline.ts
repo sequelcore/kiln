@@ -43,6 +43,11 @@ import type {
   ToolExecutionSummary,
 } from "../session/runtime-session-orchestrator.js";
 import {
+  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
+  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
+  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
+} from "../session/runtime-session-orchestrator.types.js";
+import {
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
   projectEffectiveTurnAuthorityPerCallConfig,
@@ -105,12 +110,24 @@ function deriveCanonicalTurnOutcome(input: {
   readonly runtimeEvents: readonly RuntimePipelineLedgerEvent[];
   readonly surfaceToolCompletions?: readonly RuntimeTurnToolCompletion[];
   readonly toolExecutions?: readonly ToolExecutionSummary[];
+  readonly stopReason?: string;
 }): SessionTurnOutcome | undefined {
+  if (input.stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON) {
+    return "paused";
+  }
+  if (isFailedRuntimeStopReason(input.stopReason)) {
+    return "failed";
+  }
   return deriveGovernedTurnOutcome({
     runtimeToolResults: input.runtimeEvents.filter((event): event is ToolResultEvent => event.type === "tool_result"),
     surfaceToolCompletions: input.surfaceToolCompletions,
     toolExecutions: input.toolExecutions,
   });
+}
+
+function isFailedRuntimeStopReason(stopReason: string | undefined): boolean {
+  return stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
+    || stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
 }
 
 function sanitizeAssistantEgressParts(parts: readonly ContentPart[]): readonly ContentPart[] {
@@ -1683,6 +1700,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       rateLimiter: tenantToolCtx.rateLimiter,
       additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
       perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
+      ...(tenantToolCtx.executionEnvelope ? { executionEnvelope: tenantToolCtx.executionEnvelope } : {}),
     };
 
     session.setSystemPrompt(agentCtx.systemPrompt);
@@ -2213,6 +2231,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       runtimeEvents: capturedRuntimeEvents,
       surfaceToolCompletions: externalTurnCapture?.toolCompletions,
       toolExecutions: result.toolExecutions,
+      stopReason: result.stopReason,
     }),
     turnStartedAt,
     turnCompletedAt: new Date(),

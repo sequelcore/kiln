@@ -11,6 +11,7 @@ import {
 import {
   createAttachedRuntimeBuiltinToolSurface,
   ManagedDirectProviderRuntimeAdapter,
+  type RuntimeExecutionEnvelope,
   type ManagedAgentRuntimeAdapter,
 } from "@kilnai/runtime";
 import type { KilnManagedAgentRouteConfig } from "../kiln-yaml-types.js";
@@ -23,6 +24,7 @@ type EnvMap = Readonly<Record<string, string | undefined>>;
 type BuiltinToolOptionsSource =
   | DefaultBuiltinToolRegistryOptions
   | (() => DefaultBuiltinToolRegistryOptions | undefined);
+type ExecutionEnvelopeSource = RuntimeExecutionEnvelope | (() => RuntimeExecutionEnvelope | undefined);
 const WRITE_PROFILES = new Set([
   "foundation-propose-writes",
   "foundation-apply-approved-writes",
@@ -42,6 +44,7 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
   readonly configEnv?: EnvMap;
   readonly runtimeEnv?: EnvMap;
   readonly processEnv?: EnvMap;
+  readonly executionEnvelope?: ExecutionEnvelopeSource;
   readonly createProviderAdapter?: (options: DirectProviderAdapterOptions) => Promise<ProviderAdapter>;
 }
 
@@ -76,6 +79,7 @@ export function createManagedDirectProviderAdapterFactory(
       processEnv: options.processEnv,
     });
     const builtinToolSurface = resolveBuiltinToolSurface();
+    const executionEnvelope = resolveExecutionEnvelope(options.executionEnvelope);
 
     return new ManagedDirectProviderRuntimeAdapter({
       providerId: provider,
@@ -86,9 +90,14 @@ export function createManagedDirectProviderAdapterFactory(
       builtinToolsProvider: () => resolveBuiltinToolSurface().callBuiltinTools,
       capabilityMap: builtinToolSurface.capabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
+      ...(executionEnvelope ? { executionEnvelope } : {}),
       ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
+}
+
+function resolveExecutionEnvelope(source: ExecutionEnvelopeSource | undefined): RuntimeExecutionEnvelope | undefined {
+  return typeof source === "function" ? source() : source;
 }
 
 function resolveBuiltinToolOptions(

@@ -192,6 +192,8 @@ export interface GuiProviderAuthFailed {
   readonly message: string;
 }
 
+export type GuiSessionTurnOutcome = "completed" | "failed" | "cancelled" | "paused";
+
 export interface GuiSessionSummary {
   readonly id: string;
   readonly title?: string;
@@ -199,7 +201,7 @@ export interface GuiSessionSummary {
   readonly tags?: readonly string[];
   readonly providersUsed: readonly string[];
   readonly lastProvider?: string;
-  readonly lastTurnOutcome?: "completed" | "failed" | "cancelled";
+  readonly lastTurnOutcome?: GuiSessionTurnOutcome;
   readonly completedAt: string;
   readonly cost: number;
   readonly taskSummary: string;
@@ -283,7 +285,7 @@ export interface GuiSessionMeta {
   readonly task: string;
   readonly startedAt: string;
   readonly completedAt?: string;
-  readonly lastTurnOutcome?: "completed" | "failed" | "cancelled";
+  readonly lastTurnOutcome?: GuiSessionTurnOutcome;
   readonly costUsd?: number;
   readonly toolCount?: number;
   readonly turnDepth?: number;

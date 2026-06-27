@@ -371,6 +371,31 @@ Authority behavior differs by surface:
 - dangerous command detection
 - command and path safety checks
 
+## Tool-Round Budget
+
+Interactive operator sessions do not have a default or implicit tool-round
+cap. GUI, TUI, and interactive CLI turns continue until semantic final
+response, cancellation,
+approval pause, safety block, provider unrecoverable error, or runtime
+guardrails such as context, cost, timeout, or no-progress circuit breakers.
+
+Bounded workflows use an explicit runtime execution envelope:
+`executionEnvelope.toolRounds.max`. Runtime validates this boundary as a
+positive integer. Benchmark execution, unattended tenant tool sessions, and
+managed direct-provider children may opt into bounded envelopes when that
+workflow needs a finite replayable budget. Surfaces configure intent; runtime
+owns the execution policy.
+
+Exhaustion triggers one no-tool finalization request so the transcript retains
+an actionable explanation, but it does not convert unfinished work into
+success. `tool_round_budget_exhausted` records a paused canonical turn so an
+operator can continue from the transcript and tool evidence. Failed finalization
+(`no_tool_finalization_failed`) and required managed state transitions
+(`managed_invocation_state_transition_required`) remain failed outcomes.
+Direct-provider children that exhaust their bounded envelope still terminate as
+`failed` because they cannot produce a successful governed handoff; their
+transcript, tool execution, and write evidence remain replayable.
+
 ## Timeout Contract
 
 Tool-specific timeout inputs stay owned by the tool that executes the work. The

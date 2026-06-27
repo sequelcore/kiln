@@ -34,6 +34,7 @@ import {
   type OrchestrateResult,
   type PerCallToolConfig,
   type RuntimeBudgetAdmissionPort,
+  type RuntimeExecutionEnvelope,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type {
@@ -67,6 +68,7 @@ export interface ProviderSessionConfig {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -596,6 +598,7 @@ export class ProviderSession implements IKilnSession {
       capabilityMap: this.capabilityMap,
       dangerousCommandDetector: undefined,
       ...(this.config.budgetAdmission ? { budgetAdmission: this.config.budgetAdmission } : {}),
+      ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),
     });
 
     if (options.messages && options.messages.length > 0) {

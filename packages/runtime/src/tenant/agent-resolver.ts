@@ -301,7 +301,7 @@ function buildAgentToolContext(
       integrationAuthorityRollup: fullCtx.integrationAuthorityRollup,
       toolAllowlist: new Set<string>(),
       rateLimiter: fullCtx.rateLimiter,
-      maxToolRounds: fullCtx.maxToolRounds,
+      executionEnvelope: fullCtx.executionEnvelope,
     };
   }
 
@@ -334,6 +334,6 @@ function buildAgentToolContext(
     integrationAuthorityRollup: fullCtx.integrationAuthorityRollup,
     toolAllowlist: intersectedAllowlist,
     rateLimiter: fullCtx.rateLimiter,
-    maxToolRounds: fullCtx.maxToolRounds,
+    executionEnvelope: fullCtx.executionEnvelope,
   };
 }

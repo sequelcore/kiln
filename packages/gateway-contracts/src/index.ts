@@ -99,6 +99,7 @@ export type {
   GuiProviderAuthDeviceCodeStarted,
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,
+  GuiSessionTurnOutcome,
   GuiSessionSummary,
   GuiSessionListResponse,
   GuiTelemetrySnapshot,

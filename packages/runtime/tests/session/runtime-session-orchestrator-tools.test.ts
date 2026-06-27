@@ -377,7 +377,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 6,
+      executionEnvelope: { toolRounds: { max: 6 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -496,7 +496,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 5,
+      executionEnvelope: { toolRounds: { max: 5 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -562,7 +562,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       ],
       builtinTools: new Map([["managed_agent.invoke", managedInvoke]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 2,
+      executionEnvelope: { toolRounds: { max: 2 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -714,7 +714,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus,
-      maxToolRounds: 3,
+      executionEnvelope: { toolRounds: { max: 3 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -835,7 +835,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -956,7 +956,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1083,7 +1083,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1130,7 +1130,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       ],
       builtinTools: new Map([["managed_agent.invoke", managedInvoke]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1229,7 +1229,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1346,7 +1346,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 2,
+      executionEnvelope: { toolRounds: { max: 2 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve two GUI areas"));
@@ -1477,7 +1477,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 6,
+      executionEnvelope: { toolRounds: { max: 6 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1519,7 +1519,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
       builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
@@ -1564,17 +1564,63 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
       builtinTools: new Map([["get_data", readTool]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
 
     expect(provider.createMessage).toHaveBeenCalledTimes(2);
     expect(readTool).toHaveBeenCalledTimes(1);
-    expect(result.stopReason).toBe("tool_rounds_exhausted");
+    expect(result.stopReason).toBe("tool_round_budget_exhausted");
     expect(result.parts).toEqual(textParts(
       "Tool round budget exhausted after 1 tool round. The bounded finalization pass did not produce a final answer without tools. Inspect the transcript and child execution evidence before recording governed evidence.",
     ));
+  });
+
+  it("does not impose a default low tool-round budget on interactive sessions", async () => {
+    const productiveToolRounds = 35;
+    let providerCallCount = 0;
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn().mockImplementation(() => {
+        providerCallCount += 1;
+        if (providerCallCount <= productiveToolRounds) {
+          return {
+            parts: textParts(`round ${providerCallCount}`),
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{ id: `tc-${providerCallCount}`, name: "get_data", input: { round: providerCallCount } }],
+            stopReason: "tool_use",
+          };
+        }
+        return {
+          parts: textParts("completed after many productive tool rounds"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        };
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const getData = vi.fn().mockResolvedValue("round result");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+      builtinTools: new Map([["get_data", getData]]),
+      eventBus: new EventBus(100),
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("keep working"));
+
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.parts).toEqual(textParts("completed after many productive tool rounds"));
+    expect(provider.createMessage).toHaveBeenCalledTimes(productiveToolRounds + 1);
+    expect(getData).toHaveBeenCalledTimes(productiveToolRounds);
   });
 
   describe("authorization", () => {

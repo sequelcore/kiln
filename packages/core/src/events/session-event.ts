@@ -134,7 +134,7 @@ export interface SessionToolStatus {
 }
 
 export type SessionContinuityDecision = "continue" | "handoff" | "fork" | "close";
-export type SessionTurnOutcome = "completed" | "failed" | "cancelled";
+export type SessionTurnOutcome = "completed" | "failed" | "cancelled" | "paused";
 export type SessionExecutionMode = "execute" | "plan";
 
 export interface CanonicalTurnStartedEvent extends SessionEventEnvelope<"turn_started"> {

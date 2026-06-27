@@ -20,6 +20,7 @@ import {
   rollupIntegrationAuthority,
   type ToolAuthorityClassification,
 } from "./tool-authority.js";
+import type { RuntimeExecutionEnvelope } from "../session/runtime-session-orchestrator.types.js";
 
 export interface TenantToolContext {
   readonly callBuiltinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
@@ -30,7 +31,7 @@ export interface TenantToolContext {
   readonly integrationAuthorityRollup: ReadonlyMap<string, ToolAuthorityClassification | "unknown">;
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
-  readonly maxToolRounds?: number;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }
 
 export interface IntegrationDeps {
@@ -166,8 +167,8 @@ export function buildTenantToolContext(
     rateLimiter = new SlidingWindowRateLimiter(tenant.toolConfig.rateLimits);
   }
 
-  // 6. Max tool rounds
-  const maxToolRounds = tenant.toolConfig?.maxIterationsPerSession;
+  const maxToolRoundCount = tenant.toolConfig?.maxIterationsPerSession;
+  const executionEnvelope = maxToolRoundCount ? { toolRounds: { max: maxToolRoundCount } } : undefined;
 
   return {
     callBuiltinTools,
@@ -178,7 +179,7 @@ export function buildTenantToolContext(
     integrationAuthorityRollup,
     toolAllowlist,
     rateLimiter,
-    maxToolRounds,
+    executionEnvelope,
   };
 }
 

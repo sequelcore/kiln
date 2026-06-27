@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
+import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 
 const benchmarkExecutorMocks = vi.hoisted(() => ({
   cleanupWorktree: vi.fn(),
@@ -272,6 +273,12 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(result.output).toBe("Only one sentence.");
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       output: expect.objectContaining({ mode: "answer" }),
+      sessionConfig: expect.objectContaining({
+        executionEnvelope: { toolRounds: { max: 32 } },
+      }),
+    }));
+    expect(createManagedDirectProviderAdapterFactory).toHaveBeenCalledWith(expect.objectContaining({
+      executionEnvelope: { toolRounds: { max: 32 } },
     }));
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();

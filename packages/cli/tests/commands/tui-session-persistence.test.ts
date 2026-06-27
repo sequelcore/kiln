@@ -14,6 +14,7 @@ const {
   mockResolveGuiProviderSwitch,
   mockCreateProviderCatalogService,
   mockDeriveGovernedTurnOutcomeFromToolRecords,
+  mockGlobalConfig,
 } = vi.hoisted(() => ({
   mockGatewaySessionCtor: vi.fn(),
   mockWaitForGateway: vi.fn(),
@@ -122,6 +123,9 @@ const {
       ? "failed"
       : undefined
   )),
+  mockGlobalConfig: {
+    value: null as { ui?: { theme?: string } } | null,
+  },
 }));
 
 vi.mock("@kilnai/tui", () => ({
@@ -235,7 +239,7 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
   },
 }));
 vi.mock("../../src/config/global-config.js", () => ({
-  readGlobalConfig: vi.fn(() => null),
+  readGlobalConfig: vi.fn(() => mockGlobalConfig.value),
   resolveGlobalDefaultProvider: () => undefined,
   resolveGlobalDefaultModel: () => undefined,
   resolveGlobalUiTheme: () => undefined,
@@ -353,6 +357,7 @@ describe("makeMultiProviderSessionFactory", () => {
     mockWaitForGateway.mockResolvedValue(undefined);
     mockGetProjectContextArtifactCache.mockResolvedValue(new InMemoryContextArtifactCache());
     mockSessionManagerPrepare.mockRejectedValue(new Error("missing gateway config"));
+    mockGlobalConfig.value = null;
     mockStartTuiGateway.mockResolvedValue({
       port: 4801,
       url: "ws://localhost:4801/ws",
@@ -502,6 +507,17 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(registry.createSession).toHaveBeenCalledWith(
       "claude",
       expect.objectContaining({ budgetAdmission }),
+    );
+  });
+
+  it("does not pass a default tool-round budget into the interactive TUI gateway", async () => {
+    await tuiCommand(APP_CONFIG as never, {
+      cwd: "/p",
+      provider: "claude",
+    });
+
+    expect(mockStartTuiGateway).toHaveBeenCalledWith(
+      expect.not.objectContaining({ maxToolRounds: expect.anything() }),
     );
   });
 

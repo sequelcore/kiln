@@ -27,12 +27,13 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
   OrchestrateResult,
+  RuntimeExecutionEnvelope,
   ToolExecutionSummary,
 } from "../../session/runtime-session-orchestrator.types.js";
 import {
   RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
   RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-  RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON,
+  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
 } from "../../session/runtime-session-orchestrator.types.js";
 import type {
   ManagedAgentRuntimeAdapter,
@@ -57,10 +58,11 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
-  readonly maxToolRounds?: number;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }
 
 const TIMEOUT = { type: "managed-direct-runtime-timeout" } as const;
+const MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE: RuntimeExecutionEnvelope = { toolRounds: { max: 32 } };
 const RESULT_SUMMARY_LIMIT = 2000;
 const CHILD_EXECUTION_RESOURCE_LIMIT = 12000;
 const TOOL_OUTPUT_LIMIT = 1200;
@@ -77,7 +79,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   private readonly builtinToolsProvider: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   private readonly capabilityMap?: ReadonlyMap<string, Capability>;
   private readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
-  private readonly maxToolRounds?: number;
+  private readonly executionEnvelope: RuntimeExecutionEnvelope;
 
   constructor(config: ManagedDirectProviderRuntimeAdapterConfig) {
     this.providerId = requireText(config.providerId, "Managed direct provider id is required");
@@ -88,7 +90,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.builtinToolsProvider = config.builtinToolsProvider ?? (() => this.builtinTools);
     this.capabilityMap = config.capabilityMap;
     this.toolAuthority = config.toolAuthority;
-    this.maxToolRounds = config.maxToolRounds;
+    this.executionEnvelope = config.executionEnvelope ?? MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE;
     const writeAuthority = config.writeAuthority !== undefined
       ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
       : undefined;
@@ -215,7 +217,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const deps: OrchestratorDeps = {
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
-        maxToolRounds: this.maxToolRounds,
+        executionEnvelope: this.executionEnvelope,
         tools,
         builtinTools,
         ...(capabilityMap ? { capabilityMap } : {}),
@@ -526,7 +528,7 @@ function clipSummary(summary: string, resultResourceUri?: string, stopReason?: s
 
 function isNoHandoffStopReason(stopReason: string | undefined): boolean {
   return stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
-    || stopReason === RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON;
+    || stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON;
 }
 
 function lifecycleStateForDirectChildStopReason(stopReason: string | undefined): "completed" | "failed" {
@@ -534,7 +536,8 @@ function lifecycleStateForDirectChildStopReason(stopReason: string | undefined):
 }
 
 function isFailedDirectChildStopReason(stopReason: string | undefined): boolean {
-  return stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
+  return isNoHandoffStopReason(stopReason)
+    || stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
 }
 
 function resultReplayResource(invocationId: string, text: string): ManagedAgentReplayResource | undefined {

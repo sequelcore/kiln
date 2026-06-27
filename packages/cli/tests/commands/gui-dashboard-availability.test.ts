@@ -8,6 +8,7 @@ const gatewayHarness = vi.hoisted(() => ({
   snapshot: null as {
     providers?: Array<{ id: string; available: boolean }>;
     operatorWorkspaceHome?: {
+      sessions?: Array<{ sessionId: string; instanceId: string }>;
       configHealth?: {
         status: string;
         issueCount: number;
@@ -17,12 +18,13 @@ const gatewayHarness = vi.hoisted(() => ({
     workingDirectory?: string;
   } | null,
   operatorModels: {} as Record<string, string[]>,
-  lastOptions: null as { builtinToolOptions?: unknown } | null,
+  lastOptions: null as { builtinToolOptions?: unknown; operatorTransport?: Record<string, unknown>; workingDirectory?: string } | null,
   shutdown: vi.fn(),
   closeWindow: vi.fn(),
   startGuiGateway: vi.fn(async (options: {
     getSnapshot: (context?: { operatorModels?: Record<string, string[]> }) => Promise<unknown>;
     builtinToolOptions?: unknown;
+    operatorTransport?: Record<string, unknown>;
     workingDirectory?: string;
   }) => {
     gatewayHarness.lastOptions = options;
@@ -31,6 +33,7 @@ const gatewayHarness = vi.hoisted(() => ({
     }) as {
       providers?: Array<{ id: string; available: boolean }>;
       operatorWorkspaceHome?: {
+        sessions?: Array<{ sessionId: string; instanceId: string }>;
         configHealth?: {
           status: string;
           issueCount: number;
@@ -134,6 +137,26 @@ const managedProviderModelMocks = vi.hoisted(() => ({
     codex: ["gpt-5.3-codex-spark"],
     opencode: ["opencode/minimax-m2.5-free"],
   })),
+}));
+
+const guiSessionMocks = vi.hoisted(() => ({
+  summaries: [] as Array<{
+    id: string;
+    completedAt: string;
+    title?: string;
+    taskSummary?: string;
+  }>,
+  detail: null as {
+    events: Array<{
+      eventId: string;
+      kilnSessionId: string;
+      sequence: number;
+      timestamp: string;
+      kind: "turn_started";
+      payload: Record<string, unknown>;
+    }>;
+  } | null,
+  loadSessionDetail: vi.fn(async () => guiSessionMocks.detail),
 }));
 
 vi.mock("@kilnai/runtime", () => ({
@@ -278,8 +301,12 @@ vi.mock("../../src/commands/gui-window.js", () => ({
 }));
 
 vi.mock("../../src/commands/gui-session-summaries.js", () => ({
-  loadSessionSummaries: vi.fn().mockResolvedValue([]),
+  loadSessionSummaries: vi.fn(async () => guiSessionMocks.summaries),
   toProviderLabel: vi.fn((providerId: string) => providerId.toUpperCase()),
+}));
+
+vi.mock("../../src/commands/gui-session-detail.js", () => ({
+  loadSessionDetail: guiSessionMocks.loadSessionDetail,
 }));
 
 vi.mock("../../src/wrapper/session-manager.js", () => ({
@@ -311,6 +338,9 @@ describe("GUI dashboard provider availability", () => {
     gatewayHarness.operatorModels = {};
     gatewayHarness.lastOptions = null;
     configMocks.globalConfig = null;
+    guiSessionMocks.summaries = [];
+    guiSessionMocks.detail = null;
+    guiSessionMocks.loadSessionDetail.mockClear();
     managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue({
       codex: ["gpt-5.3-codex-spark"],
       opencode: ["opencode/minimax-m2.5-free"],
@@ -422,6 +452,62 @@ describe("GUI dashboard provider availability", () => {
         }),
       ]),
     });
+  });
+
+  it("does not pass a default tool-round budget into the interactive GUI operator transport", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.startGuiGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorTransport: expect.not.objectContaining({ maxToolRounds: expect.anything() }),
+      }),
+    );
+  });
+
+  it("scopes local GUI transcript events to the local cockpit target before projection", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+    guiSessionMocks.summaries = [{
+      id: "kiln-gui:_gui:user:session",
+      completedAt: "2026-06-27T11:23:00.000Z",
+      title: "GUI live test",
+    }];
+    guiSessionMocks.detail = {
+      events: [{
+        eventId: "event-without-instance",
+        kilnSessionId: "kiln-gui:_gui:user:session",
+        sequence: 1,
+        timestamp: "2026-06-27T11:23:00.000Z",
+        kind: "turn_started",
+        payload: {
+          instanceId: "stale-remote-instance",
+          sessionId: "kiln-gui:_gui:user:session",
+          title: "GUI live test",
+        },
+      }],
+    };
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.snapshot?.operatorWorkspaceHome).toBeTruthy();
+    expect(gatewayHarness.snapshot?.operatorWorkspaceHome?.sessions).toContainEqual(
+      expect.objectContaining({
+        sessionId: "kiln-gui:_gui:user:session",
+        instanceId: "local-gui",
+      }),
+    );
+    expect(guiSessionMocks.loadSessionDetail).toHaveBeenCalledWith(expect.anything(), "kiln-gui:_gui:user:session");
   });
 
   afterEach(() => {

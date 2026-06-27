@@ -1059,7 +1059,10 @@ export async function runCommand(
     surface: "run",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     providerModels: managedAgentProviderModels,
-    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions, runtimeEnv: env }),
+    directAdapterFactory: createManagedDirectProviderAdapterFactory({
+      builtinToolOptions: () => builtinToolOptions,
+      runtimeEnv: env,
+    }),
     builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,
   });

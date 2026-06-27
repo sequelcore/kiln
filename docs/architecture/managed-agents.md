@@ -327,6 +327,9 @@ Parent turns that contain terminal managed-child failures are recorded as failed
 from either runtime ledger events or canonical tool-execution summaries, so GUI,
 TUI, CLI, and replay consumers cannot report a blocked delegation as a completed
 turn just because the failure was captured through a different surface.
+Direct-provider children that exhaust their tool-round budget or fail their
+bounded no-tool finalization are terminal failures, not successful empty
+handoffs. Their transcript and child-execution resources remain replayable.
 An explicit `managed_agent.cancel` call is different from a failed child
 handoff: when cancellation reaches the canonical `cancelled` lifecycle and
 terminal evidence is recorded, the cancel control result is accepted even

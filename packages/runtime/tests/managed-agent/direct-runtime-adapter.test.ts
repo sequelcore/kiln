@@ -369,7 +369,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       provider,
       tools: [READ_TOOL],
       builtinTools: new Map([["read", readTool]]),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
@@ -378,11 +378,11 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     if (result.status !== "completed") {
       throw new Error("expected completed");
     }
-    expect(result.record.lifecycleState).toBe("completed");
+    expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff?.summary).toContain("finished without final handoff text");
     expect(result.record.resultHandoff?.summary).toContain("Tool round budget exhausted after 1 tool round.");
     expect(result.record.diagnostics).toBeUndefined();
-    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: tool_rounds_exhausted");
+    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: tool_round_budget_exhausted");
     expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 1");
     expect(readTool).toHaveBeenCalledTimes(1);
   });

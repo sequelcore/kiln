@@ -21,6 +21,7 @@ import {
   type ManagedInvocationToolOptions,
   type OperatorSurfaceController,
   type RuntimeBudgetAdmissionPort,
+  type RuntimeExecutionEnvelope,
 } from "@kilnai/runtime";
 import { ClaudeSession } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
@@ -165,6 +166,7 @@ export interface ProviderCreateConfig {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }
 
 export interface ClaudeBackendConfig {
@@ -1005,6 +1007,7 @@ function createDirectProviderSession(
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
     ...(config.budgetAdmission ? { budgetAdmission: config.budgetAdmission } : {}),
+    ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),
   });
 }
 

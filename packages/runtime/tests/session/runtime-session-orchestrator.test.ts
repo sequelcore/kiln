@@ -51,6 +51,24 @@ describe("RuntimeSessionOrchestrator", () => {
       const orchestrator = new RuntimeSessionOrchestrator({ provider });
       expect(orchestrator).toBeDefined();
     });
+
+    it("rejects invalid explicit tool-round envelopes at the runtime boundary", () => {
+      const provider = makeProvider();
+
+      expect(() =>
+        new RuntimeSessionOrchestrator({
+          provider,
+          executionEnvelope: { toolRounds: { max: 0 } },
+        })
+      ).toThrow("executionEnvelope.toolRounds.max must be a positive integer");
+
+      expect(() =>
+        new RuntimeSessionOrchestrator({
+          provider,
+          executionEnvelope: { toolRounds: { max: 1.5 } },
+        })
+      ).toThrow("executionEnvelope.toolRounds.max must be a positive integer");
+    });
   });
 
   describe("processMessage", () => {

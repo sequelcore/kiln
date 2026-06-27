@@ -46,6 +46,7 @@ import { createNonHumanRunOutputSink } from "./run-output.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 
 const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
+const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 32 } } as const;
 
 export interface BenchmarkSessionExecutorFlags {
   readonly provider?: string;
@@ -139,7 +140,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       surface: "run",
       isProviderAvailable: (providerId) => engineAvailability.get(providerId),
       providerModels: managedAgentProviderModels,
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions, runtimeEnv: env }),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({
+        builtinToolOptions: () => builtinToolOptions,
+        runtimeEnv: env,
+        executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+      }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     });
@@ -164,6 +169,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       skipGitRepoCheck: options.flags?.skipGitRepoCheck,
       builtinToolOptions,
       managedInvocation: managedInvocationWithService,
+      executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
       model: effectiveModel,
     };
     const sessionHooks = new SessionHooks(options.appConfig.kilnYaml?.hooks, {

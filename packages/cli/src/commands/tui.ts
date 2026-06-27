@@ -1284,7 +1284,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       registry,
       surface: "tui",
       isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions }),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({
+        builtinToolOptions: () => builtinToolOptions,
+      }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {

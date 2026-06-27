@@ -16,7 +16,7 @@ import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-
 import {
   RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
   RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-  RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON,
+  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
 } from "./runtime-session-orchestrator.types.js";
 import { buildRuntimeTurnSystemPrompt } from "./support/index.js";
 import type {
@@ -25,11 +25,36 @@ import type {
   GovernedRuntimeContext,
   PerCallToolConfig,
   RuntimeBuiltinToolExecutor,
+  RuntimeExecutionEnvelope,
+  RuntimeToolRoundBudget,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
 
-const DEFAULT_MAX_TOOL_ROUNDS = 10;
 const MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS = 2;
+
+function resolveExecutionEnvelope(value: RuntimeExecutionEnvelope | undefined): RuntimeExecutionEnvelope | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return {
+    ...(value.toolRounds ? { toolRounds: resolveToolRoundBudget(value.toolRounds) } : {}),
+  };
+}
+
+function resolveToolRoundBudget(value: RuntimeToolRoundBudget): RuntimeToolRoundBudget {
+  if (!Number.isSafeInteger(value.max) || value.max <= 0) {
+    throw new KilnError("A2A_INVALID_REQUEST", "executionEnvelope.toolRounds.max must be a positive integer");
+  }
+  return { max: value.max };
+}
+
+function isToolRoundBudgetExhausted(
+  round: number,
+  executionEnvelope: RuntimeExecutionEnvelope | undefined,
+): boolean {
+  const max = executionEnvelope?.toolRounds?.max;
+  return max !== undefined && round >= max;
+}
 
 export type {
   OrchestratorDeps,
@@ -40,19 +65,21 @@ export type {
   EffectiveTurnAuthorityPolicyInputStatus,
   EffectiveTurnAuthoritySnapshot,
   PerCallToolConfig,
+  RuntimeExecutionEnvelope,
+  RuntimeToolRoundBudget,
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.types.js";
 
 export class RuntimeSessionOrchestrator {
-  private readonly maxToolRounds: number;
+  private readonly executionEnvelope?: RuntimeExecutionEnvelope;
   private _tools: readonly ToolDefinition[] | undefined;
   private readonly approvalGate: RuntimeSessionApprovalGate;
   private readonly telemetry: RuntimeSessionExecutionTelemetry;
 
   constructor(private readonly deps: OrchestratorDeps) {
-    this.maxToolRounds = deps.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
+    this.executionEnvelope = resolveExecutionEnvelope(deps.executionEnvelope);
     this._tools = deps.tools;
     this.approvalGate = new RuntimeSessionApprovalGate(deps.eventBus);
     this.telemetry = new RuntimeSessionExecutionTelemetry(
@@ -160,6 +187,7 @@ export class RuntimeSessionOrchestrator {
         preLlmEscalation: escalation,
       });
     }
+    const executionEnvelope = resolveExecutionEnvelope(perCallConfig?.executionEnvelope ?? this.executionEnvelope);
     const invalidToolCallAttempts = new Map<string, number>();
     const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,
@@ -171,14 +199,9 @@ export class RuntimeSessionOrchestrator {
     const budgetRouteModel = routing.routingDecision?.model ?? this.model;
 
     let managedInvocationTransitionReserveUsed = false;
-    for (
-      let round = 0;
-      round < this.maxToolRounds
-        || (!managedInvocationTransitionReserveUsed && pendingManagedInvocationTransition(toolExecutions));
-      round++
-    ) {
+    for (let round = 0; this.canStartToolRound(round, managedInvocationTransitionReserveUsed, toolExecutions, executionEnvelope); round++) {
       const pendingTransitionForRound = pendingManagedInvocationTransition(toolExecutions);
-      const transitionOnlyRound = round >= this.maxToolRounds;
+      const transitionOnlyRound = isToolRoundBudgetExhausted(round, executionEnvelope);
       if (transitionOnlyRound) {
         if (!pendingTransitionForRound) {
           break;
@@ -388,7 +411,7 @@ export class RuntimeSessionOrchestrator {
 
     const pendingTransition = pendingManagedInvocationTransition(toolExecutions);
     if (pendingTransition) {
-      this.telemetry.emitError(session.id, `Max tool rounds (${this.maxToolRounds}) exceeded`);
+      this.telemetry.emitError(session.id, "Tool-round execution envelope exhausted");
       return finalizeManagedInvocationTransitionRequired({
         deps: this.deps,
         session,
@@ -401,10 +424,14 @@ export class RuntimeSessionOrchestrator {
     }
 
     if (!managedInvocationTransitionReserveUsed) {
-      this.telemetry.emitError(session.id, `Max tool rounds (${this.maxToolRounds}) exceeded`);
+      this.telemetry.emitError(session.id, "Tool-round execution envelope exhausted");
     }
 
-    session.addUserMessage(toolRoundBudgetFinalizationPrompt(this.maxToolRounds));
+    const toolRoundBudget = executionEnvelope?.toolRounds;
+    if (!toolRoundBudget) {
+      throw new KilnError("A2A_INVALID_REQUEST", "Runtime tool loop ended without an explicit tool-round budget");
+    }
+    session.addUserMessage(toolRoundBudgetFinalizationPrompt(toolRoundBudget.max));
     const fallback = await requestRuntimeSessionFallbackResponse(
       routing.effectiveProvider,
       routing.invocationSystem,
@@ -415,8 +442,8 @@ export class RuntimeSessionOrchestrator {
     const finalizedFallback = this.finalizeNoToolFallback({
       session,
       fallback,
-      failureMessage: formatToolRoundBudgetExhaustedFinalization(this.maxToolRounds),
-      failureStopReason: RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON,
+      failureMessage: formatToolRoundBudgetExhaustedFinalization(toolRoundBudget.max),
+      failureStopReason: RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
     });
 
     return finalizeRuntimeSessionResponse({
@@ -430,6 +457,18 @@ export class RuntimeSessionOrchestrator {
       routingDecision: toPublicRoutingDecision(routing.routingDecision),
       preLlmEscalation: escalation,
     });
+  }
+
+  private canStartToolRound(
+    round: number,
+    managedInvocationTransitionReserveUsed: boolean,
+    toolExecutions: readonly ToolExecutionSummary[],
+    executionEnvelope: RuntimeExecutionEnvelope | undefined,
+  ): boolean {
+    if (!isToolRoundBudgetExhausted(round, executionEnvelope)) {
+      return true;
+    }
+    return !managedInvocationTransitionReserveUsed && pendingManagedInvocationTransition(toolExecutions) !== undefined;
   }
 
   private finalizeNoToolFallback(input: {
@@ -990,18 +1029,18 @@ function throwIfRuntimeTurnAborted(signal: AbortSignal | undefined): void {
   throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
 }
 
-function toolRoundBudgetFinalizationPrompt(maxToolRounds: number): readonly ContentPart[] {
+function toolRoundBudgetFinalizationPrompt(maxToolRoundCount: number): readonly ContentPart[] {
   return textParts([
-    `Tool round budget exhausted after ${formatToolRoundCount(maxToolRounds)}.`,
+    `Tool round budget exhausted after ${formatToolRoundCount(maxToolRoundCount)}.`,
     "Do not call tools.",
     "Return the final answer now using only the completed tool results already in this transcript.",
     "If the requested evidence is incomplete, say exactly what is missing and why.",
   ].join(" "));
 }
 
-function formatToolRoundBudgetExhaustedFinalization(maxToolRounds: number): string {
+function formatToolRoundBudgetExhaustedFinalization(maxToolRoundCount: number): string {
   return [
-    `Tool round budget exhausted after ${formatToolRoundCount(maxToolRounds)}.`,
+    `Tool round budget exhausted after ${formatToolRoundCount(maxToolRoundCount)}.`,
     "The bounded finalization pass did not produce a final answer without tools.",
     "Inspect the transcript and child execution evidence before recording governed evidence.",
   ].join(" ");
@@ -1014,8 +1053,8 @@ function formatNoToolFinalizationFailed(): string {
   ].join(" ");
 }
 
-function formatToolRoundCount(maxToolRounds: number): string {
-  return maxToolRounds === 1 ? "1 tool round" : `${maxToolRounds} tool rounds`;
+function formatToolRoundCount(maxToolRoundCount: number): string {
+  return maxToolRoundCount === 1 ? "1 tool round" : `${maxToolRoundCount} tool rounds`;
 }
 
 function isToolContinuationStopReason(stopReason: string | undefined): boolean {

@@ -1106,7 +1106,7 @@ describe("processAdmittedTurn", () => {
         integrationAuthorityRollup: undefined,
         toolAllowlist,
         rateLimiter,
-        maxToolRounds: undefined,
+        executionEnvelope: undefined,
       },
       activeAgentId: "agent-support",
       activeAgentName: "Support Agent",
@@ -2536,6 +2536,32 @@ describe("processAdmittedTurn", () => {
     expect(ledger.at(-1)).toMatchObject({
       kind: "turn_completed",
       outcome: "failed",
+    });
+  });
+
+  it("marks the canonical turn paused when an explicit runtime tool-round budget is exhausted", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Implementation remains incomplete after the tool-round limit."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      stopReason: "tool_round_budget_exhausted",
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "paused",
     });
   });
 

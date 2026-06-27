@@ -2,7 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
-import { readGlobalConfig, resolveGlobalDefaultModel, resolveGlobalDefaultProvider } from "../config/global-config.js";
+import {
+  readGlobalConfig,
+  resolveGlobalDefaultModel,
+  resolveGlobalDefaultProvider,
+} from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
@@ -70,6 +74,8 @@ import {
   type OperatorWorkspaceConfigHealthSummary,
   type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
+
+const LOCAL_GUI_COCKPIT_INSTANCE_ID = "local-gui";
 
 export interface GuiFlags {
   readonly port?: number;
@@ -153,7 +159,9 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       registry,
       surface: "gui",
       isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions }),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({
+        builtinToolOptions: () => builtinToolOptions,
+      }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
@@ -443,9 +451,9 @@ async function buildLocalGuiOperatorWorkspaceHome(input: {
   const eventGroups = await Promise.all(input.sessions.map(async (session) => {
     const detail = await loadSessionDetail(input.transcriptStore, session.id).catch(() => null);
     return detail?.events.length
-      ? detail.events
+      ? detail.events.map((event) => localGuiOperatorEvent(event, session.id))
       : [operatorWorkspaceSessionSummaryEvent({
-        instanceId: "local-gui",
+        instanceId: LOCAL_GUI_COCKPIT_INSTANCE_ID,
         sessionId: session.id,
         sequence: 0,
         timestamp: session.completedAt,
@@ -456,7 +464,7 @@ async function buildLocalGuiOperatorWorkspaceHome(input: {
   const cockpitProjection = projectOperatorCockpitReadOnlyView({
     projectedAt: input.projectedAt,
     attachTargets: [{
-      instanceId: "local-gui",
+      instanceId: LOCAL_GUI_COCKPIT_INSTANCE_ID,
       label: "Local GUI",
       kind: "local",
       gatewayUrl: "http://localhost",
@@ -491,6 +499,24 @@ async function readLocalGuiConfigHealth(projectPath: string): Promise<OperatorWo
       }],
     };
   }
+}
+
+function localGuiOperatorEvent(event: OperatorSessionEvent, sessionId: string): OperatorSessionEvent {
+  const payload = typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
+    ? event.payload as Record<string, unknown>
+    : {};
+  return {
+    ...event,
+    payload: {
+      ...payload,
+      instanceId: LOCAL_GUI_COCKPIT_INSTANCE_ID,
+      sessionId: readNonEmptyString(payload.sessionId) ?? sessionId,
+    },
+  };
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 function operatorWorkspaceSessionSummaryEvent(input: {

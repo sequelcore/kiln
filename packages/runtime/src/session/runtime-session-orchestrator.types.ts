@@ -40,10 +40,18 @@ import type { EscalationDetector, EscalationSignal } from "./support/escalation/
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
 
-export const RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON = "tool_rounds_exhausted";
+export const RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON = "tool_round_budget_exhausted";
 export const RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON = "no_tool_finalization_failed";
 export const RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON =
   "managed_invocation_state_transition_required";
+
+export interface RuntimeExecutionEnvelope {
+  readonly toolRounds?: RuntimeToolRoundBudget;
+}
+
+export interface RuntimeToolRoundBudget {
+  readonly max: number;
+}
 
 export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
@@ -67,7 +75,7 @@ export interface OrchestratorDeps {
   readonly provider: ProviderAdapter;
   readonly model?: string;
   readonly maxTokens?: number;
-  readonly maxToolRounds?: number;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly tools?: readonly ToolDefinition[];
   readonly mcpClients?: readonly McpClient[];
   readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
@@ -298,6 +306,7 @@ export interface PerCallToolConfig {
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly modelRoutingPolicy?: ModelRoutingPolicyConfig;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }
 
 export type RuntimeToolCallMetadataResolver = (

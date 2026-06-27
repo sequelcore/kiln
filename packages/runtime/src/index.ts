@@ -428,6 +428,8 @@ export type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
+  RuntimeExecutionEnvelope,
+  RuntimeToolRoundBudget,
   ToolExecutionSummary,
   SessionStore,
   RedisLike,
