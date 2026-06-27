@@ -5,6 +5,8 @@ import type {
   EffectiveTurnAuthoritySnapshot,
   GoalRunSnapshot,
   InspectableWorkItemSnapshotResource,
+  OperatorResourceReadRequest,
+  OperatorResourceReadResult,
   PlanStateSnapshot,
   ToolResourceDescriptor,
   ToolResourceDisplayDescriptor,
@@ -26,9 +28,22 @@ describe("resource SDK exports", () => {
     const readResult: ToolResourceReadResult = {
       contents: [{ uri: descriptor.uri, mimeType: descriptor.mimeType, text: "{}" }],
     };
+    const operatorReadRequest: OperatorResourceReadRequest = {
+      uri: descriptor.uri,
+      target: {
+        gatewayTargetId: "app-gateway:support",
+        resourceUri: descriptor.uri,
+      },
+    };
+    const operatorReadResult: OperatorResourceReadResult = {
+      uri: descriptor.uri,
+      target: operatorReadRequest.target,
+      contents: [{ kind: "text", uri: descriptor.uri, mimeType: descriptor.mimeType, text: "{}" }],
+    };
 
     expect(display.uri).toBe("kiln://tools/catalog");
     expect(readResult.contents[0]?.uri).toBe(descriptor.uri);
+    expect(operatorReadResult.target?.gatewayTargetId).toBe("app-gateway:support");
   });
 
   it("exports typed workflow snapshot contracts for SDK resource consumers", () => {

@@ -1725,7 +1725,7 @@ export function AppShell() {
             browserSnapshot={interactiveUseSnapshot?.target === "browser" ? interactiveUseSnapshot : null}
             browserSession={browserSessionState}
             browserLiveViewportFrame={browserLiveViewportFrame}
-            loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri)}
+            loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri, resourceTarget(uri))}
             onBrowserSessionControl={(action, options) => {
               requestBrowserSessionControl(action, options);
             }}
@@ -1761,7 +1761,7 @@ export function AppShell() {
                 activityPhase={activityPhase}
                 activityToolName={activity?.toolName}
                 activityDetails={activity?.details}
-                loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri)}
+                loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri, resourceTarget(uri))}
                 onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
                 onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
               />

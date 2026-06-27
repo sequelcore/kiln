@@ -1133,6 +1133,12 @@ describe("startGuiGateway static mount", () => {
         nextCursor: "line:125",
       });
       expect(resourceProvider.read).toHaveBeenCalledWith("kiln://test/resources/work-1", {
+        target: {
+          gatewayTargetId: "gateway:local-app",
+          instanceId: "local-app:instance",
+          sessionId: "session-1",
+          resourceUri: "kiln://test/resources/work-1",
+        },
         cursor: "line:100",
         limit: 25,
       });

@@ -55,6 +55,7 @@ describe("ToolResourceRegistry", () => {
   });
 
   it("includes configured resource providers in the shared registry", async () => {
+    let observedTarget: unknown;
     const surface = createDefaultBuiltinToolSurface({
       resourceProviders: [{
         listResources: () => [{
@@ -69,10 +70,11 @@ describe("ToolResourceRegistry", () => {
           mimeType: "application/json",
           annotations: { readOnlyHint: true },
         }],
-        read: async (uri: string) => {
+        read: async (uri: string, options) => {
           if (uri !== "kiln://custom/resource") {
             return undefined;
           }
+          observedTarget = options?.target;
           return {
             contents: [{
               uri,
@@ -89,8 +91,23 @@ describe("ToolResourceRegistry", () => {
       "kiln://custom/resource/{id}",
     );
     await expect(surface.resources.read("kiln://custom/missing")).rejects.toThrow("Resource not found");
-    const result = await surface.resources.read("kiln://custom/resource");
+    const result = await surface.resources.read("kiln://custom/resource", {
+      target: {
+        gatewayTargetId: "app-gateway:support:tenant:acme",
+        appId: "support",
+        tenantId: "acme",
+        sessionId: "session-1",
+        resourceUri: "kiln://custom/resource",
+      },
+    });
     expect(JSON.parse(result.contents[0]!.text)).toEqual({ ok: true });
+    expect(observedTarget).toEqual({
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+      appId: "support",
+      tenantId: "acme",
+      sessionId: "session-1",
+      resourceUri: "kiln://custom/resource",
+    });
   });
 
   it("paginates resource templates with their own cursor namespace", () => {

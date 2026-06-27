@@ -127,6 +127,10 @@ GUI gateway reads use `POST /gui/api/resources/read` with an
 `OperatorResourceReadRequest` body and return `OperatorResourceReadResult`. A
 surface may adapt the first content item into a preview or download, but should
 not treat that preview representation as the canonical resource payload.
+When the surface has selected a gateway target, the request should include the
+target fields rather than relying on labels, ports, or local instance strings.
+Runtime forwards that target into provider read options before resolving the
+URI.
 
 ## Operator Rules
 

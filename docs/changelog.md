@@ -8,6 +8,10 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Completed the execution-surfaces convergence track: shared Operator
+  Workspace home projection, gateway target switcher, target-aware resource
+  inspector reads through runtime provider options, SDK `ApiClient.readResource`,
+  CLI target-aware resource reads, and stable architecture/guide documentation.
 - Replaced internal tool annotation authority with canonical action-effect
   governance: builtin tools now declare immutable effect envelopes, concrete
   calls resolve input-sensitive invocation effects before authority, external

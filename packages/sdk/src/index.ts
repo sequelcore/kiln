@@ -42,6 +42,14 @@ export {
 } from "@kilnai/gateway-contracts";
 
 export type {
+  OperatorResourceReadRequest,
+  OperatorResourceReadResult,
+  OperatorResourceReadContent,
+  OperatorResourceReadSummary,
+  OperatorResourceReadPresentation,
+} from "@kilnai/gateway-contracts";
+
+export type {
   AuthorityStateRecord,
   AuthorityStateSnapshot,
   EffectiveTurnAuthoritySnapshot,

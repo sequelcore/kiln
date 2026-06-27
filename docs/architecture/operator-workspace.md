@@ -123,6 +123,11 @@ data URLs are presentation details, not the shared protocol.
 HTTP surfaces send `OperatorResourceReadRequest` as JSON so target identity,
 pagination cursors, and limits travel as typed fields rather than encoded query
 fragments.
+Runtime resource endpoints pass the optional target into
+`ToolResourceReadOptions` before any provider reads the URI. That keeps target
+selection at the shared resource boundary and lets GUI, CLI, TUI, native, and
+SDK consumers resolve the same `kiln://` URI without rebuilding target rules in
+surface code.
 
 It should consume shared resource summaries and resource-read contracts for:
 
@@ -152,11 +157,11 @@ presentation runs. Managed-agent invocation summaries include terminal
 lifecycle counters so cancelled, stale, and recovered child invocations are not
 presented as running work.
 
-CLI resource reads and GUI resource preview data URLs preserve summarized reads
-as `OperatorResourceReadResult` JSON so terminal and browser presentations do
-not drop the typed counts and facets. Shared presentation rows come from
-`projectOperatorResourceReadPresentation`; surfaces render those rows rather
-than reparsing resource payload text.
+CLI resource reads, SDK `ApiClient.readResource`, and GUI resource preview data
+URLs preserve summarized reads as `OperatorResourceReadResult` JSON so terminal,
+browser, and embedded-app presentations do not drop the typed counts and facets.
+Shared presentation rows come from `projectOperatorResourceReadPresentation`;
+surfaces render those rows rather than reparsing resource payload text.
 
 Surfaces may choose rich, terminal, or JSON presentation, but the URI, target,
 authorization, and read result must come from the shared resource plane.

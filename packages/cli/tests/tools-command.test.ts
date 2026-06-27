@@ -168,6 +168,29 @@ describe("tools command", () => {
     expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
   });
 
+  it("passes explicit target identity when reading a resource", async () => {
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, {
+      resource: "kiln://session/work-items",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+      appId: "support",
+      tenantId: "acme",
+      sessionId: "session-1",
+    });
+
+    expect(coreMocks.resources.read).toHaveBeenCalledWith("kiln://session/work-items", {
+      target: {
+        gatewayTargetId: "app-gateway:support:tenant:acme",
+        appId: "support",
+        tenantId: "acme",
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items",
+      },
+    });
+    expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
+  });
+
   it("prints summarized text resources with the shared operator resource contract", async () => {
     coreMocks.resources.read.mockResolvedValueOnce({
       summary: {

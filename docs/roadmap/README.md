@@ -59,11 +59,6 @@ Use these documents as the source of truth before starting roadmap work:
    local-first feedback bundles, redaction, evidence selection, issue drafts,
    governed repair work items, and later draft pull-request flow.
 
-3. [Execution Surfaces](./03-execution-surfaces.md)
-   Active on 2026-06-25. Scope is Kiln Operator Workspace and Gateway product
-   convergence: shared home projection expansion, gateway target switcher,
-   resource inspector, and cross-surface documentation closeout.
-
 ## Deferred Roadmaps
 
 - OS-pack packaging for web extraction and browser helpers.
@@ -105,6 +100,9 @@ roadmap files. Current completed areas include:
   harnesses.
 - Native operator surface foundation and embedded browser operator capability.
 - Native operator surface projection foundation with defer/no-promotion status.
+- Execution surfaces convergence: shared Operator Workspace home projection,
+  gateway target switcher, target-aware resource inspector, SDK/CLI resource
+  reads, and cross-surface documentation closeout.
 
 ## Execution Priority
 

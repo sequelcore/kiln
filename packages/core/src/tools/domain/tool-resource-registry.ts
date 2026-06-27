@@ -66,9 +66,23 @@ export interface ToolResourceReadResult {
   readonly nextCursor?: string;
 }
 
+export interface ToolResourceReadTarget {
+  readonly gatewayTargetId?: string;
+  readonly instanceId?: string;
+  readonly appId?: string;
+  readonly tenantId?: string;
+  readonly sessionId?: string;
+  readonly eventId?: string;
+  readonly resourceUri?: string;
+  readonly workItemId?: string;
+  readonly managedInvocationId?: string;
+  readonly toolCallId?: string;
+}
+
 export interface ToolResourceReadOptions {
   readonly cursor?: string;
   readonly limit?: number;
+  readonly target?: ToolResourceReadTarget;
 }
 
 export type ToolResourceReadRangeUnit = "line" | "byte";

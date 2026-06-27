@@ -65,11 +65,13 @@ Implementation status: attach mode opens the App Gateway GUI URL, the App
 Gateway exposes the GUI dashboard/session-list contract, and `/gui/ws` routes
 messages to the selected runtime-capable YAML app. The dashboard publishes
 runtime-capable apps, enabled tenants, active app/tenant selection, and
-`operatorWorkspaceHome`; the GUI renders compact app/tenant selectors, includes
-`appName` and `tenantId` in message frames, and prefers the gateway-published
-Operator Workspace home projection for workspace summary/attention state before
-falling back to local reconstruction. Provider switching and the full gateway
-target switcher remain future operator-contract work.
+`operatorWorkspaceHome`; the GUI renders compact app/tenant selectors, sends
+target-bound operator actions with `gatewayTargetId`, and prefers the
+gateway-published Operator Workspace home projection for workspace
+summary/attention state before falling back to local reconstruction. Global
+control-plane frames such as provider switching, clear, provider auth, theme
+results, and voice synthesis remain targetless because they operate on the
+connected operator surface, provider catalog, UI preference, or source message.
 
 ## Flags
 
@@ -276,8 +278,15 @@ remain outside this read-only workspace slice.
 ## Resource Reads
 
 GUI resource previews read through the shared `OperatorResourceReadResult`
-contract. When a resource result includes `summary`, the GUI preserves the
-whole read result as JSON in the preview data URL and includes the shared
+contract. GUI sends `OperatorResourceReadRequest` to
+`/gui/api/resources/read` with the selected `gatewayTargetId`, app, tenant,
+session, and resource identity when those fields are known. The runtime passes
+that target through the shared resource-read options before projecting the
+result back to the GUI, so providers resolve target-specific resources without
+labels, selected ports, or local instance strings.
+
+When a resource result includes `summary`, the GUI preserves the whole read
+result as JSON in the preview data URL and includes the shared
 `projectOperatorResourceReadPresentation` projection so browser presentation
 can render provider-owned counts, facets, metadata, and content state without
 reparsing payload text.

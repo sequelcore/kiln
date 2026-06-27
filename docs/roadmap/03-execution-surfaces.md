@@ -1,6 +1,7 @@
 # 03 - Execution Surfaces
 
 Started: 2026-06-25
+Completed: 2026-06-27
 
 ## Scope
 
@@ -30,7 +31,7 @@ Research basis:
 - Every completed slice needs focused tests, typecheck, and documentation
   updates.
 
-## Active Slices
+## Completed Slices
 
 ### 1. GUI Consumes Gateway Home Projection
 
@@ -109,7 +110,7 @@ Completion gate:
 
 ### 4. Resource Inspector
 
-Status: active.
+Status: implemented.
 
 Current surfaces can open some `kiln://` resources. The shared
 `OperatorResourceReadResult` contract now defines the first canonical
@@ -130,12 +131,18 @@ Shared summary producers now cover the implemented aggregate resource
 families: tool catalog, session work items, session goals, workspace trees,
 artifact namespaces, memory graph snapshots, managed-agent invocation indexes,
 and external-engagement artifact indexes.
+GUI explicit resource opens and implicit preview reads send
+`OperatorResourceReadRequest.target` with selected gateway target, app, tenant,
+session, and resource identity when available. The runtime gateway forwards
+that target through `ToolResourceReadOptions` before provider resolution, and
+SDK `ApiClient.readResource` exposes the same canonical endpoint for embedded
+consumers. CLI resource reads can include explicit target fields through
+`--gateway-target-id`, `--app-id`, `--tenant-id`, and `--session-id`; TUI and
+native continue to consume shared projected resource URIs without owning a
+parallel resource model.
 
-Next behavior:
-
-- target-aware resource open requests on every surface
-- add summary producers for newly introduced aggregate resource families as
-  they land
+Future aggregate resource families should add provider-owned summary producers
+when they land; that is normal feature work, not remaining roadmap scope.
 
 Completion gate:
 
@@ -144,7 +151,7 @@ Completion gate:
 
 ### 5. Documentation Closeout
 
-Status: active.
+Status: implemented.
 
 Docs created or updated:
 
@@ -155,12 +162,7 @@ Docs created or updated:
 
 Remaining docs:
 
-- update `docs/guides/gui.md` as surface behavior lands
-- update `docs/research/18-execution-surfaces-strategy.md` from diagnosis-only
-  to accepted research basis after the first full home/switcher/inspector
-  closeout
-- update `docs/research/README.md` and `docs/roadmap/README.md` when this
-  roadmap moves from active to completed
+- none.
 
 ## Out Of Scope
 

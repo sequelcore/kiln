@@ -179,13 +179,11 @@ Accepted and implemented foundation:
   target identity. Config health is part of the contract; local GUI setup
   diagnostics feed it, and producers without setup/doctor evidence project
   `unknown`.
-
-Remaining contract work:
-
-- Extend setup/doctor diagnostics coverage beyond local GUI producers where
-  needed so surfaces can show actionable config state without calling
-  setup-specific endpoints.
-- Promote the app/tenant selector into a full gateway target switcher over
-  explicit `OperatorGatewayTargetIdentity` values.
-- Add a first-party resource inspector over shared `kiln://` resource-read
-  contracts.
+- GUI target-bound operator actions use explicit `gatewayTargetId`; targetless
+  global control-plane frames are limited to connected-surface, provider
+  catalog, UI preference, or source-message operations.
+- `OperatorResourceReadRequest` and `OperatorResourceReadResult` define the
+  first-party resource inspector path. GUI, CLI, SDK, TUI, and native consumers
+  use the shared resource contract or projected resource URIs instead of
+  surface-local resource models; runtime resource reads pass target identity
+  into provider options before resolution.

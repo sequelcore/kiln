@@ -87,9 +87,10 @@ define the active architecture contract. For doctrine, use
   research supporting Kiln's cross-surface inspectable agent work contract.
 
 - `18-execution-surfaces-strategy.md`
-  External docs, cloned-repo comparison, community signal, and local architecture
-  diagnosis supporting Kiln Operator Workspace, Kiln Gateway as app AI runtime,
-  and contract-first execution-surface convergence.
+  Accepted research basis from external docs, cloned-repo comparison, community
+  signal, and local architecture diagnosis supporting Kiln Operator Workspace,
+  Kiln Gateway as app AI runtime, and contract-first execution-surface
+  convergence.
 
 ## Supporting Reference
 

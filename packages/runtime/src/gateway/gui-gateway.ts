@@ -802,6 +802,7 @@ function wireOperatorTransport(
     }
     for (const surface of resourceSurfaces) {
       const result = await surface.readResource(request.data.uri, {
+        ...(request.data.target ? { target: request.data.target } : {}),
         ...(request.data.cursor ? { cursor: request.data.cursor } : {}),
         ...(request.data.limit ? { limit: request.data.limit } : {}),
       }).catch(() => undefined);
