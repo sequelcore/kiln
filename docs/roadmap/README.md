@@ -73,6 +73,13 @@ Use these documents as the source of truth before starting roadmap work:
 - Full external benchmark expansion.
   Deferred until a stable product surface can support public benchmark claims
   without benchmark-only prompt paths, tool schemas, or authority shortcuts.
+- Capability exposure research.
+  Research how mature agent harnesses expose internal capabilities across
+  operator commands, model-callable tools, resources, approvals, artifacts, and
+  replay evidence. Include papers, web research, cloned harnesses, and community
+  practice before deciding whether every durable agent-facing Kiln capability
+  must provide a governed tool contract in addition to CLI and resource
+  surfaces.
 
 ## Completed Areas
 
