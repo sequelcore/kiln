@@ -2158,6 +2158,49 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       );
     });
 
+    it("narrows conservative static bash authority when the concrete command is read-only", async () => {
+      const provider = makeCommandProvider("git status --short");
+      const toolFn = vi.fn().mockResolvedValue("ok");
+      const detector = {
+        evaluate: vi.fn().mockReturnValue({
+          action: "allow",
+          reasonCode: "safe_read_only",
+          reason: "Command matches deterministic read-only allowlist.",
+        }),
+      };
+      const eventBus = new EventBus();
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+        dangerousCommandDetector: detector,
+        eventBus,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("status"), {
+        toolAuthority: new Map<string, AuthorityDescriptor>([[
+          "bash",
+          {
+            level: 4,
+            allowed: false,
+            requiresApproval: true,
+            reason: "Privileged or unknown identity use requires confirmation",
+          },
+        ]]),
+      });
+
+      expect(approvalRequested).not.toHaveBeenCalled();
+      expect(toolFn).toHaveBeenCalledWith(
+        { command: "git status --short" },
+        expect.objectContaining({
+          toolCall: expect.objectContaining({ name: "bash" }),
+        }),
+      );
+    });
+
     it("dangerous blocked path appends audit with authority metadata when authorization exists", async () => {
       const provider = makeCommandProvider("rm -rf /tmp/cache");
       const append = vi.fn();

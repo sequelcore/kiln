@@ -16,6 +16,7 @@ import type {
 import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
   buildBuiltinInvocationEffectResolvers,
+  deriveAuthorityFromEffect,
   executeWithRetry,
   getBuiltinEffectEnvelope,
   getInvalidToolInputDetails,
@@ -82,6 +83,30 @@ function formatDangerousCommandBlockMessage(decision: DangerousCommandDecisionLi
   return decision.action === "deny"
     ? `Dangerous command blocked: ${decision.reason} (${decision.reasonCode})`
     : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
+}
+
+function authorityFromResolvedInvocationEffect(
+  admittedAuthority: AuthorityDescriptor,
+  resolvedEffect: ResolvedInvocationEffect,
+): AuthorityDescriptor | undefined {
+  if (admittedAuthority.allowed && !admittedAuthority.requiresApproval) {
+    return undefined;
+  }
+  if (!isConservativeStaticAuthority(admittedAuthority)) {
+    return undefined;
+  }
+  const invocationAuthority = deriveAuthorityFromEffect(resolvedEffect);
+  if (!invocationAuthority.allowed || invocationAuthority.requiresApproval) {
+    return undefined;
+  }
+  return invocationAuthority;
+}
+
+function isConservativeStaticAuthority(authority: AuthorityDescriptor): boolean {
+  return authority.requiresApproval && (
+    authority.reason === "Privileged or unknown identity use requires confirmation"
+    || authority.reason === "Unknown effects require confirmation"
+  );
 }
 
 function extractToolResultMetadata(resultValue: unknown): Record<string, unknown> | undefined {
@@ -615,6 +640,10 @@ export class RuntimeSessionToolExecutor {
           requiresApproval: false,
           reason: "Invalid authority descriptor; execution denied",
         };
+      }
+      const narrowedAuthority = authorityFromResolvedInvocationEffect(authority, resolvedEffect);
+      if (narrowedAuthority) {
+        return narrowedAuthority;
       }
       return {
         level: authority.level,

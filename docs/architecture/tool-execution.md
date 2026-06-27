@@ -396,6 +396,14 @@ Direct-provider children that exhaust their bounded envelope still terminate as
 `failed` because they cannot produce a successful governed handoff; their
 transcript, tool execution, and write evidence remain replayable.
 
+## Invocation Authority
+
+Tool authority is resolved at the invocation boundary. Static capability
+metadata describes the maximum effect a tool can produce; it must not override a
+narrower input-sensitive effect. Shell tools use deterministic command analysis
+to admit read-only commands without confirmation while preserving confirmation
+or denial for ambiguous, networked, privileged, or destructive commands.
+
 ## Timeout Contract
 
 Tool-specific timeout inputs stay owned by the tool that executes the work. The
