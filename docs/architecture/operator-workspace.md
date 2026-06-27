@@ -62,10 +62,8 @@ projection is available.
   health, and provider readiness stay cross-surface.
 - Gateway/app health is projected from explicit target identity. Config health
   is present in the contract; local GUI setup diagnostics feed it, and
-  producers without setup/doctor evidence project `unknown`.
-
-The remaining work is to extend setup/doctor diagnostics coverage without
-surface-local inference.
+  producers without setup/doctor evidence project `unknown` instead of
+  inferring health locally.
 
 ## Gateway Target Switcher
 

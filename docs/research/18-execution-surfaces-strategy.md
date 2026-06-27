@@ -5,9 +5,9 @@ Date: 2026-06-25
 Status: accepted research basis. The product/architecture direction has been
 promoted into `docs/architecture/execution-surfaces.md`,
 `docs/architecture/operator-workspace.md`,
-`docs/architecture/app-gateway-runtime.md`, and
-`docs/roadmap/03-execution-surfaces.md`. Implementation proceeds in small
-contract-first slices.
+`docs/architecture/app-gateway-runtime.md`, and the operator workspace and
+gateway runtime guides. The implementation track closed on 2026-06-27; durable
+doctrine now lives in canonical architecture and guide documentation.
 
 ## Thesis
 
@@ -654,9 +654,6 @@ Workspace pollution:
 - `docs/architecture/app-gateway-runtime.md`
   Created. App Gateway as app AI runtime, with tenant/app/session/tool/MCP
   ownership.
-- `docs/roadmap/03-execution-surfaces.md`
-  Created. Active implementation roadmap for shared home expansion, target
-  switcher, resource inspector, and documentation closeout.
 - `docs/guides/operator-workspace.md`
   Created. User-facing workflow guide: open Kiln, attach target, start work,
   supervise, approve, inspect, close out.

@@ -71,8 +71,8 @@ diagnostics. Do not treat `unknown` as healthy.
 
 ## Gateway Targets
 
-Operator actions should point at explicit gateway targets. Long term, the
-target switcher will expose:
+Operator actions should point at explicit gateway targets. The target switcher
+uses shared target identity for:
 
 - local Operator Gateway
 - local App Gateway

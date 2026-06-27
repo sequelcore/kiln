@@ -61,8 +61,8 @@ broader X access, write authority, GUI-local parsing, or compatibility shims.
 5. Documentation
    - Document external-engagement resource URIs in the operator and external
      engagement docs.
-   - Update the Execution Surfaces roadmap to record the resource inspector
-     progress.
+   - Promote durable resource-inspector behavior into canonical operator
+     workspace documentation.
 
    Status: completed.
 

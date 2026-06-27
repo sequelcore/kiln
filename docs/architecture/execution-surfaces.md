@@ -82,9 +82,9 @@ these objects without parsing final assistant prose:
 
 Chat remains useful as an interaction mode. It is not the source of truth.
 
-## Shared Projection Roadmap
+## Shared Projection Contracts
 
-Execution-surface work must proceed contract-first:
+Execution-surface behavior is contract-first:
 
 1. **Gateway and operator target identity.** Every operator action must name the
    target it operates: local Operator Gateway, local App Gateway, remote App
@@ -117,11 +117,12 @@ Execution-surface work must proceed contract-first:
    managed-agent sidebar state, CLI exposes the home projection in
    `kiln managed-agent list --json`, and the native cockpit contract returns
    the shared home projection with its read-only view-state wrapper.
-5. **Resource inspector.** `kiln://` resources become first-class inspectable
+5. **Resource inspector.** `kiln://` resources are first-class inspectable
    objects across rich and terminal surfaces. `OperatorWorkspaceResourceItem`
-   is the shared home/resource-inspector seed: it deduplicates resource links
-   with target identity so later GUI/TUI/CLI inspectors open the same resource
-   object instead of scraping timeline text.
+   deduplicates resource links with target identity, and
+   `OperatorResourceReadRequest`/`OperatorResourceReadResult` carry URI,
+   target, content, summary, cursor, and presentation data through the shared
+   resource plane.
 6. **Direct-provider parity.** Direct-provider managed execution must satisfy
    the same authority, evidence, cancellation, handoff, replay, and tool-policy
    contracts as harness-backed execution. Runtime adapter descriptors are
