@@ -92,6 +92,12 @@ define the active architecture contract. For doctrine, use
   Kiln Gateway as app AI runtime, and contract-first execution-surface
   convergence.
 
+- `19-clear-writing-skill.md`
+  Plain-language, content-design, and developer-documentation research basis
+  for promoting a neutral `clear-writing` skill into Kiln core while keeping
+  brand, regional, legal, and organization voice outside native product
+  doctrine.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -119,3 +125,4 @@ define the active architecture contract. For doctrine, use
 16. `16-external-engagement.md`
 17. `17-inspectable-agent-work.md`
 18. `18-execution-surfaces-strategy.md`
+19. `19-clear-writing-skill.md`

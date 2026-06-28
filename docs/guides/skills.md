@@ -119,6 +119,7 @@ Current core built-ins:
 - `managed-agent-risk-review`
 - `benchmark-readiness-review`
 - `config-projection-review`
+- `clear-writing`
 
 Use global config to make the policy explicit:
 
@@ -200,9 +201,16 @@ Auto-selection is still governed admission:
 - explicitly requested missing skills fail closed
 - admitted skills are recorded in managed invocation context metadata
 
+`clear-writing` is a neutral first-party writing procedure. Use it when an
+agent is asked to write, rewrite, or review prose in reports, research briefs,
+proposals, support replies, UI copy, public content, internal communication,
+education, or technical documentation. It is not a brand voice, legal style, or
+regional government style; stricter project, organization, legal, academic, or
+regulatory formats remain higher-precedence constraints.
+
 Future official packs are deferred. They may later provide web, backend,
-security, data, or opinionated engineering workflows, but packs must be
-installable/removable content rather than core doctrine.
+security, data, brand, regional-content, or opinionated engineering workflows,
+but packs must be installable/removable content rather than core doctrine.
 
 ### Registry API
 

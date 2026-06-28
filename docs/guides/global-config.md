@@ -183,6 +183,15 @@ recommended skills for the selected task and route. Auto-selection never grants
 tools or authority, skips unavailable recommended skills, and still fails
 closed for explicitly requested missing skills.
 
+General writing quality belongs in the `clear-writing` built-in skill, not in
+global config. Global config may choose whether built-ins are enabled and may
+record stable operator preferences such as locale, identity, or active
+instruction profiles. A brand voice, organization tone, or project-specific
+terminology belongs in an instruction profile or scoped project skill. This
+keeps "write clearly" available to every kind of Kiln user without making
+Sequel's voice, GOV.UK conventions, or any other local style a universal
+default.
+
 ```yaml
 skills:
   selection:

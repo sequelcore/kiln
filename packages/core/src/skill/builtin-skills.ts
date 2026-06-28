@@ -292,6 +292,67 @@ Do not recommend direct edits to generated AGENTS.md, CLAUDE.md, or native
 harness skill files.
 `,
   }),
+  defineBuiltinSkill({
+    name: "clear-writing",
+    description: "Write, rewrite, or review prose so it is clear, accurate, structured, and appropriate for the audience.",
+    tags: ["writing", "plain-language", "editing", "communication"],
+    instructions: `
+# Clear Writing
+
+Use this skill when writing, rewriting, or reviewing prose for any audience:
+reports, research briefs, explanations, proposals, support replies, product
+copy, UI text, public content, internal communication, educational material, or
+technical documentation.
+
+Do not use this skill to replace a required brand, legal, academic, regulatory,
+or domain-specific style. Apply it inside those constraints.
+
+Core principles:
+1. Put the reader's task first: identify what they need to understand, decide,
+   or do next.
+2. State the main point early unless the requested format requires discovery or
+   suspense.
+3. Use concrete nouns, active verbs, and direct sentence structure.
+4. Prefer short paragraphs and informative headings. Use bullets or tables only
+   when they make comparison or scanning easier.
+5. Remove filler, hype, vague intensifiers, performative certainty, and
+   needless meta-commentary.
+6. Preserve meaning, evidence, citations, quotes, code, tables, and required
+   format. Do not simplify by making the content less true.
+7. Define necessary terms near first use. Keep unavoidable specialist language
+   when it carries precision.
+8. Match tone to context: calm for operational work, careful for risk or
+   uncertainty, warm for user-facing help, and concise for action requests.
+9. Be explicit about uncertainty, source limits, assumptions, and next actions.
+10. Keep accessibility in mind: avoid walls of text, ambiguous link text,
+    unexplained acronyms, and structure that only works visually.
+
+Editing workflow:
+1. Identify the audience, purpose, constraints, and output format.
+2. Preserve non-negotiable facts and required terminology.
+3. Reorganize around the reader's path: context, point, evidence, action.
+4. Replace abstract or inflated phrasing with precise language.
+5. Cut repetition and generic AI-writing patterns without flattening the
+   author's voice.
+6. Verify that the revised version still supports the original claim and does
+   not introduce unsupported facts.
+
+Review output:
+- If rewriting, provide the revised text.
+- If reviewing, list the highest-impact issues first with examples and concrete
+  edits.
+- If constraints conflict, explain the tradeoff briefly and choose the clearest
+  compliant version.
+
+Reference basis:
+- ISO 24495-1 plain language principles: reader need, findability,
+  understandability, and usability.
+- GOV.UK and other public-sector content design practice: plain words, active
+  voice, useful headings, and reader-task orientation.
+- Developer documentation style practice: preserve technical precision while
+  reducing ambiguity and needless complexity.
+`,
+  }),
 ] as const;
 
 export function resolveKilnCoreBuiltinSkills(

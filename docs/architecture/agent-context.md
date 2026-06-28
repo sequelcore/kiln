@@ -303,16 +303,20 @@ The built-in skill ids are:
 | `managed-agent-risk-review` | Audit child invocation authority, route identity, handoff, replay, and evidence. | `architect`, `reviewer` |
 | `benchmark-readiness-review` | Decide whether eval or benchmark evidence is reproducible and public-ready. | `researcher`, `reviewer` |
 | `config-projection-review` | Review canonical config, generated shims, native projections, drift, and setup state. | `scout`, `architect` |
+| `clear-writing` | Write, rewrite, or review prose so it is clear, accurate, structured, and audience-appropriate. | Any writing or review agent |
 
 Built-ins are the lowest precedence tier. Project skills override user skills;
 user skills override built-ins. A project or user may disable built-ins or
 select an allowlist through `skills.builtin`. Unknown skills still fail closed.
 
 First-party built-ins must remain compact, vendor-neutral, removable, and
-evaluated. Framework-specific or opinionated packs belong outside core. Future
-official packs such as web, backend, security, or an opinionated engineering
-pack may be installable content, but they must not become default product
-doctrine unless promoted through the same evaluation and documentation gate.
+evaluated. A general writing-quality skill may be native when it is useful
+across domains, preserves stricter brand/legal/regulatory formats, and does
+not encode a company voice. Framework-specific, regional, brand, or
+opinionated packs belong outside core. Future official packs such as web,
+backend, security, or an opinionated engineering pack may be installable
+content, but they must not become default product doctrine unless promoted
+through the same evaluation and documentation gate.
 
 ## Managed Child Context
 

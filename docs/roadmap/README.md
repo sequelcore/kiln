@@ -90,6 +90,12 @@ Use these documents as the source of truth before starting roadmap work:
   practice before deciding whether every durable agent-facing Kiln capability
   must provide a governed tool contract in addition to CLI and resource
   surfaces.
+- Cross-domain task taxonomy.
+  `clear-writing` is available as a governed built-in skill, but automatic
+  admission should wait for a task taxonomy that can represent writing,
+  editing, communication, education, support, and document workflows without
+  overloading engineering task classes such as `research` or
+  `mechanical-edit`.
 
 ## Completed Areas
 
