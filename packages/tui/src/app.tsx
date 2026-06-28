@@ -97,6 +97,7 @@ export async function startTui(
   refreshProviders?: () => Promise<void> | void,
   persistThemePreference?: (themeName: string) => Promise<void> | void,
   loadSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>,
+  onFirstFrame?: () => void,
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -465,6 +466,7 @@ export async function startTui(
   };
 
   applySidebarVisibility(renderer.width >= 100);
+  onFirstFrame?.();
 
   if (typeof (renderer as unknown as { on?: unknown }).on === "function") {
     (

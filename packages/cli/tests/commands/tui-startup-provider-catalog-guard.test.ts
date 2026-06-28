@@ -356,6 +356,7 @@ const APP_CONFIG: KilnAppConfig = {
 
 describe("tuiCommand startup provider catalog guard", () => {
   const originalTransport = process.env.KILN_TUI_TRANSPORT;
+  const originalStartupProfile = process.env.KILN_STARTUP_PROFILE;
   let cwd: string | undefined;
 
   beforeEach(() => {
@@ -382,6 +383,7 @@ describe("tuiCommand startup provider catalog guard", () => {
 
   afterEach(() => {
     process.env.KILN_TUI_TRANSPORT = originalTransport;
+    process.env.KILN_STARTUP_PROFILE = originalStartupProfile;
     if (cwd) {
       rmSync(cwd, { recursive: true, force: true });
       cwd = undefined;
@@ -538,6 +540,38 @@ describe("tuiCommand startup provider catalog guard", () => {
       await command;
     }
     expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits startup profile markers through first TUI frame when profiling is enabled", async () => {
+    delete process.env.KILN_TUI_TRANSPORT;
+    process.env.KILN_STARTUP_PROFILE = "1";
+    const stderrWrites: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+      stderrWrites.push(String(chunk));
+      return true;
+    });
+    tuiMocks.startTui.mockImplementationOnce(async (...args: unknown[]) => {
+      const onFirstFrame = args[14] as (() => void) | undefined;
+      onFirstFrame?.();
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "codex" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    const markerLines = stderrWrites.filter((line) => line.startsWith("KILN_STARTUP_PROFILE "));
+    const phases = markerLines.map((line) => (
+      JSON.parse(line.slice("KILN_STARTUP_PROFILE ".length)) as { phase: string; surface: string }
+    ));
+    expect(phases).toEqual(expect.arrayContaining([
+      expect.objectContaining({ surface: "tui", phase: "command-entered" }),
+      expect.objectContaining({ surface: "tui", phase: "gateway-started" }),
+      expect.objectContaining({ surface: "tui", phase: "tui-first-frame-rendered" }),
+    ]));
   });
 
   it("accepts pending direct startup for non-model-less harness providers and fails closed on execution", async () => {

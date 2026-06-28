@@ -312,6 +312,20 @@ execution, telemetry, and file-change evidence.
 
 This path keeps the same safety, session, runtime-summary, and cost-tracking machinery in place instead of adding a second terminal-only orchestration loop.
 
+## Startup Profiling
+
+Use the repo-level startup profiler before changing TUI startup behavior:
+
+```bash
+bun run profile:startup -- --surface tui --cwd C:\Proyectos\Sequel\kiln --provider claude --port 4974
+```
+
+The profiler emits structured JSON with commit SHA, OS, Bun/Node versions,
+cache state, CLI/gateway phase markers, and `firstUsableFrameMs`. The TUI
+reports the first frame through an explicit renderer lifecycle callback; normal
+`kiln tui` startup does not print profiling logs unless `KILN_STARTUP_PROFILE`
+is enabled by the profiler.
+
 ## Session Model Reference
 
 The canonical session rules are documented in

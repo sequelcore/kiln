@@ -37,6 +37,7 @@ import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../config/operator-voice.js";
+import { createStartupProfiler, type StartupProfiler } from "../application/startup-profiler.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -130,6 +131,7 @@ interface TuiBootstrapOptions {
   readonly operatorVoice?: OperatorVoiceRuntime;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
+  readonly startupProfiler?: StartupProfiler;
 }
 
 interface TuiBootstrapResult {
@@ -951,6 +953,7 @@ async function bootstrapGatewaySession(
   const { flags, sessionManager, contextArtifactCache, systemPrompt } = options;
 
   writeTuiBootstrapStatus("Starting Kiln TUI runtime...");
+  options.startupProfiler?.mark("gateway-start-requested");
   const gateway = await startTuiGateway({
     sessionManager,
     port: flags.port,
@@ -970,9 +973,11 @@ async function bootstrapGatewaySession(
     initialProviderDiscovery: options.initialProviderDiscovery,
     onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
   });
+  options.startupProfiler?.mark("gateway-started", { port: gateway.port });
 
   writeTuiBootstrapStatus("Connecting to local gateway...");
   await waitForGateway(`http://localhost:${gateway.port}/health`);
+  options.startupProfiler?.mark("gateway-health-ready", { port: gateway.port });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
 
   const providerModelsRef: { current: Record<string, string[]> } = {
@@ -1132,6 +1137,7 @@ async function bootstrapDirectSession(
     applyProviderDiscovery(snapshot.discovery);
   });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
+  options.startupProfiler?.mark("direct-provider-catalog-refresh-started");
   providerCatalog.startBackgroundRefresh({ force: true });
   const directRuntimeSessionId = `kiln-tui:direct:${randomUUID()}`;
 
@@ -1237,6 +1243,8 @@ async function bootstrapTuiSession(
 
 export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {}): Promise<void> {
   const { startTui } = await import("@kilnai/tui");
+  const startupProfiler = createStartupProfiler("tui");
+  startupProfiler.mark("command-entered");
   const { registry } = createDefaultRegistry();
   const providerDisplayInfo = getProviderDisplayInfo(registry);
   const providerIds = providerDisplayInfo.map((entry) => entry.id);
@@ -1245,6 +1253,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  startupProfiler.mark("config-loaded", { projectPath: cwd });
   const runtimeAppConfig = withContextCandidates(
     withWorkGovernanceContext(withGlobalIdentityContext(appConfig, globalConfig), resolvedKilnConfig?.workGovernance),
     resolveInstructionProfileContextCandidates({
@@ -1260,6 +1269,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const goalRunStore = new GoalRunStore();
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+  startupProfiler.mark("context-cache-ready");
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
@@ -1267,6 +1277,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
         caller: { kind: "operator_surface", id: "tui" },
       },
     });
+  startupProfiler.mark("builtin-tool-options-loaded");
   let builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
     workItemStore,
@@ -1277,6 +1288,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
   });
+  startupProfiler.mark("builtin-tool-options-created");
   let managedRouteGlobalConfig = globalConfig;
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
   const stagedManagedInvocation = appConfig.managedInvocation
@@ -1301,6 +1313,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
         console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
       },
     });
+  startupProfiler.mark("managed-invocation-staged", {
+    hasManagedInvocation: Boolean(appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation),
+  });
   const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
@@ -1313,6 +1328,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
   }
+  startupProfiler.mark("voice-runtime-ready");
 
   // Resolve domain display name from app config if available
   let domain = "kiln";
@@ -1363,6 +1379,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     managedInvocationWithService,
     runtimeBudgetAdmission,
   );
+  startupProfiler.mark("session-manager-ready");
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
@@ -1383,7 +1400,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     operatorVoice,
     initialProviderDiscovery,
     onProviderDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
+    startupProfiler,
   });
+  startupProfiler.mark("bootstrap-context-ready", { transport: startupTransport });
   stagedManagedInvocation?.startBackgroundRefresh();
 
   const shutdown = (code = 0, error?: unknown) => {
@@ -1459,6 +1478,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     ).refreshProviders?.()),
     (themeName) => persistTuiThemePreference(themeName, globalConfig),
     async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
+    () => startupProfiler.mark("tui-first-frame-rendered"),
   );
 
   bootstrap.shutdown();

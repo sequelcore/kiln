@@ -2,7 +2,7 @@ import { existsSync, rmSync } from "node:fs";
 import { arch, platform, release } from "node:os";
 import { basename, join, resolve } from "node:path";
 
-type Surface = "gui";
+type Surface = "gui" | "tui";
 type GuiMode = "dev" | "prod";
 
 interface StartupProfileOptions {
@@ -12,6 +12,7 @@ interface StartupProfileOptions {
   readonly timeoutMs: number;
   readonly port: number;
   readonly guiPort: number;
+  readonly provider?: string;
   readonly openBrowser: boolean;
   readonly measureFirstPaint: boolean;
   readonly verbose: boolean;
@@ -34,8 +35,10 @@ let stdout = "";
 let stderr = "";
 let viteReadyMs: number | undefined;
 let firstUsablePaintMs: number | undefined;
+let firstUsableFrameMs: number | undefined;
 let browserLaunchMs: number | undefined;
 let guiUrlToFirstUsableMs: number | undefined;
+let profileError: string | undefined;
 
 if (options.clearViteCache) {
   clearGuiViteCache(repoRoot);
@@ -75,47 +78,57 @@ const stderrReader = readStream(child.stderr, (chunk) => {
 });
 
 try {
-  await waitForHttpOk(`http://localhost:${options.port}/health`, "gateway-health-ready");
-  await waitForHttpOk(`http://localhost:${options.port}/gui/api/dashboard`, "gateway-dashboard-ready");
-  const guiUrl = options.mode === "dev"
-    ? `http://localhost:${options.guiPort}/gui/`
-    : `http://localhost:${options.port}/gui/`;
-  await waitForHttpOk(guiUrl, "gui-url-ready");
-  if (options.measureFirstPaint) {
-    const browserProbeStartedAt = performance.now();
-    const browserProbeStartOffsetMs = Math.round(browserProbeStartedAt - startedAt);
-    mark("browser-launch-requested", "headless chromium");
-    const browserProbe = await runBrowserProbe(guiUrl);
-    browserLaunchMs = browserProbe.browserLaunchMs;
-    markAt("browser-ready", browserProbeStartOffsetMs + browserProbe.browserLaunchMs, `${browserLaunchMs} ms`);
-    markAt(
-      "gui-navigation-committed",
-      browserProbeStartOffsetMs + browserProbe.navigationCommittedMs,
-      `${browserProbe.navigationCommittedMs} ms after browser probe start`,
-    );
-    firstUsablePaintMs = browserProbeStartOffsetMs + browserProbe.firstUsableMs;
-    guiUrlToFirstUsableMs = browserProbe.firstUsableMs;
-    markAt(
-      "gui-first-usable-interaction",
-      firstUsablePaintMs,
-      `${guiUrlToFirstUsableMs} ms after GUI URL readiness`,
-    );
-  }
-} finally {
-  if (child.exitCode === null) {
-    if (process.platform === "win32") {
-      terminateProcessTree(child.pid);
+  try {
+    if (options.surface === "gui") {
+      await waitForHttpOk(`http://localhost:${options.port}/health`, "gateway-health-ready");
+      await waitForHttpOk(`http://localhost:${options.port}/gui/api/dashboard`, "gateway-dashboard-ready");
+      const guiUrl = options.mode === "dev"
+        ? `http://localhost:${options.guiPort}/gui/`
+        : `http://localhost:${options.port}/gui/`;
+      await waitForHttpOk(guiUrl, "gui-url-ready");
+      if (options.measureFirstPaint) {
+        const browserProbeStartedAt = performance.now();
+        const browserProbeStartOffsetMs = Math.round(browserProbeStartedAt - startedAt);
+        mark("browser-launch-requested", "headless chromium");
+        const browserProbe = await runBrowserProbe(guiUrl);
+        browserLaunchMs = browserProbe.browserLaunchMs;
+        markAt("browser-ready", browserProbeStartOffsetMs + browserProbe.browserLaunchMs, `${browserLaunchMs} ms`);
+        markAt(
+          "gui-navigation-committed",
+          browserProbeStartOffsetMs + browserProbe.navigationCommittedMs,
+          `${browserProbe.navigationCommittedMs} ms after browser probe start`,
+        );
+        firstUsablePaintMs = browserProbeStartOffsetMs + browserProbe.firstUsableMs;
+        guiUrlToFirstUsableMs = browserProbe.firstUsableMs;
+        markAt(
+          "gui-first-usable-interaction",
+          firstUsablePaintMs,
+          `${guiUrlToFirstUsableMs} ms after GUI URL readiness`,
+        );
+      }
     } else {
-      child.kill("SIGINT");
+      await waitForPhaseMarker("tui-first-frame-rendered");
+      firstUsableFrameMs = Math.round(performance.now() - startedAt);
+      mark("tui-first-usable-frame");
     }
+  } finally {
+    if (child.exitCode === null) {
+      if (process.platform === "win32") {
+        terminateProcessTree(child.pid);
+      } else {
+        child.kill("SIGINT");
+      }
+    }
+    await Promise.race([
+      child.exited.catch(() => undefined),
+      sleep(2_000).then(() => {
+        child.kill("SIGKILL");
+      }),
+    ]);
+    await Promise.allSettled([stdoutReader, stderrReader]);
   }
-  await Promise.race([
-    child.exited.catch(() => undefined),
-    sleep(2_000).then(() => {
-      child.kill("SIGKILL");
-    }),
-  ]);
-  await Promise.allSettled([stdoutReader, stderrReader]);
+} catch (error) {
+  profileError = error instanceof Error ? error.message : String(error);
 }
 
 const endedAt = performance.now();
@@ -125,6 +138,7 @@ const result = {
     surface: options.surface,
     mode: options.mode,
     cwd: redactPath(options.cwd),
+    provider: options.provider,
     openBrowser: options.openBrowser,
     measureFirstPaint: options.measureFirstPaint,
     raw: `${command.cmd} ${command.args.join(" ")}`,
@@ -146,6 +160,7 @@ const result = {
     totalMs: Math.round(endedAt - startedAt),
     viteReadyMs,
     firstUsablePaintMs,
+    firstUsableFrameMs,
     browserLaunchMs,
     guiUrlToFirstUsableMs,
     milestones,
@@ -155,23 +170,32 @@ const result = {
     stdoutTail: tail(stdout),
     stderrTail: tail(stderr),
   },
+  ...(profileError ? { error: profileError } : {}),
 };
 
 console.log(JSON.stringify(result, null, 2));
+if (profileError) {
+  process.exitCode = 1;
+}
 
 function parseArgs(args: readonly string[]): StartupProfileOptions {
+  const surface = readFlag(args, "--surface") ?? "gui";
+  if (surface !== "gui" && surface !== "tui") {
+    throw new Error("--surface must be gui or tui");
+  }
   const mode = readFlag(args, "--mode") ?? "dev";
   if (mode !== "dev" && mode !== "prod") {
     throw new Error("--mode must be dev or prod");
   }
   const cwd = resolve(readFlag(args, "--cwd") ?? repoRoot);
   return {
-    surface: "gui",
+    surface,
     mode,
     cwd,
     timeoutMs: readNumberFlag(args, "--timeout-ms", 30_000),
     port: readNumberFlag(args, "--port", 4810),
     guiPort: readNumberFlag(args, "--gui-port", 5183),
+    provider: readFlag(args, "--provider"),
     openBrowser: args.includes("--open"),
     measureFirstPaint: args.includes("--measure-first-paint"),
     verbose: args.includes("--verbose"),
@@ -218,6 +242,20 @@ async function runBrowserProbe(guiUrl: string): Promise<{
 }
 
 function buildCommand(input: StartupProfileOptions): { readonly cmd: string; readonly args: readonly string[] } {
+  if (input.surface === "tui") {
+    return {
+      cmd: "bun",
+      args: [
+        "packages/cli/src/index.ts",
+        "tui",
+        "--cwd",
+        input.cwd,
+        "--port",
+        String(input.port),
+        ...(input.provider ? ["--provider", input.provider] : []),
+      ],
+    };
+  }
   return {
     cmd: "bun",
     args: [
@@ -233,6 +271,16 @@ function buildCommand(input: StartupProfileOptions): { readonly cmd: string; rea
       String(input.guiPort),
     ],
   };
+}
+
+async function waitForPhaseMarker(phase: string): Promise<void> {
+  while (Date.now() < deadline) {
+    if (phaseMarkers.some((marker) => marker.phase === phase)) {
+      return;
+    }
+    await sleep(25);
+  }
+  throw new Error(`Timed out waiting for startup phase ${phase}`);
 }
 
 async function waitForHttpOk(url: string, milestone: string): Promise<void> {

@@ -327,6 +327,43 @@ describe("TUI provider picker", () => {
     }
   });
 
+  it("reports the first rendered frame through the startup lifecycle callback", async () => {
+    const onFirstFrame = vi.fn();
+    const createSession = vi.fn(async () => ({
+      run: async function* () {},
+      dispose: vi.fn(),
+    }));
+
+    const startPromise = startTui(
+      createSession,
+      [
+        { id: "claude", group: "subscription", models: ["claude-sonnet-4-6"], free: false },
+      ],
+      "claude",
+      "kiln",
+      TEST_THEME,
+      {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onFirstFrame,
+    );
+
+    try {
+      await waitForTuiReady();
+
+      expect(onFirstFrame).toHaveBeenCalledOnce();
+    } finally {
+      harness.renderer?.destroy();
+      void startPromise.catch(() => undefined);
+    }
+  });
+
   it("requires explicit continue mode before empty Enter continues a selected session", async () => {
     const onContinueSession = vi.fn();
     const createSession = vi.fn(async () => ({
