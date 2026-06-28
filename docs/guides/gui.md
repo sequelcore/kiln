@@ -503,5 +503,23 @@ bun run profile:startup -- --mode dev --cwd C:\Proyectos\Sequel\kiln --measure-f
 
 This launches a headless browser in an isolated Node subprocess and waits until
 the composer accepts input and the send control is visible. The probe does not
-send a message. Normal `kiln gui` startup does not load Playwright or pay this
-measurement cost.
+send a message. It also records a redacted `browserResourceSummary` with the
+slowest initial browser resource requests so Vite dependency optimization and
+lazy-loading decisions can be tied to module evidence. Normal `kiln gui`
+startup does not load Playwright or pay this measurement cost.
+
+Current measured dev-mode optimizations:
+
+- `@tanstack/router-devtools` is lazy-loaded from the root route so devtools do
+  not compete with first usable GUI interaction.
+- `@kilnai/gateway-contracts` is included in Vite `optimizeDeps` because warm
+  profiling showed many linked-workspace `/@fs/` contract modules on the
+  initial resource path. The targeted pre-bundle collapses that graph into a
+  single optimized dependency request.
+
+Reference profile on Windows 11, Bun `1.3.8`, Node `24.3.0`, with the working
+tree based on commit `38dd7c9a`: warm dev startup after the optimization
+reported Vite ready in `1241 ms`, GUI URL ready at `3782 ms`, first usable
+interaction at `5305 ms`, and `1523 ms` from GUI URL readiness to first usable
+interaction. Treat these as machine-local evidence, not a public performance
+guarantee.

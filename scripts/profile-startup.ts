@@ -38,6 +38,7 @@ let firstUsablePaintMs: number | undefined;
 let firstUsableFrameMs: number | undefined;
 let browserLaunchMs: number | undefined;
 let guiUrlToFirstUsableMs: number | undefined;
+let browserResourceSummary: BrowserResourceSummary | undefined;
 let profileError: string | undefined;
 
 if (options.clearViteCache) {
@@ -56,6 +57,11 @@ const child = Bun.spawn([command.cmd, ...command.args], {
     KILN_STARTUP_PROFILE: "1",
     NO_COLOR: "1",
   },
+});
+let childExitCode: number | undefined;
+const childExited = child.exited.then((code) => {
+  childExitCode = code;
+  return code;
 });
 
 const deadline = Date.now() + options.timeoutMs;
@@ -100,6 +106,7 @@ try {
         );
         firstUsablePaintMs = browserProbeStartOffsetMs + browserProbe.firstUsableMs;
         guiUrlToFirstUsableMs = browserProbe.firstUsableMs;
+        browserResourceSummary = browserProbe.initialResources;
         markAt(
           "gui-first-usable-interaction",
           firstUsablePaintMs,
@@ -120,7 +127,7 @@ try {
       }
     }
     await Promise.race([
-      child.exited.catch(() => undefined),
+      childExited.catch(() => undefined),
       sleep(2_000).then(() => {
         child.kill("SIGKILL");
       }),
@@ -163,6 +170,7 @@ const result = {
     firstUsableFrameMs,
     browserLaunchMs,
     guiUrlToFirstUsableMs,
+    browserResourceSummary,
     milestones,
     phaseMarkers,
   },
@@ -207,6 +215,7 @@ async function runBrowserProbe(guiUrl: string): Promise<{
   readonly browserLaunchMs: number;
   readonly navigationCommittedMs: number;
   readonly firstUsableMs: number;
+  readonly initialResources: BrowserResourceSummary;
 }> {
   const probe = Bun.spawn([
     "node",
@@ -238,7 +247,22 @@ async function runBrowserProbe(guiUrl: string): Promise<{
     readonly browserLaunchMs: number;
     readonly navigationCommittedMs: number;
     readonly firstUsableMs: number;
+    readonly initialResources: BrowserResourceSummary;
   };
+}
+
+interface BrowserResourceSummary {
+  readonly count: number;
+  readonly totalDurationMs: number;
+  readonly slowest: readonly BrowserResourceTiming[];
+}
+
+interface BrowserResourceTiming {
+  readonly name: string;
+  readonly initiatorType: string;
+  readonly startTimeMs: number;
+  readonly durationMs: number;
+  readonly transferSize?: number;
 }
 
 function buildCommand(input: StartupProfileOptions): { readonly cmd: string; readonly args: readonly string[] } {
@@ -275,6 +299,7 @@ function buildCommand(input: StartupProfileOptions): { readonly cmd: string; rea
 
 async function waitForPhaseMarker(phase: string): Promise<void> {
   while (Date.now() < deadline) {
+    assertStartupChildRunning(`startup phase ${phase}`);
     if (phaseMarkers.some((marker) => marker.phase === phase)) {
       return;
     }
@@ -285,6 +310,7 @@ async function waitForPhaseMarker(phase: string): Promise<void> {
 
 async function waitForHttpOk(url: string, milestone: string): Promise<void> {
   while (Date.now() < deadline) {
+    assertStartupChildRunning(url);
     try {
       const response = await fetch(url);
       if (response.ok) {
@@ -297,6 +323,12 @@ async function waitForHttpOk(url: string, milestone: string): Promise<void> {
     await sleep(100);
   }
   throw new Error(`Timed out waiting for ${url}`);
+}
+
+function assertStartupChildRunning(waitTarget: string): void {
+  if (childExitCode !== undefined) {
+    throw new Error(`Startup child exited with code ${childExitCode} while waiting for ${waitTarget}`);
+  }
 }
 
 function remainingTimeoutMs(): number {

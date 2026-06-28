@@ -40,11 +40,19 @@ test("profiles the first usable GUI interaction when browser measurement is enab
     command: { measureFirstPaint?: boolean };
     timings: {
       firstUsablePaintMs?: number;
+      browserResourceSummary?: {
+        count: number;
+        slowest: Array<{ name: string; durationMs: number }>;
+      };
       milestones: Array<{ name: string; atMs: number }>;
     };
   };
   expect(profile.command.measureFirstPaint).toBe(true);
   expect(profile.timings.firstUsablePaintMs).toBeGreaterThan(0);
+  expect(profile.timings.browserResourceSummary?.count).toBeGreaterThan(0);
+  expect(profile.timings.browserResourceSummary?.slowest.length).toBeGreaterThan(0);
+  expect(profile.timings.browserResourceSummary?.slowest[0]?.durationMs).toBeGreaterThanOrEqual(0);
+  expect(profile.timings.browserResourceSummary?.slowest[0]?.name).toStartWith("/gui/");
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("browser-ready");
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("gui-first-usable-interaction");
 }, 45_000);

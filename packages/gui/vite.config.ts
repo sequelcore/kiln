@@ -90,6 +90,9 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: ["@kilnai/gateway-contracts"],
+  },
   build: {
     chunkSizeWarningLimit: 560,
     rollupOptions: {
