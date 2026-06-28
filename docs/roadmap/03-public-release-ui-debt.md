@@ -67,6 +67,8 @@ Still open before public release:
 - Cross-surface event-density doctrine and parity verification for CLI/TUI.
 - Research and correction of managed-agent/tool capability routing across
   harnesses and provider entitlements.
+- Skill catalog projection and admission parity across Codex, OpenCode, Claude
+  Code, and GUI-managed invocations.
 - Final live validation of long conversations, streaming interruptions,
   restored sessions, structured outputs, inspector modes, responsive sidebar,
   and workspace file-type icon coverage.
@@ -75,7 +77,7 @@ Still open before public release:
 
 ### Cross-Harness Agent and Tool Capability Routing
 
-Status: Pending research
+Status: Partially implemented
 
 Problem:
 
@@ -112,6 +114,99 @@ Verification:
 - GUI tests show clear capability errors without raw provider exception text.
 - CLI/TUI tests prove the same route availability semantics.
 - Research notes compare current Kiln behavior with relevant harness patterns.
+
+### Skill Catalog Projection and Admission Parity
+
+Status: Pending research
+
+Problem:
+
+- During live validation, a Codex OAuth session reported access only to the
+  Kiln-admitted skill set such as `repo-context-review`, `codebase-scouting`,
+  `tdd-workflow`, and `benchmark-readiness-review`, while other locally
+  available Codex skills such as `shadcn`, `frontend-design`, and accessibility
+  skills were not visible to that route.
+- Kiln's architecture defines skills as governed procedural context resolved
+  through registry, selection, admission, and native projection. A skill that
+  exists in one harness's local skill directory is not automatically safe or
+  admitted for every Kiln-managed route.
+- The current operator experience does not clearly explain the difference
+  between:
+  - a first-party built-in Kiln skill.
+  - a user-installed or project-installed skill.
+  - a native harness skill projected by Kiln.
+  - a skill available to the current Codex/Claude/OpenCode host outside Kiln.
+  - a skill admitted into the current managed invocation or operator session.
+- This ambiguity undermines Kiln's core promise that agents, skills,
+  instructions, and tools are shared through governed projection rather than
+  scattered per-harness setup.
+
+Required outcome:
+
+- Define the canonical skill capability model across:
+  - Kiln built-in skills.
+  - global user skills.
+  - project skills.
+  - plugin-provided skills.
+  - native harness projections for Codex, OpenCode, and Claude Code.
+  - per-route admitted skills for managed invocation and operator sessions.
+- Add diagnostics that can answer, for any active session or agent route:
+  - which skills exist in the configured registry.
+  - where each skill came from.
+  - which skills were projected to native harness directories.
+  - which skills were admitted into the current context.
+  - why an expected skill was omitted.
+- Ensure UI/frontend work can request and receive the relevant design skills
+  when policy allows them, instead of relying on harness-local availability that
+  Kiln cannot audit.
+- Adopt native harness-local skills into Kiln's governed registry when the
+  contents are parseable and non-conflicting, then project the canonical copy
+  back to every supported harness.
+- Present missing skill capability as a clear setup/capability diagnostic, not
+  as the assistant saying it cannot see skills that the operator believes Kiln
+  should share.
+
+Implemented:
+
+- `kiln config read skills` and setup/status snapshots now report configured
+  skill origin, built-in status, source path, native projection status, and
+  admission availability.
+- Managed invocation skill catalogs now project the same configured skill
+  diagnostics and expose unmanaged native harness-local skills as diagnostics
+  only, not as admissible skill ids.
+- Explicit missing skills still fail closed; auto-selected recommendations are
+  admitted only when configured and `skills.selection.mode: auto` is enabled.
+- Native harness-local skills such as Codex-local `shadcn` are classified as
+  `native-harness` / `unmanaged-native` with setup action guidance instead of
+  being silently imported.
+- `adopt-or-back-up-native-guidance` now adopts parseable, non-conflicting
+  native skills into `~/.kiln/skills`, blocks same-name content conflicts for
+  manual reconciliation, and runs native skill projection so Claude Code,
+  Codex, and OpenCode receive the same governed skill set.
+- Managed invocation tool descriptions now summarize long skill catalogs with
+  omitted counts and diagnostic totals instead of injecting every native skill
+  row into the model-facing prompt.
+
+Remaining debt:
+
+- Wire plugin/domain-package skills into the configured Kiln registry only
+  after the plugin ownership, trust, and precedence contract is promoted from
+  reserved model state to active config behavior.
+- Render the richer skill setup diagnostics in GUI/TUI with the same fields now
+  available in the shared setup contract.
+
+Verification:
+
+- Config/status diagnostics expose skill origin, projection state, and admission
+  state.
+- Managed invocation tests cover requested available skills, requested missing
+  skills, auto-selected skills, and harness-local unmanaged skills.
+- CLI setup/status views show actionable skill projection/admission status;
+  GUI/TUI rendering remains follow-up work over the shared contract.
+- Research notes compare current Kiln behavior with Codex, Claude Code,
+  OpenCode, and any relevant plugin/skill ecosystem conventions.
+- Documentation states that existence, native projection, and context admission
+  are distinct states.
 
 ### Composer Context Usage Indicator
 
@@ -224,6 +319,10 @@ Verification:
   left; context, model, voice, and send controls on the right.
 - Do not let any public surface repeat event title/summary/details/body as
   separate visible facts.
+- Do not optimize GUI startup from a single warm or cold measurement. Record
+  cache state and separate CLI, gateway, Vite, browser launch, and first paint.
+- Do not claim a harness has access to a skill unless Kiln can show whether the
+  skill is configured, projected, and admitted for that route.
 - Do not add a visualizer dependency unless it replaces real behavior that Kiln
   would otherwise maintain poorly in-house.
 - Promote stable behavior into architecture or guide docs when this roadmap

@@ -67,6 +67,10 @@ Use these documents as the source of truth before starting roadmap work:
 
 ## Deferred Roadmaps
 
+- [Federated Harness Configuration Plane](./04-federated-harness-configuration-plane.md).
+  Deferred until cross-harness capability matrices and projection benchmarks
+  can justify replacing selected full projections with thin or dynamic native
+  adapters without weakening standalone operation or governance.
 - OS-pack packaging for web extraction and browser helpers.
   Deferred until controlled web primitives need platform-specific helper
   binaries or dependencies.
