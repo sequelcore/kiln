@@ -35,6 +35,8 @@ export async function createStagedManagedInvocationRouteCatalog(
   context: StagedManagedInvocationRouteContext,
   options: CreateStagedManagedInvocationRouteCatalogOptions = {},
 ): Promise<StagedManagedInvocationRouteCatalog> {
+  const mark = createRouteCatalogStartupMarker();
+  mark("route-catalog-entered");
   const currentConfig = () => options.reloadConfig?.() ?? config;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
@@ -46,12 +48,18 @@ export async function createStagedManagedInvocationRouteCatalog(
       providerModels,
       includeUnavailableRoutes: true,
     });
+  mark("route-catalog-initial-resolve-started");
   const initial = await resolve(PENDING_MANAGED_AGENT_PROVIDER_MODELS);
+  mark("route-catalog-initial-resolve-finished", {
+    routes: initial.managedInvocation?.routes.length ?? 0,
+    unavailableRoutes: initial.managedInvocation?.unavailableRoutes?.length ?? 0,
+  });
   invocationService = initial.managedInvocation?.invocationService;
   invocationServiceKey = initial.managedInvocation?.invocationServiceKey;
   const catalog = initial.managedInvocation
     ? createManagedInvocationToolOptionsCatalog(initial.managedInvocation)
     : undefined;
+  mark("route-catalog-created", { hasCatalog: Boolean(catalog) });
   const discoverProviderModels = options.discoverProviderModels ?? discoverManagedAgentProviderModels;
   let refreshInFlight: Promise<void> | undefined;
   let refreshInterval: ReturnType<typeof setInterval> | undefined;
@@ -87,6 +95,22 @@ export async function createStagedManagedInvocationRouteCatalog(
       }, options.refreshIntervalMs ?? 15000);
       refreshInterval.unref?.();
     },
+  };
+}
+
+function createRouteCatalogStartupMarker(): (phase: string, detail?: Record<string, unknown>) => void {
+  const startedAt = performance.now();
+  return (phase, detail) => {
+    if (process.env.KILN_STARTUP_PROFILE !== "1") {
+      return;
+    }
+    process.stderr.write(`KILN_STARTUP_PROFILE ${JSON.stringify({
+      type: "kiln_startup_profile",
+      surface: "managed-agent-route-catalog",
+      phase,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      ...(detail ? { detail } : {}),
+    })}\n`);
   };
 }
 

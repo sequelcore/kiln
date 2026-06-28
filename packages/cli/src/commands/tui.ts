@@ -1277,20 +1277,26 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
   });
+  let managedRouteGlobalConfig = globalConfig;
+  let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
     : await createStagedManagedInvocationRouteCatalog(globalConfig, {
       cwd,
       registry,
       surface: "tui",
-      isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
+      isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,
       }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
-      reloadConfig: () => readGlobalConfig() ?? globalConfig,
+      reloadConfig: () => {
+        managedRouteGlobalConfig = readGlobalConfig() ?? globalConfig;
+        managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
+        return managedRouteGlobalConfig;
+      },
       onRefreshError: (error) => {
         console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
       },

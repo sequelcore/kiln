@@ -189,15 +189,47 @@ describe("managed agent route catalog", () => {
       directAdapterFactory: () => makeAdapter(),
     }, {
       reloadConfig: () => currentConfig,
-      discoverProviderModels: async () => ({}),
+      discoverProviderModels: async () => ({ "opencode-go": ["qwen3.6-plus"] }),
     });
 
+    expect(catalog.managedInvocation?.routes).toEqual([]);
+    expect(catalog.managedInvocation?.unavailableRoutes?.[0]?.reason)
+      .toBe("Provider/model discovery is pending for direct managed invocation route 'opencode-go-research-readonly'.");
+
+    await catalog.refreshNow();
     expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(false);
 
     currentConfig = makeConfig(true);
     await catalog.refreshNow();
 
     expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(true);
+  });
+
+  it("does not construct direct provider adapters while staged provider discovery is pending", async () => {
+    const cwd = createTempRoot();
+    const directAdapterFactory = vi.fn(async () => makeAdapter());
+    const catalog = await createStagedManagedInvocationRouteCatalog(makeConfig(false), {
+      cwd,
+      registry: createRegistry("opencode-go"),
+      surface: "gui",
+      isProviderAvailable: () => true,
+      directAdapterFactory,
+    }, {
+      discoverProviderModels: async () => ({ "opencode-go": ["qwen3.6-plus"] }),
+    });
+
+    expect(directAdapterFactory).not.toHaveBeenCalled();
+    expect(catalog.managedInvocation?.routes).toEqual([]);
+    expect(catalog.managedInvocation?.unavailableRoutes?.[0]).toMatchObject({
+      providerId: "opencode-go",
+      model: "qwen3.6-plus",
+      reason: "Provider/model discovery is pending for direct managed invocation route 'opencode-go-research-readonly'.",
+    });
+
+    await catalog.refreshNow();
+
+    expect(directAdapterFactory).toHaveBeenCalledTimes(1);
+    expect(catalog.managedInvocation?.routes[0]?.routeId).toBe("opencode-go-research-readonly");
   });
 
   it("projects explicit read-only reference roots with default protected descendants", async () => {

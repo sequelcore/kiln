@@ -33,6 +33,7 @@ import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { createStartupProfiler } from "../application/startup-profiler.js";
 import { loadContinuationSidebarInfo } from "../application/continuation-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
@@ -91,10 +92,13 @@ export interface GuiFlags {
 }
 
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
+  const startupProfiler = createStartupProfiler("gui");
+  startupProfiler.mark("command-entered");
   const cwd = resolveProjectRoot({ explicitPath: flags.cwd }).rootPath;
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  startupProfiler.mark("config-loaded", { projectPath: cwd });
   const runtimeAppConfig = withContextCandidates(
     withWorkGovernanceContext(withGlobalIdentityContext(appConfig, globalConfig), resolvedKilnConfig?.workGovernance),
     resolveInstructionProfileContextCandidates({
@@ -136,6 +140,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     goalRunStore,
   });
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+  startupProfiler.mark("context-cache-ready");
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
@@ -143,6 +148,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
         caller: { kind: "operator_surface", id: "gui" },
       },
     });
+  startupProfiler.mark("builtin-tool-options-loaded");
   let builtinToolOptions = createSessionBuiltinToolOptions({
     ...configuredBuiltinToolOptions,
     workItemStore,
@@ -153,24 +159,34 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
   });
+  startupProfiler.mark("builtin-tool-options-created");
+  let managedRouteGlobalConfig = globalConfig;
+  let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
     : await createStagedManagedInvocationRouteCatalog(globalConfig, {
       cwd,
       registry,
       surface: "gui",
-      isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
+      isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,
       }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
-      reloadConfig: () => readGlobalConfig() ?? globalConfig,
+      reloadConfig: () => {
+        managedRouteGlobalConfig = readGlobalConfig() ?? globalConfig;
+        managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
+        return managedRouteGlobalConfig;
+      },
       onRefreshError: (error) => {
         console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
       },
     });
+  startupProfiler.mark("managed-invocation-staged", {
+    hasManagedInvocation: Boolean(stagedManagedInvocation?.managedInvocation ?? appConfig.managedInvocation),
+  });
   const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
@@ -180,6 +196,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
   );
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
+  startupProfiler.mark("voice-runtime-ready");
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
   }
@@ -196,6 +213,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     managedInvocationWithService,
     runtimeBudgetAdmission,
   );
+  startupProfiler.mark("session-manager-ready");
   const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationWithService;
   if (startupModel) {
     sessionManager.setModel(startupModel);
@@ -206,10 +224,12 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     sessionManager.setModel(startupProviderSelection.model ?? "");
   }
   const bootstrapContext = await resolveGuiBootstrapContext(runtimeAppConfig, cwd, contextArtifactCache);
+  startupProfiler.mark("bootstrap-context-ready");
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd);
   const { startGuiGateway } = await import("@kilnai/runtime");
+  startupProfiler.mark("gateway-start-requested");
   const gateway = await startGuiGateway({
     port,
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
@@ -263,10 +283,12 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       domainLabel: bootstrapContext.domainLabel,
     },
   });
+  startupProfiler.mark("gateway-started", { port: gateway.port });
   stagedManagedInvocation?.startBackgroundRefresh();
 
   let viteDevChild: ChildProcess | undefined;
   if (mode === "dev") {
+    startupProfiler.mark("gui-vite-start-requested", { port: guiPort });
     viteDevChild = spawnGuiDevServer(cwd, guiPort, gateway.port);
   }
 
@@ -274,11 +296,14 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const devGuiUrl = `http://localhost:${guiPort}/gui/`;
   const guiUrl = buildGuiUrl(mode === "dev" ? devGuiUrl : gatewayUrl, themePreference);
   printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl });
+  startupProfiler.mark("startup-banner-printed", { mode });
 
   let guiWindow: GuiWindowSession | undefined;
   try {
     if (flags.open ?? true) {
+      startupProfiler.mark("browser-launch-requested");
       guiWindow = launchGuiWindow(guiUrl);
+      startupProfiler.mark("browser-launched");
       console.log(`GUI window host: ${guiWindow.browserLabel}`);
     }
   } catch (error) {

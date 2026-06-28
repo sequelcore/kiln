@@ -473,3 +473,24 @@ See `docs/architecture/session-model.md` for the canonical rules.
 - Closing the managed GUI window is the expected Phase 1 shutdown path for the GUI surface.
 - GUI parity status lives in `docs/guides/gui-parity.md`; the manual validation
   script lives in `docs/guides/gui-parity-walkthrough.md`.
+
+## Startup Profiling
+
+Use the repo-level startup profiler before changing GUI or operator-gateway
+startup behavior:
+
+```bash
+bun run profile:startup -- --mode dev --cwd C:\Proyectos\Sequel\kiln --no-open
+```
+
+For a cold Vite dependency cache run, clear only the GUI Vite optimizer cache:
+
+```bash
+bun run profile:startup -- --mode dev --cwd C:\Proyectos\Sequel\kiln --clear-vite-cache --no-open
+```
+
+The profiler emits JSON with the commit SHA, OS, Bun/Node/Vite/React versions,
+cache state, command line, and measured milestones for gateway health,
+dashboard readiness, Vite readiness when dev mode reports it, and GUI URL
+readiness. Browser launch and first usable paint are separate evidence points;
+do not infer them from Vite's `ready in` line or from gateway health alone.

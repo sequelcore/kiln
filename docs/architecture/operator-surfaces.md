@@ -250,6 +250,26 @@ frames. Rust, WASM, or sidecar acceleration may be added only for measured
 projection/replay hot paths and must never own authority, scheduling, provider
 routing, memory, config, replay truth, or policy.
 
+## Startup And Operator Performance
+
+Startup performance is cross-surface operator evidence, not a GUI-only Vite
+metric. CLI, GUI, TUI, local Operator Gateway, App Gateway attach mode, runtime
+session startup, config/setup diagnostics, provider/model discovery, managed
+agent route catalog setup, and first usable interaction must be measured as
+separate phases before optimization.
+
+Normal startup must stay quiet and must not pay profiling overhead. Profiling
+belongs behind explicit diagnostic commands or flags that emit structured,
+secret-free evidence: commit SHA, OS, runtime versions, cache state, command
+line, browser/window launch state, and phase timings. Local paths should be
+redacted or bounded to the workspace identity unless the operator explicitly
+requests raw diagnostic detail.
+
+Provider/model discovery and managed-agent route refreshes remain runtime-owned
+background work after the relevant operator transport is listening. Cached or
+stale startup projections may improve diagnostics, but they must not become
+execution admission evidence until fresh runtime discovery succeeds.
+
 Native operator surface projection is contract-only until the active native operator surface
 benchmark-validation roadmap proves value with benchmark fixtures. Stable
 target, precondition, benchmark, and Rust-boundary rules live in

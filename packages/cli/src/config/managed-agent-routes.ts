@@ -145,11 +145,14 @@ export async function resolveManagedInvocationToolOptions(
   config: ManagedAgentRouteConfigSource | null | undefined,
   context: ResolveManagedInvocationToolOptionsContext,
 ): Promise<ManagedInvocationRouteResolution> {
+  const mark = createManagedRouteResolutionStartupMarker();
+  mark("managed-route-resolution-entered");
   if (!config || config.managedAgents?.enabled === false) {
     return { routeHealth: [] };
   }
 
   const routeConfigs = resolveRouteConfigs(config);
+  mark("managed-route-configs-resolved", { count: routeConfigs.length });
   if (routeConfigs.length === 0) {
     return { routeHealth: [] };
   }
@@ -157,11 +160,17 @@ export async function resolveManagedInvocationToolOptions(
   const routes: ManagedInvocationToolRoute[] = [];
   const routeHealth: ManagedAgentRouteHealth[] = [];
   const agentDefinitions = await loadAgentDefinitions(context.cwd);
+  mark("managed-route-agents-loaded", { count: agentDefinitions.length });
   const userHome = context.userHome ?? homedir();
   const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, config.skills);
+  mark("managed-route-skills-loaded", { count: skillCatalog.length });
 
+  let routeIndex = 0;
   for (const routeConfig of routeConfigs) {
+    routeIndex += 1;
+    mark("managed-route-resolve-started", { routeIndex, routeId: routeConfig.routeConfig.id });
     const resolved = await resolveRouteConfig(routeConfig, context, config);
+    mark("managed-route-resolve-finished", { routeIndex, routeId: routeConfig.routeConfig.id });
     routeHealth.push(resolved.health);
     if (resolved.route) {
       routes.push(resolved.route);
@@ -208,6 +217,22 @@ export async function resolveManagedInvocationToolOptions(
         }),
       },
     } : {}),
+  };
+}
+
+function createManagedRouteResolutionStartupMarker(): (phase: string, detail?: Record<string, unknown>) => void {
+  const startedAt = performance.now();
+  return (phase, detail) => {
+    if (process.env.KILN_STARTUP_PROFILE !== "1") {
+      return;
+    }
+    process.stderr.write(`KILN_STARTUP_PROFILE ${JSON.stringify({
+      type: "kiln_startup_profile",
+      surface: "managed-agent-route-resolution",
+      phase,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      ...(detail ? { detail } : {}),
+    })}\n`);
   };
 }
 
@@ -1064,6 +1089,13 @@ async function resolveDirectRouteConfig(
   const model = routeConfig.model;
   if (!model) {
     return unhealthy(baseHealth, `Direct managed invocation route '${routeConfig.id}' requires a model.`);
+  }
+  if (context.providerModels && context.providerModels[routeConfig.provider] === undefined) {
+    return unhealthy(baseHealth, `Provider/model discovery is pending for direct managed invocation route '${routeConfig.id}'.`);
+  }
+  const advertisedModels = context.providerModels?.[routeConfig.provider];
+  if (advertisedModels && !advertisedModels.includes(model)) {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not advertise model '${model}'.`);
   }
   let adapter: ManagedAgentRuntimeAdapter | undefined;
   try {
