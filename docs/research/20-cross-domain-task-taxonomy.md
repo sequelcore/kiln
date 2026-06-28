@@ -202,3 +202,23 @@ Avoid:
 6. Add tests proving that writing work recommends `clear-writing` only when
    configured/eligible, and that route suitability remains separate from work
    classification.
+
+## Implementation Status
+
+As of 2026-06-28, Kiln has the first governed slice of this model:
+
+- `WorkClassification` is a core value object separate from model-route
+  suitability.
+- `clear-writing` recommendations are driven by work facets, not by a
+  software-only route task.
+- Approved plan work items may carry classification plus
+  `plan-work-item` provenance. The pair is normalized, fails closed when
+  incomplete or mismatched, and participates in the plan content hash.
+- Materialized `WorkItem` records preserve the classification/provenance pair
+  and reject idempotent conflicts.
+- Generated managed invocation requests carry the durable work-item
+  classification, and canonical session events preserve requested/resolved
+  classification plus work-recommended skills for replay diagnostics.
+
+Remaining work should focus on richer non-software work entry points,
+operator-facing diagnostics, and any future rename of route suitability types.

@@ -228,6 +228,15 @@ admit a recommended skill only when it exists in the governed registry. The
 invocation metadata records requested classification, resolved classification,
 recommended skill ids, and admitted skill ids.
 
+For governed work, the long-lived source is the approved plan work item. A
+classified plan work item stores `workClassification` and
+`workClassificationProvenance` together, binds both to the approved content
+hash, and materializes them into the durable `WorkItem`. A managed invocation
+generated from that work item carries the stored classification automatically;
+operators do not need to restate it in the child request. If the classification
+changes, the plan must be revised and re-approved before the new value can
+govern execution.
+
 `clear-writing` is a neutral first-party writing procedure. Use it when an
 agent is asked to write, rewrite, or review prose in reports, research briefs,
 proposals, support replies, UI copy, public content, internal communication,

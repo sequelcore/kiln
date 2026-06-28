@@ -142,6 +142,79 @@ describe("materializeApprovedPlanWorkItems", () => {
     })).toThrow("conflicts with approved plan materialization: routeId, routingRecommendation");
   });
 
+  it("copies approved classification provenance and detects idempotent classification conflicts", () => {
+    const approvedPlan = approvedPlanForClassification();
+    const goal = new GoalRunStore({ now: () => "2026-05-12T18:30:00.000Z" }).create({
+      id: "goal-classification",
+      objective: "Execute classified approved work.",
+      ownerSessionId: "session-1",
+      planId: approvedPlan.id,
+      planHash: approvedPlan.contentHash,
+      workItemIds: [],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved classified plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const originalStore = new WorkItemStore({ now: () => "2026-05-12T19:00:00.000Z" });
+
+    const original = materializeApprovedPlanWorkItems({
+      plan: approvedPlan,
+      goalRun: goal,
+      workItemStore: originalStore,
+    }).workItems[0]!;
+
+    expect(original).toMatchObject({
+      sourceWorkItemId: "write-report",
+      workClassification: {
+        intents: ["write", "edit"],
+        artifacts: ["document"],
+        domains: ["business"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      workClassificationProvenance: {
+        sourceKind: "plan-work-item",
+        sourceId: "write-report",
+      },
+    });
+
+    const classificationConflictStore = new WorkItemStore();
+    classificationConflictStore.upsert({
+      ...original,
+      workClassification: {
+        intents: ["code"],
+        artifacts: ["code"],
+        domains: ["software"],
+        effects: ["mutate-workspace"],
+        modes: ["automate"],
+      },
+    });
+    expect(() => materializeApprovedPlanWorkItems({
+      plan: approvedPlan,
+      goalRun: goal,
+      workItemStore: classificationConflictStore,
+    })).toThrow(/workClassification/);
+
+    const provenanceConflictStore = new WorkItemStore();
+    provenanceConflictStore.upsert({
+      ...original,
+      sourceWorkItemId: "other-plan-item",
+      workClassificationProvenance: {
+        sourceKind: "plan-work-item",
+        sourceId: "other-plan-item",
+      },
+    });
+    expect(() => materializeApprovedPlanWorkItems({
+      plan: approvedPlan,
+      goalRun: goal,
+      workItemStore: provenanceConflictStore,
+    })).toThrow(/workClassificationProvenance/);
+  });
+
   it("fails closed unless the plan is approved for its current content hash and matches the goal", () => {
     const planStateStore = new PlanStateStore({ now: fixedNow });
     const plan = planStateStore.submitPlan(validPlanInput());
@@ -781,4 +854,27 @@ function approvedPlan(input: PlanSubmissionInput) {
   const approved = store.getPlan(plan.id);
   if (!approved) throw new Error("plan missing");
   return approved;
+}
+
+function approvedPlanForClassification() {
+  return approvedPlan(validPlanInput({
+    proposedWorkItems: [
+      workItemDraft({
+        id: "write-report",
+        summary: "Write the governed report.",
+        workflowProfile: "verification-heavy",
+        workClassification: {
+          intents: [" write ", "write", "edit"],
+          artifacts: [" document ", "document"],
+          domains: [" business "],
+          effects: [" write-artifact "],
+          modes: [" coauthor "],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: " write-report ",
+        },
+      }),
+    ],
+  }));
 }

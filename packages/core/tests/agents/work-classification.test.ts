@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   defineWorkClassification,
+  defineWorkClassificationProvenance,
   recommendedSkillsForWorkClassification,
 } from "../../src/agents/work-classification.js";
 
@@ -25,6 +26,23 @@ describe("work classification", () => {
     expect(() => defineWorkClassification({
       intents: ["writing"],
     })).toThrow("Unsupported work classification intent: writing");
+  });
+
+  it("normalizes plan work-item classification provenance", () => {
+    expect(defineWorkClassificationProvenance({
+      sourceKind: "plan-work-item",
+      sourceId: " wi-1 ",
+    })).toEqual({
+      sourceKind: "plan-work-item",
+      sourceId: "wi-1",
+    });
+  });
+
+  it("fails closed for incomplete classification provenance", () => {
+    expect(() => defineWorkClassificationProvenance({
+      sourceKind: "plan-work-item",
+      sourceId: " ",
+    })).toThrow("Work classification provenance sourceId must be a non-empty string");
   });
 
   it("recommends clear-writing for prose-like work", () => {

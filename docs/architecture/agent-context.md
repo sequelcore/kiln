@@ -275,6 +275,24 @@ classification is recorded in managed invocation context metadata so GUI, TUI,
 CLI, SDK/widget, and replay surfaces can explain why a skill was recommended
 or omitted without parsing the prompt.
 
+Approved plan work items are the durable authority for governed
+classification. When a plan proposes a classified work item, Kiln stores the
+normalized `WorkClassification` together with
+`WorkClassificationProvenance { sourceKind: "plan-work-item", sourceId }`.
+Both fields are required together, both participate in the plan content hash,
+and a revised classification supersedes prior approval. Materialization copies
+the pair into the durable `WorkItem`; re-materialization fails closed if an
+existing work item has different classification or provenance. A managed
+invocation generated for that work item carries the stored classification into
+the request, and canonical session events record requested, resolved, and
+recommended work-classification metadata for replay.
+
+Kiln does not infer durable classification from prompt text. Existing
+unclassified work remains explicitly unclassified until an approved plan,
+governed tool, or explicit managed invocation supplies a validated
+classification. If a caller supplies an unknown explicit facet, the request
+fails closed before skill recommendation or child execution.
+
 Skill existence is not the same as admission. The canonical skill status model
 tracks these states separately:
 
@@ -354,6 +372,14 @@ context also carries the explicit handoff contract from the parent work item:
 `doneCriteria`, and `residualRiskRequired`. These fields make the child task
 traceable and reviewable, but they do not grant tools, credentials, write
 access, or authority profile changes.
+
+If the work item has durable work classification, the generated managed
+invocation request includes that classification. The context resolver may then
+return resolved classification and work-recommended skills after normal
+registry admission. Session events preserve the requested classification,
+resolved classification, and recommendation list in `invocationContext`, so an
+operator can replay why `clear-writing` or another skill was admitted,
+recommended, skipped, or omitted.
 
 Default child context mode is `isolated`. The runtime may admit additional
 context through:

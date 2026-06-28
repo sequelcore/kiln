@@ -87,6 +87,18 @@ export interface WorkClassificationInput {
   readonly modes?: readonly string[];
 }
 
+export type WorkClassificationProvenanceSourceKind = "plan-work-item";
+
+export interface WorkClassificationProvenance {
+  readonly sourceKind: WorkClassificationProvenanceSourceKind;
+  readonly sourceId: string;
+}
+
+export interface WorkClassificationProvenanceInput {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+}
+
 const CLEAR_WRITING_INTENTS = new Set<WorkClassificationIntent>([
   "write",
   "edit",
@@ -115,6 +127,22 @@ export function defineWorkClassification(input: WorkClassificationInput): WorkCl
   return Object.fromEntries(
     Object.entries(classification).filter(([, value]) => Array.isArray(value) && value.length > 0),
   ) as WorkClassification;
+}
+
+export function defineWorkClassificationProvenance(
+  input: WorkClassificationProvenanceInput,
+): WorkClassificationProvenance {
+  if (input.sourceKind !== "plan-work-item") {
+    throw new Error(`Unsupported work classification provenance sourceKind: ${input.sourceKind}`);
+  }
+  const sourceId = input.sourceId.trim();
+  if (sourceId.length === 0) {
+    throw new Error("Work classification provenance sourceId must be a non-empty string");
+  }
+  return {
+    sourceKind: input.sourceKind,
+    sourceId,
+  };
 }
 
 export function recommendedSkillsForWorkClassification(

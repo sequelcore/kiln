@@ -154,6 +154,7 @@ export {
   WORK_CLASSIFICATION_INTENTS,
   WORK_CLASSIFICATION_MODES,
   defineWorkClassification,
+  defineWorkClassificationProvenance,
   recommendedSkillsForWorkClassification,
 } from "./work-classification.js";
 export type {
@@ -164,6 +165,9 @@ export type {
   WorkClassificationInput,
   WorkClassificationIntent,
   WorkClassificationMode,
+  WorkClassificationProvenance,
+  WorkClassificationProvenanceInput,
+  WorkClassificationProvenanceSourceKind,
 } from "./work-classification.js";
 export {
   normalizeToolCall,

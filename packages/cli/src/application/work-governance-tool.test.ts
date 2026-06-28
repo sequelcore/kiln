@@ -2054,6 +2054,17 @@ describe("work-governance-tool", () => {
       routeId: "opencode-readonly",
       assignedAgentProfile: "coder",
       authorityProfile: "foundation-propose-writes",
+      workClassification: {
+        intents: [" write ", "review"],
+        artifacts: [" document "],
+        domains: [" business "],
+        effects: [" write-artifact "],
+        modes: [" coauthor "],
+      },
+      workClassificationProvenance: {
+        sourceKind: "plan-work-item",
+        sourceId: "work-managed",
+      },
     });
     const goal = goalRunStore.create({
       id: "goal-managed",
@@ -2108,6 +2119,13 @@ describe("work-governance-tool", () => {
         readonly requiredResultFields?: readonly string[];
         readonly doneCriteria?: readonly string[];
         readonly residualRiskRequired?: boolean;
+        readonly workClassification?: {
+          readonly intents?: readonly string[];
+          readonly artifacts?: readonly string[];
+          readonly domains?: readonly string[];
+          readonly effects?: readonly string[];
+          readonly modes?: readonly string[];
+        };
       };
     };
     expect(missingInvocationOutput.nextTool).toBe("managed_agent.invoke");
@@ -2133,6 +2151,13 @@ describe("work-governance-tool", () => {
         completionTool: "work_item.execution.finish",
       },
       expectedEvidence: ["managed-agent-review"],
+      workClassification: {
+        intents: ["write", "review"],
+        artifacts: ["document"],
+        domains: ["business"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
       requiredResultFields: ["summary", "evidence", "checks"],
       doneCriteria: ["review child handoff", "Produce phase evidence: managed-agent-review."],
       residualRiskRequired: false,

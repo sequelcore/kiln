@@ -233,6 +233,8 @@ function toWorkItemInput(input: {
     goalRunId: input.goalRun.id,
     sourceWorkItemId: input.draft.id,
     routingRecommendation: routingRecommendation(input.draft, input.plan, input.goalRun),
+    workClassification: input.draft.workClassification,
+    workClassificationProvenance: input.draft.workClassificationProvenance,
   };
 }
 
@@ -372,6 +374,10 @@ function assertExistingMatches(existing: WorkItem, input: WorkItemUpsertInput): 
     !sameStrings(existing.dependencies, input.dependencies ?? []) ? "dependencies" : undefined,
     !sameRoutingRecommendation(existing.routingRecommendation, input.routingRecommendation)
       ? "routingRecommendation"
+      : undefined,
+    !sameJson(existing.workClassification, input.workClassification) ? "workClassification" : undefined,
+    !sameJson(existing.workClassificationProvenance, input.workClassificationProvenance)
+      ? "workClassificationProvenance"
       : undefined,
   ].filter((value): value is string => Boolean(value));
   if (mismatches.length > 0) {

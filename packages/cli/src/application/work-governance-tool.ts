@@ -1589,6 +1589,7 @@ function buildManagedInvocationRequest(
     goalRunId: goal.id,
     workItemId: step.workItemId,
     attemptId,
+    ...(step.workItem.workClassification ? { workClassification: step.workItem.workClassification } : {}),
     ...(agentProfile ? { agentProfile } : {}),
     roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
     executionPhase: {

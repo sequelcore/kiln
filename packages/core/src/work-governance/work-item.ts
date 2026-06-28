@@ -1,5 +1,13 @@
 import { compareSessionEvents, type CanonicalSessionEvent } from "../events/session-event.js";
 import type { ManagedAgentResultHandoff } from "../agents/managed-invocation/index.js";
+import {
+  defineWorkClassification,
+  defineWorkClassificationProvenance,
+  type WorkClassification,
+  type WorkClassificationInput,
+  type WorkClassificationProvenance,
+  type WorkClassificationProvenanceInput,
+} from "../agents/work-classification.js";
 
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
@@ -247,9 +255,11 @@ export interface WorkItemUpsertInput {
   readonly managedOrchestrationResultHandoff?: WorkItemManagedOrchestrationResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
   readonly executionAttempts?: readonly WorkItemExecutionAttempt[];
+  readonly workClassification?: WorkClassificationInput;
+  readonly workClassificationProvenance?: WorkClassificationProvenanceInput;
 }
 
-export interface WorkItem extends WorkItemUpsertInput {
+export interface WorkItem extends Omit<WorkItemUpsertInput, "workClassification" | "workClassificationProvenance"> {
   readonly id: string;
   readonly status: WorkItemStatus;
   readonly providedEvidence: readonly string[];
@@ -260,6 +270,8 @@ export interface WorkItem extends WorkItemUpsertInput {
   readonly updatedAt: string;
   readonly sequence: number;
   readonly executionAttempts: readonly WorkItemExecutionAttempt[];
+  readonly workClassification?: WorkClassification;
+  readonly workClassificationProvenance?: WorkClassificationProvenance;
 }
 
 export interface WorkItemCompletionInput {
@@ -362,6 +374,13 @@ export class WorkItemStore {
     if (sourceFeedbackId && feedbackRepair && sourceFeedbackId.trim() !== feedbackRepair.feedbackId) {
       throw new Error("Feedback repair work item source feedback id must match repair metadata.");
     }
+    const sourceWorkItemId = input.sourceWorkItemId ?? existing?.sourceWorkItemId;
+    const classification = normalizeWorkClassificationPair({
+      input,
+      existing,
+      id,
+      sourceWorkItemId,
+    });
     const item: WorkItem = {
       id,
       summary: input.summary,
@@ -389,7 +408,7 @@ export class WorkItemStore {
       planId: input.planId ?? existing?.planId,
       planHash: input.planHash ?? existing?.planHash,
       goalRunId: input.goalRunId ?? existing?.goalRunId,
-      sourceWorkItemId: input.sourceWorkItemId ?? existing?.sourceWorkItemId,
+      sourceWorkItemId,
       sourceFeedbackId: sourceFeedbackId?.trim(),
       routingRecommendation: input.routingRecommendation ?? existing?.routingRecommendation,
       feedbackRepair,
@@ -401,6 +420,7 @@ export class WorkItemStore {
       ),
       managedOrchestrationAdoption: normalizeManagedOrchestrationAdoption(input.managedOrchestrationAdoption ?? existing?.managedOrchestrationAdoption),
       executionAttempts: input.executionAttempts ?? existing?.executionAttempts ?? [],
+      ...classification,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       sequence: ++this.sequence,
@@ -884,6 +904,52 @@ function normalizeTextArray(value: readonly string[] | undefined): readonly stri
   }
   const entries = unique(value.map((item) => item.trim()).filter((item) => item.length > 0));
   return entries.length > 0 ? entries : undefined;
+}
+
+function normalizeWorkClassificationPair(input: {
+  readonly input: WorkItemUpsertInput;
+  readonly existing: WorkItem | undefined;
+  readonly id: string;
+  readonly sourceWorkItemId: string | undefined;
+}): {
+  readonly workClassification?: WorkClassification;
+  readonly workClassificationProvenance?: WorkClassificationProvenance;
+} {
+  const hasInputClassification = input.input.workClassification !== undefined;
+  const hasInputProvenance = input.input.workClassificationProvenance !== undefined;
+  if (hasInputClassification !== hasInputProvenance) {
+    throw new Error(
+      `Work item '${input.id}' must define workClassification and workClassificationProvenance together`,
+    );
+  }
+
+  const workClassificationInput = input.input.workClassification ?? input.existing?.workClassification;
+  const provenanceInput = input.input.workClassificationProvenance
+    ?? input.existing?.workClassificationProvenance;
+  const hasClassification = workClassificationInput !== undefined;
+  const hasProvenance = provenanceInput !== undefined;
+  if (hasClassification !== hasProvenance) {
+    throw new Error(
+      `Work item '${input.id}' must define workClassification and workClassificationProvenance together`,
+    );
+  }
+  if (!workClassificationInput || !provenanceInput) {
+    return {};
+  }
+
+  const workClassification = defineWorkClassification(workClassificationInput);
+  const workClassificationProvenance = defineWorkClassificationProvenance(provenanceInput);
+  const expectedSourceId = input.sourceWorkItemId ?? input.id;
+  if (workClassificationProvenance.sourceId !== expectedSourceId) {
+    throw new Error(
+      `Work classification provenance sourceId '${workClassificationProvenance.sourceId}' must match work item source id '${expectedSourceId}'`,
+    );
+  }
+
+  return {
+    workClassification,
+    workClassificationProvenance,
+  };
 }
 
 function requiresResidualRisk(

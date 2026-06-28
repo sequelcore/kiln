@@ -414,6 +414,64 @@ describe("appendManagedInvocationSessionEvents", () => {
     expect(serializedEvents).not.toContain("kiln://managed-invocations/");
   });
 
+  it("records requested and resolved work classification in replayable invocation context", () => {
+    const session = makeSession();
+    const requestedWorkClassification = {
+      intents: ["write"],
+      artifacts: ["document"],
+      domains: ["business"],
+      effects: ["write-artifact"],
+      modes: ["coauthor"],
+    } as const;
+    const resolvedWorkClassification = {
+      intents: ["write", "review"],
+      artifacts: ["document"],
+      domains: ["business"],
+      effects: ["write-artifact"],
+      modes: ["coauthor"],
+    } as const;
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(session.id, `${session.id}:turn:1`),
+      input: {
+        summary: "Write a governed report",
+        context: {
+          mode: "isolated",
+          workClassification: requestedWorkClassification,
+          resolvedWorkClassification,
+          workRecommendedSkills: ["clear-writing"],
+        },
+      },
+    });
+
+    const events = appendManagedInvocationStartSessionEvents({
+      session,
+      request,
+      decision: makeAdmittedDecision(request),
+      timestamp: new Date("2026-05-03T10:00:00.000Z"),
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: "agent_invocation_requested",
+        invocationContext: {
+          mode: "isolated",
+          workClassification: requestedWorkClassification,
+          resolvedWorkClassification,
+          workRecommendedSkills: ["clear-writing"],
+        },
+      }),
+      expect.objectContaining({
+        kind: "agent_invocation_started",
+        invocationContext: {
+          mode: "isolated",
+          workClassification: requestedWorkClassification,
+          resolvedWorkClassification,
+          workRecommendedSkills: ["clear-writing"],
+        },
+      }),
+    ]);
+  });
+
   it("maps requested/started/completed with transcript, usage unknowns, handoff evidence and child lineage", () => {
     const session = makeSession();
     const request = defineManagedAgentInvocationRequest({

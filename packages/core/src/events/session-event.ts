@@ -15,6 +15,7 @@ import type {
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "../agents/managed-invocation/index.js";
+import type { WorkClassification } from "../agents/work-classification.js";
 import type { MultimodalDelegationEvidence } from "../engine/domain/multimodal-routing.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
 
@@ -432,6 +433,9 @@ export interface SessionAgentInvocationContext {
   readonly admittedSkills?: readonly string[];
   readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
+  readonly workClassification?: WorkClassification;
+  readonly resolvedWorkClassification?: WorkClassification;
+  readonly workRecommendedSkills?: readonly string[];
 }
 
 export interface SessionAgentInvocationTranscriptPointer {

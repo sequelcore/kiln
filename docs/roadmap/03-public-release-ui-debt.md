@@ -190,6 +190,10 @@ Implemented:
   and records requested/resolved facets plus work-recommended skills. Auto mode
   can admit configured recommendations such as `clear-writing`; advisory mode
   records the recommendation without loading it.
+- Approved plan work items now carry durable work classification provenance.
+  Classification/provenance participate in plan content hashes, materialize to
+  `WorkItem`, fail closed on conflict, and are forwarded into generated managed
+  invocation requests for replayable diagnostics.
 
 Remaining debt:
 
