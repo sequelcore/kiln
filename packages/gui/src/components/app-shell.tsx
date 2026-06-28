@@ -1,28 +1,20 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceHomeProjection,
-  isOperatorThemeName,
   listOperatorCommands,
   normalizeManagedAgentOperatorEvents,
   projectOperatorCockpitReadOnlyView,
   type GuiAppDescriptor,
-  type GuiAuthorityStatus,
-  type GuiInboundFrame,
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
   type GuiProviderReasoningEffort,
   type KilnConfigSetupAction,
-  type OperatorTurnRequestedAuthority,
-  type OperatorWorkspaceFileSnapshot,
-  type OperatorWorkspaceGatewayTargetSummary,
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
-  type OperatorCommandDefinition,
-  type OperatorCockpitActionTarget,
 } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
@@ -30,584 +22,65 @@ import { useSessionStore } from "../lib/session-store.js";
 import { deriveChangedFiles, derivePendingApprovals, deriveWorkItems } from "../lib/session-store.js";
 import { deriveSessionContinuity } from "../lib/session-continuity.js";
 import { buildComposerContinuityHint } from "../lib/session-continuity-view.js";
-import { SessionList } from "./session-list.js";
-import { WorkspacePanel } from "./workspace-panel.js";
-import { OperatorSurfaceTabs, type OperatorSurfaceKind } from "./operator-surface-tabs.js";
-import { ChangedFilesPanel } from "./changed-files-panel.js";
-import { ApprovalsPanel } from "./approvals-panel.js";
-import { ActivityLogPanel } from "./activity-log-panel.js";
-import { ManagedAgentCockpitPanel } from "./managed-agent-cockpit-panel.js";
-import { WorkItemsPanel } from "./work-items-panel.js";
-import { WorkflowOverviewPanel } from "./workflow-overview-panel.js";
-import { ChatWorkbench } from "./chat-workbench.js";
-import { Transcript } from "./transcript.js";
-import { Composer } from "./composer.js";
+import type { OperatorSurfaceKind } from "./operator-surface-tabs.js";
 import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
 import { ErrorBanner } from "./error-banner.js";
 import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
-import { SetupPanel } from "./setup-panel.js";
+import { WorkbenchSurfaces } from "./workbench-surfaces.js";
+import { useWorkspaceDocuments } from "./use-workspace-documents.js";
+import { useCockpitActions } from "./use-cockpit-actions.js";
+import {
+  operatorCommandToPaletteItem,
+  resolveActiveChatWorkspaceSurface,
+  resolveDrawerLabels,
+  resolveWorkbenchTitle,
+  themeToPaletteItem,
+} from "./app-shell-view-model.js";
+import { createAppShellCommandExecutor } from "./app-shell-command-actions.js";
+import { createProviderPickerActions } from "./app-shell-provider-actions.js";
+import { createAppShellFrameHandler } from "./app-shell-frame-handler.js";
+import {
+  WorkbenchInspectorPanel,
+  WorkbenchSessionsPanel,
+} from "./workbench-side-panels.js";
+import {
+  persistSidebarCollapsedPreference,
+  readSidebarCollapsedPreference,
+  resolveGatewayHttpBaseUrl,
+  toWsUrl,
+} from "./app-shell-runtime.js";
+import {
+  AppGatewayTargetSelector,
+  ReasoningEffortControl,
+  RuntimeBootstrapGate,
+  TurnAuthorityControl,
+  type RequestableTurnAuthority,
+} from "./app-shell-controls.js";
+import {
+  WorkbenchBody,
+  InspectorRail,
+  MobileWorkbenchDrawer,
+  WorkbenchChrome,
+  WorkbenchMain,
+} from "./workbench-chrome.js";
+import {
+  DesktopWorkbenchHeader,
+  MobileWorkbenchHeader,
+  PrimarySidebar,
+  type InspectorMode,
+  type MobileDrawerMode,
+  type WorkbenchSurface,
+} from "./workbench-navigation.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/timeline-visibility.js";
-import type { LucideIcon } from "lucide-react";
-import {
-  Activity,
-  Bot,
-  CheckCheck,
-  FileDiff,
-  Folder,
-  History,
-  ListChecks,
-  MessagesSquare,
-  Network,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-  Settings2,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
-const SIDEBAR_COLLAPSED_KEY = "kiln.gui.sidebarCollapsed";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
-const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
-const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
-const WORKSPACE_DOCUMENT_TAB_LIMIT = 8;
-const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
-
-const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "XHigh",
-};
-type RequestableTurnAuthority = OperatorTurnRequestedAuthority;
-const TURN_AUTHORITY_OPTIONS: readonly RequestableTurnAuthority[] = [
-  "auto",
-  "read_only",
-  "audited",
-  "destructive",
-];
-const TURN_AUTHORITY_LABELS: Record<RequestableTurnAuthority, string> = {
-  auto: "Auto",
-  read_only: "Read only",
-  audited: "Audited",
-  destructive: "Destructive",
-};
 const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
 
-function operatorCommandToPaletteItem(command: OperatorCommandDefinition): CommandPaletteItem {
-  return {
-    id: command.id,
-    trigger: command.trigger,
-    title: command.title,
-    description: command.description,
-    keywords: command.keywords,
-  };
-}
-
-const MemoryLatticePanel = lazy(async () => {
-  const module = await import("./memory-lattice/memory-lattice-panel.js");
-  return { default: module.MemoryLatticePanel };
-});
-const MemoryLatticeSurface = lazy(async () => {
-  const module = await import("./memory-lattice/memory-lattice-panel.js");
-  return { default: module.MemoryLatticeSurface };
-});
-
-function MemoryLatticeFallback() {
-  return (
-    <section aria-label="Loading Memory Lattice" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
-      <div className="flex min-h-12 shrink-0 items-center border-b border-border/60 bg-workspace-viewer-panel px-4">
-        <p className="text-sm font-semibold text-foreground">Loading Memory Lattice</p>
-      </div>
-      <div className="grid min-h-0 flex-1 place-items-center p-6 text-sm text-muted-foreground">
-        Preparing graph surface.
-      </div>
-    </section>
-  );
-}
-
-function readSidebarCollapsedPreference(): boolean {
-  try {
-    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function persistSidebarCollapsedPreference(collapsed: boolean): void {
-  try {
-    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "true" : "false");
-  } catch {
-    // Browser storage can be unavailable in restricted contexts; layout still works in memory.
-  }
-}
-
-function KilnMark() {
-  return (
-    <div className="grid size-9 shrink-0 place-items-center" aria-hidden="true">
-      <img
-        src={KILN_LOGO_URL}
-        alt=""
-        className="size-7 object-contain"
-        draggable={false}
-      />
-    </div>
-  );
-}
-
-type WorkbenchSurface = "chat" | "work" | "agents" | "activity" | "memory" | "setup";
-type InspectorMode = "workspace" | "changed" | "approvals";
-type MobileDrawerMode = "sessions" | "inspector";
-
-const workbenchSurfaceIcons: Record<WorkbenchSurface, LucideIcon> = {
-  chat: MessagesSquare,
-  work: ListChecks,
-  agents: Bot,
-  activity: Activity,
-  memory: Network,
-  setup: Settings2,
-};
-
-const inspectorModeIcons: Record<InspectorMode, LucideIcon> = {
-  workspace: Folder,
-  changed: FileDiff,
-  approvals: CheckCheck,
-};
-
 const GUI_COCKPIT_INSTANCE_ID = "local-gui";
-
-function NavButton<TMode extends string>(props: {
-  readonly mode: TMode;
-  readonly label: string;
-  readonly active: boolean;
-  readonly count?: number;
-  readonly icon: LucideIcon;
-  readonly collapsed?: boolean;
-  readonly onClick: () => void;
-}) {
-  const Icon = props.icon;
-  return (
-    <Button
-      type="button"
-      variant={props.active ? "secondary" : "ghost"}
-      size={props.collapsed ? "icon-lg" : "sm"}
-      aria-current={props.active ? "page" : undefined}
-      aria-label={props.label}
-      title={props.label}
-      onClick={props.onClick}
-      className={cn(
-        "relative text-muted-foreground",
-        props.collapsed ? "mx-auto" : "w-full justify-start",
-        props.active && "text-foreground",
-      )}
-    >
-      <Icon data-icon="inline-start" aria-hidden="true" />
-      {props.collapsed ? null : <span className="min-w-0 flex-1 truncate text-left">{props.label}</span>}
-      {props.count && props.count > 0 ? (
-        <Badge
-          variant="outline"
-          className={cn(
-            "h-4 min-w-4 px-1 font-mono text-[9px] leading-none text-muted-foreground",
-            props.collapsed && "absolute -right-1 -top-1",
-          )}
-        >
-          {props.count}
-        </Badge>
-      ) : null}
-    </Button>
-  );
-}
-
-function PrimarySidebar(props: {
-  readonly activeSurface: WorkbenchSurface;
-  readonly collapsed: boolean;
-  readonly activityCount: number;
-  readonly managedAgentAttentionCount: number;
-  readonly sessionsOpen: boolean;
-  readonly onSelectSurface: (surface: WorkbenchSurface) => void;
-  readonly onToggleCollapsed: () => void;
-  readonly onSessionsOpenChange: (open: boolean) => void;
-  readonly sessions: ReactNode;
-}) {
-  return (
-    <aside
-      className={cn(
-        "flex h-full flex-col border-r border-border/70 bg-card transition-[width,min-width,max-width]",
-        props.collapsed ? "w-14 min-w-14 max-w-14" : "w-[22rem] min-w-[22rem] max-w-[22rem]",
-      )}
-    >
-      <header className={cn("flex min-h-14 items-center border-b border-border/70 px-2", props.collapsed ? "justify-center" : "gap-3")}>
-        {props.collapsed ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-lg"
-            aria-label="Expand sidebar"
-            title="Expand sidebar"
-            onClick={props.onToggleCollapsed}
-          >
-            <PanelLeftOpen data-icon="inline-start" aria-hidden="true" />
-          </Button>
-        ) : (
-          <>
-            <KilnMark />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-foreground">Kiln</p>
-              <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Operator workbench
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar"
-              onClick={props.onToggleCollapsed}
-            >
-              <PanelLeftClose data-icon="inline-start" aria-hidden="true" />
-            </Button>
-          </>
-        )}
-      </header>
-      <nav aria-label="Workbench surfaces" className={cn("border-b border-border/70 p-2", props.collapsed && "px-1")}>
-        <div className="flex flex-col gap-1">
-          {(["chat", "work", "agents", "activity", "memory", "setup"] as const).map((surface) => (
-            <NavButton
-              key={surface}
-              mode={surface}
-              label={surface === "chat" ? "Chat" : surface === "work" ? "Work" : surface === "agents" ? "Agents" : surface === "activity" ? "Activity" : surface === "memory" ? "Memory" : "Setup"}
-              icon={workbenchSurfaceIcons[surface]}
-              active={props.activeSurface === surface}
-              count={surface === "agents" ? props.managedAgentAttentionCount : surface === "activity" ? props.activityCount : undefined}
-              collapsed={props.collapsed}
-              onClick={() => props.onSelectSurface(surface)}
-            />
-          ))}
-        </div>
-      </nav>
-      {props.collapsed ? (
-        <div className="border-b border-border/70 p-1">
-          <Popover open={props.sessionsOpen} onOpenChange={props.onSessionsOpenChange}>
-            <PopoverTrigger
-              render={(
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-lg"
-                  aria-label="Open sessions"
-                  title="Open sessions"
-                  className="relative mx-auto text-muted-foreground"
-                >
-                  <History data-icon="inline-start" aria-hidden="true" />
-                </Button>
-              )}
-            />
-            <PopoverContent aria-label="Sessions" side="right" align="start" sideOffset={8} className="h-[min(42rem,calc(100vh-2rem))] w-96 p-0">
-              <div className="min-h-0 flex-1">{props.sessions}</div>
-            </PopoverContent>
-          </Popover>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1">{props.sessions}</div>
-      )}
-    </aside>
-  );
-}
-
-function toWsUrl(path: string): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const gatewayPort = import.meta.env.VITE_GATEWAY_PORT as string | undefined;
-  if (import.meta.env.DEV && gatewayPort) {
-    return `${protocol}//${window.location.hostname}:${gatewayPort}${path}`;
-  }
-  return `${protocol}//${window.location.host}${path}`;
-}
-
-function resolveGatewayHttpBaseUrl(): string {
-  const gatewayPort = import.meta.env.VITE_GATEWAY_PORT as string | undefined;
-  if (import.meta.env.DEV && gatewayPort) {
-    return `${window.location.protocol}//${window.location.hostname}:${gatewayPort}`;
-  }
-  return window.location.origin;
-}
-
-function waitForProviderSwitchResolution(provider: string, model: string | null): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const deadline = Date.now() + PROVIDER_SWITCH_WAIT_TIMEOUT_MS;
-    let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    let settled = false;
-
-    const settle = (callback: () => void) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (pollTimeoutId) {
-        clearTimeout(pollTimeoutId);
-      }
-      callback();
-    };
-
-    const poll = () => {
-      const state = useSessionStore.getState();
-      if (!state.providerSwitching) {
-        if (state.activeProvider === provider && state.activeModel === model) {
-          settle(resolve);
-          return;
-        }
-        settle(() => {
-          reject(new Error(state.errorBanner ?? "Provider switch failed."));
-        });
-        return;
-      }
-      if (Date.now() >= deadline) {
-        settle(() => {
-          reject(new Error("Provider switch timed out. Please retry."));
-        });
-        return;
-      }
-      pollTimeoutId = setTimeout(poll, 50);
-    };
-
-    poll();
-  });
-}
-
-function waitForProviderAuthResolution(provider: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const deadline = Date.now() + PROVIDER_AUTH_WAIT_TIMEOUT_MS;
-    let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    let settled = false;
-
-    const settle = (callback: () => void) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (pollTimeoutId) {
-        clearTimeout(pollTimeoutId);
-      }
-      callback();
-    };
-
-    const poll = () => {
-      const state = useSessionStore.getState();
-      if (!state.providerAuthenticating) {
-        if (state.errorBanner) {
-          settle(() => reject(new Error(state.errorBanner ?? "Provider authentication failed.")));
-          return;
-        }
-        settle(resolve);
-        return;
-      }
-      if (state.providerAuthTarget?.provider !== provider) {
-        settle(() => reject(new Error("Provider authentication target changed.")));
-        return;
-      }
-      if (Date.now() >= deadline) {
-        settle(() => reject(new Error("Provider authentication timed out. Please retry.")));
-        return;
-      }
-      pollTimeoutId = setTimeout(poll, 100);
-    };
-
-    poll();
-  });
-}
-
-function RuntimeBootstrapGate(props: {
-  readonly title: string;
-  readonly detail: string;
-  readonly error?: string | null;
-  readonly onRetry?: () => void;
-}) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-6">
-      <section
-        role="status"
-        aria-label="Runtime bootstrap"
-        aria-live="polite"
-        className="w-full max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-background-panel)] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]"
-      >
-        <div className="flex items-start gap-4">
-          <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background">
-            <span className="size-2 animate-pulse rounded-full bg-[var(--color-accent)]" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">{props.title}</p>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">{props.error ?? props.detail}</p>
-            {props.error && props.onRetry ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                onClick={props.onRetry}
-              >
-                Retry
-              </Button>
-            ) : (
-              <div className="mt-4 h-2 w-full overflow-hidden rounded bg-[var(--color-background-element)]">
-                <div className="h-full w-1/3 animate-pulse rounded bg-[var(--color-accent)]" />
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function ReasoningEffortControl(props: {
-  readonly value: GuiProviderReasoningEffort;
-  readonly options: readonly GuiProviderReasoningEffort[];
-  readonly onChange: (value: GuiProviderReasoningEffort) => void;
-}) {
-  if (props.options.length === 0) return null;
-  return (
-    <Select
-      value={props.value}
-      onValueChange={(value) => {
-        if (value) {
-          props.onChange(value);
-        }
-      }}
-    >
-      <SelectTrigger size="sm" aria-label="Reasoning effort" className="min-w-24">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent align="end">
-        <SelectGroup>
-          {props.options.map((effort) => (
-            <SelectItem key={effort} value={effort}>
-              {REASONING_EFFORT_LABELS[effort]}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  );
-}
-
-function TurnAuthorityControl(props: {
-  readonly value: RequestableTurnAuthority;
-  readonly authorityStatus: GuiAuthorityStatus | null;
-  readonly onChange: (value: RequestableTurnAuthority) => void;
-}) {
-  const admitted = props.authorityStatus?.admittedAuthority ?? props.authorityStatus?.effective;
-  const sandbox = props.authorityStatus?.sandboxProjection;
-  const effectiveLabel = admitted && admitted !== props.value
-    ? `${TURN_AUTHORITY_LABELS[props.value]} -> ${admitted}`
-    : TURN_AUTHORITY_LABELS[props.value];
-  const title = [
-    `requested: ${props.value}`,
-    `admitted: ${admitted ?? "unknown"}`,
-    `execution: ${props.authorityStatus?.executionMode ?? "unknown"}`,
-    `sandbox: ${sandbox ?? "unknown"}`,
-    props.authorityStatus?.reason ? `reason: ${props.authorityStatus.reason}` : undefined,
-  ].filter(Boolean).join("\n");
-  return (
-    <Select
-      value={props.value}
-      onValueChange={(value) => {
-        if (TURN_AUTHORITY_OPTIONS.includes(value as RequestableTurnAuthority)) {
-          props.onChange(value as RequestableTurnAuthority);
-        }
-      }}
-    >
-      <SelectTrigger size="sm" aria-label="Turn authority" title={title} className="min-w-36">
-        <span className="truncate">{effectiveLabel}</span>
-      </SelectTrigger>
-      <SelectContent align="end">
-        <SelectGroup>
-          {TURN_AUTHORITY_OPTIONS.map((authority) => (
-            <SelectItem key={authority} value={authority}>
-              {TURN_AUTHORITY_LABELS[authority]}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  );
-}
-
-function AppGatewayTargetSelector(props: {
-  readonly apps: readonly GuiAppDescriptor[];
-  readonly targets: readonly OperatorWorkspaceGatewayTargetSummary[];
-  readonly selectedGatewayTargetId: string | null;
-  readonly onSelectGatewayTarget: (targetId: string) => void;
-}) {
-  if (props.apps.length === 0) {
-    return null;
-  }
-
-  const targetOptions = props.targets.filter((target) => {
-    const appId = target.gatewayTarget.appId;
-    if (!appId) return false;
-    return props.apps.some((app) => app.name === appId && app.runtimeCapable);
-  });
-  if (targetOptions.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <Select
-        value={props.selectedGatewayTargetId ?? targetOptions[0]?.gatewayTarget.targetId ?? ""}
-        onValueChange={(value) => {
-          if (value) {
-            props.onSelectGatewayTarget(value);
-          }
-        }}
-      >
-        <SelectTrigger size="sm" aria-label="Gateway target" className="min-w-36 max-w-60">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="end">
-          <SelectGroup>
-            {targetOptions.map((target) => (
-              <SelectItem key={target.gatewayTarget.targetId} value={target.gatewayTarget.targetId}>
-                {formatGatewayTargetLabel(target)}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function formatGatewayTargetLabel(target: OperatorWorkspaceGatewayTargetSummary): string {
-  const gatewayTarget = target.gatewayTarget;
-  if (gatewayTarget.tenantId) {
-    return `${target.label} · ${gatewayTarget.tenantId}`;
-  }
-  if (gatewayTarget.appId) {
-    return target.label;
-  }
-  return gatewayTarget.label ?? target.label;
-}
 
 export function AppShell() {
   const [gatewayReady, setGatewayReady] = useState(false);
@@ -630,10 +103,6 @@ export function AppShell() {
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
   const [requestedAuthority, setRequestedAuthority] = useState<RequestableTurnAuthority>("auto");
   const [selectedGatewayTargetId, setSelectedGatewayTargetId] = useState<string | null>(null);
-  const [workspaceDocuments, setWorkspaceDocuments] = useState<readonly OperatorWorkspaceFileSnapshot[]>([]);
-  const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
-  const [workspaceDocumentLoadingPath, setWorkspaceDocumentLoadingPath] = useState<string | null>(null);
-  const [workspaceDocumentError, setWorkspaceDocumentError] = useState<string | null>(null);
   const [activeSurface, setActiveSurface] = useState<OperatorSurfaceKind>("chat");
   const [memorySurfaceOpen, setMemorySurfaceOpen] = useState(false);
   const [memoryFilters, setMemoryFilters] = useState<GuiMemoryLatticeGraphRequest>({ depth: 0, limit: 25 });
@@ -709,6 +178,15 @@ export function AppShell() {
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
   const gatewayClient = useMemo(() => new GuiGatewayClient(resolveGatewayHttpBaseUrl()), []);
+  const workspaceDocuments = useWorkspaceDocuments({
+    gatewayClient,
+    onError: setErrorBanner,
+    onLastDocumentClosed: () => {
+      if (activeSurface === "workspace") {
+        setActiveSurface("chat");
+      }
+    },
+  });
   const changedFiles = useMemo(() => deriveChangedFiles(timelineEntries), [timelineEntries]);
   const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
   const workItems = useMemo(() => deriveWorkItems(timelineEntries), [timelineEntries]);
@@ -779,32 +257,13 @@ export function AppShell() {
 
   const openWorkspaceFile = async (entry: OperatorWorkspaceTreeEntry) => {
     setActiveSurface("workspace");
-    setSelectedWorkspacePath(entry.path);
-    setWorkspaceDocumentError(null);
-    if (workspaceDocuments.some((file) => file.path === entry.path)) {
-      return;
-    }
-    setWorkspaceDocumentLoadingPath(entry.path);
-    try {
-      const file = await gatewayClient.loadWorkspaceFile(entry.path);
-      setWorkspaceDocuments((current) => [file, ...current.filter((item) => item.path !== file.path)].slice(0, WORKSPACE_DOCUMENT_TAB_LIMIT));
-      setSelectedWorkspacePath(file.path);
-    } catch (error) {
-      setWorkspaceDocumentError(error instanceof Error ? error.message : "Could not load workspace file.");
-    } finally {
-      setWorkspaceDocumentLoadingPath(null);
-    }
+    await workspaceDocuments.openFile(entry);
   };
 
-  const closeWorkspaceFile = (path: string) => {
-    const next = workspaceDocuments.filter((file) => file.path !== path);
-    setWorkspaceDocuments(next);
-    if (selectedWorkspacePath === path) {
-      setSelectedWorkspacePath(next[0]?.path ?? null);
-      if (next.length === 0 && activeSurface === "workspace") {
-        setActiveSurface("chat");
-      }
-    }
+  const previewSetupSource = async (path: string) => {
+    const name = path.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? path;
+    setWorkbenchSurface("chat");
+    await openWorkspaceFile({ path, name, kind: "file" });
   };
 
   useEffect(() => {
@@ -971,78 +430,45 @@ export function AppShell() {
     };
   }, [gatewayClient]);
 
+  const persistThemePreference = (theme: OperatorThemeName) => {
+    void gatewayClient.saveThemePreference(theme);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("theme", theme);
+    window.history.replaceState({}, "", nextUrl.toString());
+  };
+
   const { state: wsState, send } = useGuiWs(wsUrl, {
-    onFrame: (frame: GuiInboundFrame) => {
-        if (frame.type === "welcome") {
-          onWelcome(frame);
-        } else if (frame.type === "operator_theme_set") {
-          if (!isOperatorThemeName(frame.theme)) {
-            sendRef.current?.({
-              type: "operator_theme_set_result",
-              requestId: frame.requestId,
-              ok: false,
-              error: `Unknown theme '${frame.theme}'.`,
-            });
-            return;
-          }
-          setTheme(frame.theme);
-          if (frame.scope === "persisted") {
-            persistThemePreference(frame.theme);
-          }
-          sendRef.current?.({
-            type: "operator_theme_set_result",
-            requestId: frame.requestId,
-            ok: true,
-            appliedTheme: frame.theme,
-          });
-        } else if (frame.type === "session_event") {
-          onSessionEvent(frame.event);
-        } else if (frame.type === "done") {
-          onDone(frame);
-        } else if (frame.type === "voice_synthesis_completed") {
-          onVoiceSynthesisCompleted(frame);
-        } else if (frame.type === "voice_synthesis_failed") {
-          onVoiceSynthesisFailed(frame);
-        } else if (frame.type === "error") {
-        onError(frame);
-      } else if (frame.type === "cleared") {
-        onCleared();
-      } else if (frame.type === "provider_changed") {
-        onProviderChanged(frame);
-      } else if (frame.type === "provider_auth_started") {
-        onProviderAuthStarted(frame);
-      } else if (frame.type === "provider_auth_completed") {
-        onProviderAuthCompleted(frame);
-        onProvidersRefreshed(frame.providers ?? useSessionStore.getState().providers, frame.providerDiscovery);
+    onFrame: createAppShellFrameHandler({
+      onWelcome,
+      onSessionEvent,
+      onDone,
+      onVoiceSynthesisCompleted,
+      onVoiceSynthesisFailed,
+      onError,
+      onCleared,
+      onProviderChanged,
+      onProviderAuthStarted,
+      onProviderAuthCompleted,
+      onProviderAuthFailed,
+      onProvidersRefreshed,
+      onExecConfirmed,
+      onActivityPhase,
+      onInteractiveUseUpdated,
+      onBrowserSessionUpdated,
+      onBrowserLiveViewportFrame,
+      onBrowserOperatorInputAck,
+      setConnectionStatus,
+      setTheme,
+      persistThemePreference,
+      sendThemeResult: (result) => sendRef.current?.(result),
+      getProviders: () => useSessionStore.getState().providers,
+      refetchDashboard: () => {
         void dashboardQuery.refetch();
-      } else if (frame.type === "provider_auth_failed") {
-        onProviderAuthFailed(frame);
-      } else if (frame.type === "providers_refreshed") {
-        onProvidersRefreshed(frame.providers, frame.providerDiscovery);
-      } else if (frame.type === "execution_mode_transitioned") {
-        onExecConfirmed();
-        } else if (frame.type === "thinking") {
-          setConnectionStatus("running");
-        } else if (frame.type === "activity_phase") {
-          onActivityPhase(frame);
-      } else if (frame.type === "interactive_use_updated") {
-          onInteractiveUseUpdated(frame);
-        } else if (frame.type === "browser_session_updated") {
-          onBrowserSessionUpdated(frame);
-        } else if (frame.type === "browser_live_viewport_frame") {
-          onBrowserLiveViewportFrame(frame);
-        } else if (frame.type === "browser_operator_input_ack") {
-          onBrowserOperatorInputAck(frame);
-        } else if (frame.type === "managed_agent_control_result") {
-          if (frame.status === "failed") {
-            setErrorBanner(frame.reason ?? `Managed agent ${frame.action} failed for ${frame.invocationId}.`);
-          } else {
-            clearErrorBanner();
-          }
-        } else if (frame.type === "memory_lattice_invalidated") {
-          setMemoryLatticeInvalidationTick((tick) => tick + 1);
-        }
-    },
+      },
+      setErrorBanner,
+      clearErrorBanner,
+      invalidateMemoryLattice: () => setMemoryLatticeInvalidationTick((tick) => tick + 1),
+    }),
     onStateChange: (state) => {
       if (state === "open") {
         if (useSessionStore.getState().status === "idle") {
@@ -1209,6 +635,13 @@ export function AppShell() {
   const selectedAppName = selectedGatewayTarget?.gatewayTarget.appId ?? null;
   const selectedTenantId = selectedGatewayTarget?.gatewayTarget.tenantId ?? null;
   const selectedRuntimeApp = runtimeAppDescriptors.find((app) => app.name === selectedAppName) ?? null;
+  const cockpitActions = useCockpitActions({
+    gatewayClient,
+    selectedGatewayTarget,
+    selectedSessionId,
+    sendFrame: () => sendRef.current,
+    onError: setErrorBanner,
+  });
   const sendTargetedApprovalResponse = (
     approved: boolean,
     reason: string | undefined,
@@ -1255,19 +688,9 @@ export function AppShell() {
     selectedGatewayTargetId,
   ]);
 
-  const persistThemePreference = (theme: OperatorThemeName) => {
-    void gatewayClient.saveThemePreference(theme);
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.set("theme", theme);
-    window.history.replaceState({}, "", nextUrl.toString());
-  };
-  const themeCommands: readonly CommandPaletteItem[] = OPERATOR_THEME_NAMES.map((theme) => ({
-    id: `theme:${theme}`,
-    trigger: `theme ${theme}`,
-    title: OPERATOR_THEME_LABELS[theme],
-    description: `Apply ${theme}.`,
-    keywords: ["theme", theme, OPERATOR_THEME_LABELS[theme].toLowerCase()],
-  }));
+  const themeCommands: readonly CommandPaletteItem[] = OPERATOR_THEME_NAMES.map((theme) => (
+    themeToPaletteItem(theme, OPERATOR_THEME_LABELS[theme])
+  ));
   const rootCommands: readonly CommandPaletteItem[] = listOperatorCommands("gui").map(operatorCommandToPaletteItem);
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
   const runtimeBootstrapReady = gatewayReady && providerCatalogStatus === "ready";
@@ -1296,77 +719,34 @@ export function AppShell() {
     void dashboardQuery.refetch();
   };
 
-  const executePaletteCommand = (command: CommandPaletteItem) => {
-    closeComposerCommands();
-    switch (command.id) {
-      case "clear":
-        startNewSession();
-        closePalette();
-        return;
-      case "theme":
-        setPaletteMode("theme");
-        setPaletteQuery("");
-        setIsPaletteOpen(true);
-        return;
-      case "provider":
-        setIsProviderPickerOpen(true);
-        closePalette();
-        return;
-      case "effort": {
-        if (reasoningEffortOptions.length > 0) {
-          const currentIndex = resolvedReasoningEffort
-            ? reasoningEffortOptions.indexOf(resolvedReasoningEffort)
-            : -1;
-          const next = reasoningEffortOptions[(currentIndex + 1) % reasoningEffortOptions.length];
-          if (next) {
-            setReasoningEffort(next);
-          }
-        }
-        closePalette();
-        return;
-      }
-      case "authority": {
-        const currentIndex = TURN_AUTHORITY_OPTIONS.indexOf(requestedAuthority);
-        const next = TURN_AUTHORITY_OPTIONS[(currentIndex + 1) % TURN_AUTHORITY_OPTIONS.length];
-        if (next) {
-          setRequestedAuthority(next);
-        }
-        closePalette();
-        return;
-      }
-      case "continue":
-        setSessionPopoverOpen(true);
-        closePalette();
-        return;
-      case "plan":
-        setTargetedPlanMode(true);
-        setWorkbenchSurface("chat");
-        closePalette();
-        return;
-      case "exec":
-        setTargetedPlanMode(false);
-        setWorkbenchSurface("chat");
-        closePalette();
-        return;
-      case "setup":
-        setWorkbenchSurface("setup");
-        closePalette();
-        return;
-      case "goal":
-        setWorkbenchSurface("work");
-        closePalette();
-        return;
-      default:
-        if (command.id.startsWith("theme:")) {
-          const theme = command.id.slice("theme:".length) as OperatorThemeName;
-          if ((OPERATOR_THEME_NAMES as readonly string[]).includes(theme)) {
-            setTheme(theme);
-            persistThemePreference(theme);
-          }
-        }
-        closePalette();
-    }
+  const startNewSession = () => {
+    sendClear();
+    setSelectedSessionId(null);
+    setActiveSurface("chat");
+    setWorkbenchSurface("chat");
+    setDrawerOpen(false);
+    setSessionPopoverOpen(false);
   };
+
+  const executePaletteCommand = createAppShellCommandExecutor({
+    closeComposerCommands,
+    closePalette,
+    startNewSession,
+    setPaletteMode,
+    setPaletteQuery,
+    setPaletteOpen: setIsPaletteOpen,
+    setProviderPickerOpen: setIsProviderPickerOpen,
+    reasoningEffortOptions,
+    resolvedReasoningEffort,
+    setReasoningEffort,
+    requestedAuthority,
+    setRequestedAuthority,
+    setSessionPopoverOpen,
+    setTargetedPlanMode,
+    setWorkbenchSurface,
+    setTheme,
+    persistThemePreference,
+  });
 
   if (!runtimeBootstrapReady) {
     return (
@@ -1379,14 +759,6 @@ export function AppShell() {
     );
   }
 
-  const startNewSession = () => {
-    sendClear();
-    setSelectedSessionId(null);
-    setActiveSurface("chat");
-    setWorkbenchSurface("chat");
-    setDrawerOpen(false);
-    setSessionPopoverOpen(false);
-  };
   const selectedSessionMeta = sessionDetailQuery.data?.meta ?? null;
   const openMemorySurface = () => {
     setMemorySurfaceOpen(true);
@@ -1399,87 +771,16 @@ export function AppShell() {
       setActiveSurface("chat");
     }
   };
-  const resourceTarget = (uri: string, target?: OperatorCockpitActionTarget): OperatorCockpitActionTarget => ({
-    ...(selectedGatewayTarget ? {
-      gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId,
-      instanceId: selectedGatewayTarget.instanceId,
-    } : {}),
-    ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
-    ...(target ?? {}),
-    resourceUri: target?.resourceUri ?? uri,
-  });
-  const openResource = async (uri: string, target?: OperatorCockpitActionTarget): Promise<void> => {
-    const resourceWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
-    if (!resourceWindow) {
-      setErrorBanner("Browser blocked the resource window.");
-      return;
-    }
-    try {
-      const dataUrl = await gatewayClient.loadResourceDataUrl(uri, resourceTarget(uri, target));
-      if (!dataUrl) {
-        throw new Error("Resource is not available.");
-      }
-      resourceWindow.location.href = dataUrl;
-    } catch (error) {
-      resourceWindow.close();
-      setErrorBanner(error instanceof Error ? error.message : "Could not open resource.");
-    }
-  };
-  const cancelManagedAgent = (input: {
-    readonly sessionId: string;
-    readonly invocationId: string;
-    readonly gatewayTargetId?: string;
-  }): void => {
-    const sendFrame = sendRef.current;
-    if (!sendFrame) {
-      setErrorBanner("Managed agent control is unavailable until the gateway connection is open.");
-      return;
-    }
-    sendFrame({
-      type: "managed_agent_control",
-      action: "cancel",
-      ...(input.gatewayTargetId ? { gatewayTargetId: input.gatewayTargetId } : {}),
-      sessionId: input.sessionId,
-      invocationId: input.invocationId,
-      reason: "Operator cancelled the managed child from the GUI cockpit.",
-    });
-  };
-  const promptManagedAgent = (input: {
-    readonly sessionId: string;
-    readonly invocationId: string;
-    readonly gatewayTargetId?: string;
-    readonly prompt: string;
-    readonly deliveryMode: "steer" | "queue";
-    readonly wakeRequested: boolean;
-  }): void => {
-    const sendFrame = sendRef.current;
-    if (!sendFrame) {
-      setErrorBanner("Managed agent control is unavailable until the gateway connection is open.");
-      return;
-    }
-    sendFrame({
-      type: "managed_agent_control",
-      action: "prompt",
-      ...(input.gatewayTargetId ? { gatewayTargetId: input.gatewayTargetId } : {}),
-      sessionId: input.sessionId,
-      invocationId: input.invocationId,
-      prompt: input.prompt,
-      deliveryMode: input.deliveryMode,
-      wakeRequested: input.wakeRequested,
-      reason: "Operator sent a managed-child follow-up prompt from the GUI cockpit.",
-    });
-  };
-
   const sessionsPanel = (
-    <SessionList
+    <WorkbenchSessionsPanel
       sessions={sessionList}
       selectedSessionId={selectedSessionId}
       continuity={sessionContinuity}
-      onSelect={(sessionId) => {
+      onSelectSession={(sessionId) => {
         setSelectedSessionId(sessionId);
         setWorkbenchSurface("chat");
         setActiveSurface("chat");
-        setSelectedWorkspacePath(null);
+        workspaceDocuments.clearSelection();
         setDrawerOpen(false);
         setSessionPopoverOpen(false);
       }}
@@ -1487,55 +788,52 @@ export function AppShell() {
     />
   );
 
-  const inspector = inspectorMode === "workspace"
-    ? (
-      <WorkspacePanel
-        gatewayWorkingDirectory={workingDirectory}
-        workspaceTree={dashboardData?.workspaceTree}
-        workspaceClient={gatewayClient}
-        worktreePath={selectedSessionMeta?.sessionLedger?.worktreePath ?? null}
-        selectedFilePath={selectedWorkspacePath}
-        onOpenFile={openWorkspaceFile}
-      />
-    ) : inspectorMode === "changed"
-      ? (
-        <ChangedFilesPanel files={changedFiles} />
-      )
-      : (
-        <ApprovalsPanel
-          approvals={pendingApprovals}
-          onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
-          onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
-        />
-      );
+  const inspector = (
+    <WorkbenchInspectorPanel
+      mode={inspectorMode}
+      gatewayWorkingDirectory={workingDirectory}
+      workspaceTree={dashboardData?.workspaceTree}
+      workspaceClient={gatewayClient}
+      worktreePath={selectedSessionMeta?.sessionLedger?.worktreePath ?? null}
+      selectedFilePath={workspaceDocuments.selectedPath}
+      changedFiles={changedFiles}
+      approvals={pendingApprovals}
+      onOpenFile={openWorkspaceFile}
+      onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
+      onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
+    />
+  );
 
-  const activeChatWorkspaceSurface = workbenchSurface === "chat" && activeSurface === "browser" && (Boolean(browserSessionState) || interactiveUseSnapshot?.target === "browser")
-    ? "browser"
-    : "chat";
-  const workbenchTitle = workbenchSurface === "chat"
-    ? activeChatWorkspaceSurface === "browser" ? "Browser" : "Chat"
-    : workbenchSurface === "work"
-        ? "Work"
-        : workbenchSurface === "agents"
-          ? "Agents"
-        : workbenchSurface === "activity"
-            ? "Activity"
-            : workbenchSurface === "memory"
-              ? "Memory"
-              : "Setup";
-  const drawerTitle = mobileDrawerMode === "sessions" ? "Sessions" : "Inspector";
-  const drawerAriaLabel = mobileDrawerMode === "sessions" ? "session drawer" : "inspector drawer";
+  const activeChatWorkspaceSurface = resolveActiveChatWorkspaceSurface({
+    workbenchSurface,
+    activeSurface,
+    hasBrowserSession: Boolean(browserSessionState),
+    hasBrowserSnapshot: interactiveUseSnapshot?.target === "browser",
+  });
+  const workbenchTitle = resolveWorkbenchTitle(workbenchSurface, activeChatWorkspaceSurface);
+  const drawerLabels = resolveDrawerLabels(mobileDrawerMode);
+  const providerPickerActions = createProviderPickerActions({
+    switchProvider,
+    authenticateProvider,
+    readErrorBanner: () => useSessionStore.getState().errorBanner,
+    setErrorBanner,
+    markProviderCatalogRefreshing,
+    markProviderCatalogError,
+    onProvidersRefreshed,
+    sendRefreshProviders: () => {
+      if (wsState === "open") {
+        send({ type: "refresh_providers" });
+      }
+    },
+    refetchDashboard: () => dashboardQuery.refetch(),
+  });
 
   const closeDrawer = () => {
     setDrawerOpen(false);
   };
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-70 [background-image:linear-gradient(180deg,color-mix(in_srgb,var(--color-background-element)_42%,transparent),transparent_30%),linear-gradient(90deg,color-mix(in_srgb,var(--color-border)_18%,transparent)_1px,transparent_1px),linear-gradient(color-mix(in_srgb,var(--color-border)_14%,transparent)_1px,transparent_1px)] [background-size:100%_100%,48px_48px,48px_48px]"
-      />
+    <WorkbenchChrome>
       {errorBanner ? (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-50 flex justify-center sm:inset-x-6">
           <div className="pointer-events-auto w-full max-w-5xl">
@@ -1571,7 +869,7 @@ export function AppShell() {
         }}
       />
 
-      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
+      <WorkbenchBody>
         {!isNarrow ? (
           <PrimarySidebar
             activeSurface={workbenchSurface}
@@ -1581,450 +879,260 @@ export function AppShell() {
             sessionsOpen={sessionPopoverOpen}
             onSelectSurface={(surface) => {
               setWorkbenchSurface(surface);
-                  if (surface === "chat") {
+              if (surface === "chat") {
                 setActiveSurface(surface);
               }
             }}
             onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)}
             onSessionsOpenChange={setSessionPopoverOpen}
+            onStartNewSession={startNewSession}
             sessions={sessionsPanel}
           />
         ) : null}
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/65">
+        <WorkbenchMain>
           {isNarrow ? (
-            <header className="flex h-11 min-w-0 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-3 backdrop-blur">
-              <KilnMark />
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                aria-controls="session-drawer"
-                aria-expanded={drawerOpen}
-                aria-label={drawerOpen && mobileDrawerMode === "sessions" ? "Hide session drawer" : "Open session drawer"}
-                onClick={() => {
-                  setMobileDrawerMode("sessions");
-                  setDrawerOpen((open) => mobileDrawerMode === "sessions" ? !open : true);
-                }}
-              >
-                Sessions
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                aria-controls="session-drawer"
-                aria-expanded={drawerOpen}
-                aria-label={drawerOpen && mobileDrawerMode === "inspector" ? "Hide inspector drawer" : "Open inspector drawer"}
-                onClick={() => {
-                  setMobileDrawerMode("inspector");
-                  setDrawerOpen((open) => mobileDrawerMode === "inspector" ? !open : true);
-                }}
-              >
-                Inspector
-              </Button>
-              <Select
-                value={workbenchSurface}
-                onValueChange={(value) => {
-                  if (value === "chat" || value === "work" || value === "agents" || value === "activity" || value === "memory" || value === "setup") {
-                    setWorkbenchSurface(value);
-                    if (value === "chat") {
-                      setActiveSurface(value);
-                    }
-                  }
-                }}
-              >
-                <SelectTrigger size="sm" aria-label="Workbench surface" className="min-w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectGroup>
-                    <SelectItem value="chat">Chat</SelectItem>
-                    <SelectItem value="work">Work</SelectItem>
-                    <SelectItem value="agents">Agents</SelectItem>
-                    <SelectItem value="activity">Activity</SelectItem>
-                    <SelectItem value="memory">Memory</SelectItem>
-                    <SelectItem value="setup">Setup</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <div className="ml-auto" />
-              <AppGatewayTargetSelector
-                apps={runtimeAppDescriptors}
-                targets={runtimeGatewayTargets}
-                selectedGatewayTargetId={selectedGatewayTargetId}
-                onSelectGatewayTarget={setSelectedGatewayTargetId}
-              />
-            </header>
+            <MobileWorkbenchHeader
+              activeSurface={workbenchSurface}
+              drawerOpen={drawerOpen}
+              drawerMode={mobileDrawerMode}
+              onToggleDrawer={(mode) => {
+                setMobileDrawerMode(mode);
+                setDrawerOpen((open) => mobileDrawerMode === mode ? !open : true);
+              }}
+              onSelectSurface={(surface) => {
+                setWorkbenchSurface(surface);
+                if (surface === "chat") {
+                  setActiveSurface(surface);
+                }
+              }}
+              onStartNewSession={startNewSession}
+              gatewayTargetSelector={(
+                <AppGatewayTargetSelector
+                  apps={runtimeAppDescriptors}
+                  targets={runtimeGatewayTargets}
+                  selectedGatewayTargetId={selectedGatewayTargetId}
+                  onSelectGatewayTarget={setSelectedGatewayTargetId}
+                />
+              )}
+            />
           ) : null}
           {!isNarrow ? (
-            <header className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/60 px-4 backdrop-blur">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{workbenchTitle}</p>
-                <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                  {workbenchSurface === "chat" ? activeChatWorkspaceSurface === "browser" ? "interactive browser" : "conversation" : workbenchSurface === "work" ? "governed work items" : workbenchSurface === "agents" ? "managed children" : workbenchSurface === "activity" ? "runtime timeline" : workbenchSurface === "memory" ? "memory lattice" : "configuration"}
-                </p>
-              </div>
-              <div className="flex items-center gap-1">
-                {(["workspace", "changed", "approvals"] as const).map((mode) => (
-                  <Button
-                    key={mode}
-                    type="button"
-                    variant={inspectorOpen && inspectorMode === mode ? "secondary" : "ghost"}
-                    size="sm"
-                    aria-pressed={inspectorOpen && inspectorMode === mode}
-                    aria-label={mode === "workspace" ? "Workspace" : mode === "changed" ? "Changed files" : "Approvals"}
-                    onClick={() => {
-                      setInspectorMode(mode);
-                      setInspectorOpen(true);
-                    }}
-                  >
-                    {(() => {
-                      const Icon = inspectorModeIcons[mode];
-                      return <Icon data-icon="inline-start" aria-hidden="true" />;
-                    })()}
-                    {mode === "workspace" ? "Workspace" : mode === "changed" ? "Changed" : "Approvals"}
-                    {mode === "changed" && changedFiles.length > 0 ? <Badge variant="outline">{changedFiles.length}</Badge> : null}
-                    {mode === "approvals" && approvalCount > 0 ? <Badge variant="outline">{approvalCount}</Badge> : null}
-                  </Button>
-                ))}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={inspectorOpen ? "Close inspector" : "Open inspector"}
-                  onClick={() => setInspectorOpen((open) => !open)}
-                >
-                  {inspectorOpen ? (
-                    <PanelRightClose data-icon="inline-start" aria-hidden="true" />
-                  ) : (
-                    <PanelRightOpen data-icon="inline-start" aria-hidden="true" />
-                  )}
-                </Button>
-              </div>
-              <AppGatewayTargetSelector
-                apps={runtimeAppDescriptors}
-                targets={runtimeGatewayTargets}
-                selectedGatewayTargetId={selectedGatewayTargetId}
-                onSelectGatewayTarget={setSelectedGatewayTargetId}
-              />
-            </header>
-          ) : null}
-          {workbenchSurface === "chat" ? (
-            <ChatWorkbench
-              pendingApprovals={pendingApprovals}
-              selectedSessionId={selectedSessionId}
-              onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
-              onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
-              onOpenApprovals={() => {
-                setInspectorMode("approvals");
+            <DesktopWorkbenchHeader
+              title={workbenchTitle}
+              activeSurface={workbenchSurface}
+              activeChatSurface={activeChatWorkspaceSurface}
+              inspectorOpen={inspectorOpen}
+              inspectorMode={inspectorMode}
+              changedCount={changedFiles.length}
+              approvalCount={approvalCount}
+              onSelectInspectorMode={(mode) => {
+                setInspectorMode(mode);
                 setInspectorOpen(true);
               }}
-              surfaces={(
-          <OperatorSurfaceTabs
-            activeSurface={activeSurface}
-            browserSnapshot={interactiveUseSnapshot?.target === "browser" ? interactiveUseSnapshot : null}
-            browserSession={browserSessionState}
-            browserLiveViewportFrame={browserLiveViewportFrame}
-            loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri, resourceTarget(uri))}
-            onBrowserSessionControl={(action, options) => {
-              requestBrowserSessionControl(action, options);
-            }}
-            onBrowserOperatorInput={(request) => {
-              sendBrowserOperatorInput(request);
-            }}
-            memoryOpen={memorySurfaceOpen}
-            files={workspaceDocuments}
-            selectedPath={selectedWorkspacePath}
-            loadingPath={workspaceDocumentLoadingPath}
-            error={workspaceDocumentError}
-            onSelectChat={() => {
-              setActiveSurface("chat");
-              setSelectedWorkspacePath(null);
-            }}
-            onSelectBrowser={() => {
-              setActiveSurface("browser");
-              setSelectedWorkspacePath(null);
-            }}
-            onSelectMemory={() => {
-              openMemorySurface();
-            }}
-            onCloseMemory={closeMemorySurface}
-            onSelectFile={(path) => {
-              setActiveSurface("workspace");
-              setSelectedWorkspacePath(path);
-              setWorkspaceDocumentError(null);
-            }}
-            onCloseFile={closeWorkspaceFile}
-            chatContent={(
-              <Transcript
-                entries={conversationEntries}
-                activityPhase={activityPhase}
-                activityToolName={activity?.toolName}
-                activityDetails={activity?.details}
-                loadResourceDataUrl={(uri) => gatewayClient.loadResourceDataUrl(uri, resourceTarget(uri))}
-                onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
-                onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
-              />
-            )}
-            memoryContent={(
-              <Suspense fallback={<MemoryLatticeFallback />}>
-                <MemoryLatticeSurface
-                  response={memoryLatticeQuery.data ?? null}
-                  loading={Boolean(memoryLatticeQuery.isFetching)}
-                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                  selectedRecordId={selectedMemoryRecordId}
-                  onRefresh={() => void memoryLatticeQuery.refetch()}
-                  onSelectRecord={setSelectedMemoryRecordId}
+              onToggleInspector={() => setInspectorOpen((open) => !open)}
+              gatewayTargetSelector={(
+                <AppGatewayTargetSelector
+                  apps={runtimeAppDescriptors}
+                  targets={runtimeGatewayTargets}
+                  selectedGatewayTargetId={selectedGatewayTargetId}
+                  onSelectGatewayTarget={setSelectedGatewayTargetId}
                 />
-              </Suspense>
-            )}
-          />
               )}
-              composer={(
-          <Composer
-            status={status}
-            planMode={planMode}
-            continuityHint={composerContinuityHint}
-            providerControl={(
-              <div className="flex min-w-0 items-center gap-2">
+            />
+          ) : null}
+          <WorkbenchSurfaces
+            activeSurface={workbenchSurface}
+            chatWorkbench={{
+              pendingApprovals,
+              selectedSessionId,
+              onApprove: (approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId),
+              onDeny: (approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId),
+              onOpenApprovals: () => {
+                setInspectorMode("approvals");
+                setInspectorOpen(true);
+              },
+            }}
+            operatorSurfaceTabs={{
+              activeSurface,
+              browserSnapshot: interactiveUseSnapshot?.target === "browser" ? interactiveUseSnapshot : null,
+              browserSession: browserSessionState,
+              browserLiveViewportFrame,
+              loadResourceDataUrl: (uri) => gatewayClient.loadResourceDataUrl(uri, cockpitActions.resourceTarget(uri)),
+              onBrowserSessionControl: (action, options) => {
+                requestBrowserSessionControl(action, options);
+              },
+              onBrowserOperatorInput: (request) => {
+                sendBrowserOperatorInput(request);
+              },
+              memoryOpen: memorySurfaceOpen,
+              files: workspaceDocuments.documents,
+              selectedPath: workspaceDocuments.selectedPath,
+              loadingPath: workspaceDocuments.loadingPath,
+              error: workspaceDocuments.error,
+              onSelectChat: () => {
+                setActiveSurface("chat");
+                workspaceDocuments.clearSelection();
+              },
+              onSelectBrowser: () => {
+                setActiveSurface("browser");
+                workspaceDocuments.clearSelection();
+              },
+              onSelectMemory: () => {
+                openMemorySurface();
+              },
+              onCloseMemory: closeMemorySurface,
+              onSelectFile: (path) => {
+                setActiveSurface("workspace");
+                workspaceDocuments.selectPath(path);
+              },
+              onCloseFile: workspaceDocuments.closeFile,
+            }}
+            transcript={{
+              entries: conversationEntries,
+              activityPhase,
+              activityToolName: activity?.toolName,
+              activityDetails: activity?.details,
+              loadResourceDataUrl: (uri) => gatewayClient.loadResourceDataUrl(uri, cockpitActions.resourceTarget(uri)),
+              onApprove: (approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId),
+              onDeny: (approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId),
+            }}
+            composer={{
+              status,
+              planMode,
+              continuityHint: composerContinuityHint,
+              providerControl: (
                 <ProviderStatus
                   compact
                   onOpenPicker={() => setIsProviderPickerOpen(true)}
                   domainLabel={domainLabel}
                   workingDirectory={workingDirectory}
                 />
-                {!isNarrow ? (
-                  <AppGatewayTargetSelector
-                    apps={runtimeAppDescriptors}
-                    targets={runtimeGatewayTargets}
-                    selectedGatewayTargetId={selectedGatewayTargetId}
-                    onSelectGatewayTarget={setSelectedGatewayTargetId}
-                  />
-                ) : null}
-              </div>
-            )}
-            reasoningControl={resolvedReasoningEffort ? (
-              <ReasoningEffortControl
-                value={resolvedReasoningEffort}
-                options={reasoningEffortOptions}
-                onChange={setReasoningEffort}
-              />
-            ) : null}
-            authorityControl={(
-              <TurnAuthorityControl
-                value={requestedAuthority}
-                authorityStatus={authorityStatus}
-                onChange={setRequestedAuthority}
-              />
-            )}
-            onSubmit={(text) => {
-              sendMessage(text, {
-                ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
-                requestedAuthority,
-                ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
-                ...(selectedAppName ? { appName: selectedAppName } : {}),
-                ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
-              });
-            }}
-            onSubmitParts={(parts, displayContent) => {
-              sendMessage("", {
-                parts,
-                displayContent,
-                ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
-                requestedAuthority,
-                ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
-                ...(selectedAppName ? { appName: selectedAppName } : {}),
-                ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
-              });
-            }}
-            onTogglePlanMode={setTargetedPlanMode}
-            commandMenu={{
-              open: composerCommandOpen,
-              query: composerCommandQuery,
-              commands: rootCommands,
-              onQueryChange: setComposerCommandQuery,
-              onExecute: executePaletteCommand,
-              onOpenChange: (open) => {
-                if (!open) {
-                  closeComposerCommands();
-                  return;
-                }
-                setPaletteQuery("");
-                setIsPaletteOpen(false);
-                setComposerCommandQuery("");
-                setComposerCommandOpen(true);
+              ),
+              reasoningControl: resolvedReasoningEffort ? (
+                <ReasoningEffortControl
+                  value={resolvedReasoningEffort}
+                  options={reasoningEffortOptions}
+                  onChange={setReasoningEffort}
+                />
+              ) : null,
+              authorityControl: (
+                <TurnAuthorityControl
+                  value={requestedAuthority}
+                  authorityStatus={authorityStatus}
+                  onChange={setRequestedAuthority}
+                />
+              ),
+              onSubmit: (text) => {
+                sendMessage(text, {
+                  ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+                  requestedAuthority,
+                  ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
+                  ...(selectedAppName ? { appName: selectedAppName } : {}),
+                  ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
+                });
+              },
+              onSubmitParts: (parts, displayContent) => {
+                sendMessage("", {
+                  parts,
+                  displayContent,
+                  ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+                  requestedAuthority,
+                  ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
+                  ...(selectedAppName ? { appName: selectedAppName } : {}),
+                  ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
+                });
+              },
+              onTogglePlanMode: setTargetedPlanMode,
+              commandMenu: {
+                open: composerCommandOpen,
+                query: composerCommandQuery,
+                commands: rootCommands,
+                onQueryChange: setComposerCommandQuery,
+                onExecute: executePaletteCommand,
+                onOpenChange: (open) => {
+                  if (!open) {
+                    closeComposerCommands();
+                    return;
+                  }
+                  setPaletteQuery("");
+                  setIsPaletteOpen(false);
+                  setComposerCommandQuery("");
+                  setComposerCommandOpen(true);
+                },
               },
             }}
+            workflowOverview={{ entries: timelineEntries }}
+            workItems={{
+              items: workItems,
+              onOpenResource: (uri, target) => void cockpitActions.openResource(uri, target),
+            }}
+            managedAgents={{
+              viewState: managedAgentCockpitView,
+              onOpenResource: (uri, target) => void cockpitActions.openResource(uri, target),
+              onCancel: cockpitActions.cancelManagedAgent,
+              onPrompt: cockpitActions.promptManagedAgent,
+            }}
+            activityLog={{ entries: timelineEntries }}
+            memory={{
+              filters: memoryFilters,
+              response: memoryLatticeQuery.data ?? null,
+              loading: Boolean(memoryLatticeQuery.isFetching),
+              error: memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null,
+              selectedRecordId: selectedMemoryRecordId,
+              onRefresh: () => void memoryLatticeQuery.refetch(),
+              onFiltersChange: setMemoryFilters,
+              onSelectRecord: setSelectedMemoryRecordId,
+            }}
+            setup={{
+              snapshot: setupQuery.data ?? null,
+              loading: Boolean(setupQuery.isLoading),
+              refreshing: Boolean(setupQuery.isFetching && !setupQuery.isLoading),
+              error: setupQuery.error instanceof Error ? setupQuery.error : null,
+              onRefresh: () => void setupQuery.refetch(),
+              onExecuteAction: (action) => void executeSetupAction(action),
+              onPreviewSource: (path) => void previewSetupSource(path),
+              actionInFlight: setupActionInFlight,
+              actionFeedback: setupActionFeedback,
+              onThemeSelected: persistThemePreference,
+            }}
           />
-              )}
-            />
-          ) : workbenchSurface === "work" ? (
-            <div className="grid min-h-0 flex-1 grid-rows-[minmax(16rem,0.9fr)_minmax(18rem,1.1fr)] overflow-hidden bg-workspace-viewer lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] lg:grid-rows-1">
-              <div className="min-h-0 overflow-hidden border-b border-border/70 lg:border-b-0 lg:border-r">
-                <WorkflowOverviewPanel entries={timelineEntries} />
-              </div>
-              <div className="min-h-0 overflow-hidden">
-                <WorkItemsPanel items={workItems} onOpenResource={(uri, target) => void openResource(uri, target)} />
-              </div>
-            </div>
-          ) : workbenchSurface === "agents" ? (
-            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-              <ManagedAgentCockpitPanel
-                viewState={managedAgentCockpitView}
-                onOpenResource={(uri, target) => void openResource(uri, target)}
-                onCancel={cancelManagedAgent}
-                onPrompt={promptManagedAgent}
-              />
-            </div>
-          ) : workbenchSurface === "activity" ? (
-            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-              <ActivityLogPanel entries={timelineEntries} />
-            </div>
-          ) : workbenchSurface === "memory" ? (
-            <Suspense fallback={<MemoryLatticeFallback />}>
-              <div className="grid min-h-0 flex-1 grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] overflow-hidden bg-workspace-viewer">
-                <MemoryLatticePanel
-                  filters={memoryFilters}
-                  response={memoryLatticeQuery.data ?? null}
-                  loading={Boolean(memoryLatticeQuery.isFetching)}
-                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                  selectedRecordId={selectedMemoryRecordId}
-                  onRefresh={() => void memoryLatticeQuery.refetch()}
-                  onFiltersChange={setMemoryFilters}
-                  onSelectRecord={setSelectedMemoryRecordId}
-                />
-                <MemoryLatticeSurface
-                  response={memoryLatticeQuery.data ?? null}
-                  loading={Boolean(memoryLatticeQuery.isFetching)}
-                  error={memoryLatticeQuery.error instanceof Error ? memoryLatticeQuery.error : null}
-                  selectedRecordId={selectedMemoryRecordId}
-                  onRefresh={() => void memoryLatticeQuery.refetch()}
-                  onSelectRecord={setSelectedMemoryRecordId}
-                />
-              </div>
-            </Suspense>
-          ) : (
-            <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-              <SetupPanel
-                snapshot={setupQuery.data ?? null}
-                loading={Boolean(setupQuery.isLoading)}
-                refreshing={Boolean(setupQuery.isFetching && !setupQuery.isLoading)}
-                error={setupQuery.error instanceof Error ? setupQuery.error : null}
-                onRefresh={() => void setupQuery.refetch()}
-                onExecuteAction={(action) => void executeSetupAction(action)}
-                actionInFlight={setupActionInFlight}
-                actionFeedback={setupActionFeedback}
-                onThemeSelected={persistThemePreference}
-              />
-            </div>
-          )}
-        </main>
+        </WorkbenchMain>
         {!isNarrow && inspectorOpen ? (
-          <aside className="w-80 min-w-80 max-w-80 border-l border-border/70 bg-card">
+          <InspectorRail>
             {inspector}
-          </aside>
+          </InspectorRail>
         ) : null}
-      </div>
+      </WorkbenchBody>
 
-      {isNarrow && drawerOpen ? (
-        <div className="fixed inset-0 z-20 flex bg-black/45 backdrop-blur-sm">
-          <button
-            type="button"
-            aria-label={`Close ${drawerAriaLabel} backdrop`}
-            className="min-w-0 flex-1"
-            onClick={closeDrawer}
-          />
-          <div
-            id="session-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label={drawerTitle === "Sessions" ? "Sessions drawer" : "Inspector drawer"}
-            className="flex h-full w-[min(26rem,calc(100vw-3rem))] max-w-full flex-col border-l border-border bg-card shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-foreground">{drawerTitle}</p>
-                <p className="text-xs text-muted-foreground">
-                  {mobileDrawerMode === "sessions"
-                    ? "Session history and continuation targets."
-                    : "Workspace, changes, and approvals."}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label={`Close ${drawerAriaLabel}`}
-                onClick={closeDrawer}
-              >
-                Close
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1">{mobileDrawerMode === "sessions" ? sessionsPanel : inspector}</div>
-          </div>
-        </div>
-      ) : null}
+      <MobileWorkbenchDrawer
+        open={isNarrow && drawerOpen}
+        title={drawerLabels.title}
+        description={drawerLabels.description}
+        ariaLabel={drawerLabels.ariaLabel}
+        closeLabel={drawerLabels.closeLabel}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeDrawer();
+          }
+        }}
+      >
+        {mobileDrawerMode === "sessions" ? sessionsPanel : inspector}
+      </MobileWorkbenchDrawer>
 
       <ProviderPicker
         open={isProviderPickerOpen}
         providers={providers}
         activeProvider={activeProvider}
         activeModel={activeModel}
-        onSwitchProvider={async (provider, model) => {
-          const normalizedModel = typeof model === "string" && model.trim().length > 0
-            ? model.trim()
-            : null;
-
-          const started = switchProvider(provider, normalizedModel ?? undefined);
-          if (!started) {
-            const message = useSessionStore.getState().errorBanner ?? "Provider switch failed.";
-            setErrorBanner(message);
-            throw new Error(message);
-          }
-
-          try {
-            await waitForProviderSwitchResolution(provider, normalizedModel);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Provider switch failed.";
-            setErrorBanner(message);
-            throw (error instanceof Error ? error : new Error(message));
-          }
-        }}
-        onRefreshProviders={async () => {
-          markProviderCatalogRefreshing();
-          if (wsState === "open") {
-            send({ type: "refresh_providers" });
-          }
-          const result = await dashboardQuery.refetch();
-          if (result && "error" in result && result.error) {
-            markProviderCatalogError("Could not refresh provider discovery.");
-            return;
-          }
-          if (result && "data" in result && result.data?.providers) {
-            onProvidersRefreshed(result.data.providers);
-          }
-        }}
-        onAuthenticateProvider={async (provider, options) => {
-          const started = authenticateProvider(provider, options);
-          if (!started) {
-            const message = useSessionStore.getState().errorBanner ?? "Provider authentication failed.";
-            setErrorBanner(message);
-            throw new Error(message);
-          }
-          try {
-            await waitForProviderAuthResolution(provider);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Provider authentication failed.";
-            setErrorBanner(message);
-            throw (error instanceof Error ? error : new Error(message));
-          }
-        }}
+        onSwitchProvider={providerPickerActions.onSwitchProvider}
+        onRefreshProviders={providerPickerActions.onRefreshProviders}
+        onAuthenticateProvider={providerPickerActions.onAuthenticateProvider}
         providerAuthenticating={providerAuthenticating}
         providerAuthProvider={providerAuthProvider}
         providerAuthMessage={providerAuthMessage}
         providerAuthDetails={providerAuthDetails}
         onOpenChange={(open) => setIsProviderPickerOpen(open)}
       />
-    </div>
+    </WorkbenchChrome>
   );
 }

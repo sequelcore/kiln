@@ -8,6 +8,16 @@ const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
 const loadResourceDataUrlMock = vi.fn();
+const loadWorkspaceFileMock = vi.fn(async (path: string) => ({
+  path,
+  name: path.replace(/\\/g, "/").split("/").at(-1) ?? path,
+  kind: "text" as const,
+  sizeBytes: 17,
+  source: "gateway" as const,
+  encoding: "utf-8" as const,
+  language: path.endsWith(".json") ? "json" : "markdown",
+  content: path.endsWith(".json") ? "{\"ok\":true}" : "# Project Context",
+}));
 let guiWsOnFrame: ((frame: GuiInboundFrame) => void) | null = null;
 
 vi.mock("@tanstack/react-query", () => ({
@@ -54,17 +64,8 @@ vi.mock("../src/api/client.js", () => ({
       };
     }
 
-    async loadWorkspaceFile() {
-      return {
-        path: "C:/workspace/kiln/package.json",
-        name: "package.json",
-        kind: "text",
-        sizeBytes: 17,
-        source: "gateway",
-        encoding: "utf-8",
-        language: "json",
-        content: "{\"ok\":true}",
-      };
+    async loadWorkspaceFile(path: string) {
+      return loadWorkspaceFileMock(path);
     }
 
     async loadMemoryLatticeGraph() {
@@ -303,6 +304,7 @@ describe("AppShell sidebar modes", () => {
     installMatchMedia(false);
     resetStore();
     waitForGatewayMock.mockResolvedValue(undefined);
+    loadWorkspaceFileMock.mockClear();
     loadResourceDataUrlMock.mockResolvedValue("data:text/plain;base64,b2s=");
     useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
       const queryKey = options.queryKey?.join(":") ?? "";
@@ -769,6 +771,11 @@ describe("AppShell sidebar modes", () => {
     })?.[0] as { enabled?: boolean; refetchInterval?: unknown } | undefined;
     expect(setupQueryOptions).toMatchObject({ enabled: true });
     expect(setupQueryOptions).not.toHaveProperty("refetchInterval");
+    fireEvent.click(screen.getByRole("button", { name: "Preview Project Context" }));
+    await waitFor(() => {
+      expect(loadWorkspaceFileMock).toHaveBeenCalledWith("C:/workspace/kiln/.kiln/project-context.md");
+    });
+    expect(screen.getByRole("tab", { name: "project-context.md" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 

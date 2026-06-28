@@ -39,7 +39,7 @@ export class GuiErrorBoundary extends Component<GuiErrorBoundaryProps, GuiErrorB
     }
 
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-6 text-[var(--color-text)]">
+      <main className="flex min-h-dvh items-center justify-center bg-[var(--color-background)] px-6 text-[var(--color-text)]">
         <section
           role="alert"
           aria-label="Kiln GUI failed to render"

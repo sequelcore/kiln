@@ -20,6 +20,11 @@ const rootTree = {
         state: "modified" as const,
       },
     },
+    {
+      path: "C:\\workspace\\kiln\\package.json",
+      name: "package.json",
+      kind: "file" as const,
+    },
   ],
 };
 
@@ -48,9 +53,17 @@ describe("WorkspacePanel", () => {
   it("renders a navigable workspace tree from the canonical workspace snapshot", () => {
     renderWorkspace();
 
+    expect(screen.getByLabelText("Workspace")).toHaveClass("border-l");
+    expect(screen.getByLabelText("Workspace")).toHaveClass("w-full");
+    expect(screen.getByLabelText("Workspace")).toHaveClass("min-w-0");
+    expect(screen.getByLabelText("Workspace")).not.toHaveClass("border-r");
     expect(screen.getByLabelText("Workspace files")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Folder packages" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "File README.md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "File package.json" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Folder packages" }).querySelector('[data-workspace-icon="folder"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "File README.md" }).querySelector('[data-file-extension="md"]')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "File package.json" }).querySelector('[data-file-extension="json"]')).toBeInTheDocument();
     expect(screen.getByLabelText("Git modified")).toHaveTextContent("M");
     expect(screen.queryByLabelText("Workspace file preview")).not.toBeInTheDocument();
   });
@@ -78,6 +91,7 @@ describe("WorkspacePanel", () => {
 
     expect(workspaceClient.loadWorkspaceDirectory).toHaveBeenCalledWith("C:\\workspace\\kiln\\packages");
     const nestedFile = await screen.findByRole("button", { name: "File main.tsx" });
+    expect(nestedFile.querySelector('[data-file-extension="tsx"]')).toBeInTheDocument();
     fireEvent.click(nestedFile);
 
     expect(onOpenFile).toHaveBeenCalledWith({
@@ -110,7 +124,8 @@ describe("WorkspacePanel", () => {
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByLabelText("Workspace root")).toHaveTextContent("C:/workspace/kiln");
     expect(screen.getAllByText("C:/workspace/kiln")).toHaveLength(1);
-    expect(screen.getByText("worktree: C:/tmp/kiln-worktree")).toBeInTheDocument();
+    expect(screen.getByText("Worktree")).toBeInTheDocument();
+    expect(screen.getByText("C:/tmp/kiln-worktree")).toBeInTheDocument();
     expect(screen.queryByText("Kiln")).not.toBeInTheDocument();
     expect(screen.queryByText("kiln-gui:_gui:test:123")).not.toBeInTheDocument();
     expect(screen.queryByText("codex-oauth / gpt-5.4-mini")).not.toBeInTheDocument();

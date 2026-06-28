@@ -1,0 +1,68 @@
+import type { ComponentProps } from "react";
+import { ApprovalsPanel } from "./approvals-panel.js";
+import { ChangedFilesPanel } from "./changed-files-panel.js";
+import { SessionList } from "./session-list.js";
+import { WorkspacePanel } from "./workspace-panel.js";
+import type { InspectorMode } from "./workbench-navigation.js";
+
+type SessionListProps = ComponentProps<typeof SessionList>;
+type WorkspacePanelProps = ComponentProps<typeof WorkspacePanel>;
+type ChangedFilesPanelProps = ComponentProps<typeof ChangedFilesPanel>;
+type ApprovalsPanelProps = ComponentProps<typeof ApprovalsPanel>;
+
+export function WorkbenchSessionsPanel(props: {
+  readonly sessions: SessionListProps["sessions"];
+  readonly selectedSessionId: string | null;
+  readonly continuity: SessionListProps["continuity"];
+  readonly onSelectSession: (sessionId: string) => void;
+  readonly onStartNewSession: () => void;
+}) {
+  return (
+    <SessionList
+      sessions={props.sessions}
+      selectedSessionId={props.selectedSessionId}
+      continuity={props.continuity}
+      onSelect={props.onSelectSession}
+      onStartNewSession={props.onStartNewSession}
+    />
+  );
+}
+
+export function WorkbenchInspectorPanel(props: {
+  readonly mode: InspectorMode;
+  readonly gatewayWorkingDirectory: WorkspacePanelProps["gatewayWorkingDirectory"];
+  readonly workspaceTree: WorkspacePanelProps["workspaceTree"];
+  readonly workspaceClient: WorkspacePanelProps["workspaceClient"];
+  readonly worktreePath: WorkspacePanelProps["worktreePath"];
+  readonly selectedFilePath: WorkspacePanelProps["selectedFilePath"];
+  readonly changedFiles: ChangedFilesPanelProps["files"];
+  readonly approvals: ApprovalsPanelProps["approvals"];
+  readonly onOpenFile: NonNullable<WorkspacePanelProps["onOpenFile"]>;
+  readonly onApprove: (approvalId: string) => void;
+  readonly onDeny: (approvalId: string) => void;
+}) {
+  if (props.mode === "workspace") {
+    return (
+      <WorkspacePanel
+        gatewayWorkingDirectory={props.gatewayWorkingDirectory}
+        workspaceTree={props.workspaceTree}
+        workspaceClient={props.workspaceClient}
+        worktreePath={props.worktreePath}
+        selectedFilePath={props.selectedFilePath}
+        onOpenFile={props.onOpenFile}
+      />
+    );
+  }
+
+  if (props.mode === "changed") {
+    return <ChangedFilesPanel files={props.changedFiles} />;
+  }
+
+  return (
+    <ApprovalsPanel
+      approvals={props.approvals}
+      onApprove={props.onApprove}
+      onDeny={props.onDeny}
+    />
+  );
+}
