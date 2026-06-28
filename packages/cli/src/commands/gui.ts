@@ -59,6 +59,7 @@ import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";
+import { createGuiDevServerOutput } from "./gui-dev-server-output.js";
 import {
   persistGuiProviderSelectionPreference,
   resolveGuiProviderSelectionPreference,
@@ -569,31 +570,18 @@ function spawnGuiDevServer(cwd: string, guiPort: number, gatewayPort: number): C
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  child.stdout.on("data", (chunk: Buffer | string) => {
-    writePrefixed("gui-dev", chunk, process.stdout);
+  const devOutput = createGuiDevServerOutput({
+    stdout: process.stdout,
+    stderr: process.stderr,
   });
-  child.stderr.on("data", (chunk: Buffer | string) => {
-    writePrefixed("gui-dev", chunk, process.stderr);
-  });
+
+  child.stdout.on("data", devOutput.writeStdout);
+  child.stderr.on("data", devOutput.writeStderr);
   child.on("error", (error) => {
-    console.error(`[gui-dev] Failed to start: ${error.message}`);
+    console.error(`Dev server: failed to start: ${error.message}`);
   });
 
   return child;
-}
-
-function writePrefixed(prefix: string, chunk: Buffer | string, output: NodeJS.WriteStream): void {
-  const text = chunk.toString();
-  const normalized = text.replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const isLastEmptyLine = index === lines.length - 1 && line.length === 0;
-    if (isLastEmptyLine) {
-      continue;
-    }
-    output.write(`[${prefix}] ${line}\n`);
-  }
 }
 
 async function stopChildProcess(child: ChildProcess, label: string): Promise<void> {
