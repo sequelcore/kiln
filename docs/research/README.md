@@ -98,6 +98,11 @@ define the active architecture contract. For doctrine, use
   brand, regional, legal, and organization voice outside native product
   doctrine.
 
+- `20-cross-domain-task-taxonomy.md`
+  Harness, lab, spec, paper, and local architecture research supporting a
+  separate cross-domain work classification model instead of expanding
+  model-route suitability into a giant task enum.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
@@ -126,3 +131,4 @@ define the active architecture contract. For doctrine, use
 17. `17-inspectable-agent-work.md`
 18. `18-execution-surfaces-strategy.md`
 19. `19-clear-writing-skill.md`
+20. `20-cross-domain-task-taxonomy.md`
