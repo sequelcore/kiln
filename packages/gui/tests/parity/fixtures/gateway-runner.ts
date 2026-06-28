@@ -84,7 +84,7 @@ const sessionSummaries: GuiSessionSummary[] = [
   },
 ];
 
-const fakeSessionFactory: CliSessionFactory = (_systemPrompt, _cwd) => ({
+const fakeSessionFactory: CliSessionFactory = () => ({
   async *run(options) {
     const userTurns = options.messages
       ?.filter((message) => message.role === "user")
@@ -166,7 +166,9 @@ async function main(): Promise<void> {
       ],
       sessions: sessionSummaries.slice(0, 20),
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
-      continuationInfoByProvider: {},
+      continuationInfoByProvider: continuationSessionId
+        ? { [activeProvider]: { strategy: "continue_session", feedbackLabel: continuationSessionId } }
+        : {},
     }),
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
     getSetupSnapshot: async () => setupSnapshot,

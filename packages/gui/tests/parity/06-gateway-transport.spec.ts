@@ -1,8 +1,9 @@
-import { expect, test } from "./fixtures/gateway.js";
+import { expect, test, waitForGuiReady } from "./fixtures/gateway.js";
 
 test.describe("parity category 6 - gateway transport behavior", () => {
   test("opens the websocket transport and preserves the stable user id on reconnect-capable connections", async ({ page, gatewayPort }) => {
     await page.goto("/");
+    await waitForGuiReady(page);
 
     const wsUrl = `ws://localhost:${gatewayPort}/gui/ws?userId=test-reconnect-user`;
 

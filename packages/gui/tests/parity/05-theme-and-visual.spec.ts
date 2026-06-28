@@ -1,10 +1,11 @@
-import { expect, test } from "./fixtures/gateway.js";
+import { expect, test, waitForGuiReady } from "./fixtures/gateway.js";
 
 const COMPOSER_READY_TIMEOUT_MS = 15_000;
 
 test.describe("parity category 5 - theming and visual behavior", () => {
   test("persists theme changes and visually differentiates user and assistant messages", async ({ page }) => {
     await page.goto("/");
+    await waitForGuiReady(page);
 
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
 
@@ -42,6 +43,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
 
   test("renders assistant markdown lists and tables with visible browser styling", async ({ page }) => {
     await page.goto("/");
+    await waitForGuiReady(page);
 
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
 

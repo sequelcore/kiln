@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures/gateway.js";
+import { expect, test, waitForGuiReady } from "./fixtures/gateway.js";
 
 test.describe("parity category 1 - session lifecycle", () => {
   test.beforeEach(async ({ page }) => {
@@ -21,6 +21,7 @@ test.describe("parity category 1 - session lifecycle", () => {
 
   test("launches ready, streams a turn, clears, continues selected session, toggles plan, and disconnects on close", async ({ page, gatewayPort }) => {
     await page.goto("/");
+    await waitForGuiReady(page);
 
     const composer = page.locator("#composer-input");
     await expect(composer).toBeEnabled({ timeout: 5_000 });
@@ -35,7 +36,7 @@ test.describe("parity category 1 - session lifecycle", () => {
     await page.getByRole("button", { name: "New Session" }).click();
     await expect(page.getByLabel("Transcript").locator('[data-role="user"]')).toHaveCount(0, { timeout: 5_000 });
 
-    await page.getByRole("option", { name: /Summarize parity checklist/ }).click();
+    await page.getByRole("button", { name: /Summarize parity checklist/ }).click();
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem("kiln.gui.continuationTarget")))
       .toBeNull();
@@ -75,6 +76,7 @@ test.describe("parity category 1 - session lifecycle", () => {
 
   test("sends a fresh session boundary after New Session instead of resuming the previous live turn", async ({ page }) => {
     await page.goto("/");
+    await waitForGuiReady(page);
 
     const composer = page.locator("#composer-input");
     await expect(composer).toBeEnabled({ timeout: 5_000 });

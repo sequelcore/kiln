@@ -43,4 +43,10 @@ export default tseslint.config(
       ".reference/**",
     ],
   },
+  {
+    files: ["tests/parity/fixtures/gateway-runner.ts"],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
 );

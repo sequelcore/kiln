@@ -1,8 +1,9 @@
-import { expect, test } from "./fixtures/gateway.js";
+import { expect, test, waitForGuiReady } from "./fixtures/gateway.js";
 
 test.describe("parity category 3 - cost and telemetry", () => {
   test("keeps telemetry out of persistent chrome and records cost evidence in Activity", async ({ page }) => {
     await page.goto("/");
+    await waitForGuiReady(page);
 
     const composer = page.locator("#composer-input");
     await expect(composer).toBeEnabled({ timeout: 5_000 });
