@@ -16,6 +16,15 @@ globalThis.ResizeObserver = ResizeObserverMock;
 
 HTMLElement.prototype.scrollIntoView = function scrollIntoView(): void {};
 
+HTMLElement.prototype.scrollTo = function scrollTo(
+  optionsOrX: ScrollToOptions | number,
+  y?: number,
+): void {
+  this.scrollTop = typeof optionsOrX === "number"
+    ? y ?? 0
+    : optionsOrX.top ?? this.scrollTop;
+};
+
 HTMLElement.prototype.getAnimations = function getAnimations(): Animation[] {
   return [];
 };

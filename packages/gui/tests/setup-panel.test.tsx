@@ -37,6 +37,7 @@ describe("SetupPanel", () => {
         error={null}
         onRefresh={vi.fn()}
         onExecuteAction={onExecuteAction}
+        onPreviewSource={vi.fn()}
       />,
     );
 
@@ -77,11 +78,70 @@ describe("SetupPanel", () => {
         error={null}
         onRefresh={vi.fn()}
         onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
       />,
     );
 
     expect(screen.getByText("Configuration Is Current")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Required Setup Actions" })).toHaveTextContent("No setup actions are required.");
     expect(screen.queryByRole("button", { name: "Current" })).not.toBeInTheDocument();
+  });
+
+  it("presents setup sources as comparable inventories instead of a path dump", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          nativeProjections: [{
+            targetId: "codex-agent:planner",
+            path: "C:/Users/test/.codex/agents/planner.toml",
+            kind: "native",
+            status: "managed",
+            managedFieldCount: 1,
+            updatedAt: "2026-06-27T12:29:50.875Z",
+          }],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "Setup Sources" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Configuration Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Canonical setup sources" })).toHaveTextContent(
+      "Durable repository guidance inherited by every harness",
+    );
+    expect(screen.getByRole("table", { name: "Native harness projections" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Native harness projections" })).toHaveTextContent("1 managed field");
+    expect(screen.queryByText("2026-06-27T12:29:50.875Z")).not.toBeInTheDocument();
+    expect(screen.queryByText("C:/workspace/kiln/.kiln/project-context.md")).not.toBeInTheDocument();
+    expect(screen.queryByText("C:/workspace/kiln/AGENTS.md")).not.toBeInTheDocument();
+  });
+
+  it("opens project-owned setup sources through the workspace preview boundary", () => {
+    const onPreviewSource = vi.fn();
+
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          projectContext: {
+            path: "C:/workspace/kiln/.kiln/project-context.md",
+            status: "valid",
+            recommendation: "none",
+          },
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={onPreviewSource}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Project Context" }));
+
+    expect(onPreviewSource).toHaveBeenCalledWith("C:/workspace/kiln/.kiln/project-context.md");
   });
 });
