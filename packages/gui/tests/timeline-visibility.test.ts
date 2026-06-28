@@ -31,18 +31,23 @@ function eventEntry(eventKind: TimelineEventKind): TimelineEntry {
 }
 
 describe("timeline visibility", () => {
-  it("keeps conversational messages, tool calls, agent calls, and approvals in the transcript", () => {
+  it("keeps conversational messages, tool calls, terminal agent results, and approvals in the transcript", () => {
     expect(isConversationTimelineEntry(messageEntry("user", "hi"))).toBe(true);
     expect(isConversationTimelineEntry(messageEntry("assistant", "hello"))).toBe(true);
     expect(isConversationTimelineEntry(eventEntry("tool_call_started"))).toBe(true);
     expect(isConversationTimelineEntry(eventEntry("tool_call_completed"))).toBe(true);
-    expect(isConversationTimelineEntry(eventEntry("agent_invocation_started"))).toBe(true);
+    expect(isConversationTimelineEntry(eventEntry("agent_invocation_completed"))).toBe(true);
+    expect(isConversationTimelineEntry(eventEntry("agent_invocation_failed"))).toBe(true);
     expect(isConversationTimelineEntry(eventEntry("approval_requested"))).toBe(true);
     expect(isConversationTimelineEntry(eventEntry("approval_resolved"))).toBe(true);
   });
 
-  it("keeps routing, cost, and turn metadata out of the transcript", () => {
+  it("keeps routing, lifecycle, cost, and turn metadata out of the transcript", () => {
     expect(isConversationTimelineEntry(eventEntry("provider_routed"))).toBe(false);
+    expect(isConversationTimelineEntry(eventEntry("agent_invocation_started"))).toBe(false);
+    expect(isConversationTimelineEntry(eventEntry("plan_submitted"))).toBe(false);
+    expect(isConversationTimelineEntry(eventEntry("plan_approved"))).toBe(false);
+    expect(isConversationTimelineEntry(eventEntry("work_items.materialized"))).toBe(false);
     expect(isConversationTimelineEntry(eventEntry("cost_updated"))).toBe(false);
     expect(isConversationTimelineEntry(eventEntry("turn_completed"))).toBe(false);
   });

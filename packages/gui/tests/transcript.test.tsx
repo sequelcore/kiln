@@ -137,11 +137,61 @@ describe("Transcript", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    const activity = within(rows[1]!).getByTestId("assistant-tool-events");
+    expect(activity).toHaveTextContent("1 tool event");
     expect(rows[1]).not.toHaveTextContent("Using read");
     expect(rows[1]).not.toHaveTextContent("Execution in progress");
     expect(rows[1]).toHaveTextContent("Completed read");
+    expect(within(activity).queryByText("# Session Model")).not.toBeInTheDocument();
     expect(rows[1]).toHaveTextContent("Here is the summary.");
+  });
+
+  it("summarizes multiple assistant tool events until details are requested", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "inspect and patch"),
+          {
+            id: "timeline:event:tool-read",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read",
+            summary: "# Session Model",
+            tone: "success",
+            details: { toolCallId: "call_read_1", status: "succeeded" },
+          },
+          {
+            id: "timeline:event:tool-patch",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed patch",
+            summary: "1 file changed",
+            tone: "success",
+            details: { toolCallId: "call_patch_1", status: "succeeded" },
+          },
+          messageEntry("2", "assistant", "Patched."),
+        ]}
+      />,
+    );
+
+    const rows = screen.getAllByRole("article");
+    const activity = within(rows[1]!).getByTestId("assistant-tool-events");
+    expect(activity).toHaveClass("w-full", "min-w-0");
+    expect(activity).toHaveTextContent("2 tool events");
+    expect(activity).toHaveTextContent("Completed read");
+    expect(activity).toHaveTextContent("Completed patch");
+    expect(activity.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
+
+    fireEvent.click(within(activity).getByRole("button", { name: "Show activity details" }));
+
+    expect(activity.querySelectorAll('[data-role="tool-event"]')).toHaveLength(2);
+    expect(activity.querySelector('[data-role="tool-event"]')?.parentElement).toHaveClass("w-full", "min-w-0");
+    expect(activity.firstElementChild).not.toHaveTextContent("Completed read");
+    expect(activity.firstElementChild).not.toHaveTextContent("Completed patch");
+    expect(within(activity).getByText("# Session Model")).toBeInTheDocument();
+    expect(within(activity).getByText("1 file changed")).toBeInTheDocument();
   });
 
   it("renders trailing same-turn tool activity before the previous assistant content", () => {
@@ -167,7 +217,7 @@ describe("Transcript", () => {
     const rows = screen.getAllByRole("article");
     expect(rows).toHaveLength(3);
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toHaveTextContent("1 tool event");
     expect(rows[1]).toHaveTextContent("Completed write");
     expect(rows[1]).toHaveTextContent("Created im_alive.txt with:");
     const assistantText = rows[1]!.textContent ?? "";
@@ -253,8 +303,11 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByText("Diff preview")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
+    expect(screen.queryByText("Diff")).not.toBeInTheDocument();
+    const detailsButton = screen.getByRole("button", { name: "Show details" });
+    fireEvent.click(detailsButton);
+
+    expect(screen.getByText("Diff")).toBeInTheDocument();
     expect(screen.getByText("packages/gui/src/components/transcript.tsx")).toBeInTheDocument();
     expect(screen.getByText("Additions")).toBeInTheDocument();
     expect(screen.getByText("18")).toBeInTheDocument();
@@ -319,7 +372,66 @@ describe("Transcript", () => {
     expect(within(table).getByRole("columnheader", { name: "Evidence" })).toBeInTheDocument();
     expect(within(table).getByText("codex-oauth-readonly")).toBeInTheDocument();
     expect(within(table).getByText("yes")).toBeInTheDocument();
+    expect(screen.queryByText("Table preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("| Route | Provider |")).not.toBeInTheDocument();
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
+  });
+
+  it("renders comparison-table cell semantics instead of plain scalar text", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:semantic-table",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed managed_agent.invoke",
+            summary: "2 routes compared",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "table",
+              title: "Managed child comparison",
+              summary: "2 routes compared",
+              fields: [{ label: "Intent", value: "comparison_table" }],
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child comparison",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "status", label: "Status", valueKind: "status" },
+                  { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean", align: "center" },
+                  { key: "durationMs", label: "Duration", valueKind: "number", align: "right" },
+                ],
+                rows: [
+                  {
+                    routeId: "codex-oauth-readonly",
+                    status: "completed",
+                    substantiveEvidence: true,
+                    durationMs: 4200,
+                  },
+                  {
+                    routeId: "opencode-readonly",
+                    status: "failed",
+                    substantiveEvidence: false,
+                    durationMs: 120,
+                  },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    expect(screen.getByText("completed")).toHaveAttribute("data-cell-kind", "status");
+    expect(screen.getByText("failed")).toHaveAttribute("data-cell-kind", "status");
+    expect(screen.getByLabelText("Evidence: yes")).toHaveAttribute("data-cell-kind", "boolean");
+    expect(screen.getByLabelText("Evidence: no")).toHaveAttribute("data-cell-kind", "boolean");
+    expect(screen.getByText("4,200")).toHaveAttribute("data-cell-kind", "number");
   });
 
   it("renders route-unavailable managed invocation intents without raw envelopes", () => {
@@ -374,7 +486,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -383,6 +495,8 @@ describe("Transcript", () => {
     expect(within(table).getByText("unavailable")).toBeInTheDocument();
     expect(within(table).getByText("no")).toBeInTheDocument();
     expect(within(table).getByText("Direct provider route is not eligible.")).toBeInTheDocument();
+    expect(screen.queryByText("Table preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("| Route | Provider |")).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
   });
@@ -459,7 +573,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -468,6 +582,8 @@ describe("Transcript", () => {
     expect(within(table).getByText("denied")).toBeInTheDocument();
     expect(within(table).getByText("no")).toBeInTheDocument();
     expect(within(table).getByText("Managed invocation denied skill(s): workspace-write")).toBeInTheDocument();
+    expect(screen.queryByText("Table preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("| Route | Provider |")).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
   });
@@ -698,12 +814,65 @@ describe("Transcript", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show details" }));
 
-    expect(screen.getByText("Resource link")).toBeInTheDocument();
+    expect(screen.getByText("Resource")).toBeInTheDocument();
     expect(screen.getAllByText("read_many full output").length).toBeGreaterThan(0);
     expect(screen.getByText("kiln://artifacts/tool-results/artifact_1/content")).toBeInTheDocument();
     expect(screen.queryByText("Open inspector")).not.toBeInTheDocument();
     expect(screen.queryByText("Raw available")).not.toBeInTheDocument();
     expect(screen.queryByText("--- C:\\workspace\\kiln\\docs\\architecture.md")).not.toBeInTheDocument();
+  });
+
+  it("renders resource bundle presentation intents as inspectable resources", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:resource-bundle",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed artifacts",
+            summary: "2 resources",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "resource_links",
+              title: "Generated artifacts",
+              summary: "2 resources",
+              fields: [{ label: "Intent", value: "resource_bundle" }],
+              presentationIntent: {
+                kind: "resource_bundle",
+                title: "Generated artifacts",
+                resources: [
+                  {
+                    uri: "kiln://artifacts/report/content",
+                    title: "Research report",
+                    mimeType: "text/markdown",
+                    size: 2048,
+                    relation: "primary",
+                  },
+                  {
+                    uri: "kiln://artifacts/evidence/content",
+                    title: "Evidence bundle",
+                    mimeType: "application/json",
+                    relation: "supporting",
+                  },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const resources = screen.getByRole("list", { name: "Generated artifacts resources" });
+    expect(within(resources).getByText("Research report")).toBeInTheDocument();
+    expect(within(resources).getByText("text/markdown")).toBeInTheDocument();
+    expect(within(resources).getByText("primary")).toBeInTheDocument();
+    expect(within(resources).getByText("2 KB")).toBeInTheDocument();
+    expect(within(resources).getByText("kiln://artifacts/evidence/content")).toBeInTheDocument();
   });
 
   it("renders browser screenshot tool presentations as a numbered capture gallery", () => {
@@ -888,7 +1057,11 @@ describe("Transcript", () => {
               outputKind: "tree",
               title: "C:\\workspace\\kiln",
               summary: "55 entries under C:\\workspace\\kiln",
-              fields: [{ label: "Entries", value: "55" }],
+              fields: [
+                { label: "Path", value: "C:\\workspace\\kiln" },
+                { label: "Entries", value: "55" },
+                { label: "Depth", value: "3" },
+              ],
               preview: {
                 text: ".\npackages/\n  gui/",
               },
@@ -911,16 +1084,68 @@ describe("Transcript", () => {
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
     expect(screen.getAllByText("55 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
 
-    const detailButtons = screen.getAllByRole("button", { name: "Show details" });
+    let detailButtons = screen.getAllByRole("button", { name: "Show details" });
     fireEvent.click(detailButtons[0]!);
 
-    expect(screen.getByText("Markdown preview")).toBeInTheDocument();
-    expect(screen.getAllByText("Tree preview").length).toBeGreaterThan(0);
+    expect(screen.getByText("Document")).toBeInTheDocument();
+    expect(screen.queryByText("Status")).not.toBeInTheDocument();
+    expect(screen.queryByText("succeeded")).not.toBeInTheDocument();
+    detailButtons = screen.getAllByRole("button", { name: "Show details" });
+    fireEvent.click(detailButtons[0]!);
+
+    expect(screen.getAllByText("Directory tree").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("C:\\workspace\\kiln")).toHaveLength(1);
+    expect(screen.getAllByText("55 entries under C:\\workspace\\kiln")).toHaveLength(1);
     expect(screen.getByText("Kiln session identity is provider-agnostic.")).toBeInTheDocument();
-    expect(screen.getByText("packages/")).toBeInTheDocument();
+    const treeOutput = screen.getByRole("list", { name: "Directory tree output" });
+    const treeLine = within(treeOutput).getByText("packages");
+    expect(treeLine).toBeInTheDocument();
+    expect(treeLine.closest("li")).toHaveAttribute("data-tree-entry-kind", "directory");
+    expect(treeLine.closest("pre")).not.toBeInTheDocument();
     expect(screen.getByText("tree full output")).toBeInTheDocument();
     expect(screen.queryByText(/"output"/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
+  });
+
+  it("renders indented file tree output as a bounded hierarchical list", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-tree-hierarchy",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed tree",
+            summary: "4 entries under C:\\workspace\\kiln",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "tree",
+              title: "C:\\workspace\\kiln",
+              summary: "4 entries under C:\\workspace\\kiln",
+              fields: [
+                { label: "Path", value: "C:\\workspace\\kiln" },
+                { label: "Entries", value: "4" },
+              ],
+              preview: {
+                text: ".\npackages/\n  gui/\n    package.json\nREADME.md",
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const treeOutput = screen.getByRole("list", { name: "Directory tree output" });
+    expect(treeOutput).toHaveAttribute("data-output-kind", "tree");
+    expect(within(treeOutput).getByText("packages")).toBeInTheDocument();
+    expect(within(treeOutput).getByText("gui")).toBeInTheDocument();
+    expect(within(treeOutput).getByText("package.json").closest("li")).toHaveAttribute("data-tree-entry-kind", "file");
+    expect(within(treeOutput).getByText("package.json").closest("li")).toHaveAttribute("data-tree-depth", "2");
+    expect(within(treeOutput).getByText("README.md").closest("li")).toHaveAttribute("data-tree-depth", "0");
   });
 
   it("renders stat metadata as fields instead of JSON text preview", () => {
@@ -997,6 +1222,52 @@ describe("Transcript", () => {
     expect(screen.queryByText("Tree preview")).not.toBeInTheDocument();
   });
 
+  it("renders source file tool output as source instead of generic text preview", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-read-package",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read",
+            summary: "3 lines · 22 bytes",
+            tone: "success",
+            details: {
+              result: "{",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "code",
+              title: "package.json",
+              summary: "3 lines · 22 bytes",
+              fields: [
+                { label: "Path", value: "package.json" },
+                { label: "Lines", value: "3" },
+              ],
+              preview: {
+                text: "{\n  \"name\": \"kiln\"\n}",
+                language: "json",
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(screen.getByText("json")).toBeInTheDocument();
+    expect(screen.getAllByText("3 lines · 22 bytes").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("JSON output")).toBeInTheDocument();
+    expect(screen.getByText('"name":')).toHaveClass("kiln-json-view__label");
+    expect(screen.getByText('"kiln"')).toHaveClass("kiln-json-view__string");
+    expect(screen.queryByText("Text preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Code preview")).not.toBeInTheDocument();
+  });
+
   it("shows streaming cursor indicator for streaming assistant message", () => {
     render(
       <Transcript
@@ -1010,7 +1281,7 @@ describe("Transcript", () => {
     expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-motion", "subtle");
   });
 
-  it("renders assistant messages in a lightweight chat bubble", () => {
+  it("renders assistant messages in the official lightweight bubble primitive", () => {
     render(
       <Transcript
         entries={[messageEntry("1", "assistant", "Here is the update.")]}
@@ -1019,8 +1290,8 @@ describe("Transcript", () => {
 
     const assistantRow = screen.getByRole("article");
     expect(assistantRow).toHaveAttribute("data-role", "assistant");
-    const bubble = assistantRow.querySelector(".rounded-2xl.rounded-tl-md");
-    expect(bubble).toHaveClass("rounded-2xl", "rounded-tl-md", "bg-muted/35");
+    const bubble = assistantRow.querySelector('[data-slot="bubble"]');
+    expect(bubble).toHaveAttribute("data-variant", "ghost");
     expect(bubble).not.toHaveClass("border", "bg-card");
   });
 
@@ -1084,7 +1355,7 @@ describe("Transcript", () => {
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
     expect(screen.queryByText("Using patch")).not.toBeInTheDocument();
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toHaveTextContent("1 tool event");
     expect(rows[1]).toHaveTextContent("Completed patch");
     expect(rows[1]).toHaveTextContent("Responding");
   });
@@ -1127,7 +1398,7 @@ describe("Transcript", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toHaveTextContent("1 tool event");
     expect(rows[1]).toHaveTextContent("Using patch");
     expect(within(rows[1]!).queryByLabelText("Streaming")).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Activity phase: Using patch" })).not.toBeInTheDocument();
@@ -1177,7 +1448,7 @@ describe("Transcript", () => {
     const row = screen.getAllByRole("article")[1]!;
     expect(row).toHaveTextContent("gpt-5.5");
     expect(row).toHaveTextContent("direct-provider");
-    fireEvent.click(within(row).getByRole("button", { name: "Show details" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Show activity details" }));
     expect(row).toHaveTextContent("architecture-reviewer");
     expect(row).toHaveTextContent("ddd-review");
     expect(row).not.toHaveTextContent("Structured value");
@@ -1187,41 +1458,38 @@ describe("Transcript", () => {
     expect(row).not.toHaveTextContent("child-session-1");
   });
 
-  it("sticks to bottom unless user scrolled up", () => {
-    const firstMessages = [
-      messageEntry("1", "assistant", "first"),
-      messageEntry("2", "assistant", "second"),
-    ];
+  it("composes the transcript with the official scroll viewport and live region", () => {
+    render(<Transcript entries={[messageEntry("1", "assistant", "first")]} />);
 
-    const { rerender } = render(<Transcript entries={firstMessages} />);
-    const container = screen.getByLabelText("Transcript");
+    const viewport = screen.getByRole("region", { name: "Transcript" });
+    expect(viewport).toHaveAttribute("data-slot", "message-scroller-viewport");
+    expect(within(viewport).getByRole("log")).toHaveAttribute("data-slot", "message-scroller-content");
+    expect(screen.getByRole("button", { name: "Jump to latest" })).toHaveAttribute("data-direction", "end");
+  });
 
-    Object.defineProperty(container, "clientHeight", { configurable: true, value: 100 });
-    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 200, writable: true });
-    Object.defineProperty(container, "scrollTop", { configurable: true, value: 100, writable: true });
-
-    fireEvent.scroll(container);
-
-    rerender(
+  it("exposes stable message rows and anchors each user turn", () => {
+    render(
       <Transcript
-        entries={[...firstMessages, messageEntry("3", "assistant", "third")]}
+        entries={[
+          messageEntry("user-turn", "user", "Inspect the execution trace"),
+          messageEntry("assistant-reply", "assistant", "I found the boundary"),
+        ]}
       />,
     );
 
-    expect((container as HTMLDivElement).scrollTop).toBe(200);
+    const transcript = screen.getByLabelText("Transcript");
+    expect(transcript.querySelector('[data-message-id="timeline:user-turn"]')).toHaveAttribute("data-scroll-anchor", "true");
+    expect(transcript.querySelector('[data-message-id="timeline:assistant-reply"]')).toHaveAttribute("data-scroll-anchor", "false");
+  });
 
-    (container as HTMLDivElement).scrollTop = 0;
-    fireEvent.scroll(container);
-
-    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 300, writable: true });
-
-    rerender(
+  it("labels the scroll control when live activity may be arriving out of view", () => {
+    render(
       <Transcript
-        entries={[...firstMessages, messageEntry("3", "assistant", "third"), messageEntry("4", "assistant", "fourth")]}
+        entries={[messageEntry("1", "assistant", "streaming offscreen", true)]}
       />,
     );
 
-    expect((container as HTMLDivElement).scrollTop).toBe(0);
+    expect(screen.getByRole("button", { name: "Live response below" })).toHaveAttribute("data-direction", "end");
   });
 
   it("renders typed event metadata and approval actions inline", () => {

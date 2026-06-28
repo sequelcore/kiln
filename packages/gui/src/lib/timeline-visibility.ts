@@ -1,14 +1,11 @@
-import { operatorEventTargetsSurface, presentOperatorEventPayload } from "@kilnai/gateway-contracts";
+import { operatorEventTargetsConversation, presentOperatorEventPayload } from "@kilnai/gateway-contracts";
 import type { TimelineEntry, TimelineEventEntry } from "./session-store.js";
 
 export function isActionableTranscriptEvent(entry: TimelineEventEntry): boolean {
   const payload = typeof entry.details === "object" && entry.details !== null && !Array.isArray(entry.details)
     ? entry.details as Record<string, unknown>
     : {};
-  return operatorEventTargetsSurface(
-    presentOperatorEventPayload(entry.eventKind, payload),
-    "conversation_inline",
-  );
+  return operatorEventTargetsConversation(presentOperatorEventPayload(entry.eventKind, payload));
 }
 
 export function isConversationTimelineEntry(entry: TimelineEntry): boolean {

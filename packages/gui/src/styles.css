@@ -331,6 +331,72 @@ body {
   text-decoration: underline;
 }
 
+.kiln-json-view {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.kiln-json-view__children {
+  margin: 0;
+  padding: 0 0 0 0.9rem;
+}
+
+.kiln-json-view__row {
+  min-width: 0;
+}
+
+.kiln-json-view__label,
+.kiln-json-view__clickable-label {
+  margin-right: 0.35rem;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.kiln-json-view__clickable-label {
+  cursor: pointer;
+}
+
+.kiln-json-view__string {
+  color: var(--color-success);
+}
+
+.kiln-json-view__number,
+.kiln-json-view__boolean,
+.kiln-json-view__null,
+.kiln-json-view__undefined {
+  color: var(--color-warning);
+}
+
+.kiln-json-view__other,
+.kiln-json-view__punctuation {
+  color: var(--color-text-muted);
+}
+
+.kiln-json-view__expand,
+.kiln-json-view__collapse {
+  display: inline-flex;
+  width: 0.8rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.kiln-json-view__expand::after {
+  content: "▸";
+}
+
+.kiln-json-view__collapse::after {
+  content: "▾";
+}
+
+.kiln-json-view__collapsed {
+  color: var(--color-text-muted);
+}
+
+.kiln-json-view__collapsed::after {
+  content: "...";
+}
+
 /*
  ---break---
  */

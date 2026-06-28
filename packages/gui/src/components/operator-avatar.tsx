@@ -40,6 +40,14 @@ const stateColors: Record<Exclude<OperatorAvatarState, "idle">, readonly string[
   error: ["#ef4444", "#e11d48", "#f97316", "#64748b"],
 };
 
+const stateIntensity: Record<OperatorAvatarState, "none" | "subtle" | "medium" | "dramatic"> = {
+  idle: "subtle",
+  running: "medium",
+  success: "subtle",
+  warning: "medium",
+  error: "none",
+};
+
 function statusMouth(state: OperatorAvatarState) {
   if (state === "idle") return undefined;
   return () => (
@@ -62,6 +70,7 @@ export function OperatorAvatar(props: OperatorAvatarProps) {
   const motion = props.motion ?? "none";
   const animated = size === "md" && motion === "subtle" && state !== "error";
   const colors = state === "idle" ? kindColors[props.identity.kind] : stateColors[state];
+  const showInitial = state === "idle";
   return (
     <span
       aria-label={`${props.identity.label} avatar`}
@@ -79,10 +88,12 @@ export function OperatorAvatar(props: OperatorAvatarProps) {
         name={props.identity.seed}
         size={facehashSize[size]}
         variant={state === "idle" ? "gradient" : "solid"}
-        intensity3d={state === "running" ? "medium" : "subtle"}
+        intensity3d={stateIntensity[state]}
         interactive={animated}
-        showInitial={false}
+        showInitial={showInitial}
         colors={[...colors]}
+        className="font-semibold text-white/95"
+        gradientOverlayClass="bg-[radial-gradient(ellipse_at_35%_22%,rgba(255,255,255,0.38),rgba(255,255,255,0.12)_38%,transparent_72%)]"
         enableBlink={animated}
         onRenderMouth={statusMouth(state)}
       />

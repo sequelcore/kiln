@@ -3,6 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 import { MessageRow } from "../src/components/message-row.js";
 
 describe("MessageRow", () => {
+  it("composes official shadcn message and bubble primitives", () => {
+    const { container } = render(
+      <MessageRow
+        message={{
+          id: "msg-primitives",
+          role: "user",
+          content: "Use the conversation primitives.",
+          createdAt: "2026-06-28T00:00:00.000Z",
+          parts: [],
+        }}
+      />,
+    );
+
+    const message = container.querySelector('[data-slot="message"]');
+    const bubble = container.querySelector('[data-slot="bubble"]');
+    expect(message).toHaveAttribute("data-align", "end");
+    expect(message).toContainElement(bubble);
+  });
+
   it("renders assistant markdown lists and GFM tables with visible structure", () => {
     const { container } = render(
       <MessageRow
@@ -33,6 +52,32 @@ describe("MessageRow", () => {
     expect(screen.getByRole("columnheader", { name: "Surface" })).toHaveClass("bg-background-element");
     expect(screen.getByRole("cell", { name: "fixed" })).toBeInTheDocument();
     expect(container.querySelector(".markdown-body")).not.toBeNull();
+  });
+
+  it("keeps assistant identity and markdown content from clipping each other", () => {
+    const { container } = render(
+      <MessageRow
+        message={{
+          id: "msg-assistant-layout",
+          role: "assistant",
+          content: "Mi team de agentes configurado en Kiln para esta sesión es:",
+          routedProvider: "codex-oauth",
+          routedModel: "gpt-5.5",
+          sourceMessageId: "runtime-message-layout",
+          createdAt: "2026-06-28T00:00:00.000Z",
+          parts: [],
+        }}
+      />,
+    );
+
+    const avatar = container.querySelector('[data-slot="message-avatar"]');
+    const header = container.querySelector('[data-slot="message-header"]');
+    const bubbleContent = container.querySelector('[data-slot="bubble-content"]');
+    expect(avatar).toHaveClass("self-start");
+    expect(avatar?.className).not.toContain("-translate-y-8");
+    expect(header).toHaveClass("min-h-5", "leading-5");
+    expect(bubbleContent).toHaveClass("group-data-[variant=ghost]/bubble:overflow-visible");
+    expect(screen.getByText("Mi team de agentes configurado en Kiln para esta sesión es:")).toBeInTheDocument();
   });
 
   it("renders assistant audio parts as compact playback actions", async () => {

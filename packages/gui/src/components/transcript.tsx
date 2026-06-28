@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   projectConversationTurnItems,
@@ -6,14 +6,27 @@ import {
   formatOperatorEventValue,
   operatorEmptyStatePhraseAt,
   type PresentationIntent,
+  type ComparisonTablePresentationColumn,
+  type ComparisonTablePresentationCell,
+  type PresentationIntentResourceLink,
+  type ToolResultOutputKind,
 } from "@kilnai/gateway-contracts";
-import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, LoaderCircle, Terminal } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, FileText, Folder, LoaderCircle, Terminal } from "lucide-react";
+import { collapseAllNested, JsonView } from "react-json-view-lite";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
-import { MessageRow } from "./message-row.js";
+import { MarkdownMessageContent, MessageRow } from "./message-row.js";
 import { TranscriptTimelineEditor } from "./transcript-timeline-editor.js";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -27,9 +40,7 @@ interface TranscriptProps {
   readonly onDeny?: (approvalId: string) => void;
 }
 
-const BOTTOM_THRESHOLD_PX = 24;
 const TRANSCRIPT_TOOL_DETAIL_LABELS = new Set([
-  "Status",
   "Profile",
   "Provider",
   "Model",
@@ -40,11 +51,29 @@ const TRANSCRIPT_TOOL_DETAIL_LABELS = new Set([
   "Task",
 ]);
 const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
-
-function isAtBottom(node: HTMLDivElement): boolean {
-  const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
-  return distanceFromBottom <= BOTTOM_THRESHOLD_PX;
-}
+const KILN_JSON_VIEW_STYLE = {
+  container: "kiln-json-view",
+  childFieldsContainer: "kiln-json-view__children",
+  basicChildStyle: "kiln-json-view__row",
+  collapseIcon: "kiln-json-view__collapse",
+  expandIcon: "kiln-json-view__expand",
+  collapsedContent: "kiln-json-view__collapsed",
+  label: "kiln-json-view__label",
+  clickableLabel: "kiln-json-view__clickable-label",
+  nullValue: "kiln-json-view__null",
+  undefinedValue: "kiln-json-view__undefined",
+  numberValue: "kiln-json-view__number",
+  stringValue: "kiln-json-view__string",
+  booleanValue: "kiln-json-view__boolean",
+  otherValue: "kiln-json-view__other",
+  punctuation: "kiln-json-view__punctuation",
+  ariaLables: {
+    collapseJson: "Collapse JSON node",
+    expandJson: "Expand JSON node",
+  },
+  quotesForFieldNames: true,
+  stringifyStringValues: true,
+} as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -117,7 +146,14 @@ function MetaList(props: { readonly items: readonly { label: string; value: stri
 function ToolPreviewText(props: { readonly text: string; readonly outputKind: string }) {
   const lines = props.text.replace(/\r\n/g, "\n").split("\n");
   return (
-    <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/80 px-2.5 py-2 font-mono text-[11px] leading-5 text-foreground">
+    <pre
+      className={cn(
+        "max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground",
+        props.outputKind === "tree"
+          ? "rounded-md bg-background/35 px-3 py-2"
+          : "border-l border-border/70 bg-transparent px-3 py-1.5",
+      )}
+    >
       {lines.map((line, index) => (
         <span
           key={`${index}:${line}`}
@@ -132,6 +168,256 @@ function ToolPreviewText(props: { readonly text: string; readonly outputKind: st
         </span>
       ))}
     </pre>
+  );
+}
+
+interface TreePreviewEntry {
+  readonly key: string;
+  readonly label: string;
+  readonly depth: number;
+  readonly kind: "directory" | "file";
+}
+
+function normalizeTreeLine(line: string): { label: string; depth: number } | null {
+  if (line.trim().length === 0) return null;
+  const leadingWhitespace = line.match(/^\s*/u)?.[0] ?? "";
+  const connectorMatch = line.match(/[├└]\s*(?:──|--)?\s*(.+)$/u);
+  const rawLabel = connectorMatch?.[1] ?? line.trim();
+  const label = rawLabel.replace(/^[│|]\s*/u, "").trim();
+  if (label === "." || label.length === 0) return null;
+  const connectorDepth = connectorMatch ? Math.max(0, Math.floor(line.search(/[├└]/u) / 4)) : 0;
+  const whitespaceDepth = Math.max(0, Math.floor(leadingWhitespace.replace(/\t/gu, "  ").length / 2));
+  return {
+    label,
+    depth: connectorMatch ? connectorDepth : whitespaceDepth,
+  };
+}
+
+function parseTreePreview(text: string): TreePreviewEntry[] {
+  return text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line, index) => {
+      const normalized = normalizeTreeLine(line);
+      if (!normalized) return null;
+      const directory = /[/\\]$/u.test(normalized.label);
+      const label = normalized.label.replace(/[/\\]$/u, "");
+      return {
+        key: `${index}:${normalized.depth}:${label}`,
+        label,
+        depth: normalized.depth,
+        kind: directory ? "directory" : "file",
+      } satisfies TreePreviewEntry;
+    })
+    .filter((entry): entry is TreePreviewEntry => entry !== null);
+}
+
+function TreePreviewList(props: { readonly text: string }) {
+  const entries = parseTreePreview(props.text);
+  if (entries.length === 0) return <ToolPreviewText text={props.text} outputKind="tree" />;
+  return (
+    <ul
+      aria-label="Directory tree output"
+      className="max-h-56 overflow-auto rounded-md bg-background/35 px-2 py-2 font-mono text-[11px] leading-5 text-foreground"
+      data-output-kind="tree"
+    >
+      {entries.map((entry) => {
+        const Icon = entry.kind === "directory" ? Folder : FileText;
+        return (
+          <li
+            key={entry.key}
+            className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-0.5"
+            data-tree-depth={entry.depth}
+            data-tree-entry-kind={entry.kind}
+            style={{ paddingInlineStart: `${0.25 + entry.depth * 1.15}rem` }}
+          >
+            <Icon
+              aria-hidden="true"
+              className={cn(
+                "size-3.5 shrink-0",
+                entry.kind === "directory" ? "text-primary" : "text-muted-foreground",
+              )}
+            />
+            <span className="min-w-0 truncate">{entry.label}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function parseJsonPreview(text: string): object | unknown[] | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return typeof parsed === "object" && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function JsonPreviewText(props: { readonly text: string }) {
+  const data = parseJsonPreview(props.text);
+  if (!data) return <ToolPreviewText text={props.text} outputKind="code" />;
+  return (
+    <div className="max-h-56 overflow-auto rounded-md bg-background/35 px-3 py-2 font-mono text-[11px] leading-5 text-foreground">
+      <JsonView
+        aria-label="JSON output"
+        compactTopLevel
+        data={data}
+        shouldExpandNode={collapseAllNested}
+        style={KILN_JSON_VIEW_STYLE}
+      />
+    </div>
+  );
+}
+
+function toolResultContentLabel(outputKind: ToolResultOutputKind): string {
+  switch (outputKind) {
+    case "command":
+      return "Command output";
+    case "diff":
+      return "Diff";
+    case "markdown":
+      return "Document";
+    case "text":
+      return "Text output";
+    case "tree":
+      return "Directory tree";
+    case "code":
+      return "Source";
+    case "table":
+      return "Table";
+    case "image":
+      return "Image";
+    case "resource_links":
+      return "Resource";
+    case "form":
+      return "Form";
+    case "empty":
+      return "No output";
+    default:
+      return "Output";
+  }
+}
+
+function ToolResultContent(props: {
+  readonly outputKind: ToolResultOutputKind;
+  readonly preview: NonNullable<NonNullable<TimelineEventEntry["toolPresentation"]>["preview"]>;
+}) {
+  const label = toolResultContentLabel(props.outputKind);
+  return (
+    <section aria-label={label}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+          {props.preview.language ? (
+            <Badge variant="outline" className="h-5 max-w-32 truncate px-1.5 py-0 font-mono text-[10px]">
+              {props.preview.language}
+            </Badge>
+          ) : null}
+        </div>
+        {props.preview.truncated ? (
+          <span className="font-mono text-[10px] text-muted-foreground">truncated</span>
+        ) : null}
+      </div>
+      {props.outputKind === "markdown" ? (
+        <div className="markdown-body max-h-64 overflow-auto border-l border-border/70 px-3 py-1 text-sm leading-6">
+          <MarkdownMessageContent content={props.preview.text} />
+        </div>
+      ) : props.outputKind === "tree" ? (
+        <TreePreviewList text={props.preview.text} />
+      ) : props.preview.language === "json" ? (
+        <JsonPreviewText text={props.preview.text} />
+      ) : (
+        <ToolPreviewText text={props.preview.text} outputKind={props.outputKind} />
+      )}
+    </section>
+  );
+}
+
+function formatBytes(value: number | undefined): string | null {
+  if (value === undefined) return null;
+  if (value < 1_000) return `${value} B`;
+  if (value < 1_000_000) return `${Number(value / 1_000).toLocaleString("en-US", { maximumFractionDigits: 1 })} KB`;
+  return `${Number(value / 1_000_000).toLocaleString("en-US", { maximumFractionDigits: 1 })} MB`;
+}
+
+function tableCellAlignment(column: ComparisonTablePresentationColumn): string {
+  if (column.align === "center") return "text-center";
+  if (column.align === "right" || column.valueKind === "number") return "text-right tabular-nums";
+  return "text-left";
+}
+
+function TableCellValue(props: {
+  readonly column: ComparisonTablePresentationColumn;
+  readonly value: ComparisonTablePresentationCell | undefined;
+}) {
+  const formatted = formatOperatorEventValue(props.value ?? null) ?? "";
+  if (props.column.valueKind === "boolean") {
+    const positive = props.value === true;
+    const label = positive ? "yes" : "no";
+    return (
+      <Badge
+        data-cell-kind="boolean"
+        variant={positive ? "secondary" : "outline"}
+        aria-label={`${props.column.label}: ${label}`}
+        className="justify-center"
+      >
+        {label}
+      </Badge>
+    );
+  }
+  if (props.column.valueKind === "status") {
+    const value = formatted.toLowerCase();
+    const isError = value === "failed" || value === "error" || value === "denied" || value === "unavailable";
+    return (
+      <Badge data-cell-kind="status" variant={isError ? "destructive" : "secondary"}>
+        {formatted}
+      </Badge>
+    );
+  }
+  if (props.column.valueKind === "number" && typeof props.value === "number") {
+    return (
+      <span data-cell-kind="number" className="tabular-nums">
+        {props.value.toLocaleString("en-US")}
+      </span>
+    );
+  }
+  return <>{formatted}</>;
+}
+
+function ResourceBundleList(props: {
+  readonly title: string;
+  readonly resources: readonly PresentationIntentResourceLink[];
+}) {
+  return (
+    <ul
+      aria-label={`${props.title} resources`}
+      className="mt-2 grid gap-2"
+    >
+      {props.resources.map((resource) => {
+        const size = formatBytes(resource.size);
+        return (
+          <li key={resource.uri} className="min-w-0 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <p className="min-w-0 truncate text-sm font-medium leading-5 text-foreground">
+                {resource.title ?? resource.uri}
+              </p>
+              {resource.relation ? (
+                <Badge variant="outline" className="shrink-0">
+                  {resource.relation}
+                </Badge>
+              ) : null}
+            </div>
+            <p className="mt-1 break-all font-mono text-[11px] leading-5 text-muted-foreground">{resource.uri}</p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+              {resource.mimeType ? <span>{resource.mimeType}</span> : null}
+              {size ? <span>{size}</span> : null}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -160,7 +446,7 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
           <thead className="bg-muted/40 text-[10px] font-semibold uppercase text-muted-foreground">
             <tr>
               {intent.columns.map((column) => (
-                <th key={column.key} scope="col" className="px-2.5 py-2 align-bottom">
+                <th key={column.key} scope="col" className={cn("px-2.5 py-2 align-bottom", tableCellAlignment(column))}>
                   {column.label}
                 </th>
               ))}
@@ -170,8 +456,8 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
             {intent.rows.map((row, index) => (
               <tr key={index} className="border-t border-border/60">
                 {intent.columns.map((column) => (
-                  <td key={column.key} className="break-words px-2.5 py-2 align-top text-foreground">
-                    {formatOperatorEventValue(row[column.key]) ?? ""}
+                  <td key={column.key} className={cn("break-words px-2.5 py-2 align-top text-foreground", tableCellAlignment(column))}>
+                    <TableCellValue column={column} value={row[column.key]} />
                   </td>
                 ))}
               </tr>
@@ -222,13 +508,7 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
   }
 
   if (props.intent.kind === "resource_bundle") {
-    return (
-      <div className="mt-2 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
-        <p className="text-sm leading-5 text-muted-foreground">
-          {props.intent.resources.length} resource{props.intent.resources.length === 1 ? "" : "s"}
-        </p>
-      </div>
-    );
+    return <ResourceBundleList title={props.intent.title} resources={props.intent.resources} />;
   }
 
   if (props.intent.kind === "diagnostic_report") {
@@ -266,27 +546,14 @@ function ToolResultPresentationDetails(props: {
 }) {
   const presentation = props.entry.toolPresentation;
   if (!presentation) return null;
-  const previewLabel = {
-    command: "Command preview",
-    diff: "Diff preview",
-    markdown: "Markdown preview",
-    text: "Text preview",
-    tree: "Tree preview",
-    code: "Code preview",
-    table: "Table preview",
-    image: "Image preview",
-    resource_links: "Resource link",
-    form: "Form preview",
-    empty: "No output",
-  }[presentation.outputKind] ?? "Preview";
+  const contentLabel = toolResultContentLabel(presentation.outputKind);
+  const preview = presentation.presentationIntent ? undefined : presentation.preview;
+  const showTitle = !presentation.fields.some((item) => item.value === presentation.title);
   return (
     <div className="mt-3 flex flex-col gap-2 border-l border-border/60 pl-3">
-      <div className="min-w-0">
+      {showTitle ? (
         <p className="truncate text-sm font-medium leading-5 text-foreground">{presentation.title}</p>
-        {presentation.summary ? (
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">{presentation.summary}</p>
-        ) : null}
-      </div>
+      ) : null}
       <MetaList items={presentation.fields} />
       {presentation.presentationIntent ? (
         <PresentationIntentDetails intent={presentation.presentationIntent} />
@@ -300,22 +567,14 @@ function ToolResultPresentationDetails(props: {
           {presentation.resourceLinks
             ?.filter((resource) => resource.relation !== "snapshot")
             .map((resource) => (
-              <ResourceLinkCard key={resource.uri} resource={resource} label={previewLabel} />
+              <ResourceLinkCard key={resource.uri} resource={resource} label={contentLabel} />
             ))}
         </>
       ) : presentation.resourceLinks?.map((resource) => (
-          <ResourceLinkCard key={resource.uri} resource={resource} label={previewLabel} />
+          <ResourceLinkCard key={resource.uri} resource={resource} label={contentLabel} />
         ))}
-      {presentation.preview ? (
-        <div>
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{previewLabel}</p>
-            {presentation.preview.truncated ? (
-              <span className="font-mono text-[10px] text-muted-foreground">truncated</span>
-            ) : null}
-          </div>
-          <ToolPreviewText text={presentation.preview.text} outputKind={presentation.outputKind} />
-        </div>
+      {preview ? (
+        <ToolResultContent outputKind={presentation.outputKind} preview={preview} />
       ) : null}
     </div>
   );
@@ -504,7 +763,7 @@ function FileChangedDetails(props: { readonly entry: TimelineEventEntry }) {
       <MetaList items={items} />
       {diffPreview ? (
         <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-background-element)] p-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">Diff preview</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">Diff</p>
           <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1.5 text-[11px] leading-5 text-[var(--color-text)]">
             {diffPreview}
           </pre>
@@ -659,18 +918,18 @@ function ToolEventCard(props: {
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
   readonly nested?: boolean;
 }) {
-  const [open, setOpen] = useState(() => shouldAutoOpenToolEventDetails(props.entry));
+  const [open, setOpen] = useState(() => props.nested || shouldAutoOpenToolEventDetails(props.entry));
   const Icon = eventIcon(props.entry);
   const summary = eventSummaryText(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
 
   return (
-    <div className="min-w-0 flex-1">
+    <div className="w-full min-w-0 flex-1">
       <div
         data-role="tool-event"
         className={cn(
-          "flex min-w-0 items-center gap-2 rounded-xl bg-background/70 px-2.5 py-1.5 text-sm",
-          props.nested ? "bg-background/55" : "shadow-sm",
+          "flex min-w-0 items-center gap-2 rounded-lg bg-background/70 px-2.5 py-1.5 text-sm",
+          props.nested ? "bg-transparent px-0" : "shadow-sm",
         )}
       >
         <Icon
@@ -699,7 +958,7 @@ function ToolEventCard(props: {
           </Tooltip>
         </TooltipProvider>
         {summary ? (
-          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate text-muted-foreground" title={summary}>
             {summary}
           </span>
         ) : null}
@@ -724,7 +983,7 @@ function ToolEventCard(props: {
         ) : null}
       </div>
       {open ? (
-        <div className="mt-3 max-w-[min(36rem,100%)]">
+        <div className={cn("w-full min-w-0", props.nested ? "mt-2 pl-7" : "mt-3")}>
           <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
         </div>
       ) : null}
@@ -750,16 +1009,76 @@ function AssistantToolEventStack(props: {
   readonly entries: readonly TimelineEventEntry[];
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
+  const [open, setOpen] = useState(() => props.entries.some((entry) => shouldAutoOpenToolEventDetails(entry)));
+  const eventCount = props.entries.length;
+  const visibleEntries = props.entries.slice(0, 3);
+  const hasErrors = props.entries.some((entry) => entry.tone === "error");
+  const hasRunning = props.entries.some((entry) => entry.tone === "running");
+  const summary = visibleEntries.map((entry) => entry.title).join(", ");
+  const statusSummary = props.entries
+    .map((entry) => (entry.tone === "running" || entry.tone === "error" ? eventSummaryText(entry) : null))
+    .find((value): value is string => Boolean(value));
+  const overflowCount = Math.max(0, eventCount - visibleEntries.length);
+  const headerSummary = !open && summary ? `${summary}${overflowCount > 0 ? ` +${overflowCount}` : ""}` : null;
+  const statusLabel = hasErrors ? "Needs attention" : hasRunning ? "Running" : "Activity";
   return (
-    <div data-testid="assistant-tool-events" className="flex flex-col gap-2">
-      {props.entries.map((entry) => (
-        <ToolEventCard
-          key={entry.id}
-          entry={entry}
-          loadResourceDataUrl={props.loadResourceDataUrl}
-          nested
-        />
-      ))}
+    <div
+      data-testid="assistant-tool-events"
+      className={cn(
+        "w-full min-w-0 rounded-xl border border-border/70 bg-background/55 px-2.5 py-2",
+        hasErrors ? "border-destructive/50 bg-destructive/5" : null,
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        {hasRunning ? (
+          <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+        ) : hasErrors ? (
+          <CircleAlert aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
+        ) : (
+          <Terminal aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <Badge
+          variant={hasErrors ? "destructive" : "secondary"}
+          className="shrink-0"
+        >
+          {statusLabel}
+        </Badge>
+        <span className="shrink-0 text-sm text-muted-foreground">
+          {eventCount} tool {eventCount === 1 ? "event" : "events"}
+        </span>
+        {headerSummary || statusSummary ? (
+          <span
+            className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
+            title={[headerSummary, statusSummary].filter(Boolean).join(" · ")}
+          >
+            {headerSummary ? <span className="text-foreground">{headerSummary}</span> : null}
+            {headerSummary && statusSummary ? <span> · </span> : null}
+            {statusSummary}
+          </span>
+        ) : <span className="min-w-0 flex-1" aria-hidden="true" />}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={open ? "Hide activity details" : "Show activity details"}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
+        </Button>
+      </div>
+      {open ? (
+        <div className="mt-2 flex w-full min-w-0 flex-col gap-2">
+          {props.entries.map((entry) => (
+            <ToolEventCard
+              key={entry.id}
+              entry={entry}
+              loadResourceDataUrl={props.loadResourceDataUrl}
+              nested
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -973,10 +1292,7 @@ function toConversationProjectionInput(entry: TimelineEntry): ConversationProjec
 }
 
 function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
-  if (entry.eventKind !== "tool_call_completed") return false;
-  const presentation = entry.toolPresentation;
-  if (!presentation?.preview?.text) return false;
-  return presentation.outputKind === "diff" || presentation.outputKind === "tree";
+  return entry.eventKind === "tool_call_completed" && entry.tone === "error";
 }
 
 function renderTranscriptEntries(
@@ -1009,55 +1325,63 @@ function renderTranscriptEntries(
     if (item.kind === "event") {
       const entry = entriesById.get(item.entryId);
       if (!entry || entry.type !== "event") return null;
+      let row: ReactNode;
       if (entry.eventKind === "approval_requested") {
-        return <ApprovalEventRow key={entry.id} entry={entry} onApprove={onApprove} onDeny={onDeny} />;
+        row = <ApprovalEventRow entry={entry} onApprove={onApprove} onDeny={onDeny} />;
+      } else {
+        row = isToolEvent(entry)
+          ? <InlineToolEventRow entry={entry} loadResourceDataUrl={loadResourceDataUrl} />
+          : <TimelineEventRow entry={entry} loadResourceDataUrl={loadResourceDataUrl} />;
       }
-      return isToolEvent(entry)
-        ? <InlineToolEventRow key={entry.id} entry={entry} loadResourceDataUrl={loadResourceDataUrl} />
-        : <TimelineEventRow key={entry.id} entry={entry} loadResourceDataUrl={loadResourceDataUrl} />;
+      return (
+        <MessageScrollerItem key={entry.id} messageId={entry.id}>
+          {row}
+        </MessageScrollerItem>
+      );
     }
     if (item.kind === "activity") {
       return (
-        <AssistantActivityRow
-          key="assistant-activity"
-          phase={item.phase}
-          toolName={item.toolName}
-          details={item.details}
-          toolEvents={eventEntries(item.eventIds)}
-          loadResourceDataUrl={loadResourceDataUrl}
-        />
+        <MessageScrollerItem key="assistant-activity" messageId="assistant-activity">
+          <AssistantActivityRow
+            phase={item.phase}
+            toolName={item.toolName}
+            details={item.details}
+            toolEvents={eventEntries(item.eventIds)}
+            loadResourceDataUrl={loadResourceDataUrl}
+          />
+        </MessageScrollerItem>
       );
     }
     const entry = entriesById.get(item.entryId);
     if (!entry || entry.type !== "message") return null;
     return (
-      <MessageRow
+      <MessageScrollerItem
         key={entry.id}
-        message={entry.message}
-        loadResourceDataUrl={loadResourceDataUrl}
-        beforeContent={item.beforeEventIds.length > 0 ? (
-          <AssistantToolEventStack
-            entries={eventEntries(item.beforeEventIds)}
-            loadResourceDataUrl={loadResourceDataUrl}
-          />
-        ) : undefined}
-        afterContent={item.afterEventIds.length > 0 ? (
-          <AssistantToolEventStack
-            entries={eventEntries(item.afterEventIds)}
-            loadResourceDataUrl={loadResourceDataUrl}
-          />
-        ) : undefined}
-      />
+        messageId={entry.id}
+        scrollAnchor={entry.message.role === "user"}
+      >
+        <MessageRow
+          message={entry.message}
+          loadResourceDataUrl={loadResourceDataUrl}
+          beforeContent={item.beforeEventIds.length > 0 ? (
+            <AssistantToolEventStack
+              entries={eventEntries(item.beforeEventIds)}
+              loadResourceDataUrl={loadResourceDataUrl}
+            />
+          ) : undefined}
+          afterContent={item.afterEventIds.length > 0 ? (
+            <AssistantToolEventStack
+              entries={eventEntries(item.afterEventIds)}
+              loadResourceDataUrl={loadResourceDataUrl}
+            />
+          ) : undefined}
+        />
+      </MessageScrollerItem>
     );
   });
 }
 
 export function Transcript(props: TranscriptProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const shouldStickRef = useRef(true);
-  const [hasUserScrolledUp, setHasUserScrolledUp] = useState(false);
-  const lastEntry = props.entries[props.entries.length - 1];
-  const lastEntryAnchor = lastEntry?.type === "message" ? lastEntry.message.content : lastEntry?.summary;
   const hasStreamingAssistant = props.entries.some((entry) => (
     entry.type === "message"
     && entry.message.role === "assistant"
@@ -1066,59 +1390,48 @@ export function Transcript(props: TranscriptProps) {
   const showAssistantActivity = props.activityPhase
     && props.activityPhase !== "idle"
     && !hasStreamingAssistant;
-
-  useEffect(() => {
-    const node = containerRef.current;
-    if (!node) return;
-
-    const onScroll = () => {
-      const atBottom = isAtBottom(node);
-      shouldStickRef.current = atBottom;
-      setHasUserScrolledUp(!atBottom);
-    };
-
-    node.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => node.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useLayoutEffect(() => {
-    const node = containerRef.current;
-    if (!node || !shouldStickRef.current) {
-      return;
-    }
-    node.scrollTop = node.scrollHeight;
-  }, [props.entries.length, lastEntryAnchor, showAssistantActivity, props.activityPhase]);
+  const hasLiveActivity = hasStreamingAssistant || Boolean(showAssistantActivity);
 
   return (
     <section className="relative flex h-full min-h-0 flex-col">
-      <div
-        ref={containerRef}
-        className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
-        aria-live="polite"
-        aria-label="Transcript"
+      <MessageScrollerProvider
+        autoScroll
+        defaultScrollPosition="last-anchor"
+        scrollEdgeThreshold={24}
+        scrollPreviousItemPeek={64}
       >
-        {props.entries.length === 0 && !showAssistantActivity ? (
-          <EmptyTranscript />
-        ) : (
-          renderTranscriptEntries(
-            props.entries,
-            props.onApprove,
-            props.onDeny,
-            props.loadResourceDataUrl,
-            showAssistantActivity
-              ? {
-                  phase: props.activityPhase!,
-                  toolName: props.activityToolName,
-                  details: props.activityDetails,
-                }
-              : undefined,
-          )
-        )}
-      </div>
-      {hasUserScrolledUp ? (
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-[var(--color-background)] to-transparent" />
-      ) : null}
+        <MessageScroller>
+          <MessageScrollerViewport aria-label="Transcript" preserveScrollOnPrepend>
+            <MessageScrollerContent className="gap-3 px-4 py-4">
+              {props.entries.length === 0 && !showAssistantActivity ? (
+                <MessageScrollerItem>
+                  <EmptyTranscript />
+                </MessageScrollerItem>
+              ) : (
+                renderTranscriptEntries(
+                  props.entries,
+                  props.onApprove,
+                  props.onDeny,
+                  props.loadResourceDataUrl,
+                  showAssistantActivity
+                    ? {
+                        phase: props.activityPhase!,
+                        toolName: props.activityToolName,
+                        details: props.activityDetails,
+                      }
+                    : undefined,
+                )
+              )}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton
+            direction="end"
+            aria-label={hasLiveActivity ? "Live response below" : "Jump to latest"}
+            variant={hasLiveActivity ? "default" : "secondary"}
+            className="shadow-[var(--shadow-elevated)]"
+          />
+        </MessageScroller>
+      </MessageScrollerProvider>
     </section>
   );
 }
