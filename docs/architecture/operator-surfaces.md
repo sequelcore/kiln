@@ -269,6 +269,11 @@ Provider/model discovery and managed-agent route refreshes remain runtime-owned
 background work after the relevant operator transport is listening. Cached or
 stale startup projections may improve diagnostics, but they must not become
 execution admission evidence until fresh runtime discovery succeeds.
+Startup-path discovery adapters must not run synchronous child processes or
+blocking network probes from the gateway event loop. External CLI probes belong
+behind async process boundaries with bounded timeouts and diagnostic statuses,
+so operator transports can become usable while deeper provider evidence is
+still being refreshed.
 
 Native operator surface projection is contract-only until the active native operator surface
 benchmark-validation roadmap proves value with benchmark fixtures. Stable

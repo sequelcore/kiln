@@ -13,6 +13,8 @@ interface StartupProfileOptions {
   readonly port: number;
   readonly guiPort: number;
   readonly openBrowser: boolean;
+  readonly measureFirstPaint: boolean;
+  readonly verbose: boolean;
   readonly clearViteCache: boolean;
 }
 
@@ -31,6 +33,9 @@ const phaseMarkers: Array<Record<string, unknown>> = [];
 let stdout = "";
 let stderr = "";
 let viteReadyMs: number | undefined;
+let firstUsablePaintMs: number | undefined;
+let browserLaunchMs: number | undefined;
+let guiUrlToFirstUsableMs: number | undefined;
 
 if (options.clearViteCache) {
   clearGuiViteCache(repoRoot);
@@ -76,13 +81,30 @@ try {
     ? `http://localhost:${options.guiPort}/gui/`
     : `http://localhost:${options.port}/gui/`;
   await waitForHttpOk(guiUrl, "gui-url-ready");
+  if (options.measureFirstPaint) {
+    const browserProbeStartedAt = performance.now();
+    const browserProbeStartOffsetMs = Math.round(browserProbeStartedAt - startedAt);
+    mark("browser-launch-requested", "headless chromium");
+    const browserProbe = await runBrowserProbe(guiUrl);
+    browserLaunchMs = browserProbe.browserLaunchMs;
+    markAt("browser-ready", browserProbeStartOffsetMs + browserProbe.browserLaunchMs, `${browserLaunchMs} ms`);
+    markAt(
+      "gui-navigation-committed",
+      browserProbeStartOffsetMs + browserProbe.navigationCommittedMs,
+      `${browserProbe.navigationCommittedMs} ms after browser probe start`,
+    );
+    firstUsablePaintMs = browserProbeStartOffsetMs + browserProbe.firstUsableMs;
+    guiUrlToFirstUsableMs = browserProbe.firstUsableMs;
+    markAt(
+      "gui-first-usable-interaction",
+      firstUsablePaintMs,
+      `${guiUrlToFirstUsableMs} ms after GUI URL readiness`,
+    );
+  }
 } finally {
   if (child.exitCode === null) {
     if (process.platform === "win32") {
-      Bun.spawnSync(["taskkill", "/PID", String(child.pid), "/T", "/F"], {
-        stdout: "ignore",
-        stderr: "ignore",
-      });
+      terminateProcessTree(child.pid);
     } else {
       child.kill("SIGINT");
     }
@@ -104,6 +126,7 @@ const result = {
     mode: options.mode,
     cwd: redactPath(options.cwd),
     openBrowser: options.openBrowser,
+    measureFirstPaint: options.measureFirstPaint,
     raw: `${command.cmd} ${command.args.join(" ")}`,
   },
   environment: {
@@ -122,6 +145,9 @@ const result = {
   timings: {
     totalMs: Math.round(endedAt - startedAt),
     viteReadyMs,
+    firstUsablePaintMs,
+    browserLaunchMs,
+    guiUrlToFirstUsableMs,
     milestones,
     phaseMarkers,
   },
@@ -147,7 +173,47 @@ function parseArgs(args: readonly string[]): StartupProfileOptions {
     port: readNumberFlag(args, "--port", 4810),
     guiPort: readNumberFlag(args, "--gui-port", 5183),
     openBrowser: args.includes("--open"),
+    measureFirstPaint: args.includes("--measure-first-paint"),
+    verbose: args.includes("--verbose"),
     clearViteCache: args.includes("--clear-vite-cache"),
+  };
+}
+
+async function runBrowserProbe(guiUrl: string): Promise<{
+  readonly browserLaunchMs: number;
+  readonly navigationCommittedMs: number;
+  readonly firstUsableMs: number;
+}> {
+  const probe = Bun.spawn([
+    "node",
+    join(repoRoot, "scripts", "profile-gui-first-usable.mjs"),
+    guiUrl,
+    String(remainingTimeoutMs()),
+  ], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdoutPromise = new Response(probe.stdout).text();
+  const stderrPromise = new Response(probe.stderr).text();
+  const timedOut = Symbol("browser-probe-timeout");
+  const exitCode = await Promise.race([
+    probe.exited,
+    sleep(remainingTimeoutMs()).then(() => timedOut),
+  ]);
+  if (exitCode === timedOut) {
+    terminateProcessTree(probe.pid);
+    throw new Error("Timed out waiting for the GUI browser probe");
+  }
+  const [output, probeError] = await Promise.all([stdoutPromise, stderrPromise]);
+  const browserProbeExitCode = exitCode as number;
+  if (browserProbeExitCode !== 0) {
+    throw new Error(`GUI browser probe failed: ${tail(probeError) || `exit ${browserProbeExitCode}`}`);
+  }
+  return JSON.parse(output) as {
+    readonly browserLaunchMs: number;
+    readonly navigationCommittedMs: number;
+    readonly firstUsableMs: number;
   };
 }
 
@@ -185,12 +251,40 @@ async function waitForHttpOk(url: string, milestone: string): Promise<void> {
   throw new Error(`Timed out waiting for ${url}`);
 }
 
+function remainingTimeoutMs(): number {
+  return Math.max(1, deadline - Date.now());
+}
+
+function terminateProcessTree(pid: number): void {
+  if (process.platform === "win32") {
+    Bun.spawnSync(["taskkill", "/PID", String(pid), "/T", "/F"], {
+      stdout: "ignore",
+      stderr: "ignore",
+      timeout: 2_000,
+    });
+    return;
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // The process already exited.
+  }
+}
+
 function mark(name: string, detail?: string): void {
-  milestones.push({
+  markAt(name, Math.round(performance.now() - startedAt), detail);
+}
+
+function markAt(name: string, atMs: number, detail?: string): void {
+  const milestone = {
     name,
-    atMs: Math.round(performance.now() - startedAt),
+    atMs,
     ...(detail ? { detail } : {}),
-  });
+  };
+  milestones.push(milestone);
+  if (options.verbose) {
+    process.stderr.write(`[startup-profile] ${milestone.atMs}ms ${name}${detail ? `: ${detail}` : ""}\n`);
+  }
 }
 
 function collectPhaseMarkers(chunk: string): void {

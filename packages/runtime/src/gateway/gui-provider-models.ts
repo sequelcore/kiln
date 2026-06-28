@@ -1518,20 +1518,66 @@ export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProvide
     );
   }
   try {
-    const output = execSync(`"${executable}" models`, { encoding: "utf8" });
-    const models = normalizeModelIds(output.split("\n"));
-    return models.length > 0
-      ? {
-          models,
-          status: "available",
-          reason: "OpenCode CLI models discovered.",
-          authState: "authenticated",
+    const { spawn } = await import("node:child_process");
+    return await new Promise<GuiCliProviderModelDiscovery>((resolve) => {
+      const proc = spawn(executable, ["models"], {
+        shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(executable),
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      let output = "";
+      let settled = false;
+      const finish = (result: GuiCliProviderModelDiscovery): void => {
+        if (settled) {
+          return;
         }
-      : unavailableCliProviderDiscovery(
-          "empty_model_list",
-          "OpenCode CLI returned an empty model list.",
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        proc.kill();
+        finish(unavailableCliProviderDiscovery(
+          "endpoint_timeout",
+          "OpenCode CLI models command timed out.",
           "unknown",
-        );
+        ));
+      }, 5_000);
+      proc.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      proc.stderr.on("data", () => undefined);
+      proc.on("error", () => {
+        finish(unavailableCliProviderDiscovery(
+          "endpoint_error",
+          "OpenCode CLI models command failed.",
+          "unknown",
+        ));
+      });
+      proc.on("close", (code: number | null) => {
+        if (code !== 0) {
+          finish(unavailableCliProviderDiscovery(
+            "endpoint_error",
+            "OpenCode CLI models command failed.",
+            "unknown",
+          ));
+          return;
+        }
+        const models = normalizeModelIds(output.split("\n"));
+        finish(models.length > 0
+          ? {
+              models,
+              status: "available",
+              reason: "OpenCode CLI models discovered.",
+              authState: "authenticated",
+            }
+          : unavailableCliProviderDiscovery(
+              "empty_model_list",
+              "OpenCode CLI returned an empty model list.",
+              "unknown",
+            ));
+      });
+    });
   } catch {
     return unavailableCliProviderDiscovery(
       "endpoint_error",

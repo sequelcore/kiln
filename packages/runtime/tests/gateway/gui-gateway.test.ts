@@ -5503,10 +5503,22 @@ describe("discoverOpencodeCliModelDiscovery", () => {
       if (text.includes("--version")) {
         return "opencode 1.0.0";
       }
-      if (text.includes(" models")) {
-        return "opencode/big-pickle\nanthropic/claude-sonnet-4-6\n";
-      }
       return "";
+    });
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.kill = vi.fn();
+      queueMicrotask(() => {
+        proc.stdout.emit("data", Buffer.from("opencode/big-pickle\nanthropic/claude-sonnet-4-6\n"));
+        proc.emit("close", 0);
+      });
+      return proc as never;
     });
 
     await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
@@ -5515,6 +5527,9 @@ describe("discoverOpencodeCliModelDiscovery", () => {
       reason: "OpenCode CLI models discovered.",
       authState: "authenticated",
     });
+    expect(spawn).toHaveBeenCalledWith(expect.any(String), ["models"], expect.objectContaining({
+      stdio: ["ignore", "pipe", "pipe"],
+    }));
   });
 
   it("diagnoses missing OpenCode CLI executable", async () => {
@@ -5536,10 +5551,19 @@ describe("discoverOpencodeCliModelDiscovery", () => {
       if (text.includes("--version")) {
         return "opencode 1.0.0";
       }
-      if (text.includes(" models")) {
-        throw new Error("models failed");
-      }
       return "";
+    });
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.kill = vi.fn();
+      queueMicrotask(() => proc.emit("close", 1));
+      return proc as never;
     });
 
     await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
@@ -5556,10 +5580,22 @@ describe("discoverOpencodeCliModelDiscovery", () => {
       if (text.includes("--version")) {
         return "opencode 1.0.0";
       }
-      if (text.includes(" models")) {
-        return "\n  \n";
-      }
       return "";
+    });
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.kill = vi.fn();
+      queueMicrotask(() => {
+        proc.stdout.emit("data", Buffer.from("\n  \n"));
+        proc.emit("close", 0);
+      });
+      return proc as never;
     });
 
     await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({

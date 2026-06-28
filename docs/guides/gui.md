@@ -494,3 +494,14 @@ cache state, command line, and measured milestones for gateway health,
 dashboard readiness, Vite readiness when dev mode reports it, and GUI URL
 readiness. Browser launch and first usable paint are separate evidence points;
 do not infer them from Vite's `ready in` line or from gateway health alone.
+
+To measure the first usable GUI interaction, enable browser automation:
+
+```bash
+bun run profile:startup -- --mode dev --cwd C:\Proyectos\Sequel\kiln --measure-first-paint --no-open
+```
+
+This launches a headless browser in an isolated Node subprocess and waits until
+the composer accepts input and the send control is visible. The probe does not
+send a message. Normal `kiln gui` startup does not load Playwright or pay this
+measurement cost.

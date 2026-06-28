@@ -17,6 +17,7 @@
     "test:managed-agents:live": "bun run scripts/run-managed-agent-live-tests.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "^1.3.9",
     "@types/react": "^19.0.0",
