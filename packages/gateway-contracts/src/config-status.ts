@@ -72,6 +72,8 @@ export interface KilnProjectionTargetSnapshot {
   readonly kind: "repo-shim" | "native" | "workflow-snapshot";
   readonly status: KilnProjectionTargetStatus;
   readonly details?: string;
+  readonly managedFieldCount?: number;
+  readonly updatedAt?: string;
 }
 
 export interface KilnRepoShimProjectionSnapshot {
@@ -156,6 +158,8 @@ export const KilnProjectionTargetSnapshotSchema = z.object({
   kind: z.enum(["repo-shim", "native", "workflow-snapshot"]),
   status: z.enum(KILN_PROJECTION_TARGET_STATUSES),
   details: z.string().optional(),
+  managedFieldCount: z.number().int().nonnegative().optional(),
+  updatedAt: z.string().datetime().optional(),
 });
 
 export const KilnRepoShimProjectionSnapshotSchema = z.object({

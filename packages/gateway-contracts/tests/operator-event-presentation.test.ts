@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatOperatorEventValue,
+  operatorEventTargetsConversation,
   operatorEventTargetsSurface,
   presentOperatorEventPayload,
 } from "../src/operator-event-presentation.js";
@@ -40,6 +41,8 @@ describe("operator event presentation", () => {
     expect(submitted.summary).toBe("Implement shared execution mode");
     expect(submitted.compactText).toBe("Implement shared execution mode");
     expect(submitted.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(submitted.conversationDisposition).toBe("none");
+    expect(operatorEventTargetsConversation(submitted)).toBe(false);
     expect(submitted.details).toEqual([
       { label: "Plan", value: "plan-1" },
       { label: "Mode", value: "plan" },
@@ -53,11 +56,14 @@ describe("operator event presentation", () => {
     expect(approved.title).toBe("Plan approved");
     expect(approved.summary).toBe("plan -> execute");
     expect(approved.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(approved.conversationDisposition).toBe("none");
+    expect(operatorEventTargetsConversation(approved)).toBe(false);
     expect(approved.details).toContainEqual({ label: "Plan hash", value: "sha256:abc123" });
 
     expect(analysis.title).toBe("Plan Analysis Reported");
     expect(analysis.summary).toBe("blocked · 1 critical finding blocks approval.");
     expect(analysis.tone).toBe("error");
+    expect(analysis.conversationDisposition).toBe("none");
     expect(analysis.details).toEqual([
       { label: "Report", value: "analysis_report_1" },
       { label: "Plan", value: "plan-1" },
@@ -617,10 +623,8 @@ describe("operator event presentation", () => {
           }),
         ],
       },
-      preview: {
-        text: expect.stringContaining("| Route"),
-      },
     });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
   });
 
   it("projects route-unavailable managed tool results as structured operator tables", () => {
@@ -691,14 +695,8 @@ describe("operator event presentation", () => {
           }),
         ],
       },
-      preview: {
-        text: expect.stringContaining("| Route"),
-      },
     });
-    const previewText = typeof presentation.toolPresentation?.preview?.text === "string"
-      ? presentation.toolPresentation.preview.text
-      : JSON.stringify(presentation.toolPresentation?.preview?.text);
-    expect(previewText).not.toContain("\"metadata\"");
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
   });
 
   it("ignores invalid presentation intents and keeps fallback rendering", () => {
@@ -1189,6 +1187,37 @@ describe("operator event presentation", () => {
       title: "docs/architecture/session-model.md",
       preview: {
         text: "# Session Model\n\nKiln session identity is provider-agnostic.",
+      },
+    });
+  });
+
+  it("presents known source files as code with language and file metrics", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "read",
+      output: JSON.stringify({
+        output: "{\n  \"name\": \"kiln\"\n}",
+        isError: false,
+        metadata: {
+          toolName: "read",
+          kind: "file",
+          operation: "read",
+          filePath: "package.json",
+          totalLines: 3,
+          totalBytes: 22,
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("3 lines · 22 bytes");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "code",
+      title: "package.json",
+      summary: "3 lines · 22 bytes",
+      preview: {
+        text: "{\n  \"name\": \"kiln\"\n}",
+        language: "json",
       },
     });
   });

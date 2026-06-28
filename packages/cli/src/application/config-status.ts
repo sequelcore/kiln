@@ -247,7 +247,8 @@ async function readProjectionSnapshots(
         path: target.filePath,
         kind: "native",
         status: readNativeProjectionStatus(target),
-        details: `${target.managedFields.length} managed field(s); updated ${target.updatedAt}`,
+        managedFieldCount: target.managedFields.length,
+        updatedAt: target.updatedAt,
       });
     }
   } catch (error) {

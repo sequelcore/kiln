@@ -1,6 +1,5 @@
 import type { OperatorSessionEvent, OperatorSessionEventKind } from "./frames.js";
 import {
-  formatPresentationIntentAsText,
   parsePresentationIntent,
   presentationIntentBrief,
   type PresentationIntent,
@@ -9,6 +8,7 @@ import {
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
 export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
+export type OperatorEventConversationDisposition = "none" | "activity" | "action" | "result" | "exception";
 
 export interface OperatorEventDetailItem {
   readonly label: string;
@@ -68,6 +68,7 @@ export interface OperatorEventPresentation {
   readonly details: readonly OperatorEventDetailItem[];
   readonly compactText?: string;
   readonly surfaces: readonly OperatorEventSurface[];
+  readonly conversationDisposition: OperatorEventConversationDisposition;
   readonly toolPresentation?: ToolResultPresentation;
 }
 
@@ -658,25 +659,104 @@ function projectTextPresentation(
 ): ToolResultPresentation {
   const text = output ?? "";
   const filePath = readString(metadata?.filePath);
-  const outputKind: ToolResultOutputKind = filePath?.toLowerCase().endsWith(".md") || /^#\s/u.test(text.trim())
-    ? "markdown"
-    : text.trim().length === 0
-      ? "empty"
-      : "text";
+  const outputKind = classifyTextOutput(filePath, text);
+  const language = languageForPath(filePath);
+  const totalLines = readMetadataNumber(metadata, "totalLines");
+  const totalBytes = readMetadataNumber(metadata, "totalBytes");
   const fields = [
     field("Path", filePath),
-    field("Lines", readMetadataNumber(metadata, "totalLines")),
-    field("Bytes", readMetadataNumber(metadata, "totalBytes")),
+    field("Lines", totalLines),
+    field("Bytes", totalBytes),
   ].filter((item): item is OperatorEventDetailItem => item !== null);
+  const preview = compactPreview(text);
   return {
     outputKind,
     title: toolResultTitle(toolName, metadata, toolName),
-    summary: text.trim().length > 0 ? compactText(text) : "No output",
+    summary: summarizeTextOutput(outputKind, text, totalLines, totalBytes),
     fields,
-    preview: compactPreview(text),
+    ...(preview ? { preview: language ? { ...preview, language } : preview } : {}),
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     raw: toolResultRawAvailability(resourceLinks),
   };
+}
+
+function classifyTextOutput(filePath: string | null, text: string): ToolResultOutputKind {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return "empty";
+  const language = languageForPath(filePath);
+  if (language === "markdown" || /^#\s/u.test(trimmed)) return "markdown";
+  if (language) return "code";
+  return "text";
+}
+
+function summarizeTextOutput(
+  outputKind: ToolResultOutputKind,
+  text: string,
+  totalLines: number | null,
+  totalBytes: number | null,
+): string {
+  if (text.trim().length === 0) return "No output";
+  if (outputKind !== "code") return compactText(text);
+  const metrics = [
+    totalLines !== null ? `${totalLines} ${totalLines === 1 ? "line" : "lines"}` : null,
+    totalBytes !== null ? `${totalBytes} ${totalBytes === 1 ? "byte" : "bytes"}` : null,
+  ].filter((item): item is string => item !== null);
+  return metrics.length > 0 ? metrics.join(" · ") : "Source file";
+}
+
+function languageForPath(filePath: string | null): string | undefined {
+  if (!filePath) return undefined;
+  const normalized = filePath.toLowerCase();
+  const extension = normalized.match(/\.([a-z0-9]+)$/u)?.[1];
+  switch (extension) {
+    case "md":
+    case "mdx":
+      return "markdown";
+    case "json":
+    case "jsonc":
+      return "json";
+    case "ts":
+    case "tsx":
+      return "typescript";
+    case "js":
+    case "jsx":
+    case "mjs":
+    case "cjs":
+      return "javascript";
+    case "yml":
+    case "yaml":
+      return "yaml";
+    case "toml":
+      return "toml";
+    case "css":
+      return "css";
+    case "html":
+    case "xml":
+    case "svg":
+      return "xml";
+    case "sh":
+    case "bash":
+      return "bash";
+    case "ps1":
+      return "powershell";
+    case "py":
+      return "python";
+    case "sql":
+      return "sql";
+    case "java":
+      return "java";
+    case "kt":
+    case "kts":
+      return "kotlin";
+    case "go":
+      return "go";
+    case "rs":
+      return "rust";
+    case "rb":
+      return "ruby";
+    default:
+      return undefined;
+  }
 }
 
 function presentationIntentOutputKind(intent: PresentationIntent): ToolResultOutputKind {
@@ -709,14 +789,12 @@ function projectPresentationIntentToolPresentation(
     intent.kind === "resource_bundle" ? intent.resources : intent.resourceLinks,
   );
   const resourceLinks = intentResourceLinks.length > 0 ? intentResourceLinks : fallbackResourceLinks;
-  const text = formatPresentationIntentAsText(intent);
   return {
     outputKind: presentationIntentOutputKind(intent),
     title: intent.title,
     summary: presentationIntentBrief(intent),
     fields: presentationIntentFields(intent),
     presentationIntent: intent,
-    preview: compactPreview(text, 4_000),
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     raw: toolResultRawAvailability(resourceLinks),
   };
@@ -1106,6 +1184,7 @@ function providerRoutedPresentation(payload: Record<string, unknown>): OperatorE
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1144,6 +1223,7 @@ function multimodalRoutedPresentation(payload: Record<string, unknown>): Operato
         : "error",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: strategy === "unsupported" || strategy === "failed" ? "exception" : "none",
   };
 }
 
@@ -1166,6 +1246,7 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
     tone: "running",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "activity",
   };
 }
 
@@ -1196,6 +1277,7 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
     tone: !isError && (statusValue === "succeeded" || statusValue === "success") ? "success" : "error",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: isError ? "exception" : "result",
     ...(toolPresentation ? { toolPresentation } : {}),
   };
 }
@@ -1217,6 +1299,7 @@ function fileChangedPresentation(payload: Record<string, unknown>): OperatorEven
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1241,6 +1324,7 @@ function costUpdatedPresentation(payload: Record<string, unknown>): OperatorEven
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1257,6 +1341,7 @@ function approvalRequestedPresentation(payload: Record<string, unknown>): Operat
     tone: "warning",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "action",
   };
 }
 
@@ -1275,6 +1360,7 @@ function approvalResolvedPresentation(payload: Record<string, unknown>): Operato
     tone: decision === "approved" ? "success" : "error",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "activity",
   };
 }
 
@@ -1316,6 +1402,11 @@ function configChangePresentation(kind: OperatorSessionEventKind, payload: Recor
         : "warning",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: kind === "config_change_proposed"
+      ? "action"
+      : kind === "config_change_failed"
+        ? "exception"
+        : "none",
   };
 }
 
@@ -1339,6 +1430,7 @@ function planSubmittedPresentation(payload: Record<string, unknown>): OperatorEv
     tone: "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1364,6 +1456,7 @@ function specificationSubmittedPresentation(payload: Record<string, unknown>): O
       ...(blockingIssueCodes.length > 0 ? [{ label: "Blocking", value: blockingIssueCodes.join(", ") }] : []),
     ],
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1396,6 +1489,7 @@ function planAnalysisReportedPresentation(payload: Record<string, unknown>): Ope
       ...(blocking.length > 0 ? [{ label: "Blocking findings", value: blocking.join(", ") }] : []),
     ],
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1414,6 +1508,7 @@ function clarificationRecordedPresentation(payload: Record<string, unknown>): Op
       ...(affectedSection ? [{ label: "Section", value: affectedSection }] : []),
     ],
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1435,6 +1530,7 @@ function planApprovedPresentation(payload: Record<string, unknown>): OperatorEve
     tone: "success",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1544,6 +1640,11 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
             : "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: kind === "agent_invocation_completed"
+      ? "result"
+      : kind === "agent_invocation_failed" || kind === "agent_invocation_cancelled"
+        ? "exception"
+        : "none",
   };
 }
 
@@ -1566,6 +1667,7 @@ function continuityPresentation(payload: Record<string, unknown>): OperatorEvent
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1591,6 +1693,7 @@ function turnCompletedPresentation(payload: Record<string, unknown>): OperatorEv
     tone: "success",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1605,6 +1708,7 @@ function genericPresentation(kind: OperatorSessionEventKind, payload: Record<str
     tone: kind === "error_recorded" ? "error" : "info",
     details,
     surfaces: kind === "error_recorded" ? INLINE_ACTIVITY_SURFACES : ACTIVITY_SURFACES,
+    conversationDisposition: kind === "error_recorded" ? "exception" : "none",
   };
 }
 
@@ -1654,6 +1758,7 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
         : "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1714,6 +1819,9 @@ function workItemExecutionPresentation(
             : "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: hasMissingCloseout || status === "failed" || status === "blocked" || status === "cancelled"
+      ? "exception"
+      : "none",
   };
 }
 
@@ -1774,6 +1882,11 @@ function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string
           : "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: status === "completed"
+      ? "result"
+      : status === "failed" || status === "cancelled"
+        ? "exception"
+        : "none",
   };
 }
 
@@ -1799,6 +1912,7 @@ function workItemsMaterializedPresentation(payload: Record<string, unknown>): Op
     tone: "success",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1807,6 +1921,12 @@ export function operatorEventTargetsSurface(
   surface: OperatorEventSurface,
 ): boolean {
   return presentation.surfaces.includes(surface);
+}
+
+export function operatorEventTargetsConversation(
+  presentation: Pick<OperatorEventPresentation, "conversationDisposition">,
+): boolean {
+  return presentation.conversationDisposition !== "none";
 }
 
 export function presentOperatorEventPayload(

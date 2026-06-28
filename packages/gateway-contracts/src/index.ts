@@ -445,11 +445,13 @@ export type {
 
 export {
   formatOperatorEventValue,
+  operatorEventTargetsConversation,
   operatorEventTargetsSurface,
   presentOperatorEventPayload,
   presentOperatorSessionEvent,
 } from "./operator-event-presentation.js";
 export type {
+  OperatorEventConversationDisposition,
   OperatorEventDetailItem,
   OperatorEventPresentation,
   OperatorEventSurface,
