@@ -46,6 +46,9 @@ roadmap retains them only as context for the remaining release blockers.
   actions instead of dominating the page.
 - Split oversized app-shell and workbench responsibilities into focused
   runtime, frame, provider, command, navigation, surface, and action modules.
+- Added cross-surface startup profiling and evidence-backed first-usable
+  improvements for CLI, GUI dev mode, and TUI. Canonical profiling commands now
+  live in `docs/guides/gui.md` and `docs/guides/tui.md`.
 
 Current verification evidence:
 
@@ -53,6 +56,8 @@ Current verification evidence:
   navigation, inspector panels, workspace tree, avatars, and event projection.
 - GUI typecheck and focused lint checks pass for the implemented slices.
 - GUI production builds pass with the existing large-chunk warning.
+- Startup profiling tests, GUI tests, repository typecheck, and repository
+  build pass for the measured startup slices.
 - Final operator live validation remains pending and is required before this
   roadmap can close.
 
