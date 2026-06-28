@@ -34,6 +34,7 @@ team doctrine, but the cross-surface policy lives in resolved
 | `WorkGovernancePolicy` | Default posture, direct-execution envelope, delegation triggers, and evidence expectations. | Native schema, global/project values. |
 | `AgentProfile` | Executable role configuration for parent agents, subagents, and managed children. | Native schema/admission, personal/team definitions. |
 | `SkillPackage` | Reusable procedural context, references, scripts, and resources. | Native registry/admission, personal/team/community packages. |
+| `WorkClassification` | Cross-domain work intent, artifact, domain, effect, and mode facets used for diagnostics and governed skill recommendation. | Native schema, per-invocation/session values. |
 | `ManagedInvocationContext` | One admitted child-run context assembled from profile, skills, resources, route, and authority. | Native runtime contract. |
 
 ## Operator Identity
@@ -246,9 +247,33 @@ Agent default skills are resolved through `SkillRegistry`, loaded as governed
 procedural context, and fail closed when a referenced skill is unavailable.
 Task/model recommended skills are advisory by default. When
 `skills.selection.mode: auto` is configured, Kiln may load recommended skills
-for the selected route and inferred task after the same registry admission
-check. Auto-selected skills do not grant tool authority and are recorded as
-admitted procedural context.
+for the selected route, route suitability task, or explicit work
+classification after the same registry admission check. Auto-selected skills
+do not grant tool authority and are recorded as admitted procedural context.
+
+`WorkClassification` is the cross-domain classification contract. It is not a
+model/provider suitability enum and must not grow into a software-only task
+list. It records explicit facets:
+
+- intents: `write`, `edit`, `summarize`, `explain`, `research`, `analyze`,
+  `plan`, `review`, `decide`, `support`, `teach`, `translate`, `code`,
+  `design`, or `operate`.
+- artifacts: `prose`, `code`, `ui`, `data`, `document`, `message`, `slide`,
+  `spreadsheet`, `image`, `audio`, `workflow`, or `configuration`.
+- domains: `software`, `business`, `education`, `support`, `marketing`,
+  `legal`, `regulatory`, `finance`, `medical`, `operations`, or
+  `personal-productivity`.
+- effects: `answer-only`, `read-only`, `write-artifact`, `mutate-workspace`,
+  `execute-command`, `external-side-effect`, or `publish-send`.
+- modes: `answer`, `coauthor`, `transform`, `critique`, `delegate`,
+  `automate`, or `monitor`.
+
+Unknown explicit work classification facets fail closed. Supported facets may
+recommend skills such as `clear-writing`, but only configured skills can be
+admitted and only when the selected policy allows auto-selection. Work
+classification is recorded in managed invocation context metadata so GUI, TUI,
+CLI, SDK/widget, and replay surfaces can explain why a skill was recommended
+or omitted without parsing the prompt.
 
 Skill existence is not the same as admission. The canonical skill status model
 tracks these states separately:
@@ -337,6 +362,7 @@ context through:
 - selected agent profile
 - selected instruction profiles
 - admitted skills
+- explicit work classification diagnostics
 - resource URIs
 - governed memory/context candidates
 - minimal environment facts
@@ -428,9 +454,10 @@ or detail view rather than dropping the evidence.
 
 Managed child invocation events carry requested and admitted child context:
 context mode, agent profile, skills, instruction profiles, provider route,
-model, adapter, execution mode, authority profile, invocation id, child
-session, and child turn. General operator identity and instruction profiles are
-available through the context governance audit as `instruction` blocks.
+work classification, model, adapter, execution mode, authority profile,
+invocation id, child session, and child turn. General operator identity and
+instruction profiles are available through the context governance audit as
+`instruction` blocks.
 
 The model-facing `managed_agent.invoke` tool description projects a bounded
 catalog of admitted routes, profiles, task-suitability evidence, configured
@@ -459,6 +486,8 @@ The active implementation owns:
 - agent default skill admission through `SkillRegistry`
 - managed child `agentProfile`, `skills`, `instructionProfiles`, and
   `contextMode` resolution
+- explicit work classification parsing, validation, skill recommendation, and
+  managed invocation metadata
 - native projection of canonical agent, skill, and instruction-profile
   references into harness-readable surfaces
 - structured instruction-profile doctrine facets in context candidates and

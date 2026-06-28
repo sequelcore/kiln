@@ -1,3 +1,12 @@
+import {
+  WORK_CLASSIFICATION_ARTIFACTS,
+  WORK_CLASSIFICATION_DOMAINS,
+  WORK_CLASSIFICATION_EFFECTS,
+  WORK_CLASSIFICATION_INTENTS,
+  WORK_CLASSIFICATION_MODES,
+  defineManagedAgentInvocationRequest,
+  defineWorkClassification,
+} from "@kilnai/core";
 import type {
   ActionEffectEnvelope,
   ArtifactResourceStore,
@@ -10,6 +19,7 @@ import type {
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
   ManagedAgentInvocationContextMode,
+  ManagedAgentInvocationContextSelection,
   ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
@@ -19,10 +29,11 @@ import type {
   ManagedAgentWorkingDirectory,
   ModelTaskSuitability,
   ModelTaskSuitabilityTask,
+  WorkClassification,
+  WorkClassificationInput,
   CanonicalSessionEvent,
   ToolDefinition,
 } from "@kilnai/core";
-import { defineManagedAgentInvocationRequest } from "@kilnai/core";
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
 import { posix, resolve, win32 } from "node:path";
 import type {
@@ -184,6 +195,7 @@ export interface ManagedInvocationContextResolverInput {
     readonly model?: string;
   };
   readonly taskSuitability?: readonly ModelTaskSuitability[];
+  readonly workClassification?: WorkClassification;
 }
 
 export interface ManagedInvocationContextResolution {
@@ -192,6 +204,8 @@ export interface ManagedInvocationContextResolution {
   readonly admittedSkills?: readonly string[];
   readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
+  readonly workClassification?: WorkClassification;
+  readonly workRecommendedSkills?: readonly string[];
 }
 
 export type ManagedInvocationContextResolver = (
@@ -209,6 +223,7 @@ interface ManagedInvocationToolInput {
   readonly agentProfile?: string;
   readonly forbiddenInputFields?: readonly string[];
   readonly skills?: readonly string[];
+  readonly workClassification?: WorkClassification;
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly goalRunId?: string;
   readonly workItemId?: string;
@@ -296,6 +311,38 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         type: "array",
         items: { type: "string" },
         description: "Optional configured Kiln skills to request for the child. Only request skills from the configured agent profile or an explicitly known Kiln skill catalog; do not invent skill names.",
+      },
+      workClassification: {
+        type: "object",
+        properties: {
+          intents: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_INTENTS] },
+            description: "Optional governed work intents, such as write, edit, review, support, code, or design.",
+          },
+          artifacts: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_ARTIFACTS] },
+            description: "Optional artifact families the child will produce or review.",
+          },
+          domains: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_DOMAINS] },
+            description: "Optional domain context for the child work.",
+          },
+          effects: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_EFFECTS] },
+            description: "Optional authority/effect class for the child work.",
+          },
+          modes: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_MODES] },
+            description: "Optional interaction mode, such as answer, coauthor, transform, critique, delegate, automate, or monitor.",
+          },
+        },
+        additionalProperties: false,
+        description: "Optional explicit cross-domain work classification. It informs governed skill recommendation and diagnostics; it does not grant tool authority.",
       },
       contextMode: {
         type: "string",
@@ -1119,7 +1166,7 @@ async function prepareManagedInvocationRequest(
           ...(route.surface ? { surface: route.surface } : {}),
         },
         status: contextResolution.status,
-        ...(contextMetadata ? { context: contextMetadata } : {}),
+        context: contextMetadata,
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: toolName,
           routeId: route.routeId,
@@ -1147,6 +1194,7 @@ async function prepareManagedInvocationRequest(
   );
   const resolvedAuthority = resolveManagedInvocationRouteAuthority(profileDefaults, invocationId);
   const handoffContract = buildHandoffContract(parsed.input);
+  const contextMetadata = buildManagedInvocationContextMetadata(parsed.input, contextResolution.resolution);
   const authorityApproval = await requestManagedInvocationAuthorityApproval({
     requestedAuthority,
     routeId: route.routeId,
@@ -1203,15 +1251,7 @@ async function prepareManagedInvocationRequest(
       summary: parsed.input.summary,
       prompt,
       ...(parsed.input.resourceUris ? { resourceUris: parsed.input.resourceUris } : {}),
-      context: {
-        mode: parsed.input.contextMode,
-        ...(parsed.input.agentProfile ? { agentProfile: parsed.input.agentProfile } : {}),
-        ...(parsed.input.skills ? { skills: parsed.input.skills } : {}),
-        ...(contextResolution.resolution.admittedAgentProfile ? { admittedAgentProfile: contextResolution.resolution.admittedAgentProfile } : {}),
-        ...(contextResolution.resolution.admittedSkills ? { admittedSkills: contextResolution.resolution.admittedSkills } : {}),
-        ...(contextResolution.resolution.admittedInstructionProfiles ? { admittedInstructionProfiles: contextResolution.resolution.admittedInstructionProfiles } : {}),
-        ...(contextResolution.resolution.deniedSkills ? { deniedSkills: contextResolution.resolution.deniedSkills } : {}),
-      },
+      context: contextMetadata,
       ...(handoffContract ? { handoff: handoffContract } : {}),
     },
   });
@@ -2690,6 +2730,10 @@ function parseInput(
   const requiredResultFields = readTextArray(input.requiredResultFields);
   const doneCriteria = readTextArray(input.doneCriteria);
   const forbiddenInputFields = readTextArray(input.forbiddenInputFields);
+  const workClassification = parseWorkClassification(input.workClassification, toolName);
+  if (!workClassification.ok) {
+    return { ok: false, error: workClassification.error };
+  }
   const requestedAuthority = parseManagedInvocationRequestedAuthority(input.requestedAuthority);
   if (!requestedAuthority.ok) {
     return { ok: false, error: `${toolName} requestedAuthority is not supported.` };
@@ -2719,6 +2763,7 @@ function parseInput(
       ...(readText(input.agentProfile) ? { agentProfile: readText(input.agentProfile) } : {}),
       ...(forbiddenInputFields && forbiddenInputFields.length > 0 ? { forbiddenInputFields } : {}),
       ...(skills && skills.length > 0 ? { skills } : {}),
+      ...(workClassification.value ? { workClassification: workClassification.value } : {}),
       contextMode,
       ...(readText(input.goalRunId) ? { goalRunId: readText(input.goalRunId) } : {}),
       ...(readText(input.workItemId) ? { workItemId: readText(input.workItemId) } : {}),
@@ -2748,14 +2793,14 @@ async function resolveInvocationContext(
     readonly resolution?: ManagedInvocationContextResolution;
   }
 > {
-  const needsResolver = Boolean(options.contextResolver || input.agentProfile || input.skills?.length || input.contextMode === "fork");
+  const needsResolver = Boolean(options.contextResolver || input.agentProfile || input.skills?.length || input.workClassification || input.contextMode === "fork");
   if (!needsResolver) {
     return { ok: true, resolution: {} };
   }
   if (!options.contextResolver) {
     return {
       ok: false,
-      error: "Managed invocation context resolver is not configured for requested agentProfile, skills, or fork context.",
+      error: "Managed invocation context resolver is not configured for requested agentProfile, skills, workClassification, or fork context.",
       status: "failed",
     };
   }
@@ -2770,6 +2815,7 @@ async function resolveInvocationContext(
         ...(input.providerRoute.model ?? route?.model ? { model: input.providerRoute.model ?? route?.model } : {}),
       },
       ...(route?.taskSuitability ? { taskSuitability: route.taskSuitability } : {}),
+      ...(input.workClassification ? { workClassification: input.workClassification } : {}),
     });
     if (resolution.deniedSkills && resolution.deniedSkills.length > 0) {
       return {
@@ -2792,17 +2838,19 @@ async function resolveInvocationContext(
 function buildManagedInvocationContextMetadata(
   input: ManagedInvocationToolInput,
   resolution: ManagedInvocationContextResolution | undefined,
-): Record<string, unknown> | undefined {
-  const context = {
-    ...(input.contextMode ? { mode: input.contextMode } : {}),
+): ManagedAgentInvocationContextSelection {
+  return {
+    mode: input.contextMode,
     ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
     ...(input.skills && input.skills.length > 0 ? { skills: input.skills } : {}),
+    ...(input.workClassification ? { workClassification: input.workClassification } : {}),
     ...(resolution?.admittedAgentProfile ? { admittedAgentProfile: resolution.admittedAgentProfile } : {}),
     ...(resolution?.admittedSkills ? { admittedSkills: resolution.admittedSkills } : {}),
     ...(resolution?.admittedInstructionProfiles ? { admittedInstructionProfiles: resolution.admittedInstructionProfiles } : {}),
     ...(resolution?.deniedSkills ? { deniedSkills: resolution.deniedSkills } : {}),
+    ...(resolution?.workClassification ? { resolvedWorkClassification: resolution.workClassification } : {}),
+    ...(resolution?.workRecommendedSkills ? { workRecommendedSkills: resolution.workRecommendedSkills } : {}),
   };
-  return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | undefined {
@@ -2813,6 +2861,62 @@ function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | u
     return input;
   }
   return undefined;
+}
+
+function parseWorkClassification(
+  input: unknown,
+  toolName: string,
+): { readonly ok: true; readonly value?: WorkClassification } | { readonly ok: false; readonly error: string } {
+  if (input === undefined) {
+    return { ok: true };
+  }
+  const record = readRecord(input);
+  if (!record) {
+    return { ok: false, error: `${toolName} workClassification must be an object.` };
+  }
+  const supportedFields = new Set(["intents", "artifacts", "domains", "effects", "modes"]);
+  const unsupportedField = Object.keys(record).find((field) => !supportedFields.has(field));
+  if (unsupportedField) {
+    return { ok: false, error: `${toolName} Unsupported work classification field: ${unsupportedField}.` };
+  }
+  const intents = parseWorkClassificationFacet(record, "intents", toolName);
+  if (!intents.ok) return intents;
+  const artifacts = parseWorkClassificationFacet(record, "artifacts", toolName);
+  if (!artifacts.ok) return artifacts;
+  const domains = parseWorkClassificationFacet(record, "domains", toolName);
+  if (!domains.ok) return domains;
+  const effects = parseWorkClassificationFacet(record, "effects", toolName);
+  if (!effects.ok) return effects;
+  const modes = parseWorkClassificationFacet(record, "modes", toolName);
+  if (!modes.ok) return modes;
+  const classificationInput: WorkClassificationInput = {
+    ...(intents.value ? { intents: intents.value } : {}),
+    ...(artifacts.value ? { artifacts: artifacts.value } : {}),
+    ...(domains.value ? { domains: domains.value } : {}),
+    ...(effects.value ? { effects: effects.value } : {}),
+    ...(modes.value ? { modes: modes.value } : {}),
+  };
+  try {
+    const value = defineWorkClassification(classificationInput);
+    return Object.keys(value).length > 0 ? { ok: true, value } : { ok: true };
+  } catch (error) {
+    return { ok: false, error: `${toolName} ${error instanceof Error ? error.message : String(error)}.` };
+  }
+}
+
+function parseWorkClassificationFacet(
+  record: Record<string, unknown>,
+  field: "intents" | "artifacts" | "domains" | "effects" | "modes",
+  toolName: string,
+): { readonly ok: true; readonly value?: readonly string[] } | { readonly ok: false; readonly error: string } {
+  if (!(field in record)) {
+    return { ok: true };
+  }
+  const value = record[field];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    return { ok: false, error: `${toolName} workClassification.${field} must be an array of strings.` };
+  }
+  return { ok: true, value };
 }
 
 function parseManagedInvocationRequestedAuthority(

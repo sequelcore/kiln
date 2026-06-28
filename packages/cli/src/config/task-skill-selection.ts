@@ -4,6 +4,8 @@ import {
   type ContextCandidate,
   type ModelTaskSuitability,
   type ModelTaskSuitabilityTask,
+  type WorkClassification,
+  recommendedSkillsForWorkClassification,
 } from "@kilnai/core";
 import type {
   KilnModelTaskSuitabilityOverride,
@@ -26,6 +28,7 @@ export interface TaskSkillSelectionInput {
   readonly model?: string;
   readonly taskSuitability?: readonly ModelTaskSuitability[];
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
+  readonly workClassification?: WorkClassification;
   readonly requesterLabel: string;
 }
 
@@ -33,6 +36,7 @@ export interface TaskSkillSelectionResult {
   readonly skillNames: readonly string[];
   readonly explicitSkillNames: readonly string[];
   readonly autoSkillNames: readonly string[];
+  readonly workRecommendedSkillNames: readonly string[];
   readonly unavailableAutoSkillNames: readonly string[];
   readonly contextCandidates: readonly ContextCandidate[];
 }
@@ -80,18 +84,33 @@ export function resolveTaskSkillSelection(input: TaskSkillSelectionInput): TaskS
     skillNames,
     explicitSkillNames,
     autoSkillNames: autoResolved.map((skill) => skill.name),
+    workRecommendedSkillNames: resolveWorkRecommendedSkills(input),
     unavailableAutoSkillNames,
     contextCandidates,
   };
 }
 
 function resolveAutoRecommendedSkills(input: TaskSkillSelectionInput): readonly string[] {
-  if (input.selection?.mode !== "auto" || !input.task) {
+  if (input.selection?.mode !== "auto") {
+    return [];
+  }
+  return unique([
+    ...resolveTaskRecommendedSkills(input),
+    ...resolveWorkRecommendedSkills(input),
+  ]);
+}
+
+function resolveTaskRecommendedSkills(input: TaskSkillSelectionInput): readonly string[] {
+  if (!input.task) {
     return [];
   }
   const taskSuitability = (input.taskSuitability ?? resolveConfiguredTaskSuitability(input))
     .find((entry) => entry.task === input.task);
   return normalizeSkillNames(taskSuitability?.recommendedSkills);
+}
+
+function resolveWorkRecommendedSkills(input: TaskSkillSelectionInput): readonly string[] {
+  return normalizeSkillNames(recommendedSkillsForWorkClassification(input.workClassification));
 }
 
 function resolveConfiguredTaskSuitability(input: TaskSkillSelectionInput): readonly ModelTaskSuitability[] {

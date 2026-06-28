@@ -871,6 +871,16 @@ parent model to repeat them in the tool call. This is still admission, not
 ambient context: only configured skills can be loaded, explicitly requested
 missing skills fail closed, and the invocation context records admitted skills.
 
+Managed invocation also accepts an explicit `workClassification` with
+cross-domain intent, artifact, domain, effect, and interaction-mode facets.
+This classification is diagnostic and advisory: it can contribute configured
+skill recommendations, but it cannot select a route, grant a tool, widen
+filesystem or network authority, or bypass profile admission. Unknown explicit
+facet values fail closed before the context resolver or child adapter runs.
+The canonical invocation context preserves the requested classification, the
+resolved classification, and work-recommended skill ids so every operator
+surface can explain the admission decision without reclassifying prompt text.
+
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Transcript and result handoff URIs emitted
 by managed invocation records must be readable through the shared `resource_read`

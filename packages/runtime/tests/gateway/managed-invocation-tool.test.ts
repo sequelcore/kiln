@@ -4589,6 +4589,190 @@ describe("managed invocation runtime tool", () => {
     ]);
   });
 
+  it("passes explicit work classification through the context resolver and records diagnostic metadata", async () => {
+    const adapter = makeAdapter();
+    const contextResolver = vi.fn(async () => ({
+      admittedSkills: ["clear-writing"],
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      workRecommendedSkills: ["clear-writing"],
+    }));
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        contextResolver,
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-work-classification",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "opencode-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "model-a",
+      },
+      contextMode: "isolated",
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      task: "Write a clear report for educators.",
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly context?: Record<string, unknown>;
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(contextResolver).toHaveBeenCalledWith(expect.objectContaining({
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+    }));
+    expect(result.metadata.context).toMatchObject({
+      mode: "isolated",
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      admittedSkills: ["clear-writing"],
+      resolvedWorkClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+      },
+      workRecommendedSkills: ["clear-writing"],
+    });
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed for unsupported explicit work classification facets", async () => {
+    const adapter = makeAdapter();
+    const contextResolver = vi.fn();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        contextResolver,
+      },
+    });
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-work-classification-invalid",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "opencode-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "model-a",
+      },
+      contextMode: "isolated",
+      workClassification: {
+        intents: ["writing"],
+      },
+      task: "Write a clear report.",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("Unsupported work classification intent: writing");
+    expect(contextResolver).not.toHaveBeenCalled();
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for malformed or unknown work classification fields", async () => {
+    const adapter = makeAdapter();
+    const contextResolver = vi.fn();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        contextResolver,
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeSession(),
+      toolCall: {
+        id: "tool-call-work-classification-shape",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+    const baseInput = {
+      routeId: "opencode-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "model-a",
+      },
+      contextMode: "isolated",
+      task: "Write a clear report.",
+    };
+
+    const malformed = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      ...baseInput,
+      workClassification: {
+        intents: "write",
+      },
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+    const unknown = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      ...baseInput,
+      workClassification: {
+        intent: ["write"],
+      },
+    }, {
+      ...context,
+      toolCall: {
+        ...context.toolCall,
+        id: "tool-call-work-classification-unknown",
+      },
+    }) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+
+    expect(malformed.isError).toBe(true);
+    expect(malformed.output).toContain("workClassification.intents must be an array of strings");
+    expect(unknown.isError).toBe(true);
+    expect(unknown.output).toContain("Unsupported work classification field: intent");
+    expect(contextResolver).not.toHaveBeenCalled();
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
   it("fails closed with denied skills from the configured context resolver before child lifecycle starts", async () => {
     const adapter = makeAdapter();
     const contextResolver = vi.fn(async () => ({

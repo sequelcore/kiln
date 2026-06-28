@@ -158,6 +158,48 @@ describe("managed agent invocation contracts", () => {
     });
   });
 
+  it("preserves work classification diagnostics in invocation context", () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      input: {
+        ...makeRequest().input,
+        context: {
+          mode: "isolated",
+          workClassification: {
+            intents: ["write"],
+            artifacts: ["document"],
+            domains: ["education"],
+            effects: ["write-artifact"],
+            modes: ["coauthor"],
+          },
+          admittedSkills: ["clear-writing"],
+          resolvedWorkClassification: {
+            intents: ["write"],
+            artifacts: ["document"],
+          },
+          workRecommendedSkills: ["clear-writing"],
+        },
+      },
+    });
+
+    expect(request.input.context).toEqual({
+      mode: "isolated",
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      admittedSkills: ["clear-writing"],
+      resolvedWorkClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+      },
+      workRecommendedSkills: ["clear-writing"],
+    });
+  });
+
   it("defines adapter descriptors without provider-native vocabulary leaking into the core contract", () => {
     const descriptor = makeDescriptor();
 

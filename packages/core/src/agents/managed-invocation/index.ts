@@ -1,5 +1,7 @@
 import { defineMemoryScope } from "../../memory/domain/scope.js";
 import type { MemoryScope } from "../../memory/domain/scope.js";
+import { defineWorkClassification } from "../work-classification.js";
+import type { WorkClassification } from "../work-classification.js";
 import { defineManagedAgentReadAuthority } from "./read-authority.js";
 import type { ManagedAgentReadAuthority } from "./read-authority.js";
 import {
@@ -152,10 +154,13 @@ export interface ManagedAgentInvocationContextSelection {
   readonly agentProfile?: string;
   readonly skills?: readonly string[];
   readonly instructionProfiles?: readonly string[];
+  readonly workClassification?: WorkClassification;
   readonly admittedAgentProfile?: string;
   readonly admittedSkills?: readonly string[];
   readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
+  readonly resolvedWorkClassification?: WorkClassification;
+  readonly workRecommendedSkills?: readonly string[];
 }
 
 export interface ManagedAgentInvocationRequest {
@@ -952,10 +957,13 @@ function requireInvocationContext(input: ManagedAgentInvocationContextSelection)
     ...(input.agentProfile !== undefined ? { agentProfile: requireText(input.agentProfile, "Managed invocation agent profile is required") } : {}),
     ...(input.skills !== undefined ? { skills: input.skills.map((skill) => requireText(skill, "Managed invocation skill is required")) } : {}),
     ...(input.instructionProfiles !== undefined ? { instructionProfiles: input.instructionProfiles.map((profile) => requireText(profile, "Managed invocation instruction profile is required")) } : {}),
+    ...(input.workClassification !== undefined ? { workClassification: defineWorkClassification(input.workClassification) } : {}),
     ...(input.admittedAgentProfile !== undefined ? { admittedAgentProfile: requireText(input.admittedAgentProfile, "Managed invocation admitted agent profile is required") } : {}),
     ...(input.admittedSkills !== undefined ? { admittedSkills: input.admittedSkills.map((skill) => requireText(skill, "Managed invocation admitted skill is required")) } : {}),
     ...(input.admittedInstructionProfiles !== undefined ? { admittedInstructionProfiles: input.admittedInstructionProfiles.map((profile) => requireText(profile, "Managed invocation admitted instruction profile is required")) } : {}),
     ...(input.deniedSkills !== undefined ? { deniedSkills: input.deniedSkills.map((skill) => requireText(skill, "Managed invocation denied skill is required")) } : {}),
+    ...(input.resolvedWorkClassification !== undefined ? { resolvedWorkClassification: defineWorkClassification(input.resolvedWorkClassification) } : {}),
+    ...(input.workRecommendedSkills !== undefined ? { workRecommendedSkills: input.workRecommendedSkills.map((skill) => requireText(skill, "Managed invocation work recommended skill is required")) } : {}),
   };
 }
 

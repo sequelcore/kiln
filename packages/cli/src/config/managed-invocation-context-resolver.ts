@@ -85,6 +85,7 @@ export function createManagedInvocationContextResolver(
       model: input.providerRoute?.model,
       taskSuitability: input.taskSuitability,
       modelTaskSuitability: config.modelTaskSuitability,
+      workClassification: input.workClassification,
       requesterLabel: "Managed invocation",
     });
     for (const candidate of skillSelection.contextCandidates) {
@@ -95,6 +96,8 @@ export function createManagedInvocationContextResolver(
       ...(sections.length > 0 ? { promptPrefix: sections.join("\n\n") } : {}),
       ...(admittedAgentProfile ? { admittedAgentProfile } : {}),
       ...(skillSelection.skillNames.length > 0 ? { admittedSkills: skillSelection.skillNames } : {}),
+      ...(input.workClassification ? { workClassification: input.workClassification } : {}),
+      ...(skillSelection.workRecommendedSkillNames.length > 0 ? { workRecommendedSkills: skillSelection.workRecommendedSkillNames } : {}),
       ...(admittedInstructionProfiles.length > 0 ? { admittedInstructionProfiles } : {}),
     } satisfies ManagedInvocationContextResolution;
   };

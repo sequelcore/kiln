@@ -148,6 +148,24 @@ export type {
   ModelTaskSuitabilityTask,
 } from "./model-capability-registry.js";
 export {
+  WORK_CLASSIFICATION_ARTIFACTS,
+  WORK_CLASSIFICATION_DOMAINS,
+  WORK_CLASSIFICATION_EFFECTS,
+  WORK_CLASSIFICATION_INTENTS,
+  WORK_CLASSIFICATION_MODES,
+  defineWorkClassification,
+  recommendedSkillsForWorkClassification,
+} from "./work-classification.js";
+export type {
+  WorkClassification,
+  WorkClassificationArtifact,
+  WorkClassificationDomain,
+  WorkClassificationEffect,
+  WorkClassificationInput,
+  WorkClassificationIntent,
+  WorkClassificationMode,
+} from "./work-classification.js";
+export {
   normalizeToolCall,
   normalizeToolInput,
   getInvalidToolInputDetails,

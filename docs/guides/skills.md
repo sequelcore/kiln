@@ -184,7 +184,7 @@ is enabled. Auto mode admits only configured skills and records the admission
 in managed invocation context metadata; unavailable recommendations are skipped
 instead of invented.
 
-## Task-Aware Selection
+## Work-Aware Selection
 
 Models and routes may advertise recommended skills for task classes such as
 `architecture-review`, `backend-coding`, `frontend-design`, `mechanical-edit`,
@@ -200,6 +200,33 @@ Auto-selection is still governed admission:
 - unavailable recommended skills are skipped
 - explicitly requested missing skills fail closed
 - admitted skills are recorded in managed invocation context metadata
+
+Route task suitability and work classification are separate contracts.
+Suitability describes whether a provider/model route is appropriate for a
+bounded execution class. `WorkClassification` describes the operator's work
+through independent `intents`, `artifacts`, `domains`, `effects`, and `modes`
+facets. This keeps writing, support, education, business, document, and other
+non-programming work from being forced into software-oriented route labels.
+
+Managed invocations may supply an explicit classification:
+
+```json
+{
+  "workClassification": {
+    "intents": ["write"],
+    "artifacts": ["document"],
+    "domains": ["education"],
+    "effects": ["write-artifact"],
+    "modes": ["coauthor"]
+  }
+}
+```
+
+Unknown explicit facet values fail closed. In advisory mode, the classification
+is recorded and recommendations remain diagnostics. In auto mode, Kiln may
+admit a recommended skill only when it exists in the governed registry. The
+invocation metadata records requested classification, resolved classification,
+recommended skill ids, and admitted skill ids.
 
 `clear-writing` is a neutral first-party writing procedure. Use it when an
 agent is asked to write, rewrite, or review prose in reports, research briefs,

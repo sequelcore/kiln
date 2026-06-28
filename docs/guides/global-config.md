@@ -66,7 +66,7 @@ kiln config set --global skills.selection.mode auto
 | `web.extractProvider` | `KilnYamlWebExtractProvider` | Global default web extraction provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `skills.builtin` | `{ enabled?: boolean, include?: string[], exclude?: string[] }` | First-party built-in skill activation policy. Built-in skill content lives in Kiln core; config only admits or narrows it. |
-| `skills.selection.mode` | `advisory \| auto` | Controls whether task/model recommended skills are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
+| `skills.selection.mode` | `advisory \| auto` | Controls whether route/task and explicit work-classification recommendations are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
 When `routing.budgetAware` is true, budget ceilings are projected into the
@@ -179,9 +179,12 @@ default without turning generated harness files into a second source of truth.
 Skill selection defaults to `advisory`: task/model recommendations are visible
 to parent agents, but only explicit agent/profile skills are loaded. Set
 `skills.selection.mode: auto` when the operator wants Kiln to admit available
-recommended skills for the selected task and route. Auto-selection never grants
-tools or authority, skips unavailable recommended skills, and still fails
-closed for explicitly requested missing skills.
+recommended skills for the selected task, route, and explicit work
+classification. Auto-selection never grants tools or authority, skips
+unavailable recommended skills, and still fails closed for explicitly
+requested missing skills. Work classification is invocation/session metadata,
+not global policy: config selects the admission mode but does not define a
+universal task label for every prompt.
 
 General writing quality belongs in the `clear-writing` built-in skill, not in
 global config. Global config may choose whether built-ins are enabled and may

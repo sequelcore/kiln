@@ -186,6 +186,10 @@ Implemented:
 - Managed invocation tool descriptions now summarize long skill catalogs with
   omitted counts and diagnostic totals instead of injecting every native skill
   row into the model-facing prompt.
+- Managed invocation now accepts a validated cross-domain work classification
+  and records requested/resolved facets plus work-recommended skills. Auto mode
+  can admit configured recommendations such as `clear-writing`; advisory mode
+  records the recommendation without loading it.
 
 Remaining debt:
 
