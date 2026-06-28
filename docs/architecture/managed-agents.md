@@ -878,8 +878,13 @@ skill recommendations, but it cannot select a route, grant a tool, widen
 filesystem or network authority, or bypass profile admission. Unknown explicit
 facet values fail closed before the context resolver or child adapter runs.
 The canonical invocation context preserves the requested classification, the
-resolved classification, and work-recommended skill ids so every operator
-surface can explain the admission decision without reclassifying prompt text.
+resolved classification, work-recommended skill ids, and per-skill diagnostic
+state so every operator surface can explain the admission decision without
+reclassifying prompt text. A diagnostic state of `admitted` means the skill was
+loaded as governed context; `advisory` means the recommendation was recorded
+without loading because auto selection is disabled; `unavailable` means the
+skill is absent from the governed registry and must not be silently imported
+from native harness-local directories.
 
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Transcript and result handoff URIs emitted

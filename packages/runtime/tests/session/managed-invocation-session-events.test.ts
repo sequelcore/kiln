@@ -439,6 +439,11 @@ describe("appendManagedInvocationSessionEvents", () => {
           workClassification: requestedWorkClassification,
           resolvedWorkClassification,
           workRecommendedSkills: ["clear-writing"],
+          workRecommendedSkillDiagnostics: [{
+            skillName: "clear-writing",
+            state: "advisory",
+            reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+          }],
         },
       },
     });
@@ -458,6 +463,11 @@ describe("appendManagedInvocationSessionEvents", () => {
           workClassification: requestedWorkClassification,
           resolvedWorkClassification,
           workRecommendedSkills: ["clear-writing"],
+          workRecommendedSkillDiagnostics: [{
+            skillName: "clear-writing",
+            state: "advisory",
+            reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+          }],
         },
       }),
       expect.objectContaining({
@@ -467,6 +477,11 @@ describe("appendManagedInvocationSessionEvents", () => {
           workClassification: requestedWorkClassification,
           resolvedWorkClassification,
           workRecommendedSkills: ["clear-writing"],
+          workRecommendedSkillDiagnostics: [{
+            skillName: "clear-writing",
+            state: "advisory",
+            reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+          }],
         },
       }),
     ]);

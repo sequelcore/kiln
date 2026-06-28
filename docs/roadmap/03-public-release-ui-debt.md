@@ -194,6 +194,10 @@ Implemented:
   Classification/provenance participate in plan content hashes, materialize to
   `WorkItem`, fail closed on conflict, and are forwarded into generated managed
   invocation requests for replayable diagnostics.
+- `work_item.update` and agent profiles now provide governed entry points for
+  explicit non-software work classification. Managed invocation context records
+  per-skill recommendation diagnostics as `admitted`, `advisory`, or
+  `unavailable`.
 
 Remaining debt:
 

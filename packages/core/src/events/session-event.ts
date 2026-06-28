@@ -14,6 +14,7 @@ import type {
   ManagedAgentRouteSource,
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
+  WorkRecommendedSkillDiagnostic,
 } from "../agents/managed-invocation/index.js";
 import type { WorkClassification } from "../agents/work-classification.js";
 import type { MultimodalDelegationEvidence } from "../engine/domain/multimodal-routing.js";
@@ -436,6 +437,7 @@ export interface SessionAgentInvocationContext {
   readonly workClassification?: WorkClassification;
   readonly resolvedWorkClassification?: WorkClassification;
   readonly workRecommendedSkills?: readonly string[];
+  readonly workRecommendedSkillDiagnostics?: readonly WorkRecommendedSkillDiagnostic[];
 }
 
 export interface SessionAgentInvocationTranscriptPointer {

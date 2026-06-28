@@ -5,6 +5,7 @@ import {
   type ModelTaskSuitability,
   type ModelTaskSuitabilityTask,
   type WorkClassification,
+  type WorkRecommendedSkillDiagnostic,
   recommendedSkillsForWorkClassification,
 } from "@kilnai/core";
 import type {
@@ -37,6 +38,7 @@ export interface TaskSkillSelectionResult {
   readonly explicitSkillNames: readonly string[];
   readonly autoSkillNames: readonly string[];
   readonly workRecommendedSkillNames: readonly string[];
+  readonly workRecommendedSkillDiagnostics: readonly WorkRecommendedSkillDiagnostic[];
   readonly unavailableAutoSkillNames: readonly string[];
   readonly contextCandidates: readonly ContextCandidate[];
 }
@@ -85,9 +87,44 @@ export function resolveTaskSkillSelection(input: TaskSkillSelectionInput): TaskS
     explicitSkillNames,
     autoSkillNames: autoResolved.map((skill) => skill.name),
     workRecommendedSkillNames: resolveWorkRecommendedSkills(input),
+    workRecommendedSkillDiagnostics: resolveWorkRecommendedSkillDiagnostics({
+      input,
+      admittedSkillNames: skillNames,
+      unavailableAutoSkillNames,
+    }),
     unavailableAutoSkillNames,
     contextCandidates,
   };
+}
+
+function resolveWorkRecommendedSkillDiagnostics(input: {
+  readonly input: TaskSkillSelectionInput;
+  readonly admittedSkillNames: readonly string[];
+  readonly unavailableAutoSkillNames: readonly string[];
+}): readonly WorkRecommendedSkillDiagnostic[] {
+  const admitted = new Set(input.admittedSkillNames);
+  const unavailable = new Set(input.unavailableAutoSkillNames);
+  return resolveWorkRecommendedSkills(input.input).map((skillName) => {
+    if (admitted.has(skillName)) {
+      return {
+        skillName,
+        state: "admitted",
+        reason: "Recommended by work classification and admitted by auto selection.",
+      };
+    }
+    if (unavailable.has(skillName)) {
+      return {
+        skillName,
+        state: "unavailable",
+        reason: "Recommended by work classification but not found in the governed Kiln registry.",
+      };
+    }
+    return {
+      skillName,
+      state: "advisory",
+      reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+    };
+  });
 }
 
 function resolveAutoRecommendedSkills(input: TaskSkillSelectionInput): readonly string[] {

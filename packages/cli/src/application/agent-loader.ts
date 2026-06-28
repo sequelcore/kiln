@@ -2,7 +2,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse } from "yaml";
-import type { AgentTier, ModelTaskSuitabilityTask } from "@kilnai/core";
+import {
+  defineWorkClassification,
+  type AgentTier,
+  type ModelTaskSuitabilityTask,
+  type WorkClassification,
+  type WorkClassificationInput,
+} from "@kilnai/core";
 import { KILN_FIRST_PARTY_AGENT_DEFAULTS } from "./first-party-agent-defaults.js";
 
 export interface KilnAgentDefinition {
@@ -27,6 +33,7 @@ export interface KilnAgentDefinition {
   readonly authorityProfile?: string;
   readonly routeId?: string;
   readonly providerRoute?: KilnAgentProviderRoute;
+  readonly workClassification?: WorkClassification;
   readonly voiceProfile?: string;
   readonly instructions?: string;
   readonly scope: "builtin" | "global" | "project";
@@ -131,6 +138,21 @@ function asProviderRoute(value: unknown): KilnAgentProviderRoute | undefined {
   };
 }
 
+function asWorkClassification(value: unknown): WorkClassification | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const input: WorkClassificationInput = {
+    ...(asStringArray(record.intents) ? { intents: asStringArray(record.intents) } : {}),
+    ...(asStringArray(record.artifacts) ? { artifacts: asStringArray(record.artifacts) } : {}),
+    ...(asStringArray(record.domains) ? { domains: asStringArray(record.domains) } : {}),
+    ...(asStringArray(record.effects) ? { effects: asStringArray(record.effects) } : {}),
+    ...(asStringArray(record.modes) ? { modes: asStringArray(record.modes) } : {}),
+  };
+  return defineWorkClassification(input);
+}
+
 function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAgentDefinition | undefined {
   const parsed = parseFrontmatter(raw);
   if (!parsed) {
@@ -174,6 +196,12 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const authorityProfile = asNonEmptyString(record.authorityProfile);
   const routeId = asNonEmptyString(record.routeId);
   const providerRoute = asProviderRoute(record.providerRoute);
+  let workClassification: WorkClassification | undefined;
+  try {
+    workClassification = asWorkClassification(record.workClassification);
+  } catch {
+    return undefined;
+  }
   const voiceProfile = asNonEmptyString(record.voiceProfile);
   const instructions = parsed.body.length > 0 ? parsed.body : undefined;
 
@@ -199,6 +227,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(authorityProfile ? { authorityProfile } : {}),
     ...(routeId ? { routeId } : {}),
     ...(providerRoute ? { providerRoute } : {}),
+    ...(workClassification ? { workClassification } : {}),
     ...(voiceProfile ? { voiceProfile } : {}),
     ...(instructions ? { instructions } : {}),
     scope,

@@ -1153,6 +1153,13 @@ blocks adoption and reports the conflict instead of picking a source
 implicitly. Project-specific skills can still be installed or proposed into
 `.kiln/skills` when the behavior should stay local to one repository.
 
+Agent profiles may declare a default `workClassification` when the role is
+intentionally cross-domain, such as report writing, support, education, or
+business document review. Managed invocation uses that profile classification
+only when the request and durable work item do not already provide one. The
+classification can recommend skills such as `clear-writing`, but admission
+still follows the governed skill registry and `skills.selection.mode`.
+
 ## Drift, Backups, And Disabled Engines
 
 `kiln sync` records managed native targets in `.kiln/install-state.json`.

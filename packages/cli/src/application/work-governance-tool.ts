@@ -10,6 +10,8 @@ import type {
   WorkItemPauseRequirementKind,
   WorkItemPauseRequirementStatus,
   WorkItemStatus,
+  WorkClassificationInput,
+  WorkClassificationProvenanceInput,
   VerificationGateResult,
 } from "@kilnai/core";
 import {
@@ -390,6 +392,28 @@ export class WorkItemUpdateTool implements DevTool {
         description: "Optional work item ids that must complete first.",
       },
       residualRisk: { type: "string", description: "Known residual risk, if already available." },
+      workClassification: {
+        type: "object",
+        properties: {
+          intents: { type: "array", items: { type: "string" } },
+          artifacts: { type: "array", items: { type: "string" } },
+          domains: { type: "array", items: { type: "string" } },
+          effects: { type: "array", items: { type: "string" } },
+          modes: { type: "array", items: { type: "string" } },
+        },
+        additionalProperties: false,
+        description: "Optional explicit cross-domain work classification. Unknown facet values fail closed in core.",
+      },
+      workClassificationProvenance: {
+        type: "object",
+        properties: {
+          sourceKind: { type: "string", enum: ["plan-work-item"] },
+          sourceId: { type: "string", minLength: 1 },
+        },
+        required: ["sourceKind", "sourceId"],
+        additionalProperties: false,
+        description: "Required with workClassification. For manual work_item.update, sourceId must match the work item id.",
+      },
       pauseRequirements: {
         type: "array",
         items: {
@@ -507,28 +531,46 @@ export class WorkItemUpdateTool implements DevTool {
     if (!pauseRequirements.ok) {
       return { output: `Invalid input: ${pauseRequirements.message}`, isError: true };
     }
-
-    const item = this.store.upsert({
-      id,
-      summary,
-      status: readStatus(input.input.status),
-      workflowProfile: workflowProfile.id,
-      risk,
-      triggers,
-      surface: readText(input.input.surface),
-      assignedAgentProfile: readText(input.input.assignedAgentProfile),
-      routeId,
-      phaseRoutes,
-      referenceRoots,
-      authorityProfile,
-      expectedEvidence,
-      providedEvidence,
-      verificationGates,
-      verificationGateResults,
-      dependencies: readTextArray(input.input.dependencies),
-      residualRisk: readText(input.input.residualRisk),
-      pauseRequirements: pauseRequirements.requirements,
-    });
+    let item: WorkItem;
+    try {
+      const workClassification = readWorkClassificationInput(input.input.workClassification);
+      const workClassificationProvenance = readWorkClassificationProvenanceInput(
+        input.input.workClassificationProvenance,
+      );
+      item = this.store.upsert({
+        id,
+        summary,
+        status: readStatus(input.input.status),
+        workflowProfile: workflowProfile.id,
+        risk,
+        triggers,
+        surface: readText(input.input.surface),
+        assignedAgentProfile: readText(input.input.assignedAgentProfile),
+        routeId,
+        phaseRoutes,
+        referenceRoots,
+        authorityProfile,
+        expectedEvidence,
+        providedEvidence,
+        verificationGates,
+        verificationGateResults,
+        dependencies: readTextArray(input.input.dependencies),
+        residualRisk: readText(input.input.residualRisk),
+        pauseRequirements: pauseRequirements.requirements,
+        ...(workClassification ? { workClassification } : {}),
+        ...(workClassificationProvenance ? { workClassificationProvenance } : {}),
+      });
+    } catch (error) {
+      return {
+        output: `Invalid input: ${error instanceof Error ? error.message : String(error)}`,
+        metadata: workItemToolMetadata("work_item.update", {
+          operation: "update",
+          status: "blocked",
+          errorCode: "invalid_input",
+        }),
+        isError: true,
+      };
+    }
 
     const nextExecution = nextGovernedExecutionStep(item);
 
@@ -2116,6 +2158,44 @@ function readTextRecord(value: unknown): Readonly<Record<string, string>> | unde
     .map(([key, recordValue]) => [key.trim(), readText(recordValue)] as const)
     .filter((entry): entry is readonly [string, string] => entry[0].length > 0 && typeof entry[1] === "string");
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function readWorkClassificationInput(value: unknown): WorkClassificationInput | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const supportedFields = new Set(["intents", "artifacts", "domains", "effects", "modes"]);
+  for (const key of Object.keys(record)) {
+    if (!supportedFields.has(key)) {
+      throw new Error(`Unsupported work classification field: ${key}`);
+    }
+    if (!Array.isArray(record[key])) {
+      throw new Error(`workClassification.${key} must be an array of strings`);
+    }
+  }
+  return {
+    ...(Array.isArray(record.intents) ? { intents: readTextArray(record.intents) } : {}),
+    ...(Array.isArray(record.artifacts) ? { artifacts: readTextArray(record.artifacts) } : {}),
+    ...(Array.isArray(record.domains) ? { domains: readTextArray(record.domains) } : {}),
+    ...(Array.isArray(record.effects) ? { effects: readTextArray(record.effects) } : {}),
+    ...(Array.isArray(record.modes) ? { modes: readTextArray(record.modes) } : {}),
+  };
+}
+
+function readWorkClassificationProvenanceInput(
+  value: unknown,
+): WorkClassificationProvenanceInput | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const sourceKind = readText(record.sourceKind);
+  const sourceId = readText(record.sourceId);
+  if (!sourceKind || !sourceId) {
+    return undefined;
+  }
+  return { sourceKind, sourceId };
 }
 
 function readText(value: unknown): string | undefined {

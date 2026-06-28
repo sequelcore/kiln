@@ -31,6 +31,7 @@ import type {
   ModelTaskSuitabilityTask,
   WorkClassification,
   WorkClassificationInput,
+  WorkRecommendedSkillDiagnostic,
   CanonicalSessionEvent,
   ToolDefinition,
 } from "@kilnai/core";
@@ -206,6 +207,7 @@ export interface ManagedInvocationContextResolution {
   readonly deniedSkills?: readonly string[];
   readonly workClassification?: WorkClassification;
   readonly workRecommendedSkills?: readonly string[];
+  readonly workRecommendedSkillDiagnostics?: readonly WorkRecommendedSkillDiagnostic[];
 }
 
 export type ManagedInvocationContextResolver = (
@@ -2850,6 +2852,7 @@ function buildManagedInvocationContextMetadata(
     ...(resolution?.deniedSkills ? { deniedSkills: resolution.deniedSkills } : {}),
     ...(resolution?.workClassification ? { resolvedWorkClassification: resolution.workClassification } : {}),
     ...(resolution?.workRecommendedSkills ? { workRecommendedSkills: resolution.workRecommendedSkills } : {}),
+    ...(resolution?.workRecommendedSkillDiagnostics ? { workRecommendedSkillDiagnostics: resolution.workRecommendedSkillDiagnostics } : {}),
   };
 }
 

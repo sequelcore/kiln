@@ -275,6 +275,16 @@ classification is recorded in managed invocation context metadata so GUI, TUI,
 CLI, SDK/widget, and replay surfaces can explain why a skill was recommended
 or omitted without parsing the prompt.
 
+Every work-recommended skill records a diagnostic state:
+
+- `admitted`: the skill was recommended by work classification and admitted by
+  the configured registry and `skills.selection.mode: auto`.
+- `advisory`: the skill was recommended, but auto selection is disabled; the
+  recommendation remains diagnostic evidence.
+- `unavailable`: auto selection is enabled, but the skill is not present in
+  the governed Kiln registry and is not silently invented or imported from a
+  native harness.
+
 Approved plan work items are the durable authority for governed
 classification. When a plan proposes a classified work item, Kiln stores the
 normalized `WorkClassification` together with
@@ -289,9 +299,11 @@ recommended work-classification metadata for replay.
 
 Kiln does not infer durable classification from prompt text. Existing
 unclassified work remains explicitly unclassified until an approved plan,
-governed tool, or explicit managed invocation supplies a validated
-classification. If a caller supplies an unknown explicit facet, the request
-fails closed before skill recommendation or child execution.
+governed `work_item.update` call, agent profile, or explicit managed
+invocation supplies a validated classification. Invocation-supplied
+classification takes precedence over agent-profile defaults. If a caller
+supplies an unknown explicit facet, the request fails closed before skill
+recommendation or child execution.
 
 Skill existence is not the same as admission. The canonical skill status model
 tracks these states separately:

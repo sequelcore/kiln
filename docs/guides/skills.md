@@ -226,7 +226,8 @@ Unknown explicit facet values fail closed. In advisory mode, the classification
 is recorded and recommendations remain diagnostics. In auto mode, Kiln may
 admit a recommended skill only when it exists in the governed registry. The
 invocation metadata records requested classification, resolved classification,
-recommended skill ids, and admitted skill ids.
+recommended skill ids, admitted skill ids, and per-skill diagnostic state:
+`admitted`, `advisory`, or `unavailable`.
 
 For governed work, the long-lived source is the approved plan work item. A
 classified plan work item stores `workClassification` and
@@ -236,6 +237,12 @@ generated from that work item carries the stored classification automatically;
 operators do not need to restate it in the child request. If the classification
 changes, the plan must be revised and re-approved before the new value can
 govern execution.
+
+Manual governed work may also be classified through `work_item.update` by
+supplying `workClassification` and matching `workClassificationProvenance`.
+Agent profiles may declare a default `workClassification` for specialized
+roles such as report writing, support, or education. Explicit invocation or
+work-item classification takes precedence over profile defaults.
 
 `clear-writing` is a neutral first-party writing procedure. Use it when an
 agent is asked to write, rewrite, or review prose in reports, research briefs,

@@ -59,6 +59,11 @@ describe("task skill selection work classification", () => {
 
     expect(selection.skillNames).toEqual([]);
     expect(selection.autoSkillNames).toEqual([]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
+      skillName: "clear-writing",
+      state: "advisory",
+      reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+    }]);
   });
 
   it("auto-admits clear-writing for explicit writing work classification", () => {
@@ -86,6 +91,41 @@ describe("task skill selection work classification", () => {
     expect(selection.skillNames).toEqual(["clear-writing"]);
     expect(selection.autoSkillNames).toEqual(["clear-writing"]);
     expect(selection.workRecommendedSkillNames).toEqual(["clear-writing"]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
+      skillName: "clear-writing",
+      state: "admitted",
+      reason: "Recommended by work classification and admitted by auto selection.",
+    }]);
     expect(selection.contextCandidates[0]?.content).toContain("# clear-writing");
+  });
+
+  it("diagnoses unavailable auto work recommendations without admitting them", () => {
+    const root = tempRoot();
+
+    const selection = resolveTaskSkillSelection({
+      projectPath: root,
+      userHome: root,
+      skillConfig: {
+        selection: { mode: "auto" },
+        builtin: { enabled: false },
+      },
+      selection: { mode: "auto" },
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      requesterLabel: "Task skill selection",
+    });
+
+    expect(selection.skillNames).toEqual([]);
+    expect(selection.unavailableAutoSkillNames).toEqual(["clear-writing"]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
+      skillName: "clear-writing",
+      state: "unavailable",
+      reason: "Recommended by work classification but not found in the governed Kiln registry.",
+    }]);
   });
 });

@@ -37,6 +37,37 @@ function writeAgent(root: string): void {
   );
 }
 
+function writeWritingAgent(root: string): void {
+  const agentDir = join(root, ".kiln", "agents");
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(
+    join(agentDir, "report-writer.md"),
+    [
+      "---",
+      "name: report-writer",
+      "role: writer",
+      "goal: Write clear reports",
+      "tier: reasoning",
+      "workClassification:",
+      "  intents:",
+      "    - write",
+      "  artifacts:",
+      "    - document",
+      "  domains:",
+      "    - business",
+      "  effects:",
+      "    - write-artifact",
+      "  modes:",
+      "    - coauthor",
+      "---",
+      "",
+      "Write structured reports.",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
 function writeSkill(root: string): void {
   const skillDir = join(root, ".kiln", "skills", "ddd-review");
   mkdirSync(skillDir, { recursive: true });
@@ -154,5 +185,80 @@ describe("managed invocation context resolver", () => {
       admittedSkills: ["frontend-design"],
     });
     expect(resolved.promptPrefix).toContain("Build polished UI.");
+  });
+
+  it("reports advisory work-classification skill recommendations without admitting them", async () => {
+    const root = createTempRoot();
+    const resolver = createManagedInvocationContextResolver(root, root, {
+      globalConfig: null,
+      projectConfig: null,
+      skillConfig: {
+        selection: {
+          mode: "advisory",
+        },
+        builtin: {
+          enabled: false,
+        },
+      },
+    });
+
+    const resolved = await resolver({
+      skills: [],
+      contextMode: "isolated",
+      task: "Write a support report.",
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["support"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+    });
+
+    expect(resolved).toMatchObject({
+      workRecommendedSkills: ["clear-writing"],
+      workRecommendedSkillDiagnostics: [{
+        skillName: "clear-writing",
+        state: "advisory",
+      }],
+    });
+    expect(resolved.admittedSkills).toBeUndefined();
+    expect(resolved.promptPrefix).toBeUndefined();
+  });
+
+  it("uses agent profile work classification when the invocation omits one", async () => {
+    const root = createTempRoot();
+    writeWritingAgent(root);
+    const resolver = createManagedInvocationContextResolver(root, root, {
+      globalConfig: null,
+      projectConfig: null,
+      skillConfig: {
+        selection: {
+          mode: "advisory",
+        },
+        builtin: {
+          enabled: false,
+        },
+      },
+    });
+
+    const resolved = await resolver({
+      agentProfile: "report-writer",
+      skills: [],
+      contextMode: "isolated",
+      task: "Draft the business update.",
+    });
+
+    expect(resolved).toMatchObject({
+      admittedAgentProfile: "report-writer",
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["business"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      workRecommendedSkills: ["clear-writing"],
+    });
   });
 });

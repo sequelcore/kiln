@@ -161,6 +161,15 @@ export interface ManagedAgentInvocationContextSelection {
   readonly deniedSkills?: readonly string[];
   readonly resolvedWorkClassification?: WorkClassification;
   readonly workRecommendedSkills?: readonly string[];
+  readonly workRecommendedSkillDiagnostics?: readonly WorkRecommendedSkillDiagnostic[];
+}
+
+export type WorkRecommendedSkillDiagnosticState = "admitted" | "advisory" | "unavailable";
+
+export interface WorkRecommendedSkillDiagnostic {
+  readonly skillName: string;
+  readonly state: WorkRecommendedSkillDiagnosticState;
+  readonly reason: string;
 }
 
 export interface ManagedAgentInvocationRequest {
@@ -964,6 +973,24 @@ function requireInvocationContext(input: ManagedAgentInvocationContextSelection)
     ...(input.deniedSkills !== undefined ? { deniedSkills: input.deniedSkills.map((skill) => requireText(skill, "Managed invocation denied skill is required")) } : {}),
     ...(input.resolvedWorkClassification !== undefined ? { resolvedWorkClassification: defineWorkClassification(input.resolvedWorkClassification) } : {}),
     ...(input.workRecommendedSkills !== undefined ? { workRecommendedSkills: input.workRecommendedSkills.map((skill) => requireText(skill, "Managed invocation work recommended skill is required")) } : {}),
+    ...(input.workRecommendedSkillDiagnostics !== undefined ? { workRecommendedSkillDiagnostics: input.workRecommendedSkillDiagnostics.map(requireWorkRecommendedSkillDiagnostic) } : {}),
+  };
+}
+
+function requireWorkRecommendedSkillDiagnostic(
+  input: WorkRecommendedSkillDiagnostic,
+): WorkRecommendedSkillDiagnostic {
+  if (
+    input.state !== "admitted" &&
+    input.state !== "advisory" &&
+    input.state !== "unavailable"
+  ) {
+    throw new Error(`Unsupported work recommended skill diagnostic state: ${String(input.state)}`);
+  }
+  return {
+    skillName: requireText(input.skillName, "Managed invocation work recommended skill diagnostic skill name is required"),
+    state: input.state,
+    reason: requireText(input.reason, "Managed invocation work recommended skill diagnostic reason is required"),
   };
 }
 

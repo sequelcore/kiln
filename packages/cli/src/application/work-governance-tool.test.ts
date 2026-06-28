@@ -355,6 +355,107 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("creates manually classified work items through the governed update tool", async () => {
+    const workItemStore = new WorkItemStore();
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-report",
+        summary: "Write the operator report.",
+        workflowProfile: "verification-heavy",
+        triggers: ["documentation"],
+        workClassification: {
+          intents: [" write ", "review"],
+          artifacts: [" document "],
+          domains: [" business "],
+          effects: [" write-artifact "],
+          modes: [" coauthor "],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: " work-report ",
+        },
+      },
+    });
+
+    expect(created?.isError).toBe(false);
+    expect(created?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "update",
+      item: {
+        id: "work-report",
+        workClassification: {
+          intents: ["write", "review"],
+          artifacts: ["document"],
+          domains: ["business"],
+          effects: ["write-artifact"],
+          modes: ["coauthor"],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: "work-report",
+        },
+      },
+    });
+    expect(workItemStore.get("work-report")?.workClassification).toMatchObject({
+      intents: ["write", "review"],
+    });
+  });
+
+  it("fails closed when manual work item classification provenance does not match the item", async () => {
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore: new WorkItemStore() })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const rejected = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-report",
+        summary: "Write the operator report.",
+        workflowProfile: "verification-heavy",
+        triggers: ["documentation"],
+        workClassification: {
+          intents: ["write"],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: "other-work",
+        },
+      },
+    });
+
+    expect(rejected?.isError).toBe(true);
+    expect(rejected?.output).toContain("must match work item source id 'work-report'");
+  });
+
+  it("fails closed for unknown manual work classification fields before updating the item", async () => {
+    const workItemStore = new WorkItemStore();
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const rejected = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-report",
+        summary: "Write the operator report.",
+        workflowProfile: "verification-heavy",
+        workClassification: {
+          intent: ["write"],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: "work-report",
+        },
+      },
+    });
+
+    expect(rejected?.isError).toBe(true);
+    expect(rejected?.output).toContain("Unsupported work classification field: intent");
+    expect(workItemStore.get("work-report")).toBeUndefined();
+  });
+
   it("starts and finishes goal-bound work item execution attempts through tools", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

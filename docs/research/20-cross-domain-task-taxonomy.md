@@ -219,6 +219,12 @@ As of 2026-06-28, Kiln has the first governed slice of this model:
 - Generated managed invocation requests carry the durable work-item
   classification, and canonical session events preserve requested/resolved
   classification plus work-recommended skills for replay diagnostics.
+- `work_item.update` can create manually classified governed work, and agent
+  profiles can declare default work classification for specialized non-code
+  roles.
+- Work-recommended skill diagnostics distinguish `admitted`, `advisory`, and
+  `unavailable` recommendations so operators can see why a skill was loaded,
+  recorded only as advice, or omitted.
 
-Remaining work should focus on richer non-software work entry points,
-operator-facing diagnostics, and any future rename of route suitability types.
+Remaining work should focus on future domain packs and any future rename of
+route suitability types.

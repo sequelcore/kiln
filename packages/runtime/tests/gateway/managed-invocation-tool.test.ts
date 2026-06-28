@@ -4601,6 +4601,11 @@ describe("managed invocation runtime tool", () => {
         modes: ["coauthor"],
       },
       workRecommendedSkills: ["clear-writing"],
+      workRecommendedSkillDiagnostics: [{
+        skillName: "clear-writing",
+        state: "admitted",
+        reason: "Recommended by work classification and admitted by auto selection.",
+      }],
     }));
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
@@ -4666,6 +4671,11 @@ describe("managed invocation runtime tool", () => {
         artifacts: ["document"],
       },
       workRecommendedSkills: ["clear-writing"],
+      workRecommendedSkillDiagnostics: [{
+        skillName: "clear-writing",
+        state: "admitted",
+        reason: "Recommended by work classification and admitted by auto selection.",
+      }],
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
