@@ -18,6 +18,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
         label: "New session",
         description: "Next message starts fresh",
         tone: "muted",
+        prominence: "routine",
       }}
       providerControl={<button type="button">Claude Sonnet 4</button>}
       reasoningControl={<select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>}
@@ -53,6 +54,14 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
 }
 
 describe("Composer", () => {
+  it("aligns the composer with the transcript axis", () => {
+    renderComposer();
+
+    const form = screen.getByLabelText("Message").closest("form");
+    expect(form).toHaveClass("mx-auto", "w-full", "max-w-3xl");
+    expect(form).not.toHaveClass("max-w-4xl");
+  });
+
   it("Enter while idle triggers submit", () => {
     const { onSubmit } = renderComposer();
     const textarea = screen.getByLabelText("Message");
@@ -130,38 +139,96 @@ describe("Composer", () => {
     expect(screen.queryByText("/command")).not.toBeInTheDocument();
   });
 
-  it("renders the composer continuity hint", () => {
-    renderComposer({
-      continuityHint: {
-        label: "Continue target",
-        description: "Next message continues selected session",
-        tone: "accent",
-      },
-    });
+  it.each([
+    ["New session", "Next message starts fresh", "muted"],
+    ["Continue chat", "Next message continues selected session", "accent"],
+    ["Live", "Next message continues current session", "info"],
+  ] as const)("hides routine continuity state %s", (label, description, tone) => {
+    renderComposer({ continuityHint: { label, description, tone, prominence: "routine" } });
 
-    const hint = screen.getByRole("status", { name: "Session continuity" });
-    expect(within(hint).getByText("Continue target")).toBeInTheDocument();
-    expect(within(hint).getByText("Next message continues selected session")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Session continuity" })).not.toBeInTheDocument();
   });
 
-  it("renders the provider/model control in the composer rail", () => {
+  it.each([
+    ["Detached", "Run continues in background", "warning"],
+    ["Running", "Waiting for current turn", "info"],
+  ] as const)("shows exceptional continuity state %s", (label, description, tone) => {
+    renderComposer({ continuityHint: { label, description, tone, prominence: "exceptional" } });
+
+    const status = screen.getByRole("status", { name: "Session continuity" });
+    expect(status).toHaveTextContent(label);
+    expect(status).toHaveAccessibleDescription(description);
+    expect(status).toHaveAttribute("data-slot", "marker");
+  });
+
+  it("renders turn controls as accessible message options", () => {
     renderComposer();
 
-    expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+    const options = screen.getByRole("group", { name: "Message options" });
+    expect(within(options).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+    expect(within(options).getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(within(options).getByLabelText(/Turn authority/)).toBeInTheDocument();
   });
 
-  it("keeps model, effort, authority, plan, and send controls inside the input surface", () => {
+  it("keeps all composer actions inside the compact input surface", () => {
     renderComposer();
 
     const textarea = screen.getByLabelText("Message");
     const inputSurface = textarea.parentElement;
 
     expect(inputSurface).not.toBeNull();
+    const options = within(inputSurface as HTMLElement).getByRole("group", { name: "Message options" });
+    expect(options).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach audio file" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByLabelText(/Turn authority/)).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("status", { name: "Context usage unavailable" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText("Reasoning effort")).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByLabelText("Turn authority")).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Record voice" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Send message" })).toBeInTheDocument();
+  });
+
+  it("keeps inactive composer controls visibly actionable before typing", () => {
+    renderComposer();
+
+    expect(screen.getByRole("button", { name: "Attach audio file" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("button", { name: "Plan" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("status", { name: "Context usage unavailable" })).toHaveClass("border", "bg-background/60");
+  });
+
+  it("orders the composer rail like a modern chat harness", () => {
+    renderComposer();
+
+    const options = screen.getByRole("group", { name: "Message options" });
+    const orderedControls = [
+      within(options).getByRole("button", { name: "Attach audio file" }),
+      within(options).getByRole("button", { name: "Plan" }),
+      within(options).getByLabelText(/Turn authority/),
+      within(options).getByRole("status", { name: "Context usage unavailable" }),
+      within(options).getByRole("button", { name: "Claude Sonnet 4" }),
+      within(options).getByLabelText("Reasoning effort"),
+      within(options).getByRole("button", { name: "Record voice" }),
+      within(options).getByRole("button", { name: "Send message" }),
+    ];
+
+    for (let index = 0; index < orderedControls.length - 1; index += 1) {
+      expect(orderedControls[index]!.compareDocumentPosition(orderedControls[index + 1]!) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    }
+  });
+
+  it("toggles plan mode without changing the draft", () => {
+    const { onTogglePlanMode, onSubmit } = renderComposer();
+    const textarea = screen.getByLabelText("Message");
+
+    fireEvent.change(textarea, { target: { value: "Inspect this change" } });
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+
+    expect(onTogglePlanMode).toHaveBeenCalledWith(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Inspect this change");
   });
 
   it("uses a restrained focus treatment on the input surface", () => {
@@ -184,25 +251,39 @@ describe("Composer", () => {
     expect(inputSurface).not.toHaveClass("shadow-sm");
   });
 
-  it("keeps the input surface compact without crowding the controls", () => {
+  it("uses a compact shadcn input surface with room for multi-line work", () => {
     renderComposer();
 
     const textarea = screen.getByLabelText("Message");
     const inputSurface = textarea.parentElement;
 
-    expect(inputSurface).toHaveClass("overflow-hidden", "rounded-md");
-    expect(textarea).toHaveClass("min-h-16", "max-h-36", "px-3", "py-3", "text-sm");
+    expect(inputSurface).toHaveAttribute("data-slot", "input-group");
+    expect(inputSurface).toHaveAttribute("data-composer-surface", "message");
+    expect(inputSurface).toHaveClass("overflow-hidden", "rounded-xl", "bg-workspace-viewer-panel");
+    expect(inputSurface).not.toHaveClass("bg-card");
+    expect(inputSurface).not.toHaveClass("min-h-32");
+    expect(textarea).toHaveClass("max-h-44", "px-3", "text-sm");
+    expect(textarea).not.toHaveClass("min-h-20", "py-3");
   });
 
-  it("adds a non-interactive fade between transcript content and the composer", () => {
+  it("does not render a separate technical control rail", () => {
+    renderComposer();
+
+    const options = screen.getByRole("group", { name: "Message options" });
+    expect(options).not.toHaveClass("border-t", "bg-background/65");
+    expect(options.firstElementChild).toHaveClass("grid");
+  });
+
+  it("uses a plain dock without a redundant boundary or decorative transcript fade", () => {
     renderComposer();
 
     const section = screen.getByRole("textbox", { name: "Message" }).closest("section");
 
-    expect(section).toHaveClass("relative", "z-10", "bg-background/95");
-    expect(section).toHaveClass("border-t", "border-border/60");
-    expect(section).toHaveClass("before:pointer-events-none", "before:-top-8", "before:h-8");
-    expect(section).toHaveClass("before:bg-gradient-to-t", "before:from-background", "before:to-transparent");
+    expect(section).toHaveClass("relative", "z-10", "bg-workspace-viewer");
+    expect(section).not.toHaveClass("bg-background");
+    expect(section).not.toHaveClass("border-t", "border-border/60");
+    expect(section?.className).not.toContain("before:bg-gradient");
+    expect(section?.className).not.toContain("backdrop-filter");
   });
 
   it("renders send as an icon button with an accessible label", () => {

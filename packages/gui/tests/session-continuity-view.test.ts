@@ -18,9 +18,10 @@ describe("session continuity view", () => {
     }));
 
     expect(hint).toMatchObject({
-      label: "Continue target",
+      label: "Continue chat",
       description: "Next message continues selected session",
       tone: "accent",
+      prominence: "routine",
     });
   });
 
@@ -36,9 +37,10 @@ describe("session continuity view", () => {
     }));
 
     expect(hint).toMatchObject({
-      label: "Continue target",
+      label: "Continue chat",
       description: "Next message continues selected session",
       tone: "accent",
+      prominence: "routine",
     });
   });
 
@@ -51,7 +53,7 @@ describe("session continuity view", () => {
       messageCount: 0,
       sessionEventCount: 0,
       detachedSessionIds: [],
-    })).label).toBe("New session");
+    }))).toMatchObject({ label: "New session", prominence: "routine" });
 
     expect(buildComposerContinuityHint(deriveSessionContinuity({
       status: "ready",
@@ -61,7 +63,7 @@ describe("session continuity view", () => {
       messageCount: 2,
       sessionEventCount: 1,
       detachedSessionIds: [],
-    })).label).toBe("Live");
+    }))).toMatchObject({ label: "Live", prominence: "routine" });
 
     expect(buildComposerContinuityHint(deriveSessionContinuity({
       status: "running",
@@ -71,7 +73,7 @@ describe("session continuity view", () => {
       messageCount: 2,
       sessionEventCount: 1,
       detachedSessionIds: [],
-    })).label).toBe("Running");
+    }))).toMatchObject({ label: "Running", prominence: "exceptional" });
 
     expect(buildComposerContinuityHint(deriveSessionContinuity({
       status: "running",
@@ -81,7 +83,7 @@ describe("session continuity view", () => {
       messageCount: 2,
       sessionEventCount: 1,
       detachedSessionIds: ["session-live"],
-    })).label).toBe("Detached");
+    }))).toMatchObject({ label: "Detached", prominence: "exceptional" });
   });
 
   it("projects row badges without overloading active state", () => {

@@ -6,6 +6,7 @@ export interface ComposerContinuityHint {
   readonly label: string;
   readonly description: string;
   readonly tone: SessionContinuityTone;
+  readonly prominence: "routine" | "exceptional";
 }
 
 export interface SessionRowBadge {
@@ -21,6 +22,7 @@ export function buildComposerContinuityHint(continuity: SessionContinuity): Comp
       label: "Detached",
       description: "Run continues in background",
       tone: "warning",
+      prominence: "exceptional",
     };
   }
   if (continuity.status === "running") {
@@ -28,13 +30,15 @@ export function buildComposerContinuityHint(continuity: SessionContinuity): Comp
       label: "Running",
       description: "Waiting for current turn",
       tone: "info",
+      prominence: "exceptional",
     };
   }
   if (continuity.mode === "continue") {
     return {
-      label: "Continue target",
+      label: "Continue chat",
       description: "Next message continues selected session",
       tone: "accent",
+      prominence: "routine",
     };
   }
   if (continuity.mode === "fresh") {
@@ -42,12 +46,14 @@ export function buildComposerContinuityHint(continuity: SessionContinuity): Comp
       label: "New session",
       description: "Next message starts fresh",
       tone: "muted",
+      prominence: "routine",
     };
   }
   return {
     label: "Live",
     description: "Next message continues current session",
     tone: "info",
+    prominence: "routine",
   };
 }
 
