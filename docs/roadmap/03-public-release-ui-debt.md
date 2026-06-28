@@ -206,6 +206,16 @@ Remaining debt:
   reserved model state to active config behavior.
 - Render the richer skill setup diagnostics in GUI/TUI with the same fields now
   available in the shared setup contract.
+- Repair the unrelated `@kilnai/cli` package test failure in
+  `tests/config/managed-agent-routes.test.ts`, where direct ordered-routing
+  route health now reports pending provider/model discovery for
+  `codex-oauth-readonly` and `openrouter-readonly` but the test still expects
+  those routes to be immediately available.
+- Tighten operator-facing copy across CLI/GUI/TUI so `admission.state:
+  available` is never presented as "actively loaded in this session" unless the
+  skill was admitted by explicit request, agent profile defaults, or auto skill
+  selection. `available` means admissible through Kiln governance, not
+  necessarily already in active procedural context.
 
 Verification:
 
