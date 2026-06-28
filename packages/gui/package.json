@@ -84,5 +84,10 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@shadcn/react": "^0.1.0",
+    "react-file-icon": "1.6.0",
+    "react-json-view-lite": "2.5.0"
   }
 }
