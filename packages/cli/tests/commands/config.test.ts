@@ -182,4 +182,24 @@ describe("configCommand", () => {
     expect(output).toContain('"repoShims"');
     expect(output).toContain('"recommendedActions"');
   });
+
+  it("setup prints the canonical setup snapshot", async () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    await configCommand(MOCK_APP_CONFIG, "setup", [], tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain('"projectRoot"');
+    expect(output).toContain('"recommendedActions"');
+  });
+
+  it("setup executes an explicit setup action", async () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+
+    await configCommand(MOCK_APP_CONFIG, "setup", ["--action", "adopt-project-context"], tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain('"action": "adopt-project-context"');
+    expect(output).toContain('"status": "applied"');
+  });
 });

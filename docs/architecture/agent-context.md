@@ -250,6 +250,36 @@ for the selected route and inferred task after the same registry admission
 check. Auto-selected skills do not grant tool authority and are recorded as
 admitted procedural context.
 
+Skill existence is not the same as admission. The canonical skill status model
+tracks these states separately:
+
+- configured: a skill exists in Kiln's governed registry from project, user,
+  plugin, or built-in source.
+- origin: `project`, `user`, `plugin`, `builtin`, or `native-harness`.
+- projected: Kiln has written the configured skill to a supported native
+  harness skill directory and install-state can prove the projection is
+  current.
+- unmanaged native: a supported harness has a local skill file that Kiln did
+  not configure or project.
+- stale or drifted projection: install-state proves Kiln once managed the
+  projection, but the native file is missing or changed.
+- admitted: the skill content entered this operator session or managed child
+  context through explicit request, agent profile defaults, or auto selection.
+- omitted: the skill is configured but not selected for the current route,
+  profile, task, selection mode, or context budget.
+- blocked: policy, route capability, profile, or drift prevents use.
+- unavailable: an explicit skill reference cannot be resolved through the
+  governed Kiln registry.
+
+Unknown explicitly requested skills fail closed. Native harness-local skills
+outside Kiln start as diagnostics only: Kiln may report that Codex, OpenCode,
+or Claude Code can see a local `SKILL.md`, but it must not silently admit that
+content into a managed invocation or operator context. The governed repair is
+explicit adoption: setup may copy non-conflicting native skills into canonical
+Kiln user config, then project the same canonical copy back to every supported
+harness. If the same skill name has different native contents across harnesses,
+adoption blocks for manual reconciliation instead of choosing a winner.
+
 ## First-Party Skill Defaults
 
 Kiln ships a small first-party core skill pack so the default system has useful
@@ -400,9 +430,20 @@ available through the context governance audit as `instruction` blocks.
 
 The model-facing `managed_agent.invoke` tool description projects a bounded
 catalog of admitted routes, profiles, task-suitability evidence, configured
-skills, context-mode rules, and unavailable-route diagnostics. This lets an
+skills, native-only skill diagnostics, context-mode rules, and unavailable-route
+diagnostics. Long catalogs are summarized with omitted counts so a diagnostic
+request does not consume the whole child-invocation context. This lets an
 operator ask for delegated work naturally while the parent model still chooses
 only from admitted ids. Unknown agent profiles or skills fail closed.
+
+Skill diagnostics use the same cross-surface contract as setup/status. GUI,
+TUI, CLI, SDK/widget, and model-callable config inspection must be able to
+answer: where the skill came from, whether it is built-in or user/project
+content, whether it was projected to Codex/OpenCode/Claude Code, whether the
+projection is missing or drifted, whether it was admitted for the current
+managed invocation, and why an expected skill such as `shadcn` is unavailable.
+Surfaces may abbreviate the explanation, but they must not collapse configured,
+projected, native-only, and admitted into one boolean.
 
 ## Implementation Slices
 
@@ -427,6 +468,18 @@ The active implementation owns:
   discovery.
 - OpenCode separates agents, permissions, and skills, including per-agent skill
   permissions.
+- Codex's public skill documentation describes skills as reusable packages of
+  instructions, resources, and optional scripts for task-specific workflows:
+  <https://developers.openai.com/codex/skills>. The local Codex source also
+  models skill authority, package id, enabled state, and prompt visibility
+  separately (`C:\Proyectos\Sequel\cloned\codex\codex-rs\ext\skills\src\catalog.rs`).
+- OpenCode's public skill documentation loads skills from repo and home
+  directories, exposes them through a native `skill` tool, and allows global or
+  per-agent skill permissions: <https://opencode.ai/docs/skills/>.
+- Claude Code's public skill documentation covers custom and bundled skills:
+  <https://docs.anthropic.com/en/docs/claude-code/skills>. The local Claude
+  Code source distinguishes managed, user, project, bundled, plugin, and MCP
+  skill sources (`C:\Proyectos\Sequel\cloned\claude-code\skills\loadSkillsDir.ts`).
 - Everything Claude Code and Gentle AI demonstrate market demand for portable
   skill and agent catalogs, but their content must be adapted into Kiln-native
   contracts rather than copied as product identity.

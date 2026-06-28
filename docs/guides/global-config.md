@@ -1001,10 +1001,12 @@ kiln config read skills
 sync, merges global and project config through the canonical loaders, reports
 adopted project-context status, classifies generated repo shims, reports
 workflow snapshot manifest health, summarizes native projection install-state,
-and exposes harness capability diagnostics.
+reports skill catalog origin/projection/admission diagnostics, and exposes
+harness capability diagnostics.
 The `setup` view is the operator-facing setup read model: project-context
-status, repo-shim status, native projection status, and recommended actions such
-as `adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or
+status, repo-shim status, native projection status, skill projection/admission
+status, and recommended actions such as `adopt-project-context`,
+`sync-repo-shims`, `sync-native-projections`, or
 `adopt-or-back-up-native-guidance`.
 The model-callable `kiln_config.read` tool exposes the same views to admitted
 runtime tool surfaces. Setup surfaces should consume the same contract rather
@@ -1126,6 +1128,18 @@ directories from `~/.kiln/skills/` and `.kiln/skills/` to enabled native CLIs.
 Project skills override global skills with the same name. Only top-level files
 within each skill directory are copied. Sync is one-way (Kiln -> CLIs). Drift in
 a projected skill file aborts that target unless `--force` is confirmed.
+
+Native skill directories owned directly by a harness are not canonical Kiln
+config. If `kiln config read skills` reports a skill as `origin:
+native-harness`, `configured: false`, and projection status `unmanaged-native`,
+that skill exists for standalone harness use but is not admitted into Kiln
+managed invocation yet. Use the setup action
+`adopt-or-back-up-native-guidance` to adopt parseable, non-conflicting native
+skills into `~/.kiln/skills` and project the governed copy back to Claude Code,
+Codex, and OpenCode. If the same skill name differs across harnesses, Kiln
+blocks adoption and reports the conflict instead of picking a source
+implicitly. Project-specific skills can still be installed or proposed into
+`.kiln/skills` when the behavior should stay local to one repository.
 
 ## Drift, Backups, And Disabled Engines
 

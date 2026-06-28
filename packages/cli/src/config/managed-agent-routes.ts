@@ -46,8 +46,10 @@ import type {
 } from "../wrapper/session-registry.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
-import { createConfiguredSkillRegistry } from "./skill-registry.js";
+import { readSkillCatalogStatus } from "./skill-catalog-status.js";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
+
+type ManagedSkillCatalogEntry = NonNullable<ManagedInvocationToolOptions["skillCatalog"]>[number];
 
 export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
@@ -409,17 +411,24 @@ function loadManagedInvocationSkillCatalog(
   projectPath: string,
   userHome: string,
   skillConfig: KilnYamlSkillsConfig | undefined,
-): readonly {
-  readonly name: string;
-  readonly description: string;
-  readonly tags?: readonly string[];
-}[] {
-  const registry = createConfiguredSkillRegistry({ projectPath, userHome, skillConfig });
-  return registry.all()
-    .map((skill) => ({
+): readonly ManagedSkillCatalogEntry[] {
+  const catalog = readSkillCatalogStatus({ projectPath, userHome, skillConfig });
+  return catalog.entries
+    .map((skill): ManagedSkillCatalogEntry => ({
       name: skill.name,
       description: skill.description,
-      ...(skill.tags.length > 0 ? { tags: skill.tags } : {}),
+      origin: skill.origin,
+      configured: skill.configured,
+      builtIn: skill.builtIn,
+      sourcePath: skill.sourcePath,
+      admission: skill.admission,
+      projections: skill.projections.map((projection) => ({
+        target: projection.target,
+        status: projection.status,
+        path: projection.path,
+      })),
+      ...(skill.omissionReason ? { omissionReason: skill.omissionReason } : {}),
+      ...(skill.tags && skill.tags.length > 0 ? { tags: skill.tags } : {}),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 }

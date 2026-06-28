@@ -61,6 +61,12 @@ export type {
   KilnProjectionTargetSnapshot,
   KilnProjectionTargetStatus,
   KilnRepoShimProjectionSnapshot,
+  KilnSkillAdmissionState,
+  KilnSkillCatalogProjectionStatus,
+  KilnSkillCatalogSnapshot,
+  KilnSkillCatalogSnapshotEntry,
+  KilnSkillOriginKind,
+  KilnSkillProjectionTargetSnapshot,
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
@@ -74,6 +80,9 @@ export {
   KilnConfigSourceSnapshotSchema,
   KilnProjectionTargetSnapshotSchema,
   KilnRepoShimProjectionSnapshotSchema,
+  KilnSkillCatalogSnapshotEntrySchema,
+  KilnSkillCatalogSnapshotSchema,
+  KilnSkillProjectionTargetSnapshotSchema,
 } from "./config-status.js";
 
 export type {

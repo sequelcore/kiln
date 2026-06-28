@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readConfigStatusSnapshot, readConfigStatusView } from "../../src/application/config-status.js";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
+import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 
 let tempDir: string;
 
@@ -17,6 +18,26 @@ function writeProjectConfig(projectPath: string): void {
     "permissions:",
     "  approval: on-request",
     "  sandbox: read-only",
+    "",
+  ].join("\n"), "utf-8");
+}
+
+function writeSkill(root: string, name: string, description: string): void {
+  writeSkillFile(root, name, "SKILL.md", description);
+}
+
+function writeSkillFile(root: string, name: string, fileName: string, description: string): void {
+  const dir = join(root, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, fileName), [
+    "---",
+    `name: ${name}`,
+    `description: ${description}`,
+    "tags:",
+    "  - test",
+    "---",
+    "",
+    `# ${name}`,
     "",
   ].join("\n"), "utf-8");
 }
@@ -128,6 +149,176 @@ describe("config-status", () => {
     expect(permissions.value).toEqual({ approval: "on-request", sandbox: "read-only" });
     expect(JSON.stringify(health.value)).toContain("harnessCapabilities");
     expect(setup.value).toEqual(snapshot.setup);
+  });
+
+  it("reports configured skill origin, projection state, and project override precedence", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    writeSkill(join(userHome, ".kiln", "skills"), "custom-user", "User skill.");
+    writeSkill(join(userHome, ".kiln", "skills"), "tdd-workflow", "User override.");
+    writeSkill(join(tempDir, ".kiln", "skills"), "tdd-workflow", "Project override.");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+    const skills = await readConfigStatusView(snapshot, "skills");
+
+    expect(skills.value).toMatchObject({
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          name: "custom-user",
+          origin: "user",
+          configured: true,
+          builtIn: false,
+          admission: expect.objectContaining({ state: "available" }),
+        }),
+        expect.objectContaining({
+          name: "tdd-workflow",
+          description: "Project override.",
+          origin: "project",
+          configured: true,
+          builtIn: true,
+          projections: expect.arrayContaining([
+            expect.objectContaining({ target: "codex", status: "missing" }),
+          ]),
+        }),
+      ]),
+    });
+    expect(snapshot.setup.recommendedActions).toContain("sync-native-projections");
+  });
+
+  it("reports unmanaged harness-local skills without admitting them", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    writeSkill(join(userHome, ".codex", "skills"), "shadcn", "Codex local skill.");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "shadcn",
+        origin: "native-harness",
+        configured: false,
+        admission: expect.objectContaining({
+          state: "unavailable",
+        }),
+        omissionReason: "native-harness-local-only",
+        projections: [
+          expect.objectContaining({
+            target: "codex",
+            status: "unmanaged-native",
+          }),
+        ],
+      }),
+    ]));
+    expect(snapshot.setup.recommendedActions).toContain("adopt-or-back-up-native-guidance");
+  });
+
+  it("matches native projection status using the canonical skill file casing", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    writeSkillFile(join(userHome, ".kiln", "skills"), "shadcn", "skill.md", "User skill.");
+
+    await syncNativeSkillProjections(tempDir, { userHome });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "shadcn",
+        origin: "user",
+        configured: true,
+        projections: expect.arrayContaining([
+          expect.objectContaining({ target: "codex", status: "projected" }),
+          expect.objectContaining({ target: "claude", status: "projected" }),
+          expect.objectContaining({ target: "opencode", status: "projected" }),
+        ]),
+      }),
+    ]));
+  });
+
+  it("reports drift when any projected skill file changes", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const skillRoot = join(userHome, ".kiln", "skills");
+    writeSkill(skillRoot, "multi-file", "User skill.");
+    writeFileSync(join(skillRoot, "multi-file", "notes.md"), "canonical\n", "utf-8");
+
+    await syncNativeSkillProjections(tempDir, { userHome });
+    writeFileSync(join(userHome, ".codex", "skills", "multi-file", "notes.md"), "drifted\n", "utf-8");
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "multi-file",
+        projections: expect.arrayContaining([
+          expect.objectContaining({ target: "codex", status: "drifted" }),
+        ]),
+      }),
+    ]));
+  });
+
+  it("requires review when a configured skill projection is not owned by install state", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    writeSkill(join(userHome, ".kiln", "skills"), "manual-copy", "Configured skill.");
+    writeSkill(join(userHome, ".codex", "skills"), "manual-copy", "Manual native copy.");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "manual-copy",
+        projections: expect.arrayContaining([
+          expect.objectContaining({ target: "codex", status: "unmanaged-native" }),
+        ]),
+      }),
+    ]));
+    expect(snapshot.setup.recommendedActions).toContain("review-native-projection-drift");
+  });
+
+  it("rejects registry directories whose frontmatter name does not match their identity", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const skillDir = join(userHome, ".kiln", "skills", "directory-name");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), [
+      "---",
+      "name: different-name",
+      "description: Mismatched identity.",
+      "---",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries.some((entry) => entry.name === "different-name")).toBe(false);
+    expect(snapshot.skills?.entries.some((entry) => entry.name === "directory-name")).toBe(false);
+  });
+
+  it("projects flat registry skill files and reports convergence", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const registryRoot = join(userHome, ".kiln", "skills");
+    mkdirSync(registryRoot, { recursive: true });
+    writeFileSync(join(registryRoot, "flat-skill.md"), [
+      "---",
+      "name: flat-skill",
+      "description: Flat registry skill.",
+      "---",
+      "",
+    ].join("\n"), "utf-8");
+
+    await syncNativeSkillProjections(tempDir, { userHome });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "flat-skill",
+        projections: expect.arrayContaining([
+          expect.objectContaining({ target: "claude", status: "projected" }),
+          expect.objectContaining({ target: "codex", status: "projected" }),
+          expect.objectContaining({ target: "opencode", status: "projected" }),
+        ]),
+      }),
+    ]));
   });
 
   it("reports only the global CLI memory path", async () => {

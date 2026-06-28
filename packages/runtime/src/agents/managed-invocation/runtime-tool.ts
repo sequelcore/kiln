@@ -150,6 +150,20 @@ export interface ManagedInvocationWorkingDirectoryLease {
 export interface ManagedInvocationSkillCatalogEntry {
   readonly name: string;
   readonly description: string;
+  readonly origin?: string;
+  readonly configured?: boolean;
+  readonly builtIn?: boolean;
+  readonly sourcePath?: string;
+  readonly admission?: {
+    readonly state: string;
+    readonly reason: string;
+  };
+  readonly projections?: readonly {
+    readonly target: string;
+    readonly status: string;
+    readonly path: string;
+  }[];
+  readonly omissionReason?: string;
   readonly tags?: readonly string[];
 }
 
@@ -2490,7 +2504,7 @@ function buildManagedAgentSelectionDescription(options: ManagedInvocationToolOpt
   return [
     "Configured admitted agent profiles:",
     agents,
-    `Configured admitted skills: ${managedInvocationSkillNames(options).join(", ") || "none"}`,
+    `Configured admitted skills: ${formatBoundedList(managedInvocationSkillNames(options), 24)}`,
     buildManagedSkillCatalogDescription(options),
     buildManagedTaskAffinityDescription(options),
     "Selection policy:",
@@ -2509,11 +2523,37 @@ function buildManagedSkillCatalogDescription(options: ManagedInvocationToolOptio
   if (skillCatalog.length === 0) {
     return "Configured skill catalog: none";
   }
-  const rows = skillCatalog.map((skill) => {
+  const configured = skillCatalog.filter((skill) =>
+    skill.configured !== false && skill.admission?.state !== "unavailable"
+  );
+  const diagnostics = skillCatalog.filter((skill) =>
+    skill.configured === false || skill.admission?.state === "unavailable"
+  );
+  const rows = configured.slice(0, 24).map((skill) => {
     const tags = skill.tags && skill.tags.length > 0 ? `, tags=${skill.tags.join(",")}` : "";
-    return `- ${skill.name}: ${skill.description}${tags}`;
+    const origin = skill.origin ? `, origin=${skill.origin}` : "";
+    const admission = skill.admission ? `, admission=${skill.admission.state}` : "";
+    const projection = skill.projections && skill.projections.length > 0
+      ? `, projections=${skill.projections.map((entry) => `${entry.target}:${entry.status}`).join(",")}`
+      : "";
+    const omitted = skill.omissionReason ? `, omission=${skill.omissionReason}` : "";
+    return `- ${skill.name}: ${skill.description}${origin}${admission}${projection}${omitted}${tags}`;
   });
-  return ["Configured skill catalog:", ...rows].join("\n");
+  const omittedConfigured = configured.length - rows.length;
+  if (omittedConfigured > 0) {
+    rows.push(`- ${omittedConfigured} additional configured skill(s) omitted from this bounded catalog summary.`);
+  }
+  if (diagnostics.length > 0) {
+    const byReason = new Map<string, number>();
+    for (const skill of diagnostics) {
+      const reason = skill.omissionReason ?? skill.admission?.state ?? "diagnostic";
+      byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+    }
+    rows.push(
+      `- Diagnostic-only native skill entries: ${diagnostics.length} (${[...byReason.entries()].map(([reason, count]) => `${reason}=${count}`).join(", ")}).`,
+    );
+  }
+  return ["Configured skill catalog summary:", ...rows].join("\n");
 }
 
 function buildManagedTaskAffinityDescription(options: ManagedInvocationToolOptions): string {
@@ -2523,7 +2563,7 @@ function buildManagedTaskAffinityDescription(options: ManagedInvocationToolOptio
     "Task-affinity hints:",
     routeRows.length > 0 ? `Routes: ${routeRows.join("; ")}` : "Routes: no task suitability evidence",
     agentRows.length > 0 ? `Agent profiles: ${agentRows.join("; ")}` : "Agent profiles: no configured agent profiles",
-    "Skills: request a skill only when its name appears in the configured skill catalog or on the selected agent profile.",
+    "Skills: request a skill only when its name appears in the configured Kiln skill catalog or on the selected agent profile. Harness-local native skills marked unmanaged-native are diagnostics only and are not admissible.",
   ].join("\n");
 }
 
@@ -2537,7 +2577,9 @@ function managedInvocationAgentProfileNames(options: ManagedInvocationToolOption
 
 function managedInvocationSkillNames(options: ManagedInvocationToolOptions): readonly string[] {
   return unique([
-    ...(options.skillCatalog ?? []).map((skill) => skill.name),
+    ...(options.skillCatalog ?? [])
+      .filter((skill) => skill.configured !== false && skill.admission?.state !== "unavailable")
+      .map((skill) => skill.name),
     ...(options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? []),
   ]);
 }
@@ -2577,6 +2619,15 @@ function managedAgentDisplayName(
 
 function unique(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
+}
+
+function formatBoundedList(values: readonly string[], limit: number): string {
+  if (values.length === 0) {
+    return "none";
+  }
+  const visible = values.slice(0, limit).join(", ");
+  const omitted = values.length - limit;
+  return omitted > 0 ? `${visible}, ... (${omitted} more)` : visible;
 }
 
 function cloneToolSchema(schema: Record<string, unknown>): Record<string, unknown> {

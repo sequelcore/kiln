@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const fsMocks = vi.hoisted(() => ({
   files: new Map<string, string>(),
@@ -28,6 +28,7 @@ vi.mock("node:os", () => ({
 import { discoverSkillDirs, syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 
 const SKILLS_DISABLED = { skillConfig: { builtin: { enabled: false } } } as const;
+const PLANNER_SKILL = "---\nname: planner\ndescription: Plan work.\n---\n";
 
 const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
 const mkdirSyncMock = mkdirSync as unknown as ReturnType<typeof vi.fn>;
@@ -58,7 +59,15 @@ describe("native-skill-projection", () => {
     homedirMock.mockReturnValue("/home/tester");
     mkdirSyncMock.mockImplementation(() => undefined);
     existsSyncMock.mockImplementation((path: string) => fsMocks.files.has(path));
-    readFileSyncMock.mockImplementation((path: string) => fsMocks.files.get(path) ?? "");
+    readFileSyncMock.mockImplementation((path: string) => {
+      const configured = fsMocks.files.get(path);
+      if (configured !== undefined) return configured;
+      if (basename(path).toLowerCase() === "skill.md") {
+        const name = basename(dirname(path));
+        return `---\nname: ${name}\ndescription: Test skill.\n---\n`;
+      }
+      return "";
+    });
     writeFileSyncMock.mockImplementation((path: string, content: string) => {
       fsMocks.files.set(path, content);
     });
@@ -91,6 +100,9 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) {
         return [dirent("planner", true), dirent("README.md", false)];
       }
+      if (targetPath === join(globalDir, "planner")) {
+        return [dirent("SKILL.md", false)];
+      }
       if (targetPath === projectDir) {
         throw new Error("ENOENT");
       }
@@ -113,8 +125,14 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) {
         return [dirent("planner", true)];
       }
+      if (targetPath === join(globalDir, "planner")) {
+        return [dirent("SKILL.md", false)];
+      }
       if (targetPath === projectDir) {
         return [dirent("planner", true)];
+      }
+      if (targetPath === join(projectDir, "planner")) {
+        return [dirent("SKILL.md", false)];
       }
       throw new Error(`Unexpected path: ${targetPath}`);
     });
@@ -133,8 +151,14 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) {
         return [dirent("planner", true)];
       }
+      if (targetPath === join(globalDir, "planner")) {
+        return [dirent("SKILL.md", false)];
+      }
       if (targetPath === projectDir) {
         return [dirent("reviewer", true)];
+      }
+      if (targetPath === join(projectDir, "reviewer")) {
+        return [dirent("SKILL.md", false)];
       }
       throw new Error(`Unexpected path: ${targetPath}`);
     });
@@ -145,6 +169,29 @@ describe("native-skill-projection", () => {
       ["planner", join(globalDir, "planner")],
       ["reviewer", join(projectDir, "reviewer")],
     ]);
+  });
+
+  it("discoverSkillDirs() ignores empty directories so builtins are not shadowed", () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) {
+        throw new Error("ENOENT");
+      }
+      if (targetPath === projectDir) {
+        return [dirent("repo-context-review", true)];
+      }
+      if (targetPath === join(projectDir, "repo-context-review")) {
+        return [];
+      }
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+
+    const dirs = discoverSkillDirs(projectPath);
+
+    expect(dirs.has("repo-context-review")).toBe(false);
   });
 
   it("projects configured Kiln builtin skills to native skill directories", async () => {
@@ -182,15 +229,15 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) {
         return [dirent("planner", true)];
       }
-      if (targetPath === projectDir) {
-        throw new Error("ENOENT");
-      }
       if (targetPath === skillSourceDir) {
         return [dirent("SKILL.md", false), dirent("notes.txt", false), dirent("assets", true)];
       }
+      if (targetPath === projectDir) {
+        throw new Error("ENOENT");
+      }
       throw new Error(`Unexpected path: ${targetPath}`);
     });
-    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "# Planner\n");
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     fsMocks.files.set(join(skillSourceDir, "notes.txt"), "notes\n");
 
     const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
@@ -201,17 +248,17 @@ describe("native-skill-projection", () => {
     expect(result.synced).toBe(3);
     expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".claude", "skills", "planner", "SKILL.md"),
-      "# Planner\n",
+      PLANNER_SKILL,
       "utf-8",
     );
     expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".codex", "skills", "planner", "SKILL.md"),
-      "# Planner\n",
+      PLANNER_SKILL,
       "utf-8",
     );
     expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".config", "opencode", "skills", "planner", "SKILL.md"),
-      "# Planner\n",
+      PLANNER_SKILL,
       "utf-8",
     );
   });
@@ -226,11 +273,11 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) {
         return [dirent("planner", true)];
       }
-      if (targetPath === projectDir) {
-        throw new Error("ENOENT");
-      }
       if (targetPath === skillSourceDir) {
         return [dirent("SKILL.md", false)];
+      }
+      if (targetPath === projectDir) {
+        throw new Error("ENOENT");
       }
       throw new Error(`Unexpected path: ${targetPath}`);
     });
@@ -261,15 +308,15 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) {
         return [dirent("planner", true)];
       }
-      if (targetPath === projectDir) {
-        throw new Error("ENOENT");
-      }
       if (targetPath === skillSourceDir) {
         return [dirent("SKILL.md", false), dirent("notes.txt", false)];
       }
+      if (targetPath === projectDir) {
+        throw new Error("ENOENT");
+      }
       throw new Error(`Unexpected path: ${targetPath}`);
     });
-    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "# Planner\n");
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     fsMocks.files.set(join(skillSourceDir, "notes.txt"), "notes\n");
 
     const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
@@ -303,15 +350,15 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) {
         return [dirent("planner", true)];
       }
-      if (targetPath === projectDir) {
-        throw new Error("ENOENT");
-      }
       if (targetPath === skillSourceDir) {
         return [dirent("SKILL.md", false)];
       }
+      if (targetPath === projectDir) {
+        throw new Error("ENOENT");
+      }
       throw new Error(`Unexpected path: ${targetPath}`);
     });
-    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "# Planner\n");
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
     const first = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
     expect(first.errors).toHaveLength(0);
@@ -331,6 +378,6 @@ describe("native-skill-projection", () => {
 
     expect(forced.codex).toBe(true);
     expect(forced.errors).toHaveLength(0);
-    expect(fsMocks.files.get(codexSkillPath)).toBe("# Planner\n");
+    expect(fsMocks.files.get(codexSkillPath)).toBe(PLANNER_SKILL);
   });
 });

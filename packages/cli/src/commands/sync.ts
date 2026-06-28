@@ -246,9 +246,10 @@ export async function syncCommand(
     }
 
     if (skillsResult) {
-      console.log(`Skills (Claude Code):   ${skillsResult.claude ? "OK" : "FAIL"} (${skillsResult.synced} skills)`);
-      console.log(`Skills (Codex):         ${skillsResult.codex ? "OK" : "FAIL"} (${skillsResult.synced} skills)`);
-      console.log(`Skills (OpenCode):      ${skillsResult.opencode ? "OK" : "FAIL"} (${skillsResult.synced} skills)`);
+      console.log(`Skills (Claude Code):   ${skillsResult.claude ? "OK" : "FAIL"}`);
+      console.log(`Skills (Codex):         ${skillsResult.codex ? "OK" : "FAIL"}`);
+      console.log(`Skills (OpenCode):      ${skillsResult.opencode ? "OK" : "FAIL"}`);
+      console.log(`Skill projections:       ${skillsResult.synced}`);
     }
 
     console.log("─".repeat(40));

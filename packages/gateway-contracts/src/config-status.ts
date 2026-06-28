@@ -66,6 +66,54 @@ export type KilnProjectionTargetStatus =
   | "drifted"
   | "unmanaged";
 
+export type KilnSkillOriginKind =
+  | "builtin"
+  | "user"
+  | "project"
+  | "plugin"
+  | "native-harness";
+
+export type KilnSkillCatalogProjectionStatus =
+  | "missing"
+  | "projected"
+  | "drifted"
+  | "unmanaged-native";
+
+export type KilnSkillAdmissionState =
+  | "available"
+  | "admitted"
+  | "omitted"
+  | "blocked"
+  | "unavailable";
+
+export interface KilnSkillProjectionTargetSnapshot {
+  readonly target: "claude" | "codex" | "opencode";
+  readonly displayName: string;
+  readonly path: string;
+  readonly status: KilnSkillCatalogProjectionStatus;
+}
+
+export interface KilnSkillCatalogSnapshotEntry {
+  readonly name: string;
+  readonly description: string;
+  readonly origin: KilnSkillOriginKind;
+  readonly configured: boolean;
+  readonly builtIn: boolean;
+  readonly sourcePath: string;
+  readonly tools?: readonly string[];
+  readonly tags?: readonly string[];
+  readonly projections: readonly KilnSkillProjectionTargetSnapshot[];
+  readonly admission: {
+    readonly state: KilnSkillAdmissionState;
+    readonly reason: string;
+  };
+  readonly omissionReason?: string;
+}
+
+export interface KilnSkillCatalogSnapshot {
+  readonly entries: readonly KilnSkillCatalogSnapshotEntry[];
+}
+
 export interface KilnProjectionTargetSnapshot {
   readonly targetId: string;
   readonly path: string;
@@ -111,6 +159,7 @@ export interface KilnConfigSetupSnapshot {
   };
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
   readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
+  readonly skills?: KilnSkillCatalogSnapshot;
   readonly recommendedActions: readonly KilnConfigSetupAction[];
 }
 
@@ -136,6 +185,7 @@ export interface KilnConfigStatusSnapshot {
   readonly effectiveConfig?: Record<string, unknown>;
   readonly errors: readonly string[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
+  readonly skills?: KilnSkillCatalogSnapshot;
   readonly setup: KilnConfigSetupSnapshot;
   readonly harnessCapabilities: readonly KilnHarnessCapabilitySnapshot[];
 }
@@ -170,6 +220,34 @@ export const KilnRepoShimProjectionSnapshotSchema = z.object({
   recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
 });
 
+export const KilnSkillProjectionTargetSnapshotSchema = z.object({
+  target: z.enum(["claude", "codex", "opencode"]),
+  displayName: z.string(),
+  path: z.string(),
+  status: z.enum(["missing", "projected", "drifted", "unmanaged-native"]),
+});
+
+export const KilnSkillCatalogSnapshotEntrySchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  origin: z.enum(["builtin", "user", "project", "plugin", "native-harness"]),
+  configured: z.boolean(),
+  builtIn: z.boolean(),
+  sourcePath: z.string(),
+  tools: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  projections: z.array(KilnSkillProjectionTargetSnapshotSchema),
+  admission: z.object({
+    state: z.enum(["available", "admitted", "omitted", "blocked", "unavailable"]),
+    reason: z.string(),
+  }),
+  omissionReason: z.string().optional(),
+});
+
+export const KilnSkillCatalogSnapshotSchema = z.object({
+  entries: z.array(KilnSkillCatalogSnapshotEntrySchema),
+});
+
 export const KilnConfigSetupSnapshotSchema = z.object({
   projectRoot: z.string(),
   projectContext: KilnConfigSourceSnapshotSchema.extend({
@@ -177,6 +255,7 @@ export const KilnConfigSetupSnapshotSchema = z.object({
   }),
   repoShims: z.array(KilnRepoShimProjectionSnapshotSchema),
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
+  skills: KilnSkillCatalogSnapshotSchema.optional(),
   recommendedActions: z.array(z.enum(KILN_CONFIG_SETUP_ACTIONS)),
 });
 

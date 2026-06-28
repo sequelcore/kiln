@@ -1085,6 +1085,21 @@ describe("resolveManagedInvocationToolOptions", () => {
         ].join("\n"),
         "utf-8",
       );
+      const codexLocalSkillDir = join(root, ".codex", "skills", "shadcn");
+      mkdirSync(codexLocalSkillDir, { recursive: true });
+      writeFileSync(
+        join(codexLocalSkillDir, "SKILL.md"),
+        [
+          "---",
+          "name: shadcn",
+          "description: Native Codex-local shadcn skill.",
+          "---",
+          "",
+          "Native only.",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
 
       const result = await resolveManagedInvocationToolOptions(baseConfig({
         routes: [{
@@ -1112,18 +1127,31 @@ describe("resolveManagedInvocationToolOptions", () => {
         skills: ["test-generator"],
       }));
       expect(result.managedInvocation?.skillCatalog).toEqual(expect.arrayContaining([
-        {
+        expect.objectContaining({
           name: "repo-review",
           description: "Review repository evidence.",
+          origin: "project",
+          configured: true,
           tags: ["review"],
-        },
-        {
+          admission: expect.objectContaining({ state: "available" }),
+        }),
+        expect.objectContaining({
           name: "test-generator",
           description: "Generate focused tests.",
+          origin: "project",
+          configured: true,
           tags: ["test"],
-        },
+        }),
         expect.objectContaining({
           name: "managed-agent-risk-review",
+          origin: "builtin",
+          configured: true,
+        }),
+        expect.objectContaining({
+          name: "shadcn",
+          origin: "native-harness",
+          configured: false,
+          omissionReason: "native-harness-local-only",
         }),
       ]));
     } finally {

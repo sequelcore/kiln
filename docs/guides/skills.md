@@ -150,6 +150,39 @@ Built-ins are projected to supported native harness skill directories during
 remain projections; canonical user and project skills live under
 `~/.kiln/skills` and `.kiln/skills`.
 
+## Skill Status And Admission
+
+Kiln reports skill status through `kiln config read skills`, `kiln config read
+setup`, GUI setup, TUI setup, and the model-callable `kiln_config.read` view.
+The status contract separates:
+
+- configured registry entries from project, user, plugin, or built-in sources
+- built-in versus user/project content
+- native projection state for Claude Code, Codex, and OpenCode
+- unmanaged native harness-local skills that exist outside Kiln
+- route/session admission into current procedural context
+- omission or unavailable reasons
+
+This distinction is deliberate. A local Codex skill such as `shadcn` may exist
+under `~/.codex/skills`, but Kiln treats that as `native-harness` and
+`unmanaged-native` until it is adopted or installed into `~/.kiln/skills` or
+`.kiln/skills`. Managed invocation does not silently import native harness
+folders, because those folders may have different trust, policy, plugin, or
+route assumptions than the current Kiln session.
+
+When setup recommends `adopt-or-back-up-native-guidance`, the governed repair
+is to run the setup action. Kiln copies parseable, non-conflicting native
+skills into the global Kiln registry once, then projects that canonical copy to
+Claude Code, Codex, and OpenCode. If two harnesses contain the same skill name
+with different content, adoption blocks and reports the conflict so the
+operator can reconcile the source before Kiln admits it.
+
+Explicit skill requests fail closed when the skill is not in the governed Kiln
+registry. Recommended skills are advisory unless `skills.selection.mode: auto`
+is enabled. Auto mode admits only configured skills and records the admission
+in managed invocation context metadata; unavailable recommendations are skipped
+instead of invented.
+
 ## Task-Aware Selection
 
 Models and routes may advertise recommended skills for task classes such as
@@ -301,6 +334,10 @@ Sessions run in CLI-wrapper mode without an API key print a capture hint after c
 | `kiln skill install <path>` | Install a SKILL.md file to project |
 | `kiln skill publish` | Validate SKILL.md for npm publishing |
 | `kiln skill capture [sessionId]` | Generate a skill from a session transcript |
+
+Use `kiln config read skills` when you need origin, projection, unmanaged
+native, or admission diagnostics. Use `kiln skill list` for the shorter
+operator-facing configured registry list.
 
 ## Event Triggers
 

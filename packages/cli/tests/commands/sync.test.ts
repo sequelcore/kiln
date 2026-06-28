@@ -275,6 +275,28 @@ describe("syncCommand", () => {
     expect(output).toContain("OpenCode: runtime injection: OPENCODE_CONFIG_CONTENT; native projection: install-state; native import: supported; MCP: supported; hooks: supported");
   });
 
+  it("labels the aggregate skill sync count as projections", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    syncMocks.syncNativeSkillProjections.mockResolvedValue({
+      claude: true,
+      codex: true,
+      opencode: true,
+      synced: 120,
+      errors: [],
+    });
+    let output = "";
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--skills"]);
+      output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(output).toContain("Skill projections:       120");
+    expect(output).not.toContain("(120 skills)");
+  });
+
   it("accepts appConfig, subcommand, and args parameters", async () => {
     const { readKilnYaml } = await import("../../src/kiln-yaml.js");
     const originalRead = readKilnYaml;

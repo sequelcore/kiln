@@ -36,12 +36,13 @@ import {
   readRepoShimProjectionStatuses,
   readWorkflowSnapshotManifestStatus,
 } from "./repo-shim-projection.js";
-import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
+import { readSkillCatalogStatus } from "../config/skill-catalog-status.js";
 import { resolveCliMemoryStorage } from "./cli-memory-storage.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
   readonly now?: Date;
+  readonly userHome?: string;
 }
 
 interface ConfigLoadState {
@@ -67,11 +68,19 @@ export async function readConfigStatusSnapshot(
   );
 
   const projectionState = await readProjectionSnapshots(rootPath, errors);
+  const skillCatalog = effectiveConfig
+    ? readSkillCatalogStatus({
+      projectPath: rootPath,
+      userHome: options.userHome ?? homedir(),
+      skillConfig: effectiveConfig.skills,
+    })
+    : undefined;
   const setup = buildSetupSnapshot({
     rootPath,
     projectContext,
     repoShims: projectionState.repoShims,
     projections: projectionState.projections,
+    skillCatalog,
   });
 
   return {
@@ -89,6 +98,7 @@ export async function readConfigStatusSnapshot(
     ...(effectiveConfig ? { effectiveConfig: effectiveConfig as unknown as Record<string, unknown> } : {}),
     errors,
     projections: projectionState.projections,
+    ...(skillCatalog ? { skills: skillCatalog } : {}),
     setup,
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
   };
@@ -302,7 +312,7 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
     case "agents":
       return readAgentIndexes(snapshot.project.rootPath);
     case "skills":
-      return readSkillIndexes(snapshot.project.rootPath);
+      return snapshot.skills ?? { entries: [] };
     case "permissions":
       return config?.permissions ?? null;
     case "memory": {
@@ -333,6 +343,7 @@ function buildSetupSnapshot(input: {
   readonly projectContext: KilnConfigSourceSnapshot;
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
+  readonly skillCatalog?: ReturnType<typeof readSkillCatalogStatus>;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
   const projectContextRecommendation = projectContextRecommendationFor(input.projectContext);
@@ -340,6 +351,7 @@ function buildSetupSnapshot(input: {
     projectContextRecommendation,
     ...input.repoShims.map((shim) => shim.recommendation),
     ...nativeProjections.map(nativeProjectionRecommendation),
+    ...skillProjectionRecommendations(input.skillCatalog),
   ]);
   return {
     projectRoot: input.rootPath,
@@ -349,6 +361,7 @@ function buildSetupSnapshot(input: {
     },
     repoShims: input.repoShims,
     nativeProjections,
+    ...(input.skillCatalog ? { skills: input.skillCatalog } : {}),
     recommendedActions: actions,
   };
 }
@@ -407,24 +420,29 @@ async function readAgentIndexes(projectPath: string): Promise<unknown> {
   };
 }
 
-function readSkillIndexes(projectPath: string): unknown {
-  const globalState = readGlobalConfigState();
-  const projectState = readProjectConfigState(projectPath);
-  const config = buildEffectiveConfig(globalState, projectState, []);
-  const registry = createConfiguredSkillRegistry({
-    projectPath,
-    userHome: homedir(),
-    skillConfig: config?.skills,
-  });
-  return {
-    skills: registry.all().map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      filePath: skill.filePath,
-      tags: skill.tags,
-      tools: skill.tools,
-    })),
-  };
+function skillProjectionRecommendations(
+  skillCatalog: ReturnType<typeof readSkillCatalogStatus> | undefined,
+): readonly KilnConfigSetupAction[] {
+  if (!skillCatalog) {
+    return [];
+  }
+  const actions: KilnConfigSetupAction[] = [];
+  for (const skill of skillCatalog.entries) {
+    if (!skill.configured && skill.origin === "native-harness") {
+      actions.push("adopt-or-back-up-native-guidance");
+      continue;
+    }
+    if (skill.projections.some((projection) => projection.status === "missing")) {
+      actions.push("sync-native-projections");
+    }
+    if (skill.projections.some((projection) => projection.status === "drifted")) {
+      actions.push("review-native-projection-drift");
+    }
+    if (skill.projections.some((projection) => projection.status === "unmanaged-native")) {
+      actions.push("review-native-projection-drift");
+    }
+  }
+  return actions;
 }
 
 function projectHarnessCapability(capability: ReturnType<typeof listHarnessIntegrationCapabilities>[number]): KilnHarnessCapabilitySnapshot {
