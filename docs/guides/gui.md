@@ -211,6 +211,36 @@ Current mode status:
 - `Approvals` remains gated until a dedicated event-backed panel is built on
   top of canonical approval events
 
+### Sidebar Navigation
+
+The desktop sidebar is one continuous operator-navigation surface. It combines
+primary surface navigation and canonical session history without placing a
+secondary panel inside the sidebar.
+
+The sidebar shell owns collapse behavior, mobile drawer handoff, and surface
+selection. Session history owns search, temporal grouping, keyboard traversal,
+selection state, and compact row presentation. Do not introduce another
+responsive sidebar abstraction unless it replaces the existing shell owner
+rather than duplicating its state.
+
+Session rows are dense navigation items, not cards. Each row reserves stable
+space for the conversation title, relative age, selected state, and exceptional
+runtime state. Provider summaries, tags, count footers, and descriptive
+metadata belong in session detail or activity surfaces, not in the navigation
+list. Secondary actions should appear only when they are useful for the current
+interaction.
+
+Search is progressive from the history heading. An empty search state should
+explain the result and provide a clear recovery path without changing session
+selection. The same radius, spacing, hover, focus, and selected-state language
+must be shared by primary surface navigation and session history so the sidebar
+reads as one system.
+
+The sidebar uses installed shadcn/Base UI primitives such as `Button`, `Input`,
+`Popover`, `Separator`, and `Tooltip` for focus behavior and interaction
+semantics. Visual styling remains Kiln-owned through the theme tokens defined
+in `packages/gui/src/styles.css`.
+
 ## Workspace Explorer
 
 The Workspace rail panel is a read-only navigation projection of the active
@@ -274,6 +304,31 @@ Document tabs are local presentation state. They do not mutate the runtime
 session, provider route, approval state, changed-file events, or working tree.
 Editing, save semantics, structured diff viewing, and provider tool invocation
 remain outside this read-only workspace slice.
+
+## Transcript Navigation
+
+The GUI transcript composes the official shadcn `MessageScroller` primitives
+over Kiln's shared conversation-turn projection. Kiln owns message, event, and
+tool evidence; the scroller owns viewport behavior only.
+
+User messages are stable turn anchors. Opening saved history restores the last
+anchored turn instead of dropping the reader at the absolute bottom, and a new
+turn keeps a small part of the previous row visible for context. Streaming
+follows only while the reader remains at the live edge. Wheel, touch, keyboard,
+or explicit message navigation releases that follow state, allowing new output
+to arrive offscreen without moving the current reading position.
+
+Every projected transcript row has a stable message identity so prepended
+history and late layout changes preserve the visible row. The jump-to-latest
+control appears only when more content exists below; using it returns to the
+live edge and resumes following. The control is icon-only so it remains usable
+when inspector or browser docks narrow the transcript, while its accessible
+name distinguishes normal history from live activity arriving below.
+
+The viewport is keyboard-focusable and the transcript content is a polite log.
+Rows use content visibility and intrinsic sizing hints to keep long histories
+responsive. Do not reintroduce direct `scrollTop` mutation, unconditional
+bottom pinning, or a second GUI-owned scroll state machine.
 
 ## Resource Reads
 

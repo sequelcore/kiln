@@ -139,7 +139,15 @@ Show:
 - `kiln-dark`, `kiln-light`, and `system-follow`.
 - Distinct user, assistant, tool, and error message treatment.
 - Markdown output with headings, inline code, and fenced code blocks.
-- Auto-scroll behavior at the bottom, then stability when manually scrolled up.
+- Saved history opening at the latest user-turn anchor with prior context still
+  visible.
+- Live-edge following while the reader remains at the bottom, then stable
+  position after wheel, touch, or keyboard navigation moves away.
+- Offscreen activity indication and an accessible jump-to-latest control that
+  returns to the live edge without leaving focus trapped on a disappearing
+  button.
+- Stable reading position while tool details, Markdown, or prepended history
+  change transcript layout.
 - Narrow-window behavior where the session rail collapses into a drawer.
 
 Pass condition:

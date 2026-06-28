@@ -59,6 +59,12 @@ Use these documents as the source of truth before starting roadmap work:
    local-first feedback bundles, redaction, evidence selection, issue drafts,
    governed repair work items, and later draft pull-request flow.
 
+3. [Public Release UI Debt](./03-public-release-ui-debt.md)
+   Active on 2026-06-28. Scope is release-blocking GUI debt discovered during
+   live validation, starting with the composer context usage indicator. The GUI
+   must not publish with a fake context percentage or an unavailable state
+   presented as authoritative.
+
 ## Deferred Roadmaps
 
 - OS-pack packaging for web extraction and browser helpers.
