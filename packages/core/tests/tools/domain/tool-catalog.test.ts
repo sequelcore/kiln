@@ -8,7 +8,7 @@ describe("ToolCatalogIndex", () => {
 
     const result = catalog.search({ exact: "read" });
 
-    expect(result.totalIndexed).toBe(45);
+    expect(result.totalIndexed).toBe(47);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]).toMatchObject({
       name: "read",
@@ -64,7 +64,7 @@ describe("ToolCatalogIndex", () => {
     const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
 
     expect(catalog.search({ exact: "missing_tool" })).toMatchObject({
-      totalIndexed: 45,
+      totalIndexed: 47,
       entries: [],
       stale: true,
       reason: "tool_not_found",
@@ -82,6 +82,19 @@ describe("ToolCatalogIndex", () => {
       inputFields: expect.arrayContaining(["operation", "path", "position", "query", "symbol", "verbosity"]),
     });
     expect(catalog.search({ tags: ["code"] }).entries.map((entry) => entry.name)).toContain("code_intelligence");
+  });
+
+  it("indexes json_query as a structured JSON query tool", () => {
+    const catalog = ToolCatalogIndex.fromTools(createDefaultBuiltinTools());
+
+    expect(catalog.search({ exact: "json_query" }).entries[0]).toMatchObject({
+      name: "json_query",
+      sourcePackage: "@kilnai/core",
+      authority: "standard",
+      tags: expect.arrayContaining(["structured-data", "json", "query", "read-only", "egress"]),
+      inputFields: ["filter", "json", "path", "maxBytes", "verbosity"],
+    });
+    expect(catalog.search({ tags: ["json"] }).entries.map((entry) => entry.name)).toContain("json_query");
   });
 
   it("indexes read_many as a bulk context file tool", () => {

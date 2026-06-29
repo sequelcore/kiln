@@ -162,9 +162,9 @@ describe("ToolResourceRegistry", () => {
 
     expect(result.summary).toEqual({
       kind: "tool-catalog",
-      totalCount: 45,
+      totalCount: 47,
       counts: {
-        tool: 45,
+        tool: 47,
       },
     });
     expect(result.contents).toHaveLength(1);
@@ -173,8 +173,9 @@ describe("ToolResourceRegistry", () => {
       mimeType: "application/json",
     });
     const payload = JSON.parse(result.contents[0]!.text);
-    expect(payload.totalIndexed).toBe(45);
+    expect(payload.totalIndexed).toBe(47);
     expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("operator_elicit");
+    expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("json_query");
   });
 
   it("exposes governed work items when a session work item store is attached", async () => {

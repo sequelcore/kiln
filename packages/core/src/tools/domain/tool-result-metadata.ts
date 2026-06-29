@@ -25,6 +25,7 @@ export type ComputerToolName =
   | "computer_close_application";
 export type InteractiveToolName = BrowserToolName | ComputerToolName;
 export type SearchToolName = "grep" | "glob";
+export type StructuredDataToolName = "json_query";
 export type CatalogToolName = "tool_catalog_search";
 export type CodeToolName = "code_intelligence";
 export type MonitorToolName = "monitor_start" | "monitor_read" | "monitor_stop" | "monitor_list";
@@ -38,7 +39,7 @@ export type WorkItemToolName =
   | "work_item.execution.fail";
 export type GoalToolName = "goal.create";
 export type ElicitationToolName = "operator_elicit";
-export type MemoryToolName = "memory_save";
+export type MemoryToolName = "memory_search" | "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
@@ -84,6 +85,10 @@ export type WebToolErrorCode =
   | "provider_not_configured"
   | "empty_extraction";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
+export type SearchRuntimeSource = "bundled" | "configured" | "system" | "unavailable";
+export type StructuredDataToolOperation = "query";
+export type StructuredDataToolStrategy = "jq";
+export type StructuredDataSource = "inline" | "file";
 export type GrepOutputMode = "content" | "files_with_matches" | "count";
 export type CatalogToolOperation = "search";
 export type CodeIntelligenceOperation =
@@ -108,7 +113,7 @@ export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "complet
 export type WorkItemToolOperation = "update" | "list" | "complete" | "execution_started" | "execution_finished";
 export type GoalToolOperation = "create";
 export type ElicitationToolOperation = "elicit";
-export type MemoryToolOperation = "save";
+export type MemoryToolOperation = "search" | "save";
 export type ResourceToolOperation = "list" | "list_templates" | "read";
 export type ElicitationMode = "form" | "url";
 export type ElicitationOutcome = "submitted" | "declined" | "cancelled" | "unsupported";
@@ -200,12 +205,34 @@ export interface SearchToolResultMetadata<TToolName extends SearchToolName = Sea
   readonly kind: "search";
   readonly path: string;
   readonly strategy?: SearchToolStrategy;
+  readonly runtimeSource?: SearchRuntimeSource;
+  readonly runtimePath?: string;
+  readonly runtimeVersion?: string;
   readonly outputMode?: GrepOutputMode;
+  readonly matchMode?: "regex" | "literal";
   readonly count?: number;
   readonly totalCount?: number;
   readonly maxResults?: number;
   readonly truncated?: boolean;
   readonly noMatches?: boolean;
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
+export interface StructuredDataToolResultMetadata<TToolName extends StructuredDataToolName = StructuredDataToolName> {
+  readonly toolName: TToolName;
+  readonly kind: "structured_data";
+  readonly operation: StructuredDataToolOperation;
+  readonly source: StructuredDataSource;
+  readonly path?: string;
+  readonly filter?: string;
+  readonly strategy: StructuredDataToolStrategy;
+  readonly runtimeSource?: SearchRuntimeSource;
+  readonly runtimePath?: string;
+  readonly runtimeVersion?: string;
+  readonly lineCount?: number;
+  readonly totalBytes?: number;
+  readonly maxBytes?: number;
+  readonly truncated?: boolean;
   readonly verbosity?: ToolOutputVerbosity;
 }
 
@@ -495,8 +522,11 @@ export interface MemoryToolResultMetadata<TToolName extends MemoryToolName = Mem
   readonly scopeKind?: string;
   readonly scopeId?: string;
   readonly layer?: string;
+  readonly query?: string;
+  readonly resultCount?: number;
+  readonly truncated?: boolean;
   readonly resourceUri?: string;
-  readonly errorCode?: "invalid_input" | "service_unavailable" | "repository_error";
+  readonly errorCode?: "invalid_input" | "service_unavailable" | "registry_unavailable" | "authorization_denied" | "not_found" | "repository_error";
 }
 
 export type ToolSpecificResultMetadata =
@@ -507,6 +537,7 @@ export type ToolSpecificResultMetadata =
   | WebToolResultMetadata
   | InteractiveToolResultMetadata
   | SearchToolResultMetadata
+  | StructuredDataToolResultMetadata
   | CatalogToolResultMetadata
   | CodeToolResultMetadata
   | MonitorToolResultMetadata
@@ -582,6 +613,17 @@ export function searchToolMetadata<TToolName extends SearchToolName>(
   return {
     toolName,
     kind: "search",
+    ...metadata,
+  };
+}
+
+export function structuredDataToolMetadata<TToolName extends StructuredDataToolName>(
+  toolName: TToolName,
+  metadata: Omit<StructuredDataToolResultMetadata<TToolName>, "toolName" | "kind">,
+): StructuredDataToolResultMetadata<TToolName> {
+  return {
+    toolName,
+    kind: "structured_data",
     ...metadata,
   };
 }

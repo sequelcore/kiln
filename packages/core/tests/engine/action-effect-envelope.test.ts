@@ -29,7 +29,7 @@ const ALL_DEV_TOOL_NAMES: DevToolName[] = [
   "browser_click", "browser_type", "browser_keypress", "browser_scroll", "browser_session_stop",
   "computer_observe", "computer_click", "computer_type", "computer_keypress",
   "computer_open_application", "computer_focus_application", "computer_minimize_application", "computer_close_application",
-  "grep", "glob", "git", "code_intelligence",
+  "grep", "glob", "json_query", "git", "code_intelligence",
   "monitor_start", "monitor_read", "monitor_stop", "monitor_list",
   "task_list", "task_update", "operator_elicit", "tool_catalog_search",
   "memory_save", "resource_list", "resource_template_list", "resource_read",

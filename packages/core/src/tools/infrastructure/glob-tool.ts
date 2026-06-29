@@ -3,6 +3,7 @@ import {
   detectToolEnvironment,
   type ToolEnvironment,
 } from "../domain/tool-environment.js";
+import { resolveVendoredToolBinary } from "@kilnai/tools";
 import { searchToolMetadata, type ToolOutputVerbosity } from "../domain/tool-result-metadata.js";
 import {
   TOOL_SCHEMAS,
@@ -26,6 +27,7 @@ import {
   expandGlobAlternates,
 } from "./tool-helpers.js";
 import { parseOutputVerbosity, pluralize, splitNonEmptyLines } from "./output-verbosity.js";
+import type { VendoredToolResolver } from "./search-runtime.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const SUMMARY_MATCH_LIMIT = 20;
@@ -43,6 +45,7 @@ type EnvironmentProvider = () => Promise<ToolEnvironment>;
 export interface GlobToolOptions {
   readonly commandRunner?: GlobCommandRunner;
   readonly environmentProvider?: EnvironmentProvider;
+  readonly vendoredToolResolver?: VendoredToolResolver;
 }
 
 export class GlobTool implements DevTool {
@@ -52,10 +55,12 @@ export class GlobTool implements DevTool {
 
   private readonly commandRunner: GlobCommandRunner;
   private readonly environmentProvider: EnvironmentProvider;
+  private readonly vendoredToolResolver: VendoredToolResolver;
 
   constructor(options: GlobToolOptions = {}) {
     this.commandRunner = options.commandRunner ?? defaultRunCommand;
     this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
+    this.vendoredToolResolver = options.vendoredToolResolver ?? resolveVendoredToolBinary;
   }
 
   async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
@@ -82,10 +87,15 @@ export class GlobTool implements DevTool {
 
     try {
       const environment = await this.environmentProvider();
-      const fdPath = environment.fd?.path;
+      const vendoredFd = this.vendoredToolResolver("fd");
+      const fdRuntime = vendoredFd
+        ? { path: vendoredFd.path, source: "bundled" as const, version: vendoredFd.version }
+        : environment.fd
+          ? { path: environment.fd.path, source: "system" as const, version: environment.fd.version }
+          : undefined;
 
-      if (fdPath) {
-        const fastPathResult = await this.executeFastPath(fdPath, searchRoot, patternInput.value, verbosityInput.value);
+      if (fdRuntime) {
+        const fastPathResult = await this.executeFastPath(fdRuntime, searchRoot, patternInput.value, verbosityInput.value);
         if (!fastPathResult.isError) {
           return fastPathResult;
         }
@@ -101,7 +111,7 @@ export class GlobTool implements DevTool {
   }
 
   private async executeFastPath(
-    fdPath: string,
+    fdRuntime: { readonly path: string; readonly source: "bundled" | "system"; readonly version?: string },
     searchRoot: string,
     pattern: string,
     verbosity: ToolOutputVerbosity,
@@ -114,7 +124,7 @@ export class GlobTool implements DevTool {
         const args = ["--glob", "--type", "f", plan.pattern, "."];
         try {
           const result = await this.commandRunner(
-            fdPath,
+            fdRuntime.path,
             args,
             plan.cwd,
             DEFAULT_TIMEOUT_MS,
@@ -144,6 +154,9 @@ export class GlobTool implements DevTool {
       const metadata = searchToolMetadata("glob", {
         path: searchRoot,
         strategy: "fd",
+        runtimeSource: fdRuntime.source,
+        runtimePath: fdRuntime.path,
+        runtimeVersion: fdRuntime.version,
         count: uniqueMatches.length,
         ...globTruncationMetadata(uniqueMatches, verbosity),
         ...(uniqueMatches.length === 0 ? { noMatches: true } : {}),
@@ -164,6 +177,9 @@ export class GlobTool implements DevTool {
       return toErrorResult(message, searchToolMetadata("glob", {
         path: searchRoot,
         strategy: "fd",
+        runtimeSource: fdRuntime.source,
+        runtimePath: fdRuntime.path,
+        runtimeVersion: fdRuntime.version,
       }));
     }
   }

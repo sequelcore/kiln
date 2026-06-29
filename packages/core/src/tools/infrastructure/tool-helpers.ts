@@ -1,9 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { promisify } from "node:util";
-
-const execFile = promisify(execFileCallback);
 
 import { PathValidator } from "../../sandbox/path-validator.js";
 import { SandboxPolicy } from "../../sandbox/policies.js";
@@ -164,14 +161,26 @@ export async function runCommand(
   args: readonly string[],
   cwd: string,
   timeoutMs: number,
+  stdin?: string,
 ): Promise<CommandResult> {
-  const { stdout, stderr } = await execFile(binary, args, {
-    cwd,
-    timeout: timeoutMs,
-    windowsHide: true,
-    maxBuffer: 2 * 1024 * 1024,
+  return await new Promise((resolveCommand, rejectCommand) => {
+    const child = execFileCallback(binary, args, {
+      cwd,
+      timeout: timeoutMs,
+      windowsHide: true,
+      maxBuffer: 2 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        rejectCommand(Object.assign(error, { stdout, stderr }));
+        return;
+      }
+      resolveCommand({ stdout, stderr });
+    });
+
+    if (stdin !== undefined) {
+      child.stdin?.end(stdin);
+    }
   });
-  return { stdout, stderr };
 }
 
 export async function walkFiles(rootPath: string): Promise<string[]> {

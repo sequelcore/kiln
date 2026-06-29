@@ -185,6 +185,26 @@ const MEMORY_MUTATE: ActionEffectEnvelope = {
   idempotency: "non-idempotent" as IdempotencyType,
 };
 
+const OBSERVE_PROJECT_DATA_EGRESS: ActionEffectEnvelope = {
+  operation: "observe" as OperationType,
+  boundaries: ["process", "workspace"] as readonly BoundaryType[],
+  reversibility: "reversible" as ReversibilityType,
+  dataEgress: "project-data" as DataEgressType,
+  identityUse: "none" as IdentityUseType,
+  consequences: [] as readonly ConsequenceType[],
+  idempotency: "idempotent" as IdempotencyType,
+};
+
+const MEMORY_OBSERVE: ActionEffectEnvelope = {
+  operation: "observe" as OperationType,
+  boundaries: ["process", "workspace"] as readonly BoundaryType[],
+  reversibility: "reversible" as ReversibilityType,
+  dataEgress: "project-data" as DataEgressType,
+  identityUse: "none" as IdentityUseType,
+  consequences: [] as readonly ConsequenceType[],
+  idempotency: "idempotent" as IdempotencyType,
+};
+
 /**
  * Complete declared effect envelopes for all builtin developer tools.
  *
@@ -324,6 +344,7 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
   // --- Search tools ---
   grep: OBSERVE_NONE_EGRESS,
   glob: OBSERVE_NONE_EGRESS,
+  json_query: OBSERVE_PROJECT_DATA_EGRESS,
   git: GIT_OBSERVE,
   code_intelligence: OBSERVE_METADATA_EGRESS,
 
@@ -368,6 +389,7 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
   tool_catalog_search: OBSERVE_METADATA_EGRESS,
 
   // --- Memory ---
+  memory_search: MEMORY_OBSERVE,
   memory_save: MEMORY_MUTATE,
 
   // --- Resource tools ---
