@@ -330,6 +330,12 @@ Rows use content visibility and intrinsic sizing hints to keep long histories
 responsive. Do not reintroduce direct `scrollTop` mutation, unconditional
 bottom pinning, or a second GUI-owned scroll state machine.
 
+Markdown tables in assistant output are transcript content, not shared table
+primitive behavior. The transcript renderer owns the horizontal scroll
+container for Markdown tables so long evidence tables remain inspectable in
+narrow chat layouts without changing the global shadcn `Table` component used
+by product UI.
+
 ## Resource Reads
 
 GUI resource previews read through the shared `OperatorResourceReadResult`

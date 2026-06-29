@@ -12,6 +12,14 @@ baseline. Active and deferred execution tracks live in
   Workspace home projection, gateway target switcher, target-aware resource
   inspector reads through runtime provider options, SDK `ApiClient.readResource`,
   CLI target-aware resource reads, and stable architecture/guide documentation.
+- Promoted native developer-tool contracts into stable runtime and
+  documentation surfaces: `grep` resolves the vendored `rg` runtime,
+  `glob` can use vendored `fd`, `json_query` executes through native `jq`,
+  `memory_search` exposes governed memory reads, and the private
+  `@kilnai/tools-*` packages carry platform runtime metadata for packaged
+  execution evidence.
+- Kept GUI Markdown tables horizontally scrollable through a scoped transcript
+  renderer without changing shared shadcn table primitives.
 - Replaced internal tool annotation authority with canonical action-effect
   governance: builtin tools now declare immutable effect envelopes, concrete
   calls resolve input-sensitive invocation effects before authority, external

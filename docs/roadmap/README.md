@@ -80,6 +80,15 @@ Use these documents as the source of truth before starting roadmap work:
 - Binary and PDF source artifacts for controlled web research.
   Deferred until research workflows need reliable PDF text extraction, OCR, or
   binary artifact handling.
+- Native web research contract.
+  Deferred until comparative research across papers, provider documentation,
+  community practice, and cloned harness repositories justifies a first-class
+  source-ranking, citation, extraction-evidence, recency, and budget contract
+  over the existing controlled web primitives.
+- Session evidence hardening.
+  Deferred until provider/model/reasoning/authority provenance gaps appear in
+  live surface traces or release validation, at which point the work should add
+  inspectable session evidence instead of relying on transcript prose.
 - Learning-based governance and routing.
   Deferred until there are enough real workflow traces, eval data, and stable
   runtime policies to justify machine-learned routing or governance advice.
@@ -120,6 +129,8 @@ roadmap files. Current completed areas include:
 - Provider credential pooling and provider/model discovery.
 - Operator-surface startup discovery staging and stale provider diagnostics.
 - Controlled web research, browser/computer use, and tool execution.
+- Native developer tool runtimes for repo search, globbing, JSON querying, and
+  governed memory search.
 - Multimodal artifact transport and capability-aware route admission.
 - Agent QA showcase recorder.
 - External benchmark validation platform.
