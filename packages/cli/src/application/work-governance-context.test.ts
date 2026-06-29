@@ -26,7 +26,10 @@ describe("work-governance-context", () => {
     });
     expect(candidate?.content).toContain("Default posture: orchestrate");
     expect(candidate?.content).toContain("Require orchestration/delegation for: architecture, managed-agents");
-    expect(candidate?.content).toContain("work_profile.list and work_item.update/list/complete");
+    expect(candidate?.content).toContain("recommendations are advisory until the operator requests formal tracked execution");
+    expect(candidate?.content).toContain("Research, comparison, explanation, diagnosis, review, and planning-as-answer turns");
+    expect(candidate?.content).toContain("without creating work_item, goal, or work_item.execution records");
+    expect(candidate?.content).toContain("Use work_profile.list and work_item.update/list/complete only after formal governed work is required");
     expect(candidate?.content).toContain("exact managedInvocationRequest object");
     expect(candidate?.content).toContain("do not add agentProfile when it is absent");
     expect(candidate?.content).toContain("executionPhase is intermediate");
