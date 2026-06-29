@@ -71,6 +71,9 @@ Use these documents as the source of truth before starting roadmap work:
   Deferred until cross-harness capability matrices and projection benchmarks
   can justify replacing selected full projections with thin or dynamic native
   adapters without weakening standalone operation or governance.
+- [CLI Test Harness Stability](./05-cli-test-harness-stability.md).
+  Deferred until full-workspace verification or release confidence requires
+  diagnosing the `@kilnai/cli test` hang observed on 2026-06-29.
 - OS-pack packaging for web extraction and browser helpers.
   Deferred until controlled web primitives need platform-specific helper
   binaries or dependencies.
