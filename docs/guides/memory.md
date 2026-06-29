@@ -79,6 +79,18 @@ Lifecycle evidence includes:
 The GUI is the first practical consumer, but it reads the same
 lifecycle evidence resources used by every other surface.
 
+## Reads
+
+Use `memory_search` when a model-facing or operator-facing session needs to
+consult memory directly. The tool searches governed Memory Lattice context and
+returns readable matched records plus the bounded graph evidence used to find
+them. It is a native adapter over the same `kiln://memory/...` resource plane,
+so it inherits the same read authority and does not create a private memory
+backend.
+
+Use `resource_read` for exact `kiln://memory/...` resources when a caller
+already has a graph, node, relation, provenance, lifecycle, or admission URI.
+
 ## Writes
 
 Use governed write paths:

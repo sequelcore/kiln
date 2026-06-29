@@ -463,16 +463,18 @@ Every builtin metadata object includes:
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 `replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
-`timedOut`, and `truncated` are preserved. High-volume tools may also include
-`verbosity` to record whether the public `output` was raw, structured, or
-summarized. The normalized fields are additive and come from
+`runtimeSource`, `runtimePath`, `runtimeVersion`, `timedOut`, and `truncated`
+are preserved. High-volume tools may also include `verbosity` to record whether
+the public `output` was raw, structured, or summarized. The normalized fields
+are additive and come from
 `packages/core/src/tools/domain/tool-result-metadata.ts`; consumers must not
 create private metadata contracts for builtin tools.
 
 The shared result-shaping input is `verbosity`, not `outputMode`. `grep` already
-uses `outputMode` for match semantics (`content`, `files_with_matches`, or
-`count`), so reusing that field for output shape would make the contract
-ambiguous. `verbosity` is currently supported by `bash`, `tree`, `web_search`,
+uses `outputMode` for match shape (`content`, `files_with_matches`, or
+`count`) and `matchMode` for pattern semantics (`auto`, `regex`, or `literal`),
+so reusing that field for output shape would make the contract ambiguous.
+`verbosity` is currently supported by `bash`, `tree`, `web_search`,
 `web_fetch`, `web_extract`, `grep`, `glob`, the monitor lifecycle tools,
 task-state tools, and `operator_elicit`; it changes only `ToolResult.output`,
 not the metadata family.

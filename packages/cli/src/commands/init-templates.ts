@@ -69,6 +69,7 @@ teams:
         tools:
           - resource_list
           - resource_template_list
+          - memory_search
           - resource_read
           - kiln_cost_track
         count: 2
@@ -96,6 +97,9 @@ teams:
       - name: resource_template_list
         description: List shared Kiln resource templates, including Memory Lattice templates
         tags: [resources, memory]
+      - name: memory_search
+        description: Search governed Memory Lattice context through the native memory tool
+        tags: [memory, resources]
       - name: resource_read
         description: Read a bounded kiln:// resource URI such as kiln://memory/graph
         tags: [resources, memory]

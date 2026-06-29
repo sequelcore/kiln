@@ -194,6 +194,11 @@ export const PLAN_POLICY: KilnPermissionPolicy = {
       reason: "Plan mode may discover available governed tools without granting execution authority.",
     },
     {
+      tool: "memory_search",
+      action: "allow",
+      reason: "Plan mode may search governed read-only memory context.",
+    },
+    {
       tool: "read",
       action: "allow",
       reason: "Plan mode requires read-only file inspection.",

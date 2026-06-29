@@ -323,6 +323,7 @@ describe("buildProviderSystemPrompt", () => {
     expect(result).toContain(
       '{"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content","maxResults":50}',
     );
+    expect(result).toContain('pass "matchMode":"literal"');
     expect(result).toContain("start with outputMode files_with_matches or count");
     expect(result).toContain("do not proceed from count-only evidence");
     expect(result).toContain("For UI/frontend work, confirm actual package roots first");

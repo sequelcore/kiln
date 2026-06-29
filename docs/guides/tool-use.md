@@ -450,13 +450,17 @@ read-only builtin tools:
 - `resource_list`: lists registry resources with optional cursor pagination
 - `resource_template_list`: lists resource templates with optional cursor
   pagination
+- `memory_search`: searches governed Memory Lattice context and returns
+  readable matched records plus the bounded graph evidence used to find them
 - `resource_read`: reads a `kiln://...` resource URI
 
 These tools are thin adapters over the same `ToolResourceRegistry`; they do not
 own a private browse/read protocol and they do not grant mutation authority.
 They stay visible in deferred tool projection alongside `tool_catalog_search`,
-so a model can follow `metadata.resourceLinks` from high-volume results without
-requiring a GUI, TUI, CLI, or MCP-client-only helper. `resource_read` returns a
+so a model can search memory or follow `metadata.resourceLinks` from high-volume
+results without requiring a GUI, TUI, CLI, or MCP-client-only helper.
+`memory_search` respects the same memory read authority as
+`kiln://memory/...` resources. `resource_read` returns a
 single text payload directly when possible and otherwise returns the resource
 content array as JSON. For paginated reads, copy the exact opaque `nextCursor`
 from the trailing `--- resource_read ---` JSON control block; do not infer a
@@ -509,7 +513,7 @@ export interface DevTool {
 }
 ```
 
-The forty-one built-in tool names are:
+The forty-seven built-in tool names are:
 
 - `bash`
 - `read`
@@ -542,6 +546,7 @@ The forty-one built-in tool names are:
 - `computer_close_application`
 - `grep`
 - `glob`
+- `json_query`
 - `git`
 - `code_intelligence`
 - `monitor_start`
@@ -552,6 +557,7 @@ The forty-one built-in tool names are:
 - `task_update`
 - `operator_elicit`
 - `tool_catalog_search`
+- `memory_search`
 - `memory_save`
 - `resource_list`
 - `resource_template_list`
@@ -592,6 +598,9 @@ High-volume tools support a shared `verbosity` field:
 
 The shared field is named `verbosity`, not `outputMode`, because `grep` already
 uses `outputMode` for match shape: `content`, `files_with_matches`, or `count`.
+`grep.matchMode` controls pattern semantics: `auto` treats valid patterns as
+regular expressions and falls back to literal matching for invalid regex syntax,
+`regex` is strict, and `literal` searches fixed strings.
 
 ### Result metadata
 
@@ -602,7 +611,7 @@ Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
 - `kind`: `command`, `file`, `inspection`, `media`, `web`, `interactive`,
-  `search`, `monitor`, `task_state`, or `elicitation`
+  `search`, `structured_data`, `monitor`, `task_state`, or `elicitation`
 - optional `resourceLinks`: artifact-backed resources for large or truncated
   high-volume outputs
 
@@ -960,8 +969,9 @@ Open Calculator, click #num2Button, #plusButton, #num3Button, and #equalButton, 
 | `computer_focus_application` | Bring a governed desktop app/window to foreground | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; useful before semantic UIA interactions when the app is not active |
 | `computer_minimize_application` | Minimize a governed desktop app/window | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; used to return the operator's desktop to a quieter state after automation |
 | `computer_close_application` | Gracefully close a governed desktop app/window | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; captures and reports the requested target, verifies it closed, reports `closeMethod`, and does not force-kill |
-| `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
+| `grep` | Search file content by pattern | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `matchMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; requires native `rg`; metadata includes `path`, `strategy`, `runtimeSource`, `runtimePath`, `runtimeVersion`, `outputMode`, `matchMode`, `count`, and `verbosity` |
 | `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
+| `json_query` | Query JSON with jq | `filter`, exactly one of `json` or `path`, `maxBytes`, `verbosity` | `raw` output is compact jq output; `structured` wraps output and line count; `summary` is a bounded rollup; requires native `jq`; metadata includes source, path, filter, strategy, runtime source/path/version, output bytes, truncation, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
 | `code_intelligence` | Query a configured language-server adapter | `operation`, `path`, `position`, `query`, `symbol`, `limit`, `verbosity` | default configuration fails closed; configured adapters return bounded semantic code results; metadata includes operation, workspace root, adapter, language, result count, errors, and `verbosity` |
 | `monitor_start` | Start a monitored long-running shell command | `command`, `cwd`, `name`, `timeout`, `verbosity` | starts a session-local monitor with timeout cleanup; metadata includes id, command, cwd, status, timeout, sequence, and `verbosity` |
@@ -972,6 +982,7 @@ Open Calculator, click #num2Button, #plusButton, #num3Button, and #equalButton, 
 | `task_update` | Create or update session-local task state | `id`, `title`, `status`, `details`, `dependsOn`, `verbosity` | creates or updates one task in the shared store; metadata includes task id, status, total task count, sequence, and `verbosity` |
 | `operator_elicit` | Ask the operator for bounded input through the attached responder | `mode`, `message`, `schema`, `url`, `sensitive`, `verbosity` | form mode collects non-sensitive structured values; URL mode requires HTTPS for sensitive handoffs; metadata records mode, outcome, surface, URL, and value keys without values |
 | `tool_catalog_search` | Search the shared tool catalog | `query`, `exact`, `prefix`, `tags`, `limit`, `includeSchemas`, `verbosity` | returns matched tool catalog entries and reports stale exact matches without falling back to unrelated tools |
+| `memory_search` | Search governed Memory Lattice context | `query`, `scopeKind`, `scopeId`, `layer`, `depth`, `limit` | returns matched memory records with content plus bounded graph evidence; metadata includes scope, query, result count, truncation, and resource URI |
 
 `patch` accepts a structured document with `*** Begin Patch` and
 `*** End Patch` sentinels. Supported operations are:
@@ -1005,8 +1016,9 @@ The built-in executors are intentionally small and predictable:
 - `WebFetchTool` validates HTTP(S) URLs, rejects private/local hosts, requires explicit network policy, validates redirect hops, caps bytes, checks supported text content types, sanitizes returned text, and supports raw, structured, or summary output.
 - `WebExtractTool` validates one or more HTTP(S) URLs against the active network policy, calls an injected extraction provider, caps bytes per page, sanitizes extracted text or markdown, emits page evidence, and fails closed when no provider is configured.
 - `Browser*Tool` and `Computer*Tool` validate the shared interactive-use schema, fail closed when no provider is configured, delegate actual automation to an injected provider, and emit shared `interactive` metadata without echoing sensitive typed text.
-- `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`; `outputMode` controls match shape while `verbosity` controls result shape.
+- `GrepTool` requires a resolved native `rg` runtime and fails fast when none is available; `matchMode` controls regex versus fixed-string matching, `outputMode` controls match shape, and `verbosity` controls result shape.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers; it can return raw path lists, structured JSON matches, or a summary.
+- `JsonQueryTool` requires a resolved native `jq` runtime, accepts either inline JSON over stdin or a sandbox-validated JSON file path, and fails fast when no runtime exists instead of approximating jq semantics in TypeScript.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 - `ReadManyTool` builds bounded multi-file text packets with deterministic ordering, include/exclude globs, optional `.gitignore` respect, default nuisance-directory excludes, per-file skipped reasons, total bytes, and truncation metadata.
 - `CodeIntelligenceTool` validates workspace paths and delegates semantic navigation, symbols, diagnostics, implementations, and call hierarchy to an injected `CodeIntelligenceAdapter`. The default fails closed with `adapter_not_configured` instead of approximating LSP behavior with text search.
@@ -1060,13 +1072,20 @@ It caches the first successful detection result process-wide, and `clearToolEnvi
 
 Kiln's developer tool stack is designed around two layers:
 
-1. System binaries discovered from PATH
-2. Pure TypeScript fallback inside the executor when no binary is available
+1. Bundled or explicitly configured native runtimes
+2. System binaries discovered from PATH
+3. Pure TypeScript fallback only for tools whose contract explicitly permits it
 
-In the current core source, `detectToolEnvironment()` performs the PATH probe
-and the fallback logic lives in `GrepTool` and `GlobTool`. The reserved
-`packages/tools` workspace is not part of the 2.0 public package line because
-Kiln does not yet ship vendored binaries.
+In the current core source, `GrepTool` resolves native `rg` through the search
+runtime provider and fails fast when no runtime exists. The resolver checks the
+vendored `@kilnai/tools` platform package first and treats it as bundled only
+when `tools.json` declares the binary and the expected binary file exists.
+`rg`, `fd`, and `jq` are vendored from upstream release artifacts with SHA-256
+verification via `bun run vendor:tools`. `GlobTool` checks vendored `fd` before
+PATH-provided `fd`, then falls back to its internal walker because file
+discovery can be expressed safely without changing `grep` result semantics.
+`JsonQueryTool` checks vendored `jq` before PATH-provided `jq` and does not
+provide a fallback because jq filter semantics are the contract.
 
 `git` is different: Kiln detects it from PATH, but there is no pure TypeScript git fallback.
 

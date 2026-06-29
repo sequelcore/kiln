@@ -62,6 +62,7 @@ describe("generateAppYaml", () => {
     expect(yaml).toContain("resource_list");
     expect(yaml).toContain("resource_template_list");
     expect(yaml).toContain("resource_read");
+    expect(yaml).toContain("memory_search");
     expect(yaml).not.toContain("kiln_memory_");
   });
 

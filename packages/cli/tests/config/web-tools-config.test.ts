@@ -99,6 +99,15 @@ describe("web tool config", () => {
       name: "resource_read",
       input: { uri: `kiln://memory/graph?scope=project%3A${encodeURIComponent(scopeId)}&layer=semantic&limit=10` },
     });
+    const searchResult = await surface.bridge.execute({
+      name: "memory_search",
+      input: {
+        query: "Model-facing",
+        scopeKind: "project",
+        scopeId,
+        limit: 10,
+      },
+    });
     const writeResult = await surface.bridge.execute({
       name: "memory_save",
       input: {
@@ -120,6 +129,8 @@ describe("web tool config", () => {
       actorId: "tui",
     });
     expect(readResult.result.isError).toBe(false);
+    expect(searchResult.result.isError).toBe(false);
+    expect(searchResult.result.output).toContain("Model-facing memory read seed.");
     expect(writeResult.result.isError).toBe(true);
     expect(writeResult.result.output).toContain("Memory save denied by authority policy.");
   });
@@ -203,6 +214,15 @@ describe("web tool config", () => {
       name: "resource_read",
       input: { uri: `kiln://memory/graph?scope=project%3A${encodeURIComponent(scopeId)}&layer=semantic&limit=10` },
     });
+    const searchResult = await surface.bridge.execute({
+      name: "memory_search",
+      input: {
+        query: "Denied",
+        scopeKind: "project",
+        scopeId,
+        limit: 10,
+      },
+    });
     const writeResult = await surface.bridge.execute({
       name: "memory_save",
       input: {
@@ -221,6 +241,8 @@ describe("web tool config", () => {
     expect(options.memoryResources?.authority?.rules).toHaveLength(0);
     expect(readResult.result.isError).toBe(true);
     expect(readResult.result.output).toContain("Resource read denied by authority policy.");
+    expect(searchResult.result.isError).toBe(true);
+    expect(searchResult.result.output).toContain("Memory search denied by authority policy.");
     expect(writeResult.result.isError).toBe(true);
     expect(writeResult.result.output).toContain("Memory save denied by authority policy.");
   });
