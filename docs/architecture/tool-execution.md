@@ -396,6 +396,14 @@ Direct-provider children that exhaust their bounded envelope still terminate as
 `failed` because they cannot produce a successful governed handoff; their
 transcript, tool execution, and write evidence remain replayable.
 
+Per-tool usage snapshots are count-only execution evidence. They report how
+many times a tool ran during the current turn and are projected unchanged to
+operator surfaces. They are not an enforcement policy, and GUI, TUI, and CLI
+must not attach surface-owned thresholds or named budget presets to interactive
+turns. Any future per-tool limit must be an explicit runtime policy with scope,
+exhaustion behavior, and provenance defined by canonical configuration; surfaces
+may display that resolved policy but do not own it.
+
 ## Invocation Authority
 
 Tool authority is resolved at the invocation boundary. Static capability
