@@ -2368,6 +2368,12 @@ describe("startGuiGateway static mount", () => {
           toolCallId,
           isError: true,
           metadata: expectedMetadata,
+          toolUsage: {
+            toolName: "managed_agent.start",
+            count: 2,
+            budget: 1,
+            exceeded: true,
+          },
         };
         yield {
           type: "text_delta",
@@ -2455,6 +2461,12 @@ describe("startGuiGateway static mount", () => {
         toolName: "managed_agent.start",
         output: toolOutput,
         outputSummary: toolOutput,
+        toolUsage: {
+          toolName: "managed_agent.start",
+          count: 2,
+          budget: 1,
+          exceeded: true,
+        },
         status: {
           state: "failed",
         },

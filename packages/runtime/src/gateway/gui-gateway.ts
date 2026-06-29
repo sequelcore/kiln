@@ -2226,6 +2226,7 @@ class GuiActivityStreamer {
           outputSummary: event.outputSummary ?? event.output ?? "",
           ...(event.metadata ? { metadata: event.metadata } : {}),
           ...(event.resourceLinks ? { resourceLinks: event.resourceLinks } : {}),
+          ...(event.toolUsage ? { toolUsage: event.toolUsage } : {}),
           status: {
             state: event.isError ? "failed" : "succeeded",
           },

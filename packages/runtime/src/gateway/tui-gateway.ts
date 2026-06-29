@@ -1348,6 +1348,7 @@ class TuiActivityStreamer {
           output: event.output ?? "",
           outputSummary: event.outputSummary ?? event.output ?? "",
           ...(event.metadata ? { metadata: event.metadata } : {}),
+          ...(event.toolUsage ? { toolUsage: event.toolUsage } : {}),
           status: {
             state: event.isError ? "failed" : "succeeded",
           },

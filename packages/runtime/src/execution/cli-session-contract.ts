@@ -1,4 +1,4 @@
-import type { AgentMessage, ExecutionBillingMode, ReasoningEffort } from "@kilnai/core";
+import type { AgentMessage, ExecutionBillingMode, ReasoningEffort, SessionToolUsageSnapshot } from "@kilnai/core";
 import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
 
 /** Minimal session run options — structurally compatible with cli/wrapper/session IKilnSession. */
@@ -25,6 +25,7 @@ export type CliSessionEvent =
       isError?: boolean;
       metadata?: Record<string, unknown>;
       resourceLinks?: readonly { readonly uri: string; readonly title?: string; readonly mimeType?: string; readonly relation?: string }[];
+      toolUsage?: SessionToolUsageSnapshot;
     }
   | {
       type: "file_changed";

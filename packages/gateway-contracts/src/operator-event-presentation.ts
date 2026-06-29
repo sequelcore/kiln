@@ -171,6 +171,22 @@ function toolResultEnvelopeText(payload: Record<string, unknown>): string | null
     ?? eventPayloadText(payload);
 }
 
+function formatToolUsageSummary(payload: Record<string, unknown>): string | null {
+  const toolUsage = asRecord(payload.toolUsage);
+  if (!toolUsage) return null;
+  const toolName = readString(toolUsage.toolName) ?? readString(payload.toolName);
+  const count = readNumber(toolUsage.count);
+  if (!toolName || count === null || !Number.isSafeInteger(count) || count < 0) {
+    return null;
+  }
+  const budget = readNumber(toolUsage.budget);
+  const budgetText = budget !== null && Number.isSafeInteger(budget) && budget > 0
+    ? `/${budget}`
+    : "";
+  const exceededText = toolUsage.exceeded === true ? " exceeded" : "";
+  return `${toolName} ${count}${budgetText}${exceededText}`;
+}
+
 function parseJsonRecord(value: string): Record<string, unknown> | null {
   try {
     return asRecord(JSON.parse(value));
@@ -1258,14 +1274,17 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
   const statusValue = isError ? "failed" : rawStatusValue;
   const toolPresentation = projectToolResultPresentation(toolName, payload);
   const result = toolPresentation?.summary ?? toolResultText(payload);
+  const toolUsageSummary = formatToolUsageSummary(payload);
   const managedInvocation = managedInvocationToolIdentity(payload);
   const managedInvocationSummary = managedInvocation ? invocationRouteSummary(managedInvocation) : null;
-  const summary = managedInvocationSummary && result ? `${managedInvocationSummary} · ${result}` : result;
+  const resultWithUsage = [result, toolUsageSummary].filter((value): value is string => Boolean(value)).join(" · ") || null;
+  const summary = managedInvocationSummary && resultWithUsage ? `${managedInvocationSummary} · ${resultWithUsage}` : resultWithUsage;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Tool", toolName);
   addItem(details, "Tool call ID", payload.toolCallId);
   addItem(details, "Status", statusValue);
   addItem(details, "Result", result);
+  addItem(details, "Tool usage", toolUsageSummary);
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
   }
