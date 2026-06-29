@@ -2909,6 +2909,7 @@ describe("processAdmittedTurn", () => {
   it("marks the canonical turn failed when open governed work without closeout is reported through surface capture", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();
+    const contextArtifactCache = new InMemoryContextArtifactCache();
     (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
       parts: textParts("Created work-1 and completed read-only scouting. Continuing with repository inspection next."),
       inputTokens: 10,
@@ -2921,6 +2922,7 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
+      contextArtifactCache,
       turnCapture: {
         finish: () => ({
           toolCompletions: [
@@ -2967,11 +2969,21 @@ describe("processAdmittedTurn", () => {
     }));
 
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.toolExecutions).toHaveLength(3);
+      expect(result.result.toolExecutions?.map((execution) => execution.toolName)).toEqual([
+        "work_governance.assess",
+        "work_item.update",
+        "managed_agent.invoke",
+      ]);
+    }
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
     expect(ledger.at(-1)).toMatchObject({
       kind: "turn_completed",
       outcome: "failed",
     });
+    const continuityOutcome = contextArtifactCache.listByKind("runtime-continuity-outcome")[0];
+    expect(continuityOutcome?.content).toContain("tools=3");
   });
 
   it("marks the canonical turn failed when governed work remains blocked by a pending pause requirement", async () => {

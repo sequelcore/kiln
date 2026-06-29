@@ -1522,6 +1522,7 @@ function replayCapturedRuntimeLedgerEvents(
 function resolveTurnToolExecutions(
   resultToolExecutions: readonly ToolExecutionSummary[] | undefined,
   runtimeEvents: readonly RuntimePipelineLedgerEvent[],
+  surfaceToolCompletions: readonly RuntimeTurnToolCompletion[] | undefined,
 ): readonly ToolExecutionSummary[] | undefined {
   if (resultToolExecutions && resultToolExecutions.length > 0) {
     return resultToolExecutions;
@@ -1538,7 +1539,18 @@ function resolveTurnToolExecutions(
       ...(event.resolvedEffect ? { resolvedEffect: event.resolvedEffect } : {}),
       ...(event.authority ? { authority: event.authority } : {}),
     }));
-  return projected.length > 0 ? projected : undefined;
+  if (projected.length > 0) {
+    return projected;
+  }
+  const surfaceProjected = surfaceToolCompletions?.map((completion): ToolExecutionSummary => ({
+    toolName: completion.toolName,
+    durationMs: 0,
+    success: completion.success,
+    ...(completion.output !== undefined ? { output: completion.output } : {}),
+    resultSummary: completion.resultSummary ?? "",
+    ...(completion.metadata ? { metadata: completion.metadata } : {}),
+  }));
+  return surfaceProjected && surfaceProjected.length > 0 ? surfaceProjected : undefined;
 }
 
 function isRuntimeLedgerEvent(event: KilnEvent): event is
@@ -2249,7 +2261,11 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     }
   }
 
-  const turnToolExecutions = resolveTurnToolExecutions(result.toolExecutions, capturedRuntimeEvents);
+  const turnToolExecutions = resolveTurnToolExecutions(
+    result.toolExecutions,
+    capturedRuntimeEvents,
+    externalTurnCapture?.toolCompletions,
+  );
   const fileChanges = turnToolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
   const mergedFileChanges = dedupeByStableKey([
     ...(fileChanges ?? []),
