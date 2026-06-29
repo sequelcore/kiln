@@ -74,6 +74,10 @@ Use these documents as the source of truth before starting roadmap work:
 - [CLI Test Harness Stability](./05-cli-test-harness-stability.md).
   Deferred until full-workspace verification or release confidence requires
   diagnosing the `@kilnai/cli test` hang observed on 2026-06-29.
+- [Research Turn Token Budgeting](./06-research-turn-token-budgeting.md).
+  Deferred until live validation, release confidence, or provider quota
+  pressure requires reducing research-turn token volume through measured
+  attribution and canonical evidence budgeting.
 - OS-pack packaging for web extraction and browser helpers.
   Deferred until controlled web primitives need platform-specific helper
   binaries or dependencies.
