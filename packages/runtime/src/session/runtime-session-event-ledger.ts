@@ -239,6 +239,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           durationMs: runtimeEvent.durationMs,
           output: runtimeEvent.output,
           outputSummary: runtimeEvent.resultSummary,
+          ...(runtimeEvent.toolUsage ? { toolUsage: runtimeEvent.toolUsage } : {}),
           source: makeSource("tool", "runtime", "orchestrator"),
           timestamp: runtimeEvent.timestamp,
         }));

@@ -135,6 +135,14 @@ export interface SessionToolStatus {
   readonly errorMessage?: string;
 }
 
+export interface SessionToolUsageSnapshot {
+  readonly scope: "turn";
+  readonly toolName: string;
+  readonly calls: number;
+  readonly budget?: number;
+  readonly exceeded: boolean;
+}
+
 export type SessionContinuityDecision = "continue" | "handoff" | "fork" | "close";
 export type SessionTurnOutcome = "completed" | "failed" | "cancelled" | "paused";
 export type SessionExecutionMode = "execute" | "plan";
@@ -323,6 +331,7 @@ export interface CanonicalToolCallCompletedEvent extends SessionEventEnvelope<"t
   readonly durationMs: number;
   readonly output?: string;
   readonly outputSummary?: string;
+  readonly toolUsage?: SessionToolUsageSnapshot;
 }
 
 export interface CanonicalApprovalRequestedEvent extends SessionEventEnvelope<"approval_requested"> {

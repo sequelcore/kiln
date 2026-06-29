@@ -241,6 +241,7 @@ export interface ToolResultEvent extends KilnEvent {
   readonly isError?: boolean;
   readonly retryAttempt?: number;
   readonly metadata?: Record<string, unknown>;
+  readonly toolUsage?: import("./session-event.js").SessionToolUsageSnapshot;
   readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
   readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
 }
@@ -729,6 +730,7 @@ export type {
   SessionApprovalResolution,
   SessionToolTerminalState,
   SessionToolStatus,
+  SessionToolUsageSnapshot,
   SessionContinuityDecision,
   SessionTurnOutcome,
   CanonicalTurnStartedEvent,

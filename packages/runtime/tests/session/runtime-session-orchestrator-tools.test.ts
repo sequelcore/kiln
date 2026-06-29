@@ -3358,6 +3358,78 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(rateLimiter.record).toHaveBeenCalledWith("tenant-1", "get_data");
     });
 
+    it("emits per-turn tool usage snapshots from the tool execution layer", async () => {
+      let callCount = 0;
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              parts: textParts("searching..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [
+                { id: "search-1", name: "web_search", input: { query: "kiln docs" } },
+                { id: "search-2", name: "web_search", input: { query: "kiln tools" } },
+              ],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("done"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const eventBus = new EventBus(100);
+      const webSearch = vi.fn().mockResolvedValue({
+        output: "sources",
+        isError: false,
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "web_search", description: "Search web", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["web_search", webSearch]]),
+        eventBus,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("research"), undefined, undefined, {
+        toolUsageBudgets: new Map([["web_search", 1]]),
+      });
+
+      const toolResults = eventBus.history().filter((event) => event.type === "tool_result");
+      expect(toolResults).toHaveLength(2);
+      expect(toolResults[0]).toMatchObject({
+        toolName: "web_search",
+        toolUsage: {
+          scope: "turn",
+          toolName: "web_search",
+          calls: 1,
+          budget: 1,
+          exceeded: false,
+        },
+      });
+      expect(toolResults[1]).toMatchObject({
+        toolName: "web_search",
+        toolUsage: {
+          scope: "turn",
+          toolName: "web_search",
+          calls: 2,
+          budget: 1,
+          exceeded: true,
+        },
+      });
+    });
+
     it("merges additional tools for single invocation", async () => {
       const additionalTool: ToolDefinition = {
         name: "webhook_action",
