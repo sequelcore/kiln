@@ -79,38 +79,4 @@ describe("attached runtime web tool configuration", () => {
     expect(perCallConfig.additionalTools?.map((tool) => tool.name)).toContain("web_extract");
     expect(perCallConfig.additionalTools?.map((tool) => tool.name)).not.toContain("write");
   });
-
-  it("projects declared tool usage budgets into per-call runtime config", () => {
-    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
-      builtinToolOptions: webToolOptions(),
-    });
-
-    const perCallConfig = buildAttachedRuntimePerCallToolConfig({
-      tenantId: "tenant",
-      activeProvider: "codex-oauth",
-      activeModel: "gpt-5.4-mini",
-      builtinToolSurface: runtimeSurface,
-      toolUsageBudgets: {
-        web_search: 8,
-        web_extract: 4,
-      },
-    });
-
-    expect(perCallConfig.toolUsageBudgets?.get("web_search")).toBe(8);
-    expect(perCallConfig.toolUsageBudgets?.get("web_extract")).toBe(4);
-  });
-
-  it("rejects invalid declared tool usage budgets", () => {
-    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
-      builtinToolOptions: webToolOptions(),
-    });
-
-    expect(() => buildAttachedRuntimePerCallToolConfig({
-      tenantId: "tenant",
-      activeProvider: "codex-oauth",
-      activeModel: "gpt-5.4-mini",
-      builtinToolSurface: runtimeSurface,
-      toolUsageBudgets: { web_search: 0 },
-    })).toThrow("Tool usage budget for \"web_search\" must be a positive safe integer.");
-  });
 });

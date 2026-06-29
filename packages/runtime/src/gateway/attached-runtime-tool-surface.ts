@@ -1004,7 +1004,6 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly executionMode?: OperatorExecutionMode;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
-  readonly toolUsageBudgets?: ReadonlyMap<string, number> | Readonly<Record<string, number>>;
 }): PerCallToolConfig {
   const requestedAuthority = resolveAttachedRuntimeRequestedAuthority(input.requestedAuthority) ?? "auto";
   const executionMode = resolvePerCallExecutionMode(input.executionMode);
@@ -1027,7 +1026,6 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ...(modelOverride ? { modelOverride } : {}),
     ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),
-    ...(input.toolUsageBudgets ? { toolUsageBudgets: normalizeToolUsageBudgets(input.toolUsageBudgets) } : {}),
     ...(profile && input.activeModelCapabilities?.supportedReasoningEfforts
       ? {
           modelRoutingPolicy: {
@@ -1094,26 +1092,6 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     sandboxProjection: "workspace_write",
     requestedAuthority,
   })!);
-}
-
-function normalizeToolUsageBudgets(
-  budgets: ReadonlyMap<string, number> | Readonly<Record<string, number>>,
-): ReadonlyMap<string, number> {
-  const entries = budgets instanceof Map
-    ? [...budgets.entries()]
-    : Object.entries(budgets);
-  const normalized = new Map<string, number>();
-  for (const [toolName, budget] of entries) {
-    const normalizedToolName = toolName.trim();
-    if (normalizedToolName.length === 0) {
-      throw new Error("Tool usage budget tool name must not be empty.");
-    }
-    if (!Number.isSafeInteger(budget) || budget <= 0) {
-      throw new Error(`Tool usage budget for "${normalizedToolName}" must be a positive safe integer.`);
-    }
-    normalized.set(normalizedToolName, budget);
-  }
-  return normalized;
 }
 
 function recordRuntimeAuthoritySnapshot(

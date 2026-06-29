@@ -32,8 +32,6 @@ describe("runtime session tool usage events", () => {
         scope: "turn",
         toolName: "web_search",
         calls: 9,
-        budget: 8,
-        exceeded: true,
       },
       timestamp: completedAt,
     };
@@ -59,8 +57,6 @@ describe("runtime session tool usage events", () => {
         scope: "turn",
         toolName: "web_search",
         calls: 9,
-        budget: 8,
-        exceeded: true,
       },
     });
   });

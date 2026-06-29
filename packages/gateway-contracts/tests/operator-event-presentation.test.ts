@@ -550,52 +550,19 @@ describe("operator event presentation", () => {
   });
 
   it("surfaces tool usage counts on completed tool events", () => {
-    const withinBudget = presentOperatorEventPayload("tool_call_completed", {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",
       toolName: "web_search",
       outputSummary: "Found 4 sources",
       toolUsage: {
         toolName: "web_search",
-        count: 3,
-        budget: 8,
-        exceeded: false,
-      },
-      status: { state: "succeeded" },
-    });
-    const exceeded = presentOperatorEventPayload("tool_call_completed", {
-      toolCallId: "tool-2",
-      toolName: "web_search",
-      outputSummary: "Found 2 sources",
-      toolUsage: {
-        toolName: "web_search",
-        count: 9,
-        budget: 8,
-        exceeded: true,
+        calls: 3,
       },
       status: { state: "succeeded" },
     });
 
-    expect(withinBudget.summary).toBe("Found 4 sources · web_search 3/8");
-    expect(withinBudget.details).toContainEqual({ label: "Tool usage", value: "web_search 3/8" });
-    expect(exceeded.summary).toBe("Found 2 sources · web_search 9/8 exceeded");
-    expect(exceeded.details).toContainEqual({ label: "Tool usage", value: "web_search 9/8 exceeded" });
-  });
-
-  it("surfaces unbudgeted tool usage counts on completed tool events", () => {
-    const presentation = presentOperatorEventPayload("tool_call_completed", {
-      toolCallId: "tool-1",
-      toolName: "memory_search",
-      outputSummary: "No matching memories",
-      toolUsage: {
-        toolName: "memory_search",
-        count: 3,
-        exceeded: false,
-      },
-      status: { state: "succeeded" },
-    });
-
-    expect(presentation.summary).toBe("No matching memories · memory_search 3");
-    expect(presentation.details).toContainEqual({ label: "Tool usage", value: "memory_search 3" });
+    expect(presentation.summary).toBe("Found 4 sources · web_search 3");
+    expect(presentation.details).toContainEqual({ label: "Tool usage", value: "web_search 3" });
   });
 
   it("marks completed tool events as failed when the tool result envelope is an error", () => {

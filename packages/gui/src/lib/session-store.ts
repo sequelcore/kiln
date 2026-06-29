@@ -1727,7 +1727,6 @@ interface SessionStoreActions {
       displayContent?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       requestedAuthority?: OperatorTurnRequestedAuthority;
-      toolUsageBudgets?: Readonly<Record<string, number>>;
       gatewayTargetId?: string;
       appName?: string;
       tenantId?: string;
@@ -3277,7 +3276,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ...(continuity.outboundSessionIntent ? { sessionIntent: continuity.outboundSessionIntent } : {}),
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
-      ...(options?.toolUsageBudgets ? { toolUsageBudgets: options.toolUsageBudgets } : {}),
       ...(options?.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
       ...(options?.appName ? { appName: options.appName } : {}),
       ...(options?.tenantId ? { tenantId: options.tenantId } : {}),

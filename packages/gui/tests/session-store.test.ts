@@ -1926,29 +1926,6 @@ describe("session-store", () => {
     });
   });
 
-  it("sendMessage forwards declared tool usage budgets", () => {
-    const send = vi.fn();
-    useSessionStore.getState().setSender(send);
-    useSessionStore.setState({ status: "ready" });
-
-    const accepted = useSessionStore.getState().sendMessage("research this", {
-      toolUsageBudgets: {
-        web_search: 8,
-        web_extract: 4,
-      },
-    });
-
-    expect(accepted).toBe(true);
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({
-      type: "message",
-      content: "research this",
-      toolUsageBudgets: {
-        web_search: 8,
-        web_extract: 4,
-      },
-    }));
-  });
-
   it("setPlanMode(false) emits an execution transition frame through sender", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);

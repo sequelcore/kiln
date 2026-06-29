@@ -54,11 +54,8 @@ import {
   AppGatewayTargetSelector,
   ReasoningEffortControl,
   RuntimeBootstrapGate,
-  TOOL_USAGE_BUDGETS,
-  ToolUsageBudgetControl,
   TurnAuthorityControl,
   type RequestableTurnAuthority,
-  type ToolUsageBudgetProfile,
 } from "./app-shell-controls.js";
 import {
   WorkbenchBody,
@@ -105,7 +102,6 @@ export function AppShell() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
   const [requestedAuthority, setRequestedAuthority] = useState<RequestableTurnAuthority>("auto");
-  const [toolUsageBudgetProfile, setToolUsageBudgetProfile] = useState<ToolUsageBudgetProfile>("research");
   const [selectedGatewayTargetId, setSelectedGatewayTargetId] = useState<string | null>(null);
   const [activeSurface, setActiveSurface] = useState<OperatorSurfaceKind>("chat");
   const [memorySurfaceOpen, setMemorySurfaceOpen] = useState(false);
@@ -217,9 +213,6 @@ export function AppShell() {
     () => buildComposerContinuityHint(sessionContinuity),
     [sessionContinuity],
   );
-  const toolUsageBudgets = toolUsageBudgetProfile === "off"
-    ? undefined
-    : TOOL_USAGE_BUDGETS[toolUsageBudgetProfile];
   const localOperatorWorkspaceState = useMemo(() => {
     const projectedAt = new Date().toISOString();
     const operatorEvents = normalizeManagedAgentOperatorEvents(sessionEvents, {
@@ -1029,17 +1022,10 @@ export function AppShell() {
                   onChange={setRequestedAuthority}
                 />
               ),
-              toolBudgetControl: (
-                <ToolUsageBudgetControl
-                  value={toolUsageBudgetProfile}
-                  onChange={setToolUsageBudgetProfile}
-                />
-              ),
               onSubmit: (text) => {
                 sendMessage(text, {
                   ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
                   requestedAuthority,
-                  ...(toolUsageBudgets ? { toolUsageBudgets } : {}),
                   ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
                   ...(selectedAppName ? { appName: selectedAppName } : {}),
                   ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
@@ -1051,7 +1037,6 @@ export function AppShell() {
                   displayContent,
                   ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
                   requestedAuthority,
-                  ...(toolUsageBudgets ? { toolUsageBudgets } : {}),
                   ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
                   ...(selectedAppName ? { appName: selectedAppName } : {}),
                   ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),

@@ -2369,10 +2369,9 @@ describe("startGuiGateway static mount", () => {
           isError: true,
           metadata: expectedMetadata,
           toolUsage: {
+            scope: "turn",
             toolName: "managed_agent.start",
-            count: 2,
-            budget: 1,
-            exceeded: true,
+            calls: 2,
           },
         };
         yield {
@@ -2462,10 +2461,9 @@ describe("startGuiGateway static mount", () => {
         output: toolOutput,
         outputSummary: toolOutput,
         toolUsage: {
+          scope: "turn",
           toolName: "managed_agent.start",
-          count: 2,
-          budget: 1,
-          exceeded: true,
+          calls: 2,
         },
         status: {
           state: "failed",

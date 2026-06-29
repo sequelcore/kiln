@@ -768,7 +768,6 @@ export type GuiOutboundFrame =
       parts?: readonly unknown[];
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
-      toolUsageBudgets?: Readonly<Record<string, number>>;
       sessionIntent?: "fresh";
       continuationSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;

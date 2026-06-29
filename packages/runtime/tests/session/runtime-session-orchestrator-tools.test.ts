@@ -3402,31 +3402,19 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         eventBus,
       });
 
-      await orchestrator.processMessage(makeSession(), textParts("research"), undefined, undefined, {
-        toolUsageBudgets: new Map([["web_search", 1]]),
-      });
+      await orchestrator.processMessage(makeSession(), textParts("research"));
 
       const toolResults = eventBus.history().filter((event) => event.type === "tool_result");
       expect(toolResults).toHaveLength(2);
-      expect(toolResults[0]).toMatchObject({
+      expect(toolResults[0]?.toolUsage).toEqual({
+        scope: "turn",
         toolName: "web_search",
-        toolUsage: {
-          scope: "turn",
-          toolName: "web_search",
-          calls: 1,
-          budget: 1,
-          exceeded: false,
-        },
+        calls: 1,
       });
-      expect(toolResults[1]).toMatchObject({
+      expect(toolResults[1]?.toolUsage).toEqual({
+        scope: "turn",
         toolName: "web_search",
-        toolUsage: {
-          scope: "turn",
-          toolName: "web_search",
-          calls: 2,
-          budget: 1,
-          exceeded: true,
-        },
+        calls: 2,
       });
     });
 

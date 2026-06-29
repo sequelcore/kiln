@@ -464,7 +464,6 @@ export class RuntimeSessionToolExecutor {
         resolvedEffect,
         resultParts,
         toolExecutions,
-        perCallConfig,
       )) {
         continue;
       }
@@ -518,7 +517,7 @@ export class RuntimeSessionToolExecutor {
           execution.retryAttempt,
           sanitized.resultValue,
           metadata,
-          this.recordToolUsage(normalizedToolCall.name, perCallConfig),
+          this.recordToolUsage(normalizedToolCall.name),
           resolvedEffect,
           authResult,
         );
@@ -582,7 +581,7 @@ export class RuntimeSessionToolExecutor {
           undefined,
           undefined,
           undefined,
-          this.recordToolUsage(normalizedToolCall.name, perCallConfig),
+          this.recordToolUsage(normalizedToolCall.name),
           resolvedEffect,
           authResult,
         );
@@ -732,7 +731,6 @@ export class RuntimeSessionToolExecutor {
     resolvedEffect: ResolvedInvocationEffect,
     resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
-    perCallConfig?: PerCallToolConfig,
   ): Promise<boolean> {
     if (!this.deps.dangerousCommandDetector) {
       return false;
@@ -780,7 +778,7 @@ export class RuntimeSessionToolExecutor {
       undefined,
       undefined,
       undefined,
-      this.recordToolUsage(toolCall.name, perCallConfig),
+      this.recordToolUsage(toolCall.name),
       resolvedEffect,
       authResult,
     );
@@ -1184,19 +1182,13 @@ export class RuntimeSessionToolExecutor {
     this.eventBus?.emit(event);
   }
 
-  private recordToolUsage(
-    toolName: string,
-    perCallConfig?: PerCallToolConfig,
-  ): SessionToolUsageSnapshot {
+  private recordToolUsage(toolName: string): SessionToolUsageSnapshot {
     const calls = (this.turnToolCallCounts.get(toolName) ?? 0) + 1;
     this.turnToolCallCounts.set(toolName, calls);
-    const budget = perCallConfig?.toolUsageBudgets?.get(toolName);
     return {
       scope: "turn",
       toolName,
       calls,
-      ...(budget !== undefined ? { budget } : {}),
-      exceeded: budget !== undefined ? calls > budget : false,
     };
   }
 

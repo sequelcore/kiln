@@ -139,8 +139,6 @@ export interface SessionToolUsageSnapshot {
   readonly scope: "turn";
   readonly toolName: string;
   readonly calls: number;
-  readonly budget?: number;
-  readonly exceeded: boolean;
 }
 
 export type SessionContinuityDecision = "continue" | "handoff" | "fork" | "close";

@@ -175,16 +175,11 @@ function formatToolUsageSummary(payload: Record<string, unknown>): string | null
   const toolUsage = asRecord(payload.toolUsage);
   if (!toolUsage) return null;
   const toolName = readString(toolUsage.toolName) ?? readString(payload.toolName);
-  const count = readNumber(toolUsage.count);
-  if (!toolName || count === null || !Number.isSafeInteger(count) || count < 0) {
+  const calls = readNumber(toolUsage.calls);
+  if (!toolName || calls === null || !Number.isSafeInteger(calls) || calls < 0) {
     return null;
   }
-  const budget = readNumber(toolUsage.budget);
-  const budgetText = budget !== null && Number.isSafeInteger(budget) && budget > 0
-    ? `/${budget}`
-    : "";
-  const exceededText = toolUsage.exceeded === true ? " exceeded" : "";
-  return `${toolName} ${count}${budgetText}${exceededText}`;
+  return `${toolName} ${calls}`;
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> | null {

@@ -162,7 +162,6 @@ export interface GuiGateway {
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
 type OperatorTurnRequestedAuthority = Extract<GuiOutboundFrame, { type: "message" }>["requestedAuthority"];
-type OperatorTurnToolUsageBudgets = Extract<GuiOutboundFrame, { type: "message" }>["toolUsageBudgets"];
 
 interface BrowserSessionUpdateHandlerConsumer {
   setBrowserSessionUpdateHandler(handler: ((state: Omit<GuiBrowserSessionState, "kilnSessionId">) => void) | undefined): void;
@@ -1581,7 +1580,6 @@ function wireOperatorTransport(
               );
               const executionMode = resolveExecutionMode(messageFrame.executionMode);
               const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
-              const toolUsageBudgets = messageFrame.toolUsageBudgets;
               turnProvider = activeProvider;
               turnModel = activeModel;
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -1606,7 +1604,6 @@ function wireOperatorTransport(
                 reasoningEffort,
                 executionMode,
                 requestedAuthority,
-                toolUsageBudgets,
               );
               result = await processAdmittedTurn({
                 orchestrator,
@@ -1734,7 +1731,6 @@ export function buildGuiTurnPerCallConfig(
   reasoningEffort?: ReasoningEffort,
   executionMode: OperatorExecutionMode = "execute",
   requestedAuthority?: OperatorTurnRequestedAuthority,
-  toolUsageBudgets?: OperatorTurnToolUsageBudgets,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
@@ -1745,7 +1741,6 @@ export function buildGuiTurnPerCallConfig(
     builtinToolSurface,
     executionMode,
     requestedAuthority,
-    ...(toolUsageBudgets ? { toolUsageBudgets } : {}),
   });
 }
 
