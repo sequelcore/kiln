@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventBus, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, textParts } from "@kilnai/core";
+import { EventBus, InMemoryContextArtifactCache, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, textParts } from "@kilnai/core";
 import type { MultimodalRoutedEvent, SttAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import type { SkillConfig } from "@kilnai/core";
 import { processAdmittedTurn, projectAdmittedTurnContext, sanitizeAssistantEgressText } from "../../src/gateway/message-pipeline.js";
@@ -2445,21 +2445,19 @@ describe("processAdmittedTurn", () => {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           queued: false,
-          toolExecutions: [{
-            toolName: "write",
-            durationMs: 12,
-            success: true,
-            resultSummary: "Wrote src/demo.txt",
-            fileChanges: [{ path: "src/demo.txt", changeType: "modified", linesAdded: 3, linesRemoved: 1 }],
-          }],
         } satisfies OrchestrateResult;
       }),
       model: "gpt-5.4-mini",
       eventBus,
     } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
+    const contextArtifactCache = new InMemoryContextArtifactCache();
 
-    const result = await processInboundMessage(makeBaseContext({ orchestrator, sessionRegistry }));
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      contextArtifactCache,
+    }));
 
     expect(result.ok).toBe(true);
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
@@ -2472,11 +2470,10 @@ describe("processAdmittedTurn", () => {
       "tool_call_completed",
       "cost_updated",
       "error_recorded",
-      "file_changed",
       "assistant_message",
       "turn_completed",
     ]);
-    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(ledger[3]).toMatchObject({
       kind: "provider_routed",
       provider: {
@@ -2490,18 +2487,17 @@ describe("processAdmittedTurn", () => {
       input: { filePath: "src/demo.txt", content: "hello" },
     });
     expect(ledger[8]).toMatchObject({
-      kind: "file_changed",
-      change: {
-        path: "src/demo.txt",
-        changeType: "updated",
-        linesAdded: 3,
-        linesRemoved: 1,
-      },
-    });
-    expect(ledger[9]).toMatchObject({
       kind: "assistant_message",
       content: "done",
     });
+    if (result.ok) {
+      expect(result.result.toolExecutions).toEqual([expect.objectContaining({
+        toolName: "write",
+        resultSummary: "Wrote src/demo.txt",
+      })]);
+    }
+    const continuityOutcome = contextArtifactCache.listByKind("runtime-continuity-outcome")[0];
+    expect(continuityOutcome?.content).toContain("tools=1");
   });
 
   it("marks the canonical turn failed when managed delegation fails before execution starts", async () => {

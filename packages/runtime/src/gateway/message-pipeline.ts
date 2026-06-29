@@ -1519,6 +1519,28 @@ function replayCapturedRuntimeLedgerEvents(
   return { events, keys };
 }
 
+function resolveTurnToolExecutions(
+  resultToolExecutions: readonly ToolExecutionSummary[] | undefined,
+  runtimeEvents: readonly RuntimePipelineLedgerEvent[],
+): readonly ToolExecutionSummary[] | undefined {
+  if (resultToolExecutions && resultToolExecutions.length > 0) {
+    return resultToolExecutions;
+  }
+  const projected = runtimeEvents
+    .filter((event): event is ToolResultEvent => event.type === "tool_result")
+    .map((event): ToolExecutionSummary => ({
+      toolName: event.toolName,
+      durationMs: event.durationMs,
+      success: event.success,
+      ...(event.output !== undefined ? { output: event.output } : {}),
+      resultSummary: event.resultSummary ?? "",
+      ...(event.metadata ? { metadata: event.metadata } : {}),
+      ...(event.resolvedEffect ? { resolvedEffect: event.resolvedEffect } : {}),
+      ...(event.authority ? { authority: event.authority } : {}),
+    }));
+  return projected.length > 0 ? projected : undefined;
+}
+
 function isRuntimeLedgerEvent(event: KilnEvent): event is
   RuntimePipelineLedgerEvent {
   switch (event.type) {
@@ -2227,7 +2249,8 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     }
   }
 
-  const fileChanges = result.toolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
+  const turnToolExecutions = resolveTurnToolExecutions(result.toolExecutions, capturedRuntimeEvents);
+  const fileChanges = turnToolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
   const mergedFileChanges = dedupeByStableKey([
     ...(fileChanges ?? []),
     ...(externalTurnCapture?.fileChanges ?? []),
@@ -2240,7 +2263,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ...authorityDecisions,
     ...(externalTurnCapture?.authorityDecisions ?? []),
   ], (decision) => `${decision.toolName}|${decision.level}|${decision.allowed}|${decision.reason ?? ""}`);
-  const dangerousCommandOutcomes = result.toolExecutions
+  const dangerousCommandOutcomes = turnToolExecutions
     ?.map((execution) => dangerousCommandOutcomeFromExecution(execution))
     .filter((outcome): outcome is RuntimeTurnDangerousCommandOutcome => outcome !== undefined)
     ?? [];
@@ -2249,25 +2272,25 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ...(externalTurnCapture?.dangerousCommandOutcomes ?? []),
   ], (outcome) => `${outcome.toolName}|${outcome.action}|${outcome.reasonCode}|${outcome.reason}`);
   const planSubmissions = executionMode === "plan"
-    ? extractPlanSubmissions(result.toolExecutions)
+    ? extractPlanSubmissions(turnToolExecutions)
     : [];
   const specificationSubmissions = executionMode === "plan"
-    ? extractSpecificationSubmissions(result.toolExecutions)
+    ? extractSpecificationSubmissions(turnToolExecutions)
     : [];
   const clarificationRecords = executionMode === "plan"
-    ? extractClarificationRecords(result.toolExecutions)
+    ? extractClarificationRecords(turnToolExecutions)
     : [];
   const analysisReports = executionMode === "plan"
-    ? extractPlanAnalysisReports(result.toolExecutions)
+    ? extractPlanAnalysisReports(turnToolExecutions)
     : [];
   const authorityMutationViolation = buildAuthorityMutationViolation(
     perCallConfig?.effectiveTurnAuthority,
     mergedFileChanges,
   );
 
-  resultParts = appendWebSourceAttributionIfMissing(resultParts, result.toolExecutions);
+  resultParts = appendWebSourceAttributionIfMissing(resultParts, turnToolExecutions);
   let egressContextSummary = result.contextSummary;
-  let egressToolExecutions = result.toolExecutions;
+  let egressToolExecutions = turnToolExecutions;
   resultParts = sanitizeAssistantEgressParts(resultParts);
   const assistantDecision = await resolveEgressDecision(
     ctx,
@@ -2364,7 +2387,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
     contextSummary: result.contextSummary,
-    toolExecutions: result.toolExecutions,
+    toolExecutions: turnToolExecutions,
     routingDecision: result.routingDecision,
     escalationReason: result.escalation?.reason,
     groundingBlockedClaims: groundingResult && !groundingResult.grounded
@@ -2396,7 +2419,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     turnOutcome: deriveCanonicalTurnOutcome({
       runtimeEvents: capturedRuntimeEvents,
       surfaceToolCompletions: externalTurnCapture?.toolCompletions,
-      toolExecutions: result.toolExecutions,
+      toolExecutions: turnToolExecutions,
       stopReason: result.stopReason,
     }),
     turnStartedAt,
