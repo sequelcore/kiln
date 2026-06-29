@@ -10,6 +10,7 @@ import type {
   OperatorWorkspaceFileSnapshot,
 } from "@kilnai/gateway-contracts";
 import { File, Image, Lock, MessageSquare, Monitor, Network, Unlock, X } from "lucide-react";
+import { MarkdownTable, MarkdownTableCell, MarkdownTableHeadCell } from "./markdown-table.js";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -170,12 +171,10 @@ function MarkdownPreview(props: { readonly content: string }) {
               </pre>
             ),
             table: ({ children }) => (
-              <div className="my-4 overflow-auto">
-                <table className="w-full border-collapse text-left text-sm">{children}</table>
-              </div>
+              <MarkdownTable className="text-sm">{children}</MarkdownTable>
             ),
-            th: ({ children }) => <th className="border border-border/70 bg-workspace-viewer-panel px-3 py-2 font-semibold">{children}</th>,
-            td: ({ children }) => <td className="border border-border/70 px-3 py-2">{children}</td>,
+            th: ({ children }) => <MarkdownTableHeadCell>{children}</MarkdownTableHeadCell>,
+            td: ({ children }) => <MarkdownTableCell>{children}</MarkdownTableCell>,
             a: ({ children, href }) => (
               <a href={href} target="_blank" rel="noreferrer" className="text-[var(--color-accent)] underline-offset-4 hover:underline">
                 {children}

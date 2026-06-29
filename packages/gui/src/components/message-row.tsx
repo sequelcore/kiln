@@ -26,6 +26,7 @@ import {
 import type { Message } from "../lib/session-store.js";
 import { getStableUserId } from "../lib/stable-user-id.js";
 import { useSessionStore } from "../lib/session-store.js";
+import { MarkdownTable, MarkdownTableCell, MarkdownTableHeadCell } from "./markdown-table.js";
 import { OperatorAvatar } from "./operator-avatar.js";
 import {
   Attachment,
@@ -98,17 +99,13 @@ const markdownComponents: Components = {
     );
   },
   table({ children }) {
-    return (
-      <div className="my-3 max-w-full overflow-x-auto rounded-md border border-border/70">
-        <table className="w-full border-collapse text-left text-sm">{children}</table>
-      </div>
-    );
+    return <MarkdownTable>{children}</MarkdownTable>;
   },
   th({ children }) {
-    return <th className="border-b border-r border-border/70 bg-background-element px-3 py-2 font-semibold last:border-r-0">{children}</th>;
+    return <MarkdownTableHeadCell>{children}</MarkdownTableHeadCell>;
   },
   td({ children }) {
-    return <td className="border-r border-t border-border/60 px-3 py-2 align-top last:border-r-0">{children}</td>;
+    return <MarkdownTableCell>{children}</MarkdownTableCell>;
   },
   code({ className, children, ...rest }) {
     const match = /language-(\w+)/.exec(className ?? "");
