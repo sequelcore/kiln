@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UpgradeWebSocket } from "hono/ws";
-import { execSync } from "node:child_process";
 import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
@@ -221,6 +220,21 @@ function makeTuiOperatorDiscoveryFromModels(
     authState: "authenticated",
     lastCheckedAt: "2026-04-28T12:00:00.000Z",
   }));
+}
+
+function makeUnavailableTuiOperatorDiscovery(
+  provider: string,
+  reason: string,
+): GuiProviderDiscoveryResult {
+  return {
+    provider,
+    available: false,
+    models: [],
+    status: "missing_auth",
+    reason,
+    authState: "missing",
+    lastCheckedAt: "2026-04-28T12:00:00.000Z",
+  };
 }
 
 async function flushAsyncWork(): Promise<void> {
@@ -453,8 +467,14 @@ describe("TUI gateway provider switching", () => {
   });
 
   it("rejects unknown providers and non-advertised models before mutating provider state", async () => {
+    vi.resetModules();
     stubBunServe();
-    vi.mocked(execSync).mockReturnValue("openai/gpt-5\n");
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue([
+        makeUnavailableTuiOperatorDiscovery("openai", "OpenAI is unavailable in this runtime."),
+        ...makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }),
+      ]);
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
@@ -500,13 +520,17 @@ describe("TUI gateway provider switching", () => {
       expect(sessionManager.setProvider).not.toHaveBeenCalled();
       expect(sessionManager.setModel).not.toHaveBeenCalled();
     } finally {
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
 
   it("rejects model-less provider switches before mutating provider state", async () => {
+    vi.resetModules();
     stubBunServe();
-    vi.mocked(execSync).mockReturnValue("openai/gpt-5\n");
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }));
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
@@ -535,20 +559,18 @@ describe("TUI gateway provider switching", () => {
       expect(sessionManager.setProvider).not.toHaveBeenCalled();
       expect(sessionManager.setModel).not.toHaveBeenCalled();
     } finally {
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
 
   it("refreshes provider models before accepting a provider switch", async () => {
+    vi.resetModules();
     stubBunServe();
-    let opencodeModelsCalls = 0;
-    vi.mocked(execSync).mockImplementation((command) => {
-      if (String(command).includes("opencode")) {
-        opencodeModelsCalls += 1;
-        return opencodeModelsCalls === 1 ? "openai/gpt-5\n" : "openai/gpt-5-other\n";
-      }
-      return "";
-    });
+    let opencodeModels = ["openai/gpt-5"];
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockImplementation(async () => makeTuiOperatorDiscoveryFromModels({ opencode: opencodeModels }));
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
@@ -558,6 +580,7 @@ describe("TUI gateway provider switching", () => {
     });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
+      opencodeModels = ["openai/gpt-5-other"];
 
       await handlers.onMessage!(
         new MessageEvent("message", {
@@ -578,16 +601,18 @@ describe("TUI gateway provider switching", () => {
       expect(sessionManager.setProvider).not.toHaveBeenCalled();
       expect(sessionManager.setModel).not.toHaveBeenCalled();
     } finally {
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
 
   it("refreshes provider discovery on request without reconnecting", async () => {
+    vi.resetModules();
     stubBunServe();
-    let modelList = "openai/gpt-5\n";
-    vi.mocked(execSync).mockImplementation((command) => (
-      String(command).includes("opencode") ? modelList : ""
-    ));
+    let opencodeModels = ["openai/gpt-5"];
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockImplementation(async () => makeTuiOperatorDiscoveryFromModels({ opencode: opencodeModels }));
     const sessionManager = makeSessionManager();
     const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
 
@@ -599,7 +624,7 @@ describe("TUI gateway provider switching", () => {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
 
       await handlers.onOpen?.(new Event("open"), wsCtx);
-      modelList = "openai/gpt-5-other\n";
+      opencodeModels = ["openai/gpt-5-other"];
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({
@@ -617,6 +642,7 @@ describe("TUI gateway provider switching", () => {
         }),
       ]));
     } finally {
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
@@ -624,8 +650,14 @@ describe("TUI gateway provider switching", () => {
 
 describe("TUI gateway message fail-closed behavior", () => {
   it("rejects normal message frames when the stored provider is unavailable", async () => {
+    vi.resetModules();
     stubBunServe();
-    vi.mocked(execSync).mockReturnValue("openai/gpt-5\n");
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue([
+        makeUnavailableTuiOperatorDiscovery("openai", "OpenAI is unavailable in this runtime."),
+        ...makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }),
+      ]);
     const processSpy = vi
       .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
       .mockResolvedValue(undefined as never);
@@ -664,6 +696,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       expect(processSpy).not.toHaveBeenCalled();
     } finally {
       processSpy.mockRestore();
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
@@ -672,8 +705,11 @@ describe("TUI gateway message fail-closed behavior", () => {
     ["blank", ""],
     ["stale", "openai/gpt-5-stale"],
   ])("rejects normal message frames when the stored model is %s", async (_kind, storedModel) => {
+    vi.resetModules();
     stubBunServe();
-    vi.mocked(execSync).mockReturnValue("openai/gpt-5\n");
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }));
     const processSpy = vi
       .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
       .mockResolvedValue(undefined as never);
@@ -714,20 +750,18 @@ describe("TUI gateway message fail-closed behavior", () => {
       expect(processSpy).not.toHaveBeenCalled();
     } finally {
       processSpy.mockRestore();
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
 
   it("refreshes provider models before admitting a message frame", async () => {
+    vi.resetModules();
     stubBunServe();
-    let opencodeModelsCalls = 0;
-    vi.mocked(execSync).mockImplementation((command) => {
-      if (String(command).includes("opencode")) {
-        opencodeModelsCalls += 1;
-        return opencodeModelsCalls === 1 ? "openai/gpt-5\n" : "openai/gpt-5-other\n";
-      }
-      return "";
-    });
+    let opencodeModels = ["openai/gpt-5"];
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockImplementation(async () => makeTuiOperatorDiscoveryFromModels({ opencode: opencodeModels }));
     const processSpy = vi
       .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
       .mockResolvedValue(undefined as never);
@@ -744,6 +778,7 @@ describe("TUI gateway message fail-closed behavior", () => {
     });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
+      opencodeModels = ["openai/gpt-5-other"];
 
       await handlers.onMessage!(
         new MessageEvent("message", {
@@ -765,13 +800,17 @@ describe("TUI gateway message fail-closed behavior", () => {
       expect(processSpy).not.toHaveBeenCalled();
     } finally {
       processSpy.mockRestore();
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });
 
   it("admits normal message frames for model-less Claude without leaking a stale stored model", async () => {
+    vi.resetModules();
     stubBunServe();
-    vi.mocked(execSync).mockReturnValue("");
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ claude: [] }));
     const processSpy = vi
       .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
       .mockResolvedValue({
@@ -829,6 +868,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       expect(processSpy).toHaveBeenCalledOnce();
     } finally {
       processSpy.mockRestore();
+      discoverySpy.mockRestore();
       gateway.shutdown();
     }
   });

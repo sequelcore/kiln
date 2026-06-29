@@ -28,7 +28,7 @@ import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invoca
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
-const ALWAYS_ON_RESOURCE_TOOLS = ["resource_list", "resource_template_list", "resource_read"];
+const ALWAYS_ON_CONTEXT_TOOLS = ["memory_search", "resource_list", "resource_template_list", "resource_read"];
 
 const RUNTIME_LOCAL_MUTATION_EFFECT: ActionEffectEnvelope = {
   operation: "mutate",
@@ -2201,9 +2201,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
-    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
-    expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
+    expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
   });
 
   it("can explicitly expose code intelligence in deferred runtime projection", () => {
@@ -2220,13 +2220,13 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "read",
       "code_intelligence",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "code_intelligence",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2244,13 +2244,13 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "read",
       "read_many",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "read_many",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2271,7 +2271,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "monitor_stop",
       "monitor_list",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
@@ -2280,7 +2280,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "monitor_stop",
       "monitor_list",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2299,14 +2299,14 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "task_list",
       "task_update",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "task_list",
       "task_update",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2324,13 +2324,13 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "read",
       "operator_elicit",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "operator_elicit",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
