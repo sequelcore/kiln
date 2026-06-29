@@ -299,11 +299,11 @@ function buildFastPathArgs(
     args.push("--max-count", String(maxResults));
   }
   args.push("--max-filesize", DEFAULT_MAX_FILESIZE);
-  for (const excludedGlob of DEFAULT_EXCLUDED_GLOBS) {
-    args.push("--glob", excludedGlob);
-  }
   if (globFilter) {
     args.push("--glob", globFilter);
+  }
+  for (const excludedGlob of DEFAULT_EXCLUDED_GLOBS) {
+    args.push("--glob", excludedGlob);
   }
 
   if (outputMode === "files_with_matches") {

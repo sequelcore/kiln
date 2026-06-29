@@ -238,6 +238,68 @@ describe("GrepTool", () => {
     );
   });
 
+  it("applies default excludes after caller glob filters so broad globs cannot reopen nuisance directories", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "packages/core/src/tools/domain/tool.ts:171:memory_search\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: {
+        pattern: "memory_search",
+        path: ".",
+        glob: "**/*",
+        outputMode: "content",
+        matchMode: "literal",
+        maxResults: 100,
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(commandRunner).toHaveBeenCalledWith(
+      "rg-bin",
+      [
+        "--no-heading",
+        "--line-number",
+        "--max-count",
+        "100",
+        "--max-filesize",
+        "1M",
+        "--glob",
+        "**/*",
+        "--glob",
+        "!**/.git/**",
+        "--glob",
+        "!**/.kiln/**",
+        "--glob",
+        "!**/node_modules/**",
+        "--glob",
+        "!**/dist/**",
+        "--glob",
+        "!**/build/**",
+        "--glob",
+        "!**/coverage/**",
+        "--glob",
+        "!**/.next/**",
+        "--glob",
+        "!**/.turbo/**",
+        "--fixed-strings",
+        "memory_search",
+        ".",
+      ],
+      process.cwd(),
+      30_000,
+    );
+  });
+
   it("honors explicit maxResults for fast path output", async () => {
     const commandRunner = vi.fn(async () => ({
       stdout: "src/file.ts:1:match\nsrc/file.ts:2:match\nsrc/file.ts:3:match\n",
