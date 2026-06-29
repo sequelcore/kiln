@@ -1447,6 +1447,33 @@ describe("processAdmittedTurn", () => {
     expect(governedContextContent).not.toContain("Materialize governed work with the shared work tools");
   });
 
+  it("adds web source attribution guidance when web tools are available", async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      perCallConfig: {
+        toolAllowlist: new Set(["web_search"]),
+        perCallCapabilities: new Map([[
+          "web_search",
+          {
+            name: "web_search",
+            description: "Search the web.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          },
+        ]]),
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("Web source attribution:");
+    expect(governedContextContent).toContain("include a final sources section with the exact source URLs used");
+    expect(governedContextContent).toContain("user-facing answers must carry the relevant URLs directly");
+  });
+
   it("defers oversized active skills under budget pressure and records the procedural deferral in contextAudit", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
@@ -3169,6 +3196,89 @@ describe("processAdmittedTurn", () => {
     const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
     expect(assistantMessage).toMatchObject({
       content: expect.not.stringContaining("to=functions.web_fetch"),
+    });
+  });
+
+  it("appends web source URLs to assistant egress when web tools informed the turn", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Research summary without visible links."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolName: "web_search",
+        durationMs: 12,
+        success: true,
+        resultSummary: "Found relevant source pages.",
+        metadata: {
+          sources: [{
+            title: "Kiln docs",
+            url: "https://docs.example.com/kiln",
+          }],
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const responseText = extractText(result.result.parts);
+      expect(responseText).toContain("Research summary without visible links.");
+      expect(responseText).toContain("## Fuentes");
+      expect(responseText).toContain("- Kiln docs: https://docs.example.com/kiln");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.stringContaining("https://docs.example.com/kiln"),
+    });
+  });
+
+  it("does not append duplicate web source sections when assistant egress already contains the source URL", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Research summary with https://docs.example.com/kiln included."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolName: "web_search",
+        durationMs: 12,
+        success: true,
+        resultSummary: "Found relevant source pages.",
+        metadata: {
+          sources: [{
+            title: "Extra source",
+            url: "https://docs.example.com/kiln",
+          }],
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const responseText = extractText(result.result.parts);
+      expect(responseText).toContain("https://docs.example.com/kiln");
+      expect(responseText).not.toContain("## Fuentes");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.not.stringContaining("## Fuentes"),
     });
   });
 

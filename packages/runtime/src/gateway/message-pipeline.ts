@@ -96,6 +96,7 @@ import { synthesizeVoiceOutput } from "./voice-output-synthesizer.js";
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
 type EgressPayloadType = "assistant-response" | "context-summary" | "tool-result-summary";
+const WEB_TOOL_NAMES = ["web_search", "web_fetch", "web_extract"] as const;
 type RuntimePipelineLedgerEvent =
   | ApprovalRequestedEvent
   | ApprovalReceivedEvent
@@ -1317,12 +1318,166 @@ function buildGovernedWorkCloseoutContextCandidate(): ContextCandidate {
   };
 }
 
+function buildWebSourceAttributionContextCandidate(): ContextCandidate {
+  return {
+    kind: "procedural",
+    source: "runtime-web-source-attribution",
+    required: true,
+    score: 1,
+    content: [
+      "Web source attribution:",
+      "When web_search, web_fetch, or web_extract informs the answer, include a final sources section with the exact source URLs used.",
+      "Do not rely on tool artifacts as the only citation surface; user-facing answers must carry the relevant URLs directly.",
+    ].join("\n"),
+  };
+}
+
+function hasWebToolAvailable(perCallConfig: PerCallToolConfig | undefined): boolean {
+  const toolNames = new Set<string>([
+    ...(perCallConfig?.toolAllowlist ? Array.from(perCallConfig.toolAllowlist) : []),
+    ...(perCallConfig?.additionalTools?.map((tool) => tool.name) ?? []),
+    ...(perCallConfig?.perCallCapabilities ? Array.from(perCallConfig.perCallCapabilities.keys()) : []),
+  ]);
+  return WEB_TOOL_NAMES.some((toolName) => toolNames.has(toolName));
+}
+
 function shouldIncludeGovernedWorkCloseoutContext(userText: string): boolean {
   const normalized = userText.toLocaleLowerCase();
   return [
     /\b(implement|fix|fixes|fixing|patch|edit|modify|change|refactor|commit|build|write tests|add tests|delete|remove)\b/u,
     /\b(implementa|corrige|arregla|edita|modifica|cambia|refactoriza|comitea|construye|borra|elimina)\b/u,
   ].some((pattern) => pattern.test(normalized));
+}
+
+function appendWebSourceAttributionIfMissing(
+  parts: readonly ContentPart[],
+  toolExecutions: readonly ToolExecutionSummary[] | undefined,
+): readonly ContentPart[] {
+  const responseText = extractText(parts);
+  if (!responseText.trim()) {
+    return parts;
+  }
+
+  const sources = collectWebAttributionSources(toolExecutions);
+  if (sources.length === 0) {
+    return parts;
+  }
+  if (sources.some((source) => responseText.includes(source.url))) {
+    return parts;
+  }
+
+  const attribution = [
+    "",
+    "## Fuentes",
+    "",
+    ...sources.map((source) => `- ${source.title ? `${source.title}: ` : ""}${source.url}`),
+  ].join("\n");
+
+  let appended = false;
+  const nextParts = parts.map((part) => {
+    if (part.type !== "text" || appended) {
+      return part;
+    }
+    appended = true;
+    return { ...part, text: `${part.text.trimEnd()}${attribution}` };
+  });
+
+  return appended ? nextParts : textParts(attribution.trimStart());
+}
+
+function collectWebAttributionSources(
+  toolExecutions: readonly ToolExecutionSummary[] | undefined,
+): readonly { readonly title?: string; readonly url: string }[] {
+  const sources: { title?: string; url: string }[] = [];
+  const seen = new Set<string>();
+  for (const execution of toolExecutions ?? []) {
+    if (!WEB_TOOL_NAMES.includes(execution.toolName as (typeof WEB_TOOL_NAMES)[number])) {
+      continue;
+    }
+    for (const source of readWebSourcesFromExecution(execution)) {
+      const normalizedUrl = normalizeAttributionUrl(source.url);
+      if (!normalizedUrl || seen.has(normalizedUrl)) {
+        continue;
+      }
+      seen.add(normalizedUrl);
+      sources.push({
+        ...(source.title ? { title: truncateAttributionTitle(source.title) } : {}),
+        url: normalizedUrl,
+      });
+      if (sources.length >= 8) {
+        return sources;
+      }
+    }
+  }
+  return sources;
+}
+
+function readWebSourcesFromExecution(
+  execution: ToolExecutionSummary,
+): readonly { readonly title?: string; readonly url: string }[] {
+  const sources: { title?: string; url: string }[] = [];
+  const metadata = execution.metadata;
+  const metadataSources = Array.isArray(metadata?.["sources"]) ? metadata["sources"] : [];
+  for (const source of metadataSources) {
+    const record = readAttributionRecord(source);
+    const url = readAttributionText(record?.["url"]);
+    if (url) {
+      const title = readAttributionText(record?.["title"]);
+      sources.push({ ...(title ? { title } : {}), url });
+    }
+  }
+
+  const metadataPages = Array.isArray(metadata?.["pages"]) ? metadata["pages"] : [];
+  for (const page of metadataPages) {
+    const record = readAttributionRecord(page);
+    const url = readAttributionText(record?.["url"]);
+    if (url) {
+      const title = readAttributionText(record?.["title"]);
+      sources.push({ ...(title ? { title } : {}), url });
+    }
+  }
+
+  const metadataUrl = readAttributionText(metadata?.["url"]);
+  if (metadataUrl) {
+    sources.push({ url: metadataUrl });
+  }
+
+  if (sources.length > 0) {
+    return sources;
+  }
+
+  return extractUrlsFromText(`${execution.output ?? ""}\n${execution.resultSummary ?? ""}`)
+    .map((url) => ({ url }));
+}
+
+function readAttributionRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readAttributionText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function extractUrlsFromText(text: string): readonly string[] {
+  return Array.from(text.matchAll(/https?:\/\/[^\s<>)\]]+/gi), (match) => match[0]);
+}
+
+function normalizeAttributionUrl(url: string): string | undefined {
+  const trimmed = url.trim().replace(/[.,;:!?]+$/u, "");
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function truncateAttributionTitle(title: string): string {
+  const compact = title.replace(/\s+/gu, " ").trim();
+  if (compact.length <= 120) {
+    return compact;
+  }
+  return `${compact.slice(0, 117).trimEnd()}...`;
 }
 
 function projectRequestedAuthorityPerCallConfig(
@@ -1878,6 +2033,9 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   if (executionMode === "execute" && shouldIncludeGovernedWorkCloseoutContext(userText)) {
     proceduralContextCandidates.push(buildGovernedWorkCloseoutContextCandidate());
   }
+  if (hasWebToolAvailable(perCallConfig)) {
+    proceduralContextCandidates.push(buildWebSourceAttributionContextCandidate());
+  }
   if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
     const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
     for (const skill of resolved) {
@@ -2107,6 +2265,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     mergedFileChanges,
   );
 
+  resultParts = appendWebSourceAttributionIfMissing(resultParts, result.toolExecutions);
   let egressContextSummary = result.contextSummary;
   let egressToolExecutions = result.toolExecutions;
   resultParts = sanitizeAssistantEgressParts(resultParts);
