@@ -877,16 +877,50 @@ export function attachManagedInvocationSessionEventSink(
   if (!options) {
     return undefined;
   }
-  const existingSink = options.sessionEventSink;
   return {
-    ...options,
-    sessionEventSink: {
-      publish: async (events, context) => {
-        const sinks = [existingSink, sessionEventSink].filter((sink): sink is ManagedInvocationSessionEventSink => (
-          sink !== undefined
-        ));
-        await Promise.allSettled(sinks.map((sink) => sink.publish(events, context)));
-      },
+    get routes() {
+      return options.routes;
+    },
+    get unavailableRoutes() {
+      return options.unavailableRoutes;
+    },
+    get agentCatalog() {
+      return options.agentCatalog;
+    },
+    get skillCatalog() {
+      return options.skillCatalog;
+    },
+    get requestedBy() {
+      return options.requestedBy;
+    },
+    get requestSource() {
+      return options.requestSource;
+    },
+    get artifactStore() {
+      return options.artifactStore;
+    },
+    get invocationService() {
+      return options.invocationService;
+    },
+    get invocationServiceKey() {
+      return options.invocationServiceKey;
+    },
+    get contextResolver() {
+      return options.contextResolver;
+    },
+    get sessionEventSink() {
+      const existingSink = options.sessionEventSink;
+      return {
+        publish: async (
+          events: readonly CanonicalSessionEvent[],
+          context: RuntimeBuiltinToolExecutionContext,
+        ) => {
+          const sinks = [existingSink, sessionEventSink].filter((sink): sink is ManagedInvocationSessionEventSink => (
+            sink !== undefined
+          ));
+          await Promise.allSettled(sinks.map((sink) => sink.publish(events, context)));
+        },
+      };
     },
   };
 }
@@ -2241,7 +2275,10 @@ function managedInvocationCanReadPath(
   requiredPath: string,
   profileDefaults: ManagedInvocationRouteProfile,
 ): boolean {
-  const normalizedRequired = normalizeManagedInvocationReadPath(requiredPath);
+  const normalizedRequired = normalizeManagedInvocationReadPath(
+    requiredPath,
+    profileDefaults.workingDirectory.path,
+  );
   if (!normalizedRequired) {
     return false;
   }
@@ -2269,9 +2306,22 @@ function pathEqualsOrContains(rootPath: string | undefined, candidatePath: strin
   return rootPath === candidatePath || candidatePath.startsWith(`${rootPath}/`);
 }
 
-function normalizeManagedInvocationReadPath(pathValue: string): string | undefined {
+function normalizeManagedInvocationReadPath(pathValue: string, relativeRoot?: string): string | undefined {
   const normalized = pathValue.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
-  return normalized.length > 0 ? normalized : undefined;
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  if (managedInvocationPathIsAbsolute(normalized) || !relativeRoot) {
+    return posix.normalize(normalized);
+  }
+  const root = relativeRoot.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
+  return root.length > 0
+    ? posix.normalize(`${root}/${normalized}`)
+    : posix.normalize(normalized);
+}
+
+function managedInvocationPathIsAbsolute(pathValue: string): boolean {
+  return pathValue.startsWith("/") || /^[A-Za-z]:\//.test(pathValue);
 }
 
 function requiresNetworkCapability(toolName: string): boolean {

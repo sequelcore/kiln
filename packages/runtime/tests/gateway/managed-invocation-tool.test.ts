@@ -864,6 +864,37 @@ describe("managed invocation runtime tool", () => {
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
+  it("admits relative required read paths inside the managed working directory", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-relative-required-read-path",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "opencode" },
+      task: "Inspect local managed-agent files.",
+      summary: "Inspect local files.",
+      contextMode: "isolated",
+      requiredToolNames: ["read", "grep", "glob"],
+      requiredReadPaths: [
+        "packages/cli/src/config/managed-agent-routes.ts",
+        "packages/runtime/src/agents/managed-invocation/runtime-tool.ts",
+      ],
+      expectedEvidence: ["route admission evidence"],
+    }, context);
+
+    expect(result?.isError).toBe(false);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the persisted parent turn id instead of hydrated runtime turn count", async () => {
     const adapter = makeAdapter();
     const surface = makeSurface(adapter);
@@ -2983,6 +3014,45 @@ describe("managed invocation runtime tool", () => {
 
     expect(originalSink).toHaveBeenCalledWith(events, context);
     expect(surfaceSink).toHaveBeenCalledWith(events, context);
+  });
+
+  it("preserves live managed invocation route catalogs when composing session event sinks", () => {
+    const route = {
+      ...makeManagedRoute("codex-oauth-auto-review-readonly", "codex-auto-review"),
+      providerId: "codex-oauth",
+      surface: "direct-provider",
+    };
+    let current: ManagedInvocationToolOptions = {
+      routes: [],
+      unavailableRoutes: [{
+        routeId: "codex-oauth-auto-review-readonly",
+        routeSource: "explicit-managed-route",
+        providerId: "codex-oauth",
+        model: "codex-auto-review",
+        profiles: ["foundation-readonly-plan"],
+        reason: "Provider/model discovery is pending.",
+      }],
+    };
+    const liveOptions: ManagedInvocationToolOptions = {
+      get routes() {
+        return current.routes;
+      },
+      get unavailableRoutes() {
+        return current.unavailableRoutes;
+      },
+      requestedBy: "assistant",
+      requestSource: "gui",
+    };
+
+    const options = attachManagedInvocationSessionEventSink(liveOptions, { publish: vi.fn() });
+    current = {
+      routes: [route],
+      requestedBy: "assistant",
+      requestSource: "gui",
+    };
+
+    expect(options?.routes.map((entry) => entry.routeId)).toEqual(["codex-oauth-auto-review-readonly"]);
+    expect(options?.unavailableRoutes).toBeUndefined();
   });
 
   it("does not let one managed invocation session event sink block another", async () => {

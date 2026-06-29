@@ -326,6 +326,8 @@ describe("resolveManagedInvocationToolOptions", () => {
       ]),
       surface: "gui",
       providerModels: {
+        "codex-oauth": ["gpt-5.4-mini"],
+        openrouter: ["qwen/qwen3-coder:free"],
         codex: ["gpt-5.4-mini"],
         opencode: ["opencode/minimax-m2.5-free"],
       },
@@ -1581,6 +1583,42 @@ describe("resolveManagedInvocationToolOptions", () => {
       providerId: "openai",
     });
     expect(result.managedInvocation?.routes[0]?.surface).toBe("direct-provider");
+  });
+
+  it("resolves explicit Codex OAuth auto-review routes when direct discovery advertises the model", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-oauth-auto-review-readonly",
+        kind: "direct",
+        provider: "codex-oauth",
+        model: "codex-auto-review",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex-oauth"),
+      surface: "gui",
+      providerModels: {
+        "codex-oauth": ["gpt-5.5", "codex-auto-review"],
+      },
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "codex-oauth-auto-review-readonly",
+      routeSource: "explicit-managed-route",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "codex-auto-review",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }]);
+    expect(result.managedInvocation?.routes[0]).toMatchObject({
+      routeId: "codex-oauth-auto-review-readonly",
+      providerId: "codex-oauth",
+      model: "codex-auto-review",
+      surface: "direct-provider",
+    });
   });
 
   it("rejects write-capable routes without explicit write authority", async () => {
