@@ -4,6 +4,7 @@ import {
   isGuiProviderModeless,
   type GuiAuthorityStatus,
   type GuiInboundFrame,
+  type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
   type GuiProviderModelRouteHealth,
@@ -71,6 +72,7 @@ import type {
 
 type BunHonoAdapters = typeof import("hono/bun");
 const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
+type OperatorTurnToolUsageBudgets = Extract<GuiOutboundFrame, { type: "message" }>["toolUsageBudgets"];
 
 async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
   return import("hono/bun");
@@ -245,6 +247,7 @@ export function buildTuiTurnPerCallConfig(
   reasoningEffort?: ReasoningEffort,
   executionMode: OperatorExecutionMode = "execute",
   requestedAuthority?: OperatorTurnRequestedAuthority,
+  toolUsageBudgets?: OperatorTurnToolUsageBudgets,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
@@ -255,6 +258,7 @@ export function buildTuiTurnPerCallConfig(
     builtinToolSurface,
     executionMode,
     requestedAuthority,
+    ...(toolUsageBudgets ? { toolUsageBudgets } : {}),
   });
 }
 
@@ -839,6 +843,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               );
               const executionMode = resolveExecutionMode(frame.executionMode);
               const requestedAuthority = resolveTuiRequestedAuthority(frame.requestedAuthority);
+              const toolUsageBudgets = frame.toolUsageBudgets as OperatorTurnToolUsageBudgets | undefined;
               turnProvider = activeProvider;
               turnModel = activeModel;
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -863,6 +868,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 reasoningEffort,
                 executionMode,
                 requestedAuthority,
+                toolUsageBudgets,
               );
               result = await processAdmittedTurn({
                 orchestrator,

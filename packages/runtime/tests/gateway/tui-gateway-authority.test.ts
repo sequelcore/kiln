@@ -194,6 +194,22 @@ describe("TUI authority forwarding", () => {
     });
   });
 
+  it("projects TUI-declared tool usage budgets into per-call config", async () => {
+    const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.5",
+      undefined,
+      { supportsFunctionTools: true },
+      undefined,
+      "execute",
+      undefined,
+      { web_search: 8 },
+    );
+
+    expect(cfg.toolUsageBudgets?.get("web_search")).toBe(8);
+  });
+
   it("rejects provider switches to cooling direct provider model routes", async () => {
     const { resolveTuiProviderSwitch } = await import("../../src/gateway/tui-gateway.js");
 

@@ -428,4 +428,21 @@ describe("GUI authority forwarding", () => {
 
     expect(cfg.reasoningEffort).toBe("high");
   });
+
+  it("projects GUI-declared tool usage budgets into per-call config", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4",
+      undefined,
+      { supportsTools: true },
+      undefined,
+      "execute",
+      undefined,
+      { web_search: 8 },
+    );
+
+    expect(cfg.toolUsageBudgets?.get("web_search")).toBe(8);
+  });
 });
