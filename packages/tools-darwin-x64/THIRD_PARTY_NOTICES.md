@@ -1,0 +1,19 @@
+# Third-Party Notices
+
+This package includes the `rg` executable from ripgrep 15.1.0.
+It also includes `jq` from jq 1.8.2.
+
+- Project: ripgrep
+- Upstream: https://github.com/BurntSushi/ripgrep
+- License: MIT OR Unlicense
+- Copyright: Copyright (c) 2015 Andrew Gallant
+
+- Project: jq
+- Upstream: https://github.com/jqlang/jq
+- License: MIT-style upstream license
+
+The full upstream license texts are available in the upstream repositories:
+
+- https://github.com/BurntSushi/ripgrep/blob/master/LICENSE-MIT
+- https://github.com/BurntSushi/ripgrep/blob/master/UNLICENSE
+- https://github.com/jqlang/jq/blob/master/COPYING

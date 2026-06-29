@@ -48,6 +48,7 @@
       "version": "2.1.0",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
+        "@kilnai/tools": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "yaml": "^2.8.2",
       },
