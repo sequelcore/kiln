@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AppGatewayTargetSelector,
   RuntimeBootstrapGate,
+  ToolUsageBudgetControl,
   TURN_AUTHORITY_OPTIONS,
   TurnAuthorityControl,
 } from "../src/components/app-shell-controls.js";
@@ -94,6 +95,23 @@ describe("App shell controls", () => {
     expect(screen.getByRole("option", { name: /Ask every time/ })).toHaveTextContent("Prompt before tools need more authority.");
     expect(screen.getByRole("option", { name: /Approve for me/ })).toHaveTextContent("Proceed with audited low-risk actions.");
     expect(screen.getByRole("option", { name: /Full access/ })).toHaveTextContent("Allow unrestricted local execution.");
+  });
+
+  it("presents native web tool usage budget profiles", () => {
+    const onChange = vi.fn();
+    render(
+      <ToolUsageBudgetControl
+        value="research"
+        onChange={onChange}
+      />,
+    );
+
+    const control = screen.getByRole("combobox", { name: "Tool usage budget" });
+    expect(control).toHaveTextContent("Research");
+
+    fireEvent.click(control);
+    expect(screen.getByRole("option", { name: /Strict web/ })).toHaveTextContent("Track compact web research usage.");
+    expect(screen.getByRole("option", { name: /No budget/ })).toHaveTextContent("Do not attach tool usage budgets.");
   });
 
   it("renders only runtime-capable gateway targets", () => {

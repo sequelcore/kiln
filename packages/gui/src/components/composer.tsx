@@ -16,6 +16,7 @@ interface ComposerProps {
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
   readonly authorityControl?: ReactNode;
+  readonly toolBudgetControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly onSubmit: (text: string) => void;
   readonly onSubmitParts?: (parts: readonly unknown[], displayContent: string) => void;
@@ -172,6 +173,7 @@ export function Composer(props: ComposerProps) {
       providerControl={props.providerControl}
       reasoningControl={props.reasoningControl}
       authorityControl={props.authorityControl}
+      toolBudgetControl={props.toolBudgetControl}
       commandMenu={props.commandMenu}
       onSubmit={handleSubmit}
       onDraftChange={handleDraftChange}

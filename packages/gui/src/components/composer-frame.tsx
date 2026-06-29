@@ -21,6 +21,7 @@ export function ComposerFrame(props: {
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
   readonly authorityControl?: ReactNode;
+  readonly toolBudgetControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly leadingActions: ReactNode;
   readonly trailingActions: ReactNode;
@@ -28,7 +29,7 @@ export function ComposerFrame(props: {
   readonly onDraftChange: (value: string) => void;
   readonly onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
 }) {
-  const hasRuntimeControls = Boolean(props.providerControl || props.reasoningControl || props.authorityControl);
+  const hasRuntimeControls = Boolean(props.providerControl || props.reasoningControl || props.authorityControl || props.toolBudgetControl);
 
   return (
     <section className="relative z-10 bg-workspace-viewer px-4 pb-4 pt-2">
@@ -80,6 +81,9 @@ export function ComposerFrame(props: {
                   ) : null}
                   {props.reasoningControl ? (
                     <div className="shrink-0">{props.reasoningControl}</div>
+                  ) : null}
+                  {props.toolBudgetControl ? (
+                    <div className="shrink-0">{props.toolBudgetControl}</div>
                   ) : null}
                   </>
               ) : null}

@@ -33,6 +33,41 @@ export const TURN_AUTHORITY_OPTIONS: readonly RequestableTurnAuthority[] = [
   "destructive",
 ];
 
+export type ToolUsageBudgetProfile = "off" | "strict_web" | "research";
+
+export const TOOL_USAGE_BUDGETS: Readonly<Record<Exclude<ToolUsageBudgetProfile, "off">, Readonly<Record<string, number>>>> = {
+  strict_web: {
+    web_search: 4,
+    web_extract: 2,
+  },
+  research: {
+    web_search: 8,
+    web_extract: 4,
+  },
+};
+
+const TOOL_USAGE_BUDGET_OPTIONS: readonly {
+  readonly value: ToolUsageBudgetProfile;
+  readonly label: string;
+  readonly description: string;
+}[] = [
+  {
+    value: "research",
+    label: "Research",
+    description: "Track normal web research usage.",
+  },
+  {
+    value: "strict_web",
+    label: "Strict web",
+    description: "Track compact web research usage.",
+  },
+  {
+    value: "off",
+    label: "No budget",
+    description: "Do not attach tool usage budgets.",
+  },
+];
+
 const TURN_AUTHORITY_OPTIONS_VIEW: Record<RequestableTurnAuthority, {
   readonly label: string;
   readonly description: string;
@@ -175,6 +210,41 @@ export function TurnAuthorityControl(props: {
               </SelectItem>
             );
           })}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function ToolUsageBudgetControl(props: {
+  readonly value: ToolUsageBudgetProfile;
+  readonly onChange: (value: ToolUsageBudgetProfile) => void;
+}) {
+  const selected = TOOL_USAGE_BUDGET_OPTIONS.find((option) => option.value === props.value)
+    ?? TOOL_USAGE_BUDGET_OPTIONS[0]!;
+  return (
+    <Select
+      value={props.value}
+      onValueChange={(value) => {
+        const option = TOOL_USAGE_BUDGET_OPTIONS.find((candidate) => candidate.value === value);
+        if (option) {
+          props.onChange(option.value);
+        }
+      }}
+    >
+      <SelectTrigger size="sm" aria-label="Tool usage budget" className="w-auto min-w-24">
+        <span className="truncate">{selected.label}</span>
+      </SelectTrigger>
+      <SelectContent align="end" className="min-w-64">
+        <SelectGroup>
+          {TOOL_USAGE_BUDGET_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value} className="items-start py-2 pr-9 pl-2">
+              <span className="grid min-w-0 gap-0.5">
+                <span className="truncate font-medium">{option.label}</span>
+                <span className="truncate text-xs text-muted-foreground">{option.description}</span>
+              </span>
+            </SelectItem>
+          ))}
         </SelectGroup>
       </SelectContent>
     </Select>
