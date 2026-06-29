@@ -9,7 +9,19 @@ export async function makeTempDir(prefix = "kiln-tools-"): Promise<string> {
 }
 
 export async function removeTempDir(path: string): Promise<void> {
-  await rm(path, { recursive: true, force: true });
+  const attempts = 20;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EBUSY" || attempt === attempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250, attempt * 25)));
+    }
+  }
 }
 
 export function makeSandbox(path: string, config?: Partial<SandboxConfig>): {

@@ -64,6 +64,23 @@ describe("SqliteMemoryRepository", () => {
     expect(results[0]!.snippet).toBeDefined();
   });
 
+  it("searches natural-language terms with punctuation without exposing raw FTS syntax", async () => {
+    const saved = await repository.saveRecord(recordInput({
+      content: "Model-facing memory read seed.",
+      scopeId: "kiln",
+      tags: ["model-facing"],
+      topicKey: "memory/model-facing",
+    }));
+
+    const results = await repository.searchRecords({
+      query: "Model-facing",
+      scope: { kind: "project", id: "kiln" },
+      limit: 10,
+    });
+
+    expect(results.map((result) => result.record.id)).toEqual([saved.id]);
+  });
+
   it("keeps scopes isolated inside the same database", async () => {
     await repository.saveRecord(recordInput({
       content: "Tenant A deployment token rules",

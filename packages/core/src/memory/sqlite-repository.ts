@@ -268,7 +268,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       ${where === "" ? "WHERE" : `${where} AND`} memory_fts MATCH ?
       ORDER BY bm25(memory_fts), r.updated_at DESC, r.created_at DESC, r.id ASC
       LIMIT ?
-    `).all(...args, query.query.trim(), limit) as MemorySearchRow[];
+    `).all(...args, toFtsQuery(query.query), limit) as MemorySearchRow[];
 
     return rows.map((row) => ({
       record: this.toRecord(row),
@@ -527,6 +527,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   close(): void {
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
     this.db.close();
   }
 
@@ -885,6 +886,14 @@ function normalizeProvenance(provenance: MemoryProvenance): MemoryProvenance {
 
 function normalizeTags(tags: readonly string[]): readonly string[] {
   return [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0))];
+}
+
+function toFtsQuery(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/g)
+    .map((term) => `"${term.replace(/"/g, "\"\"")}"`)
+    .join(" ");
 }
 
 function requiredText(value: string, message: string): string {
