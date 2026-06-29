@@ -990,6 +990,58 @@ describe("makeMultiProviderSessionFactory", () => {
     });
   });
 
+  it("keeps persisted GUI-command turns completed when governance assessment is only advisory", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-governance-advisory",
+        providerSessionId: "prov-governance-advisory",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
+          yield { type: "tool_result", toolName: "web_search", output: "1 source for kiln docs\n1. Kiln docs https://docs.example.com/kiln" };
+          yield { type: "text_delta", content: "Research complete with cited sources." };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "research local search" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    expect(appendedEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      payload: {
+        outcome: "completed",
+      },
+      source: {
+        surface: "gui",
+        component: "gui-command",
+      },
+    });
+    expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
+      lastTurnOutcome: "completed",
+      sessionLedger: {
+        currentPhase: "completed",
+      },
+    });
+  });
+
   it("marks persisted GUI-command turns failed when governed execution starts but remains open", async () => {
     const { store } = makeStore(null);
     const openExecutionStart = JSON.stringify({

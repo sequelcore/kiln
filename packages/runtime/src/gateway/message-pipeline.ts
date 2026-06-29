@@ -1309,13 +1309,20 @@ function buildGovernedWorkCloseoutContextCandidate(): ContextCandidate {
     score: 1,
     content: [
       "Governed work closeout:",
-      "In execute mode, a work_governance.assess recommendation of orchestrate or delegate is not complete after research, inspection, planning prose, or a read-only scout.",
-      "Do not end an execute-mode governed turn after only research, inspection, planning prose, or a read-only scout.",
+      "Use shared work tools for operator-requested implementation, refactoring, mutation, commit, or other executable governed work.",
       "Materialize governed work with the shared work tools, then either start execution, finish execution, complete the work item, submit a structured plan when planning is the terminal deliverable, or record a concrete pending pause requirement.",
       "After a successful managed_agent.invoke for an open work item, continue with the same work item until it is started, finished, completed, or explicitly blocked with a pause requirement.",
       "A pending, in_progress, or blocked work item without terminal closeout projects as failed in CLI, TUI, and GUI.",
     ].join("\n"),
   };
+}
+
+function shouldIncludeGovernedWorkCloseoutContext(userText: string): boolean {
+  const normalized = userText.toLocaleLowerCase();
+  return [
+    /\b(implement|fix|fixes|fixing|patch|edit|modify|change|refactor|commit|build|write tests|add tests|delete|remove)\b/u,
+    /\b(implementa|corrige|arregla|edita|modifica|cambia|refactoriza|comitea|construye|borra|elimina)\b/u,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function projectRequestedAuthorityPerCallConfig(
@@ -1868,7 +1875,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     executionMode,
     requestedAuthority: ctx.requestedAuthority,
   }));
-  if (executionMode === "execute") {
+  if (executionMode === "execute" && shouldIncludeGovernedWorkCloseoutContext(userText)) {
     proceduralContextCandidates.push(buildGovernedWorkCloseoutContextCandidate());
   }
   if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {

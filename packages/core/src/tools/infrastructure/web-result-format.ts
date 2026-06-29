@@ -1,6 +1,10 @@
 import type { ToolOutputVerbosity, WebSourceMetadata } from "../domain/tool-result-metadata.js";
 import { pluralize } from "./output-verbosity.js";
 
+const SUMMARY_SOURCE_LIMIT = 8;
+const SUMMARY_TITLE_LIMIT = 120;
+const SUMMARY_SNIPPET_LIMIT = 180;
+
 export interface WebFetchOutput {
   readonly url: string;
   readonly text: string;
@@ -54,7 +58,14 @@ export function formatWebSearchOutput(
   }
 
   if (verbosity === "summary") {
-    return `${output.sources.length} ${pluralize(output.sources.length, "source")} for ${output.query}`;
+    const visibleSources = output.sources.slice(0, SUMMARY_SOURCE_LIMIT);
+    return [
+      `${output.sources.length} ${pluralize(output.sources.length, "source")} for ${output.query}`,
+      ...visibleSources.map(formatWebSearchSourceSummary),
+      output.sources.length > visibleSources.length
+        ? `${output.sources.length - visibleSources.length} more ${pluralize(output.sources.length - visibleSources.length, "source")} omitted from summary`
+        : undefined,
+    ].filter(Boolean).join("\n");
   }
 
   return output.sources
@@ -78,11 +89,17 @@ export function formatWebExtractOutput(
   const characterCount = output.pages.reduce((sum, page) => sum + page.text.length, 0);
   const truncatedCount = output.pages.filter((page) => page.truncated).length;
   if (verbosity === "summary") {
+    const visiblePages = output.pages.slice(0, SUMMARY_SOURCE_LIMIT);
     return [
       `${output.pages.length} extracted ${pluralize(output.pages.length, "page")}`,
       `${characterCount} characters`,
       truncatedCount > 0 ? `${truncatedCount} truncated` : "not truncated",
-    ].join("; ");
+      "Source pages:",
+      ...visiblePages.map(formatWebExtractPageSummary),
+      output.pages.length > visiblePages.length
+        ? `${output.pages.length - visiblePages.length} more ${pluralize(output.pages.length - visiblePages.length, "page")} omitted from summary`
+        : undefined,
+    ].filter(Boolean).join("\n");
   }
 
   return output.pages
@@ -93,4 +110,27 @@ export function formatWebExtractOutput(
       page.text,
     ].filter((line): line is string => line !== undefined).join("\n"))
     .join("\n\n---\n\n");
+}
+
+function formatWebSearchSourceSummary(source: WebSourceMetadata): string {
+  return [
+    source.rank ? `${source.rank}.` : "-",
+    truncateText(source.title ?? source.url, SUMMARY_TITLE_LIMIT),
+    source.url,
+    source.snippet ? truncateText(source.snippet, SUMMARY_SNIPPET_LIMIT) : undefined,
+  ].filter(Boolean).join(" ");
+}
+
+function formatWebExtractPageSummary(page: WebExtractOutputPage): string {
+  return [
+    page.title ? `${truncateText(page.title, SUMMARY_TITLE_LIMIT)}: ${page.url}` : page.url,
+    page.truncated ? "truncated" : undefined,
+  ].filter(Boolean).join(" ");
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }

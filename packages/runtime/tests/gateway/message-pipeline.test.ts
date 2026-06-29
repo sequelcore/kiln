@@ -124,6 +124,56 @@ function makeSkillConfig(overrides: Partial<SkillConfig> = {}): SkillConfig {
   };
 }
 
+function makeGovernedWorkPerCallConfig(): NonNullable<AdmittedTurnContext["perCallConfig"]> {
+  return {
+    toolAllowlist: new Set(["work_governance.assess", "work_item.update", "work_item.execution.start", "work_item.execution.finish", "work_item.complete", "managed_agent.invoke"]),
+    perCallCapabilities: new Map([
+      ["work_governance.assess", {
+        name: "work_governance.assess",
+        description: "Assess governed work.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.update", {
+        name: "work_item.update",
+        description: "Create or update governed work.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.execution.start", {
+        name: "work_item.execution.start",
+        description: "Start governed execution.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.execution.finish", {
+        name: "work_item.execution.finish",
+        description: "Finish governed execution.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.complete", {
+        name: "work_item.complete",
+        description: "Complete governed work.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["managed_agent.invoke", {
+        name: "managed_agent.invoke",
+        description: "Invoke a managed agent.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+    ]),
+  };
+}
+
 function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): AdmittedTurnContext {
   return {
     orchestrator: makeMockOrchestrator(),
@@ -1363,67 +1413,38 @@ describe("processAdmittedTurn", () => {
     expect(governedContextContent).toContain("Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.");
   });
 
-  it("adds governed work closeout guidance for executable turns", async () => {
+  it("adds governed work closeout guidance for executable work requests", async () => {
     const orchestrator = makeMockOrchestrator();
 
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
+      userParts: textParts("Fix the governed runtime closeout behavior."),
       requestedAuthority: "auto",
-      perCallConfig: {
-        toolAllowlist: new Set(["work_governance.assess", "work_item.update", "work_item.execution.start", "work_item.execution.finish", "work_item.complete", "managed_agent.invoke"]),
-        perCallCapabilities: new Map([
-          ["work_governance.assess", {
-            name: "work_governance.assess",
-            description: "Assess governed work.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.update", {
-            name: "work_item.update",
-            description: "Create or update governed work.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.execution.start", {
-            name: "work_item.execution.start",
-            description: "Start governed execution.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.execution.finish", {
-            name: "work_item.execution.finish",
-            description: "Finish governed execution.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.complete", {
-            name: "work_item.complete",
-            description: "Complete governed work.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["managed_agent.invoke", {
-            name: "managed_agent.invoke",
-            description: "Invoke a managed agent.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-        ]),
-      },
+      perCallConfig: makeGovernedWorkPerCallConfig(),
     }));
 
     expect(result.ok).toBe(true);
     const governedContextContent = getGovernedContextContent(orchestrator);
     expect(governedContextContent).toContain("Governed work closeout:");
-    expect(governedContextContent).toContain("Do not end an execute-mode governed turn after only research, inspection, planning prose, or a read-only scout.");
+    expect(governedContextContent).toContain("Use shared work tools for operator-requested implementation, refactoring, mutation, commit, or other executable governed work.");
     expect(governedContextContent).toContain("After a successful managed_agent.invoke for an open work item, continue with the same work item until it is started, finished, completed, or explicitly blocked with a pause requirement.");
     expect(governedContextContent).toContain("A pending, in_progress, or blocked work item without terminal closeout projects as failed in CLI, TUI, and GUI.");
+  });
+
+  it("keeps governed work closeout guidance out of research-only executable turns", async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      userParts: textParts("Investigate web best practices and compare other harnesses."),
+      requestedAuthority: "auto",
+      perCallConfig: makeGovernedWorkPerCallConfig(),
+    }));
+
+    expect(result.ok).toBe(true);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).not.toContain("Governed work closeout:");
+    expect(governedContextContent).not.toContain("Materialize governed work with the shared work tools");
   });
 
   it("defers oversized active skills under budget pressure and records the procedural deferral in contextAudit", async () => {
@@ -2565,11 +2586,11 @@ describe("processAdmittedTurn", () => {
     });
   });
 
-  it("marks the canonical turn failed when orchestration is recommended but no governed work is materialized", async () => {
+  it("does not fail the canonical turn only because governance recommended orchestration", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();
     (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-      parts: textParts("I mapped the surfaces and will create a plan next."),
+      parts: textParts("I mapped the surfaces and reported the architecture recommendation."),
       inputTokens: 10,
       outputTokens: 5,
       cacheReadTokens: 0,
@@ -2614,7 +2635,7 @@ describe("processAdmittedTurn", () => {
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
     expect(ledger.at(-1)).toMatchObject({
       kind: "turn_completed",
-      outcome: "failed",
+      outcome: "completed",
     });
   });
 

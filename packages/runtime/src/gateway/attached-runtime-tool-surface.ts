@@ -9,6 +9,7 @@ import type {
   DiscoveredDirectProviderModelCapabilities,
   ManagedAgentAdmissionProfile,
   ToolDefinition,
+  ToolResultMetadata,
   ToolResourceDisplayDescriptor,
   ToolResourceReadOptions,
   ToolResourceReadResult,
@@ -1223,7 +1224,7 @@ function buildBuiltinToolExecutors(
       const resourceLinks = projectToolResultResourceLinks(result);
       const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);
       return {
-        output: resourceLinks.length > 0 ? formatLinkedOutput(resourceLinks) : result.output,
+        output: resourceLinks.length > 0 ? formatLinkedOutput(resourceLinks, result.metadata) : result.output,
         isError: result.isError,
         metadata: result.metadata,
         ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
@@ -1252,11 +1253,55 @@ function mergeToolSandboxContext(
 
 function formatLinkedOutput(
   resourceLinks: readonly { readonly uri: string; readonly title?: string }[],
+  metadata: ToolResultMetadata | undefined,
 ): string {
   return [
+    ...formatLinkedOutputSourceLedger(metadata),
     "Full tool output is available as resource links:",
     ...resourceLinks.map((link) => `- ${link.title ?? "tool output"}: ${link.uri}`),
   ].join("\n");
+}
+
+function formatLinkedOutputSourceLedger(metadata: ToolResultMetadata | undefined): string[] {
+  if (metadata?.kind !== "web") {
+    return [];
+  }
+
+  if (metadata.sources?.length) {
+    return [
+      "Source summary:",
+      ...metadata.sources.slice(0, 8).map((source) => [
+        source.rank ? `${source.rank}.` : "-",
+        truncateLinkedOutputText(source.title ?? source.url, 120),
+        source.url,
+      ].join(" ")),
+      "",
+    ];
+  }
+
+  if (metadata.pages?.length) {
+    return [
+      "Source pages:",
+      ...metadata.pages.slice(0, 8).map((page) => [
+        page.title ? truncateLinkedOutputText(page.title, 120) : undefined,
+        page.url,
+      ].filter(Boolean).join(" ")),
+      "",
+    ];
+  }
+
+  if (metadata.url) {
+    return ["Source:", metadata.url, ""];
+  }
+
+  return [];
+}
+
+function truncateLinkedOutputText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function isResourceLinkContent(

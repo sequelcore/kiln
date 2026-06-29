@@ -18,6 +18,7 @@ import {
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  SandboxPolicy,
   textParts,
 } from "@kilnai/core";
 import {
@@ -2469,6 +2470,53 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("keeps web source URLs visible when large web output is linked as an artifact", async () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        webSearch: {
+          searchProvider: async () => ({
+            provider: "test-search",
+            sources: [{
+              url: "https://docs.example.com/kiln",
+              title: "Kiln docs",
+              snippet: "large web snippet\n".repeat(1_000),
+            }],
+          }),
+        },
+      },
+    });
+
+    const result = await runtimeSurface.callBuiltinTools.get("web_search")?.({
+      query: "kiln docs",
+    }, {
+      sandbox: {
+        cwd: "C:/workspace",
+        policy: new SandboxPolicy({
+          projectPath: "C:/workspace",
+          config: {
+            fsPolicy: "read-write",
+            netPolicy: "documentation",
+            allowedPaths: ["C:/workspace"],
+            deniedPaths: [],
+            allowedDomains: ["docs.example.com"],
+          },
+        }),
+      },
+    }) as {
+      output: string;
+      resourceLinks?: readonly { uri: string; title?: string }[];
+    };
+
+    expect(result.output).toContain("Source summary:");
+    expect(result.output).toContain("https://docs.example.com/kiln");
+    expect(result.output).toContain("Full tool output is available as resource links");
+    expect(result.output).not.toContain("large web snippet");
+    expect(result.resourceLinks).toEqual([expect.objectContaining({
+      uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+      title: "web_search full output",
+    })]);
   });
 
   it("surfaces large bash output through resource links without inline stream metadata", async () => {

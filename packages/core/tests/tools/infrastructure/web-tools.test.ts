@@ -294,6 +294,69 @@ describe("WebSearchTool", () => {
     });
   });
 
+  it("keeps source URLs visible in summary output", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "test-search",
+      sources: [{
+        url: "https://docs.example.com/kiln",
+        title: "Kiln docs",
+        snippet: "Current docs",
+      }],
+    }));
+    const tool = new WebSearchTool({ searchProvider });
+
+    const result = await tool.execute(
+      {
+        name: "web_search",
+        input: {
+          query: "kiln docs",
+          verbosity: "summary",
+        },
+      },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("1 source for kiln docs");
+    expect(result.output).toContain("1. Kiln docs https://docs.example.com/kiln Current docs");
+  });
+
+  it("bounds source summaries so provider snippets do not hide URLs behind artifacts", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "test-search",
+      sources: Array.from({ length: 12 }, (_, index) => ({
+        url: `https://docs.example.com/kiln-${index + 1}`,
+        title: `Kiln docs ${index + 1}`,
+        snippet: "large provider snippet ".repeat(100),
+      })),
+    }));
+    const tool = new WebSearchTool({ searchProvider });
+
+    const result = await tool.execute(
+      {
+        name: "web_search",
+        input: {
+          query: "kiln docs",
+          maxResults: 12,
+          verbosity: "summary",
+        },
+      },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("https://docs.example.com/kiln-1");
+    expect(result.output).toContain("4 more sources omitted from summary");
+    expect(result.output).not.toContain("https://docs.example.com/kiln-9");
+    expect(Buffer.byteLength(result.output, "utf8")).toBeLessThan(8 * 1024);
+  });
+
   it("narrows search domains from sandbox policy when no per-call domains are provided", async () => {
     const searchProvider = vi.fn<WebSearchProvider>(async () => ({
       provider: "test-search",
@@ -461,6 +524,39 @@ describe("WebExtractTool", () => {
       timeoutMs: 1000,
       maxBytes: 2000,
     });
+  });
+
+  it("keeps extracted page URLs visible in summary output", async () => {
+    const extractProvider = vi.fn<WebExtractProvider>(async () => ({
+      provider: "test-extract",
+      pages: [{
+        url: "https://docs.example.com/page",
+        title: "Docs",
+        contentType: "text/html",
+        status: 200,
+        text: "Hello",
+        bytesRead: 5,
+      }],
+    }));
+    const tool = new WebExtractTool({ extractProvider });
+
+    const result = await tool.execute(
+      {
+        name: "web_extract",
+        input: {
+          urls: ["https://docs.example.com/page"],
+          verbosity: "summary",
+        },
+      },
+      makeSandbox("C:/workspace", {
+        netPolicy: "documentation",
+        allowedDomains: ["docs.example.com"],
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("1 extracted page");
+    expect(result.output).toContain("Docs: https://docs.example.com/page");
   });
 
   it("fails closed when no extract provider is configured", async () => {
