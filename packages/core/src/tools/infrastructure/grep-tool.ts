@@ -33,6 +33,17 @@ import {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RESULTS = 200;
 const MAX_RESULTS_LIMIT = 1_000;
+const DEFAULT_MAX_FILESIZE = "1M";
+const DEFAULT_EXCLUDED_GLOBS = [
+  "!**/.git/**",
+  "!**/.kiln/**",
+  "!**/node_modules/**",
+  "!**/dist/**",
+  "!**/build/**",
+  "!**/coverage/**",
+  "!**/.next/**",
+  "!**/.turbo/**",
+] as const;
 
 type GrepOutputMode = "content" | "files_with_matches" | "count";
 type GrepRequestedMatchMode = "auto" | "regex" | "literal";
@@ -94,7 +105,7 @@ export class GrepTool implements DevTool {
 
     const sandboxContext = getSandboxContext(sandbox);
     const searchPath = resolvePath(
-      optionalString(input,"path") ?? sandboxContext?.cwd ?? process.cwd(),
+      optionalString(input, "path") ?? sandboxContext?.cwd ?? process.cwd(),
       sandbox,
     );
     const rootReadError = validateReadPath(searchPath, sandbox);
@@ -104,8 +115,8 @@ export class GrepTool implements DevTool {
       }));
     }
 
-    const globFilter = optionalString(input,"glob");
-    const modeValue = optionalString(input,"outputMode");
+    const globFilter = optionalString(input, "glob");
+    const modeValue = optionalString(input, "outputMode");
     const outputMode = isGrepOutputMode(modeValue) ? modeValue : "content";
     const requestedMatchMode = parseMatchMode(optionalString(input, "matchMode"));
     const matchMode = resolveMatchMode(patternInput.value, requestedMatchMode);
@@ -165,7 +176,7 @@ export class GrepTool implements DevTool {
     maxResults: number,
     verbosity: ToolOutputVerbosity,
   ): Promise<ToolResult> {
-    const args = buildFastPathArgs(pattern, globFilter, outputMode, matchMode, searchTarget.rgTarget);
+    const args = buildFastPathArgs(pattern, globFilter, outputMode, matchMode, maxResults, searchTarget.rgTarget);
 
     try {
       const result = await this.commandRunner(
@@ -280,9 +291,17 @@ function buildFastPathArgs(
   globFilter: string | undefined,
   outputMode: GrepOutputMode,
   matchMode: GrepEffectiveMatchMode,
+  maxResults: number,
   target: string,
 ): string[] {
   const args: string[] = ["--no-heading", "--line-number"];
+  if (outputMode !== "count") {
+    args.push("--max-count", String(maxResults));
+  }
+  args.push("--max-filesize", DEFAULT_MAX_FILESIZE);
+  for (const excludedGlob of DEFAULT_EXCLUDED_GLOBS) {
+    args.push("--glob", excludedGlob);
+  }
   if (globFilter) {
     args.push("--glob", globFilter);
   }

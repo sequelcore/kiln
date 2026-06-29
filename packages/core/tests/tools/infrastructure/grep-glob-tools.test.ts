@@ -6,6 +6,31 @@ import { GrepTool } from "../../../src/tools/infrastructure/grep-tool.js";
 import { resolveRipgrepRuntime } from "../../../src/tools/infrastructure/search-runtime.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
 
+const boundedRgArgs = (maxCount: number): readonly string[] => [
+  "--no-heading",
+  "--line-number",
+  "--max-count",
+  String(maxCount),
+  "--max-filesize",
+  "1M",
+  "--glob",
+  "!**/.git/**",
+  "--glob",
+  "!**/.kiln/**",
+  "--glob",
+  "!**/node_modules/**",
+  "--glob",
+  "!**/dist/**",
+  "--glob",
+  "!**/build/**",
+  "--glob",
+  "!**/coverage/**",
+  "--glob",
+  "!**/.next/**",
+  "--glob",
+  "!**/.turbo/**",
+];
+
 describe("GrepTool", () => {
   it("fails fast when rg runtime is unavailable", async () => {
     const tempDir = await makeTempDir();
@@ -62,7 +87,7 @@ describe("GrepTool", () => {
     expect(result.metadata?.["runtimePath"]).toBe("rg-bin");
     expect(commandRunner).toHaveBeenCalledWith(
       "rg-bin",
-      ["--no-heading", "--line-number", "match", "."],
+      [...boundedRgArgs(200), "match", "."],
       process.cwd(),
       30_000,
     );
@@ -102,7 +127,7 @@ describe("GrepTool", () => {
       expect(result.metadata?.["matchMode"]).toBe("literal");
       expect(commandRunner).toHaveBeenCalledWith(
         "rg-bin",
-        ["--no-heading", "--line-number", "--fixed-strings", "**/*kiln-context*", "notes.txt"],
+        [...boundedRgArgs(200), "--fixed-strings", "**/*kiln-context*", "notes.txt"],
         tempDir,
         30_000,
       );
@@ -134,7 +159,7 @@ describe("GrepTool", () => {
     expect(result.metadata?.["matchMode"]).toBe("literal");
     expect(commandRunner).toHaveBeenCalledWith(
       "rg-bin",
-      ["--no-heading", "--line-number", "--fixed-strings", "literal (value", "."],
+      [...boundedRgArgs(200), "--fixed-strings", "literal (value", "."],
       process.cwd(),
       30_000,
     );
@@ -186,6 +211,33 @@ describe("GrepTool", () => {
     expect(result.metadata?.["truncated"]).toBe(true);
   });
 
+  it("passes explicit maxResults to rg as an execution bound", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "src/file.ts:1:match\nsrc/file.ts:2:match\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "match", path: ".", outputMode: "content", maxResults: 2 },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(commandRunner).toHaveBeenCalledWith(
+      "rg-bin",
+      [...boundedRgArgs(2), "match", "."],
+      process.cwd(),
+      30_000,
+    );
+  });
+
   it("honors explicit maxResults for fast path output", async () => {
     const commandRunner = vi.fn(async () => ({
       stdout: "src/file.ts:1:match\nsrc/file.ts:2:match\nsrc/file.ts:3:match\n",
@@ -211,6 +263,30 @@ describe("GrepTool", () => {
     expect(result.metadata?.["totalCount"]).toBe(3);
     expect(result.metadata?.["maxResults"]).toBe(2);
     expect(result.metadata?.["truncated"]).toBe(true);
+  });
+
+  it("does not cap per-file counts when count output is requested", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "src/file.ts:125\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "match", path: ".", outputMode: "count", maxResults: 2 },
+    });
+
+    expect(result.isError).toBe(false);
+    const [, args] = commandRunner.mock.calls[0] ?? [];
+    expect(args).toContain("--count");
+    expect(args).not.toContain("--max-count");
   });
 
   it("does not fall back to the internal scanner when rg fails to launch", async () => {
@@ -282,7 +358,7 @@ describe("GrepTool", () => {
       expect(result.output).toContain("notes.txt:1:needle line");
       expect(commandRunner).toHaveBeenCalledWith(
         "rg-bin",
-        ["--no-heading", "--line-number", "needle", "notes.txt"],
+        [...boundedRgArgs(200), "needle", "notes.txt"],
         tempDir,
         30_000,
       );
